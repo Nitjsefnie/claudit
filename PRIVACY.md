@@ -35,7 +35,7 @@ it.
 | Store | What it holds | Erase route |
 |---|---|---|
 | R2 bucket objects | The transcripts themselves — the only store holding full message text | Operator deletes the objects (no delete API in the app) |
-| `projects`, `files`, `records`, `tool_uses` (app DB) | Parsed rows derived from those transcripts; cascade from `projects` → `files` → `records`/`tool_uses` | Ingest orphan sweep, after the objects are gone |
+| `projects`, `files`, `records`, `tool_uses` (app DB) | Parsed rows derived from those transcripts, including stored-only `records.generation_s` and `records.output_tokens_per_s`; cascade from `projects` → `files` → `records`/`tool_uses` | Ingest orphan sweep, after the objects are gone |
 | `lane_markers` (app DB) | The directory path each lane project marker named | Dropped when the marker object leaves the bucket and an ingest runs |
 | Derived rollups (`usage_rollup`, `tool_rollup`, `tool_error_rollup`, `dispatch_rollup`, `dispatch_brief_rollup`, `ctx_cost_rollup`, `agent_rollup`, `latency_rollup`) | Pre-summed aggregates rebuilt from `records`/`files`/`tool_uses` at every ingest | Automatic: rebuilt from what remains after the sweep |
 | `ingest_runs`, `ingest_derived_state` (app DB) | Run metadata — trigger, counts, a count-only error summary. No transcript content | Nothing to erase |

@@ -82,9 +82,11 @@ backend/          — FastAPI application
                     opening with a tag is harness-injected unless on the
                     pasted_content keep-list; denied texts count no
                     prompt and split no ctx turn; latency anchors separately
-  reply_timing.py — Claude reply-latency anchors: non-interrupt user text
-                    (including injections), cleared by replies, interrupts
-                    and failed attempts; independent of prompt counting
+  reply_timing.py — independent Claude reply/generation clocks: reply latency
+                    anchors on non-interrupt user text; generation spans use
+                    any non-replayed user line through a message.id's last line
+  collect_generation_speed.py — startup-read generation collection switch
+                    (CLAUDIT_COLLECT_GENERATION_SPEED, on by default, issue #955)
   codex_fork.py   — the Codex rollout's head: first declared model,
                     fork detection (forked_from_id), replay-prefix
                     marking for the canonical rank (issue #687)

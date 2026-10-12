@@ -223,6 +223,8 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
         # "" is the schema's sentinel for "no request id" (the
         # records_request_idx partial index keys on request_id <> '').
         r["request_id"] = ""
+        r["generation_s"] = None
+        r["output_tokens_per_s"] = None
         r["stop_reason"] = None
         r["effort"] = None
         r["cli_version"] = None

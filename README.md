@@ -162,6 +162,7 @@ Postgres `claudit`
   • records      (file_key, line_num PK, per-request tokens + cost
                   + text_chars for visible-response size
                   + reply_latency_s for the user→assistant gap
+                  + generation_s / output_tokens_per_s (stored only)
                   + stop_reason / effort / thinking_tokens
                   + long_context for the Codex meter
                   + cli_version / turn_flags / turn_tool_results)
