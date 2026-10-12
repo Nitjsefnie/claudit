@@ -520,6 +520,7 @@ def test_picker_rule_family_registered():
     for rid in (
         "project-picker-overflow",
         "project-picker-overflow-after-paging",
+        "project-picker-pages-fit",
         "project-picker-scrollbar",
         "project-picker-no-shift-height",
         "project-picker-no-shift-seat",
