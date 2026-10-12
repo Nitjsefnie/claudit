@@ -4,6 +4,7 @@ from __future__ import annotations
 from backend import pricing
 from backend.parse_common import _to_dt
 from backend.parse_projection_usage import _usage_tokens
+from backend.reply_timing import generation_values
 
 _NO_ADJUSTMENTS = pricing.CostAdjustments()
 
@@ -13,7 +14,6 @@ def project_records(file_key: str, events: list[dict]) -> list[dict]:
     resolve = pricing.resolve
     meter_flag = pricing.meter_flag
     compute_cost = pricing.compute_cost
-    cost_adjustments = pricing.CostAdjustments
     records = []
     for ev in events:
         tokens = _usage_tokens(ev["usage"])
@@ -32,7 +32,7 @@ def project_records(file_key: str, events: list[dict]) -> list[dict]:
             # Dated rates apply to when the tokens were spent, not to
             # when this file happens to be parsed.
             adjustments=(
-                cost_adjustments(
+                pricing.CostAdjustments(
                     long_context=bool(long_context),
                     web_search_requests=tokens.web_search_requests,
                 )
@@ -41,6 +41,7 @@ def project_records(file_key: str, events: list[dict]) -> list[dict]:
             ),
             res=res,
         )
+        generation = generation_values(ev.get("generation"))
         records.append({
             "file_key": file_key,
             "line_num": ev["line_num"],
@@ -55,6 +56,8 @@ def project_records(file_key: str, events: list[dict]) -> list[dict]:
             "output_tokens": tokens.output,
             "text_chars": int(ev.get("text_chars", 0)),
             "reply_latency_s": ev.get("reply_latency_s"),
+            "generation_s": generation[0],
+            "output_tokens_per_s": generation[1],
             "stop_reason": ev.get("stop_reason"),
             "effort": ev.get("effort"),
             "thinking_tokens": tokens.thinking,

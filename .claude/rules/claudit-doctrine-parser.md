@@ -43,6 +43,8 @@ This rule is the parse spec. `backend/parse.py` and the in-browser
 - Rate resolution (normalisation, key matching, window selection) over
   `src/pricing.json` (SV-RATE-DATA).
 
+Request timing (`reply_latency_s`, `generation_s`, `output_tokens_per_s`) is backend-only, with no browser consumer, so the browser parser does not mirror it.
+
 **Lane parsers are a second lockstep pair.** `parse_file()` sniffs the
 format and dispatches Codex rollouts and both Kimi wire formats to
 `backend/parse_codex.py` / `backend/parse_kimi.py` (shared machinery in

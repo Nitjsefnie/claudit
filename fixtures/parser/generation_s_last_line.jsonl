@@ -1,0 +1,6 @@
+{"type":"user","timestamp":"2026-06-23T10:00:00Z","message":{"role":"user","content":"go"}}
+{"type":"assistant","timestamp":"2026-06-23T10:00:02Z","message":{"role":"assistant","model":"claude-sonnet-4-5","id":"m1","usage":{"input_tokens":100,"output_tokens":20}}}
+{"type":"assistant","timestamp":"2026-06-23T10:00:05Z","message":{"role":"assistant","model":"claude-sonnet-4-5","id":"m1","usage":{"input_tokens":100,"output_tokens":120}}}
+{"type":"assistant","timestamp":"2026-06-23T10:00:09Z","message":{"role":"assistant","model":"claude-sonnet-4-5","id":"m1","usage":{"input_tokens":100,"output_tokens":90}}}
+{"type":"user","timestamp":"2026-06-23T10:00:10Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
+{"type":"assistant","timestamp":"2026-06-23T10:00:15Z","message":{"role":"assistant","model":"claude-sonnet-4-5","id":"m2","usage":{"input_tokens":100,"output_tokens":30}}}

@@ -271,7 +271,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             for rec in parsed["records"]:
                 rec.update({k: rec.get(k) for k in (
                     "long_context", "provider", "web_search_requests",
-                    "is_replay")})
+                    "is_replay", "generation_s", "output_tokens_per_s")})
                 factors = (pricing.long_context_factors(rec["model"])
                            if rec.get("long_context") else (None, None))
                 rec["long_context_input_mult"], rec["long_context_output_mult"] = factors
@@ -295,6 +295,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   web_search_requests,
                   text_chars,
                   reply_latency_s,
+                  generation_s,
+                  output_tokens_per_s,
                   stop_reason,
                   effort,
                   thinking_tokens,
@@ -326,6 +328,8 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                   %(web_search_requests)s,
                   %(text_chars)s,
                   %(reply_latency_s)s,
+                  %(generation_s)s,
+                  %(output_tokens_per_s)s,
                   %(stop_reason)s,
                   %(effort)s,
                   %(thinking_tokens)s,
