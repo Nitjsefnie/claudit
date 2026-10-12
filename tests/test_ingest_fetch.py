@@ -33,7 +33,7 @@ from tests.ingest_process_helpers import (
     noop_parse as _noop_parse, worker_report as _worker_report,
     server_report_parse,
 )
-from tests.pool_test_bounds import bounded_pool_test
+from tests.pool_test_bounds import bounded_pool_test, requires_forkserver
 
 #: How many transcripts the committed mirror holds, read from its tree
 #: (issue #503 grew it with the lane layout). A count written down here is
@@ -440,6 +440,7 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(
 # ------------------------------------------ parse-worker signal hygiene (#373)
 
 @pytest.mark.skipif(sys.platform != "linux", reason="server task count uses Linux procfs")
+@requires_forkserver
 @bounded_pool_test
 def test_parse_pool_starts_with_another_thread_alive(monkeypatch):
     """Starting parse workers in the threaded service must be fork-safe."""
@@ -471,6 +472,7 @@ def test_parse_pool_starts_with_another_thread_alive(monkeypatch):
         thread.join(timeout=60)
 
 
+@requires_forkserver
 def test_parse_worker_init_and_its_sigterm_defense():
     """The #373 defense: workers need default SIGTERM/SIGINT handlers,
     so the initializer must restore SIG_DFL — and a
@@ -495,6 +497,7 @@ def test_parse_worker_init_and_its_sigterm_defense():
             pytest.fail("a parse worker survived SIGTERM")
 
 
+@requires_forkserver
 def test_parse_worker_exits_when_the_parent_is_already_gone():
     """The worker exits when its recorded service parent does not match."""
     with ingest_fetch.parse_pool(1, -1) as pool:
@@ -502,6 +505,7 @@ def test_parse_worker_exits_when_the_parent_is_already_gone():
             pool.submit(int).result(timeout=60)
 
 
+@requires_forkserver
 def test_abort_cancels_the_queued_persist_half(fresh_db, mini_r2_env,
                                                monkeypatch):
     """An abort must drop the QUEUED work, not only stop taking new chunks:
