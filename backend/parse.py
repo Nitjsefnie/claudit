@@ -14,7 +14,7 @@ from collections import Counter
 
 from orjson import JSONDecodeError, loads
 
-from backend import parse_lanes
+from backend import collect_generation_speed, parse_lanes
 from backend.agent_types import canonical_agent_type
 from backend.constants import (DEFAULT_AGENT_TYPE, INTERRUPT_MARKER)
 from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-import
@@ -32,7 +32,7 @@ from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.rereads import resolve_rereads
 from backend.json_shape import as_dict, as_list, dict_list
 from backend.parse_projection import project_records
-from backend.reply_timing import ReplyTiming
+from backend.reply_timing import GenerationTiming, ReplyTiming, failed_attempt
 
 
 # A `type:"assistant"` record with isApiErrorMessage=True and
@@ -318,28 +318,19 @@ class _LineWalk:
         self.rate_limit_hits: list[dict] = []
         self.tool_uses: list[dict] = []
         self.seen_tool_ids: set[str] = set()
-        # Per-file map of assistant tool_use.id -> bool(is_error).
-        # Populated from later user tool_result blocks; consumed after
-        # the line walk to fill tool_uses[*]["is_error"].
+        # Tool results settle the pending tool calls after the line walk.
         self.tool_result_is_error: dict[str, bool] = {}
-        # Same key -> leading text of a FAILED result, for error_kind
-        # classification and the error_text drill-down column.
+        # Failed-result text for error_kind and error_text.
         self.tool_result_text: dict[str, str] = {}
-        # Same key -> characters the result put into the transcript.
-        # Recorded for every settled call, errored or not: the question
-        # this answers is what filled the context window, and a failed
-        # call's error text occupies it exactly like a success does.
+        # Result size includes failed calls, which also fill the context.
         self.tool_result_chars: dict[str, int] = {}
         # All non-interrupt user text anchors latency, independently of
         # prompt counting. Interrupts, failed attempts and replies clear it.
         self.reply_timing = ReplyTiming()
-        # Per-file first-seen line for each user-record uuid. A user record
-        # whose uuid already appeared on an EARLIER, DIFFERENT line is a
-        # replay and is invisible to reply-latency anchoring/superseding.
+        self.generation_timing = GenerationTiming() if collect_generation_speed.COLLECT_GENERATION_SPEED else None
+        # A UUID on an earlier, different line is a replay; neither clock moves.
         self.seen_user_uuids: dict[str, int] = {}
-        # Agent-type attribution, per FILE. See resolve_agent_type for the
-        # precedence and for why the answer is per-file rather than
-        # per-record.
+        # Per-file attribution; resolve_agent_type defines precedence.
         self.attribution_agents: Counter[str] = Counter()
         self.agent_setting: str | None = None
 
@@ -413,6 +404,8 @@ class _LineWalk:
         # Still the assistant responding, so it terminates any open
         # reply-latency window (see ReplyTiming.consume).
         self.reply_timing.consume(obj)
+        if self.generation_timing:
+            self.generation_timing.observe(obj, message)
         return True
 
     def handle_user_line(self, obj: dict, msg: dict, line_num: int) -> None:
@@ -429,6 +422,8 @@ class _LineWalk:
 
         content = msg.get("content")
         ts_str = obj.get("timestamp", "") or ""
+        if self.generation_timing and mutate_anchor and obj.get("type") == "user":
+            self.generation_timing.anchor(ts_str)
         if isinstance(content, str) and content.strip():
             self.handle_user_text(
                 content, line_num, ts_str, mutate_anchor=mutate_anchor
@@ -492,6 +487,7 @@ class _LineWalk:
         # assistant-side content block as "the assistant has started
         # responding", including records this table has no row for.
         reply_latency_s = self.reply_timing.consume(obj)
+        generation = self.generation_timing.observe(obj, msg) if self.generation_timing else None
         if not isinstance(usage, dict) or not usage:
             return
         usage = _flatten_usage(usage)
@@ -519,6 +515,7 @@ class _LineWalk:
             "usage": dict(usage),
             "text_chars": text_chars,
             "reply_latency_s": reply_latency_s,
+            "generation": generation,
             # Only a reply's CLOSING line carries stop_reason; NULL = never closed.
             "stop_reason": msg.get("stop_reason") or None,
             "effort": obj.get("effort") or None,
@@ -543,10 +540,7 @@ class _LineWalk:
                 self.seen_request[merge_key] = ev
             self.records_in_order.append(ev)
 
-        # The call's model is its OWN line's -- the value records.model
-        # gets for that line -- never a join to the merged record, which
-        # usually sits on an earlier line of the same requestId (or,
-        # with no requestId, the same message.id).
+        # Attribute tool calls to their own line's model, not the merged record.
         self._record_tool_uses(
             msg_tool_uses, req_id, line_num, obj.get("timestamp", "") or "",
             ev["model"],
@@ -674,7 +668,7 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
         kind = obj.get("type", "")
         walk.window.observe(obj)
         if kind == "system" and obj.get("subtype") == "api_error":
-            walk.reply_timing.clear()
+            failed_attempt(walk.reply_timing, walk.generation_timing)
         if kind == "agent-setting":
             name = obj.get("agentSetting")
             if isinstance(name, str) and name:

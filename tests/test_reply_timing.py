@@ -1,11 +1,15 @@
 """Claude reply timing: injected text anchors, failed attempts invalidate."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import importlib
 from pathlib import Path
 
+from orjson import dumps, loads
 import pytest
 
-from backend import parse
+from backend import collect_generation_speed, constants, db, ingest, parse, r2
+from tests import scratch_db
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
 
@@ -50,3 +54,156 @@ def test_other_system_preserves_reply_latency():
     out = parse.parse_file(
         "k/sess/sess.jsonl", (FIX / "other_system_preserves_reply_latency.jsonl").read_bytes())
     assert out["records"][0]["reply_latency_s"] == pytest.approx(10.0)
+
+
+def _parse_fixture(name: str, *, list_text: bool = False) -> dict:
+    blob = (FIX / f"{name}.jsonl").read_bytes()
+    if list_text:
+        rows = [loads(line) for line in blob.splitlines()]
+        for row in rows:
+            if row["type"] == "user":
+                text = row["message"]["content"]
+                row["message"]["content"] = [{"type": "text", "text": text}]
+        blob = b"\n".join(dumps(row) for row in rows)
+    return parse.parse_file("k/sess/sess.jsonl", blob)
+
+
+def test_generation_s_last_line():
+    first, second = _parse_fixture("generation_s_last_line")["records"]
+    assert first["generation_s"] == 9
+    assert first["output_tokens_per_s"] == 10
+    assert first["output_tokens"] == 120  # max-merged billing count differs
+    assert first["reply_latency_s"] == 2
+    assert second["generation_s"] == 5
+    assert second["output_tokens_per_s"] == 6
+    assert second["reply_latency_s"] is None
+
+
+@pytest.mark.parametrize("name", ["generation_s_failed_attempt", "generation_s_error_stub"])
+def test_generation_s_failed_attempt(name):
+    first, second = _parse_fixture(name)["records"]
+    assert first["generation_s"] is None
+    assert first["output_tokens_per_s"] is None
+    assert second["generation_s"] == 4
+    assert second["output_tokens_per_s"] == 10
+
+
+@pytest.mark.parametrize("name", ["generation_s_mid_system_failure", "generation_s_mid_stub_failure"])
+def test_generation_s_failure_inside_span(name):
+    record, = _parse_fixture(name)["records"]
+    assert record["generation_s"] is None
+    assert record["output_tokens_per_s"] is None
+
+
+def test_generation_s_consumed_anchor():
+    first, second = _parse_fixture("generation_s_consumed_anchor")["records"]
+    assert first["generation_s"] == 2
+    assert second["generation_s"] is None
+    assert second["output_tokens_per_s"] is None
+
+
+def test_generation_s_no_last_usage():
+    record, = _parse_fixture("generation_s_no_last_usage")["records"]
+    assert record["generation_s"] == 5
+    assert record["output_tokens_per_s"] is None
+
+
+def test_generation_s_no_id():
+    record, = _parse_fixture("generation_s_no_id")["records"]
+    assert record["generation_s"] is None
+    assert record["output_tokens_per_s"] is None
+
+
+@pytest.mark.parametrize("stamp,expected", [
+    ("2026-06-23T11:00:00Z", 3600), ("2026-06-23T11:00:00.001Z", None),
+    ("2026-06-23T10:00:00Z", None), ("2026-06-23T09:59:59Z", None),
+    ("", None),
+])
+def test_generation_s_valid_duration(stamp, expected):
+    rows = [loads(line) for line in (FIX / "generation_s_no_id.jsonl").read_bytes().splitlines()]
+    rows[-1]["message"]["id"] = "m1"
+    rows[-1]["timestamp"] = stamp
+    record, = parse.parse_file("k/sess/sess.jsonl", b"\n".join(map(dumps, rows)))["records"]
+    assert record["generation_s"] == expected
+    assert record["output_tokens_per_s"] == (10 / 3600 if expected else None)
+
+
+def test_generation_speed_collection_off(monkeypatch):
+    enabled = _parse_fixture("generation_s_last_line")
+    monkeypatch.setattr(collect_generation_speed, "COLLECT_GENERATION_SPEED", False)
+    disabled = _parse_fixture("generation_s_last_line")
+    assert enabled["records"][0]["generation_s"] == 9
+    for record in disabled["records"]:
+        assert record["generation_s"] is None
+        assert record["output_tokens_per_s"] is None
+    for result in (enabled, disabled):
+        for record in result["records"]:
+            del record["generation_s"], record["output_tokens_per_s"]
+    assert disabled == enabled
+
+
+@pytest.mark.parametrize("value,expected", [
+    (None, True), ("", True), ("0", False), ("false", False),
+    ("no", False), ("FALSE", False), ("1", True), ("other", True),
+])
+def test_generation_speed_startup_switch(monkeypatch, value, expected):
+    try:
+        with monkeypatch.context() as env:
+            if value is None:
+                env.delenv("CLAUDIT_COLLECT_GENERATION_SPEED", raising=False)
+            else:
+                env.setenv("CLAUDIT_COLLECT_GENERATION_SPEED", value)
+            actual = importlib.reload(collect_generation_speed).COLLECT_GENERATION_SPEED
+    finally:
+        importlib.reload(collect_generation_speed)
+    assert actual is expected
+
+
+@pytest.mark.parametrize("name", ["codex_min.jsonl", "kimi_code_min.jsonl", "kimi_legacy_min.jsonl"])
+def test_generation_speed_lanes_null(name):
+    records = parse.parse_file("sessions/p/s/wire.jsonl", (FIX / name).read_bytes())["records"]
+    assert records
+    for record in records:
+        assert record["generation_s"] is None
+        assert record["output_tokens_per_s"] is None
+
+
+@pytest.mark.parametrize("list_text", [False, True])
+def test_replayed_injected_latency(list_text):
+    record, = _parse_fixture("replayed_injected_latency", list_text=list_text)["records"]
+    assert record["reply_latency_s"] == 10
+
+
+@pytest.mark.parametrize("list_text", [False, True])
+def test_whitespace_injected_latency(list_text):
+    record, = _parse_fixture("whitespace_injected_latency", list_text=list_text)["records"]
+    assert record["reply_latency_s"] == 10
+
+
+@pytest.mark.parametrize("list_text", [False, True])
+def test_interrupt_injected_latency(list_text):
+    record, = _parse_fixture("interrupt_injected_latency", list_text=list_text)["records"]
+    assert record["reply_latency_s"] is None
+
+
+@pytest.fixture(name="fresh_db")
+def _fresh_db_fixture(monkeypatch):
+    yield from scratch_db.scratch_viz_database(monkeypatch, "timing")
+
+
+def test_generation_speed_persisted(fresh_db):
+    key = "claude/k/sess/sess.jsonl"
+    blob = (FIX / "generation_s_last_line.jsonl").read_bytes()
+    parsed = parse.parse_file(key, blob)
+    now = datetime(2026, 6, 23, tzinfo=timezone.utc)
+    ingest._persist(  # pylint: disable=protected-access
+        r2.R2Object(key, "timing-fixture", len(blob), now),
+        {"project_id": "k", "display_name": "k", "first_seen_at": now, "last_seen_at": now},
+        parsed, constants.PARSER_VERSION,
+    )
+    with db.viz_conn() as conn:
+        rows = conn.execute(
+            "SELECT generation_s, output_tokens_per_s FROM records WHERE file_key = %s ORDER BY line_num",
+            (key,),
+        ).fetchall()
+    assert rows == [(9, 10), (5, 6)]
