@@ -320,7 +320,8 @@ of which variable was wrong (issue #463).
 
 The table starts empty, so there is no credentialed account yet —
 **Continue as guest** on the sign-in page gets you in without one, and
-[Auth](#auth) has the credential shape a real sign-in needs.
+[Auth](#auth) has the credential shape a real sign-in needs. Guest login
+is enabled by default; `GUEST_LOGIN=0` turns it off.
 
 The first request blocks while ingest runs (~30s on a warm DB,
 several minutes for a cold cache against the full `claude` bucket).
@@ -441,8 +442,10 @@ per IP+user pair and 20 per IP, per 5-minute window.
 Sessions are HMAC-signed cookies with a 7-day TTL. A **Continue as
 guest** button mints a read-only guest session (no project filter, no
 per-session transcript access; cookie invalidates on every server
-restart). Exporting or erasing one person's data is an operator
-procedure, documented in [`PRIVACY.md`](PRIVACY.md).
+restart). Guest login is enabled by default; `GUEST_LOGIN=0` turns it
+off: the button and "or" divider disappear, `/login/guest` returns 404,
+and existing guest cookies are refused. Exporting or erasing one person's
+data is an operator procedure, documented in [`PRIVACY.md`](PRIVACY.md).
 
 ## Layout
 

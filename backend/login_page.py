@@ -14,6 +14,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse
 
 from backend import branding
+from backend.guest_login import guest_login_enabled
 
 # One answer for every credential failure — identical status and body
 # for unknown id, no web password and wrong password (issue #109). The
@@ -51,11 +52,19 @@ def _login_page_response(
             app_name=html.escape(branding.brand_name().upper(), quote=True),
             style_nonce_attr=nonce_attr,
             script_nonce_attr=nonce_attr,
+            guest_login=_GUEST_LOGIN_HTML if guest_login_enabled() else "",
             **_privacy_notice_slots(),
         ),
         status_code=status,
     )
 
+
+_GUEST_LOGIN_HTML = """  <div class="or">or</div>
+  <button type="submit" class="guest-btn"
+          formaction="/login/guest" formmethod="post" formnovalidate>
+    Continue as guest
+  </button>
+"""
 
 _LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en"><head>
@@ -93,12 +102,7 @@ _LOGIN_HTML = """<!DOCTYPE html>
          autocomplete="current-password">
   <button type="submit">Sign in</button>
   <div class="err" role="alert">{err}</div>
-  <div class="or">or</div>
-  <button type="submit" class="guest-btn"
-          formaction="/login/guest" formmethod="post" formnovalidate>
-    Continue as guest
-  </button>
-{privacy_link}</form>
+{guest_login}{privacy_link}</form>
 <script{script_nonce_attr}>
   // The start of the sign-in journey (issue #436). Success is a bare 303
   // to '/', so by the time the signed-in page runs, this document is
