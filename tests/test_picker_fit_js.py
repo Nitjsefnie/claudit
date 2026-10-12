@@ -31,6 +31,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 FIT_JS = ROOT / "src" / "picker-fit.js"
+PAGES_JS = ROOT / "src" / "picker-pages.js"
 APP = ROOT / "src" / "app.jsx"
 PICKER = ROOT / "src" / "picker.jsx"
 INDEX = ROOT / "public" / "index.html"
@@ -45,6 +46,24 @@ def _node(body: str) -> dict:
     """
     # Over STDIN, not -e: the payload embeds JSON, and Windows refuses a
     # CreateProcess command line over 32k (WinError 206).
+    proc = subprocess.run(
+        ["node"], input=script, capture_output=True, text=True, timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def _pages_node(body: str):
+    """Run `body` against the real fit and page-packing modules."""
+    script = f"""
+      global.window = {{ getComputedStyle: () => ({{}}) }};
+      require({str(FIT_JS)!r});
+      if (require('node:fs').existsSync({str(PAGES_JS)!r})) {{
+        require({str(PAGES_JS)!r});
+      }}
+      {body}
+    """
     proc = subprocess.run(
         ["node"], input=script, capture_output=True, text=True, timeout=60,
         check=False,
@@ -231,16 +250,15 @@ def test_compute_fit_returns_zero_when_nothing_fits():
 
 def test_picker_floors_the_degenerate_page_at_one_pinched_chip():
     """#807: a strip too narrow for any full chip still pages one project
-    at a time and never shows NaN. The JSX glue floors the measured fit
-    at one for paging (Math.max(1, perPage)) and gates the forced chip's
-    inline shrink-to-fit style on the pinched state, so the chip takes
-    exactly the room left after All and the pager. Plain chips keep
-    flex-shrink: 0 — the rendered guard's red proof seeds plain chips,
-    which must still overflow."""
+    at a time and never shows NaN. The packer advances by at least one
+    project, marks that page pinched, and the JSX shrink-to-fit style
+    applies only to that forced chip."""
     body = _picker_body()
-    assert "Math.max(1, perPage)" in body, (
-        "ProjectPicker does not floor the page size at one chip — a strip "
-        "too narrow for any chip shows empty pages and a NaN pager (#807)")
+    packing = PAGES_JS.read_text(encoding="utf-8")
+    assert "Math.max(1, count)" in packing, (
+        "page packing does not advance at least one chip when none fit")
+    assert "ends[safePage] < 0" in body, (
+        "ProjectPicker does not apply the pinched style to a forced page")
     assert "pinched ? {" in body, (
         "ProjectPicker does not gate the pinched chip's style on the "
         "pinched state — the forced chip renders at its natural width and "
@@ -285,8 +303,8 @@ def test_picker_measures_in_a_layout_effect():
         "paint before the fit pass runs")
     # The measure call sits inside that effect, not beside it.
     eff = body[body.index("useLayoutEffect"):]
-    assert "computeFit" in eff, (
-        "ProjectPicker's fit pass does not run inside its layout effect")
+    assert "computePages" in eff, (
+        "ProjectPicker does not pack page boundaries in its layout effect")
 
 
 def test_picker_refits_on_resize_and_fonts():
@@ -319,21 +337,19 @@ def test_picker_overflow_is_cut_off_not_scrolled():
         "rendered guard cannot tell it from the range strip")
 
 
-def test_picker_uses_the_fit_module_and_index_loads_it_first():
-    """The arithmetic lives in the plain-JS module this file drives, and
-    index.html loads it as a classic script before the babel app that
-    consumes it."""
+def test_picker_uses_the_pages_module_and_index_loads_it_first():
+    """The measured boundaries live in plain JS, loaded before the Babel
+    component that consumes them."""
     body = _picker_body()
-    assert "pickerFit.computeFit" in body, (
-        "ProjectPicker does not drive src/picker-fit.js — the node-tested "
-        "arithmetic is dead code")
+    assert "pickerPages.computePages" in body, (
+        "ProjectPicker does not drive src/picker-pages.js")
     html = INDEX.read_text(encoding="utf-8")
     fit_i = html.index('src="/src/picker-fit.js"')
+    pages_i = html.index('src="/src/picker-pages.js"')
     comp_i = html.index('src="/src/picker.jsx"')
     app_i = html.index('src="/src/app.jsx"')
-    assert fit_i < comp_i < app_i, (
-        "index.html loads the picker modules after app.jsx — the picker "
-        "reads window.pickerFit / defines the strip before app.jsx needs them")
+    assert fit_i < pages_i < comp_i < app_i, (
+        "index.html loads picker page packing after the component that uses it")
 
 
 def test_picker_measures_a_hidden_full_row_not_the_real_chips():
@@ -348,9 +364,72 @@ def test_picker_measures_a_hidden_full_row_not_the_real_chips():
 
 
 def test_picker_paging_math_survives_the_fit():
-    """The pager keeps the clamped page and the off-page jump: per-page is
-    measured now, but safePage still clamps a shrunken list and the jump
-    still finds the selected project's page."""
+    """The pager keeps its clamped page and resolves a selected project's
+    actual page from the variable boundaries."""
     body = _picker_body()
     assert "safePage" in body, "ProjectPicker lost the clamped page"
     assert "pp-jump" in body, "ProjectPicker lost the off-page jump chip"
+    assert "pageForIndex" in body, (
+        "ProjectPicker still derives the jump from a fixed page size")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_pack_pages_measures_each_suffix_and_floors_a_pinched_page():
+    """Every greedy page starts at the next unplaced chip. When no full
+    chip fits beside the reserve, its signed end marks the one-chip floor."""
+    out = _pages_node("""
+      const p = window.pickerPages;
+      console.log(JSON.stringify(p ? {
+        ends: p.packPages([40, 40, 40, 100, 100], 130, 10, 30),
+        pinched: p.packPages([200], 130, 10, 30),
+      } : null));
+    """)
+    assert out == {"ends": [2, 3, 4, 5], "pinched": [-1]}
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_page_for_index_uses_variable_page_boundaries():
+    out = _pages_node("""
+      const p = window.pickerPages;
+      console.log(JSON.stringify(p ? [
+        p.pageForIndex([2, 5, 8], 1),
+        p.pageForIndex([2, 5, 8], 4),
+        p.pageForIndex([2, 5, 8], 7),
+      ] : null));
+    """)
+    assert out == [0, 1, 2]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_compute_pages_reserves_the_hidden_jump_and_pager_gap():
+    """The DOM reader uses the same pager reserve on every page, including
+    the off-page jump replica when the selected project is not shown."""
+    out = _pages_node("""
+      function el(w) { return { getBoundingClientRect: () => ({ width: w }) }; }
+      function read(jump) {
+        const chips = Array.from({length: 6}, () => el(70));
+        const layer = {
+          querySelectorAll: (s) => s === '.pp-proj' ? chips : [],
+          querySelector: (s) => s === '.pp-jump' && jump ? el(90) : null,
+        };
+        const navs = [el(26), el(26), el(48)];
+        const pager = { querySelectorAll: () => navs };
+        const strip = {
+          clientWidth: 400,
+          querySelector: (s) => s === '.pp-measure' ? layer
+            : s === '.pp-pager' ? pager
+              : s === '.pp-all' ? el(40) : null,
+        };
+        window.getComputedStyle = () => ({
+          paddingLeft: '10px', paddingRight: '22px', columnGap: '6px',
+        });
+        return window.pickerPages.computePages(strip);
+      }
+      console.log(JSON.stringify(window.pickerPages ? {
+        withJump: read(true), withoutJump: read(false),
+      } : null));
+    """)
+    assert out == {
+        "withJump": [1, 2, 3, 4, 5, 6],
+        "withoutJump": [2, 4, 6],
+    }

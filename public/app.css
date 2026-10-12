@@ -510,7 +510,7 @@ button:focus-visible, .navbtn:focus-visible, .chip:focus-visible, .fchip:focus-v
    last chip on rows that don't wrap. */
 .pp-pager {
   display: inline-flex; align-items: center; gap: 6px;
-  margin-left: auto;
+  margin-left: auto; flex-shrink: 0;
 }
 .pp-nav { padding: 4px 9px; line-height: 1; }
 .pp-count {
