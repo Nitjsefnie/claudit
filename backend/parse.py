@@ -11,7 +11,6 @@ _LineWalk collects per-file state; helpers project records and ctx_turns.
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime
 
 from orjson import JSONDecodeError, loads
 
@@ -33,6 +32,7 @@ from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.rereads import resolve_rereads
 from backend.json_shape import as_dict, as_list, dict_list
 from backend.parse_projection import project_records
+from backend.reply_timing import ReplyTiming
 
 
 # A `type:"assistant"` record with isApiErrorMessage=True and
@@ -330,13 +330,9 @@ class _LineWalk:
         # this answers is what filled the context window, and a failed
         # call's error text occupies it exactly like a success does.
         self.tool_result_chars: dict[str, int] = {}
-        # Reply-latency anchor: last NON-instrumentation, NON-interrupt user
-        # message timestamp. Cleared when consumed by an assistant message,
-        # an interrupt marker, or superseded by a fresher user message.
-        # Measured at message granularity (we treat the assistant message
-        # line as the terminator since all assistant content blocks share
-        # its ts).
-        self.last_user_ts: datetime | None = None
+        # All non-interrupt user text anchors latency, independently of
+        # prompt counting. Interrupts, failed attempts and replies clear it.
+        self.reply_timing = ReplyTiming()
         # Per-file first-seen line for each user-record uuid. A user record
         # whose uuid already appeared on an EARLIER, DIFFERENT line is a
         # replay and is invisible to reply-latency anchoring/superseding.
@@ -359,12 +355,14 @@ class _LineWalk:
         """
         if not text.strip():
             return
-        if not _is_prompt_text(text):
-            return
         stripped = text.lstrip()
         if stripped.startswith(INTERRUPT_MARKER):
             if mutate_anchor:
-                self.last_user_ts = None
+                self.reply_timing.clear()
+            return
+        if not _is_prompt_text(text):
+            if mutate_anchor:
+                self.reply_timing.anchor(_to_dt(ts_str))
             return
         # Same gate as the append inside, so prompt_count and prompt_ts
         # stay index-aligned (issue #214).
@@ -373,12 +371,13 @@ class _LineWalk:
     def _count_prompt(self, line_num: int, ts_str: str,
                       mutate_anchor: bool) -> None:
         """Book ONE prompt: the count line, the #214 timestamp and the
-        reply-latency anchor land together, once per record."""
+        reply-latency anchor land together, once per counted record.
+        Injected text anchors separately without booking a prompt."""
         self.user_text_lines.append(line_num)
         ts_dt = _to_dt(ts_str)
         self.user_text_ts.append(ts_dt.isoformat() if ts_dt is not None else None)
-        if ts_dt is not None and mutate_anchor:
-            self.last_user_ts = ts_dt
+        if mutate_anchor:
+            self.reply_timing.anchor(ts_dt)
 
     def handle_rate_limit(self, obj: dict, line_num: int) -> bool:
         """Book a rate-limit hit if this record is one. Returns True when
@@ -412,8 +411,8 @@ class _LineWalk:
                 "content": joined[:500],
             })
         # Still the assistant responding, so it terminates any open
-        # reply-latency window (see _consume_anchor).
-        self._consume_anchor(obj)
+        # reply-latency window (see ReplyTiming.consume).
+        self.reply_timing.consume(obj)
         return True
 
     def handle_user_line(self, obj: dict, msg: dict, line_num: int) -> None:
@@ -444,25 +443,29 @@ class _LineWalk:
         once when any top-level block is human — a text block passing
         the #213 gate, or an image block. An image inside a tool_result
         is result payload, never a prompt. An interrupt marker still
-        clears the latency anchor without counting the record."""
+        clears the latency anchor without counting the record. Injected
+        text also anchors, but never counts or splits a context turn."""
         saw_human = False
+        saw_text = False
         for blk in map(as_dict, blocks):
             btype = blk.get("type")
             if btype == "tool_result":
                 self._note_tool_result(blk)
             elif btype == "text":
                 text = blk.get("text", "") or ""
-                if (isinstance(text, str) and text.strip()
-                        and _is_prompt_text(text)):
+                if isinstance(text, str) and text.strip():
                     if text.lstrip().startswith(INTERRUPT_MARKER):
                         if mutate_anchor:
-                            self.last_user_ts = None
+                            self.reply_timing.clear()
                     else:
-                        saw_human = True
+                        saw_text = True
+                        saw_human = saw_human or _is_prompt_text(text)
             elif btype == "image":
                 saw_human = True
         if saw_human:
             self._count_prompt(line_num, ts_str, mutate_anchor)
+        elif saw_text and mutate_anchor:
+            self.reply_timing.anchor(_to_dt(ts_str))
 
     def _note_tool_result(self, blk) -> None:
         """Book one tool_result block: settle the call's error flag,
@@ -488,7 +491,7 @@ class _LineWalk:
         # early returns below. Canonical semantics count every
         # assistant-side content block as "the assistant has started
         # responding", including records this table has no row for.
-        reply_latency_s = self._consume_anchor(obj)
+        reply_latency_s = self.reply_timing.consume(obj)
         if not isinstance(usage, dict) or not usage:
             return
         usage = _flatten_usage(usage)
@@ -548,36 +551,6 @@ class _LineWalk:
             msg_tool_uses, req_id, line_num, obj.get("timestamp", "") or "",
             ev["model"],
         )
-
-    def _consume_anchor(self, obj: dict) -> float | None:
-        """Reply latency: gap from last anchored user-message ts to
-        this assistant message's ts. NULL when there's no preceding
-        anchored user message (session start, or every recent user
-        msg was instrumentation/interrupt) OR when delta is
-        negative (negative deltas are
-        session-restore / compaction replay artifacts where the
-        assistant message came from a prior, re-emitted state and
-        isn't actually a reply to the visually-preceding user msg).
-        Clamping to 0 would pollute the p0/p50 distribution; drop
-        the measurement instead.
-
-        Called for EVERY assistant-role record, including the ones
-        that never become a `records` row (`<synthetic>` API-error
-        stubs, rate-limit records, records with no usage). Those are
-        still the assistant responding, so they must close the window
-        — otherwise the anchor survives a failed turn and the next
-        real reply, possibly hours later, is charged the whole gap.
-        Their own (tiny) measurement has no row to live on and is
-        discarded; canonical --reply-latency does report it."""
-        reply_latency_s = None
-        if self.last_user_ts is not None:
-            assistant_dt = _to_dt(obj.get("timestamp", "") or "")
-            if assistant_dt is not None:
-                delta_s = (assistant_dt - self.last_user_ts).total_seconds()
-                if delta_s >= 0:
-                    reply_latency_s = delta_s
-        self.last_user_ts = None  # anchor consumed by this assistant reply
-        return reply_latency_s
 
     def _record_tool_uses(self, msg_tool_uses: list, req_id: str,
                           line_num: int, ts_str: str, model: str) -> None:
@@ -700,6 +673,8 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
 
         kind = obj.get("type", "")
         walk.window.observe(obj)
+        if kind == "system" and obj.get("subtype") == "api_error":
+            walk.reply_timing.clear()
         if kind == "agent-setting":
             name = obj.get("agentSetting")
             if isinstance(name, str) and name:

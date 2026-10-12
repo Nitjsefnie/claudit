@@ -89,8 +89,10 @@ Cost/Tokens by Context Size and Cost/Tokens by Agent Type — originate here.
   with a median line and top/bottom 1% outlier dots (only when the
   bucket has ≥100 replies); log y-axis from 0.1s to max p90. Latency
   is the gap from each anchored user message to its assistant reply,
-  computed at parse time (instrumentation/bash-IO and interrupt-marker
-  user messages don't anchor a window).
+  computed at parse time. Non-empty user text, including harness-injected
+  instrumentation/bash-IO, anchors a window without changing prompt counts
+  or context turns; interrupt markers clear it. A reply after a failed
+  attempt stores no latency unless a fresh user message re-anchors it.
 - **Activity Heatmap** — weekday × hour grid of request activity in
   Czech local time (`Europe/Prague`, DST-aware via Postgres
   `AT TIME ZONE`), with requests / output-tokens / cost metric toggle
