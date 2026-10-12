@@ -13,8 +13,6 @@ import signal
 import types
 import threading
 import time
-import warnings
-import sys
 from collections import Counter
 from concurrent.futures.process import BrokenProcessPool
 
@@ -29,11 +27,10 @@ from test_ingest import (  # pylint: disable=unused-import
 from backend import (api, app as app_mod, constants, db, events, ingest,
                      ingest_fetch, ingest_runs, timing)
 from tests import mini_mirror
-from tests.ingest_process_helpers import (
+from tests.test_ingest_forkserver import (
     noop_parse as _noop_parse, worker_report as _worker_report,
-    server_report_parse,
 )
-from tests.pool_test_bounds import bounded_pool_test, requires_forkserver
+from tests.test_ingest_forkserver import requires_forkserver
 
 #: How many transcripts the committed mirror holds, read from its tree
 #: (issue #503 grew it with the lane layout). A count written down here is
@@ -438,38 +435,6 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(
 
 
 # ------------------------------------------ parse-worker signal hygiene (#373)
-
-@pytest.mark.skipif(sys.platform != "linux", reason="server task count uses Linux procfs")
-@requires_forkserver
-@bounded_pool_test
-def test_parse_pool_starts_with_another_thread_alive(monkeypatch):
-    """Starting parse workers in the threaded service must be fork-safe."""
-    monkeypatch.setattr(ingest_fetch, "parse_process_count", lambda: 1)
-    monkeypatch.setattr(ingest_fetch, "persist_thread_count", lambda: 1)
-    release = threading.Event()
-    thread = threading.Thread(target=release.wait)
-    thread.start()
-    persisted = []
-    try:
-        assert thread.is_alive()
-        obj = types.SimpleNamespace(key="claude/p/s/s.jsonl",
-                                    sidecar_key=None, etag="e", size=1)
-        with warnings.catch_warnings(record=True) as emitted:
-            warnings.simplefilter("always", DeprecationWarning)
-            assert ingest_fetch.pipeline_pool(
-                [(obj, None, None)], "v", [], None, None, {}, set(), set(),
-                server_report_parse,
-                lambda _obj, _proj, parsed, *_args: persisted.append(parsed),
-                lambda: None) == (1, 0, 0)
-        assert not [str(w.message) for w in emitted
-                    if issubclass(w.category, DeprecationWarning)
-                    and "multi-threaded" in str(w.message)]
-        assert persisted[0]["threads"] == 1
-        assert persisted[0]["parent"] != os.getpid()
-        assert persisted[0]["method"] == "forkserver"
-    finally:
-        release.set()
-        thread.join(timeout=60)
 
 
 @requires_forkserver
