@@ -115,3 +115,54 @@ def test_picker_page_geometry_reads_height_position_and_seat():
     assert "height" in out["height"]
     assert "position" in out["position"]
     assert "seat" in out["seat"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_expected_projects_come_from_the_served_payload():
+    out = _node("""
+      if (!mod.pickerProjectIds) console.log('null');
+      else {
+        let requested;
+        global.fetch = async (url) => {
+          requested = url;
+          return {ok: true, json: async () => ({projects: [
+            {project_id: 'first'}, {project_id: 'last'}]})};
+        };
+        const ids = await mod.pickerProjectIds({evaluate: fn => fn()});
+        console.log(JSON.stringify({ids, requested}));
+      }
+    """)
+    assert out is not None, 'independent fixture reader is missing'
+    assert out['ids'] == ['first', 'last']
+    assert out['requested'].startswith('/api/projects?')
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_selection_checks_fitted_pages_including_healthy_single_page():
+    out = _node("""
+      const check = mod.pickerSelectionFindings;
+      if (!check) console.log('null');
+      else {
+        const one = {page: 1, total: 1, ids: ['a', 'b'], activeIds: ['b'],
+          jumpVisible: false, jumpWidth: null, pagerVisible: false,
+          pagerWidth: null, left: 0, right: 1440, chipRight: 140,
+          overflow: false};
+        const off = {...one, total: 2, ids: ['a'], activeIds: [],
+          jumpVisible: true, jumpWidth: 30, pagerVisible: true,
+          pagerWidth: 140, pagerLeft: 200, pagerRight: 340};
+        const on = {...off, page: 2, ids: ['b'], activeIds: ['b'],
+          jumpVisible: false};
+        console.log(JSON.stringify({
+          one: check([one], 'b'), many: check([off, on], 'b'),
+          lostSelection: check([{...one, activeIds: []}], 'b'),
+          missingJump: check([{...off, jumpVisible: false}, on], 'b'),
+          changedReserve: check([off, {...on, jumpWidth: 10}], 'b'),
+        }));
+      }
+    """)
+    assert out is not None, 'selection classifier is missing'
+    assert out['one'] == []
+    assert out['many'] == []
+    assert out['lostSelection']
+    assert out['missingJump']
+    assert out['changedReserve']

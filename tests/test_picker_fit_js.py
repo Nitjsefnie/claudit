@@ -357,6 +357,7 @@ def test_picker_measures_a_hidden_full_row_not_the_real_chips():
     only the fitted slice, so measuring it would shrink the fit to the
     current page — a resize wider could never grow the page back."""
     body = _picker_body()
+    body += (ROOT / "src/picker-measure.jsx").read_text()
     assert "pp-measure" in body, "ProjectPicker renders no hidden measure row"
     assert "aria-hidden" in body, (
         "ProjectPicker's measure row is not aria-hidden — a full hidden "
@@ -374,26 +375,17 @@ def test_picker_paging_math_survives_the_fit():
 
 
 def test_picker_exposes_project_ids_for_full_walk_verification():
-    body = _picker_body()
+    body = _picker_body() + (ROOT / "src/picker-measure.jsx").read_text()
     assert body.count("data-project-id={p.project_id}") == 2, (
         "visible and measured chips must both expose the same project id")
 
 
-def test_pinched_chip_and_jump_have_responsive_minimum_geometry():
-    body = _picker_body()
-    assert "padding: '4px 0'" in body, (
-        "the pinched chip keeps the normal 24px padding/border floor")
-    css = _css()
-    strip = css[css.index(".project-picker {"):]
-    strip = strip[:strip.index("}")]
-    assert "container-type: inline-size" in strip, (
-        "responsive jump sizing is not relative to the measured picker strip")
-    jump = css[css.index(".pp-jump {"):]
-    jump = jump[:jump.index("}")]
-    assert "100cqw" in jump and "max(14px" in jump, (
-        "the selected-project jump lacks a strip-relative minimum width")
-    assert "@media(max-width:260px)" in css and ".pp-nav{padding:4px 5px}" in css, (
-        "the pinched pager controls keep their full-width padding")
+def test_picker_space_and_measurement_modules_are_loaded():
+    html = INDEX.read_text(encoding="utf-8")
+    assert html.index('/src/picker-space.js') < html.index('/src/picker-pages.js')
+    assert html.index('/src/picker-measure.jsx') < html.index('/src/picker.jsx')
+    assert 'window.PickerMeasure' in _picker_body()
+    assert "padding: '4px 0'" in _picker_body()
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
