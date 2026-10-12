@@ -38,7 +38,9 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { API, FIXTURES, serve, WIDTHS } from './panel_server.mjs';
+import { pickerProbe as PICKER_PAGE_PROBE } from './picker_probe.mjs';
 import { runPickerCases } from './picker_cases.mjs';
+import { renderTurn, settleDashboard, trackLayoutRequests, layoutTiming } from './layout_waits.mjs';
 
 // The narrowest legitimate gap in the dashboard is the 12px grid gap;
 // the widest rendering noise Chromium's sub-pixel rounding produces on a
@@ -897,7 +899,7 @@ async function seedPickerOverflowAfterPaging(page) {
     };
     const onTurn = (e) => {
       if (!e.target.closest('.pp-nav[title="Next page"]')) return;
-      setTimeout(inject, 50);
+      requestAnimationFrame(inject);
     };
     document.addEventListener('click', onTurn, true);
     return { armed: 'wide chips injected after every page turn' };
@@ -1136,15 +1138,15 @@ async function seedPinchedPagerMissing(page) {
 
 // Seed for the pager-sane limb (#821): rewrite the count to NaN after
 // every click — the shape a raw-perPage pager would render. The
-// rewrite lands after React's own re-render (setTimeout), and the
+// rewrite lands after React's own re-render (next frame), and the
 // rule's page turn detonates it.
 async function seedPinchedPagerNaN(page) {
   return page.evaluate((sel) => {
     const rewrite = () => {
       const count = document.querySelector(sel + ' .pp-count');
-      if (count) setTimeout(() => {
+      if (count) requestAnimationFrame(() => {
         count.textContent = 'NaN / NaN';
-      }, 50);
+      });
     };
     document.addEventListener('click', rewrite, true);
     return { armed: 'count rewritten to NaN after every click' };
@@ -1238,18 +1240,18 @@ const journeyNarrow = async (ctx) => {
   const narrowW = Math.max(320, Math.round(ctx.width * 0.6));
   const target = narrowW === ctx.width ? ctx.width + 160 : narrowW;
   await ctx.page.setViewportSize({ width: target, height: 900 });
-  await ctx.page.waitForTimeout(400);
+  await renderTurn(ctx.page);
 };
 const journeyBack = async (ctx) => {
   await ctx.page.setViewportSize({ width: ctx.width, height: 900 });
-  await ctx.page.waitForTimeout(400);
+  await renderTurn(ctx.page);
 };
 
 // The pinched rules' journey: to a width no chip fits (the fit floors
 // at one), where the picker pages one project at a time (#821).
 const journeyPinched = async (ctx) => {
   await ctx.page.setViewportSize({ width: 220, height: 900 });
-  await ctx.page.waitForTimeout(500);
+  await renderTurn(ctx.page);
 };
 
 // A pinched run measures at 220px, and the viewport is SHARED runner
@@ -1282,56 +1284,7 @@ const NEXT_SEL = '.pp-nav[title="Next page"]';
 
 const PREV_SEL = '.pp-nav[title="Previous page"]';
 
-const PICKER_PAGE_PROBE = (sel) => {
-  const strip = document.querySelector(sel);
-  if (!strip) return null;
-  const box = strip.getBoundingClientRect();
-  const pager = strip.querySelector('.pp-pager');
-  const pagerBox = pager ? pager.getBoundingClientRect() : null;
-  const jump = pager && pager.querySelector('.pp-jump');
-  const count = strip.querySelector('.pp-count')?.textContent || '';
-  const parts = count.match(/^\s*(\d+)\s*\/\s*(\d+)\s*$/);
-  const visible = [...strip.children].filter((el) => {
-    if (!el.classList.contains('pp-proj')) return false;
-    const cs = getComputedStyle(el);
-    const r = el.getBoundingClientRect();
-    return cs.display !== 'none' && cs.visibility !== 'hidden'
-      && r.width > 0 && r.height > 0;
-  });
-  const chips = [...strip.children].filter((el) =>
-    el.classList.contains('pp-proj'));
-  const rects = visible.map((el) => el.getBoundingClientRect());
-  const next = strip.querySelector('.pp-nav[title="Next page"]');
-  const previous = strip.querySelector('.pp-nav[title="Previous page"]');
-  const below = strip.nextElementSibling
-    ? strip.nextElementSibling.getBoundingClientRect() : null;
-  return {
-    left: box.left, right: box.right,
-    top: Math.round(box.top * 10) / 10,
-    height: Math.round(box.height * 10) / 10,
-    seat: below ? Math.round((below.top - box.bottom) * 10) / 10 : 0,
-    below: !!below,
-    overflow: strip.scrollWidth > strip.clientWidth,
-    chipRight: rects.reduce((n, r) => Math.max(n, r.right), 0),
-    ids: visible.map((el) => el.dataset.projectId || null),
-    activeIds: visible.filter((el) => el.classList.contains('on'))
-      .map((el) => el.dataset.projectId || null),
-    pagerLeft: pagerBox ? pagerBox.left : null,
-    pagerRight: pagerBox ? pagerBox.right : null,
-    pagerWidth: pagerBox ? pagerBox.width : null,
-    pagerVisible: !!pager && getComputedStyle(pager).display !== 'none'
-      && getComputedStyle(pager).visibility !== 'hidden'
-      && pagerBox.width > 0,
-    jumpWidth: jump ? jump.getBoundingClientRect().width : null,
-    jumpVisible: !!jump && getComputedStyle(jump).visibility !== 'hidden'
-      && getComputedStyle(jump).display !== 'none',
-    page: parts ? Number(parts[1]) : (pager ? null : 1),
-    total: parts ? Number(parts[2]) : (pager ? null : 1),
-    nextDisabled: !next || next.disabled,
-    previousDisabled: !previous || previous.disabled,
-    rendered: chips.length,
-  };
-};
+
 
 async function clickPickerPage(page, button, previous) {
   await page.click(button);
@@ -1353,25 +1306,10 @@ export async function pickerProjectIds(page) {
   });
 }
 
-async function walkPickerPages(page, projectCount, direction) {
-  const states = [];
-  const maxPages = Math.max(1, projectCount);
-  const next = direction === 'forward';
-  const button = 'main ' + PICKER_SEL + ' '
-    + (next ? NEXT_SEL : PREV_SEL);
-  let completed = false;
-  for (let step = 0; step < maxPages; step++) {
-    const state = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
-    if (!state) return { states, completed: false, missing: true };
-    states.push(state);
-    if (next ? state.nextDisabled : state.previousDisabled) {
-      completed = true;
-      break;
-    }
-    if (step === maxPages - 1) break;
-    await clickPickerPage(page, button, state);
-  }
-  return { states, completed, missing: false };
+export function walkPickerPages(page, projectCount, direction) {
+  return page.evaluate(PICKER_PAGE_PROBE, {
+    selector: PICKER_SEL, maxPages: Math.max(1, projectCount), direction,
+  });
 }
 
 export function pickerPageFitFindings(states) {
@@ -1464,7 +1402,7 @@ const clickNextGuarded = async (page) => {
       lower: 'next is disabled — nothing pages', gap: 0 }];
   }
   await page.click(nextSel);
-  await page.waitForTimeout(300);
+  await renderTurn(page);
   return [];
 };
 
@@ -1476,7 +1414,7 @@ const backToFirst = async (page) => {
       (el) => !el.disabled).catch(() => false);
     if (!enabled) return;
     await page.click(prevSel);
-    await page.waitForTimeout(200);
+    await renderTurn(page);
   }
 };
 
@@ -1499,10 +1437,10 @@ async function runPickerPageFit(ctx) {
   let out = pageWalkResult(walk);
   if (ctx.width === 320) {
     await ctx.page.setViewportSize({ width: 220, height: 900 });
-    await ctx.page.waitForTimeout(350);
+    await renderTurn(ctx.page);
     out.push(...pageWalkResult(await runPickerWalk(ctx.page)));
     await ctx.page.setViewportSize({ width: ctx.width, height: 900 });
-    await ctx.page.waitForTimeout(350);
+    await renderTurn(ctx.page);
   }
   return out;
 }
@@ -1554,13 +1492,13 @@ async function runPickerSelection(page, width) {
   const expected = await pickerProjectIds(page);
   if (!expected.length) return pageWalkResult(await runPickerWalk(page));
   const target = expected[expected.length - 1];
-  for (let i = 0; i < expected.length; i++) {
-    const state = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
-    if (state.ids.includes(target)) break;
-    if (state.nextDisabled) return [{ upper: `selected project at ${width}px`,
-      lower: 'last fixture project never appears', gap: 0 }];
-    await clickPickerPage(page, sel + ' ' + NEXT_SEL, state);
-  }
+  const seek = await page.evaluate(PICKER_PAGE_PROBE, {
+    selector: PICKER_SEL, maxPages: expected.length, direction: 'forward', target,
+  });
+  if (!seek.states.at(-1)?.ids.includes(target)) return [{
+    upper: `selected project at ${width}px`,
+    lower: 'last fixture project never appears', gap: 0,
+  }];
   try {
     await page.$$eval(sel + ' > .pp-proj', (chips, id) => {
       chips.find((chip) => chip.dataset.projectId === id)?.click();
@@ -1578,7 +1516,7 @@ async function runPickerSelection(page, width) {
     if (!off.ids.includes(target) && off.jumpVisible
       && !pickerPageFitFindings([off]).length) {
       await page.click(sel + ' .pp-pager .pp-jump');
-      await page.waitForTimeout(100);
+      await renderTurn(page);
       const on = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
       out.push(...pickerPageFitFindings([off, on]),
         ...pickerSelectionFindings([off, on], target));
@@ -1987,11 +1925,11 @@ export const RULES = [
       await probeOnce('at load');
       await ctx.page.setViewportSize(
         { width: ctx.width + 240, height: 900 });
-      await ctx.page.waitForTimeout(500);
+      await renderTurn(ctx.page);
       await probeOnce('after widening');
       await ctx.page.setViewportSize(
         { width: ctx.width, height: 900 });
-      await ctx.page.waitForTimeout(400);
+      await renderTurn(ctx.page);
       return out;
     },
   },
@@ -2035,7 +1973,7 @@ export const RULES = [
           (el) => !el.disabled).catch(() => false);
         if (!enabled) break;
         await ctx.page.click(nextSel);
-        await ctx.page.waitForTimeout(250);
+        await renderTurn(ctx.page);
       }
       return out;
     }),
@@ -2087,7 +2025,7 @@ export const RULES = [
         (el) => !el.disabled).catch(() => false);
       if (enabled) {
         await ctx.page.click(nextSel);
-        await ctx.page.waitForTimeout(400);
+        await renderTurn(ctx.page);
         const after = await read();
         if (after === null || !/^\d+ \/ \d+$/.test(after)) {
           out.push({ upper: 'the pinched picker pager after a turn',
@@ -2122,7 +2060,7 @@ export const RULES = [
           (el) => !el.disabled).catch(() => false);
         if (!enabled) break;
         await ctx.page.click(nextSel);
-        await ctx.page.waitForTimeout(250);
+        await renderTurn(ctx.page);
       }
       const shown = await ctx.page.evaluate((sel) => {
         const strip = document.querySelector(sel);
@@ -2158,14 +2096,12 @@ export const RULES = [
 
 // --- the runner ---------------------------------------------------------
 
-async function settle(page) {
-  await page.waitForSelector('[data-panel]', { timeout: 30_000 });
-  // The self-fetching panels fill after their own responses land; the
-  // sibling guards settle the same way.
-  await page.waitForTimeout(1_500);
-}
-
 export async function runRules(ruleFilter, casesOnly = false) {
+  if (casesOnly && ruleFilter) {
+    throw new Error('--picker-cases cannot be combined with --rule');
+  }
+  const rules = ruleFilter ? RULES.filter((r) => r.id === ruleFilter) : RULES;
+  if (!rules.length) throw new Error(`no rule named ${ruleFilter}`);
   // Dynamic, like panel_interactions.mjs: importing this module (the
   // node-driven tests do) must not resolve playwright — the runner's
   // tests job ships no node_modules; only the browser leg installs it.
@@ -2175,6 +2111,7 @@ export async function runRules(ruleFilter, casesOnly = false) {
   const browser = await chromium.launch();
   const failures = [];
   const fired = [];
+  let executed = 0;
   try {
     for (const width of casesOnly ? [] : WIDTHS) {
       const ctx = await browser.newContext({
@@ -2203,8 +2140,9 @@ export async function runRules(ruleFilter, casesOnly = false) {
         });
       });
       const page = await ctx.newPage();
+      trackLayoutRequests(page);
       await page.goto(`${base}/`, { waitUntil: 'load' });
-      await settle(page);
+      await layoutTiming(`settle ${width}`, () => settleDashboard(page));
 
       const ruleCtx = {
         page,
@@ -2212,14 +2150,10 @@ export async function runRules(ruleFilter, casesOnly = false) {
         collect: () => page.evaluate(COLLECT_PROBE, COLLECT_SELECTOR),
         collectPanels: () => page.evaluate(PANELS_PROBE),
       };
-      const rules = ruleFilter
-        ? RULES.filter((r) => r.id === ruleFilter)
-        : RULES;
-      if (!rules.length) throw new Error(`no rule named ${ruleFilter}`);
-
       // Unseeded: every rule must pass on the real page.
       for (const rule of rules) {
-        const violations = await rule.run(ruleCtx);
+        const violations = await layoutTiming(`healthy ${width} ${rule.id}`, () => rule.run(ruleCtx));
+        executed++;
         for (const v of violations) {
           failures.push(`${rule.id}: width ${width}: ${v.upper} ->`
             + ` ${v.lower} gap ${v.gap}px`);
@@ -2230,12 +2164,13 @@ export async function runRules(ruleFilter, casesOnly = false) {
       // fire, or the rule's red proof is dead and the guard lies.
       for (const rule of rules) {
         await page.reload({ waitUntil: 'load' });
-        await settle(page);
+        await layoutTiming(`settle ${width}`, () => settleDashboard(page));
         const seeded = await rule.seed(page);
-        await page.waitForTimeout(300);
+        await renderTurn(page);
         const seededCtx = { ...ruleCtx, seeded: true };
         delete seededCtx.pickerPageAudit;
-        const violations = await rule.run(seededCtx);
+        const violations = await layoutTiming(`seed ${width} ${rule.id}`, () => rule.run(seededCtx));
+        executed++;
         if (!violations.length) {
           failures.push(`${rule.id}: width ${width}: seeded red case`
             + ` (${JSON.stringify(seeded)}) fired nothing — the guard is`
@@ -2248,34 +2183,47 @@ export async function runRules(ruleFilter, casesOnly = false) {
       await ctx.close();
     }
     if (!ruleFilter) {
-      const cases = await runPickerCases(browser, base, RULES, {
+      const cases = await layoutTiming('picker cases', () => runPickerCases(browser, base, RULES, {
         probe: PICKER_PAGE_PROBE, fit: pickerPageFitFindings,
         selection: pickerSelectionFindings,
-      });
+      }));
       failures.push(...cases.failures);
       fired.push(...cases.passed);
+      executed += cases.executed;
     }
   } finally {
     await browser.close();
     server.close();
   }
-  return { failures, fired };
+  return { failures, fired, executed };
+}
+
+export function runSummary({ failures, executed }, casesOnly) {
+  if (!(executed > 0)) return { ok: false, message: 'FAIL: no checks executed' };
+  if (failures.length) return { ok: false,
+    message: `FAIL (${failures.length}):\n  ${failures.join('\n  ')}` };
+  return { ok: true, message: casesOnly ? 'PASS: every picker fixture check passed'
+    : 'PASS: every rule green unseeded and its seeded red case fired' };
 }
 
 export async function main() {
   const filterIdx = process.argv.indexOf('--rule');
   const ruleFilter = filterIdx > -1 ? process.argv[filterIdx + 1] : null;
+  if (filterIdx > -1 && (!ruleFilter || ruleFilter.startsWith('--'))) {
+    throw new Error('--rule requires a rule id');
+  }
+  const casesOnly = process.argv.includes('--picker-cases');
   console.log(`layout rules: ${RULES.map((r) => r.id).join(', ')}`);
-  const { failures, fired } = await runRules(ruleFilter, process.argv.includes('--picker-cases'));
-  for (const f of fired) console.log(`  ${f}`);
-  if (failures.length) {
-    console.error(`FAIL (${failures.length}):`);
-    for (const f of failures) console.error(`  ${f}`);
+  const result = await runRules(ruleFilter, casesOnly);
+  for (const f of result.fired) console.log(`  ${f}`);
+  console.log(`CHECKS: ${result.executed}`);
+  const summary = runSummary(result, casesOnly);
+  if (!summary.ok) {
+    console.error(summary.message);
     process.exitCode = 1;
     return;
   }
-  console.log('PASS: every rule green unseeded and its seeded red case'
-    + ' fired');
+  console.log(summary.message);
 }
 
 // Launch only on direct execution: the node-driven tests import this
