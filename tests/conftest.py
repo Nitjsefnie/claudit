@@ -43,8 +43,8 @@ os.environ.setdefault("CLAUDIT_ADMIN_TOKEN", "test-admin")
 # Exported values still win because these are set with setdefault.
 os.environ.setdefault("CLAUDIT_EXPORT_PYTHON", "/usr/bin/python3")
 os.environ.setdefault("CLAUDIT_TIMING", "0")
-# The in-process pipeline by default: forked parse children under pytest
-# duplicate capture state and slow every ingest test. The process-pool
+# The in-process pipeline by default: parse-process pools add startup
+# work to every ingest test. The process-pool
 # tests opt in explicitly (test_ingest.py, issue #309).
 os.environ["CLAUDIT_INGEST_PARSE_PROCESSES"] = "1"
 os.environ["CLAUDIT_INGEST_PERSIST_THREADS"] = "1"
