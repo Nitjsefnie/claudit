@@ -265,3 +265,62 @@ def test_batched_widths_reject_missing_or_reordered_samples():
     assert out is not None, 'checked width batch is missing'
     assert out[:2] == ['width sweep sample sequence differs'] * 2
     assert out[2] == 'ok'
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_selected_audit_reuses_the_first_backward_walk():
+    out = _node("""
+      if (!mod.runPickerWalk) console.log('null');
+      else {
+        const directions = [];
+        const states = [1, 2].map(page => ({page, total: 2, ids: [`p${page}`],
+          previousDisabled: page === 1, nextDisabled: page === 2}));
+        const page = {waitForSelector: async () => {},
+          evaluate: async (fn, args) => {
+            if (!args || typeof args === 'string') return ['p1', 'p2'];
+            directions.push(args.direction);
+            return {states: args.direction === 'forward' ? states : [...states].reverse(),
+              completed: true, missing: false};
+          }};
+        const result = await mod.runPickerWalk(page, true);
+        console.log(JSON.stringify({directions, facts: result.facts,
+          forward: result.forward.states.map(s => s.page),
+          backward: result.backward.states.map(s => s.page)}));
+      }
+    """)
+    assert out is not None, 'backward-first audit is missing'
+    assert out['directions'] == ['backward', 'forward']
+    assert out['forward'] == [1, 2]
+    assert out['backward'] == [2, 1]
+    assert out['facts'] == []
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_width_sweep_resets_at_its_own_viewport_before_sampling():
+    helper = (MODULE.parent / 'picker_cases.mjs').as_uri()
+    out = _node(f"""
+      const cases = await import({json.dumps(helper)});
+      if (!cases.resetPickerForSweep) console.log('null');
+      else {{
+        const calls = [], outcomes = [];
+        let reset;
+        const page = {{setViewportSize: async (size) => calls.push(size.width),
+          evaluate: async (fn, args) => {{
+            calls.push(args?.direction || 'render');
+            return reset;
+          }}}};
+        for (reset of [{{completed: true, states: [{{page: 1}}]}},
+          {{completed: false, states: [{{page: 1}}]}},
+          {{completed: true, states: [{{page: 2}}]}}]) {{
+          try {{
+            await cases.resetPickerForSweep(page, () => {{}}, '.picker', 101);
+            outcomes.push('ok');
+          }} catch (error) {{ outcomes.push(error.message); }}
+        }}
+        console.log(JSON.stringify({{calls, outcomes}}));
+      }}
+    """)
+    assert out is not None, 'sweep-owned reset is missing'
+    assert out['calls'] == [1440, 'render', 'backward'] * 3
+    assert out['outcomes'] == ['ok'] + [
+        'picker did not reset before width sweep'] * 2

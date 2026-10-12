@@ -1345,14 +1345,18 @@ export function pickerPageFitFindings(states) {
   return out;
 }
 
-async function runPickerWalk(page) {
+export async function runPickerWalk(page, backwardFirst = false) {
   await page.waitForSelector(PICKER_SEL + '[data-projects-ready="true"]');
   const expected = await pickerProjectIds(page);
   const measured = await page.evaluate((sel) => [...document.querySelectorAll(
     sel + ' .pp-measure .pp-proj')].map((el) => el.dataset.projectId || null),
   PICKER_SEL);
-  const forward = await walkPickerPages(page, expected.length, 'forward');
-  const backward = await walkPickerPages(page, expected.length, 'backward');
+  const journeys = {};
+  for (const direction of backwardFirst
+    ? ['backward', 'forward'] : ['forward', 'backward']) {
+    journeys[direction] = await walkPickerPages(page, expected.length, direction);
+  }
+  const {forward, backward} = journeys;
   const facts = pickerWalkViolations(
     forward.states, backward.states, expected);
   if (JSON.stringify(measured) !== JSON.stringify(expected)) {
@@ -1486,7 +1490,7 @@ export function pickerSelectionFindings(states, target) {
   return out;
 }
 
-async function runPickerSelection(page, width) {
+async function runPickerSelection(page, width, restorePicker = true) {
   await page.waitForSelector(PICKER_SEL + '[data-projects-ready="true"]');
   const sel = 'main ' + PICKER_SEL;
   const expected = await pickerProjectIds(page);
@@ -1508,11 +1512,17 @@ async function runPickerSelection(page, width) {
     await page.waitForFunction(({selector, id}) => document.querySelector(
       selector + ' .pp-measure .pp-jump')?.textContent.includes(id),
     {selector: PICKER_SEL, id: target});
-    await walkPickerPages(page, expected.length, 'backward');
-    const walk = await runPickerWalk(page);
-    const out = [...pageWalkResult(walk),
-      ...pickerSelectionFindings(walk.seen, target)];
-    const off = walk.backward.states[walk.backward.states.length - 1];
+    const out = [];
+    let off = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+    // The target is the final project. Check its jump from a neighbouring
+    // page, then audit backwards first instead of repeating that walk.
+    if (off.ids.includes(target) && !off.previousDisabled
+      && !pickerPageFitFindings([off]).length) {
+      await clickPickerPage(page, sel + ' ' + PREV_SEL, off);
+      off = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+    }
+    out.push(...pickerPageFitFindings([off]),
+      ...pickerSelectionFindings([off], target));
     if (!off.ids.includes(target) && off.jumpVisible
       && !pickerPageFitFindings([off]).length) {
       await page.click(sel + ' .pp-pager .pp-jump');
@@ -1524,10 +1534,15 @@ async function runPickerSelection(page, width) {
         upper: 'jump reaches the selected project',
         lower: 'selected project is still off-page', gap: 0 });
     }
+    // Normally the jump already landed at the end; also audit all pages
+    // when a broken jump or empty trailing page leaves us short of it.
+    await walkPickerPages(page, expected.length, 'forward');
+    const walk = await runPickerWalk(page, true);
+    out.push(...pageWalkResult(walk), ...pickerSelectionFindings(walk.seen, target));
     return out;
   } finally {
     await page.click(sel + ' > .pp-all');
-    await walkPickerPages(page, expected.length, 'backward');
+    if (restorePicker) await walkPickerPages(page, expected.length, 'backward');
   }
 }
 
@@ -1709,7 +1724,7 @@ export const RULES = [
     description: 'the off-page selected-project jump remains reserved and'
       + ' fits both before and after jumping (#960)',
     seed: seedPickerSelectedOverflow,
-    run: async (ctx) => runPickerSelection(ctx.page, ctx.width),
+    run: async (ctx) => runPickerSelection(ctx.page, ctx.width, ctx.restorePicker !== false),
   },
   {
     id: 'project-picker-scrollbar',
