@@ -746,7 +746,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-12T19:54:30Z",
+  "provider_rates_fetched": "2026-10-12T20:19:28Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -21478,6 +21478,12 @@
           "from": "2026-10-12T09:10:37Z",
           "output": 0.5746045285,
           "read": 0.0911028899
+        },
+        {
+          "fresh": 0.096,
+          "from": "2026-10-12T20:19:28Z",
+          "output": 0.55,
+          "read": 0.099
         }
       ],
       "InferenceNet": [
