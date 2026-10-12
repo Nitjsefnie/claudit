@@ -1,12 +1,24 @@
 """Guest-login configuration through the real routes and auth middleware."""
 from __future__ import annotations
 
+import secrets
+
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from backend.app import app
 from backend.guest_login import guest_login_enabled
+from backend.login_page import _login_page_response
 from backend import session
+
+# Copied from origin/master's original guest controls, including whitespace.
+_ORIGINAL_GUEST_HTML = """  <div class="or">or</div>
+  <button type="submit" class="guest-btn"
+          formaction="/login/guest" formmethod="post" formnovalidate>
+    Continue as guest
+  </button>
+"""
 
 
 @pytest.fixture(name="client")
@@ -50,6 +62,20 @@ def test_sign_in_guest_controls_follow_setting(
     assert '<div class="or">or</div>' not in disabled.text
     assert '<form method="post" action="/login">' in disabled.text
     assert '<button type="submit">Sign in</button>' in disabled.text
+
+
+def test_sign_in_guest_markup_is_preserved(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only the original guest block disappears, with identical page inputs."""
+    monkeypatch.delenv("GUEST_LOGIN", raising=False)
+    request = Request({"type": "http", "state": {"csp_nonce": secrets.token_urlsafe(16)}})
+    enabled = _login_page_response(request, "", 200).body.decode("utf-8")
+    assert enabled.count(_ORIGINAL_GUEST_HTML) == 1
+    # Pin the slot's leading boundary too: a substring alone admits a newline.
+    assert enabled.count('  <div class="err" role="alert"></div>\n' + _ORIGINAL_GUEST_HTML) == 1
+
+    monkeypatch.setenv("GUEST_LOGIN", "0")
+    disabled = _login_page_response(request, "", 200).body.decode("utf-8")
+    assert disabled == enabled.replace(_ORIGINAL_GUEST_HTML, "")
 
 
 def test_guest_route_disabled_returns_404_without_cookie(
