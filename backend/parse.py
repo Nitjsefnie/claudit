@@ -408,9 +408,7 @@ class _LineWalk:
         return True
 
     def handle_message_line(self, obj: dict, msg: dict, line_num: int) -> None:
-        """Observe user generation independently of the established role dispatch."""
-        if self.generation_timing and obj.get("type") == "user":
-            self.generation_timing.observe_user(obj, line_num)
+        """Role dispatch, after the line walk has observed generation by type."""
         role = msg.get("role")
         if role == "user":
             self.handle_user_line(obj, msg, line_num)
@@ -653,10 +651,7 @@ def resolve_agent_type(walk: _LineWalk) -> str:
 
 
 def _parse_claude(file_key: str, blob: bytes) -> dict:
-    """Parse one Claude JSONL, max-merging requestIds and retaining idless records.
-
-    Account-cap detection follows _LineWalk.handle_rate_limit.
-    """
+    """Parse Claude JSONL; account caps follow _LineWalk.handle_rate_limit."""
     walk = _LineWalk(file_key)
     for line_num, raw in enumerate(iter_lines(blob), 1):
         if not raw:
@@ -685,6 +680,9 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
         if walk.handle_rate_limit(obj, line_num):
             continue
 
+        # Reuse the decoded type; role dispatch stays independent of collection.
+        if kind == "user" and walk.generation_timing:
+            walk.generation_timing.observe_user(obj, line_num)
         walk.handle_message_line(obj, as_dict(obj.get("message")), line_num)
 
     _resolve_tool_errors(walk.tool_uses, walk.tool_result_is_error,
