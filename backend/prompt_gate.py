@@ -1,7 +1,8 @@
 """The Claude-path prompt gate (issue #213).
 
 Decides whether a user text counts as a prompt for `prompt_count`,
-ctx-turn boundaries and reply-latency anchoring. Split out of
+ctx-turn boundaries. Reply-latency anchoring is independent: injected
+user text can anchor a reply without counting as a prompt. Split out of
 parse.py, which had no room to grow under the module-size ratchet
 (SV-CI-RATCHETS); the gate's own text is the maintainer ruling
 verbatim. An explicit class keeps the gate's leading-strip and tag-regex
