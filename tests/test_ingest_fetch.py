@@ -496,9 +496,7 @@ def test_parse_worker_init_and_its_sigterm_defense():
 
 
 def test_parse_worker_exits_when_the_parent_is_already_gone():
-    """PDEATHSIG is armed after process start, so a parent dying in that window
-    would leave an orphan; the initializer's ppid check closes the race by
-    exiting any worker whose parent is not the one that started it."""
+    """The worker exits when its recorded service parent does not match."""
     with ingest_fetch.parse_pool(1, -1) as pool:
         with pytest.raises(BrokenProcessPool):
             pool.submit(int).result(timeout=60)
