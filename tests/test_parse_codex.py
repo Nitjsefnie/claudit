@@ -653,6 +653,7 @@ RECORD_KEYS = {
     "cache_write_tokens",
     "output_tokens", "thinking_tokens", "long_context", "cost_usd",
     "text_chars", "reply_latency_s", "ctx_input", "stop_reason", "effort",
+    "generation_s", "output_tokens_per_s",
     "cli_version", "turn_flags", "turn_tool_results", "eph5_tokens",
     "eph1h_tokens", "web_search_requests", "is_replay",
 }
