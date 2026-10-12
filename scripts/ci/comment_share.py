@@ -13,6 +13,9 @@ import tokenize
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import yaml
+from yaml.tokens import AliasToken, AnchorToken, KeyToken, ScalarToken, TagToken
+
 ROOT = Path(__file__).resolve().parents[2]
 SUFFIXES = {'.py': 'python', '.js': 'javascript', '.jsx': 'javascript',
             '.mjs': 'javascript', '.cjs': 'javascript', '.yaml': 'yaml',
@@ -105,7 +108,30 @@ def heredoc_at(line: str, index: int) -> tuple[int, tuple[str, bool] | None]:
     match = HEREDOC.match(line, index)
     if not match:
         return index + 2, None
-    return match.end(), (shlex.split(match[2])[0], bool(match[1]))
+    word = re.sub(r"\$'((?:\\.|[^'])*)'", ansi_delimiter, match[2])
+    return match.end(), (shlex.split(word)[0], bool(match[1]))
+
+
+def ansi_delimiter(match: re.Match[str]) -> str:
+    prefix = match.string[:match.start()]
+    if (len(prefix) - len(prefix.rstrip('\\'))) % 2:
+        return match[0]
+    escapes = dict(zip('abefnrtv', '\a\b\x1b\f\n\r\t\v', strict=True))
+    escapes['E'] = '\x1b'
+
+    def expand(escape: re.Match[str]) -> str:
+        value = escape[1]
+        if value[0] in 'xuU':
+            return chr(int(value[1:], 16))
+        if value[0] in '01234567':
+            return chr(int(value, 8))
+        if value[0] == 'c' and len(value) == 2:
+            return chr(127 if value[1] == '?' else ord(value[1].upper()) & 31)
+        return escapes.get(value, value if value in "\\\"'?" else '\\' + value)
+
+    decoded = re.sub(r'\\(x[\da-fA-F]{1,2}|u[\da-fA-F]{1,4}|U[\da-fA-F]{1,8}|[0-7]{1,3}|c.|.)',
+                     expand, match[1])
+    return shlex.quote(decoded)
 
 
 @dataclass
@@ -113,6 +139,10 @@ class ShellScope:
     close: str = ''
     quote: str = ''
     depth: int = 0
+    cases: list[str] = field(default_factory=list)
+    pattern_depth: int = 0
+    command: bool = True
+    inert: bool = False
 
 
 @dataclass
@@ -121,72 +151,151 @@ class ShellLexer:
     waiting: list[tuple[str, bool]] = field(default_factory=list)
     bodies: list[tuple[str, bool]] = field(default_factory=list)
 
+    def push(self, close: str) -> None:
+        scope = self.scopes[-1]
+        scope.command = False
+        self.scopes.append(ShellScope(close=close, inert=scope.inert or scope.close == '}'))
+
     def substitution(self, line: str, index: int) -> int | None:
         scope = self.scopes[-1]
         char = line[index]
-        if scope.quote == "'":
+        if scope.quote in ("'", "$'"):
             return None
+        arithmetic = not scope.quote and not (scope.cases and scope.cases[-1] == 'pattern')
+        if line[index:index + 3] == '$((' or arithmetic and line[index:index + 2] == '((':
+            self.push('))')
+            return index + (3 if line[index] == '$' else 2)
         if line[index:index + 2] in ('${', '$('):
             close = '}' if line[index + 1] == '{' else ')'
-            self.scopes.append(ShellScope(close=close))
+            self.push(close)
             return index + 2
         if char == '`':
             if scope.close == '`':
                 self.scopes.pop()
             else:
-                self.scopes.append(ShellScope(close='`'))
+                self.push('`')
             return index + 1
-        if scope.quote or scope.close != ')':
+        if scope.quote:
             return None
+        return self.parenthesis(line, index)
+
+    def parenthesis(self, line: str, index: int) -> int | None:
+        scope, char = self.scopes[-1], line[index]
+        if scope.cases and scope.cases[-1] == 'pattern':
+            self.pattern(line[index], line[index - 1:index])
+            return index + 1 if char in '()' else None
+        if scope.close == '))' and not scope.depth and line[index:index + 2] == '))':
+            self.scopes.pop()
+            return index + 2
         if char == '(':
-            scope.depth += 1
+            if scope.close in (')', '))'):
+                scope.depth += 1
+            else:
+                self.push(')')
         elif char == ')':
             if scope.depth:
                 scope.depth -= 1
-            else:
+            elif scope.close == ')':
                 self.scopes.pop()
+            elif scope.close == '))':
+                raise MeasurementError('unbalanced arithmetic parentheses')
         else:
             return None
         return index + 1
 
-    def parameter(self, char: str) -> None:
+    def pattern(self, char: str, previous: str) -> None:
         scope = self.scopes[-1]
+        if char == '(' and (scope.pattern_depth or previous in '@*+?!' and previous):
+            scope.pattern_depth += 1
+        elif char == ')':
+            if scope.pattern_depth:
+                scope.pattern_depth -= 1
+            else:
+                scope.cases[-1], scope.command = 'body', True
+
+    def parameter(self, line: str, index: int) -> int:
+        scope, char = self.scopes[-1], line[index]
+        if scope.quote not in ("'", "$'") and (line[index:index + 2] in ('${', '$(') or char == '`'):
+            moved = self.substitution(line, index)
+            if moved is not None:
+                return moved
         if scope.quote:
-            if char == scope.quote:
+            if char == scope.quote[-1]:
                 scope.quote = ''
         elif char in "\"'":
             scope.quote = char
-        elif char == '{':
-            scope.depth += 1
         elif char == '}':
-            if scope.depth:
-                scope.depth -= 1
-            else:
-                self.scopes.pop()
+            self.scopes.pop()
+        return index + 1
 
-    def step(self, line: str, index: int) -> tuple[int, int]:
+    def word(self, line: str, index: int) -> int | None:
+        if index and not (line[index - 1].isspace() or line[index - 1] in ';&|(){}'):
+            return None
+        match = re.match(r'[a-zA-Z_]\w*', line[index:])
+        if not match:
+            return None
+        scope, word = self.scopes[-1], match[0]
+        end = index + match.end()
+        complete = end == len(line) or line[end].isspace() or line[end] in ';&|(){}'
+        closing_case = bool(scope.cases) and not scope.pattern_depth and (scope.command or scope.cases[-1] == 'pattern')
+        if complete and word == 'in' and scope.cases and scope.cases[-1] == 'subject':
+            scope.cases[-1] = 'pattern'
+        elif complete and word == 'esac' and line[end:end + 1] not in (')', '|') and closing_case:
+            scope.cases.pop()
+        elif complete and word == 'case' and scope.command and (not scope.cases or scope.cases[-1] == 'body'):
+            scope.cases.append('subject')
+        scope.command = complete and word in ('if', 'then', 'elif', 'else', 'do', 'while', 'until')
+        return end
+
+    def scope_step(self, line: str, index: int) -> int | None:
         scope = self.scopes[-1]
         char = line[index]
         if char == '\\' and scope.quote != "'":
-            return index + 2, 0
+            return index + 2
+        if not scope.quote and line[index:index + 2] == "$'":
+            scope.quote, scope.command = "$'", False
+            return index + 2
         if scope.close == '}':
-            self.parameter(char)
-            return index + 1, 0
+            return self.parameter(line, index)
         moved = self.substitution(line, index)
         if moved is not None:
-            return moved, 0
-        if scope.quote:
-            if char == scope.quote:
+            return moved
+        if scope.quote or scope.close == '))':
+            if scope.quote and char == scope.quote[-1]:
                 scope.quote = ''
-        elif char in "\"'":
+            return index + 1
+        return None
+
+    def command_step(self, line: str, index: int) -> int | None:
+        scope = self.scopes[-1]
+        moved = self.word(line, index)
+        if moved is not None:
+            return moved
+        if scope.cases and line[index:index + 2] in (';;', ';&'):
+            scope.cases[-1], scope.command = 'pattern', True
+            return index + (3 if line[index:index + 3] == ';;&' else 2)
+        return None
+
+    def step(self, line: str, index: int) -> tuple[int, int]:
+        moved = self.scope_step(line, index)
+        if moved is None:
+            moved = self.command_step(line, index)
+        if moved is not None:
+            return moved, 0
+        scope, char = self.scopes[-1], line[index]
+        if char in "\"'":
             scope.quote = char
         elif char == '#' and (index == 0 or line[index - 1].isspace()):
-            return len(line), non_whitespace_bytes(line[index:])
+            return len(line), 0 if scope.inert else non_whitespace_bytes(line[index:])
         elif line[index:index + 2] == '<<':
             moved, heredoc = heredoc_at(line, index)
             if heredoc:
                 self.waiting.append(heredoc)
             return moved, 0
+        if char in ';&|\n{}' or char == '!' and line[index + 1:index + 2].isspace():
+            scope.command = True
+        elif not char.isspace():
+            scope.command = False
         return index + 1, 0
 
     def line(self, line: str) -> int:
@@ -213,79 +322,84 @@ class ShellLexer:
         return count
 
     def finish(self) -> None:
+        if len(self.scopes) != 1 or any(scope.quote or scope.cases for scope in self.scopes):
+            raise MeasurementError('unterminated shell scope or quote')
         pending = self.bodies or self.waiting
         if pending:
             raise MeasurementError(f'unterminated heredoc: {pending[0][0]}')
 
 
-def yaml_line(line: str, quote: str) -> tuple[int, str]:
-    count = 0
-    index = 0
-    scalar_start = True
-    while index < len(line):
-        char = line[index]
-        if char == '\\' and quote == '"':
-            index += 2
-            continue
-        if quote:
-            if char == quote:
-                if quote == "'" and line[index:index + 2] == "''":
-                    index += 2
-                    continue
-                quote = ''
-                scalar_start = False
-        elif char in "\"'" and scalar_start:
-            quote = char
-        elif char == '#' and (index == 0 or line[index - 1].isspace()):
-            count += non_whitespace_bytes(line[index:])
+def yaml_block(text: str, token: ScalarToken, key: str, parent: int
+               ) -> tuple[int, int, int]:
+    newline = re.search(r'\r\n|[\r\n\x85\u2028\u2029]', text[token.start_mark.index:])
+    if newline is None:
+        return len(text), len(text), 0
+    start = token.start_mark.index + newline.end()
+    body = []
+    for line in text[start:].splitlines(keepends=True):
+        if line.strip() and len(line) - len(line.lstrip(' ')) <= parent:
             break
-        elif not char.isspace():
-            next_char = line[index + 1:index + 2]
-            scalar_start = (char in '[{,' or char == ':'
-                            and (not next_char or next_char.isspace()
-                                 or next_char in '[]{},')
-                            or char in '-?' and scalar_start
-                            and next_char.isspace())
-        index += 1
-    return count, quote
-
-
-BLOCK_SCALAR = re.compile(
-    r'^(?P<prefix> *(?:- +)?)(?:(?P<key>[^:#]+?):[ \t]*)?'
-    r'[|>](?P<flags>[1-9][+-]?|[+-][1-9]?)?[ \t]*(?:#.*)?(?:\r?\n)?$')
+        body.append(line)
+    end = start + sum(len(line) for line in body)
+    count = 0
+    if key == 'run':
+        header = text[token.start_mark.index:start].split('#', 1)[0]
+        digit = next((int(char) for char in header if char.isdigit()), None)
+        indent = parent + digit if digit is not None else next(
+            (len(line) - len(line.lstrip(' ')) for line in body if line.strip()), parent + 1)
+        script = ''.join(line[min(indent, len(line) - len(line.lstrip(' '))):]
+                         for line in body)
+        count = quoted_comments(script, shell=True)
+    return start, end, count
 
 
 def yaml_comments(text: str) -> int:
-    lines = list(io.StringIO(text))
-    count = index = 0
-    quote = ''
-    while index < len(lines):
-        line = lines[index]
-        block = BLOCK_SCALAR.match(line) if not quote else None
-        added, quote = yaml_line(line, quote)
-        count += added
-        index += 1
-        if not block:
+    try:
+        tokens = list(yaml.scan(text))
+    except yaml.YAMLError as error:
+        raise MeasurementError(f'YAML tokenization failed: {error}') from error
+    spans = []
+    anchors: dict[str, str] = {}
+    key = anchor = ''
+    parent = count = 0
+    reading_key = False
+    for token in tokens:
+        if isinstance(token, KeyToken):
+            reading_key, key, parent = True, '', token.start_mark.column
+        elif isinstance(token, AnchorToken):
+            anchor = token.value
+        elif isinstance(token, AliasToken):
+            key = anchors.get(token.value, '') if reading_key else ''
+            reading_key, anchor = False, ''
+        elif isinstance(token, ScalarToken):
+            if anchor:
+                anchors[anchor] = token.value
+                anchor = ''
+            if token.style in ("'", '"'):
+                spans.append((token.start_mark.index, token.end_mark.index))
+            if reading_key:
+                key, reading_key = token.value, False
+            else:
+                if token.style in ('|', '>'):
+                    start, end, added = yaml_block(text, token, key, parent)
+                    spans.append((start, end))
+                    count += added
+                key = ''
+        elif not isinstance(token, TagToken):
+            anchor = ''
+    return count + yaml_hashes(text, spans)
+
+
+def yaml_hashes(text: str, spans: list[tuple[int, int]]) -> int:
+    count = 0
+    comment_end = 0
+    for match in re.finditer(r'(?<!\S)#', text):
+        start = match.start()
+        if start < comment_end or any(begin <= start < end for begin, end in spans):
             continue
-        parent = len(block['prefix'])
-        body = []
-        while index < len(lines):
-            current = lines[index]
-            indent = len(current) - len(current.lstrip(' '))
-            if current.strip() and indent <= parent:
-                break
-            body.append(current)
-            index += 1
-        if (block['key'] or '').strip().strip("\"'") == 'run':
-            flags = block['flags'] or ''
-            digit = next((int(char) for char in flags if char.isdigit()), None)
-            indent = parent + digit if digit is not None else next(
-                (len(value) - len(value.lstrip(' ')) for value in body
-                 if value.strip()), parent + 1)
-            script = ''.join(value[indent:] if value.strip() else '\n'
-                             for value in body)
-            count += quoted_comments(script, shell=True)
-        quote = ''
+        newline = re.search(r'[\r\n\x85\u2028\u2029]', text[start:])
+        comment_end = start + newline.start() if newline else len(text)
+        count += non_whitespace_bytes(text[start:comment_end])
     return count
 
 
