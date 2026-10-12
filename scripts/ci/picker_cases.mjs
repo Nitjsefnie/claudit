@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { API, FIXTURES } from './panel_server.mjs';
-import { trackLayoutRequests, settleDashboard, layoutTiming } from './layout_waits.mjs';
+import { trackLayoutRequests, settleDashboard, layoutTiming, renderTurn } from './layout_waits.mjs';
 
 export async function readPickerWidths(page, probe, selector, widths) {
   const samples = await page.evaluate(probe, {selector, widths});
@@ -13,10 +13,21 @@ export async function readPickerWidths(page, probe, selector, widths) {
   return samples;
 }
 
-async function sweepWidths(page, checks, target) {
+export async function resetPickerForSweep(page, probe, selector, projectCount) {
+  await page.setViewportSize({width: 1440, height: 900});
+  await renderTurn(page);
+  const reset = await page.evaluate(probe, {
+    selector, maxPages: Math.max(1, projectCount), direction: 'backward',
+  });
+  if (!reset.completed || reset.states.at(-1)?.page !== 1) {
+    throw new Error('picker did not reset before width sweep');
+  }
+}
+
+async function sweepWidths(page, checks, target, projectCount) {
   const failures = [];
   const selector = '.project-picker[data-picker="projects"]';
-  await page.setViewportSize({width: 1440, height: 900});
+  await resetPickerForSweep(page, checks.probe, selector, projectCount);
   for (const state of ['unselected', 'selected', 'off-page']) {
     await page.$eval(selector, (el) => { el.style.width = '320px'; });
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(
@@ -66,7 +77,8 @@ export async function runPickerCases(browser, base, rules, checks) {
       for (const id of ['project-picker-pages-fit', 'project-picker-selected-fit']) {
         const rule = rules.find((r) => r.id === id);
         const findings = await layoutTiming(`fixture ${count}@${width} ${id}`,
-          () => rule.run({page, width}));
+          // This context is discarded; the width sweep owns its own reset.
+          () => rule.run({page, width, restorePicker: false}));
         executed++;
         const label = `${id}: fixture ${count} projects at ${width}px`;
         for (const f of findings) failures.push(`${label}: ${f.upper} -> ${f.lower}`);
@@ -74,7 +86,7 @@ export async function runPickerCases(browser, base, rules, checks) {
       }
       if (count === 101 && width === 80) {
         const sweep = await layoutTiming('width sweep',
-          () => sweepWidths(page, checks, projects[0].project_id));
+          () => sweepWidths(page, checks, projects[0].project_id, projects.length));
         executed++;
         failures.push(...sweep);
         if (!sweep.length) passed.push('picker width sweep: 1..420px, unselected/selected/off-page: passed');
