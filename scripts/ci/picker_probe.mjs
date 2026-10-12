@@ -1,3 +1,12 @@
+import { withDeadline } from './layout_waits.mjs';
+
+// Bound the protocol call too: a stalled renderer cannot run its own timers.
+export function evaluatePicker(page, probe, input, timeoutMs = 60_000) {
+  const label = typeof input === 'string' ? 'picker snapshot'
+    : input.widths ? 'picker width batch' : `picker ${input.direction} page walk`;
+  return withDeadline(() => page.evaluate(probe, input), label, timeoutMs);
+}
+
 // Serialized into the page: collect every state without per-page protocol hops.
 export function pickerProbe(input) {
   const read = (sel) => {
@@ -51,8 +60,23 @@ export function pickerProbe(input) {
     };
   };
   if (typeof input === 'string') return read(input);
-  const rendered = () => new Promise((resolve) => requestAnimationFrame(
-    () => requestAnimationFrame(resolve)));
+  const timeoutMs = input.timeoutMs ?? 5000;
+  const rendered = async (count, label) => {
+    let timer, frame;
+    try {
+      await new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out waiting for ${label} frames`)), timeoutMs);
+        const tick = () => {
+          if (--count === 0) resolve();
+          else frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+      });
+    } finally {
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+    }
+  };
   return (async () => {
     const {selector, maxPages, direction, target} = input;
     const states = [];
@@ -60,7 +84,7 @@ export function pickerProbe(input) {
       const strip = document.querySelector(selector);
       for (const width of input.widths) {
         strip.style.width = width + 'px';
-        await rendered();
+        await rendered(2, `picker width ${width}px`);
         states.push({width, observed: read(selector)});
       }
       return states;
@@ -77,23 +101,26 @@ export function pickerProbe(input) {
       if (step === maxPages - 1) break;
       const title = forward ? 'Next page' : 'Previous page';
       const strip = document.querySelector(selector);
-      await new Promise((resolve, reject) => {
-        const changed = () => Number(strip.querySelector('.pp-count')
-          ?.textContent.split('/')[0]) !== state.page;
-        const finish = () => {
-          if (!changed()) return;
-          observer.disconnect(); clearTimeout(timer); resolve();
-        };
-        const observer = new MutationObserver(finish);
-        const timer = setTimeout(() => {
-          observer.disconnect(); reject(new Error('picker page did not advance'));
-        }, 5000);
-        observer.observe(strip, {subtree: true, childList: true, characterData: true});
-        strip.querySelector(`[title="${title}"]`).click();
-        finish();
-      });
+      let observer, timer;
+      try {
+        await new Promise((resolve, reject) => {
+          const finish = () => {
+            if (Number(strip.querySelector('.pp-count')
+              ?.textContent.split('/')[0]) !== state.page) resolve();
+          };
+          observer = new MutationObserver(finish);
+          timer = setTimeout(() => reject(new Error(
+            `picker ${direction} page ${state.page} did not advance`)), timeoutMs);
+          observer.observe(strip, {subtree: true, childList: true, characterData: true});
+          strip.querySelector(`[title="${title}"]`).click();
+          finish();
+        });
+      } finally {
+        observer?.disconnect();
+        clearTimeout(timer);
+      }
       // Give the committed page a render turn, including queued DOM seeds.
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await rendered(1, `picker ${direction} page ${state.page}`);
     }
     return {states, completed: false, missing: false};
   })();

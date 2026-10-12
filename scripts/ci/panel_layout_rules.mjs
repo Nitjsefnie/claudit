@@ -38,9 +38,9 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { API, FIXTURES, serve, WIDTHS } from './panel_server.mjs';
-import { pickerProbe as PICKER_PAGE_PROBE } from './picker_probe.mjs';
+import { pickerProbe as PICKER_PAGE_PROBE, evaluatePicker } from './picker_probe.mjs';
 import { runPickerCases } from './picker_cases.mjs';
-import { renderTurn, settleDashboard, trackLayoutRequests, layoutTiming } from './layout_waits.mjs';
+import { renderTurn, settleDashboard, trackLayoutRequests, layoutTiming, withDeadline } from './layout_waits.mjs';
 
 // The narrowest legitimate gap in the dashboard is the 12px grid gap;
 // the widest rendering noise Chromium's sub-pixel rounding produces on a
@@ -1295,21 +1295,21 @@ async function clickPickerPage(page, button, previous) {
   }, { selector: PICKER_SEL, page: previous.page }, { timeout: 5_000 });
 }
 
-export async function pickerProjectIds(page) {
-  return page.evaluate(async () => {
+export async function pickerProjectIds(page, timeoutMs = 30_000) {
+  return withDeadline(() => page.evaluate(async () => {
     const response = await fetch('/api/projects?range=all', {
       credentials: 'same-origin', cache: 'no-store',
     });
     if (!response.ok) throw new Error('project fixture request failed');
     const data = await response.json();
     return data.projects.map((project) => project.project_id);
-  });
+  }), 'project fixture response and JSON', timeoutMs);
 }
 
-export function walkPickerPages(page, projectCount, direction) {
-  return page.evaluate(PICKER_PAGE_PROBE, {
+export function walkPickerPages(page, projectCount, direction, timeoutMs = 60_000) {
+  return evaluatePicker(page, PICKER_PAGE_PROBE, {
     selector: PICKER_SEL, maxPages: Math.max(1, projectCount), direction,
-  });
+  }, timeoutMs);
 }
 
 export function pickerPageFitFindings(states) {
@@ -1453,7 +1453,7 @@ async function runPickerPageGeometry(ctx, kinds) {
   if (ctx.seeded) {
     const states = [];
     for (let i = 0; i < 3; i++) {
-      const state = await ctx.page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+      const state = await evaluatePicker(ctx.page, PICKER_PAGE_PROBE, PICKER_SEL);
       if (!state) break;
       states.push(state);
       if (state.page === 3 || state.nextDisabled) break;
@@ -1496,7 +1496,7 @@ async function runPickerSelection(page, width, restorePicker = true) {
   const expected = await pickerProjectIds(page);
   if (!expected.length) return pageWalkResult(await runPickerWalk(page));
   const target = expected[expected.length - 1];
-  const seek = await page.evaluate(PICKER_PAGE_PROBE, {
+  const seek = await evaluatePicker(page, PICKER_PAGE_PROBE, {
     selector: PICKER_SEL, maxPages: expected.length, direction: 'forward', target,
   });
   if (!seek.states.at(-1)?.ids.includes(target)) return [{
@@ -1513,13 +1513,13 @@ async function runPickerSelection(page, width, restorePicker = true) {
       selector + ' .pp-measure .pp-jump')?.textContent.includes(id),
     {selector: PICKER_SEL, id: target});
     const out = [];
-    let off = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+    let off = await evaluatePicker(page, PICKER_PAGE_PROBE, PICKER_SEL);
     // The target is the final project. Check its jump from a neighbouring
     // page, then audit backwards first instead of repeating that walk.
     if (off.ids.includes(target) && !off.previousDisabled
       && !pickerPageFitFindings([off]).length) {
       await clickPickerPage(page, sel + ' ' + PREV_SEL, off);
-      off = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+      off = await evaluatePicker(page, PICKER_PAGE_PROBE, PICKER_SEL);
     }
     out.push(...pickerPageFitFindings([off]),
       ...pickerSelectionFindings([off], target));
@@ -1527,7 +1527,7 @@ async function runPickerSelection(page, width, restorePicker = true) {
       && !pickerPageFitFindings([off]).length) {
       await page.click(sel + ' .pp-pager .pp-jump');
       await renderTurn(page);
-      const on = await page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+      const on = await evaluatePicker(page, PICKER_PAGE_PROBE, PICKER_SEL);
       out.push(...pickerPageFitFindings([off, on]),
         ...pickerSelectionFindings([off, on], target));
       if (!on.activeIds.includes(target)) out.push({
@@ -1674,7 +1674,7 @@ export const RULES = [
     run: async (ctx) => {
       if (ctx.seeded) {
         for (let i = 0; i < 3; i++) {
-          const state = await ctx.page.evaluate(PICKER_PAGE_PROBE, PICKER_SEL);
+          const state = await evaluatePicker(ctx.page, PICKER_PAGE_PROBE, PICKER_SEL);
           if (!state || state.page === 3 || state.nextDisabled) {
             return state && state.page === 3 && !state.ids.length
               ? [{ upper: 'page 3 is nonempty',
