@@ -81,7 +81,10 @@ backend/          — FastAPI application
   prompt_gate.py  — XML-open deny-by-default prompt gate: a user text
                     opening with a tag is harness-injected unless on the
                     pasted_content keep-list; denied texts count no
-                    prompt, anchor no latency, split no ctx turn
+                    prompt and split no ctx turn; latency anchors separately
+  reply_timing.py — Claude reply-latency anchors: non-interrupt user text
+                    (including injections), cleared by replies, interrupts
+                    and failed attempts; independent of prompt counting
   codex_fork.py   — the Codex rollout's head: first declared model,
                     fork detection (forked_from_id), replay-prefix
                     marking for the canonical rank (issue #687)
