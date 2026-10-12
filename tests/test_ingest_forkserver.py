@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import ctypes
 import functools
+import errno
 import importlib
 import json
 import logging
 import lzma
 import multiprocessing
+from multiprocessing import forkserver
 import os
 import re
 import select
@@ -23,7 +25,7 @@ from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 
@@ -305,7 +307,6 @@ def check(target: str) -> None:
 
 
 pytest_plugins = ("test_ingest",)
-pytestmark = requires_forkserver
 
 
 _TRACKER_CLEANUP = re.compile(
@@ -315,6 +316,7 @@ _TRACKER_CLEANUP = re.compile(
     r"  warnings\.warn\(\n")
 
 
+@requires_forkserver
 @bounded_pool_test
 def test_reused_server_refreshes_configuration(monkeypatch, tmp_path):
     """A second pool sees added, changed and removed settings after preload."""
@@ -350,6 +352,7 @@ def test_reused_server_refreshes_configuration(monkeypatch, tmp_path):
     assert second["timing"] is False
 
 
+@requires_forkserver
 @bounded_pool_test
 def test_worker_rejects_wrong_server_parent(monkeypatch):
     """A lost/replaced OS parent must exit even with a live service sentinel."""
@@ -363,6 +366,7 @@ def test_worker_rejects_wrong_server_parent(monkeypatch):
             pool.submit(int).result(timeout=60)
 
 
+@requires_forkserver
 @bounded_pool_test
 def test_reused_server_refreshes_sdk_configuration(monkeypatch):
     """SDK settings outside the R2 prefix reach the actual second client."""
@@ -386,6 +390,7 @@ def test_reused_server_refreshes_sdk_configuration(monkeypatch):
     assert removed["env"] is None
 
 
+@requires_forkserver
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux parent-death signals")
 @pytest.mark.parametrize("mode", ["service-kill", "server-term"])
 def test_service_server_worker_death_chain(mode):
@@ -527,6 +532,80 @@ def test_pool_timing_parts_are_disjoint_slices(
     # One chunk, so no in-wall drain: the post-loop drain is persist
     # time, not wait_persist.
     assert _ms("wait_persist") == 0, line
+
+
+def _safe_initializer(monkeypatch) -> types.SimpleNamespace:
+    """Stub process effects; keep the owned-fd and mapping changes observable."""
+    state = types.SimpleNamespace(
+        prctl=Mock(return_value=0), exit=Mock(side_effect=SystemExit(0)),
+        close=Mock(wraps=os.close),
+        service=types.SimpleNamespace(pid=23, is_alive=Mock(return_value=True)),
+        server=types.SimpleNamespace(_forkserver_alive_fd=None))
+    state.parent = Mock(return_value=state.service)
+    monkeypatch.setattr(ctypes, "CDLL", lambda *_args, **_kw: state)
+    monkeypatch.setattr(signal, "SIGKILL", 9, raising=False)
+    monkeypatch.setattr(signal, "signal", Mock())
+    monkeypatch.setattr(os, "_exit", state.exit)
+    monkeypatch.setattr(os, "getppid", lambda: 17)
+    monkeypatch.setattr(os, "close", state.close)
+    monkeypatch.setattr(os, "environ", {"OLD_SETTING": "old", "CLAUDIT_TIMING": "0"})
+    monkeypatch.setattr(multiprocessing, "parent_process", state.parent)
+    monkeypatch.setattr(forkserver, "_forkserver", state.server)
+    monkeypatch.setattr(_timing, "TIMING_ON", False)
+    return state
+
+
+def test_initializer_exits_before_service_checks_when_parent_mismatches(monkeypatch):
+    state = _safe_initializer(monkeypatch)
+    with pytest.raises(SystemExit):
+        ingest_workers.parse_worker_init(-1, 23, {"NEW_SETTING": "new"})
+    state.exit.assert_called_once_with(0)
+    state.parent.assert_not_called()
+    assert os.environ == {"OLD_SETTING": "old", "CLAUDIT_TIMING": "0"}
+
+
+def test_initializer_exits_before_cleanup_when_service_is_gone(monkeypatch):
+    state = _safe_initializer(monkeypatch)
+    state.service.is_alive.return_value = False
+    with pytest.raises(SystemExit):
+        ingest_workers.parse_worker_init(17, 23, {"NEW_SETTING": "new"})
+    state.exit.assert_called_once_with(0)
+    state.close.assert_not_called()
+    assert os.environ == {"OLD_SETTING": "old", "CLAUDIT_TIMING": "0"}
+
+
+def test_initializer_arms_parent_death_and_closes_alive_fd(monkeypatch):
+    state = _safe_initializer(monkeypatch)
+    descriptor = os.open(os.devnull, os.O_RDONLY)
+    setattr(state.server, "_forkserver_alive_fd", descriptor)
+    try:
+        ingest_workers.parse_worker_init(17, 23)
+        state.prctl.assert_called_once_with(1, 9, 0, 0, 0)
+        with pytest.raises(OSError) as error:
+            os.fstat(descriptor)
+        assert error.value.errno == errno.EBADF
+        assert getattr(state.server, "_forkserver_alive_fd") is None
+    finally:
+        if call(descriptor) not in state.close.call_args_list:
+            state.close(descriptor)
+
+
+def test_initializer_replaces_environment_and_rereads_timing(monkeypatch):
+    _safe_initializer(monkeypatch)
+    snapshot = {"NEW_SETTING": "new", "CLAUDIT_TIMING": "1"}
+    ingest_workers.parse_worker_init(17, environment=snapshot)
+    assert os.environ == {"NEW_SETTING": "new", "CLAUDIT_TIMING": "1"}
+    assert _timing.TIMING_ON is True
+
+
+def test_forkserver_preload_restores_default_sigterm():
+    original = signal.getsignal(signal.SIGTERM)
+    try:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        importlib.reload(importlib.import_module("backend.ingest_forkserver"))
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+    finally:
+        signal.signal(signal.SIGTERM, original)
 
 
 if __name__ == "__main__":
