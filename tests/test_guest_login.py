@@ -68,13 +68,13 @@ def test_sign_in_guest_markup_is_preserved(monkeypatch: pytest.MonkeyPatch) -> N
     """Only the original guest block disappears, with identical page inputs."""
     monkeypatch.delenv("GUEST_LOGIN", raising=False)
     request = Request({"type": "http", "state": {"csp_nonce": secrets.token_urlsafe(16)}})
-    enabled = _login_page_response(request, "", 200).body.decode("utf-8")
+    enabled = bytes(_login_page_response(request, "", 200).body).decode("utf-8")
     assert enabled.count(_ORIGINAL_GUEST_HTML) == 1
     # Pin the slot's leading boundary too: a substring alone admits a newline.
     assert enabled.count('  <div class="err" role="alert"></div>\n' + _ORIGINAL_GUEST_HTML) == 1
 
     monkeypatch.setenv("GUEST_LOGIN", "0")
-    disabled = _login_page_response(request, "", 200).body.decode("utf-8")
+    disabled = bytes(_login_page_response(request, "", 200).body).decode("utf-8")
     assert disabled == enabled.replace(_ORIGINAL_GUEST_HTML, "")
 
 
