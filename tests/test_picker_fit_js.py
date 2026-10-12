@@ -7,18 +7,16 @@ current width render, the rest page through the existing prev/next
 controls, and no horizontal scrollbar or overflow may remain. Nothing
 below the strip may move while paging or re-fitting.
 
-Two layers, mirroring the house split for JSX the suite cannot render:
+The tests cover the current packing path and retained legacy arithmetic:
 
-- `src/picker-fit.js` is plain JS, driven through node here: the pure
-  fit arithmetic plus the DOM read that turns a strip into numbers.
-  The DOM read is node-checked with a stub element whose widths come
-  from the test, so the read-mapping (what computeFit reads and what it
-  reserves) is pinned, not just the arithmetic.
+- `src/picker-pages.js` packs each measured suffix and resolves selected
+  projects to their variable pages, using picker-fit.js's `fitCount`.
+  The old `computeFit` reader also retains node regression coverage;
+  its stub models that reader's inputs, not the active sizing path.
 
-- The JSX glue in `src/app.jsx` is pinned at source level: the measure
-  row, the pre-paint hook, the refit triggers and the overflow cut-off
-  are strings the rendered guard (scripts/ci/panel_layout_rules.mjs,
-  added on the #772 harness) would not see the wiring of.
+- `src/picker.jsx` and `src/picker-measure.jsx` wiring is checked at source
+  level: the measurement row, layout effect, refit triggers and cut-off.
+  scripts/ci/panel_layout_rules.mjs verifies the rendered component.
 """
 from __future__ import annotations
 
@@ -122,15 +120,13 @@ def test_fit_of_no_chips_is_zero():
     assert out["n"] == 0
 
 
-# --- the DOM read (stubbed strip) ---------------------------------------
+# --- the legacy DOM read (stubbed strip) -------------------------------
 
 def _stub_strip(inner=400, gap=6, widths=(100, 100, 100), all_w=40,
                 pager_core=None, jump_w=0):
-    """Run computeFit in node against a stub strip the way the component
-    renders it, and return the page size. The stub must fail on what it
-    does not model: a selector the reader names but the stub does not
-    register raises, so a renamed class in the module turns a green into
-    a failure."""
+    """Exercise the retained computeFit reader's fixed-prefix measurement.
+    This is legacy coverage, not a model of computePages or control sizing.
+    An unregistered selector raises so a reader/stub mismatch fails."""
     node = shutil.which("node")
     assert node, "node not available"
     payload = json.dumps({
@@ -145,7 +141,7 @@ def _stub_strip(inner=400, gap=6, widths=(100, 100, 100), all_w=40,
       global.window = {{ getComputedStyle: () => spec.computed }};
       require({str(FIT_JS)!r});
       const spec = {payload};
-      // A stub strip standing in for the real one: the reader consults
+      // Legacy reader inputs: the reader consults
       // only querySelector/querySelectorAll/getComputedStyle and reads
       // fractional widths off getBoundingClientRect.
       function rectEl(w) {{ return {{ getBoundingClientRect: () => ({{ width: w }}) }}; }}
@@ -184,7 +180,7 @@ def _stub_strip(inner=400, gap=6, widths=(100, 100, 100), all_w=40,
     return json.loads(proc.stdout)
 
 
-# --- the DOM read --------------------------------------------------------
+# --- retained legacy reader regression coverage -------------------------
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_compute_fit_reads_padding_gap_all_and_chips():
@@ -238,11 +234,8 @@ def test_compute_fit_reserves_the_jump_from_the_measure_row():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_compute_fit_returns_zero_when_nothing_fits():
-    """Below the width of All + pager + one chip the page size is zero:
-    the fit stays truthful (0 = room for none). The component floors the
-    page at one PINCHED chip (picker.jsx, #807) and the chip's pp-only
-    CSS keeps it inside the strip — computeFit itself still measures 0,
-    so the rendered guard's red proof keeps its overflowing shape."""
+    """The legacy reader reports zero when no chip fits. Current packing's
+    one-chip floor is covered separately; it does not consume this reader."""
     r = _stub_strip(inner=400, gap=6, widths=(500,), all_w=40,
                     pager_core=100)
     assert r == 0

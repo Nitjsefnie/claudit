@@ -542,3 +542,102 @@ def test_healthy_readiness_and_width_frames_clear_all_deadline_timers():
     """)
     assert out['widths'] == [320, 321]
     assert out['timers'] == 0
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize('blocked,label', [
+    ('measurement', 'measurement'), ('selection', 'selected-chip'),
+    ('width', 'width setter'), ('narrow', 'narrow viewport'),
+    ('restore', 'restore viewport'), ('context', 'fixture context'),
+    ('routes', 'fixture routes'), ('page', 'fixture page'),
+    ('fulfill', 'fixture response'), ('close', 'fixture close'),
+    *[(name, name) for name in [
+        'project-picker-pages-fit', 'project-picker-pages-complete',
+        'project-picker-pages-left-fit',
+        'project-picker-project-universe', 'project-picker-pages-height',
+        'project-picker-pages-position', 'project-picker-pages-seat',
+        'project-picker-selected-fit',
+    ]],
+])
+def test_introduced_protocol_calls_reject_a_stalled_renderer(blocked, label):
+    out = _wait_node("const blocked = " + json.dumps(blocked) + ";" + """
+      let routeHandler, entered, viewports = 0;
+      const reached = new Promise(resolve => {entered = resolve;});
+      const stall = () => {entered(); return never;};
+      const state = {page: 1, total: 1, ids: ['p1'], activeIds: [],
+        previousDisabled: true, nextDisabled: true, left: 0, right: 320,
+        chipLeft: 40, chipRight: 100, pagerVisible: false, pagerWidth: null,
+        height: 47, top: 0, seat: 0};
+      const walk = {states: [state], completed: true, missing: false};
+      const page = {on() {}, waitForSelector: async () => {},
+        waitForFunction: async () => {}, click: async () => {},
+        evaluate: (fn, args) => blocked.startsWith('project-picker-')
+          || (blocked === 'measurement' && typeof args === 'string') ? stall()
+          : args?.direction ? Promise.resolve(walk) : Promise.resolve(['p1']),
+        $$eval: stall, $eval: stall,
+        setViewportSize: async () => {
+          viewports++;
+          if ((blocked === 'narrow' && viewports === 1)
+            || (blocked === 'restore' && viewports === 2)) await stall();
+        },
+        goto: async () => {
+          if (blocked === 'fulfill') await routeHandler({
+            request: () => ({url: () => 'http://test/api/projects'}),
+            fulfill: stall});
+        }};
+      const context = {
+        route: async (pattern, handler) => {
+          routeHandler = handler; if (blocked === 'routes') await stall();
+        },
+        newPage: async () => blocked === 'page' ? stall() : page,
+        close: async () => {if (blocked === 'close') await stall();},
+      };
+      const browser = {newContext: async () => blocked === 'context' ? stall() : context};
+      const rule = id => mod.RULES.find(r => r.id === id);
+      const task = blocked.startsWith('project-picker-') ? rule(blocked).seed(page)
+        : blocked === 'measurement' ? mod.runPickerWalk(page)
+        : blocked === 'selection' ? rule('project-picker-selected-fit').run({page, width: 320, restorePicker: false})
+        : ['narrow', 'restore'].includes(blocked) ? rule('project-picker-pages-fit').run({page, width: 320})
+        : cases.runPickerCases(browser, 'http://test', [
+          {id: 'project-picker-pages-fit', run: async () => []},
+          {id: 'project-picker-selected-fit', run: async () => []},
+        ], {probe: () => {}, fit: () => [], selection: () => []});
+      const result = observe(task);
+      await reached; await flush();
+      const before = result.status;
+      await advance(61_000);
+      console.log(JSON.stringify({before, result, timers: timers.size}));
+    """)
+    assert out['before'] == 'pending'
+    assert out['result']['status'] == 'rejected', out
+    assert label in out['result']['error']
+    assert out['timers'] == 0
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_picker_probe_and_fit_check_both_edges_of_every_chip_and_pager():
+    out = _probe_wait_node("""
+      const results = {};
+      for (const [name, left, right, pagerLeft, pagerRight] of [
+        ['inside', 40, 100, 200, 320], ['chip-left', -2, 100, 200, 320],
+        ['chip-right', 40, 322, 200, 320], ['tolerance', -1, 321, -1, 321],
+        ['pager-left', 40, 100, -2, 320], ['pager-right', 40, 100, 200, 322],
+        ['empty', null, null, null, null],
+      ]) {
+        strip.children = left === null ? [] : [[40, 50], [left, right]].map(([l, r], i) => ({
+          classList: {contains: cls => cls === 'pp-proj'}, dataset: {projectId: `p${i}`},
+          getBoundingClientRect: () => ({left: l, right: r, width: r - l, height: 20}),
+        }));
+        pager.getBoundingClientRect = () => ({left: pagerLeft, right: pagerRight,
+          width: pagerRight - pagerLeft, height: 20});
+        if (name === 'empty') strip.querySelector = () => null;
+        const observed = pickerProbe('.picker');
+        results[name] = mod.pickerPageFitFindings([observed]);
+      }
+      console.log(JSON.stringify(results));
+    """)
+    for case in ['inside', 'tolerance', 'empty']:
+        assert out[case] == [], (case, out[case])
+    for case in ['chip-left', 'chip-right', 'pager-left', 'pager-right']:
+        assert len(out[case]) == 1, (case, out[case])
+        assert out[case][0]['gap'] >= 0

@@ -909,7 +909,7 @@ async function seedPickerOverflowAfterPaging(page) {
 // Seed for the pages-fit rule's pager-position limb: move only the pager
 // after the first page turn, leaving the strip and its chips untouched.
 async function seedPickerPagerShift(page) {
-  return page.evaluate((sel) => {
+  return withDeadline(() => page.evaluate((sel) => {
     const onTurn = (e) => {
       if (!e.target.closest('.pp-nav[title="Next page"]')) return;
       const pager = document.querySelector(sel + ' .pp-pager');
@@ -918,21 +918,38 @@ async function seedPickerPagerShift(page) {
     };
     document.addEventListener('click', onTurn, true);
     return { armed: 'pager shifts 12px after the next page turn' };
-  }, PICKER_SEL);
+  }, PICKER_SEL), 'project-picker-pages-fit seed');
 }
 
 async function seedPickerMissingMeasurement(page) {
-  return page.evaluate((sel) => {
+  return withDeadline(() => page.evaluate((sel) => {
     const chips = document.querySelectorAll(sel + ' .pp-measure .pp-proj');
     const last = chips[chips.length - 1];
     const removed = last?.dataset.projectId;
     last?.remove();
     return { removed };
-  }, PICKER_SEL);
+  }, PICKER_SEL), 'project-picker-project-universe seed');
+}
+
+async function seedPickerLeftClip(page) {
+  return withDeadline(() => page.evaluate((sel) => {
+    const strip = document.querySelector(sel);
+    const plant = () => {
+      if (Number(strip.querySelector('.pp-count')?.textContent.split('/')[0]) !== 2) return;
+      const chip = [...strip.children].find((el) => el.classList.contains('pp-proj'));
+      if (!chip) return;
+      const shift = strip.getBoundingClientRect().left - chip.getBoundingClientRect().left - 12;
+      chip.style.transform = `translateX(${shift}px)`;
+      observer.disconnect();
+    };
+    const observer = new MutationObserver(plant);
+    observer.observe(strip, {childList: true, subtree: true, characterData: true});
+    return {armed: 'page 2 chip extends 12px beyond the left edge'};
+  }, PICKER_SEL), 'project-picker-pages-left-fit seed');
 }
 
 async function seedPickerEmptyLaterPage(page) {
-  return page.evaluate((sel) => {
+  return withDeadline(() => page.evaluate((sel) => {
     const strip = document.querySelector(sel);
     if (!strip) return null;
     const hide = () => {
@@ -948,11 +965,11 @@ async function seedPickerEmptyLaterPage(page) {
       { childList: true, subtree: true, characterData: true });
     hide();
     return { armed: 'page 3 chips hidden after render' };
-  }, PICKER_SEL);
+  }, PICKER_SEL), 'project-picker-pages-complete seed');
 }
 
 async function seedPickerLaterHeight(page) {
-  return page.evaluate((sel) => {
+  return withDeadline(() => page.evaluate((sel) => {
     const strip = document.querySelector(sel);
     if (!strip) return null;
     const grow = () => {
@@ -964,11 +981,11 @@ async function seedPickerLaterHeight(page) {
     observer.observe(strip, { childList: true, subtree: true, characterData: true });
     grow();
     return { armed: 'strip height changes on page 3' };
-  }, PICKER_SEL);
+  }, PICKER_SEL), 'project-picker-pages-height seed');
 }
 
 async function seedPickerLaterPosition(page) {
-  return page.evaluate((sel) => {
+  return withDeadline(() => page.evaluate((sel) => {
     const strip = document.querySelector(sel);
     if (!strip) return null;
     const move = () => {
@@ -980,11 +997,11 @@ async function seedPickerLaterPosition(page) {
     observer.observe(strip, { childList: true, subtree: true, characterData: true });
     move();
     return { armed: 'strip position changes on page 3' };
-  }, PICKER_SEL);
+  }, PICKER_SEL), 'project-picker-pages-position seed');
 }
 
 async function seedPickerLaterSeat(page) {
-  return page.evaluate((sel) => {
+  return withDeadline(() => page.evaluate((sel) => {
     const strip = document.querySelector(sel);
     const below = strip && strip.nextElementSibling;
     if (!strip || !below) return null;
@@ -997,17 +1014,17 @@ async function seedPickerLaterSeat(page) {
     observer.observe(strip, { childList: true, subtree: true, characterData: true });
     move();
     return { armed: 'content below strip shifts on page 3' };
-  }, PICKER_SEL);
+  }, PICKER_SEL), 'project-picker-pages-seat seed');
 }
 
 async function seedPickerSelectedOverflow(page) {
-  return page.evaluate((sel) => {
+  return withDeadline(() => page.evaluate((sel) => {
     const style = document.createElement('style');
     style.textContent = sel + ' .pp-pager .pp-jump'
       + ' { width: 100vw !important; max-width: none !important; }';
     document.head.appendChild(style);
     return { injected: 'selected jump forced to viewport width' };
-  }, PICKER_SEL);
+  }, PICKER_SEL), 'project-picker-selected-fit seed');
 }
 
 // Seed for the label rule's red proof (#826): rewrite the first
@@ -1326,6 +1343,11 @@ export function pickerPageFitFindings(states) {
           + ` past ${page.right}px`,
         gap: Math.max(page.chipRight - page.right, page.overflow ? 1 : 0) });
     }
+    if (page.chipLeft != null && page.chipLeft < page.left - 1) {
+      out.push({ upper: `picker page ${page.page} fits inside the strip`,
+        lower: `chip left edge ${page.chipLeft}px is before strip left ${page.left}px`,
+        gap: page.left - page.chipLeft });
+    }
     if (page.total > 1 && !page.pagerVisible) {
       out.push({ upper: `picker page ${page.page} keeps its pager visible`,
         lower: 'multi-page picker has no visible pager', gap: 0 });
@@ -1348,9 +1370,9 @@ export function pickerPageFitFindings(states) {
 export async function runPickerWalk(page, backwardFirst = false) {
   await page.waitForSelector(PICKER_SEL + '[data-projects-ready="true"]');
   const expected = await pickerProjectIds(page);
-  const measured = await page.evaluate((sel) => [...document.querySelectorAll(
+  const measured = await withDeadline(() => page.evaluate((sel) => [...document.querySelectorAll(
     sel + ' .pp-measure .pp-proj')].map((el) => el.dataset.projectId || null),
-  PICKER_SEL);
+  PICKER_SEL), 'picker measurement identities');
   const journeys = {};
   for (const direction of backwardFirst
     ? ['backward', 'forward'] : ['forward', 'backward']) {
@@ -1440,10 +1462,12 @@ async function runPickerPageFit(ctx) {
   ctx.pickerPageAudit = walk;
   let out = pageWalkResult(walk);
   if (ctx.width === 320) {
-    await ctx.page.setViewportSize({ width: 220, height: 900 });
+    await withDeadline(() => ctx.page.setViewportSize({ width: 220, height: 900 }),
+      'picker narrow viewport');
     await renderTurn(ctx.page);
     out.push(...pageWalkResult(await runPickerWalk(ctx.page)));
-    await ctx.page.setViewportSize({ width: ctx.width, height: 900 });
+    await withDeadline(() => ctx.page.setViewportSize({ width: ctx.width, height: 900 }),
+      'picker restore viewport');
     await renderTurn(ctx.page);
   }
   return out;
@@ -1504,9 +1528,9 @@ async function runPickerSelection(page, width, restorePicker = true) {
     lower: 'last fixture project never appears', gap: 0,
   }];
   try {
-    await page.$$eval(sel + ' > .pp-proj', (chips, id) => {
+    await withDeadline(() => page.$$eval(sel + ' > .pp-proj', (chips, id) => {
       chips.find((chip) => chip.dataset.projectId === id)?.click();
-    }, target);
+    }, target), 'picker selected-chip click');
     // Selection may repack the clicked chip onto another page. Its hidden
     // jump replica observes the selection independently of that new slice.
     await page.waitForFunction(({selector, id}) => document.querySelector(
@@ -1665,6 +1689,15 @@ export const RULES = [
       + ' fully visible at one position (#960)',
     seed: seedPickerPagerShift,
     run: runPickerPageFit,
+  },
+  {
+    id: 'project-picker-pages-left-fit',
+    description: 'every project chip stays inside the left edge on later pages (#960)',
+    seed: seedPickerLeftClip,
+    run: async (ctx) => pickerPageFitFindings(ctx.seeded
+      ? (await evaluatePicker(ctx.page, PICKER_PAGE_PROBE, {
+        selector: PICKER_SEL, maxPages: 2, direction: 'forward',
+      })).states : (await pickerPageAudit(ctx)).seen),
   },
   {
     id: 'project-picker-pages-complete',
