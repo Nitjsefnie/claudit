@@ -57,6 +57,8 @@ services:
     environment:
       DATABASE_URL_VIZ: ${DATABASE_URL_VIZ:-postgresql://postgres:postgres@db:5432/claudit}
       DATABASE_URL_AUTH: ${DATABASE_URL_AUTH:-postgresql://postgres:postgres@db:5432/claudit_auth}
+      # Guest login defaults on; set GUEST_LOGIN=0 to disable it.
+      GUEST_LOGIN: ${GUEST_LOGIN:-1}
       # file:// mode against the fixtures mounted below: the mirror is test
       # data, not served code, so it is not COPYed into the image. For a real
       # bucket, override these four (and leave no access keys in the tree).

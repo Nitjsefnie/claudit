@@ -49,6 +49,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from backend.guest_login import GUEST_LOGIN_ENV
+
 ROOT = Path(__file__).resolve().parents[1]
 
 # (doc name, path, exact heading as merged by PR #462/#465).
@@ -157,7 +159,8 @@ def test_each_doc_carries_the_auth_db_steps():
 def test_each_doc_names_both_env_vars_in_its_setup_section():
     """Env-edit mentions, per doc independently. The setup block's cp
     line tells the reader which env values to edit; a doc whose section
-    stopped naming one of them is the exact drift this issue closed."""
+    stopped naming one of them is the exact drift this issue closed.
+    Guest-login config also names the same toggle the code reads."""
     for name, path, heading in _DOCS:
         section = _section(path, heading)
         for var in ("DATABASE_URL_VIZ", "DATABASE_URL_AUTH"):
@@ -165,6 +168,9 @@ def test_each_doc_names_both_env_vars_in_its_setup_section():
                 f"{name}: the setup section no longer mentions {var} -- "
                 f"the historical drift (issue #464) was exactly this "
                 f"omission in CONTRIBUTING")
+    for path in (ROOT / "backend" / ".env.example",
+                 ROOT / "README.md", ROOT / "compose.yaml"):
+        assert GUEST_LOGIN_ENV in path.read_text(encoding="utf-8"), path.name
 
 
 def test_the_three_docs_setup_steps_are_identical():
