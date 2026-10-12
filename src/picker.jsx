@@ -37,6 +37,7 @@ function ProjectPicker({ projects, active, onChange }) {
       className="project-picker"
       data-perf-region="project_picker"
       data-picker="projects"
+      data-projects-ready={projects != null}
       style={{ overflowX: 'hidden', position: 'relative' }}
     >
       <button
@@ -48,7 +49,7 @@ function ProjectPicker({ projects, active, onChange }) {
           key={p.project_id} data-project-id={p.project_id}
           className={'pp-btn pp-proj' + (active === p.project_id ? ' on' : '')}
           style={pinched ? {
-            flex: '0 1 auto', minWidth: 0, padding: '4px 0',
+            flex: '1 1 auto', minWidth: 0, minHeight: 26, padding: '4px 0',
             overflow: 'hidden', textOverflow: 'ellipsis',
           } : undefined}
           onClick={() => onChange(p.project_id)}
@@ -84,25 +85,7 @@ function ProjectPicker({ projects, active, onChange }) {
           )}
         </span>
       )}
-      {/* Hidden full row, including the jump reserve whenever selected. */}
-      <div
-        className="pp-measure"
-        aria-hidden="true"
-        style={{
-          position: 'absolute', visibility: 'hidden', overflow: 'hidden',
-          width: 0, height: 0, display: 'flex', gap: 6,
-          pointerEvents: 'none', whiteSpace: 'nowrap',
-        }}
-      >
-        {list.map(p => (
-          <button key={p.project_id} data-project-id={p.project_id} className="pp-btn pp-proj" tabIndex={-1}>
-            {p.display_name}
-          </button>
-        ))}
-        {active !== '' && (
-          <button className="pp-btn on pp-jump" tabIndex={-1}>{active} &#8617;</button>
-        )}
-      </div>
+      <window.PickerMeasure list={list} active={active} digits={pageDigits} />
     </div>
   );
 }
