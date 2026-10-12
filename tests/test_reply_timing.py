@@ -8,7 +8,7 @@ from pathlib import Path
 from orjson import dumps, loads
 import pytest
 
-from backend import collect_generation_speed, constants, db, ingest, parse, r2
+from backend import reply_timing, constants, db, ingest, parse, r2
 from tests import scratch_db
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
@@ -157,7 +157,7 @@ def test_generation_s_valid_duration(stamp, expected):
 @pytest.mark.parametrize("name", ["generation_s_last_line", "non_object_nested_claude"])
 def test_generation_speed_collection_off(monkeypatch, name):
     enabled = _parse_fixture(name)
-    monkeypatch.setattr(collect_generation_speed, "COLLECT_GENERATION_SPEED", False)
+    monkeypatch.setattr(reply_timing, "COLLECT_GENERATION_SPEED", False)
     disabled = _parse_fixture(name)
     assert enabled["records"][0]["generation_s"] == 9
     for record in disabled["records"]:
@@ -172,7 +172,7 @@ def test_generation_speed_collection_off(monkeypatch, name):
 def test_generation_speed_conflicting_role(monkeypatch):
     outputs = []
     for flag in (True, False):
-        monkeypatch.setattr(collect_generation_speed, "COLLECT_GENERATION_SPEED", flag)
+        monkeypatch.setattr(reply_timing, "COLLECT_GENERATION_SPEED", flag)
         result = _parse_fixture("generation_speed_conflicting_role")
         for record in result["records"]:
             del record["generation_s"], record["output_tokens_per_s"]
@@ -193,9 +193,9 @@ def test_generation_speed_startup_switch(monkeypatch, value, expected):
                 env.delenv("CLAUDIT_COLLECT_GENERATION_SPEED", raising=False)
             else:
                 env.setenv("CLAUDIT_COLLECT_GENERATION_SPEED", value)
-            actual = importlib.reload(collect_generation_speed).COLLECT_GENERATION_SPEED
+            actual = importlib.reload(reply_timing).COLLECT_GENERATION_SPEED
     finally:
-        importlib.reload(collect_generation_speed)
+        importlib.reload(reply_timing)
     assert actual is expected
 
 

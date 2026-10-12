@@ -84,9 +84,8 @@ backend/          — FastAPI application
                     prompt and split no ctx turn; latency anchors separately
   reply_timing.py — independent Claude reply/generation clocks: reply latency
                     anchors on non-interrupt user text; generation spans use
-                    any non-replayed user line through a message.id's last line
-  collect_generation_speed.py — startup-read generation collection switch
-                    (CLAUDIT_COLLECT_GENERATION_SPEED, on by default, issue #955)
+                    any non-replayed user line through a message.id's last line;
+                    startup-read CLAUDIT_COLLECT_GENERATION_SPEED (default on)
   codex_fork.py   — the Codex rollout's head: first declared model,
                     fork detection (forked_from_id), replay-prefix
                     marking for the canonical rank (issue #687)

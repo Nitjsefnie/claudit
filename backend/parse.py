@@ -14,7 +14,7 @@ from collections import Counter
 
 from orjson import JSONDecodeError, loads
 
-from backend import collect_generation_speed, parse_lanes
+from backend import parse_lanes, reply_timing
 from backend.agent_types import canonical_agent_type
 from backend.constants import (DEFAULT_AGENT_TYPE, INTERRUPT_MARKER)
 from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-import
@@ -327,7 +327,7 @@ class _LineWalk:
         # All non-interrupt user text anchors latency, independently of
         # prompt counting. Interrupts, failed attempts and replies clear it.
         self.reply_timing = ReplyTiming()
-        self.generation_timing = GenerationTiming() if collect_generation_speed.COLLECT_GENERATION_SPEED else None
+        self.generation_timing = GenerationTiming() if reply_timing.COLLECT_GENERATION_SPEED else None
         # A UUID on an earlier, different line is a replay; neither clock moves.
         self.seen_user_uuids: dict[str, int] = {}
         # Per-file attribution; resolve_agent_type defines precedence.
