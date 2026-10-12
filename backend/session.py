@@ -25,6 +25,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from backend import db
+from backend.guest_login import guest_login_enabled
 
 
 SESSION_COOKIE_NAME = "session"
@@ -288,7 +289,7 @@ def resolve_session_user_id(token: str) -> int | None:
     if user_id == GUEST_USER_ID:
         # Guests have no user_session row, so there is no generation to
         # compare — the process-local secret is what kills the cookie.
-        return verify_session_token(token, _GUEST_SECRET)
+        return verify_session_token(token, _GUEST_SECRET) if guest_login_enabled() else None
     row = load_session_row(user_id)
     if row is None:
         return None

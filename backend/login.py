@@ -31,6 +31,7 @@ from fastapi import APIRouter, Form, Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from backend import auth
+from backend.guest_login import guest_login_enabled
 from backend.login_page import (
     _GENERIC_FAILURE_TEXT,
     _GENERIC_LIMIT_TEXT,
@@ -396,6 +397,8 @@ async def login_guest(request: Request) -> Response:
     aggregate-only views (no per-project filter, no per-session detail).
     Cookie invalidates on every server restart since the guest secret
     is regenerated."""
+    if not guest_login_enabled():
+        return Response(status_code=404)
     token = session_mod.make_guest_session_token()
     response = RedirectResponse("/", status_code=303)
     session_mod.set_session_cookie(response, token)
