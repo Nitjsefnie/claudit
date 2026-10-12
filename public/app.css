@@ -477,7 +477,7 @@ button:focus-visible, .navbtn:focus-visible, .chip:focus-visible, .fchip:focus-v
 .dashboard svg text { font-family: var(--mono); letter-spacing: 0.04em; }
 
 .project-picker {
-  display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto;
+  display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto; container-type: inline-size;
   padding: 10px 22px; background: var(--bg-soft);
   border-bottom: 1px solid var(--border);
 }
@@ -524,11 +524,11 @@ button:focus-visible, .navbtn:focus-visible, .chip:focus-visible, .fchip:focus-v
 /* The off-page selection marker can be a full project path — keep it from
    stretching the pager across the row. */
 .pp-jump {
-  max-width: 260px;
+  max-width: min(260px, max(14px, calc(100cqw - 300px)));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
+} @media(max-width:260px){.project-picker{padding:10px 8px}.pp-nav{padding:4px 5px}.pp-jump{padding:4px 2px}}
 
 /* Cache view — renders /api/cache (src/views/cache-view.jsx) */
 .cache-view {
