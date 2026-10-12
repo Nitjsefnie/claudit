@@ -20,6 +20,18 @@ CASES = [
     ('py_utf8', 'py', 'é = 1; "dé" # ø\n', (8, 13)),
     ('py_line_separator', 'py', 'x = "\u2028"; "doc" # é\n"next"\n', (14, 19)),
     ('py_concat', 'py', '("a"\n # x\n "b")\n', (8, 10)),
+    ('yaml_literal', 'yaml', 'a: |\n  text # data\n', (0, 12)),
+    ('yaml_folded', 'yaml', 'a: >\n  text # data\n', (0, 12)),
+    ('yaml_block_reset', 'yaml', 'a: |\n  "text\nb: 1 # real\n', (5, 16)),
+    ('yaml_run', 'yaml', 'run: |\n  # shell\n  cat <<EOF\n  # body\n  EOF\n  echo "multi\n    # string"\nb: 1 # real\n', (11, 53)),
+    ('yaml_spaced_quote', 'yaml', "a: this is 'plain # real\n", (5, 19)),
+    ('shell_command_scope', 'sh', 'echo "$(echo x # real\n)"\n', (5, 19)),
+    ('shell_backtick_scope', 'sh', 'echo "`echo x # real\n`"\n', (5, 18)),
+    ('shell_parameter_scope', 'sh', 'echo ${x:- # literal} # yes\n', (4, 22)),
+    ('heredoc_continued', 'sh', 'cat <<EOF \\\n  <<BAR\n# first\nEOF\n# second\nBAR\n# yes\n', (4, 37)),
+    ('py_prefixed', 'py', 'r"rawx"\nR"RAW"\nu"uni"\nU"UNI"\n', (25, 25)),
+    ('js_hashbang', 'js', '#!/usr/bin/env node\nconst x=1; // yes\n', (23, 32)),
+    ('jsx_text', 'jsx', 'const x=<div>hello // content</div>; // yes\n', (5, 38)),
     ('empty', 'py', ' \t\n', (0, 0)),
     ('js_literals', 'js', 'const a = "//"; const b = `// ${1}`; const c = /\\/\\//; // a\n/* b c */\n', (9, 51)),
     ('mjs', 'mjs', 'export const x = 1; // hi\n', (4, 19)),
@@ -59,7 +71,7 @@ def test_tracked_universe_and_report(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert counter.main(["--report", "--root", str(tmp_path)]) == 0
     output = capsys.readouterr().out
     assert "a.py\t3\t6\t50.000000%" in output
-    assert "overall\t3\t" in output
+    assert "overall\t3\t32\t35\t91.428571%" in output
     assert "python\t1\t3\t6\t50.000000%" in output
 
 

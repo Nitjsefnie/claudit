@@ -10,6 +10,7 @@ import shlex
 import subprocess
 import sys
 import tokenize
+from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -107,56 +108,193 @@ def heredoc_at(line: str, index: int) -> tuple[int, tuple[str, bool] | None]:
     return match.end(), (shlex.split(match[2])[0], bool(match[1]))
 
 
-def quoted_line(line: str, quote: str, shell: bool
-                ) -> tuple[int, str, list[tuple[str, bool]]]:
-    count = 0
-    index = 0
-    opened: list[tuple[str, bool]] = []
-    while index < len(line):
+@dataclass
+class ShellScope:
+    close: str = ''
+    quote: str = ''
+    depth: int = 0
+
+
+@dataclass
+class ShellLexer:
+    scopes: list[ShellScope] = field(default_factory=lambda: [ShellScope()])
+    waiting: list[tuple[str, bool]] = field(default_factory=list)
+    bodies: list[tuple[str, bool]] = field(default_factory=list)
+
+    def substitution(self, line: str, index: int) -> int | None:
+        scope = self.scopes[-1]
         char = line[index]
-        if char == '\\' and quote != "'":
-            index += 2
-            continue
-        if quote:
-            if char == quote:
-                if not shell and quote == "'" and line[index:index + 2] == "''":
-                    index += 2
-                    continue
-                quote = ''
-        elif char in "\"'" and (shell or index == 0
-                                or line[index - 1].isspace()
-                                or line[index - 1] in ':,[{'):
-            quote = char
+        if scope.quote == "'":
+            return None
+        if line[index:index + 2] in ('${', '$('):
+            close = '}' if line[index + 1] == '{' else ')'
+            self.scopes.append(ShellScope(close=close))
+            return index + 2
+        if char == '`':
+            if scope.close == '`':
+                self.scopes.pop()
+            else:
+                self.scopes.append(ShellScope(close='`'))
+            return index + 1
+        if scope.quote or scope.close != ')':
+            return None
+        if char == '(':
+            scope.depth += 1
+        elif char == ')':
+            if scope.depth:
+                scope.depth -= 1
+            else:
+                self.scopes.pop()
+        else:
+            return None
+        return index + 1
+
+    def parameter(self, char: str) -> None:
+        scope = self.scopes[-1]
+        if scope.quote:
+            if char == scope.quote:
+                scope.quote = ''
+        elif char in "\"'":
+            scope.quote = char
+        elif char == '{':
+            scope.depth += 1
+        elif char == '}':
+            if scope.depth:
+                scope.depth -= 1
+            else:
+                self.scopes.pop()
+
+    def step(self, line: str, index: int) -> tuple[int, int]:
+        scope = self.scopes[-1]
+        char = line[index]
+        if char == '\\' and scope.quote != "'":
+            return index + 2, 0
+        if scope.close == '}':
+            self.parameter(char)
+            return index + 1, 0
+        moved = self.substitution(line, index)
+        if moved is not None:
+            return moved, 0
+        if scope.quote:
+            if char == scope.quote:
+                scope.quote = ''
+        elif char in "\"'":
+            scope.quote = char
         elif char == '#' and (index == 0 or line[index - 1].isspace()):
-            count += non_whitespace_bytes(line[index:])
-            break
-        elif shell and line[index:index + 2] == '<<':
-            index, heredoc = heredoc_at(line, index)
+            return len(line), non_whitespace_bytes(line[index:])
+        elif line[index:index + 2] == '<<':
+            moved, heredoc = heredoc_at(line, index)
             if heredoc:
-                opened.append(heredoc)
-            continue
-        index += 1
-    return count, quote, opened
+                self.waiting.append(heredoc)
+            return moved, 0
+        return index + 1, 0
 
-
-def quoted_comments(text: str, shell: bool = False) -> int:
-    count = 0
-    quote = ''
-    pending: list[tuple[str, bool]] = []
-    for line in io.StringIO(text):
-        if pending:
-            delimiter, strip_tabs = pending[0]
+    def line(self, line: str) -> int:
+        if self.bodies:
+            delimiter, strip_tabs = self.bodies[0]
             candidate = line.rstrip('\r\n')
             if strip_tabs:
                 candidate = candidate.lstrip('\t')
             if candidate == delimiter:
-                pending.pop(0)
+                self.bodies.pop(0)
+            return 0
+        index = count = 0
+        continued = False
+        while index < len(line):
+            if (line[index:index + 2] in ('\\\n', '\\\r')
+                    and self.scopes[-1].quote != "'"):
+                continued = True
+            index, added = self.step(line, index)
+            count += added
+        scope = self.scopes[-1]
+        if not continued and not scope.quote and scope.close != '}':
+            self.bodies.extend(self.waiting)
+            self.waiting.clear()
+        return count
+
+    def finish(self) -> None:
+        pending = self.bodies or self.waiting
+        if pending:
+            raise MeasurementError(f'unterminated heredoc: {pending[0][0]}')
+
+
+def yaml_line(line: str, quote: str) -> tuple[int, str]:
+    count = 0
+    index = 0
+    scalar_start = True
+    while index < len(line):
+        char = line[index]
+        if char == '\\' and quote == '"':
+            index += 2
             continue
-        added, quote, opened = quoted_line(line, quote, shell)
+        if quote:
+            if char == quote:
+                if quote == "'" and line[index:index + 2] == "''":
+                    index += 2
+                    continue
+                quote = ''
+                scalar_start = False
+        elif char in "\"'" and scalar_start:
+            quote = char
+        elif char == '#' and (index == 0 or line[index - 1].isspace()):
+            count += non_whitespace_bytes(line[index:])
+            break
+        elif not char.isspace():
+            next_char = line[index + 1:index + 2]
+            scalar_start = (char in '[{,' or char == ':'
+                            and (not next_char or next_char.isspace()
+                                 or next_char in '[]{},')
+                            or char in '-?' and scalar_start
+                            and next_char.isspace())
+        index += 1
+    return count, quote
+
+
+BLOCK_SCALAR = re.compile(
+    r'^(?P<prefix> *(?:- +)?)(?:(?P<key>[^:#]+?):[ \t]*)?'
+    r'[|>](?P<flags>[1-9][+-]?|[+-][1-9]?)?[ \t]*(?:#.*)?(?:\r?\n)?$')
+
+
+def yaml_comments(text: str) -> int:
+    lines = list(io.StringIO(text))
+    count = index = 0
+    quote = ''
+    while index < len(lines):
+        line = lines[index]
+        block = BLOCK_SCALAR.match(line) if not quote else None
+        added, quote = yaml_line(line, quote)
         count += added
-        pending.extend(opened)
-    if pending:
-        raise MeasurementError(f'unterminated heredoc: {pending[0][0]}')
+        index += 1
+        if not block:
+            continue
+        parent = len(block['prefix'])
+        body = []
+        while index < len(lines):
+            current = lines[index]
+            indent = len(current) - len(current.lstrip(' '))
+            if current.strip() and indent <= parent:
+                break
+            body.append(current)
+            index += 1
+        if (block['key'] or '').strip().strip("\"'") == 'run':
+            flags = block['flags'] or ''
+            digit = next((int(char) for char in flags if char.isdigit()), None)
+            indent = parent + digit if digit is not None else next(
+                (len(value) - len(value.lstrip(' ')) for value in body
+                 if value.strip()), parent + 1)
+            script = ''.join(value[indent:] if value.strip() else '\n'
+                             for value in body)
+            count += quoted_comments(script, shell=True)
+        quote = ''
+    return count
+
+
+def quoted_comments(text: str, shell: bool = False) -> int:
+    if not shell:
+        return yaml_comments(text)
+    lexer = ShellLexer()
+    count = sum(lexer.line(line) for line in io.StringIO(text))
+    lexer.finish()
     return count
 
 
