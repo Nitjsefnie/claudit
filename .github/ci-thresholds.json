@@ -541,8 +541,8 @@
       7205
     ],
     "scripts/ci/classify_changes.py": [
-      8882,
-      16822
+      8883,
+      16849
     ],
     "scripts/ci/collapse_oscillating_rates.py": [
       1882,
@@ -1110,7 +1110,7 @@
     ],
     "tests/test_ci_gate_output_wiring.py": [
       8159,
-      17210
+      17805
     ],
     "tests/test_ci_ratchets.py": [
       1985,
