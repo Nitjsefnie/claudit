@@ -15,6 +15,7 @@ from collections.abc import Iterator
 from typing import NamedTuple
 
 from backend import pricing
+from tests.source_scan_cache import for_source
 
 
 VERSION_NAMES = ("PARSER_VERSION", "PRICING_VERSION", "MARKER_READER_VERSION")
@@ -58,9 +59,11 @@ def detect(source: str, *, wanted_models: frozenset[str] = frozenset(),
     sits beside what it excuses.
     """
     wanted: set[str] = set(VERSION_NAMES)
-    tree = ast.parse(source)
+    artifacts = for_source(source)
+    tree = artifacts.tree()
+    assert isinstance(tree, ast.Module)
     sites: list[Site] = []
-    for node in ast.walk(tree):
+    for node in artifacts.nodes():
         if isinstance(node, ast.Call):
             sites += _call_sites(node, wanted)
             sites += _live_call_sites(node, wanted_models, wanted_hosts)

@@ -22,7 +22,6 @@ stale excuses cannot accumulate.
 """
 from __future__ import annotations
 
-import io
 import json
 import re
 import subprocess
@@ -32,6 +31,7 @@ from pathlib import Path
 
 from backend import pricing
 from tests import scan_gate, version_literal_guard
+from tests.source_scan_cache import for_source, source as cached_source
 from tests.version_literal_guard import (_match_wanted, _match_wanted_scan,
                                          _names_wanted_row, RATE_CALL_NAMES,
                                          VERSION_NAMES, Site, detect)
@@ -64,7 +64,7 @@ def _marker_lines(source: str) -> set[int]:
     test's synthetic code sample, say) is not a comment.
     """
     found: set[int] = set()
-    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+    for token in for_source(source).tokens():
         if token.type == tokenize.COMMENT and MARKER.search(token.string):
             found.add(token.start[0])
     return found
@@ -459,7 +459,7 @@ def _tree_problems(tests_dir: Path) -> list[str]:
     wanted_models, wanted_hosts = _deployed_wanted()
     problems = []
     for path in sorted(tests_dir.rglob("*.py")):
-        for message in check(path.read_text(encoding="utf-8"),
+        for message in check(cached_source(path),
                              wanted_models=wanted_models,
                              wanted_hosts=wanted_hosts):
             problems.append(f"{path.name}:{message}")

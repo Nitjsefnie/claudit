@@ -34,7 +34,7 @@ raphy, and covering it would put a walk back on every file.
 """
 from __future__ import annotations
 
-import types
+from tests.source_scan_index import def_vocab, vocab
 
 __all__ = ["module_vocab"]
 
@@ -50,33 +50,7 @@ def module_vocab(source: str) -> tuple[frozenset[str], frozenset[str]]:
     that descent is load-bearing (db_marker's DB_FIXTURES lives in
     exactly such a fold).
     """
-    consts: set[str] = set()
-    names: set[str] = set()
-    stack = [compile(source, "<scan_gate>", "exec")]
-    while stack:
-        code = stack.pop()
-        for value in code.co_consts:
-            if isinstance(value, str):
-                consts.add(value)
-            elif isinstance(value, (tuple, frozenset, set, list)):
-                consts.update(_container_strings(value))
-            elif isinstance(value, types.CodeType):
-                stack.append(value)
-        names.update(code.co_names)
-    return frozenset(consts), frozenset(names)
-
-
-def _container_strings(value) -> set[str]:
-    """Every string inside a folded constant container, recursively."""
-    found: set[str] = set()
-    stack = [value]
-    while stack:
-        item = stack.pop()
-        if isinstance(item, str):
-            found.add(item)
-        elif isinstance(item, (tuple, frozenset, set, list)):
-            stack.extend(item)
-    return found
+    return vocab(source)
 
 
 def module_def_vocab(source: str) -> tuple[frozenset[str], bool]:
@@ -104,21 +78,4 @@ def module_def_vocab(source: str) -> tuple[frozenset[str], bool]:
     runtime, which is the precondition the derivation's parity claim
     rests on (issue #715 review, PR #730).
     """
-    consts: set[str] = set()
-    names: set[str] = set()
-    stack = [compile(source, "<scan_gate>", "exec")]
-    while stack:
-        code = stack.pop()
-        names.add(code.co_name)
-        names.update(code.co_varnames)
-        names.update(code.co_names)
-        for value in code.co_consts:
-            if isinstance(value, str):
-                consts.add(value)
-            elif isinstance(value, (tuple, frozenset, set, list)):
-                consts.update(_container_strings(value))
-            elif isinstance(value, types.CodeType):
-                stack.append(value)
-    names.update(consts)
-    may_define_fixture = "pytest" in names and "fixture" in names
-    return frozenset(names), may_define_fixture
+    return def_vocab(source)
