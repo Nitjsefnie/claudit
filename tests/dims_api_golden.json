@@ -1,0 +1,2427 @@
+{
+ "guest": {
+  "/api/cache?range=all": {
+   "body": {
+    "per_model": [
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 2000000,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 1000000,
+      "eph5": 1000000,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 100,
+      "hit_rate_pct": 0.0,
+      "model": "claude-sonnet-4-5",
+      "output": 200,
+      "turns": 2
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 76353,
+      "hit_rate_pct": 0.0,
+      "model": "gpt-5.6-sol",
+      "output": 671,
+      "turns": 1
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 1050,
+      "hit_rate_pct": 0.0,
+      "model": "claude-opus-4-7",
+      "output": 525,
+      "turns": 2
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 30208,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 6550,
+      "hit_rate_pct": 82.2,
+      "model": "kimi-k2-7-code",
+      "output": 144,
+      "turns": 2
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 10,
+      "hit_rate_pct": 0.0,
+      "model": "kimi-k3",
+      "output": 2,
+      "turns": 1
+     }
+    ],
+    "per_model_provider": [
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 2000000,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 1000000,
+      "eph5": 1000000,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 100,
+      "hit_rate_pct": 0.0,
+      "model": "claude-sonnet-4-5",
+      "output": 200,
+      "provider": null,
+      "turns": 2
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 76353,
+      "hit_rate_pct": 0.0,
+      "model": "gpt-5.6-sol",
+      "output": 671,
+      "provider": null,
+      "turns": 1
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 1050,
+      "hit_rate_pct": 0.0,
+      "model": "claude-opus-4-7",
+      "output": 525,
+      "provider": null,
+      "turns": 2
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 30208,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 6550,
+      "hit_rate_pct": 82.2,
+      "model": "kimi-k2-7-code",
+      "output": 144,
+      "provider": null,
+      "turns": 2
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 10,
+      "hit_rate_pct": 0.0,
+      "model": "kimi-k3",
+      "output": 2,
+      "provider": null,
+      "turns": 1
+     }
+    ],
+    "project": null,
+    "range": "all",
+    "session_total": {
+     "banded_rate": "<<rate-derived>>",
+     "cache_create": 2000000,
+     "cache_read": 30208,
+     "cost_buckets": "<<rate-derived>>",
+     "cost_total": "<<rate-derived>>",
+     "eph1h": 1000000,
+     "eph5": 1000000,
+     "estimated_rate": "<<rate-derived>>",
+     "fresh": 84063,
+     "hit_rate_pct": 1.4,
+     "output": 1542,
+     "turns": 8
+    },
+    "top_cache_create": [
+     {
+      "c_create": 2000000,
+      "c_create_1h": 1000000,
+      "c_create_5m": 1000000,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "fresh": 0,
+      "line": 1,
+      "model": "claude-sonnet-4-5",
+      "output": 0,
+      "request_id": "req-s",
+      "ts": "2026-05-07T10:00:01+00:00"
+     }
+    ],
+    "top_cache_read": [
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 15104,
+      "cost": "<<rate-derived>>",
+      "fresh": 3275,
+      "line": 6,
+      "model": "kimi-k2-7-code",
+      "output": 72,
+      "request_id": "",
+      "ts": "2026-06-29T13:49:37.271000+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 15104,
+      "cost": "<<rate-derived>>",
+      "fresh": 3275,
+      "line": 6,
+      "model": "kimi-k2-7-code",
+      "output": 72,
+      "request_id": "",
+      "ts": "2026-06-29T13:49:37.271000+00:00"
+     }
+    ],
+    "top_output": [
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "fresh": 76353,
+      "line": 6,
+      "model": "gpt-5.6-sol",
+      "output": 671,
+      "request_id": "",
+      "ts": "2026-09-10T08:44:19+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "fresh": 1000,
+      "line": 1,
+      "model": "claude-opus-4-7",
+      "output": 500,
+      "request_id": "req-x",
+      "ts": "2026-05-07T10:00:01+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "fresh": 100,
+      "line": 2,
+      "model": "claude-sonnet-4-5",
+      "output": 200,
+      "request_id": "req-1",
+      "ts": "2026-05-07T10:00:01+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 15104,
+      "cost": "<<rate-derived>>",
+      "fresh": 3275,
+      "line": 6,
+      "model": "kimi-k2-7-code",
+      "output": 72,
+      "request_id": "",
+      "ts": "2026-06-29T13:49:37.271000+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 15104,
+      "cost": "<<rate-derived>>",
+      "fresh": 3275,
+      "line": 6,
+      "model": "kimi-k2-7-code",
+      "output": 72,
+      "request_id": "",
+      "ts": "2026-06-29T13:49:37.271000+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "fresh": 50,
+      "line": 2,
+      "model": "claude-opus-4-7",
+      "output": 25,
+      "request_id": "req-z",
+      "ts": "2026-05-07T10:00:02+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "fresh": 10,
+      "line": 4,
+      "model": "kimi-k3",
+      "output": 2,
+      "request_id": "",
+      "ts": "2026-07-16T18:25:26.542880+00:00"
+     },
+     {
+      "c_create_1h": 1000000,
+      "c_create_5m": 1000000,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "fresh": 0,
+      "line": 1,
+      "model": "claude-sonnet-4-5",
+      "output": 0,
+      "request_id": "req-s",
+      "ts": "2026-05-07T10:00:01+00:00"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/context-growth/session/sess-A": {
+   "body": {
+    "final_ctx": 100,
+    "session_id": "sess-A",
+    "total_turns": 1,
+    "turns": [
+     {
+      "delta": 100,
+      "idx": 1,
+      "input": 100,
+      "line": 2,
+      "output": 200,
+      "ts": "2026-05-07T10:00:01+00:00"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/dashboard?range=all": {
+   "body": {
+    "bucket_s": 86400,
+    "cost_by_model": [
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "claude-sonnet-4-5"
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "gpt-5.6-sol"
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "claude-opus-4-7"
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "kimi-k2-7-code"
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "kimi-k3"
+     }
+    ],
+    "cost_by_model_provider": [
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "claude-sonnet-4-5",
+      "provider": null,
+      "total_tokens": 2000300
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "gpt-5.6-sol",
+      "provider": null,
+      "total_tokens": 77024
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "claude-opus-4-7",
+      "provider": null,
+      "total_tokens": 1575
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "kimi-k2-7-code",
+      "provider": null,
+      "total_tokens": 36902
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "kimi-k3",
+      "provider": null,
+      "total_tokens": 12
+     }
+    ],
+    "hide_rate_limits": false,
+    "hourly": [
+     {
+      "cache_1h_tokens": 0,
+      "cache_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-05-07T12:00:00+00:00",
+      "input_tokens": 1050,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": false,
+      "model": "claude-opus-4-7",
+      "output_tokens": 525,
+      "provider": null,
+      "requests": 2,
+      "session_count": 2,
+      "thinking_tokens": 0
+     },
+     {
+      "cache_1h_tokens": 0,
+      "cache_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-05-07T12:00:00+00:00",
+      "input_tokens": 100,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": false,
+      "model": "claude-sonnet-4-5",
+      "output_tokens": 200,
+      "provider": null,
+      "requests": 1,
+      "session_count": 0,
+      "thinking_tokens": 80
+     },
+     {
+      "cache_1h_tokens": 1000000,
+      "cache_5m_tokens": 1000000,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-05-07T12:00:00+00:00",
+      "input_tokens": 0,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": true,
+      "model": "claude-sonnet-4-5",
+      "output_tokens": 0,
+      "provider": null,
+      "requests": 1,
+      "session_count": 0,
+      "thinking_tokens": 0
+     },
+     {
+      "cache_1h_tokens": 0,
+      "cache_5m_tokens": 0,
+      "cache_read_tokens": 30208,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-06-29T12:00:00+00:00",
+      "input_tokens": 6550,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": false,
+      "model": "kimi-k2-7-code",
+      "output_tokens": 144,
+      "provider": null,
+      "requests": 2,
+      "session_count": 1,
+      "thinking_tokens": 0
+     },
+     {
+      "cache_1h_tokens": 0,
+      "cache_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-07-16T12:00:00+00:00",
+      "input_tokens": 10,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": false,
+      "model": "kimi-k3",
+      "output_tokens": 2,
+      "provider": null,
+      "requests": 1,
+      "session_count": 1,
+      "thinking_tokens": 0
+     },
+     {
+      "cache_1h_tokens": 0,
+      "cache_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-09-10T12:00:00+00:00",
+      "input_tokens": 76353,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": false,
+      "model": "gpt-5.6-sol",
+      "output_tokens": 671,
+      "provider": null,
+      "requests": 1,
+      "session_count": 1,
+      "thinking_tokens": 545
+     }
+    ],
+    "main_empty": 0,
+    "main_w_usage": 7,
+    "project": null,
+    "range": "all",
+    "rate_limit_hits": [],
+    "response_sizes": [
+     {
+      "model": "claude-opus-4-7",
+      "n": 2,
+      "p50": 5.0,
+      "p90": 5.8,
+      "ts": "2026-05-07T12:00:00+00:00"
+     },
+     {
+      "model": "claude-sonnet-4-5",
+      "n": 2,
+      "p50": 3.0,
+      "p90": 4.6,
+      "ts": "2026-05-07T12:00:00+00:00"
+     }
+    ],
+    "sessions": [
+     {
+      "cache_create_tokens": 2000000,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 2000000,
+      "end_ts": 1778148001.0,
+      "input_tokens": 0,
+      "model": "claude-sonnet-4-5",
+      "models_used": [
+       "claude-sonnet-4-5"
+      ],
+      "output_tokens": 0,
+      "requests": 1,
+      "session_id": "sess-B",
+      "start_ts": 1778148001.0
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 76353,
+      "end_ts": 1789029859.0,
+      "input_tokens": 76353,
+      "model": "gpt-5.6-sol",
+      "models_used": [
+       "gpt-5.6-sol"
+      ],
+      "output_tokens": 671,
+      "requests": 1,
+      "session_id": "sess-L",
+      "start_ts": 1789029859.0
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 1000,
+      "end_ts": 1778148001.0,
+      "input_tokens": 1000,
+      "model": "claude-opus-4-7",
+      "models_used": [
+       "claude-opus-4-7"
+      ],
+      "output_tokens": 500,
+      "requests": 1,
+      "session_id": "sess-C",
+      "start_ts": 1778148001.0
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 30208,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 18379,
+      "end_ts": 1782740977.271,
+      "input_tokens": 6550,
+      "model": "kimi-k2-7-code",
+      "models_used": [
+       "kimi-k2-7-code"
+      ],
+      "output_tokens": 144,
+      "requests": 2,
+      "session_id": "sess-M",
+      "start_ts": 1782740977.271
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 100,
+      "end_ts": 1778148001.0,
+      "input_tokens": 100,
+      "model": "claude-sonnet-4-5",
+      "models_used": [
+       "claude-sonnet-4-5"
+      ],
+      "output_tokens": 200,
+      "requests": 1,
+      "session_id": "sess-A",
+      "start_ts": 1778148001.0
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 50,
+      "end_ts": 1778148002.0,
+      "input_tokens": 50,
+      "model": "claude-opus-4-7",
+      "models_used": [
+       "claude-opus-4-7"
+      ],
+      "output_tokens": 25,
+      "requests": 1,
+      "session_id": "sess-D",
+      "start_ts": 1778148002.0
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 10,
+      "end_ts": 1784226326.54288,
+      "input_tokens": 10,
+      "model": "kimi-k3",
+      "models_used": [
+       "kimi-k3"
+      ],
+      "output_tokens": 2,
+      "requests": 1,
+      "session_id": "sess-N",
+      "start_ts": 1784226326.54288
+     }
+    ],
+    "subagent_files": 2,
+    "subagent_only_sessions": 0,
+    "token_types": [
+     "input_tokens",
+     "output_tokens",
+     "thinking_tokens",
+     "cache_5m_tokens",
+     "cache_1h_tokens",
+     "cache_read_tokens"
+    ],
+    "total_prompts": 7,
+    "total_sessions": 7,
+    "total_turns": 9
+   },
+   "status": 200
+  },
+  "/api/reply-latency?range=all": {
+   "body": {
+    "bands": [
+     {
+      "model": "claude-sonnet-4-5",
+      "n": 1,
+      "p10": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ts": "2026-05-07T12:00:00+00:00"
+     },
+     {
+      "model": "kimi-k2-7-code",
+      "n": 2,
+      "p10": 3.828,
+      "p50": 3.828,
+      "p90": 3.828,
+      "ts": "2026-06-29T12:00:00+00:00"
+     },
+     {
+      "model": "kimi-k3",
+      "n": 1,
+      "p10": 0.005,
+      "p50": 0.005,
+      "p90": 0.005,
+      "ts": "2026-07-16T12:00:00+00:00"
+     },
+     {
+      "model": "gpt-5.6-sol",
+      "n": 1,
+      "p10": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ts": "2026-09-10T12:00:00+00:00"
+     }
+    ],
+    "bucket_s": 86400,
+    "model": null,
+    "outliers": [],
+    "project": null,
+    "range": "all"
+   },
+   "status": 200
+  },
+  "/api/sessions": {
+   "body": {
+    "items": [
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-09-10T08:44:19+00:00",
+      "input_tokens": 76353,
+      "last_event_at": "2026-09-10T08:44:19+00:00",
+      "limit_hits": 0,
+      "models": {
+       "gpt-5.6-sol": 1
+      },
+      "output_tokens": 671,
+      "project_id": "projL",
+      "request_count": 1,
+      "session_id": "sess-L"
+     },
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-07-16T18:25:26.542880+00:00",
+      "input_tokens": 10,
+      "last_event_at": "2026-07-16T18:25:26.542880+00:00",
+      "limit_hits": 0,
+      "models": {
+       "kimi-k3": 1
+      },
+      "output_tokens": 2,
+      "project_id": "projG",
+      "request_count": 1,
+      "session_id": "sess-N"
+     },
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 30208,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-06-29T13:49:37.271000+00:00",
+      "input_tokens": 6550,
+      "last_event_at": "2026-06-29T13:49:37.271000+00:00",
+      "limit_hits": 0,
+      "models": {
+       "kimi-k2-7-code": 2
+      },
+      "output_tokens": 144,
+      "project_id": "projK",
+      "request_count": 2,
+      "session_id": "sess-M"
+     },
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-05-07T10:00:02+00:00",
+      "input_tokens": 50,
+      "last_event_at": "2026-05-07T10:00:02+00:00",
+      "limit_hits": 0,
+      "models": {
+       "claude-opus-4-7": 1
+      },
+      "output_tokens": 25,
+      "project_id": "projB",
+      "request_count": 1,
+      "session_id": "sess-D"
+     },
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-05-07T10:00:01+00:00",
+      "input_tokens": 100,
+      "last_event_at": "2026-05-07T10:00:01+00:00",
+      "limit_hits": 0,
+      "models": {
+       "claude-sonnet-4-5": 1
+      },
+      "output_tokens": 200,
+      "project_id": "projA",
+      "request_count": 1,
+      "session_id": "sess-A"
+     },
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-05-07T10:00:01+00:00",
+      "input_tokens": 1000,
+      "last_event_at": "2026-05-07T10:00:01+00:00",
+      "limit_hits": 0,
+      "models": {
+       "claude-opus-4-7": 1
+      },
+      "output_tokens": 500,
+      "project_id": "projB",
+      "request_count": 1,
+      "session_id": "sess-C"
+     },
+     {
+      "cache_create_1h_tokens": 1000000,
+      "cache_create_5m_tokens": 1000000,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-05-07T10:00:01+00:00",
+      "input_tokens": 0,
+      "last_event_at": "2026-05-07T10:00:01+00:00",
+      "limit_hits": 0,
+      "models": {
+       "claude-sonnet-4-5": 1
+      },
+      "output_tokens": 0,
+      "project_id": "projA",
+      "request_count": 1,
+      "session_id": "sess-B"
+     }
+    ],
+    "next_cursor": null
+   },
+   "status": 200
+  }
+ },
+ "user": {
+  "/api/activity-heatmap?range=all": {
+   "body": {
+    "cells": [
+     {
+      "cost_usd": "<<rate-derived>>",
+      "dow": 1,
+      "hour": 15,
+      "output_tokens": 144,
+      "requests": 2
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "dow": 4,
+      "hour": 10,
+      "output_tokens": 671,
+      "requests": 1
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "dow": 4,
+      "hour": 12,
+      "output_tokens": 725,
+      "requests": 4
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "dow": 4,
+      "hour": 20,
+      "output_tokens": 2,
+      "requests": 1
+     }
+    ],
+    "range": "all",
+    "tz": "Europe/Prague"
+   },
+   "status": 200
+  },
+  "/api/cache?range=all": {
+   "body": {
+    "per_model": [
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 2000000,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 1000000,
+      "eph5": 1000000,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 100,
+      "hit_rate_pct": 0.0,
+      "model": "claude-sonnet-4-5",
+      "output": 200,
+      "turns": 2
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 76353,
+      "hit_rate_pct": 0.0,
+      "model": "gpt-5.6-sol",
+      "output": 671,
+      "turns": 1
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 1050,
+      "hit_rate_pct": 0.0,
+      "model": "claude-opus-4-7",
+      "output": 525,
+      "turns": 2
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 30208,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 6550,
+      "hit_rate_pct": 82.2,
+      "model": "kimi-k2-7-code",
+      "output": 144,
+      "turns": 2
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 10,
+      "hit_rate_pct": 0.0,
+      "model": "kimi-k3",
+      "output": 2,
+      "turns": 1
+     }
+    ],
+    "per_model_provider": [
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 2000000,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 1000000,
+      "eph5": 1000000,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 100,
+      "hit_rate_pct": 0.0,
+      "model": "claude-sonnet-4-5",
+      "output": 200,
+      "provider": null,
+      "turns": 2
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 76353,
+      "hit_rate_pct": 0.0,
+      "model": "gpt-5.6-sol",
+      "output": 671,
+      "provider": null,
+      "turns": 1
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 1050,
+      "hit_rate_pct": 0.0,
+      "model": "claude-opus-4-7",
+      "output": 525,
+      "provider": null,
+      "turns": 2
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 30208,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 6550,
+      "hit_rate_pct": 82.2,
+      "model": "kimi-k2-7-code",
+      "output": 144,
+      "provider": null,
+      "turns": 2
+     },
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 0,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 0,
+      "eph5": 0,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 10,
+      "hit_rate_pct": 0.0,
+      "model": "kimi-k3",
+      "output": 2,
+      "provider": null,
+      "turns": 1
+     }
+    ],
+    "project": null,
+    "range": "all",
+    "session_total": {
+     "banded_rate": "<<rate-derived>>",
+     "cache_create": 2000000,
+     "cache_read": 30208,
+     "cost_buckets": "<<rate-derived>>",
+     "cost_total": "<<rate-derived>>",
+     "eph1h": 1000000,
+     "eph5": 1000000,
+     "estimated_rate": "<<rate-derived>>",
+     "fresh": 84063,
+     "hit_rate_pct": 1.4,
+     "output": 1542,
+     "turns": 8
+    },
+    "top_cache_create": [
+     {
+      "c_create": 2000000,
+      "c_create_1h": 1000000,
+      "c_create_5m": 1000000,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "file_key": "projA/sess-B/sess-B.jsonl",
+      "fresh": 0,
+      "line": 1,
+      "model": "claude-sonnet-4-5",
+      "output": 0,
+      "request_id": "req-s",
+      "ts": "2026-05-07T10:00:01+00:00"
+     }
+    ],
+    "top_cache_read": [
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 15104,
+      "cost": "<<rate-derived>>",
+      "file_key": "sessions/projK/sess-M/subagents/aaa/wire.jsonl",
+      "fresh": 3275,
+      "line": 6,
+      "model": "kimi-k2-7-code",
+      "output": 72,
+      "request_id": "",
+      "ts": "2026-06-29T13:49:37.271000+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 15104,
+      "cost": "<<rate-derived>>",
+      "file_key": "sessions/projK/sess-M/wire.jsonl",
+      "fresh": 3275,
+      "line": 6,
+      "model": "kimi-k2-7-code",
+      "output": 72,
+      "request_id": "",
+      "ts": "2026-06-29T13:49:37.271000+00:00"
+     }
+    ],
+    "top_output": [
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "file_key": "sessions/projL/sess-L/wire.jsonl",
+      "fresh": 76353,
+      "line": 6,
+      "model": "gpt-5.6-sol",
+      "output": 671,
+      "request_id": "",
+      "ts": "2026-09-10T08:44:19+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "file_key": "projB/sess-C/agent-aaaa.jsonl",
+      "fresh": 1000,
+      "line": 1,
+      "model": "claude-opus-4-7",
+      "output": 500,
+      "request_id": "req-x",
+      "ts": "2026-05-07T10:00:01+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "file_key": "projA/sess-A/sess-A.jsonl",
+      "fresh": 100,
+      "line": 2,
+      "model": "claude-sonnet-4-5",
+      "output": 200,
+      "request_id": "req-1",
+      "ts": "2026-05-07T10:00:01+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 15104,
+      "cost": "<<rate-derived>>",
+      "file_key": "sessions/projK/sess-M/subagents/aaa/wire.jsonl",
+      "fresh": 3275,
+      "line": 6,
+      "model": "kimi-k2-7-code",
+      "output": 72,
+      "request_id": "",
+      "ts": "2026-06-29T13:49:37.271000+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 15104,
+      "cost": "<<rate-derived>>",
+      "file_key": "sessions/projK/sess-M/wire.jsonl",
+      "fresh": 3275,
+      "line": 6,
+      "model": "kimi-k2-7-code",
+      "output": 72,
+      "request_id": "",
+      "ts": "2026-06-29T13:49:37.271000+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "file_key": "projB/sess-D/sess-D.jsonl",
+      "fresh": 50,
+      "line": 2,
+      "model": "claude-opus-4-7",
+      "output": 25,
+      "request_id": "req-z",
+      "ts": "2026-05-07T10:00:02+00:00"
+     },
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "file_key": "sessions/projG/sess-N/wire.jsonl",
+      "fresh": 10,
+      "line": 4,
+      "model": "kimi-k3",
+      "output": 2,
+      "request_id": "",
+      "ts": "2026-07-16T18:25:26.542880+00:00"
+     },
+     {
+      "c_create_1h": 1000000,
+      "c_create_5m": 1000000,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "file_key": "projA/sess-B/sess-B.jsonl",
+      "fresh": 0,
+      "line": 1,
+      "model": "claude-sonnet-4-5",
+      "output": 0,
+      "request_id": "req-s",
+      "ts": "2026-05-07T10:00:01+00:00"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/cache?range=all&project=projA": {
+   "body": {
+    "per_model": [
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 2000000,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 1000000,
+      "eph5": 1000000,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 100,
+      "hit_rate_pct": 0.0,
+      "model": "claude-sonnet-4-5",
+      "output": 200,
+      "turns": 2
+     }
+    ],
+    "per_model_provider": [
+     {
+      "banded_rate": "<<rate-derived>>",
+      "cache_create": 2000000,
+      "cache_read": 0,
+      "cost_total": "<<rate-derived>>",
+      "eph1h": 1000000,
+      "eph5": 1000000,
+      "estimated_rate": "<<rate-derived>>",
+      "fresh": 100,
+      "hit_rate_pct": 0.0,
+      "model": "claude-sonnet-4-5",
+      "output": 200,
+      "provider": null,
+      "turns": 2
+     }
+    ],
+    "project": "projA",
+    "range": "all",
+    "session_total": {
+     "banded_rate": "<<rate-derived>>",
+     "cache_create": 2000000,
+     "cache_read": 0,
+     "cost_buckets": "<<rate-derived>>",
+     "cost_total": "<<rate-derived>>",
+     "eph1h": 1000000,
+     "eph5": 1000000,
+     "estimated_rate": "<<rate-derived>>",
+     "fresh": 100,
+     "hit_rate_pct": 0.0,
+     "output": 200,
+     "turns": 2
+    },
+    "top_cache_create": [
+     {
+      "c_create": 2000000,
+      "c_create_1h": 1000000,
+      "c_create_5m": 1000000,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "file_key": "projA/sess-B/sess-B.jsonl",
+      "fresh": 0,
+      "line": 1,
+      "model": "claude-sonnet-4-5",
+      "output": 0,
+      "request_id": "req-s",
+      "ts": "2026-05-07T10:00:01+00:00"
+     }
+    ],
+    "top_cache_read": [],
+    "top_output": [
+     {
+      "c_create_1h": 0,
+      "c_create_5m": 0,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "file_key": "projA/sess-A/sess-A.jsonl",
+      "fresh": 100,
+      "line": 2,
+      "model": "claude-sonnet-4-5",
+      "output": 200,
+      "request_id": "req-1",
+      "ts": "2026-05-07T10:00:01+00:00"
+     },
+     {
+      "c_create_1h": 1000000,
+      "c_create_5m": 1000000,
+      "c_read": 0,
+      "cost": "<<rate-derived>>",
+      "file_key": "projA/sess-B/sess-B.jsonl",
+      "fresh": 0,
+      "line": 1,
+      "model": "claude-sonnet-4-5",
+      "output": 0,
+      "request_id": "req-s",
+      "ts": "2026-05-07T10:00:01+00:00"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/context-growth/agg?range=all": {
+   "body": {
+    "per_session_final": {
+     "max": 2000000,
+     "mean": 299413,
+     "n": 7,
+     "p50": 1000,
+     "p90": 845811,
+     "p99": 1884581
+    },
+    "per_turn": {
+     "max": 2000000,
+     "mean": 235030,
+     "n": 9,
+     "p50": 1000,
+     "p90": 461082,
+     "p99": 1846108
+    },
+    "project": null,
+    "range": "all"
+   },
+   "status": 200
+  },
+  "/api/context-growth/session/no-such-session": {
+   "body": {
+    "detail": "session not found"
+   },
+   "status": 404
+  },
+  "/api/context-growth/session/sess-A": {
+   "body": {
+    "file_key": "projA/sess-A/sess-A.jsonl",
+    "final_ctx": 100,
+    "session_id": "sess-A",
+    "total_turns": 1,
+    "turns": [
+     {
+      "delta": 100,
+      "idx": 1,
+      "input": 100,
+      "line": 2,
+      "output": 200,
+      "ts": "2026-05-07T10:00:01+00:00"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/context-growth/traces?range=all": {
+   "body": {
+    "traces": [
+     {
+      "model": "",
+      "turns": [
+       1000
+      ]
+     },
+     {
+      "model": "claude-opus-4-7",
+      "turns": [
+       1000
+      ]
+     },
+     {
+      "model": "claude-opus-4-7",
+      "turns": [
+       50
+      ]
+     },
+     {
+      "model": "claude-sonnet-4-5",
+      "turns": [
+       100
+      ]
+     },
+     {
+      "model": "claude-sonnet-4-5",
+      "turns": [
+       2000000
+      ]
+     },
+     {
+      "model": "gpt-5.6-sol",
+      "turns": [
+       76353
+      ]
+     },
+     {
+      "model": "kimi-k2-7-code",
+      "turns": [
+       18379
+      ]
+     },
+     {
+      "model": "kimi-k2-7-code",
+      "turns": [
+       18379
+      ]
+     },
+     {
+      "model": "kimi-k3",
+      "turns": [
+       10
+      ]
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/cost-by-agent?range=1d": {
+   "body": {
+    "agents": [],
+    "model": null,
+    "project": null,
+    "range": "1d",
+    "total_cost_usd": "<<rate-derived>>",
+    "total_tokens": 0
+   },
+   "status": 200
+  },
+  "/api/cost-by-agent?range=all": {
+   "body": {
+    "agents": [
+     {
+      "agent_type": "general-purpose",
+      "cost_usd": "<<rate-derived>>",
+      "output_tokens": 970,
+      "requests": 6,
+      "share": "<<rate-derived>>",
+      "total_tokens": 2095862
+     },
+     {
+      "agent_type": "implementer",
+      "cost_usd": "<<rate-derived>>",
+      "output_tokens": 500,
+      "requests": 1,
+      "share": "<<rate-derived>>",
+      "total_tokens": 1500
+     },
+     {
+      "agent_type": "reviewer",
+      "cost_usd": "<<rate-derived>>",
+      "output_tokens": 72,
+      "requests": 1,
+      "share": "<<rate-derived>>",
+      "total_tokens": 18451
+     }
+    ],
+    "model": null,
+    "project": null,
+    "range": "all",
+    "total_cost_usd": "<<rate-derived>>",
+    "total_tokens": 2115813
+   },
+   "status": 200
+  },
+  "/api/cost-by-context?range=1d": {
+   "body": {
+    "bucket_max": 1000000,
+    "bucket_width": 50000,
+    "buckets": [],
+    "model": null,
+    "project": null,
+    "range": "1d",
+    "total_cost_usd": "<<rate-derived>>",
+    "total_tokens": 0
+   },
+   "status": 200
+  },
+  "/api/cost-by-context?range=all": {
+   "body": {
+    "bucket_max": 1000000,
+    "bucket_width": 50000,
+    "buckets": [
+     {
+      "cost_usd": "<<rate-derived>>",
+      "ctx_bucket": 0,
+      "cum_share": "<<rate-derived>>",
+      "cum_token_share": 0.018332906,
+      "requests": 6,
+      "total_tokens": 38789
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "ctx_bucket": 50000,
+      "cum_share": "<<rate-derived>>",
+      "cum_token_share": 0.054736879,
+      "requests": 1,
+      "total_tokens": 77024
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "ctx_bucket": 1000000,
+      "cum_share": "<<rate-derived>>",
+      "cum_token_share": 1.0,
+      "requests": 1,
+      "total_tokens": 2000000
+     }
+    ],
+    "model": null,
+    "project": null,
+    "range": "all",
+    "total_cost_usd": "<<rate-derived>>",
+    "total_tokens": 2115813
+   },
+   "status": 200
+  },
+  "/api/dashboard?range=1d": {
+   "body": {
+    "bucket_s": 300,
+    "cost_by_model": [],
+    "cost_by_model_provider": [],
+    "cost_by_project": [],
+    "hide_rate_limits": false,
+    "hourly": [],
+    "main_empty": 0,
+    "main_w_usage": 7,
+    "project": null,
+    "range": "1d",
+    "rate_limit_hits": [],
+    "response_sizes": [],
+    "sessions": [],
+    "subagent_files": 2,
+    "subagent_only_sessions": 0,
+    "token_types": [],
+    "tokens_by_project": [],
+    "total_prompts": 0,
+    "total_sessions": 0,
+    "total_turns": 0
+   },
+   "status": 200
+  },
+  "/api/dashboard?range=all": {
+   "body": {
+    "bucket_s": 86400,
+    "cost_by_model": [
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "claude-sonnet-4-5"
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "gpt-5.6-sol"
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "claude-opus-4-7"
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "kimi-k2-7-code"
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "kimi-k3"
+     }
+    ],
+    "cost_by_model_provider": [
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "claude-sonnet-4-5",
+      "provider": null,
+      "total_tokens": 2000300
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "gpt-5.6-sol",
+      "provider": null,
+      "total_tokens": 77024
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "claude-opus-4-7",
+      "provider": null,
+      "total_tokens": 1575
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "kimi-k2-7-code",
+      "provider": null,
+      "total_tokens": 36902
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "kimi-k3",
+      "provider": null,
+      "total_tokens": 12
+     }
+    ],
+    "cost_by_project": [
+     {
+      "cost_usd": "<<rate-derived>>",
+      "project": "projA"
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "project": "projL"
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "project": "projB"
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "project": "projK"
+     },
+     {
+      "cost_usd": "<<rate-derived>>",
+      "project": "projG"
+     }
+    ],
+    "hide_rate_limits": false,
+    "hourly": [
+     {
+      "cache_1h_tokens": 0,
+      "cache_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-05-07T12:00:00+00:00",
+      "input_tokens": 1050,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": false,
+      "model": "claude-opus-4-7",
+      "output_tokens": 525,
+      "provider": null,
+      "requests": 2,
+      "session_count": 2,
+      "thinking_tokens": 0
+     },
+     {
+      "cache_1h_tokens": 0,
+      "cache_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-05-07T12:00:00+00:00",
+      "input_tokens": 100,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": false,
+      "model": "claude-sonnet-4-5",
+      "output_tokens": 200,
+      "provider": null,
+      "requests": 1,
+      "session_count": 0,
+      "thinking_tokens": 80
+     },
+     {
+      "cache_1h_tokens": 1000000,
+      "cache_5m_tokens": 1000000,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-05-07T12:00:00+00:00",
+      "input_tokens": 0,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": true,
+      "model": "claude-sonnet-4-5",
+      "output_tokens": 0,
+      "provider": null,
+      "requests": 1,
+      "session_count": 0,
+      "thinking_tokens": 0
+     },
+     {
+      "cache_1h_tokens": 0,
+      "cache_5m_tokens": 0,
+      "cache_read_tokens": 30208,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-06-29T12:00:00+00:00",
+      "input_tokens": 6550,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": false,
+      "model": "kimi-k2-7-code",
+      "output_tokens": 144,
+      "provider": null,
+      "requests": 2,
+      "session_count": 1,
+      "thinking_tokens": 0
+     },
+     {
+      "cache_1h_tokens": 0,
+      "cache_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-07-16T12:00:00+00:00",
+      "input_tokens": 10,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": false,
+      "model": "kimi-k3",
+      "output_tokens": 2,
+      "provider": null,
+      "requests": 1,
+      "session_count": 1,
+      "thinking_tokens": 0
+     },
+     {
+      "cache_1h_tokens": 0,
+      "cache_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-09-10T12:00:00+00:00",
+      "input_tokens": 76353,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": false,
+      "model": "gpt-5.6-sol",
+      "output_tokens": 671,
+      "provider": null,
+      "requests": 1,
+      "session_count": 1,
+      "thinking_tokens": 545
+     }
+    ],
+    "main_empty": 0,
+    "main_w_usage": 7,
+    "project": null,
+    "range": "all",
+    "rate_limit_hits": [],
+    "response_sizes": [
+     {
+      "model": "claude-opus-4-7",
+      "n": 2,
+      "p50": 5.0,
+      "p90": 5.8,
+      "ts": "2026-05-07T12:00:00+00:00"
+     },
+     {
+      "model": "claude-sonnet-4-5",
+      "n": 2,
+      "p50": 3.0,
+      "p90": 4.6,
+      "ts": "2026-05-07T12:00:00+00:00"
+     }
+    ],
+    "sessions": [
+     {
+      "cache_create_tokens": 2000000,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 2000000,
+      "end_ts": 1778148001.0,
+      "input_tokens": 0,
+      "model": "claude-sonnet-4-5",
+      "models_used": [
+       "claude-sonnet-4-5"
+      ],
+      "output_tokens": 0,
+      "requests": 1,
+      "session_id": "sess-B",
+      "start_ts": 1778148001.0
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 76353,
+      "end_ts": 1789029859.0,
+      "input_tokens": 76353,
+      "model": "gpt-5.6-sol",
+      "models_used": [
+       "gpt-5.6-sol"
+      ],
+      "output_tokens": 671,
+      "requests": 1,
+      "session_id": "sess-L",
+      "start_ts": 1789029859.0
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 1000,
+      "end_ts": 1778148001.0,
+      "input_tokens": 1000,
+      "model": "claude-opus-4-7",
+      "models_used": [
+       "claude-opus-4-7"
+      ],
+      "output_tokens": 500,
+      "requests": 1,
+      "session_id": "sess-C",
+      "start_ts": 1778148001.0
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 30208,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 18379,
+      "end_ts": 1782740977.271,
+      "input_tokens": 6550,
+      "model": "kimi-k2-7-code",
+      "models_used": [
+       "kimi-k2-7-code"
+      ],
+      "output_tokens": 144,
+      "requests": 2,
+      "session_id": "sess-M",
+      "start_ts": 1782740977.271
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 100,
+      "end_ts": 1778148001.0,
+      "input_tokens": 100,
+      "model": "claude-sonnet-4-5",
+      "models_used": [
+       "claude-sonnet-4-5"
+      ],
+      "output_tokens": 200,
+      "requests": 1,
+      "session_id": "sess-A",
+      "start_ts": 1778148001.0
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 50,
+      "end_ts": 1778148002.0,
+      "input_tokens": 50,
+      "model": "claude-opus-4-7",
+      "models_used": [
+       "claude-opus-4-7"
+      ],
+      "output_tokens": 25,
+      "requests": 1,
+      "session_id": "sess-D",
+      "start_ts": 1778148002.0
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 10,
+      "end_ts": 1784226326.54288,
+      "input_tokens": 10,
+      "model": "kimi-k3",
+      "models_used": [
+       "kimi-k3"
+      ],
+      "output_tokens": 2,
+      "requests": 1,
+      "session_id": "sess-N",
+      "start_ts": 1784226326.54288
+     }
+    ],
+    "subagent_files": 2,
+    "subagent_only_sessions": 0,
+    "token_types": [
+     "input_tokens",
+     "output_tokens",
+     "thinking_tokens",
+     "cache_5m_tokens",
+     "cache_1h_tokens",
+     "cache_read_tokens"
+    ],
+    "tokens_by_project": [
+     {
+      "project": "projA",
+      "total_tokens": 2000300
+     },
+     {
+      "project": "projL",
+      "total_tokens": 77024
+     },
+     {
+      "project": "projK",
+      "total_tokens": 36902
+     },
+     {
+      "project": "projB",
+      "total_tokens": 1575
+     },
+     {
+      "project": "projG",
+      "total_tokens": 12
+     }
+    ],
+    "total_prompts": 7,
+    "total_sessions": 7,
+    "total_turns": 9
+   },
+   "status": 200
+  },
+  "/api/dashboard?range=all&project=projA&model=claude": {
+   "body": {
+    "bucket_s": 86400,
+    "cost_by_model": [
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "claude-sonnet-4-5"
+     }
+    ],
+    "cost_by_model_provider": [
+     {
+      "cost_usd": "<<rate-derived>>",
+      "model": "claude-sonnet-4-5",
+      "provider": null,
+      "total_tokens": 2000300
+     }
+    ],
+    "cost_by_project": [
+     {
+      "cost_usd": "<<rate-derived>>",
+      "project": "projA"
+     }
+    ],
+    "hide_rate_limits": false,
+    "hourly": [
+     {
+      "cache_1h_tokens": 0,
+      "cache_5m_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-05-07T12:00:00+00:00",
+      "input_tokens": 100,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": false,
+      "model": "claude-sonnet-4-5",
+      "output_tokens": 200,
+      "provider": null,
+      "requests": 1,
+      "session_count": 1,
+      "thinking_tokens": 80
+     },
+     {
+      "cache_1h_tokens": 1000000,
+      "cache_5m_tokens": 1000000,
+      "cost_usd": "<<rate-derived>>",
+      "hour": "2026-05-07T12:00:00+00:00",
+      "input_tokens": 0,
+      "lines_added": 0,
+      "lines_deleted": 0,
+      "long_context": true,
+      "model": "claude-sonnet-4-5",
+      "output_tokens": 0,
+      "provider": null,
+      "requests": 1,
+      "session_count": 0,
+      "thinking_tokens": 0
+     }
+    ],
+    "main_empty": 0,
+    "main_w_usage": 2,
+    "project": "projA",
+    "range": "all",
+    "rate_limit_hits": [],
+    "response_sizes": [
+     {
+      "model": "claude-sonnet-4-5",
+      "n": 2,
+      "p50": 3.0,
+      "p90": 4.6,
+      "ts": "2026-05-07T12:00:00+00:00"
+     }
+    ],
+    "sessions": [
+     {
+      "cache_create_tokens": 2000000,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 2000000,
+      "end_ts": 1778148001.0,
+      "input_tokens": 0,
+      "model": "claude-sonnet-4-5",
+      "models_used": [
+       "claude-sonnet-4-5"
+      ],
+      "output_tokens": 0,
+      "requests": 1,
+      "session_id": "sess-B",
+      "start_ts": 1778148001.0
+     },
+     {
+      "cache_create_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "ctx_at_end": 100,
+      "end_ts": 1778148001.0,
+      "input_tokens": 100,
+      "model": "claude-sonnet-4-5",
+      "models_used": [
+       "claude-sonnet-4-5"
+      ],
+      "output_tokens": 200,
+      "requests": 1,
+      "session_id": "sess-A",
+      "start_ts": 1778148001.0
+     }
+    ],
+    "subagent_files": 0,
+    "subagent_only_sessions": 0,
+    "token_types": [
+     "input_tokens",
+     "output_tokens",
+     "thinking_tokens",
+     "cache_5m_tokens",
+     "cache_1h_tokens"
+    ],
+    "tokens_by_project": [
+     {
+      "project": "projA",
+      "total_tokens": 2000300
+     }
+    ],
+    "total_prompts": 1,
+    "total_sessions": 2,
+    "total_turns": 2
+   },
+   "status": 200
+  },
+  "/api/me": {
+   "body": {
+    "is_guest": false,
+    "user_id": null
+   },
+   "status": 200
+  },
+  "/api/models": {
+   "body": {
+    "models": [
+     {
+      "model": "kimi-k2-7-code",
+      "n": 2
+     },
+     {
+      "model": "claude-opus-4-7",
+      "n": 2
+     },
+     {
+      "model": "claude-sonnet-4-5",
+      "n": 2
+     },
+     {
+      "model": "kimi-k3",
+      "n": 1
+     },
+     {
+      "model": "gpt-5.6-sol",
+      "n": 1
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/projects?range=all": {
+   "body": {
+    "projects": [
+     {
+      "display_name": "projA",
+      "project_id": "projA",
+      "session_count": 2,
+      "total_cost": "<<rate-derived>>"
+     },
+     {
+      "display_name": "projL",
+      "project_id": "projL",
+      "session_count": 1,
+      "total_cost": "<<rate-derived>>"
+     },
+     {
+      "display_name": "projB",
+      "project_id": "projB",
+      "session_count": 2,
+      "total_cost": "<<rate-derived>>"
+     },
+     {
+      "display_name": "projK",
+      "project_id": "projK",
+      "session_count": 1,
+      "total_cost": "<<rate-derived>>"
+     },
+     {
+      "display_name": "projG",
+      "project_id": "projG",
+      "session_count": 1,
+      "total_cost": "<<rate-derived>>"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/reply-latency?range=7d": {
+   "body": {
+    "bands": [],
+    "bucket_s": 3600,
+    "model": null,
+    "outliers": [],
+    "project": null,
+    "range": "7d"
+   },
+   "status": 200
+  },
+  "/api/reply-latency?range=all": {
+   "body": {
+    "bands": [
+     {
+      "model": "claude-sonnet-4-5",
+      "n": 1,
+      "p10": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ts": "2026-05-07T12:00:00+00:00"
+     },
+     {
+      "model": "kimi-k2-7-code",
+      "n": 2,
+      "p10": 3.828,
+      "p50": 3.828,
+      "p90": 3.828,
+      "ts": "2026-06-29T12:00:00+00:00"
+     },
+     {
+      "model": "kimi-k3",
+      "n": 1,
+      "p10": 0.005,
+      "p50": 0.005,
+      "p90": 0.005,
+      "ts": "2026-07-16T12:00:00+00:00"
+     },
+     {
+      "model": "gpt-5.6-sol",
+      "n": 1,
+      "p10": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ts": "2026-09-10T12:00:00+00:00"
+     }
+    ],
+    "bucket_s": 86400,
+    "model": null,
+    "outliers": [],
+    "project": null,
+    "range": "all"
+   },
+   "status": 200
+  },
+  "/api/sessions": {
+   "body": {
+    "items": [
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-09-10T08:44:19+00:00",
+      "input_tokens": 76353,
+      "last_event_at": "2026-09-10T08:44:19+00:00",
+      "limit_hits": 0,
+      "models": {
+       "gpt-5.6-sol": 1
+      },
+      "output_tokens": 671,
+      "project_id": "projL",
+      "request_count": 1,
+      "session_id": "sess-L"
+     },
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-07-16T18:25:26.542880+00:00",
+      "input_tokens": 10,
+      "last_event_at": "2026-07-16T18:25:26.542880+00:00",
+      "limit_hits": 0,
+      "models": {
+       "kimi-k3": 1
+      },
+      "output_tokens": 2,
+      "project_id": "projG",
+      "request_count": 1,
+      "session_id": "sess-N"
+     },
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 30208,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-06-29T13:49:37.271000+00:00",
+      "input_tokens": 6550,
+      "last_event_at": "2026-06-29T13:49:37.271000+00:00",
+      "limit_hits": 0,
+      "models": {
+       "kimi-k2-7-code": 2
+      },
+      "output_tokens": 144,
+      "project_id": "projK",
+      "request_count": 2,
+      "session_id": "sess-M"
+     },
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-05-07T10:00:02+00:00",
+      "input_tokens": 50,
+      "last_event_at": "2026-05-07T10:00:02+00:00",
+      "limit_hits": 0,
+      "models": {
+       "claude-opus-4-7": 1
+      },
+      "output_tokens": 25,
+      "project_id": "projB",
+      "request_count": 1,
+      "session_id": "sess-D"
+     },
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-05-07T10:00:01+00:00",
+      "input_tokens": 100,
+      "last_event_at": "2026-05-07T10:00:01+00:00",
+      "limit_hits": 0,
+      "models": {
+       "claude-sonnet-4-5": 1
+      },
+      "output_tokens": 200,
+      "project_id": "projA",
+      "request_count": 1,
+      "session_id": "sess-A"
+     },
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-05-07T10:00:01+00:00",
+      "input_tokens": 1000,
+      "last_event_at": "2026-05-07T10:00:01+00:00",
+      "limit_hits": 0,
+      "models": {
+       "claude-opus-4-7": 1
+      },
+      "output_tokens": 500,
+      "project_id": "projB",
+      "request_count": 1,
+      "session_id": "sess-C"
+     },
+     {
+      "cache_create_1h_tokens": 1000000,
+      "cache_create_5m_tokens": 1000000,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-05-07T10:00:01+00:00",
+      "input_tokens": 0,
+      "last_event_at": "2026-05-07T10:00:01+00:00",
+      "limit_hits": 0,
+      "models": {
+       "claude-sonnet-4-5": 1
+      },
+      "output_tokens": 0,
+      "project_id": "projA",
+      "request_count": 1,
+      "session_id": "sess-B"
+     }
+    ],
+    "next_cursor": null
+   },
+   "status": 200
+  },
+  "/api/sessions/no-such-session": {
+   "body": {
+    "detail": "session not found"
+   },
+   "status": 404
+  },
+  "/api/sessions/sess-A": {
+   "body": {
+    "burn": {
+     "hit_5h_limit": false,
+     "model": "claude-sonnet-4-5",
+     "tps": 100.0
+    },
+    "cache_create_1h_tokens": 0,
+    "cache_create_5m_tokens": 0,
+    "cache_read_tokens": 0,
+    "cost_usd": "<<rate-derived>>",
+    "ctx_trace": [
+     {
+      "ctx": 100,
+      "t": 1778148001
+     }
+    ],
+    "duration_s": 0,
+    "first_event_at": "2026-05-07T10:00:01+00:00",
+    "input_tokens": 100,
+    "last_event_at": "2026-05-07T10:00:01+00:00",
+    "limit_hits": 0,
+    "models": {
+     "claude-sonnet-4-5": 1
+    },
+    "output_tokens": 200,
+    "project_id": "projA",
+    "r2_key": "projA/sess-A/sess-A.jsonl",
+    "request_count": 1,
+    "session_id": "sess-A"
+   },
+   "status": 200
+  },
+  "/api/sessions?project=projA": {
+   "body": {
+    "items": [
+     {
+      "cache_create_1h_tokens": 0,
+      "cache_create_5m_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-05-07T10:00:01+00:00",
+      "input_tokens": 100,
+      "last_event_at": "2026-05-07T10:00:01+00:00",
+      "limit_hits": 0,
+      "models": {
+       "claude-sonnet-4-5": 1
+      },
+      "output_tokens": 200,
+      "project_id": "projA",
+      "request_count": 1,
+      "session_id": "sess-A"
+     },
+     {
+      "cache_create_1h_tokens": 1000000,
+      "cache_create_5m_tokens": 1000000,
+      "cache_read_tokens": 0,
+      "cost_usd": "<<rate-derived>>",
+      "duration_s": 0,
+      "first_event_at": "2026-05-07T10:00:01+00:00",
+      "input_tokens": 0,
+      "last_event_at": "2026-05-07T10:00:01+00:00",
+      "limit_hits": 0,
+      "models": {
+       "claude-sonnet-4-5": 1
+      },
+      "output_tokens": 0,
+      "project_id": "projA",
+      "request_count": 1,
+      "session_id": "sess-B"
+     }
+    ],
+    "next_cursor": null
+   },
+   "status": 200
+  },
+  "/api/tool-error-rate?range=1d": {
+   "body": {
+    "bucket_s": 300,
+    "buckets": [],
+    "project": null,
+    "range": "1d"
+   },
+   "status": 200
+  },
+  "/api/tool-error-rate?range=all": {
+   "body": {
+    "bucket_s": 86400,
+    "buckets": [
+     {
+      "model": "kimi-k2-7-code",
+      "n_error": 0,
+      "n_total": 1,
+      "tool": "Read",
+      "ts": "2026-06-29T12:00:00+00:00"
+     },
+     {
+      "model": "kimi-k3",
+      "n_error": 1,
+      "n_total": 1,
+      "tool": "Shell",
+      "ts": "2026-07-16T12:00:00+00:00"
+     },
+     {
+      "model": "gpt-5.6-sol",
+      "n_error": 0,
+      "n_total": 1,
+      "tool": "exec_command",
+      "ts": "2026-09-10T12:00:00+00:00"
+     }
+    ],
+    "project": null,
+    "range": "all"
+   },
+   "status": 200
+  },
+  "/api/tool-usage?range=1d": {
+   "body": {
+    "bucket_s": 300,
+    "buckets": [],
+    "project": null,
+    "range": "1d"
+   },
+   "status": 200
+  },
+  "/api/tool-usage?range=all": {
+   "body": {
+    "bucket_s": 86400,
+    "buckets": [
+     {
+      "n": 1,
+      "tool": "Bash",
+      "ts": "2026-05-07T12:00:00+00:00"
+     },
+     {
+      "n": 1,
+      "tool": "Read",
+      "ts": "2026-06-29T12:00:00+00:00"
+     },
+     {
+      "n": 1,
+      "tool": "Shell",
+      "ts": "2026-07-16T12:00:00+00:00"
+     },
+     {
+      "n": 1,
+      "tool": "exec_command",
+      "ts": "2026-09-10T12:00:00+00:00"
+     }
+    ],
+    "project": null,
+    "range": "all"
+   },
+   "status": 200
+  },
+  "/api/tool-usage?range=all&project=projA&model=claude": {
+   "body": {
+    "bucket_s": 86400,
+    "buckets": [],
+    "project": "projA",
+    "range": "all"
+   },
+   "status": 200
+  }
+ }
+}

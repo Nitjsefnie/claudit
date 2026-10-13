@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import api, db, ingest, parse, parse_kimi
+from tests import dims_seed
 # Importing the fixture functions registers them here under their
 # @pytest.fixture(name=...) names.
 from tests.test_ingest import (  # noqa: F401  # pylint: disable=unused-import
@@ -102,15 +103,20 @@ def test_ingest_stores_the_model_and_the_tool_rollups_carry_it(
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         stored = c.execute(
-            "SELECT model FROM tool_uses WHERE tool_use_id = 'toolu_later1'"
+            "SELECT dm.value FROM tool_uses t "
+            "LEFT JOIN dim_model dm ON dm.id = t.model_id "
+            "WHERE t.tool_use_id = 'toolu_later1'"
         ).fetchall()
         rolled = c.execute(
-            "SELECT n_total, n_rated, n_error FROM tool_rollup "
-            "WHERE model = %s AND tool_name = 'Bash'", (HAIKU,)
+            "SELECT n_total, n_rated, n_error FROM tool_rollup tr "
+            "JOIN dim_model dm ON dm.id = tr.model_id "
+            "JOIN dim_tool_name dtn ON dtn.id = tr.tool_name_id "
+            "WHERE dm.value = %s AND dtn.value = 'Bash'", (HAIKU,)
         ).fetchall()
         errors = _scalar(
-            c, "SELECT COALESCE(SUM(n), 0) FROM tool_error_rollup "
-               "WHERE model = %s", (HAIKU,))
+            c, "SELECT COALESCE(SUM(n), 0) FROM tool_error_rollup ter "
+               "JOIN dim_model dm ON dm.id = ter.model_id "
+               "WHERE dm.value = %s", (HAIKU,))
     assert stored == [(HAIKU,)]
     assert rolled == [(1, 1, 1)]
     assert errors == 1
@@ -168,8 +174,9 @@ def test_purge_removes_a_suppressed_models_later_line_call(fresh_db,
     with db.viz_conn() as c:
         left = _scalar(c, "SELECT COUNT(*) FROM tool_uses "
                           "WHERE tool_use_id = 'toolu_later1'")
-        rolled = _scalar(c, "SELECT COUNT(*) FROM tool_rollup "
-                            "WHERE model IN (%s, '')", (HAIKU,))
+        rolled = _scalar(c, "SELECT COUNT(*) FROM tool_rollup tr "
+                            "JOIN dim_model dm ON dm.id = tr.model_id "
+                            "WHERE dm.value IN (%s, '')", (HAIKU,))
     assert left == 0
     assert rolled == 0
 
@@ -222,8 +229,10 @@ def test_purge_leaves_every_other_models_tool_calls(fresh_db, mini_r2_env):
     """The tool half of the purge must delete only what matches."""
     _add_later_line_session(mini_r2_env)
     ingest.run_ingest(trigger="manual")
-    survivors_sql = ("SELECT COUNT(*) FROM tool_uses "
-                     "WHERE model NOT ILIKE 'claude-haiku-%'")
+    survivors_sql = ("SELECT COUNT(*) FROM tool_uses t "
+                     "LEFT JOIN dim_model dm ON dm.id = t.model_id "
+                     "WHERE COALESCE(dm.value, '') "
+                     "NOT ILIKE 'claude-haiku-%'")
     with db.viz_conn() as c:
         before = _scalar(c, survivors_sql)
         c.execute("INSERT INTO suppressed_models (pattern, note) "
@@ -243,16 +252,23 @@ def test_purge_same_line_fallback_spares_a_call_with_its_own_model(
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT file_key, line_num FROM records WHERE model = %s",
-            (HAIKU,)).fetchone()
+            "SELECT f.file_key, r.line_num FROM records r "
+            "JOIN files f ON f.file_id = r.file_id "
+            "JOIN dim_model dm ON dm.id = r.model_id "
+            "WHERE dm.value = %s", (HAIKU,)).fetchone()
         assert row is not None
+        bash = dims_seed.dim_id(c, "dim_tool_name", "Bash")
+        sonnet = dims_seed.dim_id(c, "dim_model", "claude-sonnet-4-5")
         c.execute(
-            "INSERT INTO tool_uses (file_key, line_num, idx, tool_name, model) "
-            "VALUES (%s, %s, 7, 'Bash', 'claude-sonnet-4-5')", row)
+            "INSERT INTO tool_uses (file_id, line_num, idx, tool_name_id, "
+            "model_id) VALUES ((SELECT file_id FROM files WHERE file_key = "
+            "%s), %s, 7, %s, %s)", (*row, bash, sonnet))
         c.execute("INSERT INTO suppressed_models (pattern, note) "
                   "VALUES ('claude-haiku-%', 'test')")
         c.commit()
     ingest.purge_suppressed()
     with db.viz_conn() as c:
-        assert _scalar(c, "SELECT COUNT(*) FROM tool_uses WHERE file_key = %s "
-                          "AND line_num = %s AND idx = 7", row) == 1
+        assert _scalar(c, "SELECT COUNT(*) FROM tool_uses t "
+                          "JOIN files f ON f.file_id = t.file_id "
+                          "WHERE f.file_key = %s "
+                          "AND t.line_num = %s AND t.idx = 7", row) == 1

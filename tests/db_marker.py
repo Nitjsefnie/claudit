@@ -87,6 +87,13 @@ DB_FIXTURES = frozenset({
     "viz",
     "gated_client",
     "lat_client",
+    # cost_client      test_records_price; takes fresh_db, seeds the sidecar
+    #                  seed and serves the api router
+    # parity_clients   test_dims_api_parity; creates its own scratch DB
+    #                  in-body (the branch's golden-decouple commit made
+    #                  the fixture body a server root without registering)
+    "cost_client",
+    "parity_clients",
 })
 
 

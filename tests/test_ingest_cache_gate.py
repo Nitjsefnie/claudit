@@ -27,6 +27,7 @@ from test_ingest import (  # pylint: disable=unused-import
 
 from backend import (cache, constants, db, ingest, pricing,
                      rate_fingerprint)
+from tests import dims_seed
 
 # Synthetic rates, deliberately unlike any real price (SV-TEST-DATA):
 # the simulated pricing bump the reprice-gate tests apply before their
@@ -110,8 +111,9 @@ def test_a_purge_only_ingest_invalidates_and_broadcasts(
             "VALUES ('claude-sonnet%', 'issue 256')")
         c.commit()
         assert _scalar(
-            c, "SELECT COUNT(*) FROM records "
-               "WHERE model ILIKE 'claude-sonnet%'") > 0, (
+            c, "SELECT COUNT(*) FROM records r "
+               "JOIN dim_model dm ON dm.id = r.model_id "
+               "WHERE dm.value ILIKE 'claude-sonnet%'") > 0, (
             "the mini mirror must carry records the pattern matches")
     broadcasts = _prime_and_spy("purge-only-key", monkeypatch)
 
@@ -140,13 +142,19 @@ def test_a_tool_use_only_purge_invalidates_and_broadcasts(
         assert row is not None, "the initial ingest must create a files parent"
         line_num = 2_147_483_000
         assert _scalar(
-            c, "SELECT COUNT(*) FROM records "
-               "WHERE file_key = %s AND line_num = %s", (row[0], line_num)
+            c, "SELECT COUNT(*) FROM records r "
+               "JOIN files f ON f.file_id = r.file_id "
+               "WHERE f.file_key = %s AND r.line_num = %s",
+            (row[0], line_num)
         ) == 0, "the seeded tool call must have no record on its line"
+        bash = dims_seed.dim_id(c, "dim_tool_name", "Bash")
+        seed_model = dims_seed.dim_id(c, "dim_model", model)
+        fid = dims_seed.file_id(c, row[0])
         c.execute(
             "INSERT INTO tool_uses "
-            "(file_key, line_num, idx, tool_name, model) "
-            "VALUES (%s, %s, 0, 'Bash', %s)", (row[0], line_num, model))
+            "(file_id, line_num, idx, tool_name_id, model_id) "
+            "VALUES (%s, %s, 0, %s, %s)",
+            (fid, line_num, bash, seed_model))
         c.execute(
             "INSERT INTO suppressed_models(pattern, note) "
             "VALUES (%s, 'issue 256 tool-use-only')", (model,))
@@ -160,8 +168,10 @@ def test_a_tool_use_only_purge_invalidates_and_broadcasts(
             summary["deleted"]) == (0, 0, 0)
     with db.viz_conn() as c:
         assert _scalar(
-            c, "SELECT COUNT(*) FROM tool_uses "
-               "WHERE file_key = %s AND line_num = %s", (row[0], line_num)
+            c, "SELECT COUNT(*) FROM tool_uses t "
+               "JOIN files f ON f.file_id = t.file_id "
+               "WHERE f.file_key = %s AND t.line_num = %s",
+            (row[0], line_num)
         ) == 0, "the matching tool_use row must be purged"
     cache_entry = cache.response_cache.get_entry("tool-use-purge-only-key")
     assert broadcasts and cache_entry == ({"v": "old"}, True), (

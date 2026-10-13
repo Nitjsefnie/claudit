@@ -8,11 +8,11 @@ import psycopg
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
-from psycopg.types.json import Jsonb
 
 from backend import api
 from backend.cache import response_cache
 from backend.constants import LATENCY_BUCKETS
+from tests import dims_seed
 
 pytest_plugins = ("tests.test_api",)
 
@@ -52,7 +52,9 @@ def _fixture_agent_key() -> str:
 def _delete_seeded_records(file_key: str, line_nums: list[int]) -> None:
     with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
         conn.execute(
-            "DELETE FROM records WHERE file_key = %s AND line_num = ANY(%s)",
+            "DELETE FROM records r USING files f "
+            "WHERE r.file_id = f.file_id AND f.file_key = %s "
+            "  AND r.line_num = ANY(%s)",
             (file_key, line_nums),
         )
 
@@ -71,19 +73,20 @@ def _seed_rollup_latency_outlier() -> tuple[int, int]:
         "kind": "high",
     }
     with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
-        conn.execute(
-            "INSERT INTO latency_rollup "
-            "(bucket_s, bucket, project_id, model, n, p10, p50, p90, outliers) "
-            "VALUES (%s, %s, '', %s, 100, 1, 5, 10, %s)",
-            (bucket_s, bucket, _ROLLUP_MODEL, Jsonb([outlier])),
+        dims_seed.seed_latency_rollup(
+            conn, "", bucket_s, bucket, model=_ROLLUP_MODEL, n=100,
+            p10=1, p50=5, p90=10, outliers=[outlier],
         )
+        conn.commit()
     return bucket_s, line_num
 
 
 def _delete_rollup_latency_outlier() -> None:
     with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
         conn.execute(
-            "DELETE FROM latency_rollup WHERE model = %s", (_ROLLUP_MODEL,)
+            "DELETE FROM latency_rollup WHERE model_id = "
+            "(SELECT id FROM dim_model WHERE value = %s)",
+            (_ROLLUP_MODEL,),
         )
 
 
@@ -97,10 +100,13 @@ def _seed_live_latency_outliers() -> tuple[str, list[int]]:
         for line_num in line_nums
     ]
     with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
+        fid = dims_seed.file_id(conn, file_key)
+        mid = dims_seed.dim_id(conn, "dim_model", _LIVE_MODEL)
         conn.cursor().executemany(
-            "INSERT INTO records (file_key, line_num, request_id, ts, model, "
-            "reply_latency_s) VALUES (%s, %s, %s, %s, %s, %s)",
-            seeded_rows,
+            "INSERT INTO records (file_id, line_num, request_id, ts, "
+            "model_id, reply_latency_s) VALUES (%s, %s, %s, %s, %s, %s)",
+            [(fid, line, req, ts, mid, lat)
+             for (_fk, line, req, ts, _m, lat) in seeded_rows],
         )
     return file_key, line_nums
 
@@ -137,12 +143,24 @@ def test_cache_guest_responses_remove_project_bearing_file_keys(
     response_cache.clear()
     try:
         with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
+            fid = dims_seed.file_id(conn, file_key)
+            mid = dims_seed.dim_id(conn, "dim_model",
+                                   "issue-244-cache-seed")
             conn.execute(
-                "INSERT INTO records (file_key, line_num, request_id, ts, model, "
-                "output_tokens, cache_creation_tokens, cache_read_tokens) "
-                "VALUES (%s, %s, %s, %s, %s, 800000000, 700000000, 600000000)",
-                (file_key, line_num, str(uuid.uuid4()), datetime.now(timezone.utc),
-                 "issue-244-cache-seed"),
+                "INSERT INTO records (file_id, line_num, request_id, ts, "
+                "model_id, output_tokens, cache_creation_tokens, "
+                "cache_read_tokens) "
+                "VALUES (%s, %s, %s, %s, %s, 800000000, 700000000, "
+                "600000000)",
+                (fid, line_num, str(uuid.uuid4()),
+                 datetime.now(timezone.utc), mid),
+            )
+            # /api/cache INNER-joins the records_price sidecar (#959 R4),
+            # so the seed writes both halves of the pair or the row it
+            # boosted never reaches the top lists.
+            conn.execute(
+                "INSERT INTO records_price (file_id, line_num) VALUES (%s, %s)",
+                (fid, line_num),
             )
         guest = guest_client.get("/api/cache?range=3650d")
         public = app_with_fresh_data.get("/api/cache?range=3650d")
@@ -164,12 +182,23 @@ def test_cache_guest_redaction_preserves_cached_payload_in_both_orders(
     response_cache.clear()
     try:
         with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
+            fid = dims_seed.file_id(conn, file_key)
+            mid = dims_seed.dim_id(conn, "dim_model",
+                                   "issue-244-cache-seed")
             conn.execute(
-                "INSERT INTO records (file_key, line_num, request_id, ts, model, "
-                "output_tokens, cache_creation_tokens, cache_read_tokens) "
-                "VALUES (%s, %s, %s, %s, %s, 800000000, 700000000, 600000000)",
-                (file_key, line_num, str(uuid.uuid4()), datetime.now(timezone.utc),
-                 "issue-244-cache-seed"),
+                "INSERT INTO records (file_id, line_num, request_id, ts, "
+                "model_id, output_tokens, cache_creation_tokens, "
+                "cache_read_tokens) "
+                "VALUES (%s, %s, %s, %s, %s, 800000000, 700000000, "
+                "600000000)",
+                (fid, line_num, str(uuid.uuid4()),
+                 datetime.now(timezone.utc), mid),
+            )
+            # Both halves of the pair again: the cache read INNER-joins
+            # the sidecar, and this test also caches the guest payload.
+            conn.execute(
+                "INSERT INTO records_price (file_id, line_num) VALUES (%s, %s)",
+                (fid, line_num),
             )
 
         guest_first = guest_client.get("/api/cache?range=3650d")

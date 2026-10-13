@@ -208,7 +208,9 @@ def _member_type() -> str:
 def _rollup_types() -> set[str]:
     with db.viz_conn() as c:
         return {r[0] for r in c.execute(
-            "SELECT DISTINCT agent_type FROM agent_rollup").fetchall()}
+            "SELECT DISTINCT dat.value FROM agent_rollup ar "
+            "JOIN dim_agent_type dat ON dat.id = ar.agent_type_id"
+        ).fetchall()}
 
 
 def test_ingest_takes_a_teammates_role_from_its_leads_dispatch(

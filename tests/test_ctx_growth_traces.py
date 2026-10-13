@@ -18,7 +18,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import api, cache, db, ingest
-from tests import mini_mirror, scratch_db
+from tests import dims_seed, mini_mirror, scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -62,12 +62,17 @@ def test_models_excludes_non_canonical_rows(client):
     seen only by a losing duplicate was offered in the dropdown."""
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
+        mid = dims_seed.dim_id(cur, "dim_model", "zzz-only-on-dupes")
         cur.execute(
-            "INSERT INTO records (file_key, line_num, uuid, ts, model, "
-            "output_tokens, cost_usd, is_canonical) "
-            "SELECT file_key, 9001, 'uuid-644-noncanon', now(), "
-            "'zzz-only-on-dupes', 1, 0.0, FALSE FROM files LIMIT 1"
+            "INSERT INTO records (file_id, line_num, fallback, ts, model_id, "
+            "output_tokens, is_canonical) "
+            "SELECT file_id, 9001, 'uuid-644-noncanon', now(), %s, "
+            "1, FALSE FROM files LIMIT 1",
+            (mid,),
         )
+        cur.execute(
+            "INSERT INTO records_price (file_id, line_num, cost_usd) "
+            "SELECT file_id, 9001, 0.0 FROM files LIMIT 1")
         conn.commit()
 
         names = [m["model"] for m in
@@ -76,7 +81,7 @@ def test_models_excludes_non_canonical_rows(client):
 
         cur.execute(
             "UPDATE records SET is_canonical = TRUE "
-            "WHERE uuid = 'uuid-644-noncanon'"
+            "WHERE fallback = 'uuid-644-noncanon'"
         )
         conn.commit()
         # Out-of-band row mutation: production invalidates the response
@@ -151,14 +156,20 @@ def test_traces_model_fold_ignores_non_canonical_rows(client):
         row = cur.fetchone()
         assert row is not None, "fixture has no traced file"
         (file_key,) = row
+        fid = dims_seed.file_id(cur, file_key)
+        mid = dims_seed.dim_id(cur, "dim_model", "zzz-dupe-only-model")
         cur.execute(
-            "INSERT INTO records (file_key, line_num, uuid, ts, model, "
-            "output_tokens, cost_usd, is_canonical) "
+            "INSERT INTO records (file_id, line_num, fallback, ts, model_id, "
+            "output_tokens, is_canonical) "
             "SELECT %s, 9100 + n, 'uuid-644-cte-' || n, now(), "
-            "'zzz-dupe-only-model', 1, 0.0, FALSE "
+            "%s, 1, FALSE "
             "FROM generate_series(1, 3) AS n",
-            (file_key,),
+            (fid, mid),
         )
+        cur.execute(
+            "INSERT INTO records_price (file_id, line_num, cost_usd) "
+            "SELECT %s, 9100 + n, 0.0 FROM generate_series(1, 3) AS n",
+            (fid,))
         conn.commit()
         cache.response_cache.clear()
 

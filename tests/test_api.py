@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from backend import api, api_export, db, ingest, pricing
 from tests import mini_mirror, scratch_db
+from tests import dims_seed
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -320,26 +321,7 @@ def test_projects_range_scoped_ordering_and_zero_token_exclusion(app_with_fresh_
             "('projOldCost', 'projOldCost', now(), now()), "
             "('projRecentCost', 'projRecentCost', now(), now())"
         )
-        cur.execute(
-            "INSERT INTO usage_rollup (session_id, project_id, hour, model, is_main, "
-            "first_ts, last_ts, requests, fresh_tokens, cost_usd) VALUES "
-            # No tokens ever — "no usage at all". Must be excluded
-            # outright, even though it has a usage_rollup row (and even
-            # though cost would have been 0 under the old rule too).
-            "('sess-zero', 'projNeverToken', now() - interval '1 day', 'm', TRUE, now(), now(), 1, 0, 0), "
-            # A FREE lane: tokens but zero cost. Must be LISTED — this is
-            # the empty-picker bug the tokens rule fixes.
-            "('sess-free', 'projFree', now() - interval '1 hour', 'm', TRUE, now(), now(), 4, 4000, 0), "
-            # Real historical cost (bigger than projRecentCost's), but 60
-            # days old — outside a 7d range. Must still be LISTED
-            # (all-time tokens are nonzero) but sorted below the in-range
-            # projects.
-            "('sess-old', 'projOldCost', now() - interval '60 days', 'm', TRUE, now(), now(), 1, 1000, 5.00), "
-            # Smaller all-time cost, but entirely inside the 7d range —
-            # must outrank projOldCost despite the smaller all-time total,
-            # proving the ordering is RANGE-scoped, not all-time.
-            "('sess-recent', 'projRecentCost', now() - interval '1 hour', 'm', TRUE, now(), now(), 1, 1000, 1.00)"
-        )
+        _seed_project_ordering_rollups(cur)
         conn.commit()
 
     r = app_with_fresh_data.get("/api/projects?range=7d")
@@ -375,6 +357,34 @@ def test_projects_range_scoped_ordering_and_zero_token_exclusion(app_with_fresh_
     assert by_id_wide["projOldCost"]["total_cost"] == 5.0
     pids_wide = [p["project_id"] for p in body_wide["projects"]]
     assert pids_wide.index("projOldCost") < pids_wide.index("projRecentCost")
+
+
+def _seed_project_ordering_rollups(cur) -> None:
+    """The four usage_rollup rows the range-scoped ordering test folds."""
+    now = datetime.now(timezone.utc)
+    rollup_rows = [
+            # No tokens ever — "no usage at all". Must be excluded
+            # outright, even though it has a usage_rollup row (and even
+            # though cost would have been 0 under the old rule too).
+            ("sess-zero", "projNeverToken", timedelta(days=1), 1, 0, 0),
+            # A FREE lane: tokens but zero cost. Must be LISTED — this is
+            # the empty-picker bug the tokens rule fixes.
+            ("sess-free", "projFree", timedelta(hours=1), 4, 4000, 0),
+            # Real historical cost (bigger than projRecentCost's), but 60
+            # days old — outside a 7d range. Must still be LISTED
+            # (all-time tokens are nonzero) but sorted below the in-range
+            # projects.
+            ("sess-old", "projOldCost", timedelta(days=60), 1, 1000, 5.00),
+            # Smaller all-time cost, but entirely inside the 7d range —
+            # must outrank projOldCost despite the smaller all-time total,
+            # proving the ordering is RANGE-scoped, not all-time.
+            ("sess-recent", "projRecentCost", timedelta(hours=1),
+             1, 1000, 1.00),
+        ]
+    for session_id, project_id, age, requests, tokens, cost in rollup_rows:
+        dims_seed.seed_usage_rollup(
+            cur, project_id, session_id, now - age,
+            requests=requests, fresh_tokens=tokens, cost_usd=cost)
 
 
 def test_cache_per_model_shape(app_with_data):
@@ -651,12 +661,23 @@ def _insert_tz_probe_rows():
             "r2_size_bytes, r2_last_modified, parsed_at, parser_version) "
             "VALUES ('projTZ/tz.jsonl', 'projTZ', 'tzsess', TRUE, 'etag-tz', 1, now(), now(), 'test')"
         )
+        fid = dims_seed.file_id(cur, "projTZ/tz.jsonl")
+        mid = dims_seed.dim_id(cur, "dim_model", "tz-probe-model")
         cur.execute(
-            "INSERT INTO records (file_key, line_num, uuid, ts, model, output_tokens, cost_usd) VALUES "
+            "INSERT INTO records (file_id, line_num, fallback, ts, model_id, "
+            "output_tokens) VALUES "
             # 2026-01-15 is a Thursday (ISODOW 4); 10:30Z in CET (UTC+1) is 11:30 local.
-            "('projTZ/tz.jsonl', 1, 'uuid-tz-winter', '2026-01-15T10:30:00Z', 'tz-probe-model', 10, 0.01), "
+            "(%s, 1, 'uuid-tz-winter', '2026-01-15T10:30:00Z', %s, 10), "
             # 2026-07-15 is a Wednesday (ISODOW 3); 10:30Z in CEST (UTC+2) is 12:30 local.
-            "('projTZ/tz.jsonl', 2, 'uuid-tz-summer', '2026-07-15T10:30:00Z', 'tz-probe-model', 20, 0.02)"
+            "(%s, 2, 'uuid-tz-summer', '2026-07-15T10:30:00Z', %s, 20)",
+            (fid, mid, fid, mid),
+        )
+        # cost_usd moved to the records_price sidecar (#959 R4); the pair
+        # is written together so the rollup's cost fold still sees it.
+        cur.execute(
+            "INSERT INTO records_price (file_id, line_num, cost_usd) "
+            "VALUES (%s, 1, 0.01), (%s, 2, 0.02)",
+            (fid, fid),
         )
         conn.commit()
 

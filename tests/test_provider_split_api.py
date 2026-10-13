@@ -95,7 +95,12 @@ def test_ingest_stores_the_provider_and_prices_by_it(client):
     _, start = client
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn:
         rows = conn.execute(
-            "SELECT provider, model, cost_usd FROM records ORDER BY line_num"
+            "SELECT dp.value, dm.value, rp.cost_usd "
+            "FROM records r "
+            "JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num "
+            "LEFT JOIN dim_provider dp ON dp.id = r.provider_id "
+            "JOIN dim_model dm ON dm.id = r.model_id "
+            "ORDER BY r.line_num"
         ).fetchall()
     assert [(p, m, float(c)) for p, m, c in rows] == \
         [(p, m, pytest.approx(c)) for p, m, c, _ in _expected(start)]
@@ -104,7 +109,10 @@ def test_ingest_stores_the_provider_and_prices_by_it(client):
 def test_the_rollup_keeps_provider_in_its_grain(client):
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn:
         got = conn.execute(
-            "SELECT model, provider, SUM(requests) FROM usage_rollup "
+            "SELECT dm.value, dp.value, SUM(u.requests) "
+            "FROM usage_rollup u "
+            "JOIN dim_model dm ON dm.id = u.model_id "
+            "JOIN dim_provider dp ON dp.id = u.provider_id "
             "GROUP BY 1, 2 ORDER BY 1, 2"
         ).fetchall()
     # '' is the rollup's spelling of a NULL provider: it is part of the

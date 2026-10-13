@@ -43,6 +43,17 @@ _VIZ_ACTIVE: set = set()
 _VIZ_ACTIVE_LOCK = threading.Lock()
 
 
+def track_viz_conn(conn) -> None:
+    """Register ANY dedicated connection with cancel_viz_queries' registry."""
+    with _VIZ_ACTIVE_LOCK:
+        _VIZ_ACTIVE.add(conn)
+
+
+def untrack_viz_conn(conn) -> None:
+    with _VIZ_ACTIVE_LOCK:
+        _VIZ_ACTIVE.discard(conn)
+
+
 def sql_text(query: str) -> LiteralString:
     """Mark a programmatically assembled query string as executable.
 
@@ -179,13 +190,11 @@ def reset_auth_pool() -> None:
 @contextmanager
 def viz_conn():
     with viz_pool().connection() as conn:
-        with _VIZ_ACTIVE_LOCK:
-            _VIZ_ACTIVE.add(conn)
+        track_viz_conn(conn)
         try:
             yield conn
         finally:
-            with _VIZ_ACTIVE_LOCK:
-                _VIZ_ACTIVE.discard(conn)
+            untrack_viz_conn(conn)
 
 
 def cancel_viz_queries() -> None:

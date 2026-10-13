@@ -35,9 +35,9 @@ from pathlib import Path
 
 import pytest
 
-from backend import constants, db, ingest
+from backend import constants, db, ingest, uuid_split
 from backend.ingest_scope import Scope
-from tests import scratch_db
+from tests import dims_seed, scratch_db
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
 FORK_FIXTURE = FIX / "rollout_fork_model_switch.jsonl"
@@ -157,12 +157,15 @@ def _fork_mirror_fixture(monkeypatch, tmp_path):
 def _replay_rows():
     """Both copies of every replayed uuid, ordered by file_key."""
     with db.viz_conn() as c:
+        uuid_text = uuid_split.uuid_text_sql("r")
         return c.execute(
-            """
-            SELECT uuid, file_key, model, is_canonical
-              FROM records
-             WHERE uuid = ANY(%s)
-             ORDER BY uuid, file_key
+            f"""
+            SELECT {uuid_text} AS uuid, f.file_key, dm.value, r.is_canonical
+              FROM records r
+              JOIN files f ON f.file_id = r.file_id
+              JOIN dim_model dm ON dm.id = r.model_id
+             WHERE {uuid_text} = ANY(%s)
+             ORDER BY {uuid_text}, f.file_key
             """, (list(REPLAY_UUIDS),),
         ).fetchall()
 
@@ -242,10 +245,11 @@ def test_the_forks_own_records_stay_canonical_and_its_own(
     with db.viz_conn() as c:
         rows = c.execute(
             """
-            SELECT r.model, r.is_replay, r.is_canonical, f.is_main
-              FROM records r JOIN files f ON f.file_key = r.file_key
+            SELECT dm.value, r.is_replay, r.is_canonical, f.is_main
+              FROM records r JOIN files f ON f.file_id = r.file_id
+              JOIN dim_model dm ON dm.id = r.model_id
              WHERE r.is_replay IS FALSE
-               AND r.file_key LIKE '%subagents/forkthread%'
+               AND f.file_key LIKE '%subagents/forkthread%'
             """,
         ).fetchall()
     # The fork's own request (its counter continues past the parent's
@@ -362,19 +366,23 @@ def test_the_replay_rank_applies_to_tool_uses_too(fresh_db):
         # The parent's original call and the fork's replay, the fork's
         # key FIRST — the order the old file_key rule would have picked.
         for fk, replay in (("zzz-subagent", True), ("main", False)):
+            fid = dims_seed.file_id(c, fk)
+            tid = dims_seed.dim_id(c, "dim_tool_name", "exec")
+            mid = dims_seed.dim_id(c, "dim_model", "gpt-5.6-sol")
             c.execute(
-                "INSERT INTO tool_uses (file_key, line_num, idx, ts, "
-                "tool_name, model, tool_use_id, is_replay) "
-                "VALUES (%s, 1, 0, now(), 'exec', 'gpt-5.6-sol', "
-                "'call-replay-1', %s)", (fk, replay))
+                "INSERT INTO tool_uses (file_id, line_num, idx, ts, "
+                "tool_name_id, model_id, tool_use_id, is_replay) "
+                "VALUES (%s, 1, 0, now(), %s, %s, "
+                "'call-replay-1', %s)", (fid, tid, mid, replay))
         c.commit()
 
     ingest.recompute_canonical()
 
     with db.viz_conn() as c:
         rows = dict(c.execute(
-            "SELECT file_key, is_canonical FROM tool_uses "
-            "WHERE tool_use_id = 'call-replay-1'").fetchall())
+            "SELECT f.file_key, t.is_canonical FROM tool_uses t "
+            "JOIN files f ON f.file_id = t.file_id "
+            "WHERE t.tool_use_id = 'call-replay-1'").fetchall())
     assert rows == {"main": True, "zzz-subagent": False}
 
 
@@ -399,19 +407,24 @@ def test_a_replayed_tool_call_adopts_the_originals_model(fresh_db):
         # fork's first declared model — the shape the pass corrects.
         for fk, replay, model in (("zzz-subagent", True, "gpt-5.6-terra"),
                                   ("main", False, "gpt-5.6-sol")):
+            fid = dims_seed.file_id(c, fk)
+            tid = dims_seed.dim_id(c, "dim_tool_name", "exec")
+            mid = dims_seed.dim_id(c, "dim_model", model)
             c.execute(
-                "INSERT INTO tool_uses (file_key, line_num, idx, ts, "
-                "tool_name, model, tool_use_id, is_replay) "
-                "VALUES (%s, 1, 0, now(), 'exec', %s, "
-                "'call-replay-1', %s)", (fk, model, replay))
+                "INSERT INTO tool_uses (file_id, line_num, idx, ts, "
+                "tool_name_id, model_id, tool_use_id, is_replay) "
+                "VALUES (%s, 1, 0, now(), %s, %s, "
+                "'call-replay-1', %s)", (fid, tid, mid, replay))
         c.commit()
 
     ingest.recompute_canonical()
 
     with db.viz_conn() as c:
         rows = dict(c.execute(
-            "SELECT file_key, model FROM tool_uses "
-            "WHERE tool_use_id = 'call-replay-1'").fetchall())
+            "SELECT f.file_key, dm.value FROM tool_uses t "
+            "JOIN files f ON f.file_id = t.file_id "
+            "LEFT JOIN dim_model dm ON dm.id = t.model_id "
+            "WHERE t.tool_use_id = 'call-replay-1'").fetchall())
     assert rows == {"main": "gpt-5.6-sol", "zzz-subagent": "gpt-5.6-sol"}
 
 
@@ -429,20 +442,26 @@ def test_a_null_original_model_is_never_adopted(fresh_db):
                 "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
                 "parser_version) VALUES (%s, 'p', 's', %s, 'e', 1, now(), "
                 "now(), %s)", (fk, is_main, constants.PARSER_VERSION))
+        tid = dims_seed.dim_id(c, "dim_tool_name", "exec")
+        main_fid = dims_seed.file_id(c, "main")
+        fork_fid = dims_seed.file_id(c, "zzz-subagent")
+        terra = dims_seed.dim_id(c, "dim_model", "gpt-5.6-terra")
         c.execute(
-            "INSERT INTO tool_uses (file_key, line_num, idx, ts, tool_name, "
-            "model, tool_use_id, is_replay) VALUES "
-            "('main', 1, 0, now(), 'exec', NULL, 'call-replay-1', NULL), "
-            "('zzz-subagent', 3, 0, now(), 'exec', 'gpt-5.6-terra', "
-            "'call-replay-1', TRUE)")
+            "INSERT INTO tool_uses (file_id, line_num, idx, ts, tool_name_id, "
+            "model_id, tool_use_id, is_replay) VALUES "
+            "(%s, 1, 0, now(), %s, NULL, 'call-replay-1', NULL), "
+            "(%s, 3, 0, now(), %s, %s, 'call-replay-1', TRUE)",
+            (main_fid, tid, fork_fid, tid, terra))
         c.commit()
 
     ingest.recompute_canonical()
 
     with db.viz_conn() as c:
         rows = dict(c.execute(
-            "SELECT file_key, model FROM tool_uses "
-            "WHERE tool_use_id = 'call-replay-1'").fetchall())
+            "SELECT f.file_key, dm.value FROM tool_uses t "
+            "JOIN files f ON f.file_id = t.file_id "
+            "LEFT JOIN dim_model dm ON dm.id = t.model_id "
+            "WHERE t.tool_use_id = 'call-replay-1'").fetchall())
     assert rows == {"main": None, "zzz-subagent": "gpt-5.6-terra"}
 
 
@@ -486,10 +505,13 @@ def test_a_claude_modelless_copy_is_refused(
 
     with db.viz_conn() as c:
         rows = c.execute(
-            """
-            SELECT file_key, model, is_canonical
-              FROM records WHERE uuid = 'u-shared'
-             ORDER BY file_key
+            f"""
+            SELECT f.file_key, dm.value, r.is_canonical
+              FROM records r
+              JOIN files f ON f.file_id = r.file_id
+              JOIN dim_model dm ON dm.id = r.model_id
+             WHERE {uuid_split.uuid_text_sql('r')} = 'u-shared'
+             ORDER BY f.file_key
             """,
         ).fetchall()
         stored_row = c.execute("SELECT COUNT(*) FROM files").fetchone()
@@ -513,13 +535,19 @@ def _seed_two_identities() -> None:
                 "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
                 "parser_version) VALUES (%s, 'p', 's', %s, 'e', 1, now(), "
                 "now(), %s)", (fk, is_main, constants.PARSER_VERSION))
+        sol = dims_seed.dim_id(c, "dim_model", "gpt-5.6-sol")
+        terra = dims_seed.dim_id(c, "dim_model", "gpt-5.6-terra")
         c.execute(
-            "INSERT INTO records (file_key, line_num, uuid, model, "
+            "INSERT INTO records (file_id, line_num, fallback, model_id, "
             "is_replay, is_canonical) VALUES "
-            "('main1', 1, 'u1', 'gpt-5.6-sol', NULL, TRUE), "
-            "('fork1', 3, 'u1', 'gpt-5.6-terra', TRUE, FALSE), "
-            "('main2', 1, 'u2', 'gpt-5.6-sol', NULL, TRUE), "
-            "('fork2', 3, 'u2', 'gpt-5.6-terra', TRUE, FALSE)")
+            "(%s, 1, 'u1', %s, NULL, TRUE), "
+            "(%s, 3, 'u1', %s, TRUE, FALSE), "
+            "(%s, 1, 'u2', %s, NULL, TRUE), "
+            "(%s, 3, 'u2', %s, TRUE, FALSE)",
+            (dims_seed.file_id(c, "main1"), sol,
+             dims_seed.file_id(c, "fork1"), terra,
+             dims_seed.file_id(c, "main2"), sol,
+             dims_seed.file_id(c, "fork2"), terra))
         c.commit()
 
 
@@ -535,16 +563,22 @@ def test_an_incremental_scope_adopts_only_its_own_uuids(fresh_db):
 
     with db.viz_conn() as c:
         rows = dict(c.execute(
-            "SELECT file_key, model FROM records WHERE uuid IN ('u1', 'u2') "
-            "AND is_replay IS TRUE").fetchall())
+            f"SELECT f.file_key, dm.value FROM records r "
+            f"JOIN files f ON f.file_id = r.file_id "
+            f"JOIN dim_model dm ON dm.id = r.model_id "
+            f"WHERE {uuid_split.uuid_text_sql('r')} IN ('u1', 'u2') "
+            f"AND r.is_replay IS TRUE").fetchall())
     assert rows == {"fork1": "gpt-5.6-sol", "fork2": "gpt-5.6-terra"}
 
     # The full pass picks up what the scoped run left.
     ingest.recompute_canonical()
     with db.viz_conn() as c:
         rows = dict(c.execute(
-            "SELECT file_key, model FROM records WHERE uuid IN ('u1', 'u2') "
-            "AND is_replay IS TRUE").fetchall())
+            f"SELECT f.file_key, dm.value FROM records r "
+            f"JOIN files f ON f.file_id = r.file_id "
+            f"JOIN dim_model dm ON dm.id = r.model_id "
+            f"WHERE {uuid_split.uuid_text_sql('r')} IN ('u1', 'u2') "
+            f"AND r.is_replay IS TRUE").fetchall())
     assert rows == {"fork1": "gpt-5.6-sol", "fork2": "gpt-5.6-sol"}
 
 
@@ -562,16 +596,23 @@ def test_two_replays_without_an_original_keep_their_declarations(fresh_db):
                 "parser_version) VALUES (%s, 'p', 's', %s, 'e', 1, now(), "
                 "now(), %s)", (fk, is_main, constants.PARSER_VERSION))
         # Both copies replayed; the winner rule made the aaa copy canonical.
+        sol = dims_seed.dim_id(c, "dim_model", "gpt-5.6-sol")
+        terra = dims_seed.dim_id(c, "dim_model", "gpt-5.6-terra")
         c.execute(
-            "INSERT INTO records (file_key, line_num, uuid, model, "
+            "INSERT INTO records (file_id, line_num, fallback, model_id, "
             "is_replay, is_canonical) VALUES "
-            "('aaa-fork', 3, 'u3', 'gpt-5.6-sol', TRUE, TRUE), "
-            "('zzz-fork', 3, 'u3', 'gpt-5.6-terra', TRUE, FALSE)")
+            "(%s, 3, 'u3', %s, TRUE, TRUE), "
+            "(%s, 3, 'u3', %s, TRUE, FALSE)",
+            (dims_seed.file_id(c, "aaa-fork"), sol,
+             dims_seed.file_id(c, "zzz-fork"), terra))
         c.commit()
 
     ingest.recompute_canonical()
 
     with db.viz_conn() as c:
         rows = dict(c.execute(
-            "SELECT file_key, model FROM records WHERE uuid = 'u3'").fetchall())
+            f"SELECT f.file_key, dm.value FROM records r "
+            f"JOIN files f ON f.file_id = r.file_id "
+            f"JOIN dim_model dm ON dm.id = r.model_id "
+            f"WHERE {uuid_split.uuid_text_sql('r')} = 'u3'").fetchall())
     assert rows == {"aaa-fork": "gpt-5.6-sol", "zzz-fork": "gpt-5.6-terra"}

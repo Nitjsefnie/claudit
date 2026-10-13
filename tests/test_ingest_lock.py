@@ -22,7 +22,7 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture, _scalar,
 )
 
-from backend import db, ingest
+from backend import db, ingest, ingest_lockwatch
 from tests import scratch_db
 
 
@@ -159,13 +159,14 @@ class _DeadAtUnlockConn:
 
 
 def _dead_at_unlock_psycopg(monkeypatch, conn):
-    """Point backend.ingest's psycopg.Connection.connect at `conn`.
+    """Point backend.ingest_lockwatch's psycopg.Connection.connect at `conn`.
 
-    Replaces the module reference INSIDE backend.ingest only, so no other
-    code path in the process sees the stand-in.
+    Replaces the module reference INSIDE backend.ingest_lockwatch only —
+    the module that now owns `_db_run_lock` — so no other code path in
+    the process sees the stand-in.
     """
     monkeypatch.setattr(
-        ingest, "psycopg",
+        ingest_lockwatch, "psycopg",
         types.SimpleNamespace(
             Connection=types.SimpleNamespace(
                 connect=lambda url, autocommit=False: conn)))
@@ -670,8 +671,6 @@ def test_lock_gone_with_a_live_session_aborts(fresh_db):
     session that lost the lock is the unlocked continuation issue #374
     forbids. The holder here is armed with a connection that never took
     the lock."""
-    from backend import ingest_lockwatch  # pylint: disable=import-outside-toplevel
-
     conn = psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"], autocommit=True)
     key = ingest._INGEST_LOCK_KEY  # pylint: disable=protected-access
     ingest_lockwatch.hold(conn, key)

@@ -27,12 +27,31 @@ SCHEMA_PATH = _HERE / "schema.sql"
 # gate permanently. `web_metrics` went out first; `schema.sql` is otherwise
 # untouched and stays FIRST, because its statements are the ones every later
 # file's ALTERs sit on top of.
+# schema_dims.sql (issue #959) and the type compaction that follows it
+# are LAST: its guarded drop-and-recreate of records/tool_uses and every
+# rollup has to see every earlier file's ADD COLUMN land on the old shape
+# first, and it converges any retired text-dimension column a database
+# still carries; schema_types.sql then converges
+# the column types of a database already in the surrogate shape — after
+# the shape file it converges; schema_records_price.sql is LAST of all,
+# so its guard sees records in whatever shape the earlier files left it
+# (pre-split in-row, or already split) and moves/stamps accordingly.
+# Order within one transaction does not change atomicity — the whole
+# list is still one script, one lock set, one stamp.
 SCHEMA_PATHS = (SCHEMA_PATH, _HERE / "schema_web_metrics.sql",
                 _HERE / "schema_request_fee.sql",
                 _HERE / "schema_replay.sql",
                 _HERE / "schema_web_search.sql",
                 _HERE / "schema_cache_write.sql",
-                _HERE / "schema_collection.sql")
+                _HERE / "schema_collection.sql",
+                # schema_widths.sql (issue #959 task 7) drops a derived
+                # table whose signature is not canonical — it must run
+                # before schema_dims.sql's CREATE rebuilds it, and after
+                # every file that adds columns to the old shape.
+                _HERE / "schema_widths.sql",
+                _HERE / "schema_dims.sql",
+                _HERE / "schema_types.sql",
+                _HERE / "schema_records_price.sql")
 
 
 def read_schema() -> str:

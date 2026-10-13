@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import TypedDict
 
 from backend import constants
+from tests import dims_seed
 
 
 SEED_MODEL = "claude-opus-4-7"
@@ -65,16 +66,37 @@ def seed_parents(c, file_key: str) -> None:
 
 def seed_record(c, file_key: str, line_num: int,
                 record: SeedRecord | None = None) -> None:
-    """Insert one fixed-tally row under its project and file parents."""
+    """Insert one fixed-tally row under its project and file parents.
+
+    Since #959 the fact stores dim FK ids: model/provider resolve
+    through dims_seed (NULL stays NULL — the FK columns are nullable),
+    file_key resolves to the files row's file_id. The reprice-written
+    columns (cost, fee, staleness markers) live on the records_price
+    sidecar (ruling R4) and are inserted beside the records row.
+    """
     record = record or SeedRecord()
     seed_parents(c, file_key)
+    fid = dims_seed.file_id(c, file_key)
     c.execute(
-        "INSERT INTO records (file_key, line_num, ts, model, fresh_tokens, "
+        "INSERT INTO records (file_id, line_num, ts, model_id, fresh_tokens, "
         "cache_creation_tokens, cache_read_tokens, output_tokens, "
-        "eph5_tokens, eph1h_tokens, cost_usd, request_fee_usd, "
-        "web_search_requests, provider, pricing_version, rate_fingerprint) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (file_key, line_num, record.ts, record.model, *SEED_TOKENS,
-         record.cost_usd, record.request_fee_usd, record.web_search_requests,
-         record.provider, record.pricing_version, record.rate_fingerprint),
+        "eph5_tokens, eph1h_tokens, web_search_requests, provider_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (fid, line_num, record.ts,
+         dims_seed.dim_id(c, "dim_model", record.model), *SEED_TOKENS,
+         record.web_search_requests,
+         None if record.provider is None
+         else dims_seed.dim_id(c, "dim_provider", record.provider)),
+    )
+    c.execute(
+        "INSERT INTO records_price (file_id, line_num, cost_usd, "
+        "request_fee_usd, pricing_version_id, rate_fingerprint_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (fid, line_num, record.cost_usd, record.request_fee_usd,
+         None if record.pricing_version is None
+         else dims_seed.dim_id(c, "dim_pricing_version",
+                               record.pricing_version),
+         None if record.rate_fingerprint is None
+         else dims_seed.dim_id(c, "dim_rate_fingerprint",
+                               record.rate_fingerprint)),
     )

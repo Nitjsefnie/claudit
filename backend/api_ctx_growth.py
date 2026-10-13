@@ -37,7 +37,7 @@ def ctx_traces_rows(c: Any, since: datetime, project: str | None = None) -> list
     return c.execute(
         f"""
         WITH scoped_files AS (
-          SELECT f.file_key, f.session_id, f.is_main, f.ctx_turns
+          SELECT f.file_id, f.file_key, f.session_id, f.is_main, f.ctx_turns
           FROM files f
           WHERE f.r2_last_modified >= %s {proj_filter}
             AND jsonb_array_length(f.ctx_turns) > 0
@@ -46,23 +46,24 @@ def ctx_traces_rows(c: Any, since: datetime, project: str | None = None) -> list
         -- ran an ordered-set aggregate over every record in the
         -- table on every request, ignoring both range and project.
         file_models AS (
-          SELECT r.file_key,
+          SELECT r.file_id,
                  COALESCE(
-                   MODE() WITHIN GROUP (ORDER BY r.model) FILTER (
-                     WHERE r.model <> '' AND r.model <> '<synthetic>'
+                   MODE() WITHIN GROUP (ORDER BY dm.value) FILTER (
+                     WHERE dm.value <> '' AND dm.value <> '<synthetic>'
                    ),
-                   MODE() WITHIN GROUP (ORDER BY NULLIF(r.model, ''))
+                   MODE() WITHIN GROUP (ORDER BY NULLIF(dm.value, ''))
                  ) AS model
           FROM records r
+          JOIN dim_model dm ON dm.id = r.model_id
           WHERE r.is_canonical
-            AND r.file_key IN (SELECT file_key FROM scoped_files)
-          GROUP BY r.file_key
+            AND r.file_id IN (SELECT file_id FROM scoped_files)
+          GROUP BY r.file_id
         )
         SELECT sf.file_key, sf.session_id, sf.is_main,
                COALESCE(fm.model, '') AS model,
                sf.ctx_turns
         FROM scoped_files sf
-        LEFT JOIN file_models fm ON fm.file_key = sf.file_key
+        LEFT JOIN file_models fm ON fm.file_id = sf.file_id
         """,
         args,
     ).fetchall()
