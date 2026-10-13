@@ -295,7 +295,7 @@ def _baseline(baseline: dict[str, object], member: str) -> dict:
         if member == 'comment_share_baseline':
             normalised[safe_path] = validate.comment_share_value(value, f'{member}.{safe_path}')
             continue
-        if value.__class__ is int and value > 0:
+        if isinstance(value, int) and value.__class__ is int and value > 0:
             normalised[safe_path] = value
             continue
         count = _number(value, f'{member}.{safe_path}')
