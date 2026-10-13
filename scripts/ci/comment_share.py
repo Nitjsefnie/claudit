@@ -1,13 +1,17 @@
 """Measure UTF-8 comment bytes on tracked source files.
 
 Shell subset: words/operators, ordinary and ANSI-C string quotes, escapes,
-command/backtick/parameter scopes, grouping, quote-free arithmetic, here-strings,
-and continued commands with ordered literal-word heredocs. Delimiters must be
-nonempty words, unquoted, wholly single/double quoted, or backslash-prefixed;
-Whitespace/escape syntax in delimiters, ANSI-C or mixed quoting refuses.
-Single/double quotes anywhere in arithmetic
-and unquoted case words inside command/backtick substitutions refuse.
+command/process/backtick/parameter scopes, grouping, quote-free arithmetic,
+here-strings and continued commands with ordered literal-word heredocs.
+Delimiters must be nonempty words, unquoted, wholly single/double quoted, or
+backslash-prefixed; Whitespace/escape syntax in delimiters, ANSI-C or mixed
+quoting refuses. Single/double quotes anywhere in arithmetic and unquoted case
+words inside command/process/backtick substitutions refuse.
 Top-level case words are opaque; this is lexical measurement, not execution.
+Words split only at space, tab, newline and ;&|()<> (`<(`/`>(` open a process
+substitution inside the word); braces are word text.
+`=~` operands and extglob patterns (a word-glued `(` other than `name()` or
+`name=(`) refuse; a compound assignment's `)` continues its word.
 """
 from __future__ import annotations
 
@@ -32,6 +36,7 @@ SUFFIXES = {'.py': 'python', '.js': 'javascript', '.jsx': 'javascript',
             '.mjs': 'javascript', '.cjs': 'javascript', '.yaml': 'yaml',
             '.yml': 'yaml', '.sh': 'shell'}
 SHELLS = {'sh', 'bash', 'dash', 'ash', 'ksh', 'mksh', 'zsh'}
+BOUNDARY = ' \t\n;&|()<>'
 HEREDOC = re.compile(r'<<(-?)[ \t]*((?:[^\s<>|;&()\\\'"`]|\\.|\'[^\']*\'|"[^"]*")+)')
 
 
@@ -168,8 +173,9 @@ class ShellLexer:
         if line[index:index + 3] == '$((' or arithmetic and line[index:index + 2] == '((':
             self.push('))')
             return index + (3 if line[index] == '$' else 2)
-        if line[index:index + 2] in ('${', '$('):
-            close = '}' if line[index + 1] == '{' else ')'
+        opener = line[index:index + 2]
+        if opener in ('${', '$(') or arithmetic and scope.close != '))' and opener in ('<(', '>('):
+            close = '}' if opener == '${' else ')'
             self.push(close)
             self.scopes[-1].command_substitution = close == ')'
             return index + 2
@@ -189,7 +195,11 @@ class ShellLexer:
             self.scopes.pop()
             return index + 2
         if char == '(':
-            if scope.close in (')', '))'):
+            glued, prev = not scope.word_start, line[index - 1:index]
+            if scope.close != '))' and glued and prev != '=' and (
+                    prev in tuple('@!+*?') or line[index + 1:index + 2] != ')'):
+                raise MeasurementError('extglob pattern refuses')
+            if scope.close == '))' or scope.close == ')' and prev != '=':
                 scope.depth += 1
             else:
                 self.push(')')
@@ -223,13 +233,15 @@ class ShellLexer:
         scope = self.scopes[-1]
         if not scope.word_start or scope.quote or scope.close in ('}', '))') or line[index] == '#':
             return None
-        match = re.match(r'''(?:\\[^\n]|[^\s\\'"`$;&|(){}<>])+''', line[index:])
+        match = re.match(r'''(?:\\[^\n]|[^ \t\n\\'"`$;&|()<>])+''', line[index:])
         if not match:
             return None
         end = index + match.end()
-        complete = (end == len(line) or line[end].isspace() or line[end] in ';&|(){}<>'
+        complete = (end == len(line) or line[end] in BOUNDARY
                     or line[end] == '`' and scope.close == '`')
         spelling = re.sub(r'\\(.)', r'\1', match[0])
+        if complete and spelling == '=~':
+            raise MeasurementError('[[ =~ ]] regex operand refuses')
         if complete:
             self.refuse_case(spelling)
         return end
@@ -263,7 +275,7 @@ class ShellLexer:
         if moved is None:
             moved = self.scope_step(line, index)
         if moved is not None:
-            scope.word_start = char in '()' and not scope.quote
+            scope.word_start = char in '()' and not scope.quote and line[index - 1:index + 1] != '=('
             return moved, 0
         if char in "\"'":
             scope.quote = char
@@ -280,7 +292,7 @@ class ShellLexer:
                 self.waiting.append(heredoc)
             scope.word_start = False
             return moved, 0
-        scope.word_start = char.isspace() or char in ';&|(){}<>'
+        scope.word_start = char in BOUNDARY
         return index + 1, 0
 
     def join_prefix(self, text: str, index: int, positions: list[int]
