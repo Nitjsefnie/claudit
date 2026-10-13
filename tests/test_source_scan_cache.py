@@ -189,6 +189,55 @@ def test_read_once_and_lazy_artifact_identity(
     assert other_calls == {"compile": 1, "walk": 1}
 
 
+def test_path_and_descriptor_signatures_may_differ(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "different_stat.py"
+    text = "value = 1\n"
+    path.write_text(text, encoding="utf-8")
+    _old_clock((path,), monkeypatch)
+    original_fstat = os.fstat
+
+    def descriptor_stat(fd: int) -> Any:
+        stat = original_fstat(fd)
+        return types.SimpleNamespace(
+            st_dev=stat.st_dev + 1, st_ino=stat.st_ino + 1,
+            st_size=stat.st_size, st_mtime_ns=stat.st_mtime_ns,
+            st_ctime_ns=stat.st_ctime_ns + 1)
+
+    monkeypatch.setattr(os, "fstat", descriptor_stat)
+    calls = _count_preprocessing(text, monkeypatch)
+    one = source_scan_cache.snapshot(path)
+    assert one.source() == text
+    assert source_scan_cache.snapshot(path) is one
+    assert calls[0][path.resolve()] == 1
+
+
+def test_replacement_between_path_stat_and_open_is_reread(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "replaced.py"
+    path.write_text("old = 1\n", encoding="utf-8")
+    replacement = tmp_path / "replacement.py"
+    replacement.write_text("new = 2\n", encoding="utf-8")
+    _old_clock((path, replacement), monkeypatch)
+    original_open = Path.open
+    reads = 0
+
+    def replacing_open(file: Path, *args: Any, **kwargs: Any) -> Any:
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            replacement.replace(path)
+        return original_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", replacing_open)
+    one = source_scan_cache.snapshot(path)
+    assert one.source() == "new = 2\n"
+    assert source_scan_cache.snapshot(path) is one
+    assert reads == 2
+    assert source_scan_cache.snapshot(path) is one
+    assert reads == 2
+
+
 @pytest.mark.parametrize("recent", ["mtime", "ctime"])
 def test_racy_reads_reuse_content_and_stop_when_clock_advances(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recent: str) -> None:
@@ -559,9 +608,14 @@ def test_generation_changed_during_read_fails_explicitly(
     def changing_open(file: Path, *args: Any,
                       **kwargs: Any) -> Iterator[Any]:
         with original_open(file, *args, **kwargs) as handle:
-            with original_open(file, "wb") as writer:
-                writer.write(b"new_value = 2\n")
-            yield handle
+            def changing_read() -> bytes:
+                data = handle.read()
+                with original_open(file, "wb") as writer:
+                    writer.write(b"new_value = 2\n")
+                return data
+
+            yield types.SimpleNamespace(fileno=handle.fileno,
+                                        read=changing_read)
 
     with monkeypatch.context() as patch:
         patch.setattr(Path, "open", changing_open)

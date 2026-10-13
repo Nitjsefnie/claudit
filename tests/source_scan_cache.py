@@ -178,7 +178,7 @@ def snapshot(path: Path) -> SourceSnapshot:
         opened = _signature(os.fstat(reader.fileno()))
         data = reader.read()
         after = _signature(os.fstat(reader.fileno()))
-    if not before == opened == after == _signature(resolved.stat()):
+    if opened != after:
         raise RuntimeError(f"Source generation changed during read: {resolved}")
     content_hash = hashlib.sha256(data).hexdigest()
     key = (resolved, content_hash)
@@ -186,6 +186,8 @@ def snapshot(path: Path) -> SourceSnapshot:
     if record is None:
         record = SourceSnapshot(resolved, content_hash, data)
         _history[key] = record
+    # Keep path-stat metadata separate from descriptor metadata. A replacement
+    # before open leaves the old signature here, forcing the next call to read.
     _current[resolved] = (before, record_time_ns, record)
     return record
 
