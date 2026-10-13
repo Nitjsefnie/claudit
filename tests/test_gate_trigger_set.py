@@ -105,7 +105,8 @@ def test_exempt_beats_every_other_part_of_the_set():
     # the precedence itself: exempt wins even when a family would
     # otherwise match.
     for name in ("src/pricing.json", "src/pricing_notices.json",
-                 "backend/constants.py", "VERSION",
+                 "backend/constants.py", "backend/parser_version.py",
+                 "VERSION",
                  "backend", "tests", "fixtures", "compose",
                  "compose.yaml", "Dockerfile"):
         assert name in gts.EXEMPT, name

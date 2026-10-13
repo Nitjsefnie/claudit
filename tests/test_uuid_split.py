@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 import psycopg
 import pytest
 
-from backend import constants, db, ingest_rollup_state, uuid_split
+from backend import db, ingest_rollup_state, parser_version, uuid_split
 from tests import dims_seed, scratch_db
 
 # The canonical lowercase 8-4-4-4-12 form: exactly what PostgreSQL
@@ -420,8 +420,8 @@ def test_a_text_uuid_database_drops_to_the_split_and_forces_a_refill(
         # mismatch below is what triggers.
         assert rows is not None and rows[0] == 0, rows
         assert stamped is not None, stamped
-        assert stamped[0] != constants.PARSER_VERSION, (
-            stamped[0], constants.PARSER_VERSION)
+        assert stamped[0] != parser_version.PARSER_VERSION, (
+            stamped[0], parser_version.PARSER_VERSION)
     finally:
         db.reset_viz_pool()
         scratch_db.drop_database(name)

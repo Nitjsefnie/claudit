@@ -7,7 +7,7 @@ from pathlib import Path
 from orjson import dumps, loads
 import pytest
 
-from backend import constants, db, flags, ingest, parse, r2
+from backend import db, flags, ingest, parse, parser_version, r2
 from backend.flags import ALL_COLLECTIONS_ON, CollectionPolicy
 from tests import scratch_db
 
@@ -235,7 +235,7 @@ def test_generation_speed_persisted(fresh_db):
     ingest._persist(  # pylint: disable=protected-access
         r2.R2Object(key, "timing-fixture", len(blob), now),
         {"project_id": "k", "display_name": "k", "first_seen_at": now, "last_seen_at": now},
-        parsed, constants.PARSER_VERSION,
+        parsed, parser_version.PARSER_VERSION,
     )
     with db.viz_conn() as conn:
         rows = conn.execute(

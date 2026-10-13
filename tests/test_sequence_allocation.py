@@ -25,7 +25,7 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _scalar,
 )
 
-from backend import constants, db, dims, ingest, ingest_reprice
+from backend import db, dims, ingest, ingest_reprice, parser_version
 from backend import ingest_rollup_hourly, parse, project_aliases
 from backend.r2 import R2Object
 from tests import scratch_db
@@ -90,11 +90,11 @@ def test_persisting_the_same_file_twice_spends_no_identity_value(
     with db.viz_conn() as conn:
         before = _snapshot(conn, sequences)
     ingest._persist(  # pylint: disable=protected-access
-        obj, proj, out, constants.PARSER_VERSION)
+        obj, proj, out, parser_version.PARSER_VERSION)
     with db.viz_conn() as conn:
         once = _snapshot(conn, sequences)
     ingest._persist(  # pylint: disable=protected-access
-        obj, proj, out, constants.PARSER_VERSION)
+        obj, proj, out, parser_version.PARSER_VERSION)
     with db.viz_conn() as conn:
         twice = _snapshot(conn, sequences)
 

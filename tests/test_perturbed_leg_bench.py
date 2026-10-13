@@ -1,11 +1,11 @@
 """The perturbed-data leg's attribution bench (issue #456) under test.
 
 These tests drive ``scripts/ci/perturbed_leg_bench.py`` over a MINIMAL
-synthetic pricing.json and constants module in tmp_path, over a
-one-test pytest subprocess, never the real tree: the tree's own
-pricing.json is never mutated. The end-to-end runs are POSIX-only --
-the bench reads child CPU from ``getrusage`` -- and the report-shape
-and wiring tests run everywhere.
+synthetic pricing.json, constants module and parser-version module in
+tmp_path, over a one-test pytest subprocess, never the real tree: the
+tree's own pricing.json is never mutated. The end-to-end runs are
+POSIX-only -- the bench reads child CPU from ``getrusage`` -- and the
+report-shape and wiring tests run everywhere.
 """
 from __future__ import annotations
 
@@ -45,20 +45,24 @@ def _load():
 bench = _load()
 
 
-def _seed_tree(tmp_path: Path) -> tuple[Path, Path]:
+def _seed_tree(tmp_path: Path) -> tuple[Path, Path, Path]:
     pricing_path = tmp_path / "pricing.json"
     constants_path = tmp_path / "constants.py"
+    parser_path = tmp_path / "parser_version.py"
     doc = seed_doc(models={"acme/acme-9": [{"from": None, **RATES}]},
                    fetched="2026-06-01T00:00:00Z")
     pricing_path.write_text(
         json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     constants_path.write_text(
         '"""Synthetic constants."""\n'
-        'PARSER_VERSION = "81"\n'
         'PRICING_VERSION = "5"\n'
         'MARKER_READER_VERSION = "1"\n',
         encoding="utf-8")
-    return pricing_path, constants_path
+    parser_path.write_text(
+        '"""Synthetic parser version."""\n'
+        'PARSER_VERSION = "81"\n',
+        encoding="utf-8")
+    return pricing_path, constants_path, parser_path
 
 
 def _mini_suite(tmp_path: Path, *, passing: bool = True) -> list[str]:
@@ -76,9 +80,10 @@ def _mini_suite(tmp_path: Path, *, passing: bool = True) -> list[str]:
 
 @POSIX
 def test_a_passing_run_records_both_phases(tmp_path):
-    pricing_path, constants_path = _seed_tree(tmp_path)
+    pricing_path, constants_path, parser_path = _seed_tree(tmp_path)
     args = _mini_suite(tmp_path)
-    measurement = bench.measure([42], pricing_path, constants_path, args)
+    measurement = bench.measure([42], pricing_path, constants_path,
+                                parser_path, args)
     assert measurement["instrument"] == bench.INSTRUMENT
     (seed_run,) = measurement["seeds"]
     assert seed_run["seed"] == 42
@@ -101,9 +106,10 @@ def test_a_passing_run_records_both_phases(tmp_path):
 
 @POSIX
 def test_two_seeds_sum_and_start_pristine(tmp_path):
-    pricing_path, constants_path = _seed_tree(tmp_path)
+    pricing_path, constants_path, parser_path = _seed_tree(tmp_path)
     args = _mini_suite(tmp_path)
-    measurement = bench.measure([42, 43], pricing_path, constants_path, args)
+    measurement = bench.measure([42, 43], pricing_path, constants_path,
+                                parser_path, args)
     assert [run["seed"] for run in measurement["seeds"]] == [42, 43]
     for phase in bench.PHASES:
         for column in ("wall_s", "cpu_s"):
@@ -121,15 +127,18 @@ def test_two_seeds_sum_and_start_pristine(tmp_path):
     assert len(doc["models"]["claude-opus-4-7"]) == 6, "every row perturbs"
     constants_text = constants_path.read_text(encoding="utf-8")
     assert 'PRICING_VERSION = "6"' in constants_text  # 5 + one bump
+    parser_text = parser_path.read_text(encoding="utf-8")
+    assert 'PARSER_VERSION = "82"' in parser_text  # 81 + one bump
 
 
 @POSIX
 def test_the_exit_is_zero_when_every_seed_passes(tmp_path):
-    pricing_path, constants_path = _seed_tree(tmp_path)
+    pricing_path, constants_path, parser_path = _seed_tree(tmp_path)
     args = _mini_suite(tmp_path)
     code = bench.main([
         "--seed", "42",
         "--pricing", str(pricing_path), "--constants", str(constants_path),
+        "--parser-version", str(parser_path),
         "--pytest-args", " ".join(args),
     ])
     assert code == 0
@@ -137,11 +146,12 @@ def test_the_exit_is_zero_when_every_seed_passes(tmp_path):
 
 @POSIX
 def test_a_failing_suite_stops_the_run_and_is_the_exit(tmp_path):
-    pricing_path, constants_path = _seed_tree(tmp_path)
+    pricing_path, constants_path, parser_path = _seed_tree(tmp_path)
     args = _mini_suite(tmp_path, passing=False)
     code = bench.main([
         "--seed", "42", "--seed", "43",
         "--pricing", str(pricing_path), "--constants", str(constants_path),
+        "--parser-version", str(parser_path),
         "--pytest-args", " ".join(args),
         "--measurement", str(tmp_path / "leg-measurement.json"),
     ])
@@ -159,12 +169,13 @@ def test_the_default_pytest_args_are_the_legs_historical_invocation():
 
 
 def test_a_perturb_failure_names_it_and_is_nonzero(tmp_path, capsys):
-    pricing_path, constants_path = _seed_tree(tmp_path)
+    pricing_path, constants_path, parser_path = _seed_tree(tmp_path)
     pricing_path.write_text(
         json.dumps({"models": {}, "providers": {}}), encoding="utf-8")
     code = bench.main([
         "--seed", "42",
         "--pricing", str(pricing_path), "--constants", str(constants_path),
+        "--parser-version", str(parser_path),
         "--pytest-args", " ".join(_mini_suite(tmp_path)),
     ])
     assert code == 1

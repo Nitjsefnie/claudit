@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import constants, db, ingest, parse, parse_codex
+from backend import constants, db, ingest, parse, parse_codex, parser_version
 from backend.r2 import R2Object
 from tests import scratch_db
 
@@ -133,7 +133,7 @@ def test_a_lane_transcript_persists_through_ingest(
         R2Object(key=key, etag="etag", size=1024, last_modified=when),
         {"project_id": "p", "display_name": "p",
          "first_seen_at": when, "last_seen_at": when},
-        out, constants.PARSER_VERSION,
+        out, parser_version.PARSER_VERSION,
     )
     with db.viz_conn() as c:
         row = c.execute(
@@ -349,7 +349,7 @@ def test_lane_roles_and_dispatches_persist_through_ingest(fresh_db):
         R2Object(key=key, etag="etag", size=1024, last_modified=when),
         {"project_id": "p", "display_name": "p",
          "first_seen_at": when, "last_seen_at": when},
-        out, constants.PARSER_VERSION,
+        out, parser_version.PARSER_VERSION,
     )
     ingest.rebuild_dispatch_rollup()
     with db.viz_conn() as c:

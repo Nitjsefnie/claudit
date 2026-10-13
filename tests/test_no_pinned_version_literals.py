@@ -1,11 +1,11 @@
 """SV-TEST-DATA's guard: no test pins repository-managed data with a literal.
 
-A test that patches ``constants.PARSER_VERSION`` / ``PRICING_VERSION`` /
-``MARKER_READER_VERSION`` (or sets the parser-version environment
-variable) with a string literal silently changes meaning when the
-committed value reaches the literal — the patch turns into a no-op, the
-test keeps passing until the data moves under it, and then the failure
-lands on an unrelated surface (a refresh bot's working tree, say).
+A test that patches ``parser_version.PARSER_VERSION`` or
+``constants.PRICING_VERSION`` / ``MARKER_READER_VERSION`` (or sets the
+parser-version env var) with a string literal silently changes meaning
+when the committed value reaches it — the patch turns into a no-op, the
+test keeps passing until the data moves under it, and the failure lands
+on an unrelated surface (a refresh bot's working tree, say).
 
 The same holds for the LIVE-ROW shapes: a test that reads the committed
 pricing document (``pricing.PRICING_JSON``), that binds its path at

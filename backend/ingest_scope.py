@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import psycopg
 
-from backend import constants, db, flags, uuid_split
+from backend import constants, db, flags, parser_version, uuid_split
 
 # records.uuid is the split column set (issue #959 task 8): the affected
 # identities a run captures are the REBUILT texts, so the equality probes
@@ -125,7 +125,7 @@ def _fingerprint(conn: psycopg.Connection) -> str:
     ).fetchall()
     value = {
         "derived": constants.DERIVED_STATE_VERSION,
-        "parser": constants.PARSER_VERSION,
+        "parser": parser_version.PARSER_VERSION,
         "collection_flags": flags.CONFIG.collection.stamp(),
         "pricing": constants.PRICING_VERSION,
         "latency_buckets": constants.LATENCY_BUCKETS,

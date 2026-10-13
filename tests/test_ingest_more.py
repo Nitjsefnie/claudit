@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 import psycopg
 
-from backend import cache, constants, db, ingest, lane_projects, parse
+from backend import cache, db, ingest, lane_projects, parse, parser_version
 from backend.r2 import R2Object
 
 # Imported fixtures are discovered from their pytest fixture markers.
@@ -61,7 +61,7 @@ def test_parser_version_ignores_the_environment(fresh_db, mini_r2_env,
     with db.viz_conn() as c:
         stored = {r[0] for r in c.execute(
             "SELECT DISTINCT parser_version FROM files").fetchall()}
-    assert stored == {constants.PARSER_VERSION}
+    assert stored == {parser_version.PARSER_VERSION}
 
 
 def test_tool_failure_columns_persist(fresh_db, mini_r2_env):
@@ -507,7 +507,7 @@ def test_a_stored_test_session_row_is_swept_as_an_orphan(fresh_db,
             "parser_version) VALUES ("
             "'claude/sessions/h/test/subagents/a1/wire.jsonl.xz',"
             " 'h', 'test', FALSE, 'e', 1, now(), now(), %s)",
-            (constants.PARSER_VERSION,))
+            (parser_version.PARSER_VERSION,))
         c.commit()
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
@@ -531,7 +531,7 @@ def test_cache_write_tokens_persist_through_ingest(fresh_db):
         R2Object(key=key, etag="etag", size=1024, last_modified=when),
         {"project_id": "p", "display_name": "p",
          "first_seen_at": when, "last_seen_at": when},
-        out, constants.PARSER_VERSION,
+        out, parser_version.PARSER_VERSION,
     )
     with db.viz_conn() as c:
         rows = c.execute(

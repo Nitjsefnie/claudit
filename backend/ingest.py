@@ -34,7 +34,7 @@ import psycopg
 
 from backend import flags, ingest_collection, collection_rollups
 from backend.flags import CollectionPolicy
-from backend import blob_cache, cache, constants, db, events, ingest_fetch, ingest_vacuum, key_layout, lane_projects, parse, r2, timing  # pylint: disable=unused-import
+from backend import blob_cache, cache, constants, db, events, ingest_fetch, ingest_vacuum, key_layout, lane_projects, parse, parser_version, r2, timing  # pylint: disable=unused-import
 from backend.ingest_fetch import (  # noqa: F401  (re-export)
     fetch_with_retry as _fetch_with_retry,
     parse_process_count, persist_thread_count,
@@ -219,7 +219,7 @@ def _existing_files() -> dict:
     return ingest_collection.existing_files()
 
 
-def _collect_todo(existing: dict, parser_version: str,
+def _collect_todo(existing: dict, parser_version_value: str,
                   failed: list[tuple[str, str]]) -> tuple:
     """Walk the bucket: count objects, remember live keys, and queue the
     files whose source/code/collection policy needs (re)parsing.
@@ -254,7 +254,7 @@ def _collect_todo(existing: dict, parser_version: str,
             scope.promote_full("lane-project identity move")
     with _timed_step("plan"):
         listed, todo, seen_keys, newer = ingest_collection.collect_wires(
-            wire_objs, existing, parser_version, flags.CONFIG.collection,
+            wire_objs, existing, parser_version_value, flags.CONFIG.collection,
             partial(_track_walked_project, project_paths=project_paths,
                     stored_lane=stored_lane))
     current = _RUN_TIMING.get()
@@ -263,7 +263,7 @@ def _collect_todo(existing: dict, parser_version: str,
     return listed, todo, seen_keys, newer, moved
 
 
-def _fetch_parse_persist(todo: list[tuple], parser_version: str,
+def _fetch_parse_persist(todo: list[tuple], parser_version_value: str,
                          failed: list[tuple[str, str]],
                          seen_keys: set[str]) -> tuple[int, int, int]:
     """Dispatch the chosen pipeline with this module's seams. The
@@ -271,13 +271,13 @@ def _fetch_parse_persist(todo: list[tuple], parser_version: str,
     here so tests patching `ingest.*` keep working.
     """
     return ingest_fetch.fetch_parse_persist(
-        todo, parser_version, failed, seen_keys,
+        todo, parser_version_value, failed, seen_keys,
         parse_call=partial(_fetch_and_parse, collection=flags.CONFIG.collection),
         persist_call=_persist_one,
         check_shutdown=_check_shutdown)
 
 
-def _persist_one(obj, proj, parsed, parser_version,
+def _persist_one(obj, proj, parsed, parser_version_value,
                  current: _RunTiming | None):
     """The unit submitted to the persist pool: one `_persist` (one file,
     one transaction), timed into the run phases. Runs on a pool thread;
@@ -286,7 +286,7 @@ def _persist_one(obj, proj, parsed, parser_version,
     """
     started = time.perf_counter()
     try:
-        _persist(obj, proj, parsed, parser_version)
+        _persist(obj, proj, parsed, parser_version_value)
     finally:
         if current is not None:
             with current.persist_lock:
@@ -357,7 +357,7 @@ def _rebuild_derived_state() -> int:
     return changed
 
 
-def _walk_and_persist(parser_version: str,
+def _walk_and_persist(parser_version_value: str,
                       failed: list[tuple[str, str]]
                       ) -> tuple[int, int, int, int, int, int, int]:
     """The fallible body of a run: list, fetch+parse+persist, orphan sweep.
@@ -373,13 +373,13 @@ def _walk_and_persist(parser_version: str,
     # Defer its mark to preserve the walk's reported order without moving SQL.
     try:
         listed, todo, seen_keys, newer, lane_moved = _collect_todo(
-            existing, parser_version, failed
+            existing, parser_version_value, failed
         )
     finally:
         _record_phase("existing", existing_seconds)
     _check_shutdown()
     inserted, reparsed, vanished = _fetch_parse_persist(
-        todo, parser_version, failed, seen_keys
+        todo, parser_version_value, failed, seen_keys
     )
     _check_shutdown()
     with _timed_step("orphans"):
@@ -474,7 +474,7 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
             scope = begin_scope()
         _record_scope("full" if scope.full else "incremental")
         listed, inserted, reparsed, deleted, vanished, newer, lane_moved = (
-            _walk_and_persist(constants.PARSER_VERSION, failed))
+            _walk_and_persist(parser_version.PARSER_VERSION, failed))
         ingest_vacuum.note_files(inserted + reparsed + deleted + lane_moved)
     except IngestAborted as exc:
         abort_msg = str(exc) or "shutdown requested"
