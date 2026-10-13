@@ -328,7 +328,9 @@ The five database workflows (`tests`, `test-data`, `test-data-explore`,
 `.github/actions/postgres/action.yml` after checkout. The action restores
 an image archive by the full pinned digest and runner OS/architecture;
 on a miss it pulls from public ECR with three bounded attempts and backoff,
-then saves the archive. Concurrent saves may lose the race without failing
+then tries `mirror.gcr.io/library/postgres` at the same digest with its own
+three bounded attempts if ECR fails. A successful pull from either source
+is tagged and saved. Concurrent saves may lose the race without failing
 the job. A restored local tag starts with `--pull never`, and the action
 waits for TCP readiness; there are no job `services:` or separate wait
 steps in these five workflows. Credentials remain `postgres` and the
@@ -336,8 +338,8 @@ published localhost port remains 5432. The hourly `refresh-pricing` job
 runs only on master and restores even when rates are unchanged, warming
 master's entry for PR reads and keeping it active within the cache's
 seven-day unused-entry expiry. Its dependency installs still use no cache.
-A cold cache needs registry access; an exhausted pull reports the cache
-miss and registry refusal in the job log.
+A cold cache needs access to at least one registry; if both sources fail,
+the job reports the cache miss and each registry's answers in the log.
 
 Python dependency caches follow one rule: restore on any event, save only
 from a push of `master`. `refresh-pricing` leaves its dependencies uncached. The explicit

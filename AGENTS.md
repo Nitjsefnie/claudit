@@ -398,7 +398,9 @@ instruction budgets (`scripts/ci/suite_bench.py`), and
 despite the pip-cache rule. The five database workflows use
 `.github/actions/postgres/action.yml` to restore a digest-keyed image
 archive and start Postgres from a local tag with `--pull never`; the hourly
-master refresh keeps that image cache warm for PR reads.
+master refresh keeps that image cache warm for PR reads. A cold miss retries
+public ECR, then `mirror.gcr.io` at the same pinned digest; both failures
+report the cache miss and each registry's answers.
 
 **Releases are cut by editing the root `VERSION`** (one semver line,
 no `v`). Between releases it carries the next version with `-dev`; a
