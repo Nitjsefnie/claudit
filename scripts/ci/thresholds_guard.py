@@ -241,6 +241,8 @@ def _baseline_moves(base, head, established):
     for member in thresholds.BASELINE_MEMBERS:
         before = base[member]
         after = head[member]
+        if before == after:
+            continue
         for path, value in after.items():
             if path not in before:
                 if member not in established:

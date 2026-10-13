@@ -26,7 +26,8 @@ module-level variable that itself names node
 closure step (a skipif names node and would otherwise trivially
 ground), and a function's docstring is excluded (a Python-only test's
 prose must not ground its closure). Residuals, disclosed: a helper
-outside the ``tests.`` package (or a conftest fixture) resolves
+outside the ``tests.`` package (except comment-share measurement
+entry points, whose implementation launches node) or a conftest fixture resolves
 nowhere and fails loud as a false offender, the deny-guard's safe
 direction; a node launched without a ``subprocess`` call (an
 ``os.system``, a shelled wrapper) is not seen as an invocation, nor is
@@ -198,6 +199,35 @@ def test_a_per_test_node_skip_on_a_python_only_test_is_detected() -> None:
         "    assert sum([1, 2]) == 3\n")
     assert _skip_without_node_lines(mod) == [
         (5, "test_python_only_with_node_mark")]
+
+
+def test_node_parameter_data_and_other_decorators_are_not_skips() -> None:
+    for decorator in ("pytest.mark.parametrize('text', ['#!/usr/bin/env node'])",
+                      "pytest.mark.example('node')", "custom('node')"):
+        tree = ast.parse(f"@{decorator}\ndef test_python():\n    assert 1 + 1 == 2\n")
+        assert not _skip_without_node_lines(tree)
+
+
+def test_comment_measurement_entry_points_ground_real_node_skips() -> None:
+    for imports, body in (
+        ("from scripts.ci import comment_share as counter\n", "counter.measure_files()"),
+        ("import scripts.ci.comment_share as counter\n", "counter.measure_files()"),
+        ("from scripts.ci.comment_share import measure_files as measure\n", "measure()"),
+        ("import subprocess\n", "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report'])"),
+    ):
+        tree = ast.parse(imports + "@pytest.mark.skipif(shutil.which('node') is None)\n"
+                         + f"def test_measure():\n    {body}\n")
+        assert not _skip_without_node_lines(tree)
+
+
+def test_measurement_names_without_an_entry_point_do_not_ground_skips() -> None:
+    for body in ("counter.python_comments('x = 1')",
+                 "subprocess.run(['echo', 'scripts/ci/comment_share.py'])",
+                 "subprocess.run(['python3', 'other.py', 'scripts/ci/comment_share.py'])"):
+        tree = ast.parse("from scripts.ci import comment_share as counter\nimport subprocess\n"
+                         "@pytest.mark.skipif(shutil.which('node') is None)\n"
+                         + f"def test_python():\n    {body}\n")
+        assert _skip_without_node_lines(tree) == [(4, 'test_python')]
 
 
 def test_a_node_running_class_member_is_left_alone() -> None:

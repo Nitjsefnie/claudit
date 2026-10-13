@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import pickle
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -122,7 +123,7 @@ def test_committed_document_against_itself_is_clean(tmp_path):
     git_meta.require_own_git_metadata(REPO_ROOT)
     committed = _thresholds().load(THRESHOLDS_PATH)
     assert _guard_result(
-        tmp_path, committed, copy.deepcopy(committed),
+        tmp_path, committed, pickle.loads(pickle.dumps(committed, protocol=5)),
         tracked={"backend/api.py": 986}) == 0
 
 
@@ -232,7 +233,7 @@ def test_bot_shaped_raise_is_clean(tmp_path):
     # this test must stay green as it moves (SV-TEST-DATA — never pin
     # repository-managed data).
     base = _thresholds().load(THRESHOLDS_PATH)
-    head = copy.deepcopy(base)
+    head = pickle.loads(pickle.dumps(base, protocol=5))
     for lang in ("python", "javascript"):
         measured = min(
             round(float(base["coverage"][lang]["measured"]) + 0.5, 1),
@@ -256,7 +257,7 @@ def test_bot_shaped_tighten_is_clean(tmp_path):
     # (SV-TEST-DATA — a hardcoded key or value breaks when the ratchet
     # graduates the file or tightens the count past it).
     base = _thresholds().load(THRESHOLDS_PATH)
-    head = copy.deepcopy(base)
+    head = pickle.loads(pickle.dumps(base, protocol=5))
     sized = sorted(head["module_size_baseline"])
     assert len(sized) >= 2
     head["module_size_baseline"][sized[0]] -= 1

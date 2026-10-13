@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib
+import os
 import sys
 import time
 from decimal import Decimal
@@ -96,6 +97,9 @@ class InstructionCounter:
         self.phases: dict[str, int] = {
             phase: 0 for phase in PHASES if phase != 'residual'}
         self.total = 0
+        destination = os.environ.get('DEBUG_SUITE_INSTRUCTIONS')
+        self._profile = (importlib.import_module('suite_instruction_profile').InstructionProfile(destination)
+                         if destination else None)
         self.reason = ''
         self._stack: list[str] = []
         self._monitoring: Any = getattr(sys, 'monitoring', None)
@@ -112,6 +116,9 @@ class InstructionCounter:
 
     def _count(self, code, instruction_offset):
         self.total += 1
+        if self._profile is not None:
+            phase = self._stack[-1] if self._stack and self._stack[-1] in self.phases else 'residual'
+            self._profile.count(code, phase)
         # The region window's key ('total') is on the stack whenever the
         # phase windows are not: instructions outside the phases count
         # toward the total only, and ARE the residual.
@@ -154,6 +161,8 @@ class InstructionCounter:
             self._monitoring.register_callback(TOOL_ID, self._event, None)
             self._monitoring.free_tool_id(TOOL_ID)
             self.reason = 'closed'
+            if self._profile is not None:
+                self._profile.write()
 
 
 class ProcessTimeSink:
