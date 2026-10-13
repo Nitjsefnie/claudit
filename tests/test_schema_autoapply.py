@@ -39,9 +39,12 @@ def test_apply_schema_restores_a_dropped_column(app_with_fresh_data):
     """The #43 reproduction: a DB missing a column the code writes is
     repaired at startup instead of failing at the next ingest."""
     with db.viz_conn() as c:
-        c.execute("ALTER TABLE tool_uses DROP COLUMN error_kind")
+        # error_text, not error_kind: since #959 tool_uses carries
+        # error_kind_id (a dim FK), and error_text is the free-text
+        # drill-down column the additive path still restores.
+        c.execute("ALTER TABLE tool_uses DROP COLUMN error_text")
         c.commit()
-    assert "error_kind" not in _columns("tool_uses")
+    assert "error_text" not in _columns("tool_uses")
 
     # Issue #387: apply_schema skips the DDL while the content stamp
     # matches, so out-of-band schema damage needs the stamp cleared to
@@ -52,7 +55,7 @@ def test_apply_schema_restores_a_dropped_column(app_with_fresh_data):
 
     db.apply_schema()
 
-    assert "error_kind" in _columns("tool_uses")
+    assert "error_text" in _columns("tool_uses")
 
 
 def test_apply_schema_restores_a_dropped_rollup(app_with_fresh_data):

@@ -163,15 +163,19 @@ def _stored_costs() -> dict:
     """{(file_key, line_num): cost_usd} of every stored record."""
     with db.viz_conn() as c:
         return {(fk, ln): float(cost) for fk, ln, cost in c.execute(
-            "SELECT file_key, line_num, cost_usd FROM records").fetchall()}
+            "SELECT f.file_key, r.line_num, rp.cost_usd "
+            "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id"
+        ).fetchall()}
 
 
 def _stored_rows() -> list:
     """(file_key, line_num, cost_usd, pricing_version) of every record."""
     with db.viz_conn() as c:
         return c.execute(
-            "SELECT file_key, line_num, cost_usd, pricing_version "
-            "FROM records").fetchall()
+            "SELECT f.file_key, r.line_num, rp.cost_usd, pv.value "
+            "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+            "LEFT JOIN dim_pricing_version pv "
+            "  ON pv.id = rp.pricing_version_id").fetchall()
 
 
 def _assert_reprice_parity(blobs: dict, before: dict, next_version: str,
@@ -245,7 +249,7 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     with db.viz_conn() as c:
         total, long_marked = _pair(
             c, "SELECT COUNT(*), COUNT(*) FILTER (WHERE long_context) "
-               "FROM records")
+               "FROM records_price")
     assert total > 0
     assert 0 < long_marked < total, (
         "the codex records must store long_context and the claude ones "
@@ -298,15 +302,17 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
 
     with db.viz_conn() as c:
         assert c.execute(
-            "SELECT long_context, COUNT(*) FROM records "
-            "WHERE file_key LIKE 'claude/sessions/8805b8ac99ad/%' "
+            "SELECT rp.long_context, COUNT(*) FROM records r "
+            "JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+            "WHERE f.file_key LIKE 'claude/sessions/8805b8ac99ad/%' "
             "GROUP BY 1"
         ).fetchall() == [(True, 3)], (
             "the reprice re-derives the codex rows' flag in both plan "
             "shapes (issue #194): every codex record stores TRUE")
         assert c.execute(
-            "SELECT long_context, COUNT(*) FROM records "
-            "WHERE file_key LIKE 'claude/issue249/%' GROUP BY 1"
+            "SELECT rp.long_context, COUNT(*) FROM records r "
+            "JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+            "WHERE f.file_key LIKE 'claude/issue249/%' GROUP BY 1"
         ).fetchall() == [(True, 1)], (
             "the Claude-format bare-meter-model record stores the parse's "
             "decision (issue #765) and the reprice re-derives the same: "
@@ -403,5 +409,8 @@ def test_reprice_matches_reparse_for_offset_less_timestamps(
         "two interpretations")
     with db.viz_conn() as c:
         assert c.execute(
-            "SELECT COUNT(*) FROM records WHERE pricing_version = %s",
+            "SELECT COUNT(*) FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num "
+            "JOIN dim_pricing_version pv "
+            "  ON pv.id = rp.pricing_version_id "
+            "WHERE pv.value = %s",
             (next_version,)).fetchall() == [(1,)]
