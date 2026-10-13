@@ -394,8 +394,11 @@ CONTRIBUTING.md. Documentation-only changes (`*.md`, `PRESENTATION.txt`,
 classification and still pass. Two deliberate shapes, not drift: the
 tests canary runs the suite-cost bench and gates it against committed
 instruction budgets (`scripts/ci/suite_bench.py`), and
-`refresh-pricing.yml` deliberately keeps its no-cache setup despite the
-pip-cache rule.
+`refresh-pricing.yml` deliberately keeps its dependency installs uncached
+despite the pip-cache rule. The five database workflows use
+`.github/actions/postgres/action.yml` to restore a digest-keyed image
+archive and start Postgres from a local tag with `--pull never`; the hourly
+master refresh keeps that image cache warm for PR reads.
 
 **Releases are cut by editing the root `VERSION`** (one semver line,
 no `v`). Between releases it carries the next version with `-dev`; a

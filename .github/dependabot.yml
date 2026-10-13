@@ -29,7 +29,7 @@ updates:
   # /backend entry would double-own that file and open every backend bump
   # twice (#164 and #165, issue #176) — there must be exactly one owner per
   # requirements file.
-  - package-ecosystem: pip
+  - package-ecosystem: pip # zizmor: ignore[dependabot-cooldown] -- Exact pins and weekly CI-tested updates; fixes need no extra delay.
     directory: "/"
     schedule:
       interval: weekly
@@ -50,7 +50,7 @@ updates:
   # reviewed as one change. Dependabot rewrites package.json and
   # package-lock.json in the same PR, so the pin and the tree it resolves to
   # can never disagree.
-  - package-ecosystem: npm
+  - package-ecosystem: npm # zizmor: ignore[dependabot-cooldown] -- Exact pins and weekly CI-tested updates; fixes need no extra delay.
     directory: "/"
     schedule:
       interval: weekly
@@ -82,7 +82,7 @@ updates:
   # since these jobs run with a repository token — and it is also why this
   # entry is not optional: without Dependabot a SHA pin is simply frozen
   # forever. It rewrites both the SHA and the comment.
-  - package-ecosystem: github-actions
+  - package-ecosystem: github-actions # zizmor: ignore[dependabot-cooldown] -- Exact pins and weekly CI-tested updates; fixes need no extra delay.
     directory: "/"
     schedule:
       interval: weekly

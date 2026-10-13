@@ -41,30 +41,6 @@ jobs:
       # suite. The readout stays INFORMATIONAL either way (issue #129).
       contents: read
 
-    services:
-      postgres:
-        # Fixtures create and drop run-named databases
-        # (tests/scratch_db.py), so the role needs CREATEDB — the stock
-        # `postgres` superuser has it. Pinned by digest: the
-        # ratchet-push workflow publishes from this image's
-        # measurements, so the image must be the reviewed one.
-        # Pulled from AWS's public mirror of the Docker Official Image, same
-        # digest: Docker Hub refuses anonymous runner pulls under its rate
-        # limit ("toomanyrequests", issue #885). Every workflow uses this
-        # mirror; the fallback is mirror.gcr.io/library/postgres@<digest>.
-        image: public.ecr.aws/docker/library/postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
       # Fixtures build DSNs as `postgresql:///<db>`, so libpq resolves
       # the connection from these (and the fixtures' psql calls).
@@ -83,6 +59,9 @@ jobs:
           # No step in this job pushes; persist-credentials: false keeps
           # the job token out of .git/config for any later step to reuse.
           persist-credentials: false
+
+      - name: Start cached Postgres
+        uses: $/.github/actions/postgres
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         # The exact micro the suite-cost seed was measured with: this
@@ -115,7 +94,7 @@ jobs:
 
       - name: Install postgresql-client
         timeout-minutes: 5
-        # Fixtures shell out to psql; client must match service major.
+        # Fixtures shell out to psql; client must match container major.
         run: |
           echo "==> adding the PGDG apt source"
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
@@ -144,14 +123,6 @@ jobs:
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
           key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
-
-      - name: Wait for postgres
-        run: |
-          for _ in $(seq 1 30); do
-            pg_isready -q && exit 0
-            sleep 1
-          done
-          echo "postgres never became ready"; exit 1
 
       - name: Run tests
         id: pytest
@@ -430,7 +401,7 @@ jobs:
 
   pytest-portable:
     # The suite minus every DB-touching test (tests/db_marker.py's
-    # mechanical split), where no Postgres service exists: the full
+    # mechanical split), where no Postgres container runs: the full
     # suite, the ratchets and the DB tests stay in the `pytest` job.
     # A comment-only change skips the matrix; the canary still runs it.
     if: inputs.comment_only != 'true'

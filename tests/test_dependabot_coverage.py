@@ -22,14 +22,16 @@ entry) and PR #165 (`dependabot/pip/boto3-1.43.99`, from the root entry),
 opened 16 seconds apart, #165 closed as the duplicate (issue #176).
 
 The parser below is a line-based reader for THIS file's pinned shape —
-stdlib only, no PyYAML (not a dependency) — and fails loudly on any line
-it does not recognise rather than silently returning no entries.
+with YAML-decoded inline scalars — and fails loudly on any line it does
+not recognise rather than silently returning no entries.
 """
 from __future__ import annotations
 
 import re
 import subprocess
 from pathlib import Path
+
+import yaml
 
 from tests import git_meta
 
@@ -61,11 +63,8 @@ _INCLUDE_RE = re.compile(
 
 
 def _unquote(value: str) -> str:
-    """Strip one matching pair of YAML quotes from an inline scalar."""
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-        return value[1:-1]
-    return value
+    """Decode a YAML scalar, excluding an inline lint comment."""
+    return yaml.load(value, Loader=yaml.BaseLoader)
 
 
 def _header_event(stripped: str) -> str:

@@ -95,10 +95,9 @@ def test_refresh_job_stays_the_keyless_suite_runner():
     assert job["if"] == "github.ref == 'refs/heads/master'"
     assert job["timeout-minutes"] == 30
     assert job["permissions"] == {"contents": "read"}
-    # The Postgres image value (version + digest shape) is deliberately
-    # unread — fleet-rules, "Merging and CI": no dependency pin copied
-    # out of a workflow; the cross-workflow lockstep equality in
-    # test_workflow_ci_gate.py holds the two images' agreement instead.
+    # The shared composite owns the image pin; test_workflow_ci_gate.py
+    # holds the tests/refresh callers together, and
+    # test_workflow_postgres_action.py compares its digest with Compose.
     assert (job["env"]["PGHOST"], job["env"]["PGPORT"],
             job["env"]["PGUSER"], job["env"]["PGPASSWORD"]) == (
         "localhost", "5432", "postgres", "postgres")
