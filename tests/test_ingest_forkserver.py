@@ -30,8 +30,9 @@ from unittest.mock import Mock, call, patch
 
 import pytest
 
-from backend import ingest, ingest_fetch, ingest_workers, pricing, r2, rate_fingerprint
+from backend import flags, ingest, ingest_fetch, ingest_workers, pricing, r2, rate_fingerprint
 from backend.ingest_workers import parse_pool
+from backend.flags import CollectionPolicy
 from backend import timing as _timing
 
 pytest_plugins = ("test_ingest",)
@@ -53,7 +54,7 @@ def server_report_parse(key: str, sidecar_key: str | None = None, etag: str | No
 
 
 def configuration() -> dict:
-    keys = ("R2_ENDPOINT", "R2_BUCKET", "R2_BLOB_CACHE", "CLAUDIT_TIMING")
+    keys = ("CLAUDIT_R2_ENDPOINT", "CLAUDIT_R2_BUCKET", "CLAUDIT_R2_BLOB_CACHE", "CLAUDIT_TIMING")
     return {"env": {key: os.environ.get(key) for key in keys}, "timing": _timing.TIMING_ON, "parent": os.getppid()}
 
 
@@ -64,33 +65,33 @@ def client_configuration() -> dict:
 
 
 # Runs only inside a forkserver worker; called in the test process it would recurse into itself.
-def priced_parse(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None, *, tables: dict) -> dict:
+def priced_parse(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None, *, tables: dict, collection: CollectionPolicy | None = None) -> dict:
     with ExitStack() as stack:
         for name, value in tables.items():
             stack.enter_context(patch.object(pricing, name, value))
         rate_fingerprint.clear_fingerprint_cache()
         try:
-            return ingest._fetch_and_parse(key, sidecar_key, etag, size)  # pylint: disable=protected-access
+            return ingest._fetch_and_parse(key, sidecar_key, etag, size, collection=collection)  # pylint: disable=protected-access
         finally:
             rate_fingerprint.clear_fingerprint_cache()
 
 
-def fetch_failure(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None, *, failed_key: str, error: type[Exception]) -> dict:
+def fetch_failure(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None, *, failed_key: str, error: type[Exception], collection: CollectionPolicy | None = None) -> dict:
 
     def fetch(file_key: str, *rest) -> bytes:
         if file_key.endswith(failed_key):
             raise error("connection dropped" if error is OSError else file_key)
         return ingest_fetch.fetch_with_retry(file_key, *rest)
-    return ingest_fetch.fetch_and_parse(key, sidecar_key, fetch, etag=etag, size=size)
+    return ingest_fetch.fetch_and_parse(key, sidecar_key, fetch, etag=etag, size=size, collection=collection)
 
 
 def _broken_get_object(_key: str) -> bytes:
     raise TypeError("no client at all")
 
 
-def fatal_fetch(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None) -> dict:
+def fatal_fetch(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None, *, collection: CollectionPolicy | None = None) -> dict:
     with patch.object(r2, "get_object", _broken_get_object):
-        return ingest_fetch.fetch_and_parse(key, sidecar_key, ingest_fetch.fetch_with_retry, etag=etag, size=size)
+        return ingest_fetch.fetch_and_parse(key, sidecar_key, ingest_fetch.fetch_with_retry, etag=etag, size=size, collection=collection)
 
 
 def _padded_decompress(data: bytes) -> bytes:
@@ -99,9 +100,9 @@ def _padded_decompress(data: bytes) -> bytes:
     return out
 
 
-def padded_inflate(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None) -> dict:
+def padded_inflate(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None, *, collection: CollectionPolicy | None = None) -> dict:
     with patch.object(lzma, "decompress", _padded_decompress):
-        return ingest_fetch.fetch_and_parse(key, sidecar_key, ingest_fetch.fetch_with_retry, etag=etag, size=size)
+        return ingest_fetch.fetch_and_parse(key, sidecar_key, ingest_fetch.fetch_with_retry, etag=etag, size=size, collection=collection)
 
 
 ISOLATED = False
@@ -305,10 +306,10 @@ def test_reused_server_refreshes_configuration(monkeypatch, tmp_path, request):
     basetemp = request.config.option.basetemp
     assert basetemp and tmp_path.is_relative_to(Path(basetemp).resolve()), (
         "the nested pytest child did not consume check()'s --basetemp")
-    monkeypatch.setenv("R2_ENDPOINT", "file:///first/")
-    monkeypatch.setenv("R2_BUCKET", "claude")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", "file:///first/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "claude")
     monkeypatch.setenv("CLAUDIT_TIMING", "1")
-    monkeypatch.delenv("R2_BLOB_CACHE", raising=False)
+    monkeypatch.delenv("CLAUDIT_R2_BLOB_CACHE", raising=False)
     results = []
 
     def first_pool():
@@ -320,16 +321,16 @@ def test_reused_server_refreshes_configuration(monkeypatch, tmp_path, request):
     assert not thread.is_alive()
     first = results[0]
     assert first["timing"] is True
-    assert first["env"]["R2_ENDPOINT"] == "file:///first/"
-    assert first["env"]["R2_BLOB_CACHE"] is None
-    monkeypatch.setenv("R2_ENDPOINT", "file:///second/")
-    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path))
-    monkeypatch.delenv("R2_BUCKET")
+    assert first["env"]["CLAUDIT_R2_ENDPOINT"] == "file:///first/"
+    assert first["env"]["CLAUDIT_R2_BLOB_CACHE"] is None
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", "file:///second/")
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path))
+    monkeypatch.delenv("CLAUDIT_R2_BUCKET")
     monkeypatch.delenv("CLAUDIT_TIMING")
     with parse_pool(1, os.getpid()) as pool:
         second = pool.submit(configuration).result(timeout=60)
     assert second["parent"] == first["parent"], "the server was not reused"
-    assert second["env"] == {"R2_ENDPOINT": "file:///second/", "R2_BUCKET": None, "R2_BLOB_CACHE": str(tmp_path), "CLAUDIT_TIMING": None}
+    assert second["env"] == {"CLAUDIT_R2_ENDPOINT": "file:///second/", "CLAUDIT_R2_BUCKET": None, "CLAUDIT_R2_BLOB_CACHE": str(tmp_path), "CLAUDIT_TIMING": None}
     assert second["timing"] is False
 
 
@@ -349,9 +350,9 @@ def test_worker_rejects_wrong_server_parent(monkeypatch):
 @requires_forkserver
 @bounded_pool_test
 def test_reused_server_refreshes_sdk_configuration(monkeypatch):
-    monkeypatch.setenv("R2_ENDPOINT", "https://storage.invalid")
-    monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-key")
-    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", "https://storage.invalid")
+    monkeypatch.setenv("CLAUDIT_R2_ACCESS_KEY_ID", "test-key")
+    monkeypatch.setenv("CLAUDIT_R2_SECRET_ACCESS_KEY", "test-secret")
     monkeypatch.setenv("AWS_CA_BUNDLE", "/tmp/first.pem")
     with parse_pool(1, os.getpid()) as pool:
         first = pool.submit(client_configuration).result(timeout=60)
@@ -367,6 +368,34 @@ def test_reused_server_refreshes_sdk_configuration(monkeypatch):
         removed = pool.submit(client_configuration).result(timeout=60)
     assert removed["parent"] == first["parent"]
     assert removed["env"] is None
+
+
+@requires_forkserver
+@bounded_pool_test
+def test_reused_server_receives_current_collection_policy(monkeypatch, tmp_path):
+    key = "claude/p/s/s.jsonl"
+    transcript = tmp_path / key
+    transcript.parent.mkdir(parents=True)
+    transcript.write_bytes((Path(__file__).resolve().parents[1] / "fixtures/parser/generation_s_last_line.jsonl").read_bytes())
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", tmp_path.as_uri())
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "claude")
+    item = (types.SimpleNamespace(key=key, sidecar_key=None, etag=None, size=None), None, None)
+    monkeypatch.setenv("CLAUDIT_COLLECT_GENERATION_SPEED", "1")
+    monkeypatch.setattr(flags, "CONFIG", flags.resolve_config(os.environ))
+    with parse_pool(1, os.getpid()) as pool:
+        first = pool.submit(ingest_fetch.parse_wire, item, functools.partial(ingest._fetch_and_parse, collection=flags.CONFIG.collection)).result(timeout=60)  # pylint: disable=protected-access
+        server = pool.submit(os.getppid).result(timeout=60)
+    assert isinstance(first, dict)
+    assert first["records"][0]["generation_s"] > 0
+    monkeypatch.setenv("CLAUDIT_COLLECT_GENERATION_SPEED", "0")
+    monkeypatch.setattr(flags, "CONFIG", flags.resolve_config(os.environ))
+    tables = {name: getattr(pricing, name) for name in pricing.RateTables.__annotations__}
+    with parse_pool(1, os.getpid()) as pool:
+        second = pool.submit(ingest_fetch.parse_wire, item, functools.partial(priced_parse, tables=tables, collection=flags.CONFIG.collection)).result(timeout=60)
+        assert pool.submit(os.getppid).result(timeout=60) == server
+    assert isinstance(second, dict)
+    assert second["collection_flags"] == ("generation_speed",)
+    assert all(row["generation_s"] is None and row["output_tokens_per_s"] is None for row in second["records"])
 
 
 @requires_forkserver
@@ -410,9 +439,9 @@ def test_parse_pool_starts_with_another_thread_alive(monkeypatch):
 
 @requires_forkserver
 def test_process_pool_timing_line_marks_disjoint_phases(fresh_db, mini_r2_env, monkeypatch, caplog):
-    monkeypatch.setenv("INGEST_WORKERS", "1")
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "2")
     monkeypatch.setenv("CLAUDIT_TIMING", "1")
     monkeypatch.setattr(_timing, "TIMING_ON", True)
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
@@ -439,9 +468,9 @@ def test_process_pool_timing_line_marks_disjoint_phases(fresh_db, mini_r2_env, m
 
 @requires_forkserver
 def test_pool_timing_parts_are_disjoint_slices(fresh_db, mini_r2_env, monkeypatch, caplog):
-    monkeypatch.setenv("INGEST_WORKERS", "1")
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "2")
     monkeypatch.setenv("CLAUDIT_TIMING", "1")
     monkeypatch.setattr(_timing, "TIMING_ON", True)
     # Keep SV-FIXTURE-SIZE: one project and its transcript's .xz twin.
