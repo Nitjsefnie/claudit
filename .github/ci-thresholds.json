@@ -541,8 +541,8 @@
       7205
     ],
     "scripts/ci/classify_changes.py": [
-      8891,
-      16772
+      8882,
+      16822
     ],
     "scripts/ci/collapse_oscillating_rates.py": [
       1882,
@@ -1102,7 +1102,7 @@
     ],
     "tests/test_ci_gate_botdata.py": [
       2234,
-      7366
+      7568
     ],
     "tests/test_ci_gate_modules.py": [
       4862,

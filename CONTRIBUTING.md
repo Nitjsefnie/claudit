@@ -288,9 +288,12 @@ The introducing change uses `--seed` once, through `thresholds.write`;
 an established entry can never rise or be added. The tests canary installs
 node/espree from the lockfile and PyYAML from `requirements-test.txt`, then
 runs the check after the JS toolchain install, including on comment-only changes. Docs-only
-changes skip it because they change no measured source. Bot-data-only
-refreshes change JSON plus a numeric pricing-version increment, which
-cannot increase comment share.
+changes skip it only when the classifier finds no measured source,
+including source under `examples/` or `.claude/` and extensionless shell
+files identified by their checked-out shebang. Bot-data-only refreshes
+require an exact pricing path set and a constants diff consisting solely
+of one removed and one added numeric `PRICING_VERSION` assignment. Other
+constants changes and unreadable files run the full gate set.
 Master tightens with the other baselines; `ratchet-push` publishes the
 measured thresholds artifact without running the measurement again.
 

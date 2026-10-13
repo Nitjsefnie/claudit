@@ -11,8 +11,8 @@ this script reads the run's changed paths and emits two outputs,
 `docs_only` and `data_only`, which condition the legs while the
 aggregate job still reports.
 
-Documentation is the exact set the old deny-lists carried, re-homed as
-classifier patterns, minus the three docs whose setup blocks a test
+Documentation excludes measured sources from the old deny-list paths,
+and the three docs whose setup blocks a test
 guard pins (SETUP_DOC_PATTERNS): the guard lives in the tests leg, so a
 docs-only classification of a change to those files would skip the leg
 that fails it (issue #477). Every fallback over-runs: an event this
@@ -30,9 +30,9 @@ the pair when this run's carried notice set is unchanged, the triple
 when the baseline moved too (issue #932). The refresh job runs the
 full suite against the new rates BEFORE pushing (refresh-pricing.yml's
 refresh job), so re-running the whole matrix on the bot's push
-re-verifies nothing. A third path, or either half alone, is not the
-bot: `src/pricing.json` alone is a hand-edited rate file with no
-pre-test behind it.
+re-verifies nothing. Constants must replace just one numeric
+PRICING_VERSION assignment; other edits, unreadable blobs and paths
+outside either signature run the full gate.
 
 A THIRD class narrows a change that cannot move behaviour at all. When
 EVERY changed path is a source file (.py/.js/.jsx), the set fits
@@ -60,12 +60,15 @@ full gate set.
 from __future__ import annotations
 
 import fnmatch
+import importlib
 import io
 import json
 import os
 import subprocess
 import tempfile
 import tokenize
+
+sources = importlib.import_module('classify_sources' if __name__ == '__main__' else 'scripts.ci.classify_sources')
 
 # The paths-ignore deny-lists the gate workflows carried on master, now
 # re-homed as classifier patterns. `.github/ci-thresholds.json` is
@@ -80,8 +83,8 @@ DOC_PATTERNS = ('**/*.md', 'PRESENTATION.txt', 'examples/**', '.claude/**',
 # AGENTS's "Build and test commands" keep the same step set (issue #464).
 # A change to any of them is documentation by shape and tested by
 # behavior, so the carve-out below is by FILE, not by section: the gate
-# classifies changed PATHS and never reads content, and a per-section
-# rule would need a content diff this script has no read for. The cost is
+# keeps setup docs whole-file classified even though other classes
+# validate measured paths and the pricing diff. The cost is
 # an over-run -- an edit to a badge above the setup block runs the matrix
 # instead of skipping it -- which is this script's declared direction for
 # every uncertainty ("Every fallback over-runs"). The alternative failure
@@ -173,7 +176,7 @@ def documentation_only(paths):
     a change docs-only skips the very leg that would fail it (issue #477).
     """
     return (bool(paths) and not touches_setup_docs(paths)
-            and all(is_documentation(path) for path in paths))
+            and all(is_documentation(path) for path in paths) and not sources.measured(paths))
 
 
 def data_only(paths):
@@ -184,9 +187,7 @@ def data_only(paths):
 def _espree_dir():
     """The espree module dir the JS tokenizer requires from: the repo's
     own node_modules, or ESPREE_DIR_ENV when set."""
-    return os.environ.get(ESPREE_DIR_ENV) or os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__)))), 'node_modules')
+    return sources.espree_dir()
 
 
 def _comment_stripped_py(text):
@@ -437,16 +438,14 @@ def classify(event, run):
     if documentation_only(paths):
         return (True, False, False,
                 f'documentation-only change: {len(paths)} paths')
-    if touches_setup_docs(paths) and all(
-            is_documentation(path) for path in paths):
+    if all(is_documentation(path) for path in paths) and (
+            touches_setup_docs(paths) or sources.measured(paths)):
         setup = sorted({path for path in paths
                         if path in SETUP_DOC_PATTERNS})
         return (False, False, False,
-                f'documentation-only change touching the pinned setup '
-                f'docs ({"; ".join(setup)}): running the matrix so the '
-                f'setup-docs pin fails on this push, not the next '
-                f'code-touching one')
-    if data_only(paths):
+                f'documentation paths touch measured sources or pinned setup '
+                f'docs ({"; ".join(setup or paths)}); running the full gate set')
+    if data_only(paths) and sources.pricing_change(event, run, _refs, _blob):
         return (False, True, False,
                 f'bot-data-only change: {len(paths)} paths')
     if comment_only(paths, event, run):

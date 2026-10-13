@@ -110,8 +110,8 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   Integer cross-products compare shares without rounding. Unrecorded
   files stay at or below 15%; established entries never rise or get
   added. `scripts/ci/comment_baseline.py --matches-tree` checks the
-  measured pairs before pytest in the tests canary, on comment-only
-  changes too. Master's `--tighten` lowers entries and drops those at
+  measured pairs after pytest and the JS toolchain install in the tests
+  canary, on comment-only changes too. Master's `--tighten` lowers entries and drops those at
   or below 15%, through `thresholds.write`. `--seed` introduces the
   section once from the measured tree. No re-seed marker applies.
 - Suite cost (`suite_cost`): per-phase instruction counts (millions of
