@@ -63,6 +63,7 @@ def client_configuration() -> dict:
             "verify": client._endpoint.http_session._verify}  # pylint: disable=protected-access
 
 
+# Runs only inside a forkserver worker; called in the test process it would recurse into itself.
 def priced_parse(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None, *, tables: dict) -> dict:
     with ExitStack() as stack:
         for name, value in tables.items():
