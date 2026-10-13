@@ -1,8 +1,8 @@
-# Ordering is load-bearing: the DATABASE_URL_VIZ setdefault below MUST run
+# Ordering is load-bearing: the CLAUDIT_DATABASE_URL_VIZ setdefault below MUST run
 # before an import reaches backend.app (directly, or transitively via
 # backend.api/db/etc.). backend.app loads the repository-root .env after
 # importing backend.db and before its other backend modules; that .env pins
-# DATABASE_URL_VIZ at the live production `claudit` database. Since
+# CLAUDIT_DATABASE_URL_VIZ at the live production `claudit` database. Since
 # db.load_dotenv only ever os.environ.setdefault()s (never overwrites), the
 # test value wins when it is set first. backend.cache and backend.pricing are
 # safe to import above it: both are stdlib-only and never touch the env; so is
@@ -19,9 +19,9 @@ import pytest
 from backend import cache, pricing, rate_fingerprint
 from tests import scratch_db
 
-# An exported DATABASE_URL_VIZ wins; fixtures that create their own
+# An exported CLAUDIT_DATABASE_URL_VIZ wins; fixtures that create their own
 # database take a run-unique name from scratch_db either way.
-os.environ.setdefault("DATABASE_URL_VIZ", f"postgresql:///{scratch_db.db_name()}")
+os.environ.setdefault("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{scratch_db.db_name()}")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # ...and this directory, so one test module can import another's fixture
@@ -29,27 +29,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # Force file-mode R2 for unit tests; pytest never hits real R2.
-os.environ.setdefault("R2_ENDPOINT", "file:///tmp/sv-test-r2/")
-os.environ.setdefault("R2_BUCKET", "claude")
+os.environ.setdefault("CLAUDIT_R2_ENDPOINT", "file:///tmp/sv-test-r2/")
+os.environ.setdefault("CLAUDIT_R2_BUCKET", "claude")
 os.environ.setdefault("R2_ACCOUNT_ID", "")
-os.environ.setdefault("R2_ACCESS_KEY_ID", "")
-os.environ.setdefault("R2_SECRET_ACCESS_KEY", "")
+os.environ.setdefault("CLAUDIT_R2_ACCESS_KEY_ID", "")
+os.environ.setdefault("CLAUDIT_R2_SECRET_ACCESS_KEY", "")
 # The blob cache's off default must not rest on the host env happening
 # to leave it unset (issue #684): a developer's exported cache
 # directory would otherwise answer every fetch's consult.
-os.environ.pop("R2_BLOB_CACHE", None)
-os.environ.setdefault("ADMIN_TOKEN", "test-admin")
+os.environ.pop("CLAUDIT_R2_BLOB_CACHE", None)
+os.environ.setdefault("CLAUDIT_ADMIN_TOKEN", "test-admin")
 # Keep settings captured during app imports deterministic in the test suite.
 # Exported values still win because these are set with setdefault.
-os.environ.setdefault("EXPORT_PYTHON", "/usr/bin/python3")
+os.environ.setdefault("CLAUDIT_EXPORT_PYTHON", "/usr/bin/python3")
 os.environ.setdefault("CLAUDIT_TIMING", "0")
 # The in-process pipeline by default: forked parse children under pytest
 # duplicate capture state and slow every ingest test. The process-pool
 # tests opt in explicitly (test_ingest.py, issue #309).
-os.environ["INGEST_PARSE_PROCESSES"] = "1"
-os.environ["INGEST_PERSIST_THREADS"] = "1"
+os.environ["CLAUDIT_INGEST_PARSE_PROCESSES"] = "1"
+os.environ["CLAUDIT_INGEST_PERSIST_THREADS"] = "1"
 # TestClient runs over plain HTTP — Secure-flag cookies would never come back.
-os.environ.setdefault("COOKIE_SECURE", "0")
+os.environ.setdefault("CLAUDIT_COOKIE_SECURE", "0")
 # No background cache warming under test: a warm queued by run_ingest
 # outlives the fixture that created its DB, and its queries then race the
 # teardown that drops it — producing failures in unrelated tests.

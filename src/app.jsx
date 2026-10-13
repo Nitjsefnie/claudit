@@ -1,138 +1,6 @@
-// Main app shell: routes between Dashboard / Sessions list / Session detail.
-// Loads synthetic events for the dashboard preview; lets you drop a real
-// .jsonl on the Session view to inspect a single transcript.
+// App shell, dashboard requests, and the transcript Inspector.
 
 const { useState, useEffect, useMemo, useRef, useId } = React;
-
-// Branding comes from the backend, which injects window.BRAND
-// {name, title, description} into index.html (from APP_NAME /
-// APP_TITLE / APP_DESCRIPTION). The name renders as the top-bar logo
-// (upper-cased) and prefixes the export-PNG filename. No literal brand
-// string lives in this file.
-const BRAND = window.BRAND || {};
-
-// A Cost/Tokens by Model row label. A record that named its serving host
-// (OpenRouter) is split per host; one that named none keeps the bare model
-// label, the lane's own row, with no invented host name.
-function modelProviderLabel(model, provider) {
-  return provider ? `${model} · ${provider}` : model;
-}
-
-function txToDashData(tx) {
-  // Convert a real transcript into dashboard-shaped {events, limitHits, range}.
-  // Each event = ONE assistant turn (after applying the turn-stats
-  // algorithm: user-text boundaries → last usage per turn).
-  // Rates come from the shared window.modelRates table (parser.js) so the
-  // Inspector, Token Breakdown, and this path can never disagree on pricing.
-  const shortM = (model) => window.shortModelName(model || 'unknown');
-
-  // Group all assistant_usage records by sessionId, plus user-text events
-  // per session for turn boundaries (only available when loaded via Load N).
-  const usageBySid = new Map();
-  for (const u of tx.meta) {
-    if (u.type !== 'assistant_usage') continue;
-    const sid = u.sessionId || 'live';
-    if (!usageBySid.has(sid)) usageBySid.set(sid, []);
-    usageBySid.get(sid).push(u);
-  }
-
-  // Get user-text lines per session for turn boundaries.
-  const boundaryLinesBySid = new Map();
-  const allEv = tx.eventsBySession ? null : tx.events;
-  if (tx.eventsBySession) {
-    for (const [sid, evs] of tx.eventsBySession) {
-      const lines = [];
-      for (const e of evs) {
-        if (e.type === 'user_message' && typeof e.detail === 'string' && e.detail.trim()) {
-          lines.push(e.line);
-        }
-      }
-      lines.sort((a, b) => a - b);
-      boundaryLinesBySid.set(sid, lines);
-    }
-  } else if (allEv) {
-    // Single-file path: all events live in tx.events; partition by sessionId
-    // (which is on the usage records — we use the dominant one).
-    const byS = new Map();
-    for (const e of allEv) {
-      if (e.type === 'user_message' && typeof e.detail === 'string' && e.detail.trim()) {
-        const sid = e.sessionId || (usageBySid.size === 1 ? [...usageBySid.keys()][0] : 'live');
-        if (!byS.has(sid)) byS.set(sid, []);
-        byS.get(sid).push(e.line);
-      }
-    }
-    for (const [sid, ls] of byS) { ls.sort((a,b)=>a-b); boundaryLinesBySid.set(sid, ls); }
-  }
-
-  const events = [];
-  for (const [sid, usages] of usageBySid) {
-    usages.sort((a, b) => a.line - b.line);
-    const bounds = boundaryLinesBySid.get(sid) || [];
-    // Bucket usages into turns: each bound starts a turn.
-    // Usages before the first bound form turn 0 (initial system→assistant).
-    const turns = [];
-    let bi = 0;
-    let cur = [];
-    for (const u of usages) {
-      while (bi < bounds.length && bounds[bi] <= u.line) {
-        if (cur.length) turns.push(cur);
-        cur = [];
-        bi++;
-      }
-      cur.push(u);
-    }
-    if (cur.length) turns.push(cur);
-    // If no bounds were found (single-file path with all usages, no user_text
-    // captured), fall back to one-usage-per-turn so the panel still works.
-    const turnUsages = bounds.length ? turns.map(t => t[t.length - 1]) : usages;
-    let turnIdx = 0;
-    for (const u of turnUsages) {
-      const t = Date.parse(u.ts); if (isNaN(t)) continue;
-      const us = u.usage || {};
-      const inp = us.input_tokens || 0;
-      const out = us.output_tokens || 0;
-      const cc  = us.cache_creation_input_tokens || 0;
-      const cr  = us.cache_read_input_tokens || 0;
-      if ((inp + cc + cr) === 0 && (u.web_search_requests || 0) === 0) continue; // refusal/interrupt
-      const eph5 = (us.cache_creation && us.cache_creation.ephemeral_5m_input_tokens) || 0;
-      const eph1h = (us.cache_creation && us.cache_creation.ephemeral_1h_input_tokens) || 0;
-      const res = window.resolveModelRate(u.model, t, u.provider);
-      const r = res.rates;
-      const unsplit = Math.max(0, cc - eph5 - eph1h);
-      // Match pricing.compute_cost's per-model factors; lane meta records
-      // carry the flag and the inspector must match stored cost.
-      const [lcIn, lcOut] = u.long_context
-        ? window.longContextFactorsFor(u.model) : [1.0, 1.0];
-      const cost = (inp * r.fresh * lcIn + out * r.out * lcOut + eph5 * r.c5 * lcIn + (eph1h + unsplit) * r.c1h * lcIn + cr * r.read * lcIn) / 1_000_000 + (u.web_search_requests || 0) * (r.search || 0);
-      events.push({
-        ts: t,
-        session_id: sid,
-        turn_index: turnIdx++,
-        model: shortM(u.model),
-        model_id: u.model,
-        provider: u.provider || null, web_search_requests: u.web_search_requests || null,
-        input_tokens: inp,
-        output_tokens: out,
-        cache_create: cc,
-        cache_read: cr,
-        ephemeral_5m: eph5,
-        ephemeral_1h: eph1h,
-        cost_usd: cost,
-        ctx: window.usageCtxInput(us),
-      });
-    }
-  }
-  events.sort((a, b) => a.ts - b.ts);
-  const limitHits = tx.meta
-    .filter(m => m.type === 'rate_limit')
-    .map(m => ({ ts: Date.parse(m.ts), text: m.content || 'rate limit' }))
-    .filter(x => !isNaN(x.ts));
-  if (!events.length) return null;
-  const start = events[0].ts;
-  const end = events[events.length - 1].ts;
-  const pad = Math.max((end - start) * 0.02, 60_000);
-  return { events, limitHits, range: { start: start - pad, end: end + pad } };
-}
 
 // One effect run owns one request (issue #179, #182): whichever
 // response landed LAST used to win, so a slow stale response could
@@ -194,7 +62,7 @@ function makeTranscriptLoader({ fetchText, parse, onStart, onSuccess, onError })
 }
 
 function App() {
-  const [route, setRoute] = useState('dashboard'); // dashboard | sessions | session
+  const [storedRoute, setRoute] = useState('dashboard'); // dashboard | sessions | session
   const [tx, setTx] = useState(null); // parsed transcript {events, meta, stats}
   const [transcriptError, setTranscriptError] = useState('');
   const [, setFilename] = useState('');
@@ -202,7 +70,8 @@ function App() {
   const [useSynth, setUseSynth] = useState(true);
   const [backendDash, setBackendDash] = useState(null);
   // The request's own state, tracked apart from its data (#394).
-  const [dashFetch, setDashFetch] = useState(() => window.dashboardFetch.start());
+  const [dashFetch, setDashFetch] = useState(() => window.dashboardFeaturesOn()
+    ? window.dashboardFetch.start() : window.dashboardFetch.loaded());
   const [projects, setProjects] = useState(null);
   const [activeProject, setActiveProject] = useState('');
   const [activeRange, setActiveRange] = useState('all');
@@ -213,6 +82,8 @@ function App() {
   const [isGuest, setIsGuest] = useState(!!window.IS_GUEST);
 
   const backendOn = !!(window.BACKEND_URL && window.BACKEND_URL.length > 0);
+  const route = window.featureRoute(storedRoute, isGuest, backendOn);
+  useEffect(() => { if (route !== storedRoute) setRoute(route); }, [route, storedRoute]);
   // Bumped by the SSE listener on `ingest_done`; declared up here because
   // the projects fetch below lists it as a dependency.
   const [dashNonce, setDashNonce] = useState(0);
@@ -266,7 +137,7 @@ function App() {
   // fabricated figures. Only generate it when it is actually the
   // data source.
   useEffect(() => {
-    if (backendOn) return;
+    if (backendOn || !window.dashboardFeaturesOn()) return;
     setSynth(window.generateSyntheticData());
   }, [backendOn]);
 
@@ -288,7 +159,7 @@ function App() {
   // ingest otherwise stays missing from the picker until a range change
   // or a full reload.
   useEffect(() => {
-    if (!backendOn || isGuest) return;
+    if (!backendOn || isGuest || !window.featureOn('project_picker')) return;
     // Each run owns its request through mintRunSignal (issue #182), the
     // same guard the dashboard refetch uses: a superseded project list
     // must not overwrite a fresher one.
@@ -311,6 +182,7 @@ function App() {
   // by canonical name (e.g. claude-opus-4-7-20251101 → claude-opus-4-7).
   useEffect(() => {
     if (!backendOn) return;
+    if (!window.modelFeaturesOn()) return;
     fetch('/api/models', { credentials: 'same-origin' })
       .then(r => r.json())
       .then(b => setModels(b.models || []))
@@ -328,6 +200,7 @@ function App() {
   // A superseded run writes nothing: neither its data nor its state.
   useEffect(() => {
     if (!backendOn) return;
+    if (!window.dashboardFeaturesOn()) return;
     const run = mintRunSignal();
     const q = activeProject ? `&project=${encodeURIComponent(activeProject)}` : '';
     setDashFetch(window.dashboardFetch.start());
@@ -367,6 +240,7 @@ function App() {
   // is set when the refetch completes (the dashboard fetch above).
   useEffect(() => {
     if (!backendOn) return;
+    if (!window.featureOn('live_updates')) return;
     const es = new EventSource('/api/events', { withCredentials: true });
     const onIngest = e => {
       window.perf.sseUpdate();
@@ -378,21 +252,17 @@ function App() {
     return () => { es.removeEventListener('ingest_done', onIngest); es.close(); };
   }, [backendOn]);
 
-  const liveData = useMemo(() => tx ? txToDashData(tx) : null, [tx]);
-  // Memoised: this re-maps every hourly bucket and session in the
-  // payload into fresh objects. (The per-file ctx traces left this
-  // payload in #644, so this fold no longer sees them.) Called inline
-  // in render it re-ran on EVERY state change — /api/me, /api/projects,
-  // /api/models and each SSE tick — and the new object identities
-  // invalidated every useMemo inside Dashboard, re-rendering all panels.
+  const liveData = useMemo(() => tx ? window.txToDashData(tx) : null, [tx]);
+  // Keep shape identity stable across shell and SSE state changes.
   const dashData = useMemo(
     () => (backendDash
-      ? backendDashToShape(backendDash)
+      ? window.backendDashToShape(backendDash)
       : ((!useSynth && liveData) ? liveData : synth)),
     [backendDash, useSynth, liveData, synth],
   );
 
   function loadFromBackend(sessionId) {
+    if (!window.featureOn('inspector') || isGuest) return;
     transcriptSessionIdRef.current = sessionId;
     window.perf.openJourney('inspector_open');
     return transcriptLoaderRef.current(sessionId);
@@ -400,12 +270,12 @@ function App() {
 
   return (
     <div className="app-root">
-      <TopBar route={route} setRoute={setRoute} isGuest={isGuest} backendOn={backendOn} range={activeRange} project={activeProject} />
+      <window.TopBar route={route} setRoute={setRoute} isGuest={isGuest} backendOn={backendOn} range={activeRange} project={activeProject} />
       {/* The page's one main landmark: the pickers and every route's
           content sit inside it; the topbar and the live region stay
           outside (issue #447). */}
       <main id="main">
-        {backendOn && !isGuest && (
+        {backendOn && !isGuest && window.featureOn('project_picker') && (
           <window.ProjectPicker
             projects={projects}
             active={activeProject}
@@ -413,11 +283,11 @@ function App() {
           />
         )}
         {backendOn && (
-          <RangePicker active={activeRange} onChange={setActiveRange} />
+          <window.RangePicker active={activeRange} onChange={setActiveRange} />
         )}
         {/* Mounted as soon as the backend is known: Dashboard's four
             self-fetching panels must go out in parallel, not after. */}
-        {route === 'dashboard' && (dashData || backendOn) && <Dashboard synth={dashData} models={models} backendOn={backendOn} activeProject={activeProject} activeRange={activeRange} dashNonce={dashNonce} dashFetch={dashFetch} />}
+        {route === 'dashboard' && <window.Dashboard Stat={Stat} synth={dashData} models={models} backendOn={backendOn} activeProject={activeProject} activeRange={activeRange} dashNonce={dashNonce} dashFetch={dashFetch} />}
         {route === 'sessions' && dashData && (
           <window.SessionsList
             synth={dashData}
@@ -438,665 +308,10 @@ function App() {
           Mounted here, outside the panel tree, so no re-render can
           unmount it; polite + atomic so it never interrupts or steals
           focus; text set only after the refetch it announces lands. */}
-      <div aria-live="polite" aria-atomic="true" className="sr-only">{refreshMsg}</div>
+      {window.featureOn('live_updates') && <div aria-live="polite" aria-atomic="true" className="sr-only">{refreshMsg}</div>}
     </div>
   );
 }
-
-// Shown while the first /api/dashboard response is in flight. Replaces
-// the old behaviour of rendering the full panel set from synthetic data,
-// which put fabricated numbers on screen and paid for a complete chart
-// render that was discarded as soon as the real payload arrived.
-function RangePicker({ active, onChange }) {
-  const presets = [
-    { label: '24h',  value: '1d'   },
-    { label: '7d',   value: '7d'   },
-    { label: '30d',  value: '30d'  },
-    { label: '90d',  value: '90d'  },
-    { label: '1y',   value: '365d' },
-    { label: 'all',  value: 'all'  },
-  ];
-  return (
-    <div className="project-picker" data-perf-region="range_picker" style={{ borderTop: '1px solid #2a2a4a' }}>
-      <span style={{ color: '#9090b0', fontFamily: 'monospace', fontSize: 11, marginRight: 8 }}>range:</span>
-      {presets.map(p => (
-        <button
-          key={p.value}
-          className={'pp-btn ' + (active === p.value ? 'on' : '')}
-          onClick={() => onChange(p.value)}
-        >{p.label}</button>
-      ))}
-    </div>
-  );
-}
-
-function ExportButton({ range, project }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const onClick = async () => {
-    if (busy) return;
-    setBusy(true);
-    setErr('');
-    const url = `/api/export?range=${encodeURIComponent(range)}` +
-      (project ? `&project=${encodeURIComponent(project)}` : '');
-    try {
-      const res = await fetch(url, { credentials: 'same-origin' });
-      if (!res.ok) {
-        let msg = `export failed (${res.status})`;
-        try { const j = await res.json(); if (j && j.detail) msg = j.detail; } catch (_) {}
-        setErr(msg);
-        return;
-      }
-      const blob = await res.blob();
-      const objUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = objUrl;
-      a.download = `${(BRAND.name || 'export')}_${project || 'all'}_${range}.png`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(objUrl);
-    } catch (e) {
-      setErr('export failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-      <button
-        className="pp-btn"
-        style={{ marginLeft: 12, opacity: busy ? 0.5 : 1 }}
-        onClick={onClick}
-        disabled={busy}
-        title="Download a PNG of this dashboard for the current filters"
-      >{busy ? 'rendering…' : 'Export PNG'}</button>
-      {err && <span style={{ color: '#ff6b6b', fontSize: 11, marginLeft: 8 }}>{err}</span>}
-    </span>
-  );
-}
-
-// Convert backend /api/dashboard response → the {events, limitHits, range}
-// shape the existing Dashboard component expects. The hourly aggregates
-// are mapped to one synthetic "event" per hour bucket so the dashboard
-// panels render correctly. Per-turn detail is loaded separately via the
-// Inspector when a user opens a session.
-function backendAggregateRange(events, bucketS) {
-  const first = events[0].ts;
-  const last = events[events.length - 1].ts;
-  const bucketMs = Number(bucketS) * 1000;
-  if (Number.isFinite(bucketMs) && bucketMs > 0) {
-    return { start: first - bucketMs / 2, end: last + bucketMs / 2 };
-  }
-  return { start: first, end: last + 1 };
-}
-
-function backendDashToShape(b) {
-  // Canonicalize raw backend model strings ("claude-opus-4-7-20251101")
-  // to canonical names ("claude-opus-4-7") ONCE here, so every downstream
-  // consumer (model colors, Cost by Model labels, burn-rate dots) agrees.
-  const short = m => window.shortModelName(m || 'unknown');
-  const events = (b.hourly || []).map((h, i) => ({
-    ts: Date.parse(h.hour),
-    session_id: 'backend-h' + i,
-    turn_index: 0,
-    model: short(h.model),
-    // The raw id the backend priced cost_usd by. `model` is for display:
-    // a short name matches only its family's tier, i.e. its NEWEST rate.
-    model_id: h.model,
-    // Every token field is OPTIONAL: the backend drops any type whose
-    // total is zero across the range (api_dashboard.drop_zero_token_types),
-    // so these keys can be absent and `a + b` on two absent ones is NaN,
-    // not 0 — which is what silently poisons a whole panel.
-    input_tokens: h.input_tokens || 0,
-    output_tokens: h.output_tokens || 0,
-    // A SUBSET of output_tokens, plotted on its own panel and never
-    // added to a total (see api_dashboard.TOKEN_TYPE_FIELDS).
-    thinking_tokens: h.thinking_tokens || 0,
-    cache_create: (h.cache_5m_tokens || 0) + (h.cache_1h_tokens || 0),
-    cache_read: h.cache_read_tokens || 0,
-    ephemeral_5m: h.cache_5m_tokens || 0,
-    ephemeral_1h: h.cache_1h_tokens || 0,
-    // The Codex long-context meter rides the hourly grain: rows tagged
-    // true bill at 2x input side / 1.5x output, which the Token
-    // Breakdown must apply or its bars drift from the stored total.
-    long_context: !!h.long_context,
-    // The serving host, priced per row like the long-context flag; null
-    // when the record named none.
-    provider: h.provider || null,
-    cost_usd: h.cost_usd,
-    lines_added: h.lines_added || 0,
-    lines_deleted: h.lines_deleted || 0,
-    requests: h.requests || 1,
-    session_count: h.session_count || 0,
-  })).filter(e => !isNaN(e.ts));
-  if (!events.length) return null;
-  const range = backendAggregateRange(events, b.bucket_s);
-  // Keyed like the client-side fold in Dashboard: model, split by host
-  // where the records named one. A backend without the split falls back
-  // to the per-model list.
-  const costByModel = (b.cost_by_model_provider || b.cost_by_model || []).reduce((acc, r) => {
-    const key = modelProviderLabel(short(r.model), r.provider);
-    acc[key] = (acc[key] || 0) + (r.cost_usd || 0);
-    return acc;
-  }, {});
-  const tokensByModel = (b.cost_by_model_provider || []).reduce((acc, r) => {
-    const key = modelProviderLabel(short(r.model), r.provider);
-    acc[key] = (acc[key] || 0) + (r.total_tokens || 0);
-    return acc;
-  }, {});
-  const limitHits = (b.rate_limit_hits || [])
-    .map(h => ({ ts: Date.parse(h.ts), text: h.content || 'rate limit' }))
-    .filter(h => !isNaN(h.ts));
-  const sessions = (b.sessions || []).map(s => {
-    const startMs = (s.start_ts || 0) * 1000;
-    const endMs = (s.end_ts || s.start_ts || 0) * 1000;
-    const synthEvent = {
-      ts: startMs,
-      session_id: s.session_id,
-      turn_index: 0,
-      model: short(s.model),
-      input_tokens: s.input_tokens,
-      output_tokens: s.output_tokens,
-      cache_create: s.cache_create_tokens,
-      cache_read: s.cache_read_tokens,
-      ephemeral_5m: 0,
-      ephemeral_1h: 0,
-      cost_usd: s.cost_usd,
-      requests: s.requests,
-    };
-    return {
-      start: startMs,
-      end: endMs,
-      events: [synthEvent],
-      ctxEnd: s.ctx_at_end != null ? s.ctx_at_end : null,
-      session_id: s.session_id,
-      requests: s.requests,
-      model: short(s.model),
-      models_used: (s.models_used || []).map(short),
-      // No `turns`: the per-session ctx trace belongs to the Context
-      // Growth panel, which fetches /api/context-growth/traces itself
-      // (issue #644). ctx_at_end (folded server-side) is what the dot needs.
-    };
-  });
-  return {
-    events, limitHits, range, costByModel, tokensByModel,
-    costByProject: b.cost_by_project || [],
-    tokensByProject: b.tokens_by_project || [],
-    sessionsOverride: sessions,
-    totalSessions: b.total_sessions,
-    mainWUsage: b.main_w_usage,
-    mainEmpty: b.main_empty,
-    subagentFiles: b.subagent_files,
-    subagentOnlySessions: b.subagent_only_sessions,
-    totalPrompts: b.total_prompts,
-    totalTurns: b.total_turns,
-    responseSizes: b.response_sizes || [], hideRateLimits: !!b.hide_rate_limits,
-    bucketS: b.bucket_s || 86400,
-    // Which token types survived the backend's zero-suppression
-    // (api_dashboard.drop_zero_token_types). Absent on the synthetic
-    // preview path, where tokenPanels() falls back to summing.
-    tokenTypes: b.token_types || null,
-  };
-}
-
-// Which of the four token panels to draw, and its non-token sibling, are in
-// src/panel-gating.js now (#436).
-function TopBar({ route, setRoute, isGuest, backendOn, range, project }) {
-  return (
-    <header className="topbar" data-perf-region="topbar">
-      <div className="topbar-left">
-        <div className="logo">
-          <span className="logo-mark">{'>'}</span>
-          <span className="logo-text">{(BRAND.name || '').toUpperCase()}</span>
-          <span className="logo-sub">token usage audit{isGuest ? ' · guest' : ''}</span>
-        </div>
-      </div>
-      <nav className="topnav">
-        <button aria-current={route === 'dashboard' ? 'page' : undefined} className={'navbtn ' + (route === 'dashboard' ? 'on' : '')} onClick={() => setRoute('dashboard')}>Overview</button>
-        {!isGuest && (
-          <button aria-current={route === 'sessions' ? 'page' : undefined} className={'navbtn ' + (route === 'sessions' ? 'on' : '')} onClick={() => setRoute('sessions')}>Sessions</button>
-        )}
-        {backendOn && (
-          <button aria-current={route === 'cache' ? 'page' : undefined} className={'navbtn ' + (route === 'cache' ? 'on' : '')} onClick={() => setRoute('cache')}>Cache</button>
-        )}
-        {!isGuest && (
-          <button aria-current={route === 'session' ? 'page' : undefined} className={'navbtn ' + (route === 'session' ? 'on' : '')} onClick={() => setRoute('session')}>Inspector</button>
-        )}
-      </nav>
-      <div className="topbar-right">
-        {backendOn && !isGuest && (
-          <ExportButton range={range} project={project} />
-        )}
-        <a className="loadbtn logout-btn" href="/logout">Logout</a>
-      </div>
-    </header>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Dashboard view
-// ─────────────────────────────────────────────────────────────────
-
-function TokenBreakdownPanel({ events }) {
-  const [activeModel, setActiveModel] = useState('');
-
-  // Model options derived from the events actually present (already short
-  // names via backendDashToShape), ordered by cost desc.
-  const modelOpts = useMemo(() => {
-    const byModel = {};
-    for (const e of events) {
-      if (!e.model || e.model === '<synthetic>' || e.model === 'synthetic') continue;
-      byModel[e.model] = (byModel[e.model] || 0) + (e.cost_usd || 0);
-    }
-    return Object.entries(byModel).sort((a, b) => b[1] - a[1]).map(([k]) => k);
-  }, [events]);
-
-  const filtered = useMemo(
-    () => (activeModel ? events.filter(e => e.model === activeModel) : events),
-    [events, activeModel]);
-  const { rows, costRows, tokenTotal, costTotal } = useMemo(
-    () => window.computeTokenBreakdown(filtered), [filtered]);
-  // A free lane (bonsai-2-27b at $0) gives every row cost 0, and
-  // computeTokenBreakdown floors costTotal at 1 to keep the division
-  // finite — so the bars would all read "$0 (0.0%)" rather than say
-  // nothing. Drop the bar instead; the token bar above is unaffected.
-  const hasCost = costRows.some(r => r.cost > 0);
-
-  // One bordered card (matching the sibling "Cost by Model" card) so the
-  // shared model filter visibly belongs to the whole Token Breakdown panel
-  // — the two bars are the same data sorted by tokens vs by cost, so a
-  // single picker drives both.
-  return (
-    <div style={{
-      background: 'var(--bg-card)', border: '1px solid var(--border)',
-      borderRadius: 4, display: 'flex', flexDirection: 'column',
-    }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-        flexWrap: 'wrap', gap: 8, padding: '8px 14px 0',
-        fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)',
-      }}>
-        <span>model:</span>
-        <select
-          aria-label="Token Breakdown model filter"
-          value={activeModel}
-          onChange={e => setActiveModel(e.target.value)}
-          style={{
-            background: 'var(--panel-2)', color: 'var(--fg)',
-            border: '1px solid var(--border)', borderRadius: 4,
-            padding: '3px 6px', fontFamily: 'var(--mono)', fontSize: 11,
-            cursor: 'pointer',
-          }}>
-          <option value="">All</option>
-          {modelOpts.map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
-      </div>
-      <window.HBar embedded listPanel
-        title="Token Breakdown — by tokens"
-        rows={[...rows].sort((a, b) => b.value - a.value)}
-        fmt={r => `${window.humanFmt(r.value)} (${(r.value / tokenTotal * 100).toFixed(1)}%)`} />
-      {hasCost && (
-      <window.HBar embedded listPanel
-        title="Token Breakdown — by cost"
-        rows={[...costRows].map(r => ({ ...r, value: r.cost })).sort((a, b) => b.value - a.value)}
-        fmt={r => `${window.humanCurrency(r.value)} (${(r.value / costTotal * 100).toFixed(1)}%)`} />
-      )}
-    </div>
-  );
-}
-
-function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashNonce, dashFetch }) {
-  // `synth` is null until /api/dashboard lands. Render anyway: the four
-  // backend panels below each fetch their OWN endpoint on mount, and gating
-  // the whole component on dashboard data made those four requests wait for
-  // it — a measured 6.9s, turning a parallel fan-out into a serial chain.
-  const hasData = !!synth;
-  // The fetch state, not the data: an empty or failed range has still
-  // resolved, and the sections below show their own states then (#394).
-  const dashLoading = dashFetch.status === window.dashboardFetch.LOADING;
-  // The invisible reservation below is for the FIRST load only (#643): a
-  // later range change re-enters LOADING while the previous range's
-  // sections are on screen, and hiding those would blank the page on
-  // every filter switch.
-  const everLoaded = React.useRef(false);
-  useEffect(() => { if (!dashLoading) everLoaded.current = true; }, [dashLoading]);
-  // Issue #436: the page is USABLE once the request RESOLVES, an empty range
-  // included -- a deploy with no data would otherwise never leave pre-paint.
-  // The JOURNEY still closes only on a data-bearing READY: an empty one, or a
-  // failed one over stale `synth`, would report a page that rendered nothing.
-  useEffect(() => {
-    if (dashFetch.status === window.dashboardFetch.LOADING) return;
-    window.perf.markUsable();
-    if (hasData && dashFetch.status === window.dashboardFetch.READY) {
-      window.perf.closeJourney('dashboard_open');
-    }
-  }, [hasData, dashFetch]);
-  const {
-    events = [], limitHits = [], range: dataRange, costByModel: backendByModel,
-    tokensByModel: backendTokensByModel,
-    costByProject: backendByProject = [],
-    tokensByProject: backendTokensByProject = [],
-    sessionsOverride, totalSessions, mainWUsage, mainEmpty, subagentFiles,
-    subagentOnlySessions, totalPrompts, totalTurns, responseSizes,
-    bucketS, tokenTypes, hideRateLimits = false,
-  } = synth || {};
-  // Placeholder window so the bin-size maths below stays finite pre-data.
-  const range = dataRange || { start: Date.now() - 86400000, end: Date.now() };
-  const hasBackendByModel = backendByModel && Object.keys(backendByModel).length > 0;
-  const hasBackendTokensByModel = backendTokensByModel && Object.keys(backendTokensByModel).length > 0;
-  const computed = useMemo(() => window.computeSessions(events), [events]);
-  const sessions = (sessionsOverride && sessionsOverride.length)
-    ? sessionsOverride
-    : computed.sessions;
-  const windowBoundaries = computed.windowBoundaries;
-  // Empty-plot suppression: a series that is zero in every bucket gets
-  // no grid cell. Backend-declared for token types, summed here for the
-  // derived and churn series.
-  const panels = useMemo(
-    () => window.tokenPanels(events, tokenTypes), [events, tokenTypes]);
-
-  const totals = useMemo(() => {
-    const t = { input: 0, output: 0, cc: 0, cr: 0, cost: 0, eph5: 0, eph1h: 0,
-                linesAdded: 0, linesDeleted: 0 };
-    const byModel = {};
-    const tokensByModel = {};
-    for (const e of events) {
-      t.input += e.input_tokens; t.output += e.output_tokens;
-      t.cc += e.cache_create; t.cr += e.cache_read;
-      t.cost += e.cost_usd;
-      t.eph5 += e.ephemeral_5m; t.eph1h += e.ephemeral_1h;
-      // Churn is attached to the first model row of each bucket only
-      // (see api_dashboard._attach_churn), so a plain sum over events
-      // is already de-duplicated across models.
-      t.linesAdded += e.lines_added || 0; t.linesDeleted += e.lines_deleted || 0;
-      const label = modelProviderLabel(e.model, e.provider);
-      byModel[label] = (byModel[label] || 0) + e.cost_usd;
-      // Every token the model processed, whichever cache tier it came
-      // from: the measure Cost by Model prices, before the rate.
-      tokensByModel[label] = (tokensByModel[label] || 0) + e.input_tokens + e.output_tokens + e.cache_create + e.cache_read;
-    }
-    t.total = t.input + t.output + t.cc + t.cr;
-    return {
-      ...t,
-      byModel: hasBackendByModel ? backendByModel : byModel,
-      tokensByModel: hasBackendTokensByModel ? backendTokensByModel : tokensByModel,
-    };
-  }, [events, backendByModel, hasBackendByModel, backendTokensByModel, hasBackendTokensByModel]);
-
-  // Adaptive to the visible data, but never finer than the aggregation the
-  // backend already applied to each returned point.
-  const binMs = window.dashboardBinMs(range, bucketS);
-
-  // One row per model by default (#936): rows sharing a model id collapse
-  // to their summed value, sorted desc, each coloured by its model (a
-  // host-split row has no fixedColors entry of its own). The module drops
-  // zero rows first, exactly as the flat fold did; the panel's single
-  // checkbox flips the grouped rows back to today's per-host rows.
-  const costByModel = window.modelGroup.group(totals.byModel);
-  // Share of the charted total, not of `totals.cost`: the rows above drop
-  // zero-cost models, so summing them is what makes the labels add to 100%.
-  const costByModelTotal = costByModel.reduce((a, r) => a + r.value, 0);
-  // Same shape as Cost by Model, measured in tokens: a free lane
-  // (bonsai at $0) is invisible on the cost bar and visible here.
-  const tokensByModel = window.modelGroup.group(totals.tokensByModel);
-  const tokensByModelTotal = tokensByModel.reduce((a, r) => a + r.value, 0);
-
-  // One colour for every bar: this is a magnitude comparison, identity is
-  // carried by the row label, so NO fixedColors and the same palette
-  // colour (the Cost (USD) gold) on each row. The backend already sorted
-  // desc, dropped zero-cost rows, and folded the tail into "Other (N
-  // projects)". Guests get no cost_by_project key at all (server-side),
-  // so the empty list hides the panel for them without an isGuest check.
-  const costByProject = backendByProject
-    .map(r => ({ label: r.project, value: r.cost_usd, color: window.dashboardCol.costUSD }));
-  // Tokens by Project: the Cost by Project treatment on the tokens
-  // measure — a VBar whose fmt is value-ONLY, because VBar prints each
-  // bar's share itself and a fmt that appends one renders it twice
-  // ("35B (18.0%)" above "(18.0%)"). It is NOT gated on cost (a free
-  // lane priced $0 is invisible on Cost by Project and visible here),
-  // only on having tokens; guests get no tokens_by_project key at all
-  // (server-side, like cost_by_project), so the empty list hides the
-  // panel for them without an isGuest check.
-  const tokensByProject = backendTokensByProject
-    .map(r => ({ label: r.project, value: r.total_tokens, color: window.dashboardCol.totalTokens }));
-
-  const totalCostStr = window.humanFmt(totals.cost, true);
-  // Whether anything in the range cost money at all. A free lane
-  // (llamameter: bonsai-2-27b at $0) charts zeros on every cost
-  // surface, so each one is dropped rather than drawn empty.
-  const hasCost = totals.cost > 0;
-
-  // Loading/empty/error are told apart by the state, not the shape (#394).
-  const summary = window.dashboardFetch.summary(dashFetch, hasData);
-  return (
-    <div className="dashboard" data-perf-region="panel_grid">
-      <div className="page-head"><h1>Overview</h1></div>
-      <window.OverviewStatus summary={summary} activeRange={activeRange} Stat={Stat} />
-      {summary.kind === 'data' && (
-      <div className="dash-summary" data-perf-region="summary_strip">
-        <Stat label="window" value={`${window.fmtDate(range.start, {day:true})} – ${window.fmtDate(range.end, {day:true})}`} />
-        <Stat label="main sessions with usage" value={(mainWUsage != null ? mainWUsage : (totalSessions != null ? totalSessions : (events.reduce((s, e) => s + (e.session_count || 0), 0) || sessions.length))).toLocaleString()} />
-        {mainEmpty != null && <Stat label="main empty sessions" value={mainEmpty.toLocaleString()} />}
-        {subagentFiles != null && <Stat label="subagent sessions" value={subagentFiles.toLocaleString()} />}
-        {subagentOnlySessions != null && <Stat label="subagent-only sessions" value={subagentOnlySessions.toLocaleString()} />}
-        {(mainWUsage != null || mainEmpty != null || subagentFiles != null) &&
-          <Stat label="total" value={((mainWUsage || 0) + (mainEmpty || 0) + (subagentFiles || 0)).toLocaleString()} />}
-        {totalPrompts != null && <Stat label="prompts" value={totalPrompts.toLocaleString()} />}
-        {totalTurns != null && <Stat label="turns" value={totalTurns.toLocaleString()} />}
-        <Stat label="requests" value={events.reduce((s, e) => s + (e.requests == null ? 1 : e.requests), 0).toLocaleString()} />
-        <Stat label="total tokens" value={window.humanFmt(totals.total)} />
-        <Stat label="lines added / deleted" value={
-          <span>
-            <span style={{ color: window.dashboardCol.linesAdded }}>+{window.humanFmt(totals.linesAdded)}</span>
-            <span style={{ color: 'var(--muted-2)' }}> / </span>
-            <span style={{ color: window.dashboardCol.linesDeleted }}>−{window.humanFmt(totals.linesDeleted)}</span>
-          </span>
-        } />
-        {totals.cost > 0 && <Stat label="total cost" value={totalCostStr} highlight />}
-        {!hideRateLimits && <Stat label="rate-limit hits" value={String(limitHits.length)} warn={limitHits.length > 0} />}
-      </div>
-      )}
-
-      {hasData && (<>
-      {/* Read by src/perf.js walking UP from a shifted node: a Layout
-          Instability entry names the elements that moved, so the nearest
-          marked ancestor is the region it is attributed to (#436). */}
-      <div className="dash-grid" data-perf-region="panel_grid">
-        {panels.input && (
-        <window.TimeSeriesPanel title="Input Tokens"  events={events} valueKey="input_tokens"
-          color={window.dashboardCol.inputTokens} range={range} binMs={binMs} />)}
-        {panels.output && (
-        <window.TimeSeriesPanel title="Output Tokens" events={events} valueKey="output_tokens"
-          color={window.dashboardCol.outputTokens} range={range} binMs={binMs} />)}
-        {panels.thinking && (
-        <window.TimeSeriesPanel title="Thinking Output" events={events} valueKey="thinking_tokens"
-          color={window.dashboardCol.thinkingTokens} range={range} binMs={binMs} />)}
-        {panels.cacheCreate && (
-        <window.TimeSeriesPanel title="Cache Create"  events={events} valueKey="cache_create"
-          color={window.dashboardCol.cacheCreateTokens} range={range} binMs={binMs} />)}
-        {panels.cacheRead && (
-        <window.TimeSeriesPanel title="Cache Read"    events={events} valueKey="cache_read"
-          color={window.dashboardCol.cacheReadTokens} range={range} binMs={binMs} />)}
-        {panels.any && (
-        <window.TimeSeriesPanel title="Total Tokens"  events={events.map(e => ({...e, _t: e.input_tokens+e.output_tokens+e.cache_create+e.cache_read}))}
-          valueKey="_t" color={window.dashboardCol.totalTokens} range={range} binMs={binMs} />)}
-        {window.hasSeries(events, 'cost_usd') && (
-        <window.TimeSeriesPanel title="Cost (USD)"    events={events} valueKey="cost_usd"
-          color={window.dashboardCol.costUSD} range={range} binMs={binMs} isCurrency />)}
-        {window.hasSeries(events, 'lines_added') && (
-        <window.TimeSeriesPanel title="Lines Added"   events={events} valueKey="lines_added"
-          color={window.dashboardCol.linesAdded} range={range} binMs={binMs} />)}
-        {window.hasSeries(events, 'lines_deleted') && (
-        <window.TimeSeriesPanel title="Lines Deleted" events={events} valueKey="lines_deleted"
-          color={window.dashboardCol.linesDeleted} range={range} binMs={binMs} />)}
-      </div>
-
-      <div className="dash-grid-2">
-        {costByModelTotal > 0 && (
-        <window.HBar listPanel
-          title="Cost by Model"
-          rows={costByModel}
-          fixedColors={window.modelColors} groupByModel partFmt={v => window.humanCurrency(v)}
-          fmt={r => `${window.humanCurrency(r.value)} (${(r.value / costByModelTotal * 100).toFixed(1)}%)`} />
-        )}
-        <window.HBar listPanel
-          title="Tokens by Model"
-          rows={tokensByModel}
-          fixedColors={window.modelColors} groupByModel partFmt={v => window.humanFmt(v)}
-          fmt={r => `${window.humanFmt(r.value)} (${tokensByModelTotal > 0 ? (r.value / tokensByModelTotal * 100).toFixed(1) : '0.0'}%)`} />
-      </div>
-
-      <div className="dash-grid-2">
-        <TokenBreakdownPanel events={events} />
-      </div>
-
-      {/* Only meaningful with the project filter on "All" — a single
-          selected project would make this a one-bar chart. */}
-      {activeProject === '' && costByProject.length > 0 && (
-        <div className="dash-resp">
-          <window.VBar
-            title="Cost by Project"
-            rows={costByProject}
-            fmt={r => window.humanCurrency(r.value)} />
-        </div>
-      )}
-
-      {activeProject === '' && tokensByProject.length > 0 && (
-        <div className="dash-resp">
-          <window.VBar
-            title="Tokens by Project"
-            rows={tokensByProject}
-            fmt={r => window.humanFmt(r.value)} />
-        </div>
-      )}
-
-      {panels.cacheCreate && (
-      <div className="dash-ttl">
-        <window.CacheTTLPanel events={events} range={range} binMs={binMs} />
-      </div>
-      )}
-
-      {responseSizes && responseSizes.length > 0 && (
-        <div className="dash-resp">
-          <window.ResponseSizesPanel data={responseSizes} bucketS={bucketS} />
-        </div>
-      )}
-
-      <div className="dash-context">
-        <window.ContextGrowthPanel events={events} realSessions={sessionsOverride}
-            project={activeProject} range={activeRange} nonce={dashNonce} />
-      </div>
-
-      <div className="dash-burn">
-        <window.BurnRatePanel
-          events={events}
-          sessions={sessions}
-          limitHits={limitHits} hideRateLimits={hideRateLimits}
-          range={range}
-          windowBoundaries={windowBoundaries} />
-      </div>
-
-      {/* The Cost/Tokens by Context twins gate on the payload's
-          cost, which exists only once the dashboard payload lands;
-          they fill at the block tail instead of inserting mid-page
-          and pushing the self-fetching panels above them (#643). */}
-
-      {backendOn && hasCost && (
-        <div className="dash-ctx-cost">
-          <window.CostByContextPanel
-            models={models}
-            project={activeProject}
-            range={activeRange}
-            nonce={dashNonce} />
-        </div>
-      )}
-
-      {backendOn && (
-        <div className="dash-ctx-cost">
-          <window.CostByContextPanel
-            measure="tokens"
-            models={models}
-            project={activeProject}
-            range={activeRange}
-            nonce={dashNonce} />
-        </div>
-      )}
-      </>)}
-
-      {/* Self-fetching panels: mounted regardless of dashboard data, and
-          BELOW every data-gated block (#643); its sections stack with
-          .dashboard's own 14px flex gap (#772) — a plain block wrapper
-          holds its content out of the gap context, flush.  Each fills
-          when its own response lands; until the first /api/dashboard
-          resolves they lay out at final heights, painting nothing. */}
-      {backendOn && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14,
-          ...(dashLoading && !everLoaded.current ? { visibility: 'hidden' } : {}) }}>
-        <div className="dash-tools">
-          <window.ToolUsagePanel
-            models={models}
-            project={activeProject}
-            range={activeRange}
-            nonce={dashNonce} />
-        </div>
-
-      {backendOn && (
-        <div className="dash-latency">
-          <window.ReplyLatencyPanel
-            models={models}
-            project={activeProject}
-            range={activeRange}
-            nonce={dashNonce} />
-        </div>
-      )}
-
-      {/* Self-fetching like the four above, operator-only (#629). */}
-      {backendOn && window.IS_OPERATOR && (
-        <div className="dash-resp">
-          {/* No `project`: a beacon carries none. */}
-          <window.WebMetricsPanel
-            range={activeRange}
-            nonce={dashNonce} />
-        </div>
-      )}
-
-      {backendOn && (
-        <div className="dash-tool-errors">
-          <window.ToolErrorRatePanel
-            project={activeProject}
-            range={activeRange}
-            nonce={dashNonce} />
-        </div>
-      )}
-
-      {backendOn && (
-        <div className="dash-resp">
-          <window.CostByAgentPanel
-            models={models}
-            project={activeProject}
-            range={activeRange}
-            nonce={dashNonce} />
-        </div>
-      )}
-
-      {backendOn && (
-        <div className="dash-heatmap">
-          <window.ActivityHeatmapPanel
-            models={models}
-            project={activeProject}
-            range={activeRange}
-            nonce={dashNonce} />
-        </div>
-      )}
-
-
-        </div>
-      )}
-    </div>
-  );
-}
-
 
 function Stat({ label, value, highlight, warn }) {
   return (
@@ -1107,9 +322,7 @@ function Stat({ label, value, highlight, warn }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Session view
-// ─────────────────────────────────────────────────────────────────
+// Transcript presentation
 
 function SessionView({ tx }) {
   const [selected, setSelected] = useState(0);
@@ -1129,21 +342,20 @@ function SessionView({ tx }) {
     window.perf.closeJourney('inspector_open');
   }, [tx]);
 
-
   if (!tx) {
     return (
       <div className="session-empty">
         <div className="drop-card">
           <div className="page-head"><h1>Inspector</h1></div>
           <div className="drop-title">No session selected</div>
-          <div className="drop-sub">Pick a session from the Sessions list to inspect its
-            timeline, tool calls, and context growth.</div>
+          <div className="drop-sub">{window.inspectorEmptyGuidance()}</div>
         </div>
       </div>
     );
   }
 
   const visible = tx.events.filter(e => {
+    if (e.type === 'rate_limit' && !window.featureOn('rate_limits')) return false;
     if (e.type === 'user_message' && !filter.user) return false;
     if (e.type === 'assistant_text' && !filter.asst) return false;
     if (e.type === 'thinking' && !filter.think) return false;

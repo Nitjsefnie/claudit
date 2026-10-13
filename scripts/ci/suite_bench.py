@@ -94,7 +94,7 @@ _QUANTUM = _ONE_PLACE
 # Set on the re-exec'd child: the parent has already drawn the
 # compile/load split outside the counted window, so the child's own
 # warm-up pass would only repeat it.
-WARMED_ENV = 'SUITE_BENCH_WARMED'
+WARMED_ENV = 'CLAUDIT_SUITE_BENCH_WARMED'
 # The reading's shape lives in the report module; this alias is what
 # the annotations name, exactly as reparse_bench does.
 Measurement = suite_report.Measurement

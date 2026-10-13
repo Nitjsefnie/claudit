@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from itertools import pairwise
 
 from backend import pricing
+from backend.flags import ALL_COLLECTIONS_ON, CollectionPolicy
+from backend.parse_collection import ParseCollection, parse_collection
 from backend.agent_types import canonical_agent_type
 from backend.ctx_turns import _ctx_turns_from_turns
 from backend.tool_errors import ERROR_TEXT_MAX, _pg_text, classify_lane_error
@@ -84,6 +86,8 @@ class _ParseState:
     on parse_file plus an internal ctx_input used to build ctx_turns.
     """
     file_key: str
+    collection: CollectionPolicy = field(default=ALL_COLLECTIONS_ON, kw_only=True)
+    collect: ParseCollection = field(init=False)
     records: list[dict] = field(default_factory=list)
     tool_uses: list[dict] = field(default_factory=list)
     rate_limit_hits: list[dict] = field(default_factory=list)
@@ -108,6 +112,9 @@ class _ParseState:
     # The role this transcript ran as, in the format's OWN vocabulary
     # (parse_lanes.to_claudit normalises it). None when no line named one.
     agent_role: str | None = None
+
+    def __post_init__(self) -> None:
+        self.collect = parse_collection(self.collection)
 
 
 def _close_turn(st: _ParseState, line_num: int, ts: datetime | None) -> None:
@@ -333,6 +340,8 @@ def _append_usage_record(st: _ParseState, line_num: int,
         # answer available for one.
         ts=ts,
     )
+    # Split the ordered literal into small constant-key maps: CPython
+    # otherwise emits per-field MAP_ADD instructions above 15 fields.
     st.records.append({
         "file_key": st.file_key,
         "line_num": line_num,
@@ -350,6 +359,7 @@ def _append_usage_record(st: _ParseState, line_num: int,
         "web_search_requests": web_search_requests,
         "cost_usd": round(cost, 6),
         "text_chars": st.text_chars_since_turn,
+    } | {
         "reply_latency_s": latency,
         "ctx_input": fresh + create + read,
     })
@@ -373,7 +383,7 @@ def _settle_lane_tool_result(st: _ParseState, tc_id: object,
         classify_lane_error(text),
         # A textless failure carries a kind but no text: NULL keeps the
         # column honest for the GROUP BY drill-down.
-        _pg_text(text)[:ERROR_TEXT_MAX] or None,
+        (_pg_text(text)[:ERROR_TEXT_MAX] or None) if st.collect.error_text else None,
     )
 
 
@@ -413,10 +423,10 @@ def _finish_parse(st: _ParseState, end_line: int | None = None) -> dict:
     return {
         "records": st.records,
         "ctx_turns": ctx_turns,
-        "turn_count": len(ctx_turns),
+        "turn_count": len(ctx_turns) if st.collect.file_extras else None,
         # User turns recorded, whether or not a usage-bearing reply
         # followed — claudit's files.prompt_count for a lane transcript.
-        "prompt_count": len(st.turns),
+        "prompt_count": len(st.turns) if st.collect.file_extras else None,
         # Each one's own begin timestamp, index-aligned with prompt_count
         # — stored on files so /api/dashboard counts a range's prompts
         # per own timestamp (issue #214). Ingest-side only: the browser

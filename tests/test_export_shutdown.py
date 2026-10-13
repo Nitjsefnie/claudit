@@ -176,24 +176,24 @@ def _wait_for_health(port: int, proc: subprocess.Popen) -> None:
 @pytest.fixture(name="server")
 def _server_fixture(tmp_path, monkeypatch):  # pylint: disable=too-many-locals
     """The real app under uvicorn on its own scratch databases, with a
-    signed-in user and a stand-in renderer registered via EXPORT_PYTHON.
+    signed-in user and a stand-in renderer registered via CLAUDIT_EXPORT_PYTHON.
 
     Yields the server process and the paths the test's assertions and
     cleanups need.
     """
     viz_db = scratch_db.create_database("export_shutdown")
     auth_db = scratch_db.create_database("auth", schema=None)
-    monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{viz_db}")
-    monkeypatch.setenv("DATABASE_URL_AUTH", f"postgresql:///{auth_db}")
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{viz_db}")
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_AUTH", f"postgresql:///{auth_db}")
     _provision_auth(auth_db, viz_db)
-    monkeypatch.setenv("R2_ENDPOINT",
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT",
                        f"file://{REPO_ROOT / 'fixtures' / 'r2_mini'}/")
-    monkeypatch.setenv("R2_BUCKET", "claude")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "claude")
     monkeypatch.setenv("R2_ACCOUNT_ID", "")
-    monkeypatch.setenv("R2_ACCESS_KEY_ID", "")
-    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "")
-    monkeypatch.setenv("ADMIN_TOKEN", "test-admin")
-    monkeypatch.setenv("COOKIE_SECURE", "0")
+    monkeypatch.setenv("CLAUDIT_R2_ACCESS_KEY_ID", "")
+    monkeypatch.setenv("CLAUDIT_R2_SECRET_ACCESS_KEY", "")
+    monkeypatch.setenv("CLAUDIT_ADMIN_TOKEN", "test-admin")
+    monkeypatch.setenv("CLAUDIT_COOKIE_SECURE", "0")
     monkeypatch.setenv("CLAUDIT_WARM_CACHE", "0")
 
     tmpdir = tmp_path / "server_tmp"
@@ -214,7 +214,7 @@ def _server_fixture(tmp_path, monkeypatch):  # pylint: disable=too-many-locals
     standin.write_text(f"#!{sys.executable}\n{_STANDIN_SOURCE}",
                        encoding="utf-8")
     standin.chmod(0o755)
-    monkeypatch.setenv("EXPORT_PYTHON", str(standin))
+    monkeypatch.setenv("CLAUDIT_EXPORT_PYTHON", str(standin))
     monkeypatch.setenv(_MARKER_ENV, str(marker))
     monkeypatch.setenv(_RELEASE_ENV, str(release))
 

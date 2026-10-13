@@ -360,6 +360,31 @@ def _wait_node(body: str):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_layout_timing_prefixed_switch_preserves_results_and_errors():
+    out = _node("""
+      const {layoutTiming} = await import('./scripts/ci/layout_waits.mjs');
+      const log = console.log, entries = [];
+      console.log = (kind, payload) => entries.push([kind, JSON.parse(payload)]);
+      const run = () => 42;
+      delete process.env.CLAUDIT_DEBUG_LAYOUT_TIMING;
+      const off = await layoutTiming('off', run), quiet = entries.length;
+      process.env.CLAUDIT_DEBUG_LAYOUT_TIMING = '1';
+      const on = await layoutTiming('on', run);
+      const failure = new Error('fixture failure');
+      let preserved = false;
+      try { await layoutTiming('error', async () => {throw failure;}); }
+      catch (error) { preserved = error === failure; }
+      log(JSON.stringify({off, on, quiet, preserved, entries}));
+    """)
+    assert out['off'] == out['on'] == 42
+    assert out['quiet'] == 0
+    assert out['preserved'] is True
+    assert [entry[0] for entry in out['entries']] == ['LAYOUT_TIMING'] * 2
+    assert [entry[1]['label'] for entry in out['entries']] == ['on', 'error']
+    assert all(entry[1]['ms'] >= 0 for entry in out['entries'])
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 @pytest.mark.parametrize('blocked,stage', [
     ('panel', 'panel'), ('requests', 'requests'), ('evaluate', 'frames'),
     ('frame-1', 'frames'), ('frame-2', 'frames'), ('fonts', 'fonts'),

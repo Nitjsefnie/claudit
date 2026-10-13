@@ -6,6 +6,7 @@ rollup, and neither touches `records`, so a fresh schema is the whole fixture.
 """
 # pylint: disable=too-many-lines
 import math
+import os
 import re
 import shutil
 from datetime import datetime, timedelta, timezone
@@ -75,7 +76,7 @@ def _recent_ts() -> datetime:
 
 @pytest.fixture(name="viz")
 def _viz_fixture(monkeypatch):
-    """A fresh schema as DATABASE_URL_VIZ — no ingest, no mini R2."""
+    """A fresh schema as CLAUDIT_DATABASE_URL_VIZ — no ingest, no mini R2."""
     yield from scratch_db.scratch_viz_database(monkeypatch, "webmetrics")
 
 
@@ -481,7 +482,7 @@ def test_the_sink_keeps_answering_everyone_the_gate_excludes(
 # --- the schema, and the shipped client against this sink ------------------
 
 def test_the_schema_carries_both_tables(viz):
-    with psycopg.connect(db.os.environ["DATABASE_URL_VIZ"]) as conn:
+    with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
         names = {r[0] for r in conn.execute(
             "SELECT table_name FROM information_schema.tables "
             "WHERE table_name LIKE 'web_metrics%'").fetchall()}
@@ -498,7 +499,7 @@ def test_a_user_id_wider_than_int4_round_trips(viz):
     # width was never held to a value the old schema could not store.
     wide = 2**31 + 7                       # past the int4 ceiling
     beacon = web_metrics.normalise(_beacon(value=12.0))
-    with psycopg.connect(db.os.environ["DATABASE_URL_VIZ"]) as conn:
+    with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
         assert web_metrics.store(conn, wide, [beacon]) == 1
         got = conn.execute(
             "SELECT user_id FROM web_metrics ORDER BY id").fetchall()
@@ -508,7 +509,7 @@ def test_a_user_id_wider_than_int4_round_trips(viz):
     # merely accepted the parameter would still truncate it on the way
     # back out, which is the failure a real deployment would show as a
     # beacon attributed to the wrong user rather than as an error.
-    with psycopg.connect(db.os.environ["DATABASE_URL_VIZ"]) as conn:
+    with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
         width = conn.execute(
             "SELECT atttypid::regtype::text FROM pg_attribute "
             "WHERE attrelid = 'web_metrics'::regclass "
@@ -624,7 +625,7 @@ def test_the_client_and_the_sink_name_the_same_regions_and_phases():
 # `data-panel`, and the files that mount them. A new chart component must
 # join the alternation or the derivation reads a short set and fails here.
 _PANEL_CHARTS = r"(?:TimeSeriesPanel|HBar|VBar)"
-_PANEL_MOUNT_FILES = ("src/app.jsx", "src/cost-by-agent-panel.jsx")
+_PANEL_MOUNT_FILES = ("src/dashboard-view.jsx", "src/cost-by-agent-panel.jsx")
 _SLUG_RUNS = re.compile(r"[^a-z0-9]+")
 
 

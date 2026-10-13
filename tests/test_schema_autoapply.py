@@ -234,7 +234,7 @@ def test_apply_schema_does_not_block_behind_an_open_reader(
     margin — so the failure is a named assertion, never a hang.
     """
     db.apply_schema()  # bring the fixture DB to this build's schema
-    url = os.environ["DATABASE_URL_VIZ"]
+    url = os.environ["CLAUDIT_DATABASE_URL_VIZ"]
 
     with closing(psycopg.connect(url)) as blocker, \
             blocker.cursor() as cur:
@@ -270,7 +270,7 @@ def test_apply_schema_blocked_migration_fails_fast_and_atomic(
     with db.viz_conn() as c:
         c.execute("DELETE FROM schema_stamp")
         c.commit()
-    url = os.environ["DATABASE_URL_VIZ"]
+    url = os.environ["CLAUDIT_DATABASE_URL_VIZ"]
 
     with closing(psycopg.connect(url)) as blocker, \
             blocker.cursor() as cur:
@@ -310,7 +310,7 @@ def test_apply_schema_gives_up_when_another_boot_holds_the_migration_lock(
     with db.viz_conn() as c:
         c.execute("DELETE FROM schema_stamp")
         c.commit()
-    url = os.environ["DATABASE_URL_VIZ"]
+    url = os.environ["CLAUDIT_DATABASE_URL_VIZ"]
 
     with closing(psycopg.connect(url)) as other, other.cursor() as cur:
         cur.execute(

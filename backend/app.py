@@ -23,7 +23,7 @@ from starlette.responses import (
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from backend import db
+from backend import db, env_config
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 # Load .env before importing backend modules that snapshot settings at import.
@@ -31,10 +31,11 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 db.load_dotenv(str(_REPO_ROOT / ".env"))
 
 # These imports follow dotenv loading because some modules capture settings
-# while they are imported (for example, EXPORT_PYTHON and CLAUDIT_TIMING).
+# while they are imported (for example, CLAUDIT_EXPORT_PYTHON and CLAUDIT_TIMING).
 # pylint: disable=wrong-import-position
 from backend import api, agent_types, api_export, constants, events, ingest, login, r2, session  # noqa: E402
-from backend import branding  # noqa: E402
+from backend import branding, flags  # noqa: E402
+from backend.feature_payloads import features_script  # noqa: E402
 # /health lives in ingest_progress (its readout module) since the cache
 # block joined the response (issue #641); app.py was at the module-size
 # ceiling and could not grow it.
@@ -48,7 +49,7 @@ _SRC = _REPO_ROOT / "src"
 
 
 def validate_bucket_config() -> None:
-    """Refuse to boot on an invalid R2_BUCKET.
+    """Refuse to boot on an invalid CLAUDIT_R2_BUCKET.
 
     r2.buckets() raises on a name that is not a valid S3 bucket name.
     Called from lifespan, that raise aborts startup — the alternative is
@@ -61,6 +62,7 @@ def validate_bucket_config() -> None:
 
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
+    env_config.warn_deprecated_env(log)
     db.apply_schema()
     db.schema_check()
     validate_bucket_config()
@@ -308,8 +310,8 @@ async def root_index(request: Request) -> Response:
     is_guest = bool(getattr(request.state, "is_guest", False))
     is_operator = bool(getattr(request.state, "is_operator", False))
     # Branding rides the same injection: the page's one brand source is
-    # window.BRAND {name, title, description} — from APP_NAME /
-    # APP_TITLE / APP_DESCRIPTION, defaults = today's strings. `</` is
+    # window.BRAND {name, title, description} — from CLAUDIT_APP_NAME /
+    # CLAUDIT_APP_TITLE / CLAUDIT_APP_DESCRIPTION, defaults = today's strings. `</` is
     # JS-escaped (see branding.script_json); title/meta below are
     # html-escaped instead, being real HTML contexts.
     brand_js = f"window.BRAND = {branding.script_json(branding.brand())};"
@@ -317,7 +319,7 @@ async def root_index(request: Request) -> Response:
         "<script>window.BACKEND_URL = window.BACKEND_URL || '';</script>",
         f"<script>window.BACKEND_URL = '/'; window.IS_GUEST = "
         f"{str(is_guest).lower()}; window.IS_OPERATOR = "
-        f"{str(is_operator).lower()}; {brand_js} {agent_types.fold_js()}</script>",
+        f"{str(is_operator).lower()}; {brand_js} {agent_types.fold_js()}{features_script(flags.CONFIG)}</script>",
     )
     html = branding.brand_page(html)
     # Bust intermediary caches (Cloudflare, browser) on every static-asset

@@ -341,7 +341,7 @@ def test_topbar_nav_buttons_carry_aria_current():
     """Each TopBar nav button binds aria-current to its OWN route
     equality, so exactly the active page exposes current (the .on class
     alone is invisible to assistive technology)."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments((APP.parent / "app-navigation.jsx").read_text(encoding="utf-8"))
     start = src.index("function TopBar(")
     nxt = re.search(r"^function ", src[start + 1:], re.M)
     end = start + 1 + nxt.start() if nxt else len(src)
@@ -405,7 +405,7 @@ def test_panel_toolbars_wrap_below_320():
             f"select overflow 320 px")
     # Token Breakdown's model filter sits in a justify-end flex row in
     # app.jsx with the same defect.
-    app = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    app = _strip_line_comments((APP.parent / "dashboard-view.jsx").read_text(encoding="utf-8"))
     body = _panel_src("TokenBreakdownPanel", app)
     row_m = re.search(
         r"display: 'flex', alignItems: 'center', justifyContent: "

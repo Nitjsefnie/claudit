@@ -14,7 +14,12 @@ from collections import Counter
 
 from orjson import JSONDecodeError, loads
 
-from backend import parse_lanes, reply_timing
+from backend import parse_collection, parse_lanes, parse_tool_rows
+from backend.flags import ALL_COLLECTIONS_ON, CollectionPolicy
+from backend.parse_tool_rows import (  # pylint: disable=unused-import
+    _content_metrics, _tool_use_row, _tool_churn, _tool_access,
+    _dispatch_args, _dispatch_name, _resolve_tool_errors, _line_count,
+    READ_TOOLS, WRITE_TOOLS, DISPATCH_TOOLS)
 from backend.agent_types import canonical_agent_type
 from backend.constants import (DEFAULT_AGENT_TYPE, INTERRUPT_MARKER)
 from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-import
@@ -23,11 +28,9 @@ from backend.tool_errors import (ERROR_KIND_FAILED,  # pylint: disable=unused-im
                                  _classify_error, _flatten_result_text,
                                  _pg_text, _result_size)
 from backend.turn_flags import TurnWindow
-from backend.bash_churn import BashCommand, replace_churn
-from backend import bash_churn_errors, bash_reads
 from backend.ctx_turns import _build_ctx_turns
 from backend.prompt_gate import _is_prompt_text
-from backend.parse_common import _dispatch_prompt_shape, _to_dt, iter_lines, resolve_cache_writes
+from backend.parse_common import _to_dt, iter_lines, resolve_cache_writes
 from backend.parse_lanes import LANE_PARSERS, sniff_format, to_claudit
 from backend.rereads import resolve_rereads
 from backend.json_shape import as_dict, as_list, dict_list
@@ -122,192 +125,12 @@ def _flatten_usage(usage: dict) -> dict:
     return out
 
 
-def _line_count(s: str) -> int:
-    """Lines in a payload string, git-style: "a\nb\n" and "a\nb" are both
-    2 lines; "" is 0."""
-    if not s:
-        return 0
-    return s.count("\n") + (0 if s.endswith("\n") else 1)
-
-
-def _tool_churn(name: str, tool_input: dict) -> tuple[int, int]:
-    """(lines_added, lines_deleted) for one edit/write tool CALL.
-
-    Derived from the call ARGUMENTS, not the tool result: the result's
-    text is a bare confirmation ("The file ... has been updated
-    successfully"), and while ~80% of results also carry a structured
-    toolUseResult diff, 20% carry none — the call args are the one
-    source present on every call (verified over the full corpus:
-    27,045 Edit + 8,365 Write, all with old/new payloads). Two
-    separate POSITIVE series per issue #10 — deletions are NOT
-    encoded as negative additions.
-
-    Two names reach this: `Edit` and `Write` (no MultiEdit /
-    NotebookEdit rows exist in the corpus at all). A Bash call never
-    does — Bash carries the bulk of it, and its caller hands the
-    command to `BashCommand.churn()`, backed by the same
-    `backend.bash_churn` scanners that recover from the command text
-    what only running it would otherwise tell: heredoc bodies written
-    to a file, inline patch hunks, literal python replacements — and 0
-    for everything that needs the command to be RUN to know.
-    Edit's old/new are diffed (`replace_churn`): repeated context is not churn.
-    Known approximations: an Edit with replace_all=true is counted
-    once (the call does not say how many occurrences exist), and a
-    Write overwriting an existing file counts its old content as 0
-    deletions (the call does not carry it).
-    """
-    if name == "Edit":
-        return replace_churn(
-            str(tool_input.get("old_string", "") or ""),
-            str(tool_input.get("new_string", "") or ""),
-        )
-    if name == "Write":
-        return (
-            _line_count(str(tool_input.get("content", "") or "")),
-            0,
-        )
-    return 0, 0
-
-
-# Tools whose arguments name a file they WRITE. Their targets invalidate
-# a pending re-read: reading a file again after changing it is not a
-# duplicate read, it is the only way to see the new bytes.
-WRITE_TOOLS = ("Edit", "Write", "NotebookEdit")
-
-# Tools that put a whole named file into the transcript by tool argument
-# rather than by command text.
-READ_TOOLS = ("Read",)
-
-
-def _tool_access(name: str, tool_input: dict) -> tuple[str | None, list[str], list[str]]:
-    """(read_kind, read targets, write targets) for one tool CALL.
-
-    Two shapes reach this. `Read` names its file outright. `Edit`,
-    `Write` and `NotebookEdit` name a file they change. A Bash call
-    never does: its caller hands the command to `bash_reads.scan_command`
-    with the command text it already parsed, so every other name is a
-    tool this module takes no read or write target from.
-
-    A `Read` with an offset or limit is a SLICE, exactly as `sed -n`
-    is: it put part of the file in context, not the file.
-    """
-    if name in WRITE_TOOLS:
-        path = str(tool_input.get("file_path", "") or "")
-        return None, [], [path] if path else []
-    if name in READ_TOOLS:
-        path = str(tool_input.get("file_path", "") or "")
-        if not path:
-            return None, [], []
-        sliced = bool(tool_input.get("offset") or tool_input.get("limit"))
-        return ("slice" if sliced else "whole"), [path], []
-    return None, [], []
-
-
-def _content_metrics(msg: dict, cwd: str = "") -> tuple[int, list]:
-    """(text_chars, tool_use blocks) for one assistant message.
-
-    Visible-response size: sum character lengths of `text` blocks
-    in the assistant message. Thinking tokens roll into output_tokens
-    undifferentiated, so token-based response-size metrics conflate
-    "size" with "how much the model thought". Character count of text
-    content blocks is the clean measure of visible response size.
-    Also extract every `tool_use` block — the `name` field is what
-    the per-tool panels group by. Stored later as one
-    row per tool call in the `tool_uses` table for the per-tool
-    ratio panel.
-    """
-    msg_content = msg.get("content")
-    text_chars = 0
-    msg_tool_uses: list[dict] = []
-    if isinstance(msg_content, list):
-        for idx, blk in enumerate(map(as_dict, msg_content)):
-            btype = blk.get("type")
-            if btype == "text":
-                text_chars += len(str(blk.get("text", "")))
-            elif btype in ("tool_use", "server_tool_use"):
-                # server_tool_use = model invoked an Anthropic-hosted
-                # tool (e.g. WebSearch). Same shape as tool_use; treat
-                # both as tool calls in the panel.
-                row = _tool_use_row(idx, blk, cwd)
-                if row is not None:
-                    msg_tool_uses.append(row)
-    elif isinstance(msg_content, str):
-        text_chars = len(msg_content)
-    return text_chars, msg_tool_uses
-
-
-def _tool_use_row(idx: int, blk: dict, cwd: str) -> dict | None:
-    """One tool_use content block -> its pending tool_uses row.
-
-    None for a nameless block. Split out of _content_metrics because
-    every per-call column derived here is another local in a function
-    whose job is only to walk the content list.
-    """
-    name = str(blk.get("name", "") or "")
-    if not name:
-        return None
-    args = as_dict(blk.get("input") or {})
-    if name == "Bash":
-        command = BashCommand(str(args.get("command", "") or ""))
-        added, deleted = command.churn()
-        r_kind, r_targets, w_targets = bash_reads.scan_command(command, cwd)
-    else:
-        added, deleted = _tool_churn(name, args)
-        r_kind, r_targets, w_targets = _tool_access(name, args)
-    a_type, a_model, p_chars, brief = _dispatch_args(name, args)
-    return {
-        "idx": idx,
-        "tool_name": name,
-        "tool_use_id": str(blk.get("id", "") or ""),
-        "command": str(args.get("command", "") or "") if added else "",
-        "lines_added": added,
-        "lines_deleted": deleted,
-        "agent_type": a_type,
-        "agent_model": a_model,
-        "dispatch_prompt_chars": p_chars,
-        "dispatch_brief_ref": brief,
-        "dispatch_name": _dispatch_name(name, args),
-        "read_kind": r_kind,
-        "read_targets": r_targets,
-        "write_targets": w_targets,
-    }
-
-
-# Tool names that dispatch a subagent. Both spellings have shipped.
-DISPATCH_TOOLS = ("Agent", "Task")
-
-
-def _dispatch_args(name: str, args: dict) -> tuple:
-    """(agent_type, agent_model, prompt_chars, brief_ref) for a
-    subagent-dispatching CALL.
-
-    Read off the call arguments, so a dispatch is attributable even
-    when the subagent writes no JSONL of its own. `files.agent_type`
-    answers "what ran"; this answers "what was ASKED for, on which
-    model" -- the two differ exactly when a dispatch fails or the
-    request omits the field. Non-dispatch tools get all-None.
-    """
-    if name not in DISPATCH_TOOLS or not isinstance(args, dict):
-        return None, None, None, None
-    a_type = args.get("subagent_type")
-    a_model = args.get("model")
-    chars, brief_ref = _dispatch_prompt_shape(args)
-    return (canonical_agent_type(a_type) if isinstance(a_type, str) and a_type else None,
-            str(a_model) if isinstance(a_model, str) and a_model else None,
-            chars, brief_ref)
-
-
-def _dispatch_name(name: str, args: dict) -> str | None:
-    """The `name` a dispatching call gave its agent: a teammate's link to its role."""
-    value = args.get("name") if name in DISPATCH_TOOLS and isinstance(args, dict) else None
-    return value if isinstance(value, str) and value else None
-
-
 class _LineWalk:
     """Mutable per-file state for the line-by-line pass."""
 
-    def __init__(self, file_key: str) -> None:
-        self.window = TurnWindow()
+    def __init__(self, file_key: str, collection: CollectionPolicy = ALL_COLLECTIONS_ON) -> None:
+        self.collect = parse_collection.parse_collection(collection)
+        self.window = TurnWindow() if self.collect.turn_context else None
         self.file_key = file_key
         self.seen_request: dict[str, dict] = {}
         self.records_in_order: list[dict] = []
@@ -322,17 +145,30 @@ class _LineWalk:
         self.tool_result_is_error: dict[str, bool] = {}
         # Failed-result text for error_kind and error_text.
         self.tool_result_text: dict[str, str] = {}
-        # Result size includes failed calls, which also fill the context.
+        # Optional result sizes include failures: their text also fills context.
         self.tool_result_chars: dict[str, int] = {}
         # All non-interrupt user text anchors latency, independently of
         # prompt counting. Interrupts, failed attempts and replies clear it.
         self.reply_timing = ReplyTiming()
-        self.generation_timing = GenerationTiming() if reply_timing.COLLECT_GENERATION_SPEED else None
+        self.generation_timing = GenerationTiming() if collection.enabled("generation_speed") else None
         # A UUID on an earlier, different line is a replay; neither clock moves.
         self.seen_user_uuids: dict[str, int] = {}
         # Per-file attribution; resolve_agent_type defines precedence.
         self.attribution_agents: Counter[str] = Counter()
         self.agent_setting: str | None = None
+
+    def observe_metadata(self, obj: dict, kind: str) -> None:
+        """Track optional request windows and mandatory per-file role identity."""
+        if self.window is not None:
+            self.window.observe(obj)
+        if kind == "agent-setting":
+            name = obj.get("agentSetting")
+            if isinstance(name, str) and name:
+                self.agent_setting = name
+        else:
+            attribution = obj.get("attributionAgent")
+            if isinstance(attribution, str) and attribution:
+                self.attribution_agents[attribution] += 1
 
     def handle_user_text(
         self, text: str, line_num: int, ts_str: str, mutate_anchor: bool = True
@@ -470,22 +306,13 @@ class _LineWalk:
     def _note_tool_result(self, blk) -> None:
         """Book one tool_result block: settle the call's error flag,
         result size and (for failures) the error text."""
-        tu_id = blk.get("tool_use_id")
-        if not tu_id:
-            return
-        is_err = bool(blk.get("is_error", False))
-        self.tool_result_is_error[str(tu_id)] = is_err
-        self.tool_result_chars[str(tu_id)] = _result_size(blk.get("content"))
-        if is_err:  # whole; _resolve_tool_errors truncates it
-            self.tool_result_text[str(tu_id)] = _pg_text(
-                _flatten_result_text(blk.get("content")).strip()
-            )
+        parse_tool_rows.note_tool_result(
+            blk, self.tool_result_is_error, self.tool_result_text,
+            self.tool_result_chars, self.collect.context_intake)
 
     def handle_assistant_line(self, obj: dict, msg: dict,
                               line_num: int) -> None:
-        """One assistant-role record: close the reply-latency window,
-        then (for usage-bearing records only) metrics, Phase 1 merge,
-        tool calls."""
+        """Close reply latency, then usage-bearing metrics, Phase 1 merge and tool calls."""
         usage = msg.get("usage")
         # Terminate the reply-latency window FIRST, before any of the
         # early returns below. Canonical semantics count every
@@ -507,30 +334,35 @@ class _LineWalk:
             return
 
         text_chars, msg_tool_uses = _content_metrics(
-            msg, str(obj.get("cwd", "") or "")
+            msg, str(obj.get("cwd", "") or ""), self.collect
         )
+        # Reuse the request identity, timestamp and merge lookup across this line.
         req_id = obj.get("requestId", "") or ""
-        merge_key = _merge_key(obj, msg)
+        merge_key = req_id or _merge_key(obj, msg)
+        ts_str = obj.get("timestamp", "") or ""
+        existing = self.seen_request.get(merge_key) if merge_key else None
         ev = {
             "line_num": line_num,
             "uuid": obj.get("uuid") or None,
             "request_id": req_id,
-            "ts": obj.get("timestamp", "") or "",
+            "ts": ts_str,
             "model": msg.get("model") or None,  # no placeholder: parse_file refuses a None model (issue #688)
             "usage": dict(usage),
             "text_chars": text_chars,
             "reply_latency_s": reply_latency_s,
             "generation": generation,
             # Only a reply's CLOSING line carries stop_reason; NULL = never closed.
-            "stop_reason": msg.get("stop_reason") or None,
-            "effort": obj.get("effort") or None,
+            "stop_reason": None,
+            "effort": None,
             # The serving host (OpenRouter only); NULL on every other lane.
             "provider": _provider(msg),
         }
-        if not (merge_key and merge_key in self.seen_request):
+        if self.collect.request_metadata:
+            ev["stop_reason"] = msg.get("stop_reason") or None
+            ev["effort"] = obj.get("effort") or None
+        if self.window is not None and existing is None:
             ev["turn_flags"], ev["turn_tool_results"], ev["cli_version"] = self.window.take(obj)  # live list: a later prompt_snapshot amends it in place (turn_flags.TurnWindow)
-        if merge_key and merge_key in self.seen_request:
-            existing = self.seen_request[merge_key]
+        if existing is not None:
             existing["usage"] = _merge_usage_max(existing["usage"], usage)
             if ev["stop_reason"] is not None:
                 existing["stop_reason"] = ev["stop_reason"]
@@ -547,7 +379,7 @@ class _LineWalk:
 
         # Attribute tool calls to their own line's model, not the merged record.
         self._record_tool_uses(
-            msg_tool_uses, req_id, line_num, obj.get("timestamp", "") or "",
+            msg_tool_uses, req_id, line_num, ts_str,
             ev["model"],
         )
 
@@ -560,6 +392,8 @@ class _LineWalk:
             if tu_key in self.seen_tool_ids:
                 continue
             self.seen_tool_ids.add(tu_key)
+            # Same ordered literal in small batches; avoid CPython's
+            # per-field MAP_ADD path for dictionaries above 15 fields.
             self.tool_uses.append({
                 "file_key": self.file_key,
                 "line_num": line_num,
@@ -575,6 +409,7 @@ class _LineWalk:
                 "lines_added": tu["lines_added"],
                 "lines_deleted": tu["lines_deleted"],
                 "agent_type": tu["agent_type"],
+            } | {
                 "agent_model": tu["agent_model"],
                 "dispatch_prompt_chars": tu["dispatch_prompt_chars"],
                 "dispatch_brief_ref": tu["dispatch_brief_ref"],
@@ -585,34 +420,6 @@ class _LineWalk:
                 "result_chars": None,  # filled after the line walk
                 "is_reread": None,     # filled after the line walk
             })
-
-
-def _resolve_tool_errors(tool_uses: list, tool_result_is_error: dict,
-                         tool_result_text: dict | None = None,
-                         tool_result_chars: dict | None = None) -> None:
-    """Resolve tool_result.is_error onto each tool_uses entry by
-    tool_use_id. Unmatched entries keep is_error=None and are
-    excluded from rate denominators at query time. An errored call
-    changed nothing on disk, so its churn is zeroed (an unmatched
-    call keeps its churn: the file may simply end before the result
-    record) — unless `bash_churn_errors.churn_survives_error` says otherwise."""
-    for tu in tool_uses:
-        # Kept on the row: ingest dedups compaction-sidecar replays on it.
-        tu["tool_use_id"] = tu_id = tu.get("tool_use_id") or None
-        command = tu.pop("command", "")
-        if tu_id:
-            tu["result_chars"] = (tool_result_chars or {}).get(tu_id)
-        if tu_id and tu_id in tool_result_is_error:
-            tu["is_error"] = tool_result_is_error[tu_id]
-            if tu["is_error"]:
-                text = (tool_result_text or {}).get(tu_id, "")
-                tu["error_kind"] = _classify_error(text)
-                tu["error_text"] = text[:ERROR_TEXT_MAX] or None
-                ran = tu["error_kind"] == ERROR_KIND_TOOL_ERROR
-                if not (ran and bash_churn_errors.churn_survives_error(command, text)):
-                    tu["lines_added"], tu["lines_deleted"] = 0, 0
-                if not ran:
-                    tu["write_targets"] = []  # wrote nothing
 
 
 def _provider(msg: dict) -> str | None:
@@ -650,9 +457,10 @@ def resolve_agent_type(walk: _LineWalk) -> str:
     return canonical_agent_type(walk.agent_setting) if walk.agent_setting else DEFAULT_AGENT_TYPE
 
 
-def _parse_claude(file_key: str, blob: bytes) -> dict:
-    """Parse Claude JSONL; account caps follow _LineWalk.handle_rate_limit."""
-    walk = _LineWalk(file_key)
+def _parse_claude(file_key: str, blob: bytes, collection: CollectionPolicy = ALL_COLLECTIONS_ON) -> dict:
+    """Parse Claude JSONL, max-merging requestIds and retaining idless records.
+    Account-cap detection follows _LineWalk.handle_rate_limit."""
+    walk = _LineWalk(file_key, collection)
     for line_num, raw in enumerate(iter_lines(blob), 1):
         if not raw:
             continue
@@ -664,17 +472,9 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
             continue
 
         kind = obj.get("type", "")
-        walk.window.observe(obj)
+        walk.observe_metadata(obj, kind)
         if kind == "system" and obj.get("subtype") == "api_error":
             failed_attempt(walk.reply_timing, walk.generation_timing)
-        if kind == "agent-setting":
-            name = obj.get("agentSetting")
-            if isinstance(name, str) and name:
-                walk.agent_setting = name
-            continue
-        attribution = obj.get("attributionAgent")
-        if isinstance(attribution, str) and attribution:
-            walk.attribution_agents[attribution] += 1
         if kind not in ("user", "assistant"):
             continue
         if walk.handle_rate_limit(obj, line_num):
@@ -686,8 +486,10 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
         walk.handle_message_line(obj, as_dict(obj.get("message")), line_num)
 
     _resolve_tool_errors(walk.tool_uses, walk.tool_result_is_error,
-                         walk.tool_result_text, walk.tool_result_chars)
-    resolve_rereads(walk.tool_uses)
+                         walk.tool_result_text, walk.tool_result_chars,
+                         error_text=walk.collect.error_text)
+    if walk.collect.context_intake:
+        resolve_rereads(walk.tool_uses)
     records = project_records(
         file_key, walk.records_in_order,
     )
@@ -696,16 +498,16 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
     return {
         "records": records,
         "ctx_turns": ctx_turns,
-        "turn_count": len(ctx_turns),
+        "turn_count": len(ctx_turns) if walk.collect.file_extras else None,
         # Substantive user prompts (instrumentation and interrupt markers
         # excluded), whether or not a usage-bearing reply followed.
-        "prompt_count": len(walk.user_text_lines),
+        "prompt_count": len(walk.user_text_lines) if walk.collect.file_extras else None,
         # Per-prompt ts, stored on files (issue #214); ingest-side only —
         # the browser parser has no range concept and needs no counterpart.
         "prompt_ts": walk.user_text_ts,
         # Every model that answered in this file, BEFORE ingest purges
         # suppressed ones: the only trace that a session changed lanes.
-        "models": sorted(filter(None, {r["model"] for r in records})),  # None dropped: a model-less row is refused before anything stores (issue #688)
+        "models": parse_collection.collected_models(records) if walk.collect.file_extras else None,
         "rate_limit_hits": walk.rate_limit_hits,
         "tool_uses": walk.tool_uses,
         "agent_type": resolve_agent_type(walk),
@@ -714,7 +516,7 @@ def _parse_claude(file_key: str, blob: bytes) -> dict:
     }
 
 
-def parse_file(file_key: str, blob: bytes) -> dict:
+def parse_file(file_key: str, blob: bytes, *, collection: CollectionPolicy = ALL_COLLECTIONS_ON) -> dict:
     """Parse one JSONL in any supported format, max-merging requestIds.
 
     sniff_format names the format: a Claude transcript takes this
@@ -726,6 +528,10 @@ def parse_file(file_key: str, blob: bytes) -> dict:
     its role itself), which agent_sidecar.apply_agent_sidecar reads.
     """
     fmt = sniff_format(blob)
-    parsed = _parse_claude(file_key, blob) if fmt == "claude" else to_claudit(LANE_PARSERS[fmt](file_key, blob), fmt)
-    resolve_cache_writes(parsed["records"])
-    return parse_lanes.refuse_unattributed(parsed, fmt, file_key)
+    parsed = (_parse_claude(file_key, blob, collection) if fmt == "claude" else
+              to_claudit(LANE_PARSERS[fmt](file_key, blob, collection=collection),
+                         fmt, collection=collection))
+    if "cache_write_tokens" not in collection.disabled:
+        resolve_cache_writes(parsed["records"])
+    parse_lanes.refuse_unattributed(parsed, fmt, file_key)
+    return parse_collection.mask_collected_fields(parsed, collection)

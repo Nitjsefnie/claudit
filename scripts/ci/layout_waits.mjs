@@ -66,7 +66,7 @@ export async function settleDashboard(page, timeoutMs = 30_000) {
 }
 
 export async function layoutTiming(label, run) {
-  if (!process.env.DEBUG_LAYOUT_TIMING) return run();
+  if (!process.env.CLAUDIT_DEBUG_LAYOUT_TIMING) return run();
   const start = performance.now();
   try { return await run(); }
   finally {

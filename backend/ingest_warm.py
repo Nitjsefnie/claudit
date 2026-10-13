@@ -10,9 +10,10 @@ callers and tests.
 from __future__ import annotations
 
 import logging
-import os
 
-from backend import api, cache
+from backend.env_config import getenv
+from backend import api, cache, flags
+from backend.api_flag_gate import endpoint_enabled
 from backend.api_ctx_growth import context_growth_traces
 from backend.api_dashboard import dashboard
 from backend.api_web_metrics import web_metrics_readout
@@ -43,7 +44,7 @@ def warm_common() -> None:
     outlives the fixture that created its database and its queries then
     race the teardown that drops it.
     """
-    if os.environ.get("CLAUDIT_WARM_CACHE", "1").lower() in ("0", "false", "no"):
+    if getenv("CLAUDIT_WARM_CACHE", "1").lower() in ("0", "false", "no"):
         return
 
     # Every range the picker offers, so no button lands on a cold query.
@@ -57,24 +58,20 @@ def warm_common() -> None:
     # /api/models takes no range — one key, warmed once per ingest. It is
     # fetched on every page open and its query is a full GROUP BY over
     # records (issue #644).
-    cache.warm(api.list_models)
+    if endpoint_enabled("/api/models", flags.CONFIG):
+        cache.warm(api.list_models)
+    targets = (
+        ("/api/dashboard", dashboard),
+        ("/api/context-growth/traces", context_growth_traces),
+        ("/api/activity-heatmap", api.activity_heatmap),
+        ("/api/tool-usage", api.tool_usage),
+        ("/api/tool-error-rate", api.tool_error_rate),
+        ("/api/reply-latency", api.reply_latency),
+        ("/api/web-metrics", web_metrics_readout),
+        ("/api/projects", api.list_projects),
+    )
     for rng in WARM_RANGES:
-        cache.warm(dashboard, rng=rng)
-        # /api/context-growth/traces is fetched by the Per-Session
-        # Context Growth panel on every open (issue #644); cold, its
-        # jsonb explode is the heaviest panel query.
-        cache.warm(context_growth_traces, rng=rng)
-        cache.warm(api.activity_heatmap, rng=rng)
-        cache.warm(api.tool_usage, rng=rng)
-        cache.warm(api.tool_error_rate, rng=rng)
-        cache.warm(api.reply_latency, rng=rng)
-        # The web-metrics readout (issue #436) reads a rollup this run's
-        # LAST phase just rebuilt, so warming it here is the only thing that
-        # makes the panel non-empty on the first load after a boot.
-        cache.warm(web_metrics_readout, rng=rng)
-        # /api/projects became range-scoped, so it needs warming per range
-        # like everything else. Warming it bare took the endpoint's own
-        # signature default ("30d") while the UI opens on "all", leaving
-        # the one request every page load makes permanently uncached.
-        cache.warm(api.list_projects, rng=rng)
+        for path, target in targets:
+            if endpoint_enabled(path, flags.CONFIG):
+                cache.warm(target, rng=rng)
     log.info("warm_common: queued %d range(s)", len(WARM_RANGES))

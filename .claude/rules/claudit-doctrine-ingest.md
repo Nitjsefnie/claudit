@@ -3,6 +3,7 @@ paths:
   - "**/backend/ingest*.py"
   - "**/backend/schema*.sql"
   - "**/backend/schema_files.py"
+  - "**/backend/schema_indexes.py"
   - "**/backend/db.py"
   - "**/backend/key_layout.py"
   - "**/backend/lane_*.py"
@@ -15,20 +16,35 @@ paths:
 
 ## Schema is applied at startup, not by a human (SV-SCHEMA-AUTOAPPLY)
 
-`db.apply_schema()` runs the idempotent `backend/schema.sql` when this
-build's copy differs from what the database last applied —
-content-stamped in `schema_stamp` (the sha256 of the file's exact
-bytes, written by the same transaction as the DDL) — before
-`schema_check()`, under a Postgres advisory lock. A current schema takes no DDL and
-therefore no ACCESS EXCLUSIVE lock anywhere; when the DDL IS due, its
-lock waits are bounded by a transaction-local `lock_timeout`, and an
-expired wait aborts the boot (atomic — the DDL and the stamp share one
-transaction); systemd retries. A manual `psql -f backend/schema.sql` is not load-bearing: a
-deploy that adds a column changes the stamp and converges the database
-instead of failing every ingest with `UndefinedColumn`. An
-out-of-band schema mutation (a hand-dropped column) needs
-`DELETE FROM schema_stamp` to force a re-apply — the convention of
-`DELETE FROM ingest_derived_state` after out-of-band record mutations.
+`db.apply_schema()` runs the idempotent static files in
+`backend/schema_files.py::SCHEMA_PATHS`, followed by the fixed analytical
+index policy in `backend/schema_indexes.py`, before `schema_check()`.
+`schema_stamp` hashes that complete static-plus-policy SQL string; DDL and
+stamp commit in ONE transaction under a Postgres advisory lock, with an
+under-lock stamp recheck. The static reader stays independent of policy.
+Resolve CONFIG lazily at startup, after dotenv, never through a db/schema
+module's import-time snapshot.
+
+A current effective stamp skips all DDL and migration locks. A changed
+index-affecting collection choice changes the SQL/hash and reapplies the
+whole script without manual stamp deletion. Display switches and unrelated
+collection choices do not change this stamp. `records_turn_flags_idx`
+exists iff `turn_context` is collected; `tool_uses_read_targets_idx` and
+`tool_uses_reread_idx` exist iff `context_intake` is collected. Static SQL
+never creates those indexes, so fresh OFF startup never builds them.
+`records_request_idx` and `tool_uses_tool_idx` are unconditionally dropped:
+no app query needs them. Keep identity, timestamp, canonical and latency
+indexes intact.
+
+Ordinary index CREATEs run in the same transaction; CONCURRENTLY cannot.
+Initial or reenable builds may block startup and writes. Transaction-local
+`lock_timeout` bounds waits, not build duration; production duration is
+unmeasured. Any failure rolls back DDL and stamp before advisory unlock;
+systemd retries, and the next successful boot converges atomically.
+An out-of-band catalog mutation still needs `DELETE FROM schema_stamp`
+to force reapplication: a matching stamp proves the script ran, not that
+later catalog state is intact. The schema stamp is separate from code
+parser versions and `files.collection_flags` collection metadata.
 
 `ingest_derived_state` is likewise `CREATE TABLE IF NOT EXISTS`. Ingest
 commits `complete = FALSE` before mutating `files`, `records` or
@@ -41,8 +57,12 @@ forcing a full derived rebuild next run. Older binaries may ignore the
 marker.
 
 ROLLBACK IS ONE-DIRECTIONAL — an older binary runs against a newer
-schema. That is safe because every migration is additive and nullable,
-with guarded, idempotent exceptions:
+schema. Additive nullable columns and nullable relaxations preserve old
+named-column writers; relaxations retain types, defaults, primary keys and
+identities. `files.collection_flags TEXT[]` is nullable; NULL and an empty
+array both denote all collections ON. Nonconstraint index removal and
+collection-conditioned analytical indexes are compatible changes to access
+paths, not stored data. Guarded, idempotent widening exceptions are:
 
 - The DO block swapping `usage_rollup`'s primary key to widen the grain
   (`long_context`, then `provider`): the table is derived,
@@ -59,8 +79,11 @@ with guarded, idempotent exceptions:
 Older binaries' READS ignore unknown columns, and their INGEST never
 reparses a file whose stored `parser_version` is newer than their own,
 so newer column values survive a rollback (erasure already done by even
-older binaries is not repaired). Any other migration that DROPS or
-retypes a column needs a different mechanism, not a quiet exception.
+older binaries is not repaired). An older binary applying its own schema
+may recreate removed indexes and write its own differing stamp; the next
+forward boot reapplies its effective script and restores policy. Any other
+migration that DROPS or retypes a column needs a different mechanism, not a
+quiet exception.
 
 ## Schema fail-fast (SV-SCHEMA-FAIL-FAST)
 
@@ -76,7 +99,7 @@ a column, and the map does not grow with one.
 ## Per-file files+records contract (SV-FILES-RECORDS)
 
 Stored file identity is BUCKET-QUALIFIED: `files.file_key` is
-`<bucket>/<object-key>`, the bucket one of `R2_BUCKET`'s names (several
+`<bucket>/<object-key>`, the bucket one of `CLAUDIT_R2_BUCKET`'s names (several
 joined by `+`). Transcript and sidecar serving derive the bucket from
 the stored `file_key`, never the request; `r2._configured` refuses an
 unconfigured bucket. The bucket segment never leaves the server: every
@@ -359,7 +382,7 @@ table byte-identical.
 
 The first boot of THIS BUILD over ANY database from an earlier build
 re-keys stored identity from the bare object key to
-`<bucket>/<object-key>`, whatever `R2_BUCKET` says, deleting and
+`<bucket>/<object-key>`, whatever `CLAUDIT_R2_BUCKET` says, deleting and
 re-inserting each row. Adding a bucket on an already-migrated deploy
 re-keys nothing. It is one-time and converging, with windows that close
 when the first clean run finishes — run it off-peak and watch `/health`:

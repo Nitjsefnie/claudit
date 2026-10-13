@@ -1,4 +1,4 @@
-"""Branding from config: APP_NAME / APP_TITLE / APP_DESCRIPTION drive every
+"""Branding from config: CLAUDIT_APP_NAME / CLAUDIT_APP_TITLE / CLAUDIT_APP_DESCRIPTION drive every
 user-visible brand string — the FastAPI title, the served page's <title>
 and meta description, the injected window.BRAND, the login page's title
 and heading, the export-PNG download filename and the frontend logo.
@@ -109,9 +109,9 @@ def test_default_page_injects_default_brand(page_client):
 
 
 def test_env_overrides_served_title_meta_and_brand(page_client, monkeypatch):
-    monkeypatch.setenv("APP_NAME", "codexmeter")
-    monkeypatch.setenv("APP_TITLE", "Codexmeter <x>")
-    monkeypatch.setenv("APP_DESCRIPTION", 'He said "hi" & left')
+    monkeypatch.setenv("CLAUDIT_APP_NAME", "codexmeter")
+    monkeypatch.setenv("CLAUDIT_APP_TITLE", "Codexmeter <x>")
+    monkeypatch.setenv("CLAUDIT_APP_DESCRIPTION", 'He said "hi" & left')
     served = page_client.get("/").text
     assert "<title>Codexmeter &lt;x&gt;</title>" in served
     assert 'content="He said &quot;hi&quot; &amp; left"' in served
@@ -119,7 +119,7 @@ def test_env_overrides_served_title_meta_and_brand(page_client, monkeypatch):
 
 
 def test_brand_payload_cannot_close_its_script_tag(page_client, monkeypatch):
-    monkeypatch.setenv("APP_TITLE", 'a</script><b>')
+    monkeypatch.setenv("CLAUDIT_APP_TITLE", 'a</script><b>')
     served = page_client.get("/").text
     assert 'a<\\/script><b>' in served
     # The only literal </script>s left are the template's own tag closes.
@@ -249,7 +249,7 @@ def test_brand_containing_an_open_script_tag_leaves_the_page_loadable(
     attribute's raw quotes there, which terminates the JS string literal
     and takes down every page load. The served inline script must still
     parse as JavaScript, checked by node itself."""
-    monkeypatch.setenv("APP_TITLE", "Overview <script>alert(1)</script>")
+    monkeypatch.setenv("CLAUDIT_APP_TITLE", "Overview <script>alert(1)</script>")
     served = page_client.get("/").text
 
     bodies = _raw_js_script_bodies(served)
@@ -272,7 +272,7 @@ def test_bootstrap_stays_valid_js_for_every_script_unsafe_brand(
     to neutralise (it cannot close the tag) but the nonce rewrite must
     still not confuse for an element."""
     monkeypatch.setenv(
-        "APP_TITLE",
+        "CLAUDIT_APP_TITLE",
         'a<script src="/x">b</script>c<!--d e'
         'f"g"h\'i\'j</script>k',
     )
@@ -297,7 +297,7 @@ def test_every_served_script_element_carries_the_nonce(
     response's nonce — and, against the template's own count, that no
     payload `<script` has become an element the rewrite did not tag."""
     if title is not None:
-        monkeypatch.setenv("APP_TITLE", title)
+        monkeypatch.setenv("CLAUDIT_APP_TITLE", title)
     resp = page_client.get("/")
     served = resp.text
     match = re.search(r"'nonce-([^']+)'", resp.headers["content-security-policy"])
@@ -373,7 +373,7 @@ def test_fastapi_title_follows_env():
     interpreter (no lifespan, no DB) and prints app.title."""
     code = "import backend.app as m; print(m.app.title)"
     base = {k: v for k, v in os.environ.items() if not k.startswith("APP_")}
-    for env_name, want in (("APP_NAME", "codexmeter"), ("APP_UNSET_X", None)):
+    for env_name, want in (("CLAUDIT_APP_NAME", "codexmeter"), ("APP_UNSET_X", None)):
         env = dict(base)
         if want is not None:
             env[env_name] = want
@@ -390,21 +390,21 @@ def test_fastapi_title_follows_env():
 
 
 def test_login_page_default_is_byte_identical(login_client, monkeypatch):
-    monkeypatch.delenv("APP_NAME", raising=False)
+    monkeypatch.delenv("CLAUDIT_APP_NAME", raising=False)
     html = login_client.get("/login").text
     assert "<title>Sign in · CLAUDIT</title>" in html
     assert "<h1>CLAUDIT · sign in</h1>" in html
 
 
 def test_login_page_follows_app_name(login_client, monkeypatch):
-    monkeypatch.setenv("APP_NAME", "codexmeter")
+    monkeypatch.setenv("CLAUDIT_APP_NAME", "codexmeter")
     html = login_client.get("/login").text
     assert "<title>Sign in · CODEXMETER</title>" in html
     assert "<h1>CODEXMETER · sign in</h1>" in html
 
 
 def test_login_page_escapes_the_name(login_client, monkeypatch):
-    monkeypatch.setenv("APP_NAME", 'a<b>&"c')
+    monkeypatch.setenv("CLAUDIT_APP_NAME", 'a<b>&"c')
     html = login_client.get("/login").text
     assert "<title>Sign in · A&lt;B&gt;&amp;&quot;C</title>" in html
     assert "<h1>A&lt;B&gt;&amp;&quot;C · sign in</h1>" in html
@@ -609,26 +609,26 @@ def test_url_attr_refusal_is_visible_to_the_operator(caplog):
 
 
 def test_export_filename_default(monkeypatch):
-    monkeypatch.delenv("APP_NAME", raising=False)
+    monkeypatch.delenv("CLAUDIT_APP_NAME", raising=False)
     assert api_export.export_filename("30d", "proj/one") == (
         "claudit_proj_one_30d.png")
 
 
 def test_export_filename_follows_brand(monkeypatch):
-    monkeypatch.setenv("APP_NAME", "codexmeter")
+    monkeypatch.setenv("CLAUDIT_APP_NAME", "codexmeter")
     assert api_export.export_filename("30d", "proj/one") == (
         "codexmeter_proj_one_30d.png")
-    monkeypatch.setenv("APP_NAME", "My Meter")  # slugified like project
+    monkeypatch.setenv("CLAUDIT_APP_NAME", "My Meter")  # slugified like project
     assert api_export.export_filename("all", None) == "My_Meter_all_all.png"
 
 
 def test_export_filename_never_leads_with_underscore(monkeypatch):
-    """APP_NAME set but empty used to export "_all_all.png"; an empty
+    """CLAUDIT_APP_NAME set but empty used to export "_all_all.png"; an empty
     or whitespace-only value must fall back to the default name."""
-    monkeypatch.setenv("APP_NAME", "")
+    monkeypatch.setenv("CLAUDIT_APP_NAME", "")
     assert api_export.export_filename("all", None) == (
         f"{branding.DEFAULT_NAME}_all_all.png")
-    monkeypatch.setenv("APP_NAME", "   ")
+    monkeypatch.setenv("CLAUDIT_APP_NAME", "   ")
     assert api_export.export_filename("30d", "proj/one") == (
         f"{branding.DEFAULT_NAME}_proj_one_30d.png")
 
@@ -641,7 +641,7 @@ def test_export_filename_never_leads_with_underscore(monkeypatch):
 def test_app_jsx_has_no_literal_brand():
     """The brand reaches app.jsx only through window.BRAND; a literal
     CLAUDIT / claudit_ there is a regression to the hardcoded name."""
-    src = (ROOT / "src" / "app.jsx").read_text(encoding="utf-8")
+    src = (ROOT / "src" / "app-navigation.jsx").read_text(encoding="utf-8")
     src = re.sub(r"(?<![:'\"\w])//.*$", "", src, flags=re.M)
     assert not re.search(r"CLAUDIT", src)
     assert not re.search(r"claudit_", src)
@@ -670,7 +670,7 @@ def test_brand_payload_through_the_page_survives_hostile_title(
         page_client, monkeypatch):
     """End to end: every script-unsafe sequence in an env value is
     escaped by the time the page is served."""
-    monkeypatch.setenv("APP_TITLE", 'a</script>b<!--c d')
+    monkeypatch.setenv("CLAUDIT_APP_TITLE", 'a</script>b<!--c d')
     served = page_client.get("/").text
     assert "a<\\/script>b<\\!--c\\u2028d" in served
 
@@ -686,13 +686,13 @@ def test_brand_defaults_are_todays_strings():
 
 
 def test_empty_or_whitespace_brand_values_fall_back_to_defaults(monkeypatch):
-    """APP_NAME set but EMPTY renders an empty logo and exports
+    """CLAUDIT_APP_NAME set but EMPTY renders an empty logo and exports
     "_all_all.png": a value that is empty or whitespace-only must read
     as unset for all three brand strings."""
     for value in ("", "   "):
-        monkeypatch.setenv("APP_NAME", value)
-        monkeypatch.setenv("APP_TITLE", value)
-        monkeypatch.setenv("APP_DESCRIPTION", value)
+        monkeypatch.setenv("CLAUDIT_APP_NAME", value)
+        monkeypatch.setenv("CLAUDIT_APP_TITLE", value)
+        monkeypatch.setenv("CLAUDIT_APP_DESCRIPTION", value)
         assert branding.brand() == {
             "name": branding.DEFAULT_NAME,
             "title": branding.DEFAULT_TITLE,

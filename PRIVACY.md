@@ -56,6 +56,58 @@ the emptied project row is dropped; and `lane_markers.path` (the
 directory path a lane project marker named) goes when the marker object
 leaves the bucket.
 
+## Collection switch inventory
+
+The `CLAUDIT_COLLECT_*` switches govern optional parsed data in the app
+database. They are read at process startup; after a restart, the next
+successful ingest sets the listed columns to SQL `NULL` when a group is OFF.
+Optional rollups listed below are emptied and stop rebuilding. Existing values
+remain until that ingest runs.
+
+The stored disabled-key stamp joins etag and parser version in the reparse
+decision, so unchanged transcripts are reparsed when a collection switch flips
+in either direction. Reenabling refills the fields from the source. Historical
+NULL stamps mean all ON and alone cause no reparse. A stored parser version
+newer than the running binary still blocks rewriting that file on rollback.
+The collection policy also joins the derived-state fingerprint: a flip forces
+a full rebuild, and disabled rollup tables are cleared globally even when no
+file is queued. Display switches do not affect this collection lifecycle.
+
+Each file's rows and actual parse-policy stamp commit together. A failed fetch,
+parse or persistence transaction keeps the previous rows and stamp for retry;
+other files can converge in the same run. Thus a run reporting failed files
+cannot prove every historical value has cleared. Failed or aborted runs leave
+the derived-state marker incomplete; the next clean ingest retries stale files
+and rebuilds fully. Inspect the ingest failure summary before treating a policy
+transition as complete.
+
+| Environment switch | Stored fields set to `NULL` when OFF | Optional rollups emptied and not rebuilt |
+|---|---|---|
+| `CLAUDIT_COLLECT_TURN_CONTEXT` | `records.turn_flags`, `records.turn_tool_results`, `records.cli_version` | None |
+| `CLAUDIT_COLLECT_REQUEST_METADATA` | `records.stop_reason`, `records.effort` | None |
+| `CLAUDIT_COLLECT_CACHE_WRITE_TOKENS` | `records.cache_write_tokens` | None |
+| `CLAUDIT_COLLECT_CONTEXT_INTAKE` | `tool_uses.result_chars`, `tool_uses.read_kind`, `tool_uses.read_targets`, `tool_uses.write_targets`, `tool_uses.is_reread` | None |
+| `CLAUDIT_COLLECT_ERROR_TEXT` | `tool_uses.error_text` | None |
+| `CLAUDIT_COLLECT_FILE_EXTRAS` | `files.models`, `files.prompt_count`, `files.turn_count` | None |
+| `CLAUDIT_COLLECT_TOOL_ERROR_KINDS` | `tool_uses.error_kind` | `tool_error_rollup` |
+| `CLAUDIT_COLLECT_DISPATCH_ANALYTICS` | `tool_uses.agent_model`, `tool_uses.dispatch_prompt_chars`, `tool_uses.dispatch_brief_ref` | `dispatch_rollup`, `dispatch_brief_rollup` |
+| `CLAUDIT_COLLECT_GENERATION_SPEED` | `records.generation_s`, `records.output_tokens_per_s` (Claude only; other lanes always NULL) | None |
+
+Each group defaults ON independently. Parser callers pass the resolved policy
+explicitly; OFF avoids independent analysis work, while values required for
+retained decisions still exist internally. In particular, full failure text
+and classification settle churn before optional error storage is masked.
+`files.prompt_ts` and `files.ctx_turns` remain collected when file extras are
+OFF; billing tokens, request/tool identities, latency and `is_error` remain.
+`files.collection_flags` stores the sorted disabled keys for a file's parse;
+NULL or an empty array means all ON, including future default-ON groups.
+The code-owned parser version remains separate from this policy metadata.
+
+These switches do not redact or delete transcript objects in R2 or raw bytes in
+the disk blob cache. `tool_uses.agent_type`, `tool_uses.dispatch_name`,
+`files.agent_type`, and `files.teammate_name` remain stored as role and name
+identities; collection switches do not disable billing inputs or identities.
+
 ## Exporting one person's data
 
 ### Find their projects and sessions
@@ -131,7 +183,7 @@ hash-segmented, so a slug-shaped pattern would match none of them).
 
 The rollups are pure recombinations of `records`/`tool_uses`/`files`
 and are not exported separately. Run `psql` against the app DB
-(`DATABASE_URL_VIZ` in the service's environment).
+(`CLAUDIT_DATABASE_URL_VIZ` in the service's environment).
 
 ## Erasing one person's data
 
@@ -141,7 +193,7 @@ config rows naming the person; steps 5–6 erase the account data.
 ### 1. Delete their objects from every configured bucket
 
 Delete every object under the person's prefixes — transcripts,
-subagent files, sidecars — in **every** bucket named in `R2_BUCKET`
+subagent files, sidecars — in **every** bucket named in `CLAUDIT_R2_BUCKET`
 (a deploy may serve several, joined by `+`). The prefixes come from the
 export section's object-key query: `files.file_key` keeps the directory
 slug even when an alias has folded the person's project under a shared
@@ -172,7 +224,7 @@ run step 2 promptly after step 1.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/admin/ingest \
-  -H "X-Admin-Token: $ADMIN_TOKEN" \
+  -H "X-Admin-Token: $CLAUDIT_ADMIN_TOKEN" \
   -H "Origin: http://127.0.0.1:8000"
 ```
 

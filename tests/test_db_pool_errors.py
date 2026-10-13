@@ -36,8 +36,8 @@ _BAD_DSN = "postgresql:///no_such_db_449"
 def _bad_pool_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[None]:
-    monkeypatch.setenv("DATABASE_URL_VIZ", _BAD_DSN)
-    monkeypatch.setenv("DATABASE_URL_AUTH", _BAD_DSN)
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", _BAD_DSN)
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_AUTH", _BAD_DSN)
     db.reset_viz_pool()
     db.reset_auth_pool()
     yield
@@ -53,7 +53,7 @@ def test_viz_pool_failure_names_the_driver_error(bad_pool_env) -> None:
     # The driver's FATAL reaches the surfaced message...
     assert "does not exist" in msg
     # ...naming the env var whose DSN to check (fail-fast baseline).
-    assert "DATABASE_URL_VIZ" in msg
+    assert "CLAUDIT_DATABASE_URL_VIZ" in msg
     # The driver's exception is chained, not swallowed.
     assert isinstance(excinfo.value.__cause__, psycopg.OperationalError)
 
@@ -64,7 +64,7 @@ def test_auth_pool_failure_names_the_driver_error(bad_pool_env) -> None:
         db.auth_pool()
     msg = str(excinfo.value)
     assert "does not exist" in msg
-    assert "DATABASE_URL_AUTH" in msg
+    assert "CLAUDIT_DATABASE_URL_AUTH" in msg
     assert isinstance(excinfo.value.__cause__, psycopg.OperationalError)
 
 
@@ -74,15 +74,15 @@ def test_auth_pool_failure_on_an_unreachable_server_names_the_env_var(
 ) -> None:
     """Issue #463's title mechanism: a server that cannot be dialled at
     all fails the same way — the driver's dial error chained, with
-    DATABASE_URL_AUTH named — not a bare PoolTimeout that names
+    CLAUDIT_DATABASE_URL_AUTH named — not a bare PoolTimeout that names
     neither the env var nor the database."""
     monkeypatch.setenv(
-        "DATABASE_URL_AUTH", "postgresql://postgres@127.0.0.1:1/nowhere")
+        "CLAUDIT_DATABASE_URL_AUTH", "postgresql://postgres@127.0.0.1:1/nowhere")
     db.reset_auth_pool()
     try:
         with pytest.raises(RuntimeError) as excinfo:
             db.auth_pool()
-        assert "DATABASE_URL_AUTH" in str(excinfo.value)
+        assert "CLAUDIT_DATABASE_URL_AUTH" in str(excinfo.value)
         assert isinstance(excinfo.value.__cause__, psycopg.OperationalError)
     finally:
         db.reset_auth_pool()
@@ -94,7 +94,7 @@ def test_auth_pool_rejects_a_write(monkeypatch: pytest.MonkeyPatch) -> None:
     server, so a write reaching the auth DB fails loudly instead of
     committing (the doctrine's read-only invariant, enforced)."""
     name = scratch_db.create_database("auth_ro")
-    monkeypatch.setenv("DATABASE_URL_AUTH", f"postgresql:///{name}")
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_AUTH", f"postgresql:///{name}")
     db.reset_auth_pool()
     try:
         conn_admin = psycopg.connect(f"postgresql:///{name}", autocommit=True)

@@ -39,7 +39,7 @@ def _mini_r2_env_fixture(monkeypatch):
     src = _REPO_ROOT / "fixtures/r2_mini"
     tmp = tempfile.mkdtemp(prefix="sv-aliases-")
     shutil.copytree(src, Path(tmp) / "r2")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp}/r2/")
     yield Path(tmp) / "r2" / "claude"
     shutil.rmtree(tmp)
 
@@ -106,7 +106,7 @@ def _lane_r2_env_fixture(tmp_path, monkeypatch) -> dict[str, str]:
         lzma.compress((_FIX_ROOT / "parser" / "codex_min.jsonl").read_bytes()))
     (bucket / "sessions" / lane_hash / "project.json").write_text(
         json.dumps({"path": marker_path}))
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
     return {
         "hash": lane_hash,
         "slug": slug,
@@ -575,7 +575,7 @@ def test_projects_hides_a_project_whose_files_carry_zero_usage_records(
     project would otherwise present in the picker (issue #272). A project
     with usage stays listed. Uses range=3650d: a cache key no other
     /api/projects test claims."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         cur.execute(
             "INSERT INTO projects (project_id, display_name, first_seen_at, "

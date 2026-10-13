@@ -149,11 +149,11 @@ def test_corpus_is_sorted_so_parse_order_is_fixed():
 
 
 def test_corpus_ignores_ambient_bucket_configuration(monkeypatch):
-    # A developer's real R2_ENDPOINT/R2_BUCKET must never change WHAT is
+    # A developer's real CLAUDIT_R2_ENDPOINT/CLAUDIT_R2_BUCKET must never change WHAT is
     # measured: the recorded shares are only comparable against the
     # committed fixture mirror, so the bench pins both settings itself.
-    monkeypatch.setenv("R2_ENDPOINT", "https://example.invalid/bucket")
-    monkeypatch.setenv("R2_BUCKET", "not-the-fixture-bucket")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", "https://example.invalid/bucket")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "not-the-fixture-bucket")
     entries = bench.corpus()
     assert entries, "the fixture mirror listed nothing under a bogus endpoint"
     assert all(entry.key.startswith(f"{bench.BUCKET}/") for entry in entries)

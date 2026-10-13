@@ -66,10 +66,10 @@ def _app_with_prompt_range_data_fixture(monkeypatch):
     carried prompts sent before it, and the range's totals used to count
     those whole-file numbers."""
     test_db = scratch_db.create_database("api_ptr")
-    monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{test_db}")
     tmp = tempfile.mkdtemp(prefix="sv-api-ptr-")
     r2root = Path(tmp) / "r2"
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{r2root}/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{r2root}/")
 
     now = datetime.now(timezone.utc)
     old_ts = (now - timedelta(days=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -158,7 +158,7 @@ def test_dashboard_counts_junk_prompt_ts_as_unprovable(
         now.isoformat(),                                # in range
         (now - timedelta(days=45)).isoformat(),         # provably out
     ]
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         cur.execute(
             "INSERT INTO files (file_key, project_id, session_id, is_main, "

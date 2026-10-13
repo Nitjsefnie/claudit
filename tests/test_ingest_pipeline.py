@@ -26,13 +26,13 @@ _MIRROR = mini_mirror.counts()["transcripts"]
 
 
 def test_parse_process_count_defaults_and_clamps(monkeypatch):
-    monkeypatch.delenv("INGEST_PARSE_PROCESSES", raising=False)
+    monkeypatch.delenv("CLAUDIT_INGEST_PARSE_PROCESSES", raising=False)
     assert ingest.parse_process_count() >= 1
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "0")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "0")
     assert ingest.parse_process_count() == 1
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "3")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "3")
     assert ingest.parse_process_count() == 3
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "not-a-number")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "not-a-number")
     assert ingest.parse_process_count() >= 1
 
 
@@ -43,9 +43,9 @@ def test_process_pool_ingest_matches_sequential_exactly(
     the per-file transaction, failure isolation, and derived state are the
     same — one run per path over the identical mirror, snapshots compared.
     """
-    monkeypatch.setenv("INGEST_WORKERS", "1")
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "1")
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "1")
     ingest.run_ingest("test-seq")
     sequential = _snapshot()
 
@@ -55,8 +55,8 @@ def test_process_pool_ingest_matches_sequential_exactly(
         c.execute("DELETE FROM projects")
         c.commit()
 
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "2")
     summary = ingest.run_ingest("test-proc")
     parallel = _snapshot()
 
@@ -74,9 +74,9 @@ def test_process_pool_persists_survive_a_per_file_failure(
     """One file's persist failure must not take the run (or the pool) down:
     the failed file is booked per-object and every other file still lands.
     """
-    monkeypatch.setenv("INGEST_WORKERS", "1")
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "2")
     real = ingest._persist  # pylint: disable=protected-access
 
     def flaky(obj, proj, parsed, parser_version):
@@ -103,8 +103,8 @@ def test_process_pool_books_a_parse_failure_per_file(
     """A fetch failure in a forked child books its own file only; the run
     answers without a fatal error and every other file still lands.
     """
-    monkeypatch.setenv("INGEST_WORKERS", "1")
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
     real_fetch = ingest._fetch_with_retry  # pylint: disable=protected-access
 
     def flaky_fetch(key):
@@ -127,8 +127,8 @@ def test_process_pool_treats_a_vanished_object_as_not_a_failure(
     """A key that disappears between list and fetch is discarded from the
     orphan sweep's seen set, not booked as a failure.
     """
-    monkeypatch.setenv("INGEST_WORKERS", "1")
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
     real_fetch = ingest._fetch_with_retry  # pylint: disable=protected-access
 
     def vanishing_fetch(key):
@@ -156,8 +156,8 @@ def test_process_pool_a_broken_fetch_is_fatal(
     pool's per-item booking, and the run closes fatal with NOTHING
     booked as a per-object failure.
     """
-    monkeypatch.setenv("INGEST_WORKERS", "1")
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
 
     def broken_get_object(_key):
         raise TypeError("no client at all")
@@ -176,9 +176,9 @@ def test_process_pool_rerun_reparses_and_counts(
     """A second pool run over an unchanged mirror reparses nothing; a
     PARSER_VERSION bump reparses every file through the pool path.
     """
-    monkeypatch.setenv("INGEST_WORKERS", "1")
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "2")
     first = ingest.run_ingest("test-proc-1")
     assert first["reparsed"] == 0
     second = ingest.run_ingest("test-proc-2")
@@ -195,9 +195,9 @@ def test_process_pool_timing_line_marks_disjoint_phases(
     """With CLAUDIT_TIMING on, the pool path's fetch_parse and persist
     marks stay disjoint and never exceed the run total.
     """
-    monkeypatch.setenv("INGEST_WORKERS", "1")
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "2")
     monkeypatch.setattr(_timing, "TIMING_ON", True)
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
         summary = ingest.run_ingest("test-proc-timing")
@@ -243,9 +243,9 @@ def test_pool_timing_parts_are_disjoint_slices(
     a sleep-padded decompressor so the inflate wall dwarfs the GET it
     hides in, deterministically.
     """
-    monkeypatch.setenv("INGEST_WORKERS", "1")
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", "2")
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
+    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "2")
     monkeypatch.setattr(_timing, "TIMING_ON", True)
     # The run's own mirror copy (the committed fixture stays plain,
     # SV-FIXTURE-SIZE): one project, and the .xz twin of its transcript.
@@ -292,13 +292,13 @@ def test_pool_timing_parts_are_disjoint_slices(
 
 
 def test_persist_thread_count_defaults_and_clamps(monkeypatch):
-    monkeypatch.delenv("INGEST_PERSIST_THREADS", raising=False)
+    monkeypatch.delenv("CLAUDIT_INGEST_PERSIST_THREADS", raising=False)
     assert ingest.persist_thread_count() == 4
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "")
+    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "")
     assert ingest.persist_thread_count() == 4
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "junk")
+    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "junk")
     assert ingest.persist_thread_count() == 4
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "0")
+    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "0")
     assert ingest.persist_thread_count() == 1
-    monkeypatch.setenv("INGEST_PERSIST_THREADS", "3")
+    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "3")
     assert ingest.persist_thread_count() == 3

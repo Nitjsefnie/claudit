@@ -3,7 +3,7 @@
 An empty information_schema probe for users.config has three causes:
 the column is genuinely absent; the role holds no SELECT on users (a
 table without SELECT is invisible in information_schema.columns); or
-DATABASE_URL_AUTH points at the wrong (empty) database. The old code
+CLAUDIT_DATABASE_URL_AUTH points at the wrong (empty) database. The old code
 reported all three as "no 'config' column" — the live finding was a
 connectable role with no SELECT producing that message against a DB
 where the column exists. These tests pin the discrimination: privilege
@@ -34,7 +34,7 @@ def _viz_ready(monkeypatch):
     """A viz DB with the app schema applied, so schema_check's viz half
     passes and every case isolates the auth-DB behaviour under test."""
     name = scratch_db.create_database("schema_chk_viz")
-    monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{name}")
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")
     db.reset_viz_pool()
     yield
     db.reset_viz_pool()
@@ -58,7 +58,7 @@ def _auth_env_fixture(monkeypatch):
             name = created[label]
         else:
             name = next(iter(created.values())) if created else ""
-        monkeypatch.setenv("DATABASE_URL_AUTH", dsn or f"postgresql:///{name}")
+        monkeypatch.setenv("CLAUDIT_DATABASE_URL_AUTH", dsn or f"postgresql:///{name}")
         db.reset_auth_pool()
         return name
 
@@ -164,11 +164,11 @@ def test_missing_select_names_the_grant_not_the_column(auth_env):
 
 def test_wrong_database_names_the_users_table_case(auth_env):
     """An empty (wrong) database has no users table at all — the error
-    must point at DATABASE_URL_AUTH, NOT "no 'config' column"."""
+    must point at CLAUDIT_DATABASE_URL_AUTH, NOT "no 'config' column"."""
     auth_env("schema_chk_wrongdb")
     with pytest.raises(RuntimeError) as excinfo:
         db.schema_check()
     msg = str(excinfo.value)
     assert "no 'users' table visible" in msg
-    assert "DATABASE_URL_AUTH" in msg
+    assert "CLAUDIT_DATABASE_URL_AUTH" in msg
     assert "no 'config' column" not in msg

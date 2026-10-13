@@ -207,7 +207,8 @@ def test_the_app_mounts_the_panel_once_with_the_other_backend_panels():
     """It is a self-fetching panel: it goes out in parallel with
     /api/dashboard rather than waiting for it, like the four the
     Dashboard's own comment names."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (
+        APP, APP.parent / "dashboard-view.jsx", APP.parent / "app-navigation.jsx")))
     assert src.count("<window.WebMetricsPanel") == 1, (
         "the panel is mounted more than once, or not at all")
     window = src[src.index("<window.WebMetricsPanel") - 260:
@@ -215,8 +216,7 @@ def test_the_app_mounts_the_panel_once_with_the_other_backend_panels():
     assert "backendOn" in window, (
         "the panel mounts with no backend guard -- there is no endpoint "
         "to fetch without one")
-    for prop in ("project={activeProject}", "range={activeRange}",
-                 "nonce={dashNonce}"):
+    for prop in ("range={activeRange}", "nonce={dashNonce}"):
         assert prop in src[src.index("<window.WebMetricsPanel"):
                            src.index("<window.WebMetricsPanel") + 260], (
             f"the panel is mounted without {prop}")
@@ -228,7 +228,8 @@ def test_the_panel_mounts_only_for_an_operator():
     a page that fetches into a 403 shows an empty panel where telemetry
     should be. node parses no JSX, so the mount CONDITION is pinned here at
     source level, beside the guard above."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (
+        APP, APP.parent / "dashboard-view.jsx", APP.parent / "app-navigation.jsx")))
     window = src[src.index("<window.WebMetricsPanel") - 260:
                  src.index("<window.WebMetricsPanel")]
     assert "window.IS_OPERATOR" in window, (
@@ -239,7 +240,8 @@ def test_the_panel_mounts_only_for_an_operator():
 def test_the_app_still_fetches_the_dashboard_exactly_once():
     """The wiring guards slice the one /api/dashboard fetch's effect;
     a second site would make the slice ambiguous."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (
+        APP, APP.parent / "dashboard-view.jsx", APP.parent / "app-navigation.jsx")))
     assert src.count("/api/dashboard?range=") == 1
 
 
@@ -255,7 +257,8 @@ INDEX = ROOT / "public" / "index.html"
 
 def _effect_for(marker: str, deps: str) -> str:
     """The effect around `marker`, comments stripped, up to its deps."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (
+        APP, APP.parent / "dashboard-view.jsx", APP.parent / "app-navigation.jsx")))
     i = src.index(marker)
     start = src.rindex("useEffect(", 0, i)
     return src[start:src.index(deps, i) + len(deps)]
@@ -265,7 +268,8 @@ def test_the_dashboard_journey_brackets_the_dashboard_fetch():
     """openJourney sits above the request and closeFetch in its success
     path, after the supersede guard -- a superseded run must not close a
     journey the run that replaced it owns."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (
+        APP, APP.parent / "dashboard-view.jsx", APP.parent / "app-navigation.jsx")))
     i = src.index("window.perf.openJourney('dashboard_open')")
     assert "window.dashboardFetch.load(" in src[i:i + 200], (
         "the dashboard journey opens AFTER the fetch it is timing")
@@ -316,7 +320,8 @@ def test_the_phase_leaves_pre_paint_on_a_range_with_no_rows():
 
 
 def test_the_inspector_journey_brackets_the_transcript_load():
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (
+        APP, APP.parent / "dashboard-view.jsx", APP.parent / "app-navigation.jsx")))
     loader = src[src.index("makeTranscriptLoader({"):
                  src.index("onStart: () => {")]
     assert "window.perf.closeFetch('inspector_open')" in loader, (
@@ -333,7 +338,8 @@ def test_the_inspector_journey_closes_after_its_early_return():
     """SessionView returns early when it holds no transcript. A hook
     added AFTER that return changes the hook count between renders and
     React refuses to render the component at all."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (
+        APP, APP.parent / "dashboard-view.jsx", APP.parent / "app-navigation.jsx")))
     view = src[src.index("function SessionView("):
                src.index("function SessionHeader(")]
     guard = view.index("if (!tx) {")
@@ -350,7 +356,8 @@ def test_the_sse_tick_moves_the_phase():
     """A shift during the SSE-driven repaint is a different defect from
     one during the first paint, so `ingest_done` is where the phase
     moves."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (
+        APP, APP.parent / "dashboard-view.jsx", APP.parent / "app-navigation.jsx")))
     handler = src[src.index("const onIngest = e => {"):]
     handler = handler[:handler.index("};")]
     assert "window.perf.sseUpdate()" in handler, (
@@ -361,7 +368,8 @@ def test_the_regions_the_panel_groups_by_are_actually_marked_up():
     """`perf.region()` walks up to `data-perf-region`. A region nothing
     carries means every observed metric is attributed to `other` and the
     panel's breakdown has one row."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (
+        APP, APP.parent / "dashboard-view.jsx", APP.parent / "app-navigation.jsx")))
     # The project strip lives in src/picker.jsx since #774 extracted it;
     # both strips carry the region, wherever the file sits.
     picker_src = _strip_line_comments(
@@ -427,7 +435,8 @@ def test_the_relocated_helpers_are_still_the_ones_the_tree_uses():
     """app.jsx read these two as bare top-level functions; they now live
     in a plain-JS module and every call site must go through the global,
     or `no-undef` fires in CI and the page throws at runtime."""
-    app = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    app = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (
+        APP, APP.parent / "dashboard-view.jsx", APP.parent / "app-navigation.jsx")))
     gating = (ROOT / "src" / "panel-gating.js").read_text(encoding="utf-8")
     for name in ("tokenPanels", "hasSeries"):
         assert f"window.{name} = {name};" in gating, (

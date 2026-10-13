@@ -76,7 +76,7 @@ def test_one_failed_object_does_not_abort_the_run(
     results differently (a generator consumed in the persist loop vs
     as_completed), and each used to let the exception escape.
     """
-    monkeypatch.setenv("INGEST_WORKERS", str(workers))
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", str(workers))
     counts, _ = _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99)
     recorded = []
     event_names = []
@@ -345,10 +345,10 @@ def test_a_parse_failure_is_not_retried(fresh_db, mini_r2_env, monkeypatch):
 
     real_parse = ingest.parse.parse_file
 
-    def boom(file_key, blob):
+    def boom(file_key, blob, *, collection):
         if file_key == _FLAKY_KEY:
             raise ValueError("malformed line 3")
-        return real_parse(file_key, blob)
+        return real_parse(file_key, blob, collection=collection)
 
     monkeypatch.setattr(ingest.r2, "get_object", counting)
     monkeypatch.setattr(ingest.parse, "parse_file", boom)

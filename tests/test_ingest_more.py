@@ -210,7 +210,7 @@ def test_lane_layout_ingests_with_marker_display_name(
     )
     (bucket / "sessions" / proj / "project.json").write_text(
         json.dumps({"path": "/home/me/lanework"}))
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
 
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
@@ -249,7 +249,7 @@ def test_lane_layout_without_project_marker_displays_the_project_id(
     lane.mkdir(parents=True)
     (lane / "wire.jsonl.xz").write_bytes(
         lzma.compress((_FIX_ROOT / "parser" / "codex_min.jsonl").read_bytes()))
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
 
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
@@ -280,7 +280,7 @@ def test_transient_marker_failure_keeps_the_stored_display_name(
         lzma.compress((_FIX_ROOT / "parser" / "codex_min.jsonl").read_bytes()))
     (bucket / "sessions" / proj / "project.json").write_text(
         json.dumps({"path": "/home/me/lanework"}))
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
 
     ingest.run_ingest(trigger="manual")
 
@@ -325,7 +325,7 @@ def test_marker_ok_run_rekeys_a_hash_stalled_by_a_failed_marker(
         lzma.compress((_FIX_ROOT / "parser" / "codex_min.jsonl").read_bytes()))
     (bucket / "sessions" / proj / "project.json").write_text(
         json.dumps({"path": "/home/me/lanework"}))
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
 
     # Run 1: the marker GET fails after retries - a per-object failure.
     real_fetch = ingest._fetch_with_retry  # pylint: disable=protected-access
@@ -338,7 +338,7 @@ def test_marker_ok_run_rekeys_a_hash_stalled_by_a_failed_marker(
     monkeypatch.setattr(ingest, "_fetch_with_retry", failing_fetch)
     r1 = ingest.run_ingest(trigger="manual")
     # Restore the fetch (calling undo() here would also wipe this
-    # test's R2_ENDPOINT); teardown handles the rest.
+    # test's CLAUDIT_R2_ENDPOINT); teardown handles the rest.
     monkeypatch.setattr(ingest, "_fetch_with_retry", real_fetch)
     assert r1["error"] is not None
     assert r1["failed"] == 1
@@ -375,7 +375,7 @@ def test_stored_lane_mapping_prefers_slug_then_the_larger_side(
     the slug form, else the id holding more files, ties by id. The
     hash-keyed side's rows are inserted FIRST (and hold more files), so
     the old setdefault would have picked it on insertion order."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         for pid in ("8805b8ac99ad", "not-a-slug", "zzz-hash", "aaa-hash"):
             cur.execute(

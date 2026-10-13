@@ -96,15 +96,15 @@ function WebMetricsPanel({ range, nonce }) {
   const guests = (body && body.guests) || 0;
   const beacons = (body && body.beacons) || 0;
 
-  // One row per journey: the names the sink's table admits. A journey
-  // with no rows still gets its line, with em dashes throughout, because
+  // One row per enabled journey. An enabled journey with no rows
+  // still gets its line, with em dashes throughout, because
   // "we have never measured a sign-in" is not the same as "the sign-in
   // was instant".
   const journeys = [
     { metric: 'dashboard_open', label: 'Dashboard open' },
     { metric: 'inspector_open', label: 'Inspector open' },
     { metric: 'signin', label: 'Sign-in' },
-  ];
+  ].filter(j => window.perfFeatureVisible('metric', j.metric));
   const rowFor = (metric, part) =>
     series.find(r => r.metric === metric && r.part === part) || null;
 
@@ -119,6 +119,7 @@ function WebMetricsPanel({ range, nonce }) {
     const by = {};
     for (const r of rowsOf(metric)) {
       const k = r[key] || 'other';
+      if (!window.perfFeatureVisible(key, k)) continue;
       by[k] = (by[k] || 0) + (r.total || 0);
     }
     return Object.entries(by).filter(([, v]) => v > 0)
@@ -138,7 +139,7 @@ function WebMetricsPanel({ range, nonce }) {
   // user. A cumulative layout shift of 4.0 is not a CLS of 4.0 — CLS is
   // per page view and capped at 1. The labels say summed, because that is
   // what the number is.
-  const headline = `${measured} of 3 journeys measured; layout shift `
+  const headline = `${measured} of ${journeys.length} journeys measured; layout shift `
     + `${perfScore(shiftTotal)} summed over ${shiftSamples} shifts; main `
     + `thread blocked ${perfMs(blockTotal)} summed over ${blockSamples} `
     + `tasks; ${guests} of ${beacons} beacons from guests.`;

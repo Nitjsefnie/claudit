@@ -28,6 +28,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
+import { featureSurfaces } from './feature_surfaces.mjs';
 import { API, FIXTURES, REPO, serve, WIDTHS } from './panel_server.mjs';
 
 // The one route that draws charts. Every panel on it lives here; the
@@ -186,6 +187,10 @@ async function main() {
         });
       });
       const page = await ctx.newPage();
+      const bootstrapErrors = [];
+      page.on('pageerror', err => bootstrapErrors.push(err.message));
+      page.on('console', msg => { if (msg.type() === 'error') bootstrapErrors.push(msg.text()); });
+      page.on('requestfailed', req => bootstrapErrors.push(`${req.url()}: ${req.failure()?.errorText}`));
       for (const route of ROUTES) {
         await page.goto(base + '/', { waitUntil: 'load' });
         if (route.nav) {
@@ -202,6 +207,10 @@ async function main() {
           // A route that renders no marked panel is a guard that checks
           // nothing, which is worse than no guard: it reads as a pass.
           failures += 1;
+          console.log('BOOTSTRAP', await page.evaluate(() => ({
+            React: typeof React, Babel: typeof Babel, App: typeof window.App,
+            Dashboard: typeof window.Dashboard, feature: typeof window.featureOn,
+          })), bootstrapErrors);
           console.log(`NO PANELS  ${width}px ${route.name}  no [data-panel] `
             + 'rendered — the fixture payloads or the panel hooks changed');
         }
@@ -231,13 +240,14 @@ async function main() {
             console.log(`COLLIDED  ${width}px ${route.name}  ${p.name}\n`
               + `            ${w.part}  ${w.ox}x${w.oy}px`);
           }
-          if (process.env.PANEL_LAYOUT_VERBOSE) {
+          if (process.env.CLAUDIT_PANEL_LAYOUT_VERBOSE) {
             console.log(`  panel ${p.name} roles=${p.roles}`);
           }
         }
       }
       await ctx.close();
     }
+    await featureSurfaces(browser, base);
   } finally {
     await browser.close();
     server.close();

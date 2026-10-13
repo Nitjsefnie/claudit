@@ -41,9 +41,9 @@ RUN useradd --system --user-group --home /opt/claudit \
 # files (db.SCHEMA_PATHS) travel with backend/; there is no node/npm stage
 # because React and Babel load from unpkg at run time. What does NOT ship:
 # the render interpreter and its dependencies — the default
-# EXPORT_PYTHON (/usr/bin/python3) is absent from python:slim and matplotlib
+# CLAUDIT_EXPORT_PYTHON (/usr/bin/python3) is absent from python:slim and matplotlib
 # is not in backend/requirements.txt, so in-container /api/export needs
-# EXPORT_PYTHON pointed at an interpreter with the renderer's dependencies
+# CLAUDIT_EXPORT_PYTHON pointed at an interpreter with the renderer's dependencies
 # (e.g. a derived image); the rest of the service runs stock. --chown stamps
 # the owner here rather than in a later chown layer, so the ownership of
 # these files stays static with the copy itself.

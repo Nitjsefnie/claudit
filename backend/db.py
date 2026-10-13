@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import threading
 from contextlib import closing, contextmanager
 from typing import LiteralString, cast
@@ -26,9 +25,11 @@ from psycopg_pool import ConnectionPool
 # the list itself lives in schema_files so this module stays inside
 # the module-size ratchet's 500-line ceiling.
 # pylint: disable=unused-import
+from backend.env_config import load_dotenv, require_env
 from backend.schema_files import (  # noqa: F401
     SCHEMA_PATH, SCHEMA_PATHS, read_schema,
 )
+from backend.schema_indexes import startup_schema
 
 log = logging.getLogger("claudit.db")
 
@@ -96,8 +97,8 @@ def _probe_first_connection(dsn: str, env_var: str, label: str) -> None:
 def viz_pool() -> ConnectionPool:
     global _VIZ
     if _VIZ is None:
-        dsn = os.environ["DATABASE_URL_VIZ"]
-        _probe_first_connection(dsn, "DATABASE_URL_VIZ", "viz")
+        dsn = require_env("CLAUDIT_DATABASE_URL_VIZ")
+        _probe_first_connection(dsn, "CLAUDIT_DATABASE_URL_VIZ", "viz")
         _VIZ = ConnectionPool(
             dsn,
             # The read endpoints are sync (blocking psycopg) and run on
@@ -117,7 +118,7 @@ def viz_pool() -> ConnectionPool:
 
 def reset_viz_pool() -> None:
     """Close and drop the cached viz pool so the next viz_pool() call
-    re-reads DATABASE_URL_VIZ. Test suites need this between scratch-DB
+    re-reads CLAUDIT_DATABASE_URL_VIZ. Test suites need this between scratch-DB
     configurations; production code never calls it."""
     global _VIZ
     if _VIZ is not None:
@@ -143,8 +144,8 @@ def viz_pool_statistics() -> dict:
 def auth_pool() -> ConnectionPool:
     global _AUTH
     if _AUTH is None:
-        dsn = os.environ["DATABASE_URL_AUTH"]
-        _probe_first_connection(dsn, "DATABASE_URL_AUTH", "auth")
+        dsn = require_env("CLAUDIT_DATABASE_URL_AUTH")
+        _probe_first_connection(dsn, "CLAUDIT_DATABASE_URL_AUTH", "auth")
         _AUTH = ConnectionPool(
             dsn,
             min_size=1, max_size=4, timeout=10,
@@ -164,7 +165,7 @@ def auth_pool() -> ConnectionPool:
 
 def reset_auth_pool() -> None:
     """Close and drop the cached auth pool so the next auth_pool() call
-    re-reads DATABASE_URL_AUTH. Mirrors reset_viz_pool; test suites need
+    re-reads CLAUDIT_DATABASE_URL_AUTH. Mirrors reset_viz_pool; test suites need
     this between auth-DB configurations, production code never calls it."""
     global _AUTH
     if _AUTH is not None:
@@ -245,75 +246,24 @@ def _stamp_version(c) -> str | None:
 
 
 def apply_schema() -> None:
-    """Apply the schema files (SCHEMA_PATHS) to the app DB at startup.
+    """Converge static schema and collection index policy in one transaction.
 
-    The schema is idempotent by construction -- every statement is
-    CREATE ... IF NOT EXISTS, ALTER TABLE ... ADD COLUMN IF NOT EXISTS,
-    or a guarded DO block that widens usage_rollup's primary key (it
-    drops the old constraint only when it does not already carry the
-    widened grain, then re-adds it; ADD CONSTRAINT has no IF NOT
-    EXISTS) -- so running it converges the database onto the shape the
-    running code expects instead of trusting that a human ran psql
-    after deploying (issue #43). Two deploys failed that way in one
-    day: a checkout pulled code writing a new column, the migration
-    step was missed, and every ingest then aborted with UndefinedColumn
-    while the dashboard kept serving stale aggregates.
+    The SHA256 of the complete effective script is the schema_stamp. A
+    matching stamp skips DDL and the migration lock; a changed script is
+    rechecked under the advisory lock, then applied and stamped atomically.
+    Lock waits are bounded by lock_timeout, not index-build duration.
+    Ordinary initial/reenable builds may block boot and writers; production
+    duration is unmeasured. Failed DDL rolls back before unlock, so a retry
+    converges without a partial schema or stamp.
 
-    The DDL runs only when it has something to do (issue #387): the
-    schema is content-addressed in `schema_stamp` — the sha256 of every
-    schema file's exact bytes in order, written by the same transaction
-    as the DDL —
-    and a boot whose stamp already matches takes no lock beyond an
-    ACCESS SHARE on the stamp table itself. That is what keeps a long
-    psql analysis or pg_dump over `records` from hanging a start, and
-    being hung by it: every ADD COLUMN / SET / DO-block statement takes
-    ACCESS EXCLUSIVE before its own IF NOT EXISTS check, even as a
-    no-op — which is why the whole run is skipped rather than
-    pre-checked statement by statement (the pre-checks would duplicate
-    every guard in this file).
-
-    The stamp asserts THIS file ran to completion under these exact
-    bytes; it does not certify later catalog state. An out-of-band
-    schema mutation (a hand-dropped column) needs
-    `DELETE FROM schema_stamp` to force a re-apply — the same
-    convention as DELETE FROM ingest_derived_state after out-of-band
-    record mutations.
-
-    Lock waits are bounded: the migration transaction sets lock_timeout
-    (the advisory boot lock included). On expiry the transaction aborts
-    WHOLE — one transaction, so the DDL prefix and the stamp write are
-    discarded together and no half-applied schema survives — the
-    advisory lock is released, and the boot fails with a clear error.
-    systemd (Restart=always, RestartSec=5) retries the boot until the
-    blocking transaction ends; the first boot after that converges.
-
-    Executed through psycopg rather than shelling out to psql: the
-    service already holds a connection with the right credentials, and a
-    psql subprocess would add a PATH dependency the container need not
-    satisfy.
-
-    ROLLBACK IS ONE-DIRECTIONAL, and that is the accepted cost. Deploying
-    forward then restarting an older binary leaves it running against a
-    schema from the future. Every migration here is additive and
-    nullable, with ONE allowed exception: that primary-key swap on
-    usage_rollup. It is a guarded, idempotent constraint WIDENING of
-    derived, DELETE+INSERT-rebuilt state, and the widened key is a
-    superset of the old one, so an older binary's named-column INSERT
-    still satisfies it. On a rolled-back binary, READS ignore what they
-    do not know about, and its INGEST is guarded instead: a file whose
-    stored parser_version is newer than the binary's own is never
-    reparsed, so newer-column values survive a rollback. Erasure already
-    committed by binaries older than that guard is not repaired by it.
-    Reads tolerating a future schema plus the ingest guard are what make
-    auto-apply safe, and any migration beyond those -- one that drops or
-    retypes a column, or a second exception -- would break it.
-
-    An older binary never touches the stamp row (its code predates the
-    table), so a rollback changes nothing there: the old DDL is an
-    additive subset of the stamped file's, and the next boot of THIS
-    build fast-paths again.
+    Additive columns, nullable relaxations, guarded key/type widenings and
+    nonconstraint index policy preserve older named-column writes. Older
+    ingest never reparses a newer parser_version. An older binary may
+    recreate removed indexes; its differing stamp makes the next forward
+    boot reconverge. Out-of-band catalog damage still requires clearing
+    schema_stamp: the stamp proves execution, not subsequent catalog state.
     """
-    ddl = read_schema()
+    ddl = startup_schema(read_schema())
     stamp = hashlib.sha256(ddl.encode("utf-8")).hexdigest()
     with viz_conn() as c:
         if _stamp_version(c) == stamp:
@@ -437,7 +387,7 @@ def schema_check() -> None:
             if exists is None or exists[0] is None:
                 raise RuntimeError(
                     "auth DB: no 'users' table visible — is "
-                    "DATABASE_URL_AUTH pointing at the right database?"
+                    "CLAUDIT_DATABASE_URL_AUTH pointing at the right database?"
                 )
             priv_row = c.execute(
                 "SELECT has_table_privilege(current_user, 'public.users', "
@@ -466,26 +416,3 @@ def schema_check() -> None:
                     f"auth DB users.{name} must be {expected}, "
                     f"got {found[name]!r}"
                 )
-
-
-def load_dotenv(path: str = ".env") -> None:
-    """Tiny dotenv loader. Avoids the python-dotenv dependency.
-
-    Constraints (intentional simplicity — keep values plain):
-    - Values are read literally; quotes are NOT stripped. ADMIN_TOKEN="abc"
-      stores the value with the literal quotes.
-    - The 'export ' prefix is NOT supported (the line key would become
-      'export ADMIN_TOKEN', not 'ADMIN_TOKEN').
-    - The first '=' splits key from value, so values may contain '=' freely.
-    - Existing env vars are NEVER overwritten (uses os.environ.setdefault).
-    - Comment lines (starting with '#') and blank lines are skipped.
-    """
-    if not os.path.isfile(path):
-        return
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())

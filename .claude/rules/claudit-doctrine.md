@@ -77,14 +77,14 @@ claudit does not ship via `claude-setup.zip`; it ships via git +
   sessions, 1 sidecar, 1 cross-session shared uuid).
 
 Don't grow them. Larger samples stay in a local mirror outside the
-working tree, reached via `R2_ENDPOINT`.
+working tree, reached via `CLAUDIT_R2_ENDPOINT`.
 
 ## Develop against the full corpus, never the local tree (SV-FULL-CORPUS)
 
 Measurements, probes and panel prototypes read the R2 corpus (or a full
 mirror), NEVER Claude Code's live session tree. That tree is pruned, so
 a rate derived from it is silently biased. Use `backend/r2.py`
-(`list_keys` / `get_stream`) so a probe honours `R2_ENDPOINT`. Stratify
+(`list_keys` / `get_stream`) so a probe honours `CLAUDIT_R2_ENDPOINT`. Stratify
 and state the sample size; never present a corpus-wide claim from an
 unstated subset.
 
@@ -107,7 +107,7 @@ pre-aggregate — summed, never added to the other types.
 
 ## Failure causes and dispatches are stored, not re-derived (SV-WHY-COLUMNS)
 
-`tool_uses.is_error` says THAT a call failed. Four columns say why, and
+`tool_uses.is_error` says THAT a call failed. Default-ON optional columns say why, and
 what a dispatch asked for:
 
 - `error_kind` — `rejected` | `tool_error` | `failed`, NULL unless the
@@ -140,6 +140,12 @@ what a dispatch asked for:
   role: it stands only when nothing more specific was recorded, and an
   in-band role outranks it (the standing sidecar precedence).
 
+Collection policy may NULL `error_kind`, `error_text`, `agent_model`,
+`dispatch_prompt_chars` and `dispatch_brief_ref`. Keep error classification
+and full failure text internally until retained churn/write-survival decisions
+settle. Persist `agent_type` and `dispatch_name` for teammate identity regardless
+of dispatch analytics; collection never disables `is_error` or line churn.
+
 `tool_error_rollup` and `dispatch_rollup` carry the composable counts.
 `error_text` never enters a rollup grain (unbounded cardinality).
 
@@ -152,11 +158,16 @@ reprices stale records in place from their stored tokens via
 `pricing.compute_cost`, batched, no R2 fetch (SV-REPRICE). A
 parse-semantics change bumps PARSER_VERSION; a rate-data change bumps
 PRICING_VERSION. Both live in code so the bump ships in the same commit
-as its cause; never reintroduce an env override.
+as its cause; never reintroduce an env override. The explicit per-file collection
+policy is separate: `files.collection_flags` records sorted disabled keys;
+NULL/empty means all ON. Policy changes belong to the reparse key, while
+`PARSER_VERSION` remains code. Newer stored parser versions remain protected
+from older binaries. The startup schema's static-plus-index-policy hash is
+another stamp, independent of both parser version and collection metadata.
 
 ## Brand values escape per context (SV-BRAND-ESCAPE)
 
-`APP_NAME` / `APP_TITLE` / `APP_DESCRIPTION` / `APP_PRIVACY_NOTICE_URL`
+`CLAUDIT_APP_NAME` / `CLAUDIT_APP_TITLE` / `CLAUDIT_APP_DESCRIPTION` / `CLAUDIT_APP_PRIVACY_NOTICE_URL`
 are config, and config is hostile input. Each injection context has its
 own function (html and script payload and the URL-attribute allow-list
 in `backend/branding.py`, the export-filename slug in
@@ -185,3 +196,23 @@ page:
 
 A new surface echoing a brand value MUST route through one of these —
 not a copy, not a new escape, never `f"{value}"`.
+
+## Configuration names carry the app prefix (SV-ENV-PREFIX)
+
+Every environment variable claudit reads for its own configuration is named
+`CLAUDIT_<NAME>`. Previously released unprefixed names live only in
+`backend/env_config.py`'s `DEPRECATED_ENV_FALLBACKS` map and remain deprecated
+fallbacks for one release after a rename; the prefixed name wins, including
+an explicitly empty value. Unreleased names get no fallback. Startup reports
+active deprecated names once, without values. Platform variables claudit
+does not own and documented contributor-tool overrides are allow-listed with
+a reason in `tests/test_env_prefix.py` and `tests/test_env_prefix_scripts.py`.
+The tracked-tree guard is a backstop for accidental unprefixed reads in
+ordinary forms: Python `os.environ.get(...)`, `os.environ[...]`, and
+`os.getenv(...)`; JavaScript `process.env.X` and `process.env['X']` (including
+optional chaining and parenthesized access); shell `$X` and `${X}`. Aliases of
+`process` or the environment object, destructuring `env` from `process`,
+`node:process` imports, reflection (`Reflect.get` or `getattr` with a
+non-literal name), `printenv "$var"` or indirect expansion, `eval`, and
+generated code are deliberate evasions outside the guard's scope. Treat a new
+spelling as an issue only when it appears in real tracked-tree code.

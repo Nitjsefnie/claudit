@@ -5,7 +5,9 @@ script as a subprocess against the viz DB and streams back the PNG.
 """
 from __future__ import annotations
 
+
 import asyncio
+import json
 import os
 import re
 import sys
@@ -16,15 +18,17 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from starlette.responses import Response
 
-from backend import branding
+from backend.env_config import getenv
+from backend import branding, flags
 from backend.api_common import _parse_range
+from scripts.plots.ccusage_plot_features import has_drawable_features
 
 router = APIRouter()
 
 # Export-PNG render plumbing -------------------------------------------------
 # System python (has matplotlib + psycopg); the app .venv does not. Override
-# via EXPORT_PYTHON for dev/test boxes where matplotlib lives elsewhere.
-_EXPORT_PYTHON = os.environ.get("EXPORT_PYTHON", "/usr/bin/python3")
+# via CLAUDIT_EXPORT_PYTHON for dev/test boxes where matplotlib lives elsewhere.
+_EXPORT_PYTHON = getenv("CLAUDIT_EXPORT_PYTHON", "/usr/bin/python3")
 _EXPORT_SCRIPT = str(Path(__file__).resolve().parents[1] / "scripts/plots/ccusage_plot_db.py")
 _EXPORT_TIMEOUT_S = 120
 _export_lock = asyncio.Semaphore(1)
@@ -37,7 +41,7 @@ _export_lock = asyncio.Semaphore(1)
 _live_renders: dict[asyncio.subprocess.Process, str] = {}
 
 # A plot child that dies with this in its stderr is almost always the
-# EXPORT_PYTHON interpreter lacking matplotlib (dev-only: requirements-dev.txt,
+# CLAUDIT_EXPORT_PYTHON interpreter lacking matplotlib (dev-only: requirements-dev.txt,
 # not backend/requirements.txt) or psycopg — an environment problem, not a
 # render failure, so it earns a 503 that names the fix (issue #115).
 _MISSING_MODULE_RE = re.compile(r"ModuleNotFoundError")
@@ -67,7 +71,7 @@ def build_export_argv(rng: str, project: str | None, out_path: str) -> list[str]
     option rides in --opt=value form — a single argv element — because a
     project id is a path slug that may start with '-' (every POSIX Claude
     project), which argparse would read as an option in the two-element
-    space form (issue #380). The child inherits DATABASE_URL_VIZ from the
+    space form (issue #380). The child inherits CLAUDIT_DATABASE_URL_VIZ from the
     environment, so the DSN is NOT passed on the command line (keeps
     credentials out of the process list)."""
     argv = [_EXPORT_PYTHON, _EXPORT_SCRIPT, f"--output={out_path}"]
@@ -77,13 +81,16 @@ def build_export_argv(rng: str, project: str | None, out_path: str) -> list[str]
         argv.append(f"--period={rng}")
     if project:
         argv.append(f"--project={project}")
+    disabled = flags.CONFIG.disabled_features()
+    if disabled:
+        argv.append('--disabled-features=' + json.dumps(disabled, separators=(',', ':')))
     return argv
 
 
 def export_filename(rng: str, project: str | None) -> str:
     """Safe download filename: <brand>_<project-or-all>_<range>.png —
     the brand name slugified the same way the project is. Public: the
-    filename is part of the branding contract (every APP_NAME surfaces),
+    filename is part of the branding contract (every CLAUDIT_APP_NAME surfaces),
     and the branding tests pin it directly."""
     name = re.sub(r"[^A-Za-z0-9._-]", "_", branding.brand_name())
     proj_slug = re.sub(r"[^A-Za-z0-9._-]", "_", project) if project else "all"
@@ -123,7 +130,7 @@ async def _render_export(argv: list[str], out_path: str) -> None:
     HTTPException(404) when the child signals no data for the range or
     project (exit 3 — an empty outcome, not a failure), HTTPException(503)
     on timeout, when the interpreter died of a missing module, or when the
-    interpreter itself could not be launched (an EXPORT_PYTHON environment
+    interpreter itself could not be launched (a CLAUDIT_EXPORT_PYTHON environment
     problem), HTTPException(500) on any other non-zero exit. The child is
     killed and its pipes are drained on timeout, cancellation, or another
     exception while communicating."""
@@ -135,7 +142,7 @@ async def _render_export(argv: list[str], out_path: str) -> None:
         )
     except OSError as exc:
         # The spawn is the one failure mode OUTSIDE the guarded region
-        # below: an EXPORT_PYTHON naming a missing or unlaunchable
+        # below: an CLAUDIT_EXPORT_PYTHON naming a missing or unlaunchable
         # interpreter raises FileNotFoundError / PermissionError /
         # IsADirectoryError here, which nothing else classifies, so the
         # request died as an unhandled 500 (issue #949). Answer the same
@@ -143,9 +150,9 @@ async def _render_export(argv: list[str], out_path: str) -> None:
         # its resolved value and the fix.
         raise HTTPException(
             503,
-            f"export render failed: EXPORT_PYTHON ({_EXPORT_PYTHON}) "
+            f"export render failed: CLAUDIT_EXPORT_PYTHON ({_EXPORT_PYTHON}) "
             f"could not be launched ({exc.__class__.__name__}: {exc}) — "
-            "point EXPORT_PYTHON at an interpreter with backend/"
+            "point CLAUDIT_EXPORT_PYTHON at an interpreter with backend/"
             "requirements.txt and requirements-dev.txt installed "
             "(matplotlib and psycopg must both be importable)",
         ) from None
@@ -172,9 +179,9 @@ async def _render_export(argv: list[str], out_path: str) -> None:
             if _MISSING_MODULE_RE.search(text):
                 raise HTTPException(
                     503,
-                    f"export render failed: EXPORT_PYTHON ({_EXPORT_PYTHON}) "
+                    f"export render failed: CLAUDIT_EXPORT_PYTHON ({_EXPORT_PYTHON}) "
                     "is missing a Python module (ModuleNotFoundError) — point "
-                    "EXPORT_PYTHON at an interpreter with backend/requirements.txt "
+                    "CLAUDIT_EXPORT_PYTHON at an interpreter with backend/requirements.txt "
                     "and requirements-dev.txt installed (matplotlib and psycopg "
                     "must both be importable)",
                 )
@@ -275,6 +282,8 @@ async def export_png(
 ):
     """Render the full matplotlib dashboard PNG for the active filters.
     Logged-in only (guests are blocked in session.auth_middleware)."""
+    if not has_drawable_features(flags.CONFIG.disabled_features()):
+        raise HTTPException(404, "no enabled panels to render")
     _parse_range(rng)  # validation only — raises HTTPException(400) on garbage
     if _export_lock.locked():
         raise HTTPException(503, "an export is already in progress; try again shortly")

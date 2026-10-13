@@ -39,7 +39,7 @@ def guest_client_fixture():
 
 def _fixture_agent_key() -> str:
     """Read the stored R2 key for the mini fixture's known agent file."""
-    with psycopg.connect(os.environ["DATABASE_URL_VIZ"]) as conn:
+    with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
         row = conn.execute(
             "SELECT file_key FROM files "
             "WHERE project_id = 'projB' AND session_id = 'sess-C' "
@@ -50,7 +50,7 @@ def _fixture_agent_key() -> str:
 
 
 def _delete_seeded_records(file_key: str, line_nums: list[int]) -> None:
-    with psycopg.connect(os.environ["DATABASE_URL_VIZ"]) as conn:
+    with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
         conn.execute(
             "DELETE FROM records WHERE file_key = %s AND line_num = ANY(%s)",
             (file_key, line_nums),
@@ -70,7 +70,7 @@ def _seed_rollup_latency_outlier() -> tuple[int, int]:
         "line_num": line_num,
         "kind": "high",
     }
-    with psycopg.connect(os.environ["DATABASE_URL_VIZ"]) as conn:
+    with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
         conn.execute(
             "INSERT INTO latency_rollup "
             "(bucket_s, bucket, project_id, model, n, p10, p50, p90, outliers) "
@@ -81,7 +81,7 @@ def _seed_rollup_latency_outlier() -> tuple[int, int]:
 
 
 def _delete_rollup_latency_outlier() -> None:
-    with psycopg.connect(os.environ["DATABASE_URL_VIZ"]) as conn:
+    with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
         conn.execute(
             "DELETE FROM latency_rollup WHERE model = %s", (_ROLLUP_MODEL,)
         )
@@ -96,7 +96,7 @@ def _seed_live_latency_outliers() -> tuple[str, list[int]]:
          line_num - line_nums[0] + 1)
         for line_num in line_nums
     ]
-    with psycopg.connect(os.environ["DATABASE_URL_VIZ"]) as conn:
+    with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
         conn.cursor().executemany(
             "INSERT INTO records (file_key, line_num, request_id, ts, model, "
             "reply_latency_s) VALUES (%s, %s, %s, %s, %s, %s)",
@@ -136,7 +136,7 @@ def test_cache_guest_responses_remove_project_bearing_file_keys(
     line_num = 990001
     response_cache.clear()
     try:
-        with psycopg.connect(os.environ["DATABASE_URL_VIZ"]) as conn:
+        with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
             conn.execute(
                 "INSERT INTO records (file_key, line_num, request_id, ts, model, "
                 "output_tokens, cache_creation_tokens, cache_read_tokens) "
@@ -163,7 +163,7 @@ def test_cache_guest_redaction_preserves_cached_payload_in_both_orders(
     line_num = 990002
     response_cache.clear()
     try:
-        with psycopg.connect(os.environ["DATABASE_URL_VIZ"]) as conn:
+        with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
             conn.execute(
                 "INSERT INTO records (file_key, line_num, request_id, ts, model, "
                 "output_tokens, cache_creation_tokens, cache_read_tokens) "

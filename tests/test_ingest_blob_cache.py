@@ -37,7 +37,7 @@ def test_fetch_and_parse_forwards_the_listing_identity_only_when_cached(
                                  etag="e1", size=8)
     assert calls == [("k", ())]
 
-    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path / "cache"))
     ingest_fetch.fetch_and_parse("k", None, fetch, parse_file,
                                  etag="e1", size=8)
     assert calls[-1] == ("k", ("e1", 8))
@@ -51,9 +51,9 @@ def test_fetch_and_parse_answers_a_cache_hit_without_a_fetch(
     mirror.mkdir(parents=True)
     body = b"x\n"
     (mirror / "w.jsonl").write_bytes(body)
-    monkeypatch.setenv("R2_ENDPOINT", f"{(tmp_path).as_uri()}/")
-    monkeypatch.setenv("R2_BUCKET", "claude")
-    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{(tmp_path).as_uri()}/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "claude")
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path / "cache"))
     key = "claude/p/s/w.jsonl"
     # The real fetch callable, no spy: the consult sits below it, inside
     # r2.get_object, so "no second fetch" is proven by the second call
@@ -94,7 +94,7 @@ def test_ingest_run_populates_and_prunes_the_blob_cache(
     prune, so the cache on a live meter stays under its cap without a
     separate sweeper."""
     cache_dir = tmp_path / "cache"
-    monkeypatch.setenv("R2_BLOB_CACHE", str(cache_dir))
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(cache_dir))
     pruned: list[int] = []
     monkeypatch.setattr(blob_cache, "prune",
                         lambda *a, **k: pruned.append(1) or 0)

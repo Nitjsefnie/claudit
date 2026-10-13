@@ -24,7 +24,7 @@ def _node(script: str) -> dict:
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_backend_bucket_centers_expand_to_their_full_coverage():
     result = _node(r"""
-      const src = require('fs').readFileSync('src/app.jsx', 'utf8');
+      const src = require('fs').readFileSync('src/dashboard-shape.js', 'utf8');
       const start = src.indexOf('function backendAggregateRange');
       if (start < 0) throw new Error('backendAggregateRange helper missing');
       const end = src.indexOf('\nfunction backendDashToShape', start);
@@ -47,10 +47,11 @@ def test_backend_bucket_centers_expand_to_their_full_coverage():
 def test_backend_adapter_uses_complete_bucket_coverage():
     result = _node(r"""
       global.window = {shortModelName: model => model};
-      const src = require('fs').readFileSync('src/app.jsx', 'utf8');
+      require('./src/feature-flags.js');
+      const src = require('fs').readFileSync('src/dashboard-shape.js', 'utf8');
       const start = src.indexOf('function backendAggregateRange');
       if (start < 0) throw new Error('backendAggregateRange helper missing');
-      const end = src.indexOf('\nfunction TopBar', start);
+      const end = src.indexOf('\nwindow.backendDashToShape', start);
       const adapter = eval(src.slice(start, end) + '\n;({backendDashToShape})');
       const hour = 3600000;
       const hourly = [3, 9, 15].map((value, index) => ({

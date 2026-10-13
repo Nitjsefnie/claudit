@@ -44,7 +44,7 @@ def _lane_tree_fixture(tmp_path, monkeypatch):
     bucket = tmp_path / "r2" / "claude"
     _lane_project(bucket, "aaaa1111", _path_marker("/home/me/alpha"))
     _lane_project(bucket, "bbbb2222", _path_marker("/home/me/beta"))
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
     return bucket
 
 
@@ -223,8 +223,8 @@ def test_one_marker_key_in_two_buckets_is_two_rows(
                          ("beta", "/home/me/beta")):
         _lane_project(tmp_path / "r2" / bucket, "aaaa1111",
                       _path_marker(path))
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
-    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha+beta")
     alpha, beta = (f"{b}/sessions/aaaa1111/{_MARKER}" for b in ("alpha", "beta"))
 
     ingest.run_ingest(trigger="manual")

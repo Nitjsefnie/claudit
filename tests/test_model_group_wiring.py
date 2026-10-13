@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GROUP_JS = ROOT / "src" / "model-group.js"
 ADVANCE_JS = ROOT / "src" / "mono-advance.js"
 CHARTS = ROOT / "src" / "dashboard-charts.jsx"
-APP = ROOT / "src" / "app.jsx"
+APP = ROOT / "src" / "dashboard-view.jsx"
 INDEX = ROOT / "public" / "index.html"
 
 # The colour lookup the browser already has; the module reads it off

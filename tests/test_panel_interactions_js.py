@@ -585,7 +585,7 @@ def test_unhovered_targets_never_pass_silently():
     cap and an unreachable target are both the unhovered-targets finding;
     the old FOLDED pass is gone."""
     src = MODULE.read_text(encoding="utf-8")
-    assert "process.env.PANEL_INTERACTIONS_MAX_TARGETS || '0'" in src, (
+    assert "process.env.CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS || '0'" in src, (
         "the target cap no longer defaults to unlimited")
     assert src.count("unhovered-targets") >= 2, (
         "a biting cap and an unreachable target must both record")
@@ -655,9 +655,9 @@ def test_the_seeded_runs_run_one_width_and_uncapped():
     one width each, uncapped."""
     runner = (ROOT / "scripts" / "ci" / "panel_interactions_seeds.mjs") \
         .read_text(encoding="utf-8")
-    assert "PANEL_LAYOUT_WIDTHS" in runner, (
+    assert "CLAUDIT_PANEL_LAYOUT_WIDTHS" in runner, (
         "the seeds runner no longer pins each seeded run to one width")
-    assert "PANEL_INTERACTIONS_MAX_TARGETS" not in runner, (
+    assert "CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS" not in runner, (
         "the seeds runner still caps the sweep's targets")
     assert "spawnSync" not in runner, (
         "the seeds runner drives the seeds sequentially again")
