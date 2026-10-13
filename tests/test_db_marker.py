@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from tests import db_marker, scan_gate
+from tests.source_scan_cache import for_source, source as cached_source
 
 TESTS_DIR = Path(__file__).resolve().parent
 
@@ -74,8 +75,8 @@ def _scan_relevant(source: str) -> bool:
     The vocabulary gate that keeps this file's cost from scaling with
     the size of unrelated test files (issue #510): a module that names
     no fixture and reaches no server is invisible to both the registry
-    derivation and the marking guard, and is neither read into the AST
-    nor walked. The fixture half admits on compile-level vocabulary
+    derivation and the marking guard, and collects no DB facts. The
+    fixture half admits on compile-level vocabulary
     (tests/scan_gate) — a decorator or a ``getattr(pytest, "fixture")``
     spelling carries ``fixture`` in ``co_names``/``co_consts`` — so a
     file whose only ``fixture`` is prose (a comment or a docstring
@@ -96,34 +97,24 @@ def _scan_relevant(source: str) -> bool:
     return "fixture" in consts | names
 
 
-@functools.cache
 def _modules(
         directory: Path | None = None) -> tuple[tuple[str, ast.Module, str], ...]:
     """(module name, AST, source) for every relevant Python file in
     `directory`.
 
-    Defaults to tests/ itself. Cached per directory: both scanners below
-    derive from the same tree, and reading and parsing every test module
-    once per scanner was most of this file's cost (issue #496).
-
-    Modules the vocabulary gate (``_scan_relevant``) excludes are not
-    here: a module that names no fixture and reaches no server cannot
-    move either scanner's verdict. The cache is keyed on the directory,
-    and that is load-bearing rather than tidy. A test that re-points
-    this at a directory of its own and leaves the result cached would
-    hand every later reader — including the marking guard below, which
-    runs after it by definition order — that directory instead of the
-    real tree. The guard would then find nothing to flag and pass,
-    which reads exactly like a clean file.
+    Defaults to tests/ itself. Listings are fresh on every call; source
+    artifacts share reads and ASTs across both scanners. Modules the
+    vocabulary gate excludes cannot move either scanner's verdict.
     """
     root = TESTS_DIR if directory is None else directory
     modules = []
     for path in sorted(root.glob("*.py")):
-        source = path.read_text(encoding="utf-8")
+        source = cached_source(path)
         if not _scan_relevant(source):
             continue
-        modules.append(
-            (path.stem, ast.parse(source, filename=str(path)), source))
+        tree = for_source(source).tree(filename=str(path))
+        assert isinstance(tree, ast.Module)
+        modules.append((path.stem, tree, source))
     return tuple(modules)
 
 
@@ -359,22 +350,18 @@ def _derive_from_modules(modules) -> set[str]:
     return _rooted_fixture_names(fixtures, rooted)
 
 
-@functools.cache
 def _relevant_sources(
         directory: Path | None = None) -> tuple[tuple[str, str], ...]:
-    """(module name, source) for every relevant module, UNPARSED.
+    """(module name, source) for every relevant module, without DB facts.
 
-    The admission half of _modules, split out so the narrow derivation
-    (issue #715) can walk a subset: reading and admitting is C-side
-    cost, while ast.parse and the facts walk are where a module's line
-    count is paid. The cache is keyed on the directory for the same
-    reason _modules' is: a caller pointing this at a directory of its
-    own must never displace the real tree for later readers.
+    The admission half of _modules lets the narrow derivation walk a
+    subset. Listings stay fresh while content artifacts are shared;
+    admitting a module does not collect its DB facts.
     """
     root = TESTS_DIR if directory is None else directory
     out = []
     for path in sorted(root.glob("*.py")):
-        source = path.read_text(encoding="utf-8")
+        source = cached_source(path)
         if _scan_relevant(source):
             out.append((path.stem, source))
     return tuple(out)
@@ -416,7 +403,9 @@ def _derive_narrow(directory: Path | None = None) -> set[str]:
         modules = []
         for n in sorted(chosen):
             if n not in parsed:
-                parsed[n] = ast.parse(sources[n])
+                tree = for_source(sources[n]).tree()
+                assert isinstance(tree, ast.Module)
+                parsed[n] = tree
             modules.append((n, parsed[n], sources[n]))
         derived = _derive_from_modules(modules)
         hits = {n for n in unchosen - chosen
@@ -475,12 +464,6 @@ def test_the_registry_equals_what_the_source_derives():
 
 
 def test_scanning_another_directory_cannot_displace_the_real_tree(tmp_path):
-    # The leak this pins: a cache keyed on nothing let a caller that
-    # scanned a directory of its own hand that directory to every later
-    # reader — including the marking guard below, which runs after it by
-    # definition order. The guard then found nothing to flag and passed,
-    # which reads exactly like a clean file. `_modules` keys on the
-    # directory, so this holds no matter what the caller does.
     (tmp_path / "test_seeded_scan.py").write_text(
         "import pytest\n\n\n@pytest.fixture\ndef seeded():\n"
         "    return None\n", encoding="utf-8")
@@ -489,14 +472,14 @@ def test_scanning_another_directory_cannot_displace_the_real_tree(tmp_path):
     (tmp_path / "test_second_scan.py").write_text(
         "import pytest\n\n\n@pytest.fixture\ndef other():\n"
         "    return None\n", encoding="utf-8")
-    # The cached entry for THAT directory still stands ...
-    assert [name for name, _, _ in _modules(tmp_path)] == [
-        "test_seeded_scan"]
-    # ... it takes a clear to see the second file ...
-    _modules.cache_clear()
     assert sorted(name for name, _, _ in _modules(tmp_path)) == [
         "test_second_scan", "test_seeded_scan"]
-    # ... and the real tree was never displaced at any point above.
+    first = tmp_path / "test_seeded_scan.py"
+    first.write_text("value = 1\n", encoding="utf-8")
+    assert [name for name, _, _ in _modules(tmp_path)] == ["test_second_scan"]
+    first.unlink()
+    assert [name for name, _ in _relevant_sources(tmp_path)] == [
+        "test_second_scan"]
     assert "test_db_marker" in {name for name, _, _ in _modules()}
 
 
@@ -511,10 +494,8 @@ def _marking_offenders(directory: Path | None = None) -> list[str]:
     Each module's facts come from ONE walk (_module_facts, issue
     #675): the old form re-walked every function per fixpoint round
     for call sets that never changed between rounds. The two callers
-    share the ONE _modules cache entry the derive builds: keyed on the
-    caller's argument tuple, _modules() and _modules(None) were two
-    entries and two full parse passes, and the guard re-walked the
-    server modules' facts (issue #679).
+    share content artifacts, so narrow derivation and marking receive
+    the same AST/source pair and reuse the facts traversal.
     """
     offenders = []
     for mod_name, tree, source in (_modules() if directory is None

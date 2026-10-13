@@ -4,7 +4,8 @@ Two suites on one Postgres server used to share fixed database names, so
 each run's teardown removed the other's database mid-test. Every name now
 comes from tests/scratch_db.py; these tests hold that in place.
 """
-import io
+from __future__ import annotations
+
 import os
 import re
 import secrets
@@ -21,6 +22,7 @@ import pytest
 from psycopg import sql
 
 from tests import scratch_db
+from tests.source_scan_cache import for_source, source
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -444,7 +446,7 @@ def _db_vocab(text: str) -> bool:
 
 def _code(text: str) -> str:
     """The source without its comments; strings and docstrings stay."""
-    toks = tokenize.generate_tokens(io.StringIO(text).readline)
+    toks = for_source(text).tokens()
     return " ".join(t.string for t in toks if t.type != tokenize.COMMENT)
 
 
@@ -455,7 +457,7 @@ def _db_text(path: Path) -> str | None:
     free module out of the comment-stripping pass entirely (issue
     #510); None is the caller's skip signal.
     """
-    text = path.read_text(encoding="utf-8")
+    text = source(path)
     return text if _db_vocab(text) else None
 
 
