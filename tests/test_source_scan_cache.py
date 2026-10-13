@@ -18,7 +18,7 @@ from typing import Any, Iterator
 
 import pytest
 
-from tests import scan_gate, source_scan_cache, source_scan_index
+from tests import source_scan_cache, source_scan_index
 
 
 def _failure(call: Callable[[], object]) -> Exception:
@@ -50,6 +50,60 @@ def _code_signature(value: object) -> object:
 
 def _reference_code(text: str) -> types.CodeType:
     return compile(text, "<scan_gate>", "exec")
+
+
+def _reference_module_vocab(
+        source: str) -> tuple[frozenset[str], frozenset[str]]:
+    """Independent reference: scan_gate's original vocabulary algorithm."""
+    consts: set[str] = set()
+    names: set[str] = set()
+    stack = [compile(source, "<scan_gate>", "exec")]
+    while stack:
+        code = stack.pop()
+        for value in code.co_consts:
+            if isinstance(value, str):
+                consts.add(value)
+            elif isinstance(value, (tuple, frozenset, set, list)):
+                consts.update(_reference_container_strings(value))
+            elif isinstance(value, types.CodeType):
+                stack.append(value)
+        names.update(code.co_names)
+    return frozenset(consts), frozenset(names)
+
+
+def _reference_container_strings(value: Any) -> set[str]:
+    """Independent reference for strings in folded constant containers."""
+    found: set[str] = set()
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            found.add(item)
+        elif isinstance(item, (tuple, frozenset, set, list)):
+            stack.extend(item)
+    return found
+
+
+def _reference_module_def_vocab(source: str) -> tuple[frozenset[str], bool]:
+    """Independent reference: scan_gate's original def-site algorithm."""
+    consts: set[str] = set()
+    names: set[str] = set()
+    stack = [compile(source, "<scan_gate>", "exec")]
+    while stack:
+        code = stack.pop()
+        names.add(code.co_name)
+        names.update(code.co_varnames)
+        names.update(code.co_names)
+        for value in code.co_consts:
+            if isinstance(value, str):
+                consts.add(value)
+            elif isinstance(value, (tuple, frozenset, set, list)):
+                consts.update(_reference_container_strings(value))
+            elif isinstance(value, types.CodeType):
+                stack.append(value)
+    names.update(consts)
+    may_define_fixture = "pytest" in names and "fixture" in names
+    return frozenset(names), may_define_fixture
 
 
 def _count_preprocessing(
@@ -400,8 +454,8 @@ def test_invalid_parser_options_match_reference(options: dict[str, Any]) -> None
 ])
 def test_recursive_compiler_and_vocabulary_equivalence(text: str) -> None:
     expected_code = _code_signature(_reference_code(text))
-    expected_vocab = scan_gate.module_vocab(text)
-    expected_def_vocab = scan_gate.module_def_vocab(text)
+    expected_vocab = _reference_module_vocab(text)
+    expected_def_vocab = _reference_module_def_vocab(text)
     artifacts = source_scan_cache.for_source(text)
     assert _code_signature(artifacts.scan_code()) == expected_code
     assert source_scan_index.vocab(text) == expected_vocab
@@ -466,8 +520,8 @@ def test_one_compile_and_combined_index_walk(
             "    def inner(request):\n"
             "        return ('alpha', ('beta', 'gamma'))\n"
             "    return inner\n")
-    expected_vocab = scan_gate.module_vocab(text)
-    expected_def_vocab = scan_gate.module_def_vocab(text)
+    expected_vocab = _reference_module_vocab(text)
+    expected_def_vocab = _reference_module_def_vocab(text)
     calls: Counter[str] = Counter()
     original_compile = builtins.compile
     original_build = getattr(source_scan_index, "_build")
