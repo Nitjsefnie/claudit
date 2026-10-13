@@ -239,7 +239,9 @@ def test_generation_speed_persisted(fresh_db):
     )
     with db.viz_conn() as conn:
         rows = conn.execute(
-            "SELECT generation_s, output_tokens_per_s FROM records WHERE file_key = %s ORDER BY line_num",
+            "SELECT generation_s, output_tokens_per_s FROM records r "
+            "JOIN files f ON f.file_id = r.file_id "
+            "WHERE f.file_key = %s ORDER BY r.line_num",
             (key,),
         ).fetchall()
     assert rows == [(9, 10), (5, 6)]

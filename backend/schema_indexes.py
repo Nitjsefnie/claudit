@@ -14,12 +14,11 @@ if TYPE_CHECKING:
 
 
 # Fixed SQL only: configuration selects a branch, never an identifier.
+# records.turn_flags is an INT4 flag MASK on this branch (#959 ruling
+# R5), and Postgres has no default GIN operator class for integer — a
+# GIN over it cannot be built, so the turn_context analysis index is
+# absent here (tests/test_dims_migration.py pins that it stays gone).
 _ANALYSIS_INDEXES = (
-    (
-        "turn_context",
-        "CREATE INDEX IF NOT EXISTS records_turn_flags_idx ON public.records USING GIN (turn_flags);",
-        "DROP INDEX IF EXISTS public.records_turn_flags_idx;",
-    ),
     (
         "context_intake",
         "CREATE INDEX IF NOT EXISTS tool_uses_read_targets_idx ON public.tool_uses USING GIN (read_targets);",
