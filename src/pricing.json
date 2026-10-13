@@ -746,7 +746,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-13T20:53:55Z",
+  "provider_rates_fetched": "2026-10-13T21:53:47Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -1910,6 +1910,12 @@
           "fresh": 0.3,
           "from": "2026-09-25T15:48:05Z",
           "output": 1.2,
+          "read": 0.006
+        },
+        {
+          "fresh": 0.2,
+          "from": "2026-10-13T21:41:12Z",
+          "output": 1.0,
           "read": 0.006
         }
       ],
@@ -12076,6 +12082,13 @@
           "from": "2026-10-09T00:28:29Z",
           "output": 1.3455973222,
           "read": 0.0516136556
+        },
+        {
+          "fresh": 0.398808,
+          "from": "2026-10-13T21:53:47Z",
+          "note": "77.08% off",
+          "output": 0.797616,
+          "read": 0.033234
         }
       ],
       "Venice": [
