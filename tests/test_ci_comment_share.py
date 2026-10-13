@@ -70,6 +70,14 @@ CASES = [
     ('shell_escaped_space_case_content', 'sh', 'echo $(printf \\ case) # yes\n', (4, 22)),
     ('shell_case_joined_backtick', 'sh', 'echo $(printf case`echo x`) # yes\n', (4, 28)),
     ('shell_quoted_case_delimiter', 'sh', "echo $(cat <<'case'\ncase\n) # yes\n", (4, 26)),
+    ('shell_brace_in_word', 'sh', 'echo foo{#data}\n# yes\n', (4, 18)),
+    ('shell_brace_word', 'sh', 'echo {# data}\n# yes\n', (4, 15)),
+    ('shell_brace_group', 'sh', '{ echo x; } # yes\n', (4, 12)),
+    ('shell_brace_after_expansion', 'sh', 'echo $x{#y}\n# yes\n', (4, 14)),
+    ('shell_nonblank_whitespace', 'sh', 'echo a\r# b $c\xa0# d\n# yes\n', (4, 15)),
+    ('shell_compound_assignment', 'sh', 'a=(1 # c\n)#x\nf() { :; } # yes\n', (6, 20)),
+    ('shell_nested_compound_assignment', 'sh', 'echo $(a=(1)#x) # yes\n', (4, 18)),
+    ('shell_process_substitution', 'sh', 'cat a<(echo a)#x >(:)#y\n# yes\n', (4, 24)),
     ('empty', 'py', ' \t\n', (0, 0)),
     ('js_literals', 'js', 'const a = "//"; const b = `// ${1}`; const c = /\\/\\//; // a\n/* b c */\n', (9, 51)),
     ('mjs', 'mjs', 'export const x = 1; // hi\n', (4, 19)),
@@ -140,6 +148,9 @@ REFUSED_SHELL = [
     'echo "$(case x in\nx) echo x ;;\nesac\n)"\n',
     'echo "$(time case x in\nx) echo x ;;\nesac\n)"\n',
     'echo "`case x in\nx) echo x ;;\nesac\n`"\n',
+    '[[ ab =~ (a)#b ]] && echo y\n',
+    '[[ ab == @(a)#b ]] && echo y\n',
+    'cat <(case x in\nx) echo x ;; # real\nesac\n) # yes\n',
 ]
 REFUSED_SOURCES = [("refused.sh", source) for source in REFUSED_SHELL] + [
     ("refused.yaml", "run: |\n" + "".join("  " + line for line in source.splitlines(keepends=True)))
