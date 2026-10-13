@@ -60,7 +60,7 @@ factors (a member requires its tracked entry, which the same run adds); an
 unbanded vendor-tracked key is removed from its group, and every non-vendor
 key stands untouched. A threshold move changes groups, creating the new one
 and deleting the old one if it becomes empty. These changes move the version:
-the reprice pass re-derives records.long_context from membership, and a meter
+the reprice pass re-derives records_price.long_context from membership, and a meter
 entry moves the rate fingerprint the reprice consults — so a quiet run (no
 add, no fold) still writes nothing.
 
