@@ -95,10 +95,10 @@ def test_ctx_turns_stored_per_file(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT file_key, turn_count, jsonb_array_length(ctx_turns) FROM files"
+            "SELECT file_key, turn_count, cardinality(ctx_input) FROM files"
         ).fetchall()
     for fk, tc, jlen in rows:
-        assert tc == jlen, f"{fk}: turn_count={tc} but ctx_turns has {jlen}"
+        assert tc == jlen, f"{fk}: turn_count={tc} but ctx_input has {jlen}"
 
 
 def test_nul_in_tool_text_still_stores(fresh_db, mini_r2_env):

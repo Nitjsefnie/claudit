@@ -160,8 +160,8 @@ def test_optional_fields_nullable_and_old_defaults_compatible(monkeypatch):
             assert conn.execute(
                 "SELECT collection_flags FROM files WHERE file_key = 'off'").fetchone() == (None,)
             assert conn.execute(
-                "SELECT models, prompt_count, turn_count, ctx_turns, prompt_ts, agent_type "
-                "FROM files WHERE file_key = 'old'").fetchone() == ([], 0, 0, [], [], "general-purpose")
+                "SELECT models, prompt_count, turn_count, ctx_ts, ctx_line, ctx_input, ctx_output, prompt_ts, agent_type "
+                "FROM files WHERE file_key = 'old'").fetchone() == ([], 0, 0, [], [], [], [], [], "general-purpose")
             assert conn.execute(
                 "SELECT turn_flags, turn_tool_results, cache_write_tokens, request_id, "
                 "fresh_tokens, output_tokens, is_canonical FROM records "

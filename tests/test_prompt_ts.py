@@ -8,7 +8,7 @@ import json
 import os
 import shutil
 import tempfile
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -17,8 +17,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend import api, db, ingest, parse
-from tests import scratch_db
+from backend import api, api_common, api_ctx_growth, api_dashboard, cache, db, ingest, parse, r2
+from tests import dims_seed, scratch_db
+from tests.test_ingest import _fresh_db_fixture  # pylint: disable=unused-import
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
 
@@ -146,15 +147,13 @@ def test_dashboard_counts_prompts_and_turns_by_own_timestamp(
     assert body_all["total_turns"] == 3    # == the old SUM(turn_count)
 
 
-def test_dashboard_counts_junk_prompt_ts_as_unprovable(
+def test_dashboard_counts_null_prompt_ts_as_unprovable(
         app_with_prompt_range_data):
-    """A prompt_ts element that is a JUNK string fails pg_input_is_valid,
-    so its being out of range is unprovable and it COUNTS (ruling P1),
-    while a genuinely older stamped element in the same array stays out.
-    The parser never writes junk, so this seeds a files row directly."""
+    """A NULL timestamp, including migrated junk, counts in every range;
+    a genuinely older stamped element in the same array stays out."""
     now = datetime.now(timezone.utc)
-    junk_ts = [
-        "not-a-timestamp",
+    prompt_ts = [
+        None,
         now.isoformat(),                                # in range
         (now - timedelta(days=45)).isoformat(),         # provably out
     ]
@@ -165,14 +164,214 @@ def test_dashboard_counts_junk_prompt_ts_as_unprovable(
             "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
             "parser_version, prompt_count, prompt_ts) VALUES "
             "('claude/projA/sess-RJ/sess-RJ.jsonl', 'projA', 'sess-RJ', "
-            "TRUE, 'junk-etag', 10, now(), now(), 'test', 3, %s::jsonb)",
-            (json.dumps(junk_ts),),
+            "TRUE, 'junk-etag', 10, now(), now(), 'test', 3, %s::timestamptz[])",
+            (prompt_ts,),
         )
         conn.commit()
 
     body = app_with_prompt_range_data.get(
         "/api/dashboard?range=30d&fresh=1").json()
-    # RA 2 (in-range + unstamped) + RB 1 + RJ 2 (junk + in-range; the
+    # RA 2 (in-range + unstamped) + RB 1 + RJ 2 (NULL + in-range; the
     # 45-day-old element is the only provably-out-of-range one).
     assert body["total_prompts"] == 5
-    assert body["total_turns"] == 2  # RJ carries no ctx_turns
+    assert body["total_turns"] == 2  # RJ carries no context turns
+
+
+_TIMELINE_NOW = datetime(2026, 6, 23, 12, tzinfo=timezone.utc)
+_TIMELINE_TURNS = [
+    {"idx": 1, "ts": "", "line": 2, "input": 100, "output": 5, "delta": 100},
+    {"idx": 2, "ts": "2026-05-01T10:00:00+00:00", "line": 4,
+     "input": 250, "output": 9, "delta": 150},
+    {"idx": 3, "ts": "2026-06-23T10:00:00+00:00", "line": 6,
+     "input": 80, "output": 7, "delta": -170},
+]
+_TIMELINE_PATHS = (
+    "/api/context-growth/traces?range=30d",
+    "/api/context-growth/agg?range=30d",
+    "/api/context-growth/session/timeline",
+    "/api/context-growth/session/empty",
+    "/api/sessions/timeline",
+    "/api/dashboard?range=30d&fresh=1",
+)
+
+
+def _timeline_clock(monkeypatch):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return _TIMELINE_NOW.astimezone(tz or timezone.utc)
+
+    original_viz_conn = db.viz_conn
+
+    @contextmanager
+    def utc_conn():
+        with original_viz_conn() as conn:
+            conn.execute("SET TimeZone = 'UTC'")
+            yield conn
+
+    monkeypatch.setattr(db, "viz_conn", utc_conn)
+    for module in (api_common, api_ctx_growth, api_dashboard):
+        monkeypatch.setattr(module, "datetime", Clock)
+
+
+def _seed_old_timelines(conn):
+    # Install the old timeline columns even when the base DDL is typed.
+    conn.execute("ALTER TABLE files DROP CONSTRAINT IF EXISTS files_ctx_cardinality")
+    for column in ("ctx_ts", "ctx_line", "ctx_input", "ctx_output"):
+        conn.execute(f"ALTER TABLE files DROP COLUMN IF EXISTS {column}")
+    conn.execute("ALTER TABLE files ADD COLUMN IF NOT EXISTS "
+                 "ctx_turns JSONB NOT NULL DEFAULT '[]'")
+    conn.execute("ALTER TABLE files ALTER COLUMN prompt_ts DROP DEFAULT, "
+                 "ALTER COLUMN prompt_ts TYPE JSONB USING '[]'::jsonb, "
+                 "ALTER COLUMN prompt_ts SET DEFAULT '[]'::jsonb")
+    dims_seed.seed_project(conn, "timeline-project")
+    for sid, turns, prompts in (
+            ("timeline", _TIMELINE_TURNS,
+             [None, "junk", "2026-05-01T10:00:00+00:00",
+              "2026-06-23T10:00:00+00:00"]),
+            ("empty", [], [])):
+        conn.execute(
+            "INSERT INTO files (file_key, project_id, session_id, is_main, "
+            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, parser_version, "
+            "ctx_turns, prompt_ts, turn_count, prompt_count) "
+            "VALUES (%s, 'timeline-project', %s, TRUE, 'e', 1, %s, %s, "
+            "'test', %s, %s, %s, %s)",
+            (f"claude/timeline-project/{sid}/{sid}.jsonl", sid,
+             _TIMELINE_NOW, _TIMELINE_NOW, dims_seed.Jsonb(turns),
+             dims_seed.Jsonb(prompts), len(turns), len(prompts)))
+    dims_seed.seed_usage_rollup(conn, "timeline-project", "timeline",
+                                _TIMELINE_NOW, model="timeline-model")
+    conn.commit()
+
+
+def _timeline_responses():
+    app = FastAPI()
+    app.include_router(api.router)
+    cache.response_cache.clear()
+    with TestClient(app) as client:
+        responses = [client.get(path) for path in _TIMELINE_PATHS]
+    assert all(r.status_code == 200 for r in responses)
+    return [r.content.decode() for r in responses]
+
+
+def _timeline_schema(conn):
+    return conn.execute(
+        "SELECT column_name, udt_name, is_nullable, column_default "
+        "FROM information_schema.columns WHERE table_name = 'files' "
+        "AND table_schema = 'public' AND column_name = ANY(%s) ORDER BY column_name",
+        (["ctx_ts", "ctx_line", "ctx_input", "ctx_output", "prompt_ts"],)).fetchall()
+
+
+@pytest.mark.db
+def test_typed_timelines_migrate_in_place(monkeypatch):
+    """JSON timelines retain positions, nulls, counts and response bytes."""
+    _timeline_clock(monkeypatch)
+    name = scratch_db.create_database("timelines")
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")
+    db.reset_viz_pool()
+    try:
+        with psycopg.connect(f"postgresql:///{name}") as conn:
+            fresh_shape = _timeline_schema(conn)
+            _seed_old_timelines(conn)
+            prompt_attnum = conn.execute(
+                "SELECT attnum FROM pg_attribute WHERE attrelid = 'files'::regclass "
+                "AND attname = 'prompt_ts'").fetchone()
+        db.apply_schema()
+        with db.viz_conn() as conn:
+            assert _timeline_schema(conn) == fresh_shape
+            assert conn.execute(
+                "SELECT attnum FROM pg_attribute WHERE attrelid = 'files'::regclass "
+                "AND attname = 'prompt_ts'").fetchone() == prompt_attnum
+            columns = scratch_db.table_columns(conn, "files")
+            assert "ctx_turns" not in columns
+            assert {"ctx_ts", "ctx_line", "ctx_input", "ctx_output"} <= columns
+            row = conn.execute(
+                "SELECT ctx_ts, ctx_line, ctx_input, ctx_output, prompt_ts "
+                "FROM files WHERE session_id = 'timeline'").fetchone()
+            assert row is not None
+            assert row == (
+                [None, datetime(2026, 5, 1, 10, tzinfo=timezone.utc),
+                 datetime(2026, 6, 23, 10, tzinfo=timezone.utc)],
+                [2, 4, 6], [100, 250, 80], [5, 9, 7],
+                [None, None, datetime(2026, 5, 1, 10, tzinfo=timezone.utc),
+                 datetime(2026, 6, 23, 10, tzinfo=timezone.utc)])
+            assert conn.execute(
+                "SELECT ctx_ts, ctx_line, ctx_input, ctx_output, prompt_ts "
+                "FROM files WHERE session_id = 'empty'").fetchone() == ([], [], [], [], [])
+            with pytest.raises(psycopg.errors.CheckViolation):
+                with conn.transaction():
+                    conn.execute("UPDATE files SET ctx_line = '{}' "
+                                 "WHERE session_id = 'timeline'")
+            attnums = conn.execute(
+                "SELECT attnum FROM pg_attribute WHERE attrelid = 'files'::regclass "
+                "ORDER BY attnum").fetchall()
+            conn.execute("DELETE FROM schema_stamp")
+            conn.commit()
+        assert _timeline_responses() == _LEGACY_TIMELINE_RESPONSES
+        db.apply_schema()
+        with db.viz_conn() as conn:
+            assert _timeline_schema(conn) == fresh_shape
+            assert conn.execute(
+                "SELECT attnum FROM pg_attribute WHERE attrelid = 'files'::regclass "
+                "ORDER BY attnum").fetchall() == attnums
+        assert _timeline_responses() == _LEGACY_TIMELINE_RESPONSES
+    finally:
+        db.reset_viz_pool()
+        scratch_db.drop_database(name)
+
+
+@pytest.mark.parametrize("field", ["idx", "delta"])
+def test_persist_refuses_non_derivable_ctx_turns(fresh_db, field):
+    """Dropping a non-derived idx/delta must not silently change a trace."""
+    turns = [dict(t) for t in _TIMELINE_TURNS]
+    turns[1][field] += 1
+    parsed = {"ctx_turns": turns, "turn_count": 3, "prompt_count": 0,
+              "records": [], "tool_uses": []}
+    obj = r2.R2Object("claude/timeline-project/timeline/timeline.jsonl",
+                      "e", 1, _TIMELINE_NOW)
+    proj = {"project_id": "timeline-project", "display_name": "timeline-project",
+            "first_seen_at": _TIMELINE_NOW, "last_seen_at": _TIMELINE_NOW}
+    with pytest.raises(ValueError, match="ctx turn.*idx/delta"):
+        ingest._persist(obj, proj, parsed, "test")  # pylint: disable=protected-access
+    with db.viz_conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM files").fetchone() == (0,)
+
+
+# Response bytes captured from the JSONB readers over the synthetic seed.
+_LEGACY_TIMELINE_RESPONSES = [
+    (
+        '{"traces":[{"model":"","turns":[100,250,80]}]}'
+    ),
+    (
+        '{"range":"30d","project":null,"per_turn":{"n":3,"mean":143,"p50":100,"p90":220,"p99":247,"max":250},'
+        '"per_session_final":{"n":1,"mean":80,"p50":80,"p90":80,"p99":80,"max":80}}'
+    ),
+    (
+        '{"session_id":"timeline","file_key":"timeline-project/timeline/timeline.jsonl","turns":[{"ts":"","id'
+        'x":1,"line":2,"delta":100,"input":100,"output":5},{"ts":"2026-05-01T10:00:00+00:00","idx":2,"line":4'
+        ',"delta":150,"input":250,"output":9},{"ts":"2026-06-23T10:00:00+00:00","idx":3,"line":6,"delta":-170'
+        ',"input":80,"output":7}],"total_turns":3,"final_ctx":80}'
+    ),
+    (
+        '{"session_id":"empty","file_key":"timeline-project/empty/empty.jsonl","turns":[],"total_turns":0,"fi'
+        'nal_ctx":0}'
+    ),
+    (
+        '{"session_id":"timeline","project_id":"timeline-project","first_event_at":null,"last_event_at":null,'
+        '"duration_s":0,"request_count":0,"input_tokens":0,"output_tokens":0,"cache_create_5m_tokens":0,"cach'
+        'e_create_1h_tokens":0,"cache_read_tokens":0,"cost_usd":0.0,"models":{},"limit_hits":0,"r2_key":"time'
+        'line-project/timeline/timeline.jsonl","ctx_trace":[{"t":1777629600,"ctx":250},{"t":1782208800,"ctx":'
+        '80}],"burn":{"tps":0.0,"model":"","hit_5h_limit":false}}'
+    ),
+    (
+        '{"range":"30d","project":null,"bucket_s":21600,"hourly":[{"hour":"2026-06-23T15:00:00+00:00","model"'
+        ':"timeline-model","long_context":false,"provider":null,"cost_usd":0.0,"requests":1,"session_count":1'
+        ',"lines_added":0,"lines_deleted":0}],"token_types":[],"cost_by_model":[],"cost_by_model_provider":[]'
+        ',"cost_by_project":[],"tokens_by_project":[],"rate_limit_hits":[],"hide_rate_limits":false,"sessions'
+        '":[{"session_id":"timeline","start_ts":1782216000.0,"end_ts":1782216000.0,"requests":1,"input_tokens'
+        '":0,"output_tokens":0,"cache_create_tokens":0,"cache_read_tokens":0,"cost_usd":0.0,"model":"timeline'
+        '-model","models_used":["timeline-model"],"ctx_at_end":80}],"total_sessions":1,"main_w_usage":0,"main'
+        '_empty":2,"subagent_files":0,"subagent_only_sessions":0,"total_prompts":3,"total_turns":2,"response_'
+        'sizes":[]}'
+    ),
+]

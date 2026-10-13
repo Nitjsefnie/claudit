@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from typing import Any
 
+from backend.file_timelines import ctx_columns
 from backend import (constants, db, dims, ingest_identity, key_layout,
                      parse, pricing, r2, rate_fingerprint, turn_flag_bits,
                      uuid_split)
@@ -429,12 +430,10 @@ def _persist(obj, proj, parsed, parser_version) -> None:
             "r2_last_modified": obj.last_modified,
             "parsed_at": datetime.now(timezone.utc),
             "parser_version": parser_version,
-            "ctx_turns": json.dumps(parsed["ctx_turns"], default=str),
+            **ctx_columns(parsed["ctx_turns"]),
             "turn_count": parsed["turn_count"],
             "prompt_count": parsed["prompt_count"],
-            "prompt_ts": json.dumps(
-                parsed.get("prompt_ts", []), default=str
-            ),
+            "prompt_ts": parsed.get("prompt_ts", []),
             "rate_limit_hits": json.dumps(
                 parsed.get("rate_limit_hits", []), default=str
             ),

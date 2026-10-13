@@ -49,6 +49,7 @@ SCHEMA = (
     Path(__file__).resolve().parents[1] / "backend" / "schema_types.sql",
     Path(__file__).resolve().parents[1] / "backend"
     / "schema_records_price.sql",
+    Path(__file__).resolve().parents[1] / "backend" / "schema_timelines.sql",
 )
 
 # The schema every earlier file builds: everything except the #959
@@ -61,7 +62,8 @@ SCHEMA = (
 OLD_SCHEMA = tuple(
     p for p in SCHEMA
     if p.name not in ("schema_widths.sql", "schema_dims.sql",
-                      "schema_types.sql", "schema_records_price.sql"))
+                      "schema_types.sql", "schema_records_price.sql",
+                      "schema_timelines.sql"))
 
 _RUN_NAME = re.compile(
     rf"^(?P<base>{RUN_PREFIX}(?P<epoch>\d+)_(?P<pid>\d+)_[0-9a-f]{{8}})"

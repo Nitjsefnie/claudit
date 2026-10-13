@@ -157,7 +157,8 @@ R2 (one or more buckets: claude, codex, kimi, …)
   ↓  hourly ingest  (APScheduler @ :15 UTC, or POST /admin/ingest)
 Postgres `claudit`
   • projects     (project_id PK)
-  • files        (file_key PK = <bucket>/<object-key>, ctx_turns JSONB,
+  • files        (file_key PK = <bucket>/<object-key>, ctx_ts TIMESTAMPTZ[],
+                  ctx_line/ctx_input/ctx_output INTEGER[], prompt_ts TIMESTAMPTZ[],
                   rate_limit_hits JSONB)
   • records      (file_key, line_num PK, per-request tokens + cost
                   + text_chars for visible-response size

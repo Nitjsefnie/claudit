@@ -152,20 +152,20 @@ def test_opening_the_dashboard_runs_the_trace_query_at_most_once(
 
 
 def _seed_large_ctx_turns(turns: int = 400) -> None:
-    """Rewrite one main file's ctx_turns to a large, realistic trace.
+    """Rewrite one main file's typed context timeline to a large, realistic trace.
 
     The mini fixture's traces are tiny, so a payload budget alone would
     not notice them returning. This gives one file 400 turns carrying the
-    same keys backend/ctx_turns.py writes, so the body the traces would
-    add is unmistakably over budget.
+    typed values that the traces reader projects, so its response size
+    would exceed the dashboard's budget.
     """
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         cur.execute(
-            "UPDATE files SET ctx_turns = ("
-            "  SELECT jsonb_agg(jsonb_build_object("
-            "    'idx', i, 'ts', '', 'line', i,"
-            "    'input', i * 1000, 'output', 5, 'delta', 1000))"
+            "UPDATE files SET (ctx_ts, ctx_line, ctx_input, ctx_output) = ("
+            "  SELECT array_agg(NULL::timestamptz ORDER BY i),"
+            "         array_agg(i ORDER BY i), array_agg(i * 1000 ORDER BY i),"
+            "         array_agg(5 ORDER BY i)"
             "  FROM generate_series(1, %s) AS i) "
             "WHERE file_key = (SELECT file_key FROM files "
             "                  WHERE is_main ORDER BY file_key LIMIT 1)",
@@ -211,18 +211,16 @@ def _main_file_with_records() -> tuple[str, str]:
 
 
 def _seed_ctx_turn_inputs(file_key: str, inputs: list[int]) -> None:
-    """Rewrite one file's ctx_turns to `inputs`, in order."""
+    """Rewrite one file's context inputs to `inputs`, in order."""
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         cur.execute(
-            "UPDATE files SET ctx_turns = ("
-            "  SELECT jsonb_agg(jsonb_build_object("
-            "    'idx', i, 'ts', '', 'line', i, 'input', arr.v,"
-            "    'output', 5, 'delta', 0) ORDER BY i) "
-            "  FROM generate_series(1, %s) AS i "
-            "  CROSS JOIN LATERAL (SELECT (%s::int[])[i] AS v) arr"
+            "UPDATE files SET (ctx_ts, ctx_line, ctx_input, ctx_output) = ("
+            "  SELECT array_agg(NULL::timestamptz ORDER BY i),"
+            "         array_agg(i ORDER BY i), %s::integer[], array_agg(5 ORDER BY i)"
+            "  FROM generate_series(1, %s) AS i"
             ") WHERE file_key = %s",
-            (len(inputs), inputs, file_key),
+            (inputs, len(inputs), file_key),
         )
         conn.commit()
 
@@ -231,8 +229,8 @@ def test_ctx_at_end_is_the_last_turn_not_the_first(app_with_fresh_data):
     """ctx_at_end must read the LAST ctx turn, not the first.
 
     Every file in fixtures/r2_mini carries exactly ONE ctx turn, so
-    `ctx_turns -> -1` and `-> 0` are indistinguishable there: a future
-    edit to `-> 0` would silently make every ctx_at_end the FIRST turn.
+    first and last array subscripts are indistinguishable there: a future
+    edit to subscript 1 would silently make every ctx_at_end the FIRST turn.
     Seed a multi-turn trace whose first and last inputs differ, and pin
     that the dashboard reports the last one (issue #838).
     """
