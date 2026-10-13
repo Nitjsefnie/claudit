@@ -244,6 +244,38 @@ def _seed_old_timelines(conn):
     conn.commit()
 
 
+def _seed_distinguishable_timelines(conn):
+    for sid, stem, main, inputs in (
+            ("zulu", "zulu", False, [901, 800]),
+            ("alpha", "alpha", True, [303, 707]),
+            ("timeline", "z-last", True, [909, 4000])):
+        turns, previous = [], 0
+        for idx, value in enumerate(inputs, 1):
+            turns.append({"idx": idx, "ts": _TIMELINE_NOW.isoformat(), "line": idx,
+                          "input": value, "output": idx, "delta": value - previous})
+            previous = value
+        conn.execute(
+            "INSERT INTO files (file_key, project_id, session_id, is_main, "
+            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, parser_version, "
+            "ctx_turns, prompt_ts, turn_count, prompt_count) "
+            "VALUES (%s, 'timeline-project', %s, %s, 'e', 1, %s, %s, 'test', %s, %s, %s, 1)",
+            (f"claude/timeline-project/{sid}/{stem}.jsonl", sid, main,
+             _TIMELINE_NOW, _TIMELINE_NOW, dims_seed.Jsonb(turns),
+             dims_seed.Jsonb([None]), len(turns)))
+    mid = dims_seed.dim_id(conn, "dim_model", "synthetic-wire-model")
+    fid = dims_seed.file_id(conn, "claude/timeline-project/timeline/timeline.jsonl")
+    for idx in (1, 2):
+        conn.execute(
+            "INSERT INTO records (file_id, line_num, fallback, ts, model_id, fresh_tokens, "
+            "output_tokens, eph5_tokens, eph1h_tokens, cache_read_tokens) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (fid, idx, f"parity-{idx}", _TIMELINE_NOW + timedelta(seconds=idx * 30),
+             mid, 11 * idx, 13 * idx, 17 * idx, 19 * idx, 23 * idx))
+        conn.execute("INSERT INTO records_price (file_id, line_num) VALUES (%s, %s)",
+                     (fid, idx))
+    conn.commit()
+
+
 def _timeline_responses():
     app = FastAPI()
     app.include_router(api.router)
@@ -273,11 +305,19 @@ def test_typed_timelines_migrate_in_place(monkeypatch):
         with psycopg.connect(f"postgresql:///{name}") as conn:
             fresh_shape = _timeline_schema(conn)
             _seed_old_timelines(conn)
+            _seed_distinguishable_timelines(conn)
             prompt_attnum = conn.execute(
                 "SELECT attnum FROM pg_attribute WHERE attrelid = 'files'::regclass "
                 "AND attname = 'prompt_ts'").fetchone()
         db.apply_schema()
         with db.viz_conn() as conn:
+            assert _timeline_schema(conn) == [
+                ("ctx_input", "_int4", "NO", "'{}'::integer[]"),
+                ("ctx_line", "_int4", "NO", "'{}'::integer[]"),
+                ("ctx_output", "_int4", "NO", "'{}'::integer[]"),
+                ("ctx_ts", "_timestamptz", "NO", "'{}'::timestamp with time zone[]"),
+                ("prompt_ts", "_timestamptz", "NO", "'{}'::timestamp with time zone[]"),
+            ]
             assert _timeline_schema(conn) == fresh_shape
             assert conn.execute(
                 "SELECT attnum FROM pg_attribute WHERE attrelid = 'files'::regclass "
@@ -287,7 +327,7 @@ def test_typed_timelines_migrate_in_place(monkeypatch):
             assert {"ctx_ts", "ctx_line", "ctx_input", "ctx_output"} <= columns
             row = conn.execute(
                 "SELECT ctx_ts, ctx_line, ctx_input, ctx_output, prompt_ts "
-                "FROM files WHERE session_id = 'timeline'").fetchone()
+                "FROM files WHERE file_key = 'claude/timeline-project/timeline/timeline.jsonl'").fetchone()
             assert row is not None
             assert row == (
                 [None, datetime(2026, 5, 1, 10, tzinfo=timezone.utc),
@@ -298,16 +338,21 @@ def test_typed_timelines_migrate_in_place(monkeypatch):
             assert conn.execute(
                 "SELECT ctx_ts, ctx_line, ctx_input, ctx_output, prompt_ts "
                 "FROM files WHERE session_id = 'empty'").fetchone() == ([], [], [], [], [])
-            with pytest.raises(psycopg.errors.CheckViolation):
-                with conn.transaction():
-                    conn.execute("UPDATE files SET ctx_line = '{}' "
-                                 "WHERE session_id = 'timeline'")
+            for column in ("ctx_line", "ctx_input", "ctx_output"):
+                with pytest.raises(psycopg.errors.CheckViolation):
+                    with conn.transaction():
+                        conn.execute(f"UPDATE files SET {column} = '{{}}' "
+                                     "WHERE session_id = 'timeline'")
             attnums = conn.execute(
                 "SELECT attnum FROM pg_attribute WHERE attrelid = 'files'::regclass "
                 "ORDER BY attnum").fetchall()
             conn.execute("DELETE FROM schema_stamp")
             conn.commit()
-        assert _timeline_responses() == _LEGACY_TIMELINE_RESPONSES
+        responses = _timeline_responses()
+        assert responses == _LEGACY_TIMELINE_RESPONSES, {
+            path: (old, new) for path, old, new in
+            zip(_TIMELINE_PATHS, _LEGACY_TIMELINE_RESPONSES, responses, strict=True)
+            if old != new}
         db.apply_schema()
         with db.viz_conn() as conn:
             assert _timeline_schema(conn) == fresh_shape
@@ -340,11 +385,12 @@ def test_persist_refuses_non_derivable_ctx_turns(fresh_db, field):
 # Response bytes captured from the JSONB readers over the synthetic seed.
 _LEGACY_TIMELINE_RESPONSES = [
     (
-        '{"traces":[{"model":"","turns":[100,250,80]}]}'
+        '{"traces":[{"model":"synthetic-wire-model","turns":[100,250,80]},{"model":"","turns":[909,4000]},{"m'
+        'odel":"","turns":[303,707]},{"model":"","turns":[901,800]}]}'
     ),
     (
-        '{"range":"30d","project":null,"per_turn":{"n":3,"mean":143,"p50":100,"p90":220,"p99":247,"max":250},'
-        '"per_session_final":{"n":1,"mean":80,"p50":80,"p90":80,"p99":80,"max":80}}'
+        '{"range":"30d","project":null,"per_turn":{"n":9,"mean":894,"p50":707,"p90":1527,"p99":3752,"max":400'
+        '0},"per_session_final":{"n":3,"mean":1595,"p50":707,"p90":3341,"p99":3934,"max":4000}}'
     ),
     (
         '{"session_id":"timeline","file_key":"timeline-project/timeline/timeline.jsonl","turns":[{"ts":"","id'
@@ -357,11 +403,12 @@ _LEGACY_TIMELINE_RESPONSES = [
         'nal_ctx":0}'
     ),
     (
-        '{"session_id":"timeline","project_id":"timeline-project","first_event_at":null,"last_event_at":null,'
-        '"duration_s":0,"request_count":0,"input_tokens":0,"output_tokens":0,"cache_create_5m_tokens":0,"cach'
-        'e_create_1h_tokens":0,"cache_read_tokens":0,"cost_usd":0.0,"models":{},"limit_hits":0,"r2_key":"time'
-        'line-project/timeline/timeline.jsonl","ctx_trace":[{"t":1777629600,"ctx":250},{"t":1782208800,"ctx":'
-        '80}],"burn":{"tps":0.0,"model":"","hit_5h_limit":false}}'
+        '{"session_id":"timeline","project_id":"timeline-project","first_event_at":"2026-06-23T12:00:30+00:00'
+        '","last_event_at":"2026-06-23T12:01:00+00:00","duration_s":30,"request_count":2,"input_tokens":33,"o'
+        'utput_tokens":39,"cache_create_5m_tokens":51,"cache_create_1h_tokens":57,"cache_read_tokens":69,"cos'
+        't_usd":0.0,"models":{"synthetic-wire-model":2},"limit_hits":0,"r2_key":"timeline-project/timeline/ti'
+        'meline.jsonl","ctx_trace":[{"t":1777629600,"ctx":250},{"t":1782208800,"ctx":80}],"burn":{"tps":4.7,"'
+        'model":"synthetic-wire-model","hit_5h_limit":false}}'
     ),
     (
         '{"range":"30d","project":null,"bucket_s":21600,"hourly":[{"hour":"2026-06-23T15:00:00+00:00","model"'
@@ -370,8 +417,8 @@ _LEGACY_TIMELINE_RESPONSES = [
         ',"cost_by_project":[],"tokens_by_project":[],"rate_limit_hits":[],"hide_rate_limits":false,"sessions'
         '":[{"session_id":"timeline","start_ts":1782216000.0,"end_ts":1782216000.0,"requests":1,"input_tokens'
         '":0,"output_tokens":0,"cache_create_tokens":0,"cache_read_tokens":0,"cost_usd":0.0,"model":"timeline'
-        '-model","models_used":["timeline-model"],"ctx_at_end":80}],"total_sessions":1,"main_w_usage":0,"main'
-        '_empty":2,"subagent_files":0,"subagent_only_sessions":0,"total_prompts":3,"total_turns":2,"response_'
-        'sizes":[]}'
+        '-model","models_used":["timeline-model"],"ctx_at_end":4000}],"total_sessions":1,"main_w_usage":1,"ma'
+        'in_empty":3,"subagent_files":1,"subagent_only_sessions":0,"total_prompts":6,"total_turns":8,"respons'
+        'e_sizes":[]}'
     ),
 ]

@@ -12,14 +12,37 @@ BEGIN
      WHERE attrelid = 'files'::regclass AND attname = 'ctx_turns'
        AND NOT attisdropped
   ) THEN
-    UPDATE files f SET (ctx_ts, ctx_line, ctx_input, ctx_output) = (
-      SELECT COALESCE(array_agg(NULLIF(t->>'ts', '')::timestamptz ORDER BY n), '{}'),
-             COALESCE(array_agg((t->>'line')::integer ORDER BY n), '{}'),
-             COALESCE(array_agg((t->>'input')::integer ORDER BY n), '{}'),
-             COALESCE(array_agg((t->>'output')::integer ORDER BY n), '{}')
-        FROM jsonb_array_elements(f.ctx_turns) WITH ORDINALITY AS turns(t, n)
-    );
+    CREATE FUNCTION pg_temp.ctx_timeline_ts(v jsonb) RETURNS timestamptz[]
+    LANGUAGE sql AS $body$
+      SELECT COALESCE(array_agg(NULLIF(t->>'ts', '')::timestamptz ORDER BY n), '{}')
+        FROM jsonb_array_elements(v) WITH ORDINALITY AS turns(t, n)
+    $body$;
+    CREATE FUNCTION pg_temp.ctx_timeline_ints(v jsonb, field text) RETURNS integer[]
+    LANGUAGE sql AS $body$
+      SELECT COALESCE(array_agg((t->>field)::integer ORDER BY n), '{}')
+        FROM jsonb_array_elements(v) WITH ORDINALITY AS turns(t, n)
+    $body$;
+    -- TYPE USING rewrites live rows in heap scan order without UPDATE
+    -- moving their row versions to different heap positions.
+    ALTER TABLE files
+      ALTER COLUMN ctx_ts TYPE TIMESTAMPTZ[] USING pg_temp.ctx_timeline_ts(ctx_turns),
+      ALTER COLUMN ctx_line TYPE INTEGER[] USING pg_temp.ctx_timeline_ints(ctx_turns, 'line'),
+      ALTER COLUMN ctx_input TYPE INTEGER[] USING pg_temp.ctx_timeline_ints(ctx_turns, 'input'),
+      ALTER COLUMN ctx_output TYPE INTEGER[] USING pg_temp.ctx_timeline_ints(ctx_turns, 'output');
     ALTER TABLE files DROP COLUMN ctx_turns;
+    DROP FUNCTION pg_temp.ctx_timeline_ts(jsonb);
+    DROP FUNCTION pg_temp.ctx_timeline_ints(jsonb, text);
+    -- The prompt conversion below rewrites AFTER the drop, reclaiming the
+    -- removed JSON bytes. A database with already-typed prompts needs its
+    -- own post-drop rewrite; the nontrivial USING expression forces one.
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_attribute
+       WHERE attrelid = 'files'::regclass AND attname = 'prompt_ts'
+         AND atttypid = 'jsonb'::regtype AND NOT attisdropped
+    ) THEN
+      ALTER TABLE files ALTER COLUMN ctx_ts TYPE TIMESTAMPTZ[]
+        USING ctx_ts || '{}'::timestamptz[];
+    END IF;
   END IF;
 
   IF EXISTS (
