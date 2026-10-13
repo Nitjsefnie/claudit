@@ -18,9 +18,11 @@ EXPLICIT. Files named by hand. Two kinds:
   the scanner config, the five requirements files the audit, test and
   lint legs install from or audit (issue #551 added the two CI-tool
   manifests; a manifest's presence in the set must not depend on a
-  spelling surviving in a workflow text), and the JS lockfile the
+  spelling surviving in a workflow text), the JS lockfile the
   eslint and JS-tokenizer steps pin their tool versions from (issue
-  #844 names it in ci-gate.yml).
+  #844 names it in ci-gate.yml), and the container leg's CI-only
+  Compose override, which decides the image its db service runs
+  (issue #981).
 - Gate parameters read by tool DISCOVERY, invisible to the extraction:
   bare `pylint` / `pycodestyle` / `pyright` / `eslint` load
   `.pylintrc` / `setup.cfg` / `pyrightconfig.json` /
@@ -86,6 +88,7 @@ EXPLICIT = (
     "setup.cfg",
     "pyrightconfig.json",
     "eslint.config.mjs",
+    ".github/docker-smoke.compose.yaml",
 )
 
 # Command references that are not gate parameters. Exempt wins over
@@ -126,6 +129,14 @@ EXEMPT = {
         " commands (issue #941); like fixtures, the stack files are the"
         " subject that leg builds and runs, judged from the head's own"
         " tree — only files that move the RULES strand it"),
+    "compose.yaml": (
+        "the stack file the container leg names with -f beside its CI"
+        " override (issue #981); the stack is the subject that leg"
+        " builds and runs, judged from the head's own tree"),
+    "Dockerfile": (
+        "the image the container leg builds; its FROM line is checked"
+        " against the leg's cached base reference (issue #981), and the"
+        " build is the subject judged from the head's own tree"),
 }
 
 # One optional leading dot, not preceded by a word, dot or dash

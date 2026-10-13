@@ -1,0 +1,103 @@
+name: Cached image
+description: Restore a registry image from the Actions cache, or pull it once and cache it.
+
+inputs:
+  label:
+    description: Image name used in log and error messages.
+    required: true
+  ref:
+    description: Registry reference pulled first on a cache miss.
+    required: true
+  fallback-ref:
+    description: The same reference on a mirror, pulled after ref fails.
+    required: true
+  tag:
+    description: Local tag the archive carries; callers use the image by it.
+    required: true
+  key:
+    description: Exact cache key; it must change whenever the image may.
+    required: true
+  archive:
+    description: Archive file name under the runner's temp directory.
+    required: true
+
+# One mechanism for every image CI must not fetch anonymously each run
+# (#970, #981): an exact-key restore; on a miss, three bounded pulls from
+# the primary registry, then three from the mirror at the same reference;
+# then the tag and the save. Exact keys only: the archive is saved only
+# after a successful pull of ref or fallback-ref in this action, never
+# from a pre-existing image. A loaded archive keeps its local tag in
+# either Docker image store, while a classic store loses RepoDigests, so
+# callers address the image by the tag. GitHub's immutable entries and
+# branch scope keep PR writes out of master's reads; PRs can read master.
+# The archive path is part of the entry's version, so a caller keeps its
+# archive name to keep its existing entries.
+runs:
+  using: composite
+  steps:
+    - name: Restore the image archive
+      id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/${{ inputs.archive }}
+        key: ${{ inputs.key }}
+
+    - name: Load or pull the image
+      id: acquire
+      shell: bash
+      env:
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        IMAGE_LABEL: ${{ inputs.label }}
+        IMAGE_REF: ${{ inputs.ref }}
+        IMAGE_FALLBACK_REF: ${{ inputs.fallback-ref }}
+        IMAGE_TAG: ${{ inputs.tag }}
+        IMAGE_ARCHIVE: ${{ inputs.archive }}
+      run: |
+        set -euo pipefail
+        archive="$RUNNER_TEMP/$IMAGE_ARCHIVE"
+        if [ "$CACHE_HIT" = true ]; then
+          docker load --input "$archive"
+          exit 0
+        fi
+        pulled=false
+        log="$archive.pull.log"
+        failures="$archive.pull-failures.log"
+        : > "$failures"
+        for ref in "$IMAGE_REF" "$IMAGE_FALLBACK_REF"; do
+          for delay in 0 5 15; do
+            sleep "$delay"
+            echo "Pulling $ref (retry delay ${delay}s)"
+            if timeout 120 docker pull "$ref" > "$log" 2>&1; then
+              cat "$log"
+              pulled=true
+              break
+            fi
+            cat "$log" >&2
+            {
+              echo "Registry $ref answered:"
+              cat "$log"
+            } >> "$failures"
+          done
+          if [ "$pulled" = true ]; then
+            break
+          fi
+        done
+        if [ "$pulled" != true ]; then
+          echo "::error::${IMAGE_LABEL} image cache had no entry; both registries failed after three attempts each. Registry answers follow:" >&2
+          cat "$failures" >&2
+          exit 1
+        fi
+        # Tag and save the image THIS pull returned, from either source.
+        docker tag "$ref" "$IMAGE_TAG"
+        docker save --output "$archive" "$IMAGE_TAG"
+        echo "pulled=true" >> "$GITHUB_OUTPUT"
+
+    - name: Save the image archive
+      if: steps.acquire.outputs.pulled == 'true'
+      # Cold legs race for one immutable key. A losing save (or a cache
+      # outage) must not discard a successfully pulled image.
+      continue-on-error: true
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/${{ inputs.archive }}
+        key: ${{ inputs.key }}

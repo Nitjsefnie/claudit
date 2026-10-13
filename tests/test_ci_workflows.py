@@ -295,7 +295,7 @@ def test_every_postgres_job_uses_the_cached_action() -> None:
 
 def test_postgres_action_pulls_a_digest_from_the_public_ecr_mirror() -> None:
     """The shared miss path retains the mirror and reviewed digest pin."""
-    path = REPO_ROOT / ".github/actions/postgres/action.yml"
+    path = REPO_ROOT / ".github/actions/postgres-image/action.yml"
     steps = yaml.safe_load(path.read_text(encoding="utf-8"))["runs"]["steps"]
     image = next(step for step in steps if step.get("id") == "image")
     assert image["env"]["POSTGRES_REPOSITORY"].startswith(POSTGRES_MIRROR)
