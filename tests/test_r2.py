@@ -332,14 +332,16 @@ def test_list_keys_skips_a_file_that_vanished_mid_walk(mini_r2):
 
 
 # ---------------------------------------------------------------------------
-# The cached S3 client must not cross a fork (issue #338): the ingest
-# thread builds its client for the listing, then the process-pool
-# pipeline forks children that inherit the forking thread's thread-local
-# — the same client object, and with it the same open TLS sockets. Two
-# processes reading one SSL stream corrupt each other's records
-# (ssl.SSLError: record layer failure), so every forked child must build
-# its own client. No network: the probe compares object identity and the
-# creator stamp inside a fork-context child, over a fixture mirror env.
+# The cached S3 client must not cross a fork (issue #338): a thread that
+# built its client and then forks hands the child the forking thread's
+# thread-local — the same client object, and with it the same open TLS
+# sockets. Two processes reading one SSL stream corrupt each other's
+# records (ssl.SSLError: record layer failure), so every fork-started
+# child must build its own client. The ingest parse pool no longer forks
+# from the ingest thread (a preloaded forkserver since #964); the guard
+# still protects any fork-started child. No network: the probe compares
+# object identity and the creator stamp inside a fork-context child, over
+# a fixture mirror env.
 # ---------------------------------------------------------------------------
 
 
@@ -390,7 +392,7 @@ class TestBotoClientFork:
 
     @pytest.mark.skipif(
         sys.platform != "linux",
-        reason="the fork-context parse pool deploys on Linux; macOS has "
+        reason="the guard is pinned on Linux; macOS has "
                "os.fork but forking this multithreaded suite process "
                "segfaults inside botocore client construction in the "
                "child (observed exitcode -11 on the CI runners), so the "
@@ -399,8 +401,8 @@ class TestBotoClientFork:
     )
     @pytest.mark.usefixtures("tls_state")
     def test_forked_child_builds_its_own_client(self):
-        # The ingest thread's shape, exactly: the listing builds the
-        # client in this thread; the pool then forks children from it.
+        # The shape the guard defends: this thread builds a client, then
+        # forks a child from it (the parse pool no longer does, #964).
         parent_client = r2._boto_client()  # pylint: disable=protected-access
         _FORK_REF["client"] = parent_client
         ctx = multiprocessing.get_context("fork")
