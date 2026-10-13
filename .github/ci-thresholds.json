@@ -305,8 +305,12 @@
       1556
     ],
     "backend/ingest_fetch.py": [
-      6281,
-      15000
+      5881,
+      14389
+    ],
+    "backend/ingest_forkserver.py": [
+      238,
+      325
     ],
     "backend/ingest_lockwatch.py": [
       1141,
@@ -361,8 +365,8 @@
       2816
     ],
     "backend/ingest_workers.py": [
-      2171,
-      3072
+      3135,
+      5298
     ],
     "backend/json_shape.py": [
       236,
@@ -469,8 +473,8 @@
       1557
     ],
     "backend/r2.py": [
-      8454,
-      14683
+      8574,
+      14803
     ],
     "backend/rate_boundaries.py": [
       812,
@@ -949,8 +953,8 @@
       5394
     ],
     "tests/conftest.py": [
-      4584,
-      8208
+      4619,
+      8243
     ],
     "tests/db_marker.py": [
       3293,
@@ -969,8 +973,8 @@
       3179
     ],
     "tests/node_skip_guard_impl.py": [
-      3384,
-      15306
+      3430,
+      15481
     ],
     "tests/pricing_data_loader_helpers.py": [
       2845,
@@ -981,8 +985,8 @@
       4742
     ],
     "tests/scan_gate.py": [
-      3191,
-      4504
+      3155,
+      3426
     ],
     "tests/schema_policy.py": [
       63,
@@ -1201,12 +1205,12 @@
       2648
     ],
     "tests/test_db_marker.py": [
-      10152,
-      20077
+      8961,
+      19138
     ],
     "tests/test_db_marker_gate.py": [
-      1389,
-      2120
+      1018,
+      3009
     ],
     "tests/test_db_marker_narrow.py": [
       754,
@@ -1297,12 +1301,12 @@
       11584
     ],
     "tests/test_ingest_fetch.py": [
-      5697,
-      20142
+      5439,
+      19556
     ],
     "tests/test_ingest_lock.py": [
-      8839,
-      22559
+      9261,
+      23659
     ],
     "tests/test_ingest_markers.py": [
       2607,
@@ -1313,8 +1317,8 @@
       17943
     ],
     "tests/test_ingest_pipeline.py": [
-      2353,
-      9970
+      1362,
+      7035
     ],
     "tests/test_ingest_rollback.py": [
       1818,
@@ -1322,7 +1326,7 @@
     ],
     "tests/test_js_toolchain.py": [
       10336,
-      20316
+      20357
     ],
     "tests/test_key_layout.py": [
       2482,
@@ -1382,11 +1386,11 @@
     ],
     "tests/test_no_pinned_version_literals.py": [
       8098,
-      23669
+      23686
     ],
     "tests/test_node_skip_guard.py": [
       5231,
-      19580
+      19605
     ],
     "tests/test_overview_a11y_wiring.py": [
       8226,
@@ -1456,9 +1460,13 @@
       1727,
       10374
     ],
+    "tests/test_parser_js_lanes_load.py": [
+      1181,
+      2682
+    ],
     "tests/test_parser_js_mirror.py": [
-      6513,
-      24379
+      5674,
+      23086
     ],
     "tests/test_parser_js_pricing_loader.py": [
       2652,
@@ -1609,8 +1617,8 @@
       1469
     ],
     "tests/test_r2.py": [
-      6354,
-      15654
+      6442,
+      15727
     ],
     "tests/test_rate_fingerprint.py": [
       4470,
@@ -1674,7 +1682,7 @@
     ],
     "tests/test_scan_gate.py": [
       1356,
-      3576
+      3693
     ],
     "tests/test_schema_autoapply.py": [
       5884,
@@ -1682,7 +1690,7 @@
     ],
     "tests/test_scratch_db.py": [
       4142,
-      16545
+      16593
     ],
     "tests/test_secrets_workflow.py": [
       1599,
@@ -1792,6 +1800,10 @@
       1013,
       3954
     ],
+    "tests/test_version_literal_splits.py": [
+      774,
+      2374
+    ],
     "tests/test_web_metrics.py": [
       8816,
       23123
@@ -1833,8 +1845,8 @@
       14198
     ],
     "tests/version_literal_guard.py": [
-      4220,
-      8821
+      4645,
+      9525
     ]
   },
   "coverage": {
