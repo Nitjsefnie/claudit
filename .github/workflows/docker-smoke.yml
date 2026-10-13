@@ -22,6 +22,25 @@ name: docker-smoke
 # (VERSION equal to the checkout's file, no recorded ingest error, a
 # nonzero listed count) — and teardown runs under `if: always()` so a
 # failed probe leaves no stack or volume behind on the runner.
+#
+# IMAGES COME FROM THE ACTIONS CACHE (issue #981). Both registry images
+# the stack needs — compose.yaml's digest-pinned Postgres and the
+# Dockerfile's tag-pinned Python base — are anonymous public-ECR pulls,
+# and ECR's `toomanyrequests: Data limit exceeded` failed this leg before
+# anything was built. Both now arrive through .github/actions/cached-image
+# (the Postgres one through postgres-image, the same entry the five
+# database workflows restore, which refresh-pricing's hourly master runs
+# keep warm). Every compose call adds .github/docker-smoke.compose.yaml,
+# which runs db from the cached local tag with `pull_policy: never`; the
+# build finds the base in the local image store because nothing passes
+# `--pull`. The base is tag-pinned, so its key adds the UTC ISO week: an
+# entry is restored only in the week it was saved, so the build never
+# uses a base more than seven days old. This leg runs only on master
+# pushes that are neither docs-only nor bot-data-only; the first such
+# push in a week saves that week's base entry for PR reads, and a week
+# with none leaves each PR's first run to pull (ECR, then mirror.gcr.io
+# at the same tag) and cache its own. A miss that every source refuses
+# fails the leg with each registry's answer.
 
 on:
   workflow_call:
@@ -44,8 +63,43 @@ jobs:
         with:
           persist-credentials: false
 
-      # Pin the zero-config claim before anything is built. `env -u`
-      # scrubs the four R2 variables from compose's interpolation, so
+      - name: Restore or pull the pinned Postgres image
+        uses: $/.github/actions/postgres-image
+
+      # The Dockerfile's FROM, pinned here and checked against the file,
+      # so the cached archive is the base the build asks for.
+      - name: Identify the Dockerfile's base image
+        id: base
+        env:
+          BASE_IMAGE: public.ecr.aws/docker/library/python:3.13-slim
+          BASE_FALLBACK_IMAGE: mirror.gcr.io/library/python:3.13-slim
+        run: |
+          set -euo pipefail
+          if [ "$(grep -c '^FROM ' Dockerfile)" != 1 ] || ! grep -Fxq "FROM $BASE_IMAGE" Dockerfile; then
+            echo "::error::Dockerfile's FROM is not $BASE_IMAGE; update docker-smoke.yml with it"
+            exit 1
+          fi
+          week="$(date -u +%G-W%V)"
+          {
+            echo "ref=${BASE_IMAGE}"
+            echo "fallback=${BASE_FALLBACK_IMAGE}"
+            echo "key=python-base-${RUNNER_OS}-${RUNNER_ARCH}-${BASE_IMAGE}-${week}"
+          } >> "$GITHUB_OUTPUT"
+
+      # Tagged as the Dockerfile names it, so the build resolves FROM in
+      # the local image store; even a mirror pull is saved under that name.
+      - name: Restore or pull the Dockerfile's base image
+        uses: $/.github/actions/cached-image
+        with:
+          label: Python base
+          ref: ${{ steps.base.outputs.ref }}
+          fallback-ref: ${{ steps.base.outputs.fallback }}
+          tag: ${{ steps.base.outputs.ref }}
+          key: ${{ steps.base.outputs.key }}
+          archive: python-base-image.tar
+
+      # Pin the zero-config claim before anything is built. The loop
+      # scrubs the CLAUDIT_R2 variables and their old spellings from compose's interpolation, so
       # what `config` prints is what a bare `docker compose up` resolves
       # to on a machine with no .env: the file:// default endpoint and
       # empty keys. Unsetting rather than overriding is the point —
@@ -58,7 +112,7 @@ jobs:
           for name in CLAUDIT_R2_ENDPOINT CLAUDIT_R2_BUCKET CLAUDIT_R2_ACCESS_KEY_ID CLAUDIT_R2_SECRET_ACCESS_KEY; do
             unset "$name" "${name#CLAUDIT_}"
           done
-          resolved="$(docker compose config)"
+          resolved="$(docker compose -f compose.yaml -f .github/docker-smoke.compose.yaml config)"
           printf '%s\n' "$resolved"
           printf '%s\n' "$resolved" | grep -Eq 'CLAUDIT_R2_ENDPOINT: "?file://'
           printf '%s\n' "$resolved" | grep -Fq 'CLAUDIT_R2_ACCESS_KEY_ID: ""'
@@ -68,16 +122,16 @@ jobs:
             exit 1
           fi
 
-      # The same `env -u` scrub as the assert: `up --build` interpolates
+      # The same unset loop as the assert: `up --build` interpolates
       # compose defaults under the job's full environment, so a job-level
-      # env: or a runner-exported R2_* credential must not reach the stack
+      # env: or a runner-exported CLAUDIT_R2_* or legacy credential must not reach the stack
       # a credential-free assert just proved.
       - name: Build the image and start the stack
         run: |
           for name in CLAUDIT_R2_ENDPOINT CLAUDIT_R2_BUCKET CLAUDIT_R2_ACCESS_KEY_ID CLAUDIT_R2_SECRET_ACCESS_KEY; do
             unset "$name" "${name#CLAUDIT_}"
           done
-          docker compose up -d --build
+          docker compose -f compose.yaml -f .github/docker-smoke.compose.yaml up -d --build
 
       # The patience shape of scripts/ci/smoke.py: poll on a deadline,
       # keep the last observation for the failure message, and accept
@@ -162,8 +216,16 @@ jobs:
       # server log beside the failed check.
       - name: Dump the stack log on failure
         if: failure()
-        run: docker compose logs --no-color --tail 200
+        run: |
+          for name in CLAUDIT_R2_ENDPOINT CLAUDIT_R2_BUCKET CLAUDIT_R2_ACCESS_KEY_ID CLAUDIT_R2_SECRET_ACCESS_KEY; do
+            unset "$name" "${name#CLAUDIT_}"
+          done
+          docker compose -f compose.yaml -f .github/docker-smoke.compose.yaml logs --no-color --tail 200
 
       - name: Tear the stack down
         if: always()
-        run: docker compose down -v
+        run: |
+          for name in CLAUDIT_R2_ENDPOINT CLAUDIT_R2_BUCKET CLAUDIT_R2_ACCESS_KEY_ID CLAUDIT_R2_SECRET_ACCESS_KEY; do
+            unset "$name" "${name#CLAUDIT_}"
+          done
+          docker compose -f compose.yaml -f .github/docker-smoke.compose.yaml down -v

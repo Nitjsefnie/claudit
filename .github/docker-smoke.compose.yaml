@@ -1,0 +1,11 @@
+# CI-only Compose override for the docker-smoke leg, passed after
+# compose.yaml with `-f`. It changes exactly one thing: the db service runs
+# the Postgres image the leg just restored from the Actions cache (or
+# pulled once on a miss) under its local tag, and never pulls. compose.yaml's
+# digest reference cannot serve here: a loaded archive does not restore its
+# RepoDigest, so that reference would go back to the registry. The tag is
+# the one .github/actions/postgres-image saves; a test keeps them equal.
+services:
+  db:
+    image: claudit-postgres:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+    pull_policy: never

@@ -10,100 +10,14 @@ inputs:
     default: claudit-ci-postgres
 
 # Fixtures need CREATEDB: the stock postgres superuser provides it.
-# The digest stays reviewed because ratchet-push publishes its measurements.
-# Exact keys only: the archive is saved only after a successful digest pull
-# in this action, never from a pre-existing tag. ECR replaced Docker Hub
-# after its anonymous pull limit (#885); a warm cache also avoids ECR
-# limits (#970). A cold miss retries ECR, then Google's mirror at the same
-# digest, so an ECR limit does not prevent warming the cache. GitHub's
-# immutable entries and branch scope keep PR writes out of master's reads;
-# PRs can read master.
-# refresh-pricing runs hourly on master (its job refuses other refs and its
-# checkout uses that ref), restoring even on quiet hours. It warms a cold
-# master cache and keeps the entry in use inside GitHub's 7-day expiry window.
+# postgres-image owns the digest, its cache entry and the local tag; this
+# action only starts that tag and waits for it.
 runs:
   using: composite
   steps:
-    - name: Identify the pinned image
+    - name: Restore or pull the pinned image
       id: image
-      shell: bash
-      env:
-        POSTGRES_REPOSITORY: public.ecr.aws/docker/library/postgres:16
-        POSTGRES_FALLBACK_REPOSITORY: mirror.gcr.io/library/postgres
-        POSTGRES_DIGEST: sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
-      run: |
-        set -euo pipefail
-        {
-          echo "ref=${POSTGRES_REPOSITORY}@${POSTGRES_DIGEST}"
-          echo "fallback=${POSTGRES_FALLBACK_REPOSITORY}@${POSTGRES_DIGEST}"
-          echo "tag=claudit-postgres:${POSTGRES_DIGEST#sha256:}"
-          echo "key=postgres-${RUNNER_OS}-${RUNNER_ARCH}-${POSTGRES_DIGEST}"
-        } >> "$GITHUB_OUTPUT"
-
-    - name: Restore the image archive
-      id: cache
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ${{ runner.temp }}/postgres-image.tar
-        key: ${{ steps.image.outputs.key }}
-
-    - name: Load or pull the image
-      id: acquire
-      shell: bash
-      env:
-        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
-        POSTGRES_REF: ${{ steps.image.outputs.ref }}
-        POSTGRES_FALLBACK_REF: ${{ steps.image.outputs.fallback }}
-        POSTGRES_TAG: ${{ steps.image.outputs.tag }}
-      run: |
-        set -euo pipefail
-        archive="$RUNNER_TEMP/postgres-image.tar"
-        if [ "$CACHE_HIT" = true ]; then
-          docker load --input "$archive"
-          exit 0
-        fi
-        pulled=false
-        failures="$RUNNER_TEMP/postgres-pull-failures.log"
-        : > "$failures"
-        for ref in "$POSTGRES_REF" "$POSTGRES_FALLBACK_REF"; do
-          for delay in 0 5 15; do
-            sleep "$delay"
-            echo "Pulling $ref (retry delay ${delay}s)"
-            if timeout 120 docker pull "$ref" > "$RUNNER_TEMP/postgres-pull.log" 2>&1; then
-              cat "$RUNNER_TEMP/postgres-pull.log"
-              pulled=true
-              break
-            fi
-            cat "$RUNNER_TEMP/postgres-pull.log" >&2
-            {
-              echo "Registry $ref answered:"
-              cat "$RUNNER_TEMP/postgres-pull.log"
-            } >> "$failures"
-          done
-          if [ "$pulled" = true ]; then
-            break
-          fi
-        done
-        if [ "$pulled" != true ]; then
-          echo "::error::Postgres image cache had no entry; both registries failed after three attempts each. Registry answers follow:" >&2
-          cat "$failures" >&2
-          exit 1
-        fi
-        # Save the tag attached to THIS digest pull. A classic Docker store
-        # loses RepoDigests on load; the local tag survives in either store.
-        docker tag "$ref" "$POSTGRES_TAG"
-        docker save --output "$archive" "$POSTGRES_TAG"
-        echo "pulled=true" >> "$GITHUB_OUTPUT"
-
-    - name: Save the image archive
-      if: steps.acquire.outputs.pulled == 'true'
-      # Cold matrix legs race for one immutable key. A losing save (or a
-      # cache outage) must not discard a successfully pulled database.
-      continue-on-error: true
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ${{ runner.temp }}/postgres-image.tar
-        key: ${{ steps.image.outputs.key }}
+      uses: $/.github/actions/postgres-image
 
     - name: Start Postgres and wait for connections
       shell: bash

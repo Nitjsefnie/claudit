@@ -1,0 +1,48 @@
+name: Cached Postgres image
+description: Restore or pull the pinned Postgres image and tag it locally.
+
+outputs:
+  tag:
+    description: Local tag of the pinned image; start it with --pull never.
+    value: ${{ steps.image.outputs.tag }}
+
+# The one CI home of the Postgres digest. The Postgres action starts it
+# for the five database workflows; docker-smoke runs it as compose's db
+# service. compose.yaml carries the same digest for local use.
+# The digest stays reviewed because ratchet-push publishes its measurements.
+# ECR replaced Docker Hub after its anonymous pull limit (#885); a warm
+# cache also avoids ECR limits (#970). A cold miss retries ECR, then
+# Google's mirror at the same digest, so an ECR limit does not prevent
+# warming the cache. The cache mechanism itself is cached-image's.
+# refresh-pricing runs hourly on master (its job refuses other refs and its
+# checkout uses that ref), restoring even on quiet hours. It warms a cold
+# master cache and keeps the entry in use inside GitHub's 7-day expiry window;
+# docker-smoke restores the same entry (same key and archive path).
+runs:
+  using: composite
+  steps:
+    - name: Identify the pinned image
+      id: image
+      shell: bash
+      env:
+        POSTGRES_REPOSITORY: public.ecr.aws/docker/library/postgres:16
+        POSTGRES_FALLBACK_REPOSITORY: mirror.gcr.io/library/postgres
+        POSTGRES_DIGEST: sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+      run: |
+        set -euo pipefail
+        {
+          echo "ref=${POSTGRES_REPOSITORY}@${POSTGRES_DIGEST}"
+          echo "fallback=${POSTGRES_FALLBACK_REPOSITORY}@${POSTGRES_DIGEST}"
+          echo "tag=claudit-postgres:${POSTGRES_DIGEST#sha256:}"
+          echo "key=postgres-${RUNNER_OS}-${RUNNER_ARCH}-${POSTGRES_DIGEST}"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore or pull the image
+      uses: $/.github/actions/cached-image
+      with:
+        label: Postgres
+        ref: ${{ steps.image.outputs.ref }}
+        fallback-ref: ${{ steps.image.outputs.fallback }}
+        tag: ${{ steps.image.outputs.tag }}
+        key: ${{ steps.image.outputs.key }}
+        archive: postgres-image.tar
