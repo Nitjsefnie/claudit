@@ -25,10 +25,10 @@ def _measure():
 
 
 def test_profile_partitions_the_same_instruction_events(tmp_path, monkeypatch):
-    monkeypatch.delenv('DEBUG_SUITE_INSTRUCTIONS', raising=False)
+    monkeypatch.delenv('CLAUDIT_DEBUG_SUITE_INSTRUCTIONS', raising=False)
     expected = _measure()
     target = tmp_path / 'profile.json'
-    monkeypatch.setenv('DEBUG_SUITE_INSTRUCTIONS', str(target))
+    monkeypatch.setenv('CLAUDIT_DEBUG_SUITE_INSTRUCTIONS', str(target))
     assert _measure() == expected
     rows = json.loads(target.read_text())
     assert sum(sum(row['counts'].values()) for row in rows) == expected

@@ -97,7 +97,7 @@ class InstructionCounter:
         self.phases: dict[str, int] = {
             phase: 0 for phase in PHASES if phase != 'residual'}
         self.total = 0
-        destination = os.environ.get('DEBUG_SUITE_INSTRUCTIONS')
+        destination = os.environ.get('CLAUDIT_DEBUG_SUITE_INSTRUCTIONS')
         self._profile = (importlib.import_module('suite_instruction_profile').InstructionProfile(destination)
                          if destination else None)
         self.reason = ''
