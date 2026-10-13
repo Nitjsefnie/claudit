@@ -22,6 +22,7 @@ import json
 import re
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from itertools import takewhile
 from pathlib import Path
 
 import psycopg
@@ -194,7 +195,9 @@ def test_the_split_carries_in_row_values_into_the_sidecar(monkeypatch):
     column into the sidecar, then drops the in-row columns — no value
     vanishes, nothing is zeroed — and a second apply is a no-op."""
     name = scratch_db.create_database(
-        "price_migrate", schema=scratch_db.SCHEMA[:-1])
+        "price_migrate", schema=tuple(takewhile(
+            lambda path: path.name != "schema_records_price.sql",
+            scratch_db.SCHEMA)))
     monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")
     db.reset_viz_pool()
     try:
