@@ -45,7 +45,8 @@ os.environ.setdefault("CLAUDIT_EXPORT_PYTHON", "/usr/bin/python3")
 os.environ.setdefault("CLAUDIT_TIMING", "0")
 # The in-process pipeline by default: parse-process pools add startup
 # work to every ingest test. The process-pool
-# tests opt in explicitly (test_ingest.py, issue #309).
+# tests opt in explicitly (test_ingest_pipeline.py, test_ingest_fetch.py
+# and test_ingest_forkserver.py; issue #309).
 os.environ["CLAUDIT_INGEST_PARSE_PROCESSES"] = "1"
 os.environ["CLAUDIT_INGEST_PERSIST_THREADS"] = "1"
 # TestClient runs over plain HTTP — Secure-flag cookies would never come back.
