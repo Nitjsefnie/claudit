@@ -159,6 +159,18 @@ def _assert_canonical(conn) -> None:
         types = _types(conn, table)
         assert types.get("id") == "smallint", (table, types.get("id"))
     assert _types(conn, "tool_uses").get("read_kind") == "boolean"
+    latency_types = _types(conn, "latency_rollup")
+    assert "outliers" not in latency_types
+    assert [(c, latency_types[c]) for c in _order(conn, "latency_rollup")[-5:]] == [
+        ("out_ts", "timestamp with time zone[]"),
+        ("out_latency_s", "double precision[]"),
+        ("out_file_id", "integer[]"), ("out_line_num", "integer[]"),
+        ("out_high", "boolean[]"),
+    ]
+    assert conn.execute(
+        "SELECT is_nullable, column_default FROM information_schema.columns "
+        "WHERE table_name = 'latency_rollup' AND column_name LIKE 'out_%'"
+    ).fetchall() == [("YES", None)] * 5
     # The uuid split's own column types (issue #959 task 8): the native
     # uuid part, the INT4 counter, the verbatim TEXT fallback — and no
     # `uuid` column left to hold the old TEXT identity.

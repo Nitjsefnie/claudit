@@ -156,7 +156,7 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
                              ) AS bucket,
                              {project_expr} AS proj_id,
                              r.model_id AS model_id,
-                             r.ts, f.file_key, r.line_num,
+                             r.ts, f.file_key, r.file_id, r.line_num,
                              r.reply_latency_s AS latency_s
                         FROM records r
                         {scope_join}
@@ -188,14 +188,12 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
                     ),
                     picked AS (
                       SELECT bucket, proj_id, model_id,
-                             jsonb_agg(jsonb_build_object(
-                               'ts', ts, 'latency_s', latency_s,
-                               'file_key', file_key, 'line_num', line_num,
-                               'kind', CASE
-                                 WHEN rn_high <= GREATEST(1, CEIL(bucket_n * 0.01))
-                                 THEN 'high' ELSE 'low' END
-                             ) ORDER BY latency_s DESC, file_key, line_num)
-                               AS outliers
+                             array_agg(ts ORDER BY latency_s DESC, file_key, line_num) AS out_ts,
+                             array_agg(latency_s::double precision ORDER BY latency_s DESC, file_key, line_num) AS out_latency_s,
+                             array_agg(file_id ORDER BY latency_s DESC, file_key, line_num) AS out_file_id,
+                             array_agg(line_num ORDER BY latency_s DESC, file_key, line_num) AS out_line_num,
+                             array_agg(rn_high <= GREATEST(1, CEIL(bucket_n * 0.01))
+                                       ORDER BY latency_s DESC, file_key, line_num) AS out_high
                         FROM ranked
                        WHERE rn_high <= GREATEST(1, CEIL(bucket_n * 0.01))
                           OR rn_low <= GREATEST(1, CEIL(bucket_n * 0.01))
@@ -203,10 +201,10 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
                     )
                     INSERT INTO latency_rollup
                       (bucket_s, bucket, proj_id, model_id, n, p10, p50, p90,
-                       outliers)
+                       out_ts, out_latency_s, out_file_id, out_line_num, out_high)
                     SELECT {bucket_width}, b.bucket, b.proj_id, b.model_id,
                            b.n, b.p10, b.p50, b.p90,
-                           COALESCE(p.outliers, '[]'::jsonb)
+                           p.out_ts, p.out_latency_s, p.out_file_id, p.out_line_num, p.out_high
                       FROM bands b
                       LEFT JOIN picked p USING (bucket, proj_id, model_id)
                     """), query_params)

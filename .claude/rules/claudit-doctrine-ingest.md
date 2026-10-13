@@ -57,8 +57,8 @@ forcing a full derived rebuild next run. Older binaries may ignore the
 marker.
 
 ROLLBACK IS ONE-DIRECTIONAL — an older binary runs against a newer
-schema. Typed file timeline columns are not readable by a binary that
-predates them. Additive nullable columns and nullable relaxations preserve old
+schema. Typed file timeline columns and latency outlier arrays are not
+readable by a binary that predates them. Additive nullable columns and nullable relaxations preserve old
 named-column writers; relaxations retain types, defaults, primary keys and
 identities. `files.collection_flags TEXT[]` is nullable; NULL and an empty
 array both denote all collections ON. Nonconstraint index removal and
@@ -313,7 +313,15 @@ project and the all-projects row, because percentiles need the whole population.
 dirty-hour instant replaces every bucket overlapping
 `[hour, hour + 2 hours)`. Tied outlier latencies order by
 `file_key, line_num`. A latency-bearing row with NULL `ts` forces a
-full rebuild. Teammate resolution runs its full query every time;
+full rebuild. Outlier dots store five parallel arrays: `out_ts TIMESTAMPTZ[]`,
+`out_latency_s DOUBLE PRECISION[]`, `out_file_id INTEGER[]`,
+`out_line_num INTEGER[]`, and `out_high BOOLEAN[]` (`kind = 'high'`).
+They are all NULL for a group without outliers; otherwise all are non-NULL
+with equal cardinality. Startup converts the JSONB dots in place, preserving
+element order and resolving `files.file_id`; a missing file keeps a NULL id.
+The reader spells timestamps through PostgreSQL `to_json` in its session
+timezone and resolves public file keys through `files` (NULL if missing).
+Teammate resolution runs its full query every time;
 changed files add their record hours to the scope because
 `agent_rollup` reads `files.agent_type`.
 
