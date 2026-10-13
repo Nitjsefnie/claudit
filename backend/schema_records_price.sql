@@ -1,7 +1,7 @@
 -- The reprice-column sidecar (issue #959, ruling R4).
 --
--- Applied LAST of all in schema's one stamped transaction
--- (backend/schema_files.py), after schema_dims.sql and schema_types.sql.
+-- Applied in schema's one stamped transaction (backend/schema_files.py),
+-- after schema_dims.sql and schema_types.sql establish the record shape and widths.
 -- The reprice-written columns (cost_usd, long_context, the meter
 -- multipliers, the retired request_fee_usd, and the pricing_version /
 -- rate_fingerprint staleness markers as dim FK ids) move to this narrow
