@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,7 @@ def test_workflows_start_postgres_before_database_use(workflow, job_name, consum
     starts = [i for i, step in enumerate(steps)
               if step.get("uses") == LOCAL_ACTION]
     assert len(starts) == 1, workflow
+    assert "if" not in steps[starts[0]], workflow
     consumers = [i for i, step in enumerate(steps)
                  if consumer in step.get("run", "")]
     assert consumers and starts[0] < min(consumers), workflow
@@ -66,3 +68,49 @@ def test_composite_external_actions_are_sha_pinned():
     assert uses
     for ref in uses:
         assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", ref), ref
+
+
+def _docker_commands(run: str, verb: str) -> list[list[str]]:
+    return [shlex.split(line) for line in run.replace("\\\n", " ").splitlines()
+            if line.strip().startswith(f"docker {verb} ")]
+
+
+def test_start_uses_the_saved_local_tag_without_a_pull():
+    steps = _load(ACTION)["runs"]["steps"]
+    acquire = next(step for step in steps if step.get("id") == "acquire")
+    start = steps[-1]
+    assert "if" not in start
+    commands = _docker_commands(start["run"], "run")
+    assert len(commands) == 1
+    args = commands[0]
+    policies = [args[i + 1] for i, arg in enumerate(args) if arg == "--pull"]
+    policies += [arg.split("=", 1)[1] for arg in args if arg.startswith("--pull=")]
+    assert policies == ["never"]
+    assert not _docker_commands(start["run"], "pull")
+    assert args[-1] == "$POSTGRES_TAG"
+    assert (start["env"]["POSTGRES_TAG"] == acquire["env"]["POSTGRES_TAG"]
+            == "${{ steps.image.outputs.tag }}")
+    assert _docker_commands(acquire["run"], "tag") == [
+        ["docker", "tag", "$ref", "$POSTGRES_TAG"]]
+    assert _docker_commands(acquire["run"], "save") == [
+        ["docker", "save", "--output", "$archive", "$POSTGRES_TAG"]]
+    assert _docker_commands(acquire["run"], "load") == [
+        ["docker", "load", "--input", "$archive"]]
+
+
+def test_fallback_uses_the_primary_digest_and_is_tried_second():
+    steps = _load(ACTION)["runs"]["steps"]
+    image = next(step for step in steps if step.get("id") == "image")
+    acquire = next(step for step in steps if step.get("id") == "acquire")
+    assert image["env"].get("POSTGRES_FALLBACK_REPOSITORY") == (
+        "mirror.gcr.io/library/postgres")
+    outputs = dict(shlex.split(line)[1].split("=", 1)
+                   for line in image["run"].splitlines()
+                   if line.strip().startswith("echo "))
+    assert outputs["ref"] == "${POSTGRES_REPOSITORY}@${POSTGRES_DIGEST}"
+    assert outputs.get("fallback") == (
+        "${POSTGRES_FALLBACK_REPOSITORY}@${POSTGRES_DIGEST}")
+    assert acquire["env"].get("POSTGRES_FALLBACK_REF") == (
+        "${{ steps.image.outputs.fallback }}")
+    assert ('for ref in "$POSTGRES_REF" "$POSTGRES_FALLBACK_REF"; do'
+            in acquire["run"])
