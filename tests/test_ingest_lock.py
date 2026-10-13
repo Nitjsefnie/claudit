@@ -23,6 +23,7 @@ from test_ingest import (  # pylint: disable=unused-import
 )
 
 from backend import db, ingest
+from tests import scratch_db
 
 
 def _wait_db_lock_free(timeout_s: float = 10.0) -> None:
@@ -421,11 +422,14 @@ def test_wait_for_run(fresh_db, mini_r2_env):
 
 
 def _advisory_holder_pid() -> int:
-    """The pid of the backend holding the ingest advisory lock."""
+    """The pid of the backend holding the ingest advisory lock in this
+    database; another database's holder of the same key is not it."""
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
                                  autocommit=True)) as probe:
         row = probe.execute(  # pylint: disable=no-member
             "SELECT pid FROM pg_locks WHERE locktype = 'advisory' "
+            "AND database = (SELECT oid FROM pg_database"
+            " WHERE datname = current_database()) "
             "AND classid = %s AND objid = %s",
             ((ingest._INGEST_LOCK_KEY >> 32) & 0xFFFFFFFF,  # pylint: disable=protected-access
              ingest._INGEST_LOCK_KEY & 0xFFFFFFFF)  # pylint: disable=protected-access
@@ -449,6 +453,29 @@ def test_bounded_step_notices_a_dead_lock_session(fresh_db, mini_r2_env):
         with pytest.raises(ingest.IngestAborted, match="lost ingest lock"):
             ingest._check_shutdown()  # pylint: disable=protected-access
     _wait_db_lock_free()
+
+
+def test_holder_lookup_ignores_another_database(fresh_db):
+    """Issue #965: while only a backend on another database of the instance
+    holds the key, the lookup finds no holder, so the callers' termination
+    never runs and that backend survives."""
+    peer_db = f"{fresh_db}_peer"
+    scratch_db.create_empty_database(peer_db)
+    try:
+        with closing(psycopg.connect(dbname=peer_db, autocommit=True)) as peer:
+            peer.execute(  # pylint: disable=no-member
+                "SELECT pg_advisory_lock(%s)",
+                (ingest._INGEST_LOCK_KEY,))  # pylint: disable=protected-access
+            with pytest.raises(AssertionError, match="must hold"), closing(
+                    psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
+                                    autocommit=True)) as killer:
+                killer.execute(  # pylint: disable=no-member
+                    "SELECT pg_terminate_backend(%s)",
+                    (_advisory_holder_pid(),))
+            assert peer.execute(  # pylint: disable=no-member
+                "SELECT 1").fetchone() == (1,)
+    finally:
+        scratch_db.drop_database(peer_db)
 
 
 def test_lost_lock_session_aborts_the_run(fresh_db, mini_r2_env, monkeypatch):
