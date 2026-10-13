@@ -706,7 +706,7 @@
     ],
     "scripts/ci/suite_phases.py": [
       4729,
-      7374
+      7738
     ],
     "scripts/ci/suite_ratchet.py": [
       6142,
@@ -726,11 +726,11 @@
     ],
     "scripts/ci/thresholds_guard.py": [
       4918,
-      10379
+      10403
     ],
     "scripts/ci/thresholds_validate.py": [
       4254,
-      9161
+      9755
     ],
     "scripts/ci/version_guard.py": [
       2358,
@@ -969,8 +969,8 @@
       3179
     ],
     "tests/node_skip_guard_impl.py": [
-      3229,
-      11600
+      3384,
+      13886
     ],
     "tests/pricing_data_loader_helpers.py": [
       2845,
@@ -1138,7 +1138,7 @@
     ],
     "tests/test_ci_thresholds_guard.py": [
       6170,
-      18312
+      18396
     ],
     "tests/test_ci_thresholds_reparse.py": [
       2056,
@@ -1385,8 +1385,8 @@
       23669
     ],
     "tests/test_node_skip_guard.py": [
-      5158,
-      16463
+      5231,
+      17854
     ],
     "tests/test_overview_a11y_wiring.py": [
       8226,

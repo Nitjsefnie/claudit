@@ -285,7 +285,7 @@ def _reparse(family):
     return normalised
 
 
-def _baseline(baseline, member):
+def _baseline(baseline: dict[str, object], member: str) -> dict:
     if not isinstance(baseline, dict):
         raise ValueError(f'{member} must be an object')
     normalised = {}
@@ -293,6 +293,9 @@ def _baseline(baseline, member):
         safe_path = _module_path(path)
         if member == 'comment_share_baseline':
             normalised[safe_path] = validate.comment_share_value(value, f'{member}.{safe_path}')
+            continue
+        if value.__class__ is int and value > 0:
+            normalised[safe_path] = value
             continue
         count = _number(value, f'{member}.{safe_path}')
         if count <= 0 or count != count.to_integral_value():
@@ -302,7 +305,7 @@ def _baseline(baseline, member):
     return dict(sorted(normalised.items()))
 
 
-def load(path=THRESHOLDS, reseed_in_flight=None):
+def load(path: str | Path = THRESHOLDS, reseed_in_flight: object = None) -> dict:
     """Read and validate a thresholds document.
 
     ``reseed_in_flight`` defaults to the tree's own verdict
@@ -317,7 +320,7 @@ def load(path=THRESHOLDS, reseed_in_flight=None):
         raw = Path(path).read_bytes()
     except OSError as error:
         raise ValueError(f'cannot read thresholds: {error}') from None
-    return normalise(validate.decode(raw), verdict(reseed_in_flight))
+    return importlib.import_module('thresholds_decode').normalise_bytes(raw, normalise, verdict(reseed_in_flight))
 
 
 # The family readers below re-normalise the document they are handed, so
@@ -367,22 +370,11 @@ def reparse(data, reseed_in_flight=None):
     return dict(family) if family else {}
 
 
-def _json_ready(value):
-    if isinstance(value, Decimal):
-        return float(value)
-    if isinstance(value, dict):
-        return {key: _json_ready(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_json_ready(item) for item in value]
-    return value
-
-
-def _render(data, reseed_in_flight):
+def _render(data: dict, reseed_in_flight: object) -> bytes:
     reseed_in_flight = verdict(reseed_in_flight)
     normalised = normalise(data, reseed_in_flight)
-    ready = _json_ready(normalised)
-    text = json.dumps(ready, ensure_ascii=True, indent=2, sort_keys=True,
-                      allow_nan=False) + '\n'
+    text = json.dumps(normalised, ensure_ascii=True, indent=2, sort_keys=True,
+                      allow_nan=False, default=float) + '\n'
     encoded = text.encode('utf-8')
     if normalise(validate.decode(encoded), verdict(
             reseed_in_flight)) != normalised:
