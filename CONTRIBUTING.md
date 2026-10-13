@@ -351,12 +351,14 @@ Dockerfile's base — its `FROM` reference on public ECR, with
 `mirror.gcr.io/library/python` at the same tag as fallback — saved under
 the Dockerfile's exact reference. That base is tag-pinned, so its key adds
 the ISO week (UTC): an entry is restored only in the week it was saved, so
-the build never uses a base more than seven days old. The leg runs on
-master pushes that are neither docs-only nor bot-data-only; the first such
-push in a week saves that week's entry for PR reads, and a week with no
-such push leaves each PR to pull and cache its own on its first run. A test keeps the workflow's base reference equal to the Dockerfile's
-`FROM`. A cold cache needs access to at least one registry; if both sources
-fail, the job reports the cache miss and each registry's answers in the log.
+the build never uses a base more than seven days old. The leg runs on pull
+requests and master pushes alike, except for a change that is docs-only or
+bot-data-only; the first master push in a week that runs it saves that
+week's entry for PR reads, and a week with no such push leaves each PR to
+pull and cache its own on its first run. A test keeps the workflow's base
+reference equal to the Dockerfile's `FROM`. A cold cache needs access to at
+least one registry; if both sources fail, the job reports the cache miss
+and each registry's answers in the log.
 
 Python dependency caches follow one rule: restore on any event, save only
 from a push of `master`. `refresh-pricing` leaves its dependencies uncached. The explicit

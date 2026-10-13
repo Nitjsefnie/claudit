@@ -35,12 +35,13 @@ name: docker-smoke
 # build finds the base in the local image store because nothing passes
 # `--pull`. The base is tag-pinned, so its key adds the UTC ISO week: an
 # entry is restored only in the week it was saved, so the build never
-# uses a base more than seven days old. This leg runs only on master
-# pushes that are neither docs-only nor bot-data-only; the first such
-# push in a week saves that week's base entry for PR reads, and a week
-# with none leaves each PR's first run to pull (ECR, then mirror.gcr.io
-# at the same tag) and cache its own. A miss that every source refuses
-# fails the leg with each registry's answer.
+# uses a base more than seven days old. The ci gate runs this leg on
+# pull requests and master pushes alike and skips a change that is
+# docs-only or bot-data-only; the first master push in a week that runs
+# it saves that week's base entry for PR reads, and a week with none
+# leaves each PR's first run to pull (ECR, then mirror.gcr.io at the
+# same tag) and cache its own. A miss that every source refuses fails
+# the leg with each registry's answer.
 
 on:
   workflow_call:

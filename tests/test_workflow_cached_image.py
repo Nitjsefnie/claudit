@@ -84,3 +84,22 @@ def test_cached_base_image_is_the_dockerfiles_from_reference():
     assert "week=\"$(date -u +%G-W%V)\"" in base["run"]
     assert ("key=python-base-${RUNNER_OS}-${RUNNER_ARCH}-${BASE_IMAGE}-${week}"
             in base["run"])
+    # One job restores both archives; one path would let a save overwrite
+    # the other image's archive and share its cache version.
+    postgres = next(step for step in _load(POSTGRES_IMAGE)["runs"]["steps"]
+                    if step.get("uses") == CACHED)["with"]
+    assert cached["archive"] != postgres["archive"]
+
+
+def test_base_guard_rejects_a_dockerfile_that_names_another_base():
+    base = next(step for step in _steps() if step.get("id") == "base")
+    guard = (
+        "if [ \"$(grep -c '^FROM ' Dockerfile)\" != 1 ] || "
+        "! grep -Fxq \"FROM $BASE_IMAGE\" Dockerfile; then\n"
+        "  echo \"::error::Dockerfile's FROM is not $BASE_IMAGE; "
+        "update docker-smoke.yml with it\"\n"
+        "  exit 1\n"
+        "fi\n")
+    assert guard in base["run"]
+    # Failing after the outputs were written would still cache the base.
+    assert base["run"].index(guard) < base["run"].index("GITHUB_OUTPUT")
