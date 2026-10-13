@@ -66,6 +66,10 @@ def decode(raw):
 
 def number(value, name):
     """One JSON number as an exact Decimal, or a refusal naming it."""
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValueError(f'{name} must be finite')
+        return value
     if isinstance(value, bool) or not isinstance(
             value, (int, float, Decimal)):
         raise ValueError(f'{name} must be a JSON number')
@@ -86,6 +90,11 @@ def _finite_number(value, name, spelling):
     return result
 
 
+@functools.lru_cache(maxsize=128)
+def _field_set(expected, optional):
+    return frozenset(expected + optional)
+
+
 def required_fields(value, expected, name, labels, optional=()):
     """Every expected field present and nothing beside them.
 
@@ -99,7 +108,7 @@ def required_fields(value, expected, name, labels, optional=()):
     """
     if not isinstance(value, dict):
         raise ValueError(f'{name} must be an object')
-    expected_set = set(expected) | set(optional)
+    expected_set = _field_set(tuple(expected), tuple(optional))
     if value.keys() == expected_set:
         return
     label = labels.get(name, f'field: {name}.{{field}}')

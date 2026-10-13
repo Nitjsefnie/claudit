@@ -143,13 +143,14 @@ _FIELD_LABELS = {
 }
 
 
-def _required_fields(value, expected, name, optional=()):
+def _required_fields(value: object, expected: tuple[str, ...], name: str,
+                     optional: tuple[str, ...] = ()) -> None:
     """The moved field check, with this module's family labels."""
     return validate.required_fields(
         value, expected, name, _FIELD_LABELS, optional)
 
 
-def normalise(data, reseed_in_flight):
+def normalise(data: dict, reseed_in_flight: object) -> dict:
     """The document in canonical form, or a refusal naming the offender.
 
     ``reseed_in_flight`` is REQUIRED and is the re-seed markers' verdict

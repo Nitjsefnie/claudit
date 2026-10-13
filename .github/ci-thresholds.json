@@ -722,7 +722,7 @@
     ],
     "scripts/ci/thresholds.py": [
       7848,
-      17797
+      17809
     ],
     "scripts/ci/thresholds_guard.py": [
       4918,
@@ -730,7 +730,7 @@
     ],
     "scripts/ci/thresholds_validate.py": [
       4254,
-      9755
+      9971
     ],
     "scripts/ci/version_guard.py": [
       2358,
