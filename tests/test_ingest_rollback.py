@@ -22,7 +22,7 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture, _snapshot,
 )
 
-from backend import constants, db, ingest
+from backend import db, ingest, parser_version
 
 from tests import dims_seed, mini_mirror
 
@@ -44,7 +44,7 @@ def test_newer_stored_parser_version_is_never_reparsed(
     with db.viz_conn() as c:
         c.execute(
             "UPDATE files SET parser_version = %s WHERE session_id = 'sess-A'",
-            (str(int(constants.PARSER_VERSION) + 1),),
+            (str(int(parser_version.PARSER_VERSION) + 1),),
         )
         sentinel = dims_seed.dim_id(c, "dim_provider", "sentinel")
         c.execute(
@@ -111,7 +111,7 @@ def test_health_surfaces_stored_newer_end_to_end(fresh_db, mini_r2_env):
     with db.viz_conn() as c:
         c.execute(
             "UPDATE files SET parser_version = %s WHERE session_id = 'sess-A'",
-            (str(int(constants.PARSER_VERSION) + 1),),
+            (str(int(parser_version.PARSER_VERSION) + 1),),
         )
         c.commit()
 
@@ -134,8 +134,8 @@ def test_older_stored_parser_version_still_reparses(
     the existing etag/parser_version contract, unchanged."""
     ingest.run_ingest(trigger="manual")
     monkeypatch.setattr(
-        constants, "PARSER_VERSION",
-        str(int(constants.PARSER_VERSION) + 1))
+        parser_version, "PARSER_VERSION",
+        str(int(parser_version.PARSER_VERSION) + 1))
     result = ingest.run_ingest(trigger="manual")
     assert result["reparsed"] == _MIRROR
     assert result["newer"] == 0
@@ -162,4 +162,4 @@ def test_unparsable_stored_parser_version_still_reparses(
     with db.viz_conn() as c:
         stored = {r[0] for r in c.execute(
             "SELECT DISTINCT parser_version FROM files").fetchall()}
-    assert stored == {constants.PARSER_VERSION}
+    assert stored == {parser_version.PARSER_VERSION}

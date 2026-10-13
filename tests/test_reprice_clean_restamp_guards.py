@@ -31,7 +31,7 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture,
 )
 
-from backend import constants, db, ingest_reprice, pricing, rate_fingerprint
+from backend import constants, db, ingest_reprice, parser_version, pricing, rate_fingerprint
 from tests import dims_seed
 
 UTC = timezone.utc
@@ -93,7 +93,7 @@ def _seed_guard_row(c, line_num: int, *, provider: str | None,
         "parser_version) VALUES (%s, %s, %s, TRUE, %s, %s, %s, %s, %s) "
         "ON CONFLICT (file_key) DO NOTHING",
         (_FILE_KEY, "reprice-guard-test", "sess-guard", "seed-etag", 12,
-         _SEED_TS, _SEED_TS, constants.PARSER_VERSION),
+         _SEED_TS, _SEED_TS, parser_version.PARSER_VERSION),
     )
     fresh, create, read, output, eph5, eph1h = _TOKENS
     c.execute(

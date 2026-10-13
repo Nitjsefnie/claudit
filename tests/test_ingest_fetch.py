@@ -24,8 +24,8 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture, _scalar, _FLAKY_KEY,
 )
 
-from backend import (api, app as app_mod, constants, db, events, ingest,
-                     ingest_fetch, ingest_runs, timing)
+from backend import (api, app as app_mod, db, events, ingest,
+                     ingest_fetch, ingest_runs, parser_version, timing)
 from tests import dims_seed, mini_mirror
 from tests.test_ingest_forkserver import (noop_parse as _noop_parse, worker_report as _worker_report,)
 from tests.test_ingest_forkserver import requires_forkserver
@@ -136,7 +136,7 @@ def test_per_object_failure_still_rebuilds_derived_state(fresh_db, mini_r2_env, 
 
     # A forward bump forces the reparse; a rollback would now be skipped
     # by the guard (issue #118).
-    monkeypatch.setattr(constants, "PARSER_VERSION", str(int(constants.PARSER_VERSION) + 1))
+    monkeypatch.setattr(parser_version, "PARSER_VERSION", str(int(parser_version.PARSER_VERSION) + 1))
     _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99)
     result = ingest.run_ingest(trigger="manual")
     assert result["failed"] == 1
@@ -383,7 +383,7 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(fresh_db, min
     # A changed parser_version makes the stored files stale; derived from
     # the committed constant so the bump target can never collide with it
     # (issue #198).
-    monkeypatch.setattr(constants, "PARSER_VERSION", str(int(constants.PARSER_VERSION) + 1))
+    monkeypatch.setattr(parser_version, "PARSER_VERSION", str(int(parser_version.PARSER_VERSION) + 1))
     counts, slept = _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99, exc=exc_factory(_FLAKY_KEY))
 
     result = ingest.run_ingest(trigger="manual")

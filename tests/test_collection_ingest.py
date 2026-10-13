@@ -15,7 +15,7 @@ from test_collection_flags import GROUPS, sample, synthetic_rates
 from test_canonical_model_attribution import (
     DIFFERENT_MODEL_FORK_FIXTURE, _switching_parent_rollout,
 )
-from backend import cache, constants, db, flags, ingest, parse, pricing, timing
+from backend import cache, db, flags, ingest, parse, parser_version, pricing, timing
 from backend.flag_registry import COLLECTION_SPECS
 from backend.flags import CollectionPolicy
 from tests import test_ingest_forkserver as child_units
@@ -171,7 +171,7 @@ def test_null_stamp_equals_default_without_reparse(fresh_db, mirror):
             assert spy.call_count == 0
         with db.viz_conn() as conn:
             conn.execute('UPDATE files SET parser_version = %s',
-                         (str(int(constants.PARSER_VERSION) - 1),))
+                         (str(int(parser_version.PARSER_VERSION) - 1),))
             conn.commit()
         assert _run()['reparsed'] == 1
         assert spy.call_count == 1
@@ -189,7 +189,7 @@ def test_newer_parser_version_protects_rows_even_when_policy_differs(
     _run()
     with db.viz_conn() as conn:
         conn.execute('UPDATE files SET parser_version = %s',
-                     (str(int(constants.PARSER_VERSION) + 1),))
+                     (str(int(parser_version.PARSER_VERSION) + 1),))
         conn.commit()
     before = _rows('files', key), _rows('records', key)
     _config(monkeypatch, 'turn_context')
@@ -342,11 +342,11 @@ def test_policy_flip_promotes_full_with_no_queued_files(fresh_db, mirror, monkey
     # Land actual OFF output ahead of the run, leaving its ON derived fingerprint.
     existing = ingest._existing_files()  # pylint: disable=protected-access
     _, todo, _, _, _ = ingest._collect_todo(  # pylint: disable=protected-access
-        existing, constants.PARSER_VERSION, [])
+        existing, parser_version.PARSER_VERSION, [])
     obj, proj, _ = todo[0]
     parsed = ingest._fetch_and_parse(  # pylint: disable=protected-access
         obj.key, collection=flags.CONFIG.collection)
-    ingest._persist(obj, proj, parsed, constants.PARSER_VERSION)  # pylint: disable=protected-access
+    ingest._persist(obj, proj, parsed, parser_version.PARSER_VERSION)  # pylint: disable=protected-access
     assert _rows('records', key)[0]['turn_flags'] is None
     assert _marker() == previous
     reached = []

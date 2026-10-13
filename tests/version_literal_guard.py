@@ -20,6 +20,8 @@ from tests.source_scan_cache import for_source
 
 
 VERSION_NAMES = ("PARSER_VERSION", "PRICING_VERSION", "MARKER_READER_VERSION")
+# Version-constant modules (issue #986: hourly bot rewrite of constants.py).
+VERSION_MODULES = frozenset({"constants", "parser_version"})
 RATE_CALL_NAMES = frozenset({"rate_for", "resolve", "compute_cost"})
 
 
@@ -38,10 +40,10 @@ def detect(source: str, *, wanted_models: frozenset[str] = frozenset(),
 
     An AST scan, so strings and comments never masquerade as code. The
     version-constant family flags the three literal-assignment shapes
-    against the three constant names: ``setattr(constants, "X_VERSION",
-    "<literal>")`` (the value positional or keyword, receiver
-    irrelevant so a bare ``setattr`` matches too), a direct
-    ``constants.X_VERSION = "<literal>"``, and
+    against the three constant names (either VERSION_MODULES module):
+    ``setattr(constants, "X_VERSION", "<literal>")`` (value positional
+    or keyword, receiver irrelevant so a bare ``setattr`` matches too),
+    a direct ``constants.X_VERSION = "<literal>"``, and
     ``monkeypatch.setenv("X_VERSION", "<literal>")``.
 
     The live-row family (``wanted_models`` / ``wanted_hosts`` name the
@@ -74,7 +76,7 @@ def detect(source: str, *, wanted_models: frozenset[str] = frozenset(),
                                   "pricing-json", "pricing.PRICING_JSON"))
         elif isinstance(node, ast.Assign):
             target = node.targets[0] if len(node.targets) == 1 else None
-            name = _constants_attribute(target, wanted)
+            name = _version_module_attribute(target, wanted)
             literal = _string_constant(node.value)
             if name is not None and literal is not None:
                 sites.append(Site(node.value.lineno, name, "assign", literal))
@@ -249,15 +251,15 @@ def _call_sites(node: ast.Call, wanted: set[str]) -> list[Site]:
     name = _name_constant(_pos_or_kw(node, 1, "name"), wanted)
     value = _pos_or_kw(node, 2, "value")
     literal = _string_constant(value)
-    if (_is_constants(target) and name is not None
+    if (_is_version_module(target) and name is not None
             and literal is not None and value is not None):
         return [Site(value.lineno, name, "setattr", literal)]
     return []
 
 
-def _is_constants(node: ast.expr | None) -> bool:
-    """Whether the node names the constants module directly."""
-    return isinstance(node, ast.Name) and node.id == "constants"
+def _is_version_module(node: ast.expr | None) -> bool:
+    """Whether the node names a version-constant module."""
+    return isinstance(node, ast.Name) and node.id in VERSION_MODULES
 
 
 def _name_constant(node: ast.expr | None,
@@ -267,12 +269,12 @@ def _name_constant(node: ast.expr | None,
     return value if value in wanted else None
 
 
-def _constants_attribute(target: ast.expr | None,
-                         wanted: set[str]) -> str | None:
-    """The constant name a `constants.X = ...` target assigns, if any."""
+def _version_module_attribute(target: ast.expr | None,
+                              wanted: set[str]) -> str | None:
+    """The constant name a `<module>.X` target assigns."""
     if (isinstance(target, ast.Attribute)
             and isinstance(target.value, ast.Name)
-            and target.value.id == "constants"
+            and target.value.id in VERSION_MODULES
             and target.attr in wanted):
         return target.attr
     return None

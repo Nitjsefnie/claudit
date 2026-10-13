@@ -7,9 +7,11 @@ factor in [0.61, 1.47) scaling the whole row; then five independent
 per-field factors; then a single-field move) and the three version
 constants move up one — so a test that pins repository-managed data
 fails as a test failure. These tests drive the perturbation over a
-MINIMAL synthetic pricing.json in tmp_path and a synthetic constants
-bumper; one pin test perturbs a tmp COPY of the committed document,
-which it only ever reads — the tree's own file is never mutated.
+MINIMAL synthetic pricing.json and synthetic version homes — a
+constants module and, since issue #986 split it out, a parser-version
+module — in tmp_path; one pin test perturbs a tmp COPY of the
+committed document, which it only ever reads — the tree's own file is
+never mutated.
 """
 from __future__ import annotations
 
@@ -94,11 +96,12 @@ def _seed_tree(tmp_path: Path) -> tuple[Path, Path, dict]:
         json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     constants_path.write_text(
         '"""Synthetic constants."""\n'
-        'PARSER_VERSION = "81"\n'
         'PRICING_VERSION = "5"\n'
         'MARKER_READER_VERSION = "1"\n'
         'OTHER = "untouched"\n',
         encoding="utf-8")
+    (tmp_path / "parser_version.py").write_text('PARSER_VERSION = "81"\n',
+                                                encoding="utf-8")
     return pricing_path, constants_path, doc
 
 
@@ -106,7 +109,7 @@ def _run(tmp_path: Path) -> tuple[dict, dict, str, Path]:
     """Seed, run the perturbation once, read the tree back."""
     pricing_path, constants_path, doc = _seed_tree(tmp_path)
     perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
-    perturb_module.bump_constants(constants_path)
+    perturb_module.bump_constants(constants_path, tmp_path / "parser_version.py")
     perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
     text = pricing_path.read_text(encoding="utf-8")
     return doc, perturbed, text, constants_path
@@ -117,7 +120,7 @@ def _run_twice(tmp_path: Path) -> tuple[dict, dict, Path]:
     pricing_path, constants_path, doc = _seed_tree(tmp_path)
     for _ in range(2):
         perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
-        perturb_module.bump_constants(constants_path)
+        perturb_module.bump_constants(constants_path, tmp_path / "parser_version.py")
     perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
     return doc, perturbed, constants_path
 
@@ -484,11 +487,12 @@ def test_the_file_stays_in_the_canonical_layout(tmp_path):
 def test_the_constants_file_bumps_exactly_plus_one(tmp_path):
     _doc, _perturbed, _text, constants_path = _run(tmp_path)
     lines = constants_path.read_text(encoding="utf-8").splitlines()
-    assert 'PARSER_VERSION = "82"' in lines
     assert 'PRICING_VERSION = "6"' in lines
     assert 'MARKER_READER_VERSION = "2"' in lines
     assert 'OTHER = "untouched"' in lines
-    assert len(lines) == 5
+    assert len(lines) == 4
+    assert (tmp_path / "parser_version.py").read_text(
+        encoding="utf-8") == 'PARSER_VERSION = "82"\n'
 
 
 def test_a_future_newest_stamp_still_bounds_its_row(tmp_path):
@@ -643,9 +647,10 @@ def test_a_second_run_appends_further_entries_without_corrupting(tmp_path):
             assert len(perturbed["providers"][model][host]) == len(entries) + 10
     assert pricing.load_tables(perturbed)
     lines = constants_path.read_text(encoding="utf-8").splitlines()
-    assert 'PARSER_VERSION = "83"' in lines
     assert 'PRICING_VERSION = "7"' in lines
     assert 'MARKER_READER_VERSION = "3"' in lines
+    assert ('PARSER_VERSION = "83"' in (tmp_path / "parser_version.py")
+            .read_text(encoding="utf-8"))
 
 
 def test_a_tree_with_no_rate_rows_is_refused(tmp_path):
@@ -679,6 +684,8 @@ def test_the_run_report_names_the_entries_and_their_factors(tmp_path, capsys):
     pricing_path, constants_path, _doc = _seed_tree(tmp_path)
     exit_code = perturb_module.main(["--pricing", str(pricing_path),
                                      "--constants", str(constants_path),
+                                     "--parser-version",
+                                     str(tmp_path / "parser_version.py"),
                                      "--seed", "42"])
     assert exit_code == 0
     out = capsys.readouterr().out

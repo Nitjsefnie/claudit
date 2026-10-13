@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TypedDict
 
-from backend import constants
+from backend import parser_version
 from tests import dims_seed
 
 
@@ -60,7 +60,7 @@ def seed_parents(c, file_key: str) -> None:
         "parser_version) VALUES (%s, %s, %s, TRUE, %s, %s, %s, %s, %s) "
         "ON CONFLICT (file_key) DO NOTHING",
         (file_key, "reprice-test", "sess-seed", "seed-etag", 12,
-         SEED_TS, SEED_TS, constants.PARSER_VERSION),
+         SEED_TS, SEED_TS, parser_version.PARSER_VERSION),
     )
 
 

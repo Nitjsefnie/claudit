@@ -1,5 +1,5 @@
 """MODEL_RATES is the single source of truth for cost in this repo
-(SV-PARSER-SPEC). If a rate changes, bump constants.PARSER_VERSION.
+(SV-PARSER-SPEC): a rate move bumps parser_version.PARSER_VERSION.
 
 Per SV-TEST-DATA, assertions read the rates they need from the loaded
 tables at run time; what is pinned here is the resolution and pricing
