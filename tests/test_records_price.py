@@ -194,9 +194,12 @@ def test_the_split_carries_in_row_values_into_the_sidecar(monkeypatch):
     intact: the guarded block sees records.cost_usd, copies every moved
     column into the sidecar, then drops the in-row columns — no value
     vanishes, nothing is zeroed — and a second apply is a no-op."""
+    boundary = "schema_records_price.sql"
+    assert sum(path.name == boundary for path in scratch_db.SCHEMA) == 1, (
+        f"scratch schema must contain {boundary} exactly once")
     name = scratch_db.create_database(
         "price_migrate", schema=tuple(takewhile(
-            lambda path: path.name != "schema_records_price.sql",
+            lambda path: path.name != boundary,
             scratch_db.SCHEMA)))
     monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")
     db.reset_viz_pool()
