@@ -70,11 +70,51 @@ def _run() -> dict:
     return result
 
 
+# #959 stores these fields as dim FK ids; master's assertions read the
+# transport field's TEXT value, so each id resolves through its dim
+# table (a masked or absent id reads NULL, which is what "off" means).
+_DIM_VALUES = {
+    "model": "dim_model", "provider": "dim_provider",
+    "stop_reason": "dim_stop_reason", "effort": "dim_effort",
+    "cli_version": "dim_cli_version", "tool_name": "dim_tool_name",
+    "error_kind": "dim_error_kind", "agent_type": "dim_agent_type",
+    "agent_model": "dim_agent_model",
+}
+
+
 def _rows(table: str, key: str) -> list[dict]:
+    """Every row of `table` belonging to one file_key, in transport shape.
+
+    files keeps file_key; records/tool_uses key on file_id since #959,
+    so the fact tables resolve the id through files first. Dim FK ids
+    come back as their TEXT values, and `file_id` — a #959 storage
+    surrogate master's rows never carried — is dropped so a
+    delete-and-reingest snapshot compares like for like.
+    """
     with db.viz_conn() as conn:
-        return [row[0] for row in conn.execute(
-            sql.SQL('SELECT to_jsonb(t) FROM {} t WHERE file_key = %s '
-                    'ORDER BY to_jsonb(t)::text').format(sql.Identifier(table)), (key,)).fetchall()]
+        if table == "files":
+            where, params = "file_key = %s", (key,)
+        else:
+            where = ("file_id = (SELECT file_id FROM files "
+                     "WHERE file_key = %s)")
+            params = (key,)
+        rows = [row[0] for row in conn.execute(
+            sql.SQL('SELECT to_jsonb(t) FROM {} t WHERE ' + where +
+                    ' ORDER BY to_jsonb(t)::text')
+            .format(sql.Identifier(table)), params).fetchall()]
+        for field, dim in _DIM_VALUES.items():
+            marker = field + "_id"
+            if not any(marker in row for row in rows):
+                continue
+            values = dict(conn.execute(
+                sql.SQL("SELECT id, value FROM {}").format(
+                    sql.Identifier(dim))).fetchall())
+            for row in rows:
+                if marker in row:
+                    row[field] = values.get(row[marker])
+                    del row[marker]
+    return [{name: value for name, value in row.items()
+             if name != "file_id"} for row in rows]
 
 
 def _counts(tables: tuple[str, ...]) -> dict[str, int]:

@@ -46,7 +46,7 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
             SELECT to_timestamp(
                      floor(EXTRACT(EPOCH FROM d.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
                    ) AS bucket,
-                   d.model AS model,
+                   dmm.value AS model,
                    COUNT(*) AS n,
                    PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY d.text_chars) AS p50,
                    PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY d.text_chars) AS p90
@@ -130,13 +130,13 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
         file_counts_row = ph.execute(
             "file_counts", c, f"""
             -- The two EXISTS predicates were correlated subqueries evaluated once per file row (four of them, ~9.2k files); LEFT JOIN the sets instead.
-            WITH files_with_records AS (SELECT file_key FROM records GROUP BY file_key),
+            WITH files_with_records AS (SELECT file_id FROM records GROUP BY file_id),
             sessions_with_main AS (SELECT session_id FROM files WHERE is_main GROUP BY session_id)
             SELECT
-              COUNT(*) FILTER (WHERE f.is_main AND fr.file_key IS NOT NULL) AS main_w_usage,
-              COUNT(*) FILTER (WHERE f.is_main AND fr.file_key IS NULL) AS main_empty,
+              COUNT(*) FILTER (WHERE f.is_main AND fr.file_id IS NOT NULL) AS main_w_usage,
+              COUNT(*) FILTER (WHERE f.is_main AND fr.file_id IS NULL) AS main_empty,
               COUNT(*) FILTER (WHERE NOT f.is_main) AS subagent_files,
-              COUNT(DISTINCT f.session_id) FILTER (WHERE sm.session_id IS NULL AND fr.file_key IS NOT NULL) AS subagent_only_sessions,
+              COUNT(DISTINCT f.session_id) FILTER (WHERE sm.session_id IS NULL AND fr.file_id IS NOT NULL) AS subagent_only_sessions,
               -- A prompt is substantive user text (instrumentation and
               -- interrupts excluded at parse time); a turn is a ctx_turn
               -- boundary with a usage-bearing reply. Both are counted PER
@@ -157,7 +157,7 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
                              ELSE (t->>'ts')::timestamptz >= %s END)
                 FROM jsonb_array_elements(f.ctx_turns) AS t)), 0) AS total_turns
             FROM files f
-            LEFT JOIN files_with_records fr ON fr.file_key = f.file_key
+            LEFT JOIN files_with_records fr ON fr.file_id = f.file_id
             LEFT JOIN sessions_with_main   sm ON sm.session_id = f.session_id
             WHERE f.r2_last_modified >= %s {src["proj_filter"]}
             """,

@@ -18,12 +18,11 @@ from backend import db, flags, schema_indexes as compiler
 from tests import scratch_db
 
 ANALYSIS = {
-    "records_turn_flags_idx": ("gin", None),
     "tool_uses_read_targets_idx": ("gin", None),
     "tool_uses_reread_idx": ("btree", "is_reread"),
 }
 RETAINED = {
-    "records_pkey", "records_ts_idx", "records_uuid_idx",
+    "records_pkey", "records_ts_idx",
     "records_canonical_ts_idx", "records_latency_idx", "tool_uses_pkey",
     "tool_uses_ts_idx", "tool_uses_tool_use_id_idx",
 }
@@ -83,8 +82,7 @@ def _assert_catalog(present: set[str], absent: set[str]) -> None:
     for name in present.intersection(ANALYSIS):
         method, predicate = ANALYSIS[name]
         assert catalog[name][1:3] == (method, predicate)
-        column = {"records_turn_flags_idx": "turn_flags",
-                  "tool_uses_read_targets_idx": "read_targets",
+        column = {"tool_uses_read_targets_idx": "read_targets",
                   "tool_uses_reread_idx": "ts"}[name]
         table = "records" if name.startswith("records_") else "tool_uses"
         assert f"ON public.{table} USING {method} ({column})" in catalog[name][3]
@@ -92,18 +90,30 @@ def _assert_catalog(present: set[str], absent: set[str]) -> None:
 
 def _seed_rows() -> None:
     with db.viz_conn() as conn:
-        conn.execute("INSERT INTO projects VALUES ('p', 'Project', now(), now())")
+        conn.execute("INSERT INTO projects (project_id, display_name, "
+                     "first_seen_at, last_seen_at) "
+                     "VALUES ('p', 'Project', now(), now())")
         conn.execute(
             "INSERT INTO files (file_key, project_id, session_id, is_main, "
             "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, parser_version) "
             "VALUES ('f', 'p', 's', TRUE, 'e', 10, now(), now(), 'legacy-writer')")
         conn.execute(
-            "INSERT INTO records (file_key, line_num, uuid, request_id, ts, model, turn_flags) "
-            "VALUES ('f', 1, 'u', 'r', now(), 'synthetic', ARRAY['user_prompt'])")
+            "INSERT INTO dim_model (value) VALUES ('synthetic') "
+            "ON CONFLICT (value) DO NOTHING")
         conn.execute(
-            "INSERT INTO tool_uses (file_key, line_num, idx, ts, tool_name, "
-            "read_targets, is_reread) VALUES "
-            "('f', 1, 0, now(), 'Read', ARRAY['sample.py'], TRUE)")
+            "INSERT INTO dim_tool_name (value) VALUES ('Read') "
+            "ON CONFLICT (value) DO NOTHING")
+        conn.execute(
+            "INSERT INTO records (file_id, line_num, ts, model_id, turn_flags) "
+            "SELECT file_id, 1, now(), "
+            "(SELECT id FROM dim_model WHERE value = 'synthetic'), 1 "
+            "FROM files WHERE file_key = 'f'")
+        conn.execute(
+            "INSERT INTO tool_uses (file_id, line_num, idx, ts, tool_name_id, "
+            "read_targets, is_reread) "
+            "SELECT file_id, 1, 0, now(), "
+            "(SELECT id FROM dim_tool_name WHERE value = 'Read'), "
+            "ARRAY['sample.py'], TRUE FROM files WHERE file_key = 'f'")
 
 
 def _counts() -> tuple[int, ...]:
@@ -142,7 +152,7 @@ def test_unused_indexes_dropped_on_startup(monkeypatch):
             conn.execute("CREATE INDEX IF NOT EXISTS records_request_idx "
                          "ON records (request_id) WHERE request_id <> ''")
             conn.execute("CREATE INDEX IF NOT EXISTS tool_uses_tool_idx "
-                         "ON tool_uses (tool_name)")
+                         "ON tool_uses (tool_name_id)")
         _assert_catalog(set(ANALYSIS) | OBSOLETE, set())
         statements.clear()
         db.apply_schema()
@@ -153,7 +163,8 @@ def test_unused_indexes_dropped_on_startup(monkeypatch):
 
 @pytest.mark.db
 @pytest.mark.parametrize("key, names", [
-    ("turn_context", {"records_turn_flags_idx"}),
+    # turn_context carries no index on this branch: records.turn_flags
+    # is an INT4 mask (#959 R5) and GIN has no integer operator class.
     ("context_intake", {"tool_uses_read_targets_idx", "tool_uses_reread_idx"}),
 ])
 def test_analysis_indexes_follow_collection_both_directions(monkeypatch, key, names):
@@ -204,11 +215,13 @@ def test_effective_stamp_changes_only_for_index_policy(monkeypatch):
     def digest(text: str) -> str:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    for env in ("CLAUDIT_COLLECT_TURN_CONTEXT", "CLAUDIT_COLLECT_CONTEXT_INTAKE"):
+        # turn_context carries no index on this branch (#959 R5 made
+        # turn_flags an INT4 mask), so only context_intake moves it.
+    for env in ("CLAUDIT_COLLECT_CONTEXT_INTAKE",):
         off = compiler.compile_schema(static, flags.resolve_config({env: "0"}).collection)
         assert digest(off) != digest(on)
     for spec in flags.ALL_COLLECTIONS_ON.specs:
-        if spec.key not in {"turn_context", "context_intake"}:
+        if spec.key not in {"context_intake"}:
             unrelated = flags.resolve_config({spec.env: "0"})
             assert compiler.compile_schema(static, unrelated.collection) == on
     for env in (spec.env for spec in flags.FEATURE_SPECS):
@@ -240,7 +253,7 @@ def test_index_policy_failure_rolls_back_ddl_and_stamp(monkeypatch):
         # a syntax error would reject the whole script before any DROP ran.
         with monkeypatch.context() as patch:
             patch.setattr(db, "read_schema", lambda: original +
-                          "\nDROP INDEX IF EXISTS public.records_turn_flags_idx;\nSELECT 1/0;")
+                          "\nDROP INDEX IF EXISTS public.tool_uses_read_targets_idx;\nSELECT 1/0;")
             with pytest.raises(psycopg.errors.DivisionByZero):
                 db.apply_schema()
         _assert_catalog(set(ANALYSIS), set())
