@@ -43,6 +43,7 @@ from backend import (
     db,
     ingest,
     ingest_reprice,
+    parser_version,
     pricing,
     rate_fingerprint,
     schema_files,
@@ -398,7 +399,7 @@ def _seed_endpoint_rows(conn) -> None:
         "parser_version, agent_type) VALUES (%s, %s, %s, TRUE, 'e', 1, "
         "%s, %s, %s, 'general-purpose')",
         (_EP_FILE, _EP_PROJECT, _EP_SESSION, _EP_TS, _EP_TS,
-         constants.PARSER_VERSION))
+         parser_version.PARSER_VERSION))
     model_id = dims_seed.dim_id(conn, "dim_model", SEED_MODEL)
     fid = dims_seed.file_id(conn, _EP_FILE)
     for (line, fresh, create, read, output, cost, lc, (im, om),

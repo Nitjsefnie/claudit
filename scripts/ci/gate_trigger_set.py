@@ -41,6 +41,10 @@ reason:
   and never pinned by the suite (tests derive expectations from them
   at run time), so no leg's verdict depends on the file's content; the
   bot's commit touches it alongside the data file.
+- `backend/parser_version.py` — the parser version is read at run time
+  and never pinned by the suite (issue #986 moved it out of
+  constants.py); the perturbed-data leg perturbs and restores it, so
+  like the constants file no leg's verdict depends on its content.
 - `src/pricing_notices.json` — the same bot's notice baseline, written
   by the refresh run itself (issue #888). Like the data file, no leg's
   verdict depends on its content and the bot's push is gate-silent.
@@ -102,6 +106,11 @@ EXEMPT = {
         "version constants are read at run time and never pinned by the"
         " suite, so no gate leg's verdict depends on the file's"
         " content; the bot's commit touches it beside the data file"),
+    "backend/parser_version.py": (
+        "the parser version is read at run time and never pinned by the"
+        " suite, so no gate leg's verdict depends on the file's"
+        " content; the perturbed-data leg perturbs and restores it"
+        " (issue #986 moved it out of constants.py)"),
     "src/pricing_notices.json": (
         "the rate-refresh bot's notice baseline, written by the refresh"
         " run itself; no gate leg's verdict depends on its content and"

@@ -142,9 +142,9 @@ jobs:
         # three in sequence, and every seed's own exit is its job's. The
         # seeds stay independent trees, so the stamps being decoupled
         # from the seed (issue #227) still holds. Before the perturb the
-        # bench restores the pristine pricing document and constants
-        # module byte for byte from what it read at start; the
-        # attribution lands in this job's step summary (issue #456).
+        # bench restores the pristine pricing document, constants and
+        # parser-version modules byte for byte; the attribution lands
+        # in this job's step summary (issue #456).
         run: |
           python scripts/ci/perturbed_leg_bench.py \
             --seed "${{ matrix.seed }}" \

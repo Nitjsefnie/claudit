@@ -35,7 +35,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import constants, db, ingest, uuid_split
+from backend import db, ingest, parser_version, uuid_split
 from backend.ingest_scope import Scope
 from tests import dims_seed, scratch_db
 
@@ -357,12 +357,12 @@ def test_the_replay_rank_applies_to_tool_uses_too(fresh_db):
             "INSERT INTO files (file_key, project_id, session_id, is_main, "
             "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
             "parser_version) VALUES (%s, 'p', 's', TRUE, 'e', 1, now(), "
-            "now(), %s)", ("main", constants.PARSER_VERSION))
+            "now(), %s)", ("main", parser_version.PARSER_VERSION))
         c.execute(
             "INSERT INTO files (file_key, project_id, session_id, is_main, "
             "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
             "parser_version) VALUES (%s, 'p', 's', FALSE, 'e', 1, now(), "
-            "now(), %s)", ("zzz-subagent", constants.PARSER_VERSION))
+            "now(), %s)", ("zzz-subagent", parser_version.PARSER_VERSION))
         # The parent's original call and the fork's replay, the fork's
         # key FIRST — the order the old file_key rule would have picked.
         for fk, replay in (("zzz-subagent", True), ("main", False)):
@@ -397,12 +397,12 @@ def test_a_replayed_tool_call_adopts_the_originals_model(fresh_db):
             "INSERT INTO files (file_key, project_id, session_id, is_main, "
             "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
             "parser_version) VALUES (%s, 'p', 's', TRUE, 'e', 1, now(), "
-            "now(), %s)", ("main", constants.PARSER_VERSION))
+            "now(), %s)", ("main", parser_version.PARSER_VERSION))
         c.execute(
             "INSERT INTO files (file_key, project_id, session_id, is_main, "
             "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
             "parser_version) VALUES (%s, 'p', 's', FALSE, 'e', 1, now(), "
-            "now(), %s)", ("zzz-subagent", constants.PARSER_VERSION))
+            "now(), %s)", ("zzz-subagent", parser_version.PARSER_VERSION))
         # The parent's original call and the fork's replay under the
         # fork's first declared model — the shape the pass corrects.
         for fk, replay, model in (("zzz-subagent", True, "gpt-5.6-terra"),
@@ -441,7 +441,7 @@ def test_a_null_original_model_is_never_adopted(fresh_db):
                 "INSERT INTO files (file_key, project_id, session_id, is_main, "
                 "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
                 "parser_version) VALUES (%s, 'p', 's', %s, 'e', 1, now(), "
-                "now(), %s)", (fk, is_main, constants.PARSER_VERSION))
+                "now(), %s)", (fk, is_main, parser_version.PARSER_VERSION))
         tid = dims_seed.dim_id(c, "dim_tool_name", "exec")
         main_fid = dims_seed.file_id(c, "main")
         fork_fid = dims_seed.file_id(c, "zzz-subagent")
@@ -534,7 +534,7 @@ def _seed_two_identities() -> None:
                 "INSERT INTO files (file_key, project_id, session_id, is_main, "
                 "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
                 "parser_version) VALUES (%s, 'p', 's', %s, 'e', 1, now(), "
-                "now(), %s)", (fk, is_main, constants.PARSER_VERSION))
+                "now(), %s)", (fk, is_main, parser_version.PARSER_VERSION))
         sol = dims_seed.dim_id(c, "dim_model", "gpt-5.6-sol")
         terra = dims_seed.dim_id(c, "dim_model", "gpt-5.6-terra")
         c.execute(
@@ -594,7 +594,7 @@ def test_two_replays_without_an_original_keep_their_declarations(fresh_db):
                 "INSERT INTO files (file_key, project_id, session_id, is_main, "
                 "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
                 "parser_version) VALUES (%s, 'p', 's', %s, 'e', 1, now(), "
-                "now(), %s)", (fk, is_main, constants.PARSER_VERSION))
+                "now(), %s)", (fk, is_main, parser_version.PARSER_VERSION))
         # Both copies replayed; the winner rule made the aaa copy canonical.
         sol = dims_seed.dim_id(c, "dim_model", "gpt-5.6-sol")
         terra = dims_seed.dim_id(c, "dim_model", "gpt-5.6-terra")

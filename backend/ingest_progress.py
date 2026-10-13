@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
-from backend import cache, constants, db, r2
+from backend import cache, constants, db, parser_version, r2
 
 # Live ingest progress, for /health. Held in memory rather than written to
 # ingest_runs: that row's counters are only filled by the final UPDATE, so for
@@ -50,7 +50,6 @@ def health() -> Response:
     readout joined the response (issue #641); app.py was at the
     module-size ceiling and could not grow it."""
 
-    parser_version = constants.PARSER_VERSION
     last_ingest = None
     try:
         with db.viz_conn() as c:
@@ -88,7 +87,7 @@ def health() -> Response:
             content={
                 "ok": False, "db": False, "error": "database unavailable",
                 "version": constants.VERSION,
-                "parser_version": parser_version,
+                "parser_version": parser_version.PARSER_VERSION,
                 "now": datetime.now(timezone.utc).isoformat(),
             },
         )
@@ -120,7 +119,7 @@ def health() -> Response:
         # too: "which version is broken" is exactly the question asked when
         # /health is failing, so it must not be the field that goes missing.
         "version": constants.VERSION,
-        "parser_version": parser_version,
+        "parser_version": parser_version.PARSER_VERSION,
         # Cache-outcome counters and pool gauges (issue #641): the
         # slow-open split and the requests-queued-on-the-ingest
         # hypothesis, readable from production without a deploy.

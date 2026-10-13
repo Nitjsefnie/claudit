@@ -3,16 +3,17 @@
 
 The perturbed-data leg ran for ~16-22 minutes per ci-gate run with
 nothing recording where the time went. This bench is the leg's
-instrument: it keeps the pristine pricing document and constants module
-in memory, and per fixed seed it restores them byte for byte, runs the
-perturbation in-process (phase ``perturb``), then runs the suite as the
-leg runs it — a pytest subprocess over the caller's arguments, on the
-just-perturbed tree (phase ``suite``). Each phase records WALL seconds
-and CPU seconds (the perturb phase's own ``process_time``; the suite
-phase's child CPU from ``getrusage(RUSAGE_CHILDREN)`` deltas) plus the
-phase's exit code. The first nonzero suite exit stops the run and is
-the bench's own exit — the loop's first failure fails the step, exactly
-as the leg always has.
+instrument: it keeps the pristine pricing document, constants module
+and parser-version module in memory, and per fixed seed it restores
+them byte for byte, runs the perturbation in-process (phase
+``perturb``), then runs the suite as the leg runs it — a pytest
+subprocess over the caller's arguments, on the just-perturbed tree
+(phase ``suite``). Each phase records WALL seconds and CPU seconds
+(the perturb phase's own ``process_time``; the suite phase's child CPU
+from ``getrusage(RUSAGE_CHILDREN)`` deltas) plus the phase's exit
+code. The first nonzero suite exit stops the run and is the bench's
+own exit — the loop's first failure fails the step, exactly as the
+leg always has.
 
 Per the v9 measurement doctrine this is TELEMETRY, never a gate: the
 leg's verdict is the perturbed suite's pass/fail, never its duration,
@@ -34,8 +35,8 @@ The seeds are the caller's policy — the leg's three fixed seeds
 per-seed phases are also written as JSON with ``--measurement``.
 
     python3 scripts/ci/perturbed_leg_bench.py --seed 42 [--seed S ...]
-        [--pricing PATH] [--constants PATH] [--pytest-args ARGS]
-        [--summary FILE] [--measurement FILE]
+        [--pricing PATH] [--constants PATH] [--parser-version PATH]
+        [--pytest-args ARGS] [--summary FILE] [--measurement FILE]
 """
 from __future__ import annotations
 
@@ -69,6 +70,7 @@ TELEMETRY_NOTE = (
     "never its duration")
 DEFAULT_PRICING = REPO_ROOT / "src" / "pricing.json"
 DEFAULT_CONSTANTS = REPO_ROOT / "backend" / "constants.py"
+DEFAULT_PARSER_VERSION = REPO_ROOT / "backend" / "parser_version.py"
 # The leg's exact suite invocation, as the workflow ran it before this
 # bench owned the loop.
 DEFAULT_PYTEST_ARGS = ["tests/", "-q", "--tb=short", "-ra"]
@@ -82,16 +84,18 @@ class SeedRun(NamedTuple):
 
 
 def run_seed(pristine_pricing: bytes, pristine_constants: bytes,
-             pricing_path: Path, constants_path: Path, seed: int,
+             pristine_parser_version: bytes, pricing_path: Path,
+             constants_path: Path, parser_version_path: Path, seed: int,
              pytest_args: list[str]) -> SeedRun:
     """Restore the tree, perturb, run the suite; time both phases."""
     pricing_path.write_bytes(pristine_pricing)
     constants_path.write_bytes(pristine_constants)
+    parser_version_path.write_bytes(pristine_parser_version)
     cpu_start = time.process_time()
     wall_start = time.perf_counter()
     rows, _seed, stamp_base = perturb_test_data.perturb_pricing(
         pricing_path, seed=seed)
-    perturb_test_data.bump_constants(constants_path)
+    perturb_test_data.bump_constants(constants_path, parser_version_path)
     perturb = {
         "wall_s": _fmt(time.perf_counter() - wall_start),
         "cpu_s": _fmt(time.process_time() - cpu_start),
@@ -127,6 +131,7 @@ def _suite_phase(pytest_args: list[str]) -> dict:
 
 
 def measure(seeds: list[int], pricing_path: Path, constants_path: Path,
+            parser_version_path: Path,
             pytest_args: list[str], repo_root: Path = REPO_ROOT) -> dict:
     """Run the seeded loop; the measurement document or a raised error.
 
@@ -135,10 +140,13 @@ def measure(seeds: list[int], pricing_path: Path, constants_path: Path,
     """
     pristine_pricing = pricing_path.read_bytes()
     pristine_constants = constants_path.read_bytes()
+    pristine_parser_version = parser_version_path.read_bytes()
     seed_runs = []
     for seed in seeds:
         run = run_seed(pristine_pricing, pristine_constants,
-                       pricing_path, constants_path, seed, pytest_args)
+                       pristine_parser_version, pricing_path,
+                       constants_path, parser_version_path, seed,
+                       pytest_args)
         seed_runs.append({"seed": run.seed, "phases": dict(run.phases)})
         if run.phases["suite"]["exit_code"] != 0:
             break
@@ -273,6 +281,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--constants", type=Path, default=DEFAULT_CONSTANTS,
                         help="path to the constants module (default: "
                              "backend/constants.py)")
+    parser.add_argument("--parser-version", type=Path,
+                        default=DEFAULT_PARSER_VERSION,
+                        help="path to the parser-version module (default: "
+                             "backend/parser_version.py)")
     parser.add_argument("--pytest-args", default=None,
                         help="the suite invocation after '-m pytest' "
                              "(default: the leg's own arguments)")
@@ -291,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
                    else list(DEFAULT_PYTEST_ARGS))
     try:
         measurement = measure(args.seed, args.pricing, args.constants,
-                              pytest_args)
+                              args.parser_version, pytest_args)
     except (OSError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 1

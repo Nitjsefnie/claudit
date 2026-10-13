@@ -123,7 +123,8 @@ jobs:
           for _ in 1 2 3; do
             SEED="$(date +%s)"
             echo "::notice::perturbed-suite seed=$SEED"
-            git checkout -- src/pricing.json backend/constants.py
+            git checkout -- src/pricing.json backend/constants.py \
+              backend/parser_version.py
             if python scripts/ci/perturb_test_data.py --seed "$SEED" \
                && python -m pytest tests/ -q --tb=short -ra; then
               echo "seed=$SEED ok" >> "$GITHUB_STEP_SUMMARY"

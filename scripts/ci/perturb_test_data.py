@@ -26,8 +26,10 @@ the seed — any seed is valid, which is what keeps the six closed-window
 pins in tests/test_provider_pricing.py pricing their pristine windows
 under every seed the leg can name. When NO entry in the document
 carries a `from`, there is nothing older to protect and the run
-instant is the base instead. The three version constants in
-backend/constants.py move up one. A test that pins repository-managed
+instant is the base instead. The three version constants —
+PARSER_VERSION in backend/parser_version.py, PRICING_VERSION and
+MARKER_READER_VERSION in backend/constants.py (issue #986 split the
+parser version out) — move up one. A test that pins repository-managed
 data then fails as a test failure on this tree, never as a broken
 refresh. The CI leg calls this script before pytest; the guard test
 tests/test_no_pinned_version_literals.py is the other half.
@@ -41,7 +43,7 @@ far as the appended stamps (issue #931). A second run appends a further
 five entries per row and moves the constants again.
 
     python3 scripts/ci/perturb_test_data.py [--seed N] [--pricing PATH]
-        [--constants PATH]
+        [--constants PATH] [--parser-version PATH]
 """
 from __future__ import annotations
 
@@ -62,6 +64,7 @@ from backend.pricing_document import effective_rates, serialize_pricing_doc  # n
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
+PARSER_VERSION_PY = REPO_ROOT / "backend" / "parser_version.py"
 VERSION_NAMES = ("PARSER_VERSION", "PRICING_VERSION", "MARKER_READER_VERSION")
 STAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 NOTE_PREFIX = "sv-test-data perturbation: rates ×"
@@ -337,10 +340,22 @@ def _stamp_after(previous: str | None, candidate: datetime) -> str:
     return stamp
 
 
-def bump_constants(path: Path) -> None:
-    """Move each version constant up one, in place, same quoted style."""
+def bump_constants(constants_path: Path, parser_version_path: Path) -> None:
+    """Move each version constant up one, in place, same quoted style.
+
+    PARSER_VERSION lives in its own module since issue #986 — the hourly
+    pricing bot rewrites backend/constants.py for PRICING_VERSION, and a
+    parser version sharing that file conflicted with every bot commit —
+    so the perturbation follows the constant to its home.
+    """
+    _bump_names(parser_version_path, ("PARSER_VERSION",))
+    _bump_names(constants_path, ("PRICING_VERSION", "MARKER_READER_VERSION"))
+
+
+def _bump_names(path: Path, names: tuple[str, ...]) -> None:
+    """Move each named constant up one in `path`, same quoted style."""
     text = path.read_text(encoding="utf-8")
-    for name in VERSION_NAMES:
+    for name in names:
         pattern = re.compile(rf'(?m)^({name}) = "(\d+)"$')
         found = pattern.findall(text)
         if len(found) != 1:
@@ -377,9 +392,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--constants", type=Path, default=CONSTANTS_PY,
                         help="path to the constants module "
                              "(default: backend/constants.py)")
+    parser.add_argument("--parser-version", type=Path,
+                        default=PARSER_VERSION_PY,
+                        help="path to the parser-version module "
+                             "(default: backend/parser_version.py)")
     args = parser.parse_args(argv)
     rows, seed, base_text = perturb_pricing(args.pricing, seed=args.seed)
-    bump_constants(args.constants)
+    bump_constants(args.constants, args.parser_version)
     print(f"perturbed {rows} rate rows (5 entries per row: ×2.0, ×0.37, "
           f"seeded per-row irregular, independent per-field factors, "
           f"single-field moves, web_search on provider rows), "

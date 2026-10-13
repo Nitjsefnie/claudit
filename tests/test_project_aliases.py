@@ -22,7 +22,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend import api, constants, db, ingest, lane_projects, project_aliases, r2
+from backend import api, db, ingest, lane_projects, parser_version, project_aliases, r2
 from tests import mini_mirror, scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -87,7 +87,7 @@ def _seed_current_lane_file(lane_r2_env: dict[str, str],
         cur.execute(
             "UPDATE files SET r2_etag = %s, r2_size_bytes = %s, "
             "parser_version = %s WHERE file_key = %s",
-            (wire.etag, wire.size, constants.PARSER_VERSION,
+            (wire.etag, wire.size, parser_version.PARSER_VERSION,
              lane_r2_env["wire_key"]))
         c.commit()
 
@@ -376,7 +376,7 @@ def test_alias_added_after_first_ingest_folds_without_a_reparse(
     with db.viz_conn() as c:
         stored = {r[0] for r in c.execute(
             "SELECT DISTINCT parser_version FROM files").fetchall()}
-    assert stored == {constants.PARSER_VERSION}
+    assert stored == {parser_version.PARSER_VERSION}
 
     _alias("projA%", "projB")
     result = ingest.run_ingest(trigger="manual")
@@ -386,7 +386,7 @@ def test_alias_added_after_first_ingest_folds_without_a_reparse(
     with db.viz_conn() as c:
         stored = {r[0] for r in c.execute(
             "SELECT DISTINCT parser_version FROM files").fetchall()}
-    assert stored == {constants.PARSER_VERSION}, (
+    assert stored == {parser_version.PARSER_VERSION}, (
         "folding is not a reparse: the stored parser_version is unchanged")
     assert _owners() == mini_mirror.folded_owners("projA", "projB")
 
@@ -440,7 +440,7 @@ def test_marker_lane_alias_stays_folded_and_labels_target_with_its_id(
         cur.execute(
             "UPDATE files SET r2_etag = %s, r2_size_bytes = %s, "
             "parser_version = %s WHERE file_key = %s",
-            (wire.etag, wire.size, constants.PARSER_VERSION,
+            (wire.etag, wire.size, parser_version.PARSER_VERSION,
              lane_r2_env["wire_key"]))
         cur.execute(
             "UPDATE projects SET display_name = %s WHERE project_id = %s",

@@ -32,6 +32,9 @@
 !/Dockerfile
 !/LICENSE
 !/NOTICE
+# The root-level PARSER_VERSION bump history (issue #986), pointed at
+# by .claude/rules/claudit-doctrine.md's SV-PARSER-VERSION section.
+!/PARSER_VERSION_HISTORY.md
 !/PRESENTATION.txt
 !/PRIVACY.md
 !/README.md

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import api, cache, constants, db, ingest, uuid_split
+from backend import api, cache, db, ingest, parser_version, uuid_split
 from backend.api_ctx_growth import context_growth_traces
 from backend.api_dashboard import dashboard
 from backend.api_web_metrics import web_metrics_readout
@@ -140,7 +140,7 @@ def test_parser_version_bump_reparses_all(fresh_db, mini_r2_env, monkeypatch):
     rollback and must not reparse: see test_ingest_rollback.py."""
     ingest.run_ingest(trigger="manual")
     monkeypatch.setattr(
-        constants, "PARSER_VERSION", str(int(constants.PARSER_VERSION) + 1))
+        parser_version, "PARSER_VERSION", str(int(parser_version.PARSER_VERSION) + 1))
     result = ingest.run_ingest(trigger="manual")
     assert result["reparsed"] == mini_mirror.counts()["transcripts"]
 
@@ -320,7 +320,7 @@ def _seed_winner_shapes(c) -> None:
                 "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
                 "parser_version) VALUES (%s, 'p', 's', TRUE, 'e', 1, now(), "
                 "now(), %s)",
-                (f"shape-{idx}-{label}", constants.PARSER_VERSION))
+                (f"shape-{idx}-{label}", parser_version.PARSER_VERSION))
             c.execute(
                 "INSERT INTO records (file_id, line_num, fallback, model_id, is_replay) VALUES (%s, %s, %s, %s, %s)",
                 (dims_seed.file_id(c, f"shape-{idx}-{label}"), pos + 1,

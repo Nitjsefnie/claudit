@@ -1,11 +1,11 @@
 """The smoke server environment sets no PARSER_VERSION (issue #160).
 
 scripts/ci/smoke.py passed "PARSER_VERSION": "smoke" to the server it
-boots. Nothing reads it: every consumer reads the code constant
-constants.PARSER_VERSION (SV-PARSER-VERSION — the env-var override was
+boots. Nothing reads it: consumers read the code constant
+parser_version.PARSER_VERSION (SV-PARSER-VERSION — the env-var override was
 removed, and tests/test_ingest.py pins that it stays removed). The entry
-was an inert suggestion of a switch that no longer exists. This guard
-fails if the entry comes back.
+was an inert suggestion of a switch that no longer exists. The guard
+fails if the entry returns.
 """
 from __future__ import annotations
 
