@@ -69,9 +69,9 @@ def module_def_vocab(source: str) -> tuple[frozenset[str], bool]:
     in the parent's co_varnames, which neither co_names nor consts
     carry — hence the union, not the module level).
 
-    Both answers are over-inclusive by construction — an import, a
-    local, or a prose string also admits; admission saves the downstream
-    DB-facts traversal and hides no fixture def or chain member OF LIVE CODE:
+    Both answers are over-inclusive by construction — an import, a local, or a
+    prose string also admits — so a skip can only save the downstream DB-facts
+    traversal, never hide a fixture def or a chain member OF LIVE CODE:
     a def spelled only inside a dead branch (``if 0:``) carries its
     parameter names in no surviving code object, so the index cannot
     see it. Such a def never executes and never registers at
