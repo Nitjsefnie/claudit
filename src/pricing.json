@@ -746,7 +746,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-13T12:54:08Z",
+  "provider_rates_fetched": "2026-10-13T15:53:49Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -1788,6 +1788,12 @@
           "from": "2026-10-08T06:01:48Z",
           "output": 1.2,
           "read": 0.03
+        },
+        {
+          "fresh": 0.192,
+          "from": "2026-10-13T14:51:42Z",
+          "output": 0.768,
+          "read": 0.00384
         }
       ],
       "Baidu": [
@@ -32449,6 +32455,12 @@
           "from": "2026-10-01T16:41:14Z",
           "output": 13.5,
           "read": 0.27
+        },
+        {
+          "fresh": 3.0,
+          "from": "2026-10-13T15:21:20Z",
+          "output": 15.0,
+          "read": 0.3
         }
       ],
       "Wafer": [
