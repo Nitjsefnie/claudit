@@ -19,7 +19,10 @@ and the report names every host it collapsed, because a host whose prices
 are now a mean must have priced no record: run the safety query over
 exactly those names before merging
 
-    SELECT DISTINCT provider FROM records WHERE provider IN (<those names>);
+    SELECT DISTINCT dp.value
+      FROM records r
+      JOIN dim_provider dp ON dp.id = r.provider_id
+     WHERE dp.value IN (<those names>);
 
 which must return no rows. As at backfill_provider_rates.py, the file is
 validated through the loaders' own rules before either file is written,
