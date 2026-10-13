@@ -119,10 +119,13 @@ def test_acquire_saves_only_a_successfully_pulled_image():
     assignments = list(re.finditer(r"(?m)^ *pulled=(\w+)$", run))
     assert [match[1] for match in assignments] == ["false", "true"]
     success = re.search(
-        r'(?ms)^(?P<indent> *)if (?:timeout \d+ )?docker pull "\$ref" '
-        r'[^\n]*; then\n.*?^(?P=indent)fi$', run)
+        r'(?ms)^(?P<indent> *)if timeout 120 docker pull "\$ref" '
+        r'> "\$log" 2>&1; then\n.*?^(?P=indent)fi$', run)
     assert (success and assignments[0].start() < success.start()
             < assignments[1].start() < success.end())
+    # A closing fi bounds failure arms too; the flag must precede any switch.
+    before_assignment = run[success.start():assignments[1].start()]
+    assert not re.search(r"(?m)(?:^|;)[ \t]*(?:else|elif)\b", before_assignment)
     refusal = re.search(
         r'(?ms)^(?P<indent> *)if \[ "\$pulled" != true \]; then\n'
         r'(?P<body>.*?)^(?P=indent)fi$', run)
