@@ -423,7 +423,12 @@ def test_compiler_preserves_interpreter_optimization(optimization: str) -> None:
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("text", ["return 1\n", "break\n", "x = (\n"])
+@pytest.mark.parametrize("text", [
+    "return 1\n", "break\n", "x = (\n", "nonlocal a\n",
+    "def f(a, a):\n    pass\n",
+    "def f():\n    a = 1\n    global a\n",
+    "from __future__ import missing_feature\n",
+])
 def test_compile_errors_match_direct_compile(text: str) -> None:
     expected = _failure(lambda: _reference_code(text))
     artifacts = source_scan_cache.for_source(text)
@@ -431,6 +436,23 @@ def test_compile_errors_match_direct_compile(text: str) -> None:
         assert isinstance(artifacts.tree(), ast.Module)
     one = _failure(artifacts.scan_code)
     two = _failure(artifacts.scan_code)
+    assert _diagnostic(one) == _diagnostic(expected)
+    assert _diagnostic(two) == _diagnostic(expected)
+    assert one is not two
+
+
+def test_single_arg_error_relabels_without_changing_args_shape(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    text = f"nonlocal a  # {tmp_path.name}\n"
+    expected = _failure(lambda: compile(text, "supplied.py", "exec"))
+
+    def compiler_failure(*_args: Any, **_kwargs: Any) -> Any:
+        return compile(text, "<unknown>", "exec")
+
+    monkeypatch.setattr(ast, "parse", compiler_failure)
+    artifacts = source_scan_cache.for_source(text)
+    one = _failure(lambda: artifacts.tree(filename="supplied.py"))
+    two = _failure(lambda: artifacts.tree(filename="supplied.py"))
     assert _diagnostic(one) == _diagnostic(expected)
     assert _diagnostic(two) == _diagnostic(expected)
     assert one is not two
