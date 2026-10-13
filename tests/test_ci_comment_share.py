@@ -38,15 +38,15 @@ CASES = [
     ('yaml_cr_comments', 'yaml', '# first\ra: 1 # yes\r', (10, 13)),
     ('yaml_key_colon', 'yaml', '"a:b": |\n  # data\n', (0, 12)),
     ('yaml_key_hash', 'yaml', "'a#b': >-\n  # data\n", (0, 13)),
-    ('yaml_escaped_run', 'yaml', '"ru\\u006e": |\n  # yes\n', (4, 16)),
-    ('yaml_alias_key', 'yaml', '&k run: x\n*k: |\n  # yes\n', (4, 15)),
+    ('yaml_escaped_run', 'yaml', '"ru\\u006e": |\n  # yes\n', (0, 16)),
+    ('yaml_alias_key', 'yaml', '&k run: x\n*k: |\n  # yes\n', (0, 15)),
     ('yaml_anchor', 'yaml', 'a: &v "x # data" # yes\n', (4, 16)),
     ('yaml_tag', 'yaml', 'a: !!str "x # data" # yes\n', (4, 19)),
     ('yaml_custom_tag', 'yaml', 'a: !tag "x # data" # yes\n', (4, 18)),
     ('yaml_verbatim_tag', 'yaml', 'a: !<tag:example.org,2026:x> "x # data" # yes\n', (4, 39)),
     ('yaml_flow_properties', 'yaml', '{a: &v "x # data", b: *v} # yes\n', (4, 23)),
     ('yaml_block_properties', 'yaml', 'a: &v !!str |\n  # data\n', (0, 15)),
-    ('yaml_run_properties', 'yaml', 'run: &v !!str |\n  cat <<EOF\n  # body\n  EOF\n  # yes\n', (4, 32)),
+    ('yaml_run_properties', 'yaml', 'run: &v !!str |\n  cat <<EOF\n  # body\n  EOF\n  # yes\n', (0, 32)),
     ('yaml_plain_continuation', 'yaml', "a: text\n  'plain # real\nb: 1 # yes\n", (9, 24)),
     ('shell_quoted_shift', 'sh', 'echo "$((1 << true))"\n# real\ntrue\n# yes\n', (9, 31)),
     ('shell_arithmetic', 'sh', 'echo "$((1 << 2))"\n# yes\n', (4, 19)),
@@ -54,11 +54,10 @@ CASES = [
     ('shell_nested_arithmetic', 'sh', 'echo "$(( (1 + 1) << 2))"\n# yes\n', (4, 23)),
     ('yaml_run_arithmetic', 'yaml', 'run: |\n  echo "$((1 << 2))"\n  # yes\n', (4, 24)),
     ('shell_ansi_quote', 'sh', "echo $'it\\'s # data' # yes\n", (4, 21)),
-    ('shell_case_scope', 'sh', 'echo "$(case x in\nx) echo x ;; # real\nesac\n)" # yes\n', (9, 38)),
-    ('shell_case_negation', 'sh', 'echo "$(! case x in\nx) echo x ;; # real\nesac\n)" # yes\n', (9, 39)),
-    ('shell_case_word', 'sh', 'echo "$(case x in\n*/esac) echo x ;; # real\nesac\n)" # yes\n', (9, 43)),
-    ('shell_escaped_dollar', 'sh', "cat <<\\$'EOF'\n# data\n$EOF\n# yes\n", (4, 25)),
-    ('shell_ansi_heredoc', 'sh', "cat <<$'EOF'\n# data\nEOF\n# yes\n", (4, 23)),
+    ('yaml_sequence_block', 'yaml', 'items:\n  - |\n    # data\n  - x # yes\n', (4, 19)),
+    ('yaml_block_overlap', 'yaml', 'run:\n  - |\n    # a\n  - run: |\n      # bbbbbbbbbbbbbbbbbbbb\n', (21, 35)),
+    ('shell_literal_keywords', 'sh', 'echo if case # yes\n', (4, 14)),
+    ('shell_quoted_ansi_word', 'sh', 'cat <<"$\'EOF\'"\n# data\nEOF\n# more\n$\'EOF\'\n# yes\n', (4, 36)),
     ('empty', 'py', ' \t\n', (0, 0)),
     ('js_literals', 'js', 'const a = "//"; const b = `// ${1}`; const c = /\\/\\//; // a\n/* b c */\n', (9, 51)),
     ('mjs', 'mjs', 'export const x = 1; // hi\n', (4, 19)),
@@ -102,6 +101,33 @@ def test_tracked_universe_and_report(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "python\t1\t3\t6\t50.000000%" in output
 
 
+REFUSED_SHELL = [
+    'echo "$(( $(cat <<EOF\n"2"\nEOF\n) + 1 ))"\n',
+    'echo "$(( $(cat <<\'EOF\'\n2\nEOF\n) + 1 ))"\n',
+    'cat <<"E OF"\n# data\nE OF\n',
+    'echo "$(case x in\nx) echo x ;; # real\nesac\n)" # yes\n',
+    'echo "$(! case x in\nx) echo x ;; # real\nesac\n)" # yes\n',
+    'echo "$(case x in\n*/esac) echo x ;; # real\nesac\n)" # yes\n',
+    "cat <<\\$'EOF'\n# data\n$EOF\n# yes\n",
+    "cat <<$'EOF'\n# data\nEOF\n# yes\n",
+    'echo "$(( \'x ))"\n',
+    'echo "$(( "x ))"\n',
+    '((1 + "2"))\n',
+    "cat <<$'EOF'\n# data\nEOF\n",
+    "cat <<$'it\\'s'\n# data\nit\\s\n# more\nit's\n# yes\n",
+    "cat <<$'\\303\\251'\n# data\nÃ©\n# more\né\n# yes\n",
+    "cat <<$'\\xC3\\xA9'\n# data\nÃ©\n# more\né\n# yes\n",
+    "cat <<E'OF'\n# data\nEOF\n",
+    'echo "$(case x in\nx) echo x ;;\nesac\n)"\n',
+    'echo "$(time case x in\nx) echo x ;;\nesac\n)"\n',
+    'echo "`case x in\nx) echo x ;;\nesac\n`"\n',
+]
+REFUSED_SOURCES = [("refused.sh", source) for source in REFUSED_SHELL] + [
+    ("refused.yaml", "run: |\n" + "".join("  " + line for line in source.splitlines(keepends=True)))
+    for source in REFUSED_SHELL if '$((' in source or source.startswith('((')
+]
+
+
 OPEN_SCOPES = [
     'echo "$(\n',
     'echo ${\n',
@@ -115,7 +141,6 @@ OPEN_SCOPES = [
     "echo $'it\\'s\n",
     '((1 + 2)\n',
     '(echo x\n',
-    'case x in\nx) echo x\n',
     'case x in @(x esac\n',
 ]
 OPEN_SOURCES = [("open.sh", source) for source in OPEN_SCOPES] + [
@@ -128,7 +153,7 @@ OPEN_SOURCES = [("open.sh", source) for source in OPEN_SCOPES] + [
     ("bad.py", "def (\n"), ("bad.py", "x = '\n"),
     ("bad.js", "const = 1;"), ("bad.jsx", "<div>"),
     ("bad.sh", "cat <<EOF\n# body\n"),
-] + OPEN_SOURCES)
+] + OPEN_SOURCES + REFUSED_SOURCES)
 def test_unmeasurable_is_an_error(name: str, source: str, tmp_path: Path) -> None:
     if name.endswith((".js", ".jsx")) and not (ESPREE / "espree" / "package.json").is_file():
         pytest.skip("espree is not installed")
@@ -158,7 +183,7 @@ def test_missing_dependency_fails_cli(dependency: str, tmp_path: Path) -> None:
     assert not result.stdout
 
 
-@pytest.mark.parametrize("name,source", OPEN_SOURCES)
+@pytest.mark.parametrize("name,source", OPEN_SOURCES + REFUSED_SOURCES)
 def test_unfinished_scopes_cli(name: str, source: str, tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     (tmp_path / name).write_text(source, encoding="utf-8")
