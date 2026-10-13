@@ -476,3 +476,15 @@ def test_every_published_output_names_a_step_the_classify_job_has():
                 for step in _ci_gate()["jobs"]["classify"].get("steps") or []}
     for name, step_id in _published_names().items():
         assert step_id in step_ids, (name, step_id)
+
+
+@pytest.mark.parametrize('terminator', ['\n', '\r\n'])
+def test_bot_blob_transport_preserves_assignment_line_terminators(tmp_path, terminator):
+    before = {'backend/constants.py': 'PRICING_VERSION = "7"\nOTHER = 1\n'}
+    after = {'backend/constants.py': f'PRICING_VERSION = "8"{terminator}OTHER = 1\n'}
+    run = _run_classifier(tmp_path, base_contents=before, head_contents=after)
+    _only_modelled_reads(run)
+    _over_the_verified_base(run)
+    outputs = _parse_step_outputs(run.written)
+    assert outputs['data_only'] == ('true' if terminator == '\n' else 'false')
+    assert _gating_legs(outputs) == ({'lint', 'smoke'} if terminator == '\n' else set(_legs(_ci_gate())))

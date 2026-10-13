@@ -227,11 +227,7 @@ def _js_token_stream(text, path, run):
 
 def _source_tokens(text, path, run):
     """The comment-stripped token stream of a source file, or None."""
-    if path.endswith('.py'):
-        return _comment_stripped_py(text)
-    if path.endswith(('.js', '.jsx')):
-        return _js_token_stream(text, path, run)
-    return None
+    return sources.source_tokens(text, path, run, _comment_stripped_py, _js_token_stream)
 
 
 def _hex40(value):
@@ -365,10 +361,11 @@ def changed_paths(event, run):
 
 
 def _blob(repository, path, ref, run):
-    """A path's raw file text at `ref`, or None when it cannot be read."""
+    """A path's raw file bytes at `ref`, or None when it cannot be read."""
     try:
-        return run(['gh', 'api', '-H', 'Accept: application/vnd.github.raw',
+        value = run(['gh', 'api', '-H', 'Accept: application/vnd.github.raw',
                     f'repos/{repository}/contents/{path}?ref={ref}'])
+        return value.encode('utf-8') if isinstance(value, str) else value
     except Exception:  # any read failure over-runs, never under-runs
         return None
 
@@ -483,9 +480,8 @@ def main():
     event = event_from_environment(os.environ)
 
     def run(command):
-        return subprocess.run(
-            command, capture_output=True, text=True, check=True,
-            timeout=60).stdout
+        return sources.decode_output(command, subprocess.run(
+            command, capture_output=True, check=True, timeout=60).stdout)
 
     documentation, data, comment, reason = classify(event, run)
     write_outputs(os.environ.get('GITHUB_OUTPUT'), documentation, data,

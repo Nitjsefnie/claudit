@@ -67,3 +67,28 @@ def test_genuine_numeric_bump_still_uses_bot_data_class():
 def test_comment_edit_in_a_measured_docs_path_is_full():
     assert _classify(['examples/known.py'], 'x = 1\ny = 2\n# before\n',
                      'x = 1\ny = 2\n# after\n') == (False, False, False)
+
+
+@pytest.mark.parametrize('digits', ['7', '8'])
+@pytest.mark.parametrize('line', [
+    'PRICING_VERSION  = "{digits}"\n',
+    'PRICING_VERSION\t= "{digits}"\n',
+    'PRICING_VERSION = "{digits}" \n',
+    'PRICING_VERSION = "{digits}"\r\n',
+])
+def test_bot_version_assignment_changes_only_digits(digits, line):
+    before = 'PRICING_VERSION = "7"\nOTHER = 1\n'
+    after = line.format(digits=digits) + 'OTHER = 1\n'
+    assert _classify(['backend/constants.py', 'src/pricing.json'], before, after) == (False, False, False)
+
+
+@pytest.mark.parametrize('line', [
+    'PRICING_VERSION  = "{digits}"\n',
+    'PRICING_VERSION\t= "{digits}"\n',
+    'PRICING_VERSION = "{digits}" \n',
+    'PRICING_VERSION = "{digits}"\r\n',
+])
+def test_bot_bump_preserves_existing_assignment_format(line):
+    assert _classify(['backend/constants.py', 'src/pricing.json'],
+                     line.format(digits='7') + 'OTHER = 1\n',
+                     line.format(digits='8') + 'OTHER = 1\n') == (False, True, False)
