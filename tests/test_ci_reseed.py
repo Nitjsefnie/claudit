@@ -120,6 +120,7 @@ def _document(suite_cost=True, measured="95.6", floor="94.1"):
             for phase in thresholds.REPARSE_PHASES
         },
         "module_size_baseline": {},
+        "comment_share_baseline": {},
         "pylint_suppression_baseline": {},
     }
     if suite_cost:

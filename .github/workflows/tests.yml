@@ -232,6 +232,10 @@ jobs:
         # lockfile eslint.yml installs from.
         run: npm ci --no-audit --no-fund
 
+      - name: Comment share baseline
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        run: python3 scripts/ci/comment_baseline.py --matches-tree
+
       - name: JavaScript coverage gate
         # The front-end half of the same ratchet (issue #266):
         # NODE_V8_COVERAGE captures every node subprocess this step's
@@ -363,6 +367,7 @@ jobs:
           python3 scripts/ci/reparse_ratchet.py --measured-file reparse-bench.json
           python3 scripts/ci/size_baseline.py --tighten
           python3 scripts/ci/suppression_baseline.py --tighten
+          python3 scripts/ci/comment_baseline.py --tighten
           python3 scripts/ci/thresholds.py --check
           if [ -n "$(git status --porcelain .github/ci-thresholds.json)" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"

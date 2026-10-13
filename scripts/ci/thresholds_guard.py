@@ -245,6 +245,9 @@ def _baseline_moves(base, head, established):
             if path not in before:
                 if member not in established:
                     continue  # a new member's entries ARE its seed
+                if member == 'comment_share_baseline':
+                    moves.append(f'{member}.{path}: added')
+                    continue
                 # An addition to an established member: only a new
                 # measured family's seed can be legitimate.
                 if _is_core_family(path):
@@ -254,7 +257,8 @@ def _baseline_moves(base, head, established):
                     measured = size_baseline.tracked_sizes()
                 if path not in measured:
                     moves.append(f'{member}.{path}: added, unmeasured')
-            elif value > before[path]:
+            elif (value[0] * before[path][1] > before[path][0] * value[1]
+                  if member == 'comment_share_baseline' else value > before[path]):
                 moves.append(f'{member}.{path}: {before[path]} -> {value}')
     return moves
 

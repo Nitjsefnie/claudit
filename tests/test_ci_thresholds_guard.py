@@ -95,6 +95,7 @@ def _document(baseline=None, suppression=None, reparse=None, suite=None):
         },
         "reparse": _reparse() if reparse is None else reparse,
         "module_size_baseline": baseline if baseline is not None else {},
+        "comment_share_baseline": {},
         "pylint_suppression_baseline": (
             suppression if suppression is not None else {}),
         "suite_cost": copy.deepcopy(SUITE_COST if suite is None else suite),
