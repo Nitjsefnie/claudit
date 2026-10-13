@@ -746,7 +746,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-13T15:53:49Z",
+  "provider_rates_fetched": "2026-10-13T16:53:50Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -29557,6 +29557,14 @@
           "note": "4% off",
           "output": 3.84,
           "read": 0.1824
+        }
+      ],
+      "Phala": [
+        {
+          "fresh": 0.95,
+          "from": "2026-10-13T16:12:03Z",
+          "output": 4.0,
+          "read": 0.19
         }
       ],
       "SiliconFlow": [
