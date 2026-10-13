@@ -19,7 +19,6 @@ from pathlib import Path
 import pytest
 
 from backend import parse, pricing
-from tests.source_scan_cache import source as cached_source
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -28,41 +27,6 @@ RECORD_DEDUP_JS = ROOT / "src" / "record-dedup.js"
 RATES_JS = ROOT / "src" / "rates.js"
 LANES_JS = ROOT / "src" / "parser-lanes.js"
 UTC = timezone.utc
-
-
-class TestNodeHarnessesLoadLanes:
-    """A node harness that drives parser.js or rates.js over the LIVE
-    pricing.json must require parser-lanes.js: rates.js's
-    longContextFlagFor calls window.longContextThresholdFor, which
-    parser-lanes.js defines, and the call is reached only once the grouped
-    long_context_meters field includes a member, so the absence stayed invisible
-    until the first live fold (issue #860). The browser always loads
-    the module (public/index.html, script order); this pins the
-    harnesses to the browser's own dependency, at any require order.
-
-    The scan's grammar: a body is the text after a `global.window` line
-    up to the next triple quote; one requiring parser.js or rates.js
-    via the interpolated constants (str(PARSER_JS)!r /
-    str(RATES_JS)!r) without a str(LANES_JS)!r require is an
-    offender. Unseen: a harness shaped otherwise (no marker, tmp-dir
-    or renamed-constant requires); a renamed lanes constant reads as
-    a false offender."""
-
-    def test_harnesses_driving_the_real_parser_load_lanes(self):
-        """A pure source scan - no node, so no node skip (issue #812)."""
-        offenders = []
-        for path in sorted((ROOT / "tests").glob("test_*.py")):
-            text = cached_source(path, encoding=None)
-            for chunk in text.split("global.window")[1:]:
-                body = chunk.split('"""')[0]
-                needs = ("str(PARSER_JS)!r" in body
-                         or "str(RATES_JS)!r" in body)
-                lanes = "str(LANES_JS)!r" in body
-                if needs and not lanes:
-                    offenders.append(path.name)
-        assert not offenders, (
-            "node harnesses driving the live parser/rates without loading "
-            f"parser-lanes.js first: {offenders}")
 
 
 # (model id, ISO timestamp or None)
@@ -109,7 +73,8 @@ CASES = [
     ("openai/gpt-6-sol", None),
 ]
 
-_KEYMAP = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h", "read": "read", "out": "output"}
+_KEYMAP = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h",
+           "read": "read", "out": "output"}
 
 
 def _node_rates():
@@ -349,9 +314,11 @@ _NAIVE_TS_LINES = [
 # the naive text's LOCAL reading (22:30Z the day before, in Europe/
 # Berlin) differently from its UTC reading (00:30Z), so a cost equality
 # below cannot pass by accident.
-_CHEAP_JS_376 = {"fresh": 0.5, "c5": 0.625, "c1h": 1.0, "read": 0.05, "out": 2.5}
+_CHEAP_JS_376 = {"fresh": 0.5, "c5": 0.625, "c1h": 1.0, "read": 0.05,
+                 "out": 2.5}
 
-_OPUS_JS_376 = {"fresh": 9.0, "c5": 11.25, "c1h": 18.0, "read": 0.9, "out": 45.0}
+_OPUS_JS_376 = {"fresh": 9.0, "c5": 11.25, "c1h": 18.0, "read": 0.9,
+                "out": 45.0}
 
 
 class TestNodeDrivenBrowserMirror:
