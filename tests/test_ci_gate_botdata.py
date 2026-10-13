@@ -111,9 +111,15 @@ def test_data_only_refuses_either_half_alone():
 
 
 def test_classify_the_bots_signature_gets_the_cheap_class():
+    def run(argv):
+        if argv[-1] == '.base.sha + " " + .head.sha':
+            return 'a' * 40 + ' ' + 'b' * 40
+        if 'contents/backend/constants.py?ref=' in argv[-1]:
+            version = '7' if argv[-1].endswith('a' * 40) else '8'
+            return f'PRICING_VERSION = "{version}"\n'
+        return "src/pricing.json\nbackend/constants.py\n"
     docs_only, data_only, _comment, reason = classify.classify(
-        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
-        lambda argv: "src/pricing.json\nbackend/constants.py\n",
+        {"name": "pull_request", "repository": "o/r", "pull_request": "17"}, run,
     )
     assert (docs_only, data_only) == (False, True)
     assert "data-only" in reason

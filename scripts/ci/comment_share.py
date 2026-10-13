@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import ast
 import io
+import importlib
 import json
 import os
 import re
@@ -27,9 +28,10 @@ import sys
 import tokenize
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import yaml
-from yaml.tokens import KeyToken, ScalarToken, ValueToken
+if TYPE_CHECKING:
+    from yaml.tokens import ScalarToken
 
 ROOT = Path(__file__).resolve().parents[2]
 SUFFIXES = {'.py': 'python', '.js': 'javascript', '.jsx': 'javascript',
@@ -372,6 +374,9 @@ def yaml_block(text: str, token: ScalarToken, key_column: int) -> int:
 
 
 def yaml_comments(text: str) -> int:
+    yaml = importlib.import_module('yaml')
+    token_types = importlib.import_module('yaml.tokens')
+
     try:
         tokens = list(yaml.scan(text, Loader=yaml.SafeLoader))
     except yaml.YAMLError as error:
@@ -381,10 +386,10 @@ def yaml_comments(text: str) -> int:
         gap = text[end:token.start_mark.index]
         count += sum(non_whitespace_bytes(match[0]) for match in
                      re.finditer(r'#[^\r\n\x85\u2028\u2029]*', gap))
-        if isinstance(token, ScalarToken) and token.style in ('|', '>') and index >= 3:
+        if isinstance(token, token_types.ScalarToken) and token.style in ('|', '>') and index >= 3:
             marker, key, value = tokens[index - 3:index]
-            if (isinstance(marker, KeyToken) and isinstance(key, ScalarToken)
-                    and key.plain and key.value == 'run' and isinstance(value, ValueToken)):
+            if (isinstance(marker, token_types.KeyToken) and isinstance(key, token_types.ScalarToken)
+                    and key.plain and key.value == 'run' and isinstance(value, token_types.ValueToken)):
                 count += yaml_block(text, token, marker.start_mark.column)
         end = max(end, token.end_mark.index)
     return count
