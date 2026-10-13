@@ -209,6 +209,18 @@ def suite_identity(value, name):
     return int(result)
 
 
+def comment_share_value(value: object, name: str) -> list[int]:
+    if not isinstance(value, list) or len(value) != 2:
+        raise ValueError(f'{name} must be [comment bytes, non-whitespace bytes]')
+    counts = [number(item, name) for item in value]
+    if any(item < 0 or item != item.to_integral_value() for item in counts):
+        raise ValueError(f'{name} byte counts must be non-negative integers')
+    comments, total = (int(item) for item in counts)
+    if total == 0 or comments > total or comments * 100 <= total * 15:
+        raise ValueError(f'{name} must have a share above 15% and at most 100%')
+    return [comments, total]
+
+
 class ReseedVerdict(NamedTuple):
     """One tree's per-family re-seed answer (reseed.py).
 

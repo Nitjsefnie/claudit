@@ -96,7 +96,7 @@ REPARSE_PHASES = ('sniff', 'parse_body', 'sidecar', 'residual')
 # Every only-shrinks baseline member: recorded numbers never rise and
 # entries are never hand-added (SV-CI-RATCHETS); the direction guard
 # (thresholds_guard.py) enforces the rule against the base document.
-BASELINE_MEMBERS = ('module_size_baseline', 'pylint_suppression_baseline')
+BASELINE_MEMBERS = ('module_size_baseline', 'pylint_suppression_baseline', 'comment_share_baseline')
 # The suite-cost family: one instruction budget per phase of a pytest run
 # over the pinned bench fixture (scripts/ci/suite_bench.py). A cost
 # ceiling only ever TIGHTENS downward; the direction guard forbids the
@@ -291,6 +291,9 @@ def _baseline(baseline, member):
     normalised = {}
     for path, value in baseline.items():
         safe_path = _module_path(path)
+        if member == 'comment_share_baseline':
+            normalised[safe_path] = validate.comment_share_value(value, f'{member}.{safe_path}')
+            continue
         count = _number(value, f'{member}.{safe_path}')
         if count <= 0 or count != count.to_integral_value():
             raise ValueError(
@@ -310,13 +313,11 @@ def load(path=THRESHOLDS, reseed_in_flight=None):
     unreadable tree is not a marker: the probe fails closed, and the
     document is gated exactly as it is today.
     """
-    target = Path(path)
     try:
-        raw = target.read_bytes()
+        raw = Path(path).read_bytes()
     except OSError as error:
         raise ValueError(f'cannot read thresholds: {error}') from None
-    return normalise(validate.decode(raw),
-                     verdict(reseed_in_flight))
+    return normalise(validate.decode(raw), verdict(reseed_in_flight))
 
 
 # The family readers below re-normalise the document they are handed, so
@@ -350,6 +351,10 @@ def module_size_baseline(data, reseed_in_flight=None):
     return dict(normalised['module_size_baseline'])
 
 
+def comment_share_baseline(data, reseed_in_flight=None):
+    return dict(normalise(data, verdict(reseed_in_flight))['comment_share_baseline'])
+
+
 def reparse(data, reseed_in_flight=None):
     """The reparse bench's records: phase -> metric -> measured/floor.
 
@@ -376,9 +381,8 @@ def _render(data, reseed_in_flight):
     reseed_in_flight = verdict(reseed_in_flight)
     normalised = normalise(data, reseed_in_flight)
     ready = _json_ready(normalised)
-    text = json.dumps(
-        ready, ensure_ascii=True, indent=2, sort_keys=True,
-        allow_nan=False) + '\n'
+    text = json.dumps(ready, ensure_ascii=True, indent=2, sort_keys=True,
+                      allow_nan=False) + '\n'
     encoded = text.encode('utf-8')
     if normalise(validate.decode(encoded), verdict(
             reseed_in_flight)) != normalised:

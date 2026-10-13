@@ -59,6 +59,7 @@ def _document(reparse):
         },
         "reparse": reparse,
         "module_size_baseline": {},
+        "comment_share_baseline": {},
         "pylint_suppression_baseline": {},
         # The loader requires EVERY top-level family, so a synthetic
         # reparse document must also carry a valid suite_cost family. It

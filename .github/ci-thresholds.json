@@ -1,4 +1,1842 @@
 {
+  "comment_share_baseline": {
+    ".github/actions/cached-image/action.yml": [
+      792,
+      2752
+    ],
+    ".github/actions/postgres-image/action.yml": [
+      712,
+      1711
+    ],
+    ".github/actions/postgres/action.yml": [
+      271,
+      1223
+    ],
+    ".github/actions/reparse-bench/action.yml": [
+      982,
+      1872
+    ],
+    ".github/actions/suite-bench/action.yml": [
+      741,
+      1564
+    ],
+    ".github/dependabot.yml": [
+      3708,
+      4488
+    ],
+    ".github/docker-smoke.compose.yaml": [
+      417,
+      533
+    ],
+    ".github/workflows/actionlint.yml": [
+      4571,
+      6361
+    ],
+    ".github/workflows/audit.yml": [
+      4367,
+      6722
+    ],
+    ".github/workflows/ci-gate.yml": [
+      7579,
+      11357
+    ],
+    ".github/workflows/claim.yml": [
+      3530,
+      4086
+    ],
+    ".github/workflows/codeql.yml": [
+      2504,
+      3455
+    ],
+    ".github/workflows/coverage-comment.yml": [
+      6285,
+      14337
+    ],
+    ".github/workflows/docker-smoke.yml": [
+      3909,
+      8095
+    ],
+    ".github/workflows/eslint.yml": [
+      2394,
+      2972
+    ],
+    ".github/workflows/gate-freshness.yml": [
+      2268,
+      3070
+    ],
+    ".github/workflows/lint.yml": [
+      1301,
+      2534
+    ],
+    ".github/workflows/panel-layout.yml": [
+      3282,
+      4281
+    ],
+    ".github/workflows/pr-gate.yml": [
+      2854,
+      3512
+    ],
+    ".github/workflows/ratchet-push.yml": [
+      3333,
+      8358
+    ],
+    ".github/workflows/refresh-pricing.yml": [
+      5352,
+      11887
+    ],
+    ".github/workflows/release.yml": [
+      5059,
+      9173
+    ],
+    ".github/workflows/scorecard.yml": [
+      2045,
+      3039
+    ],
+    ".github/workflows/secrets.yml": [
+      1694,
+      2472
+    ],
+    ".github/workflows/smoke.yml": [
+      1570,
+      3528
+    ],
+    ".github/workflows/test-data-explore.yml": [
+      1836,
+      4241
+    ],
+    ".github/workflows/test-data.yml": [
+      3118,
+      5427
+    ],
+    ".github/workflows/tests.yml": [
+      6670,
+      16759
+    ],
+    ".github/workflows/types.yml": [
+      1200,
+      2383
+    ],
+    ".github/workflows/version-guard.yml": [
+      2497,
+      3950
+    ],
+    "backend/agent_sidecar.py": [
+      2439,
+      4110
+    ],
+    "backend/agent_types.py": [
+      1864,
+      2304
+    ],
+    "backend/api.py": [
+      6264,
+      19043
+    ],
+    "backend/api_cache.py": [
+      2414,
+      9181
+    ],
+    "backend/api_common.py": [
+      4700,
+      12179
+    ],
+    "backend/api_ctx_growth.py": [
+      2306,
+      6803
+    ],
+    "backend/api_dashboard.py": [
+      2794,
+      7010
+    ],
+    "backend/api_export.py": [
+      4839,
+      10165
+    ],
+    "backend/api_flag_gate.py": [
+      403,
+      2576
+    ],
+    "backend/api_sessions.py": [
+      3035,
+      9038
+    ],
+    "backend/api_tool_panels.py": [
+      1496,
+      4733
+    ],
+    "backend/api_web_metrics.py": [
+      7843,
+      13095
+    ],
+    "backend/app.py": [
+      9975,
+      15836
+    ],
+    "backend/auth.py": [
+      3348,
+      6495
+    ],
+    "backend/bash_argv.py": [
+      824,
+      1448
+    ],
+    "backend/bash_churn.py": [
+      6134,
+      27598
+    ],
+    "backend/bash_churn_errors.py": [
+      1293,
+      3287
+    ],
+    "backend/bash_dash_c.py": [
+      1066,
+      5255
+    ],
+    "backend/bash_directories.py": [
+      1467,
+      4511
+    ],
+    "backend/bash_effects.py": [
+      2332,
+      13058
+    ],
+    "backend/bash_heredocs.py": [
+      1063,
+      2195
+    ],
+    "backend/bash_literals.py": [
+      1543,
+      6401
+    ],
+    "backend/bash_loops.py": [
+      1471,
+      2891
+    ],
+    "backend/bash_operand.py": [
+      1284,
+      2610
+    ],
+    "backend/bash_reads.py": [
+      6087,
+      14018
+    ],
+    "backend/bash_segments.py": [
+      4227,
+      7592
+    ],
+    "backend/blob_cache.py": [
+      2236,
+      4244
+    ],
+    "backend/branding.py": [
+      4439,
+      6506
+    ],
+    "backend/cache.py": [
+      8659,
+      15058
+    ],
+    "backend/cache_outcomes.py": [
+      1130,
+      1953
+    ],
+    "backend/codex_fork.py": [
+      2885,
+      4542
+    ],
+    "backend/codex_tool_rows.py": [
+      4034,
+      7722
+    ],
+    "backend/collection_rollups.py": [
+      264,
+      1031
+    ],
+    "backend/constants.py": [
+      6659,
+      7596
+    ],
+    "backend/ctx_input.py": [
+      498,
+      931
+    ],
+    "backend/ctx_turns.py": [
+      461,
+      1893
+    ],
+    "backend/dashboard_build.py": [
+      4171,
+      9632
+    ],
+    "backend/dashboard_queries.py": [
+      1434,
+      8488
+    ],
+    "backend/db.py": [
+      7259,
+      12855
+    ],
+    "backend/env_config.py": [
+      1178,
+      4034
+    ],
+    "backend/events.py": [
+      1113,
+      2393
+    ],
+    "backend/flags.py": [
+      639,
+      3565
+    ],
+    "backend/guest_login.py": [
+      119,
+      339
+    ],
+    "backend/hide_rate_limits.py": [
+      422,
+      845
+    ],
+    "backend/ingest.py": [
+      10535,
+      22736
+    ],
+    "backend/ingest_collection.py": [
+      324,
+      1556
+    ],
+    "backend/ingest_fetch.py": [
+      6281,
+      15000
+    ],
+    "backend/ingest_lockwatch.py": [
+      1141,
+      1811
+    ],
+    "backend/ingest_orphans.py": [
+      740,
+      2153
+    ],
+    "backend/ingest_persist.py": [
+      3367,
+      9429
+    ],
+    "backend/ingest_progress.py": [
+      2042,
+      4057
+    ],
+    "backend/ingest_reprice.py": [
+      8563,
+      15782
+    ],
+    "backend/ingest_resolve.py": [
+      1915,
+      3448
+    ],
+    "backend/ingest_rollup_state.py": [
+      2885,
+      11877
+    ],
+    "backend/ingest_rollup_web_metrics.py": [
+      6762,
+      9732
+    ],
+    "backend/ingest_runs.py": [
+      2620,
+      4630
+    ],
+    "backend/ingest_scan.py": [
+      2504,
+      4657
+    ],
+    "backend/ingest_timing.py": [
+      829,
+      2211
+    ],
+    "backend/ingest_walk.py": [
+      1944,
+      3509
+    ],
+    "backend/ingest_warm.py": [
+      1759,
+      2816
+    ],
+    "backend/ingest_workers.py": [
+      2171,
+      3072
+    ],
+    "backend/json_shape.py": [
+      236,
+      508
+    ],
+    "backend/key_layout.py": [
+      5689,
+      8037
+    ],
+    "backend/kimi_tool_rows.py": [
+      1371,
+      3616
+    ],
+    "backend/lane_markers.py": [
+      788,
+      2009
+    ],
+    "backend/lane_projects.py": [
+      3110,
+      5217
+    ],
+    "backend/login.py": [
+      4243,
+      11737
+    ],
+    "backend/login_page.py": [
+      1635,
+      5451
+    ],
+    "backend/login_workers.py": [
+      345,
+      1355
+    ],
+    "backend/long_context.py": [
+      980,
+      1096
+    ],
+    "backend/meter_tables.py": [
+      613,
+      4012
+    ],
+    "backend/model_names.py": [
+      1711,
+      2394
+    ],
+    "backend/parse.py": [
+      7312,
+      18294
+    ],
+    "backend/parse_codex.py": [
+      9003,
+      15659
+    ],
+    "backend/parse_codex_churn.py": [
+      997,
+      1769
+    ],
+    "backend/parse_collection.py": [
+      452,
+      1850
+    ],
+    "backend/parse_common.py": [
+      8492,
+      15680
+    ],
+    "backend/parse_kimi.py": [
+      6429,
+      14205
+    ],
+    "backend/parse_lanes.py": [
+      6628,
+      9858
+    ],
+    "backend/parse_projection.py": [
+      461,
+      2359
+    ],
+    "backend/parse_projection_usage.py": [
+      290,
+      1585
+    ],
+    "backend/parse_tool_rows.py": [
+      3375,
+      7934
+    ],
+    "backend/pricing.py": [
+      7277,
+      14728
+    ],
+    "backend/pricing_document.py": [
+      1304,
+      4887
+    ],
+    "backend/pricing_load.py": [
+      5938,
+      17683
+    ],
+    "backend/project_aliases.py": [
+      4587,
+      7149
+    ],
+    "backend/prompt_gate.py": [
+      953,
+      1557
+    ],
+    "backend/r2.py": [
+      8454,
+      14683
+    ],
+    "backend/rate_boundaries.py": [
+      812,
+      2364
+    ],
+    "backend/rate_fingerprint.py": [
+      4389,
+      7991
+    ],
+    "backend/reply_timing.py": [
+      1754,
+      3948
+    ],
+    "backend/rereads.py": [
+      1065,
+      1493
+    ],
+    "backend/resolution.py": [
+      524,
+      737
+    ],
+    "backend/schema_files.py": [
+      1346,
+      1762
+    ],
+    "backend/schema_indexes.py": [
+      602,
+      1590
+    ],
+    "backend/session.py": [
+      4515,
+      12089
+    ],
+    "backend/target_paths.py": [
+      658,
+      2659
+    ],
+    "backend/timing.py": [
+      1589,
+      3441
+    ],
+    "backend/tool_errors.py": [
+      2573,
+      4010
+    ],
+    "backend/turn_flags.py": [
+      3585,
+      8268
+    ],
+    "backend/web_metrics.py": [
+      10321,
+      15064
+    ],
+    "compose.yaml": [
+      2121,
+      5658
+    ],
+    "eslint.config.mjs": [
+      2688,
+      5523
+    ],
+    "scripts/bench_parser.py": [
+      714,
+      4663
+    ],
+    "scripts/ci/aggregate_gate.py": [
+      3402,
+      7205
+    ],
+    "scripts/ci/classify_changes.py": [
+      8891,
+      16772
+    ],
+    "scripts/ci/collapse_oscillating_rates.py": [
+      1882,
+      5417
+    ],
+    "scripts/ci/commit_scopes.py": [
+      6385,
+      12209
+    ],
+    "scripts/ci/diff_coverage.py": [
+      3312,
+      10948
+    ],
+    "scripts/ci/fuzz_sharding.py": [
+      4020,
+      8961
+    ],
+    "scripts/ci/fuzz_test_data.py": [
+      4328,
+      13744
+    ],
+    "scripts/ci/gate_freshness.py": [
+      4234,
+      11871
+    ],
+    "scripts/ci/gate_trigger_set.py": [
+      3720,
+      6754
+    ],
+    "scripts/ci/js_comment_tokens.mjs": [
+      1251,
+      1907
+    ],
+    "scripts/ci/panel_interactions.mjs": [
+      13752,
+      32113
+    ],
+    "scripts/ci/panel_interactions_seeds.mjs": [
+      1154,
+      2290
+    ],
+    "scripts/ci/panel_layout.mjs": [
+      3414,
+      8680
+    ],
+    "scripts/ci/panel_layout_rules.mjs": [
+      18070,
+      70873
+    ],
+    "scripts/ci/panel_server.mjs": [
+      966,
+      3140
+    ],
+    "scripts/ci/perturb_test_data.py": [
+      7025,
+      14089
+    ],
+    "scripts/ci/perturbed_leg_bench.py": [
+      3232,
+      9976
+    ],
+    "scripts/ci/price_band.py": [
+      6441,
+      11546
+    ],
+    "scripts/ci/ratchet.py": [
+      837,
+      3223
+    ],
+    "scripts/ci/refresh_alternation.py": [
+      1009,
+      1977
+    ],
+    "scripts/ci/refresh_common.py": [
+      336,
+      1504
+    ],
+    "scripts/ci/refresh_logshape.py": [
+      547,
+      3397
+    ],
+    "scripts/ci/refresh_pricelog.py": [
+      3519,
+      16405
+    ],
+    "scripts/ci/refresh_prices.py": [
+      3483,
+      10746
+    ],
+    "scripts/ci/refresh_provider_history.py": [
+      1764,
+      4485
+    ],
+    "scripts/ci/refresh_provider_rates.py": [
+      6963,
+      15150
+    ],
+    "scripts/ci/refresh_report.py": [
+      1970,
+      11931
+    ],
+    "scripts/ci/refresh_selection.py": [
+      4537,
+      11791
+    ],
+    "scripts/ci/refresh_selection_rules.py": [
+      4910,
+      13314
+    ],
+    "scripts/ci/refresh_vendor_rates.py": [
+      5906,
+      14627
+    ],
+    "scripts/ci/release_gate.py": [
+      4680,
+      8211
+    ],
+    "scripts/ci/reparse_ast.py": [
+      7214,
+      14392
+    ],
+    "scripts/ci/reparse_bench.py": [
+      9658,
+      17939
+    ],
+    "scripts/ci/reparse_bindings.py": [
+      2641,
+      5865
+    ],
+    "scripts/ci/reparse_phases.py": [
+      5785,
+      10678
+    ],
+    "scripts/ci/reparse_ratchet.py": [
+      5251,
+      10754
+    ],
+    "scripts/ci/reparse_report.py": [
+      4356,
+      11319
+    ],
+    "scripts/ci/reparse_surface.py": [
+      4973,
+      9498
+    ],
+    "scripts/ci/reseed.py": [
+      6348,
+      8189
+    ],
+    "scripts/ci/size_baseline.py": [
+      1614,
+      5154
+    ],
+    "scripts/ci/smoke.py": [
+      3518,
+      10478
+    ],
+    "scripts/ci/suite_bench.py": [
+      7888,
+      13607
+    ],
+    "scripts/ci/suite_phases.py": [
+      4729,
+      7374
+    ],
+    "scripts/ci/suite_ratchet.py": [
+      6142,
+      11209
+    ],
+    "scripts/ci/suite_report.py": [
+      3432,
+      10048
+    ],
+    "scripts/ci/suppression_baseline.py": [
+      1593,
+      4860
+    ],
+    "scripts/ci/thresholds.py": [
+      7848,
+      17797
+    ],
+    "scripts/ci/thresholds_guard.py": [
+      4918,
+      10379
+    ],
+    "scripts/ci/thresholds_validate.py": [
+      4254,
+      9161
+    ],
+    "scripts/ci/version_guard.py": [
+      2358,
+      4550
+    ],
+    "scripts/format.sh": [
+      317,
+      533
+    ],
+    "scripts/install-hooks.sh": [
+      85,
+      312
+    ],
+    "scripts/plots/ccusage_plot_db.py": [
+      1723,
+      8203
+    ],
+    "scripts/plots/ccusage_plot_features.py": [
+      252,
+      1267
+    ],
+    "scripts/pre-push": [
+      212,
+      408
+    ],
+    "scripts/secrecy-check.sh": [
+      464,
+      2009
+    ],
+    "src/agent-list-caps.js": [
+      561,
+      1031
+    ],
+    "src/agent-types.js": [
+      295,
+      446
+    ],
+    "src/app.jsx": [
+      4465,
+      16542
+    ],
+    "src/burn-rate-legend.js": [
+      147,
+      896
+    ],
+    "src/burn-rate-panel.jsx": [
+      5128,
+      16657
+    ],
+    "src/cache-ttl-panel.jsx": [
+      3700,
+      13441
+    ],
+    "src/context-growth-comparison.jsx": [
+      4645,
+      12742
+    ],
+    "src/context-growth-view.jsx": [
+      1927,
+      9729
+    ],
+    "src/cost-by-agent-panel.jsx": [
+      2453,
+      5840
+    ],
+    "src/cost-by-context.js": [
+      834,
+      1132
+    ],
+    "src/ctx-axis.js": [
+      2767,
+      3595
+    ],
+    "src/ctx-input.js": [
+      571,
+      1030
+    ],
+    "src/dashboard-binning.js": [
+      164,
+      970
+    ],
+    "src/dashboard-charts-extra.jsx": [
+      12226,
+      40178
+    ],
+    "src/dashboard-charts.jsx": [
+      8749,
+      30376
+    ],
+    "src/dashboard-fetch.js": [
+      1458,
+      2741
+    ],
+    "src/dashboard-shape.js": [
+      2805,
+      9497
+    ],
+    "src/dashboard-summary.jsx": [
+      745,
+      1293
+    ],
+    "src/dashboard-view.jsx": [
+      4158,
+      16901
+    ],
+    "src/deferred.js": [
+      918,
+      1472
+    ],
+    "src/hhmm-spelling.js": [
+      1739,
+      4610
+    ],
+    "src/model-group.js": [
+      2049,
+      3216
+    ],
+    "src/model-select.js": [
+      984,
+      1364
+    ],
+    "src/mono-advance.js": [
+      1046,
+      1871
+    ],
+    "src/panel-gating.js": [
+      1272,
+      2760
+    ],
+    "src/panel-layout.js": [
+      2944,
+      4352
+    ],
+    "src/parser-cache-write.js": [
+      834,
+      1339
+    ],
+    "src/parser-codex.js": [
+      5300,
+      12646
+    ],
+    "src/parser-kimi.js": [
+      2989,
+      10930
+    ],
+    "src/parser-lanes.js": [
+      2559,
+      6048
+    ],
+    "src/parser.js": [
+      5544,
+      16225
+    ],
+    "src/per-turn-stats.js": [
+      534,
+      1505
+    ],
+    "src/perf-panel.jsx": [
+      3724,
+      9876
+    ],
+    "src/perf.js": [
+      7024,
+      13031
+    ],
+    "src/picker-fit.js": [
+      1921,
+      3164
+    ],
+    "src/pricing-loader.js": [
+      4124,
+      18608
+    ],
+    "src/rate-series.js": [
+      1018,
+      2494
+    ],
+    "src/rates.js": [
+      3932,
+      8864
+    ],
+    "src/record-dedup.js": [
+      4303,
+      6820
+    ],
+    "src/reply-latency-panel.jsx": [
+      3072,
+      13692
+    ],
+    "src/response-sizes-panel.jsx": [
+      3015,
+      10490
+    ],
+    "src/synthetic-data.js": [
+      864,
+      3511
+    ],
+    "src/timeline-selection.js": [
+      327,
+      584
+    ],
+    "src/token-breakdown.js": [
+      590,
+      2700
+    ],
+    "src/tool-error-panel.jsx": [
+      3998,
+      15260
+    ],
+    "src/vendor-tables.js": [
+      1220,
+      4339
+    ],
+    "src/views/cache-view.jsx": [
+      941,
+      5394
+    ],
+    "tests/conftest.py": [
+      4584,
+      8208
+    ],
+    "tests/db_marker.py": [
+      3293,
+      4996
+    ],
+    "tests/git_meta.py": [
+      941,
+      1573
+    ],
+    "tests/gpt56_cuts.py": [
+      579,
+      858
+    ],
+    "tests/mini_mirror.py": [
+      1614,
+      3179
+    ],
+    "tests/node_skip_guard_impl.py": [
+      3229,
+      11600
+    ],
+    "tests/pricing_data_loader_helpers.py": [
+      2845,
+      10311
+    ],
+    "tests/refresh_fixture_builders.py": [
+      1537,
+      4742
+    ],
+    "tests/scan_gate.py": [
+      3191,
+      4504
+    ],
+    "tests/schema_policy.py": [
+      63,
+      410
+    ],
+    "tests/scratch_db.py": [
+      2549,
+      7064
+    ],
+    "tests/test_a11y_wiring.py": [
+      7532,
+      21959
+    ],
+    "tests/test_agent_fold_js.py": [
+      2411,
+      7451
+    ],
+    "tests/test_agent_list_caps_js.py": [
+      1385,
+      5020
+    ],
+    "tests/test_agent_sidecar.py": [
+      2895,
+      14769
+    ],
+    "tests/test_agent_type_names.py": [
+      571,
+      1949
+    ],
+    "tests/test_api.py": [
+      6601,
+      23257
+    ],
+    "tests/test_api_details.py": [
+      4404,
+      15805
+    ],
+    "tests/test_api_export_argv.py": [
+      786,
+      2631
+    ],
+    "tests/test_api_token_types.py": [
+      1687,
+      5096
+    ],
+    "tests/test_auth.py": [
+      1484,
+      7954
+    ],
+    "tests/test_banded_provider_start.py": [
+      446,
+      1874
+    ],
+    "tests/test_bash_churn.py": [
+      5231,
+      22066
+    ],
+    "tests/test_bash_churn_loops.py": [
+      1134,
+      2973
+    ],
+    "tests/test_bash_groups.py": [
+      1465,
+      3872
+    ],
+    "tests/test_bash_segments.py": [
+      1335,
+      2642
+    ],
+    "tests/test_bash_stream_redirects.py": [
+      819,
+      2279
+    ],
+    "tests/test_blob_cache.py": [
+      1029,
+      6580
+    ],
+    "tests/test_branding.py": [
+      9245,
+      24042
+    ],
+    "tests/test_breakdown_exact_rate.py": [
+      3025,
+      13776
+    ],
+    "tests/test_bucket_redact.py": [
+      3468,
+      10622
+    ],
+    "tests/test_cache.py": [
+      8155,
+      19433
+    ],
+    "tests/test_cache_outcomes.py": [
+      3089,
+      11097
+    ],
+    "tests/test_cache_payload_shape.py": [
+      198,
+      787
+    ],
+    "tests/test_cache_write_split.py": [
+      1863,
+      4832
+    ],
+    "tests/test_canonical_model_attribution.py": [
+      5997,
+      19990
+    ],
+    "tests/test_ci_classify_comment_only.py": [
+      3833,
+      13843
+    ],
+    "tests/test_ci_classify_verified_base.py": [
+      3698,
+      10994
+    ],
+    "tests/test_ci_gate_botdata.py": [
+      2234,
+      7366
+    ],
+    "tests/test_ci_gate_modules.py": [
+      4862,
+      19684
+    ],
+    "tests/test_ci_gate_output_wiring.py": [
+      8159,
+      17042
+    ],
+    "tests/test_ci_ratchets.py": [
+      1985,
+      12093
+    ],
+    "tests/test_ci_reseed.py": [
+      8666,
+      24427
+    ],
+    "tests/test_ci_reseed_reparse.py": [
+      5986,
+      19314
+    ],
+    "tests/test_ci_reseed_walk_depth.py": [
+      3679,
+      9767
+    ],
+    "tests/test_ci_size_baseline.py": [
+      1385,
+      8459
+    ],
+    "tests/test_ci_thresholds.py": [
+      3447,
+      18559
+    ],
+    "tests/test_ci_thresholds_guard.py": [
+      6170,
+      18312
+    ],
+    "tests/test_ci_thresholds_reparse.py": [
+      2056,
+      9684
+    ],
+    "tests/test_ci_workflows.py": [
+      7064,
+      17770
+    ],
+    "tests/test_classic_script_scope.py": [
+      2698,
+      6710
+    ],
+    "tests/test_cold_load_legs.py": [
+      2078,
+      5258
+    ],
+    "tests/test_commit_scopes.py": [
+      1837,
+      8008
+    ],
+    "tests/test_cost_buckets.py": [
+      5481,
+      20295
+    ],
+    "tests/test_crash_recovery.py": [
+      2919,
+      7721
+    ],
+    "tests/test_ctx_cost_rollup.py": [
+      846,
+      1483
+    ],
+    "tests/test_ctx_growth_traces.py": [
+      1911,
+      5421
+    ],
+    "tests/test_ctx_input_js.py": [
+      1081,
+      2874
+    ],
+    "tests/test_dashboard_fetch_js.py": [
+      1556,
+      6663
+    ],
+    "tests/test_dashboard_fetch_wiring.py": [
+      2829,
+      7172
+    ],
+    "tests/test_dashboard_latency_pins.py": [
+      1049,
+      3290
+    ],
+    "tests/test_dashboard_open_budget.py": [
+      4747,
+      10193
+    ],
+    "tests/test_database_url_viz_default.py": [
+      1474,
+      2648
+    ],
+    "tests/test_db_marker.py": [
+      10152,
+      20077
+    ],
+    "tests/test_db_marker_gate.py": [
+      1389,
+      2120
+    ],
+    "tests/test_db_marker_narrow.py": [
+      754,
+      1850
+    ],
+    "tests/test_db_marker_parity.py": [
+      2756,
+      4603
+    ],
+    "tests/test_db_pool_errors.py": [
+      1472,
+      3617
+    ],
+    "tests/test_db_pool_stale_checkout.py": [
+      1328,
+      3640
+    ],
+    "tests/test_db_schema_check.py": [
+      2180,
+      5660
+    ],
+    "tests/test_deferred_js.py": [
+      1369,
+      4596
+    ],
+    "tests/test_dependabot_coverage.py": [
+      4010,
+      9879
+    ],
+    "tests/test_docs_setup.py": [
+      3576,
+      6784
+    ],
+    "tests/test_events.py": [
+      5082,
+      16119
+    ],
+    "tests/test_export_launch.py": [
+      399,
+      995
+    ],
+    "tests/test_export_shutdown.py": [
+      3432,
+      11363
+    ],
+    "tests/test_fuzz_test_data.py": [
+      5615,
+      23300
+    ],
+    "tests/test_fuzz_test_data_edges.py": [
+      2819,
+      14927
+    ],
+    "tests/test_gate_trigger_set.py": [
+      1385,
+      5129
+    ],
+    "tests/test_git_meta.py": [
+      966,
+      3029
+    ],
+    "tests/test_heatmap_layout_wiring.py": [
+      1396,
+      3309
+    ],
+    "tests/test_hide_rate_limits_flag.py": [
+      593,
+      2791
+    ],
+    "tests/test_hover_treatment.py": [
+      3795,
+      8094
+    ],
+    "tests/test_ingest.py": [
+      6604,
+      23032
+    ],
+    "tests/test_ingest_blob_cache.py": [
+      1225,
+      3825
+    ],
+    "tests/test_ingest_cache_evict.py": [
+      675,
+      2616
+    ],
+    "tests/test_ingest_cache_gate.py": [
+      3355,
+      11584
+    ],
+    "tests/test_ingest_fetch.py": [
+      5697,
+      20142
+    ],
+    "tests/test_ingest_lock.py": [
+      8839,
+      22559
+    ],
+    "tests/test_ingest_markers.py": [
+      2607,
+      12202
+    ],
+    "tests/test_ingest_more.py": [
+      4316,
+      17943
+    ],
+    "tests/test_ingest_pipeline.py": [
+      2353,
+      9970
+    ],
+    "tests/test_ingest_rollback.py": [
+      1818,
+      5114
+    ],
+    "tests/test_js_toolchain.py": [
+      10336,
+      20316
+    ],
+    "tests/test_key_layout.py": [
+      2482,
+      7347
+    ],
+    "tests/test_lane_error_kinds.py": [
+      1032,
+      5649
+    ],
+    "tests/test_latency_read_canonical.py": [
+      1811,
+      4442
+    ],
+    "tests/test_login.py": [
+      4296,
+      20186
+    ],
+    "tests/test_login_a11y.py": [
+      2064,
+      8838
+    ],
+    "tests/test_login_privacy.py": [
+      646,
+      2425
+    ],
+    "tests/test_long_context_fold.py": [
+      2394,
+      11513
+    ],
+    "tests/test_long_context_meters.py": [
+      2788,
+      11056
+    ],
+    "tests/test_loop_scope_span.py": [
+      938,
+      2294
+    ],
+    "tests/test_model_colors.py": [
+      1074,
+      3928
+    ],
+    "tests/test_model_demask_api.py": [
+      1360,
+      3736
+    ],
+    "tests/test_model_group_wiring.py": [
+      6382,
+      13176
+    ],
+    "tests/test_model_select_js.py": [
+      2980,
+      10297
+    ],
+    "tests/test_multi_bucket.py": [
+      3513,
+      12855
+    ],
+    "tests/test_no_pinned_version_literals.py": [
+      8098,
+      23669
+    ],
+    "tests/test_node_skip_guard.py": [
+      5158,
+      16463
+    ],
+    "tests/test_overview_a11y_wiring.py": [
+      8226,
+      17654
+    ],
+    "tests/test_page_shell_a11y.py": [
+      2358,
+      6859
+    ],
+    "tests/test_panel_interactions_js.py": [
+      8201,
+      25991
+    ],
+    "tests/test_panel_layout_js.py": [
+      6919,
+      21696
+    ],
+    "tests/test_panel_layout_rules_js.py": [
+      6638,
+      19555
+    ],
+    "tests/test_panel_wiring.py": [
+      11438,
+      28475
+    ],
+    "tests/test_parse.py": [
+      8185,
+      24371
+    ],
+    "tests/test_parse_codex.py": [
+      11460,
+      26256
+    ],
+    "tests/test_parse_codex_more.py": [
+      4048,
+      17107
+    ],
+    "tests/test_parse_codex_pricing.py": [
+      3075,
+      8556
+    ],
+    "tests/test_parse_kimi.py": [
+      5894,
+      24053
+    ],
+    "tests/test_parse_kimi_more.py": [
+      1996,
+      6438
+    ],
+    "tests/test_parse_lanes.py": [
+      4769,
+      25351
+    ],
+    "tests/test_parse_more.py": [
+      5091,
+      24049
+    ],
+    "tests/test_parse_user_prompt.py": [
+      983,
+      2371
+    ],
+    "tests/test_parser_js_dedup_merge.py": [
+      2709,
+      10330
+    ],
+    "tests/test_parser_js_fork.py": [
+      1727,
+      10374
+    ],
+    "tests/test_parser_js_mirror.py": [
+      6513,
+      24379
+    ],
+    "tests/test_parser_js_pricing_loader.py": [
+      2652,
+      16094
+    ],
+    "tests/test_parser_js_user_prompt.py": [
+      734,
+      2710
+    ],
+    "tests/test_payload_fields_are_used.py": [
+      2737,
+      6262
+    ],
+    "tests/test_per_turn_stats_js.py": [
+      566,
+      2086
+    ],
+    "tests/test_perf_js.py": [
+      4515,
+      22069
+    ],
+    "tests/test_perf_panel_wiring.py": [
+      7341,
+      20445
+    ],
+    "tests/test_perf_region_js.py": [
+      3753,
+      11905
+    ],
+    "tests/test_perturb_stamp_belt.py": [
+      719,
+      1796
+    ],
+    "tests/test_perturb_test_data.py": [
+      6113,
+      24233
+    ],
+    "tests/test_perturbed_leg_bench.py": [
+      1707,
+      7995
+    ],
+    "tests/test_picker_fit_js.py": [
+      4928,
+      14782
+    ],
+    "tests/test_picker_label_rules_js.py": [
+      918,
+      3204
+    ],
+    "tests/test_placeholder_model_refusal.py": [
+      1528,
+      4996
+    ],
+    "tests/test_price_band.py": [
+      5524,
+      19658
+    ],
+    "tests/test_pricing.py": [
+      8274,
+      26294
+    ],
+    "tests/test_pricing_compact_shape.py": [
+      981,
+      3399
+    ],
+    "tests/test_pricing_data.py": [
+      2420,
+      13891
+    ],
+    "tests/test_pricing_flat_rows.py": [
+      572,
+      1501
+    ],
+    "tests/test_pricing_loader_refusals.py": [
+      1131,
+      5414
+    ],
+    "tests/test_pricing_more.py": [
+      1247,
+      3925
+    ],
+    "tests/test_pricing_vendor.py": [
+      4345,
+      24295
+    ],
+    "tests/test_pricing_vendor_equality.py": [
+      2766,
+      11410
+    ],
+    "tests/test_project_aliases.py": [
+      4218,
+      18683
+    ],
+    "tests/test_project_case_fold.py": [
+      1783,
+      7011
+    ],
+    "tests/test_prompt_gate.py": [
+      1823,
+      3590
+    ],
+    "tests/test_prompt_ts.py": [
+      2002,
+      6024
+    ],
+    "tests/test_provider_pricing.py": [
+      7365,
+      27021
+    ],
+    "tests/test_provider_rate_refresh.py": [
+      5763,
+      22927
+    ],
+    "tests/test_provider_rate_refresh_alternation.py": [
+      970,
+      4019
+    ],
+    "tests/test_provider_rate_refresh_hosts.py": [
+      3034,
+      16846
+    ],
+    "tests/test_provider_rate_refresh_more.py": [
+      3588,
+      22733
+    ],
+    "tests/test_provider_rate_refresh_notices.py": [
+      2574,
+      7477
+    ],
+    "tests/test_provider_rate_refresh_pins.py": [
+      463,
+      1501
+    ],
+    "tests/test_provider_rate_refresh_rules.py": [
+      3181,
+      13297
+    ],
+    "tests/test_provider_rate_refresh_state.py": [
+      1129,
+      4724
+    ],
+    "tests/test_provider_split_api.py": [
+      1904,
+      6544
+    ],
+    "tests/test_provider_wiring.py": [
+      435,
+      1469
+    ],
+    "tests/test_r2.py": [
+      6354,
+      15654
+    ],
+    "tests/test_rate_fingerprint.py": [
+      4470,
+      16160
+    ],
+    "tests/test_release_gate.py": [
+      5723,
+      16828
+    ],
+    "tests/test_reparse_bench.py": [
+      8953,
+      18874
+    ],
+    "tests/test_reparse_ci_wiring.py": [
+      3247,
+      8633
+    ],
+    "tests/test_reparse_count.py": [
+      2481,
+      5988
+    ],
+    "tests/test_reparse_gate.py": [
+      3257,
+      11025
+    ],
+    "tests/test_reparse_seed.py": [
+      1776,
+      7816
+    ],
+    "tests/test_reparse_surface.py": [
+      6102,
+      18744
+    ],
+    "tests/test_reprice.py": [
+      7015,
+      22156
+    ],
+    "tests/test_reprice_clean_restamp_guards.py": [
+      3918,
+      8939
+    ],
+    "tests/test_reprice_differential.py": [
+      6030,
+      16646
+    ],
+    "tests/test_reprice_pairs.py": [
+      7562,
+      23166
+    ],
+    "tests/test_reprice_parity.py": [
+      6089,
+      14907
+    ],
+    "tests/test_reprice_setbased.py": [
+      3082,
+      9445
+    ],
+    "tests/test_requirements_pins.py": [
+      2338,
+      4610
+    ],
+    "tests/test_scan_gate.py": [
+      1356,
+      3576
+    ],
+    "tests/test_schema_autoapply.py": [
+      5884,
+      15178
+    ],
+    "tests/test_scratch_db.py": [
+      4142,
+      16545
+    ],
+    "tests/test_secrets_workflow.py": [
+      1599,
+      5646
+    ],
+    "tests/test_security_headers.py": [
+      3551,
+      10456
+    ],
+    "tests/test_sessions_read_canonical.py": [
+      2946,
+      5002
+    ],
+    "tests/test_short_model_name.py": [
+      915,
+      2908
+    ],
+    "tests/test_shutdown_budget.py": [
+      6647,
+      16504
+    ],
+    "tests/test_signin_perf_marker.py": [
+      2906,
+      6441
+    ],
+    "tests/test_smoke_cleanup.py": [
+      560,
+      2381
+    ],
+    "tests/test_smoke_client.py": [
+      828,
+      2181
+    ],
+    "tests/test_smoke_server_env.py": [
+      906,
+      1483
+    ],
+    "tests/test_suite_bench.py": [
+      5404,
+      17951
+    ],
+    "tests/test_suite_ci_wiring.py": [
+      4714,
+      11474
+    ],
+    "tests/test_suite_cost_pricing_growth.py": [
+      2802,
+      6181
+    ],
+    "tests/test_suite_ratchet.py": [
+      4178,
+      16451
+    ],
+    "tests/test_teammate_agent_type.py": [
+      2389,
+      14800
+    ],
+    "tests/test_timeline_selection.py": [
+      1103,
+      4434
+    ],
+    "tests/test_timing_logging.py": [
+      923,
+      2152
+    ],
+    "tests/test_token_type_suppression.py": [
+      736,
+      2011
+    ],
+    "tests/test_tokens_by_project.py": [
+      1786,
+      4921
+    ],
+    "tests/test_tool_canonical.py": [
+      901,
+      3158
+    ],
+    "tests/test_tool_error_legend_wiring.py": [
+      1259,
+      2040
+    ],
+    "tests/test_tool_error_panel_legend.py": [
+      906,
+      2090
+    ],
+    "tests/test_tool_model.py": [
+      1503,
+      8022
+    ],
+    "tests/test_transcript_cache_key.py": [
+      2284,
+      6305
+    ],
+    "tests/test_ttl_legend_wiring.py": [
+      1929,
+      4717
+    ],
+    "tests/test_vbar_label_geometry.py": [
+      2047,
+      6495
+    ],
+    "tests/test_version.py": [
+      1886,
+      5894
+    ],
+    "tests/test_version_guard.py": [
+      1013,
+      3954
+    ],
+    "tests/test_web_metrics.py": [
+      8816,
+      23123
+    ],
+    "tests/test_web_metrics_rollup.py": [
+      10975,
+      25074
+    ],
+    "tests/test_workflow_ci_gate.py": [
+      8782,
+      22482
+    ],
+    "tests/test_workflow_concurrency.py": [
+      1694,
+      2584
+    ],
+    "tests/test_workflow_coverage_comment_retry.py": [
+      2826,
+      11239
+    ],
+    "tests/test_workflow_patch_coverage.py": [
+      5821,
+      17210
+    ],
+    "tests/test_workflow_pg_client_install.py": [
+      2630,
+      5753
+    ],
+    "tests/test_workflow_pip_cache.py": [
+      1590,
+      4120
+    ],
+    "tests/test_workflow_release.py": [
+      7981,
+      23277
+    ],
+    "tests/test_workflow_scorecard.py": [
+      4934,
+      14198
+    ],
+    "tests/version_literal_guard.py": [
+      4220,
+      8821
+    ]
+  },
   "coverage": {
     "javascript": {
       "floor": 90.7,

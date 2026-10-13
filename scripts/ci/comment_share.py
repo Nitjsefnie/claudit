@@ -10,8 +10,8 @@ words inside command/process/backtick substitutions refuse.
 Top-level case words are opaque; this is lexical measurement, not execution.
 Words split only at space, tab, newline and ;&|()<> (`<(`/`>(` open a process
 substitution inside the word); braces are word text.
-`=~` operands and extglob patterns (a word-glued `(` other than `name()` or
-`name=(`) refuse; a compound assignment's `)` continues its word.
+`[[ =~ ]]` operands and word-glued parentheses other than `name()` or
+`name=(` refuse; a compound assignment's `)` continues its word.
 """
 from __future__ import annotations
 
@@ -151,6 +151,7 @@ class ShellScope:
     command_substitution: bool = False
     inert: bool = False
     word_start: bool = True
+    conditional: bool = False
 
 
 @dataclass
@@ -198,7 +199,7 @@ class ShellLexer:
             glued, prev = not scope.word_start, line[index - 1:index]
             if scope.close != '))' and glued and prev != '=' and (
                     prev in tuple('@!+*?') or line[index + 1:index + 2] != ')'):
-                raise MeasurementError('extglob pattern refuses')
+                raise MeasurementError('word-glued parenthesis refuses')
             if scope.close == '))' or scope.close == ')' and prev != '=':
                 scope.depth += 1
             else:
@@ -240,9 +241,11 @@ class ShellLexer:
         complete = (end == len(line) or line[end] in BOUNDARY
                     or line[end] == '`' and scope.close == '`')
         spelling = re.sub(r'\\(.)', r'\1', match[0])
-        if complete and spelling == '=~':
+        if complete and scope.conditional and match[0] == '=~':
             raise MeasurementError('[[ =~ ]] regex operand refuses')
         if complete:
+            if match[0] in ('[[', ']]'):
+                scope.conditional = match[0] == '[['
             self.refuse_case(spelling)
         return end
 

@@ -67,6 +67,7 @@ def _document(baseline=None):
             for phase in schema.REPARSE_PHASES
         },
         "module_size_baseline": {},
+        "comment_share_baseline": {},
         "pylint_suppression_baseline": baseline or {},
         "suite_cost": {
             "collection": {"measured": 25.8, "floor": 27.3},
