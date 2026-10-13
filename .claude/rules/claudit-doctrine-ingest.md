@@ -57,7 +57,8 @@ forcing a full derived rebuild next run. Older binaries may ignore the
 marker.
 
 ROLLBACK IS ONE-DIRECTIONAL — an older binary runs against a newer
-schema. Additive nullable columns and nullable relaxations preserve old
+schema. Typed file timeline columns are not readable by a binary that
+predates them. Additive nullable columns and nullable relaxations preserve old
 named-column writers; relaxations retain types, defaults, primary keys and
 identities. `files.collection_flags TEXT[]` is nullable; NULL and an empty
 array both denote all collections ON. Nonconstraint index removal and
@@ -135,8 +136,10 @@ through `backend/schema_files.py`, starting with `backend/schema.sql`:
 
 - `files(file_key PK, project_id, session_id, is_main, r2_etag,
   r2_size_bytes, r2_last_modified, parsed_at, parser_version,
-  ctx_turns JSONB, turn_count)` — one row per ingested JSONL, with the
-  context-growth trace inlined as `ctx_turns`.
+  ctx_ts TIMESTAMPTZ[], ctx_line INTEGER[], ctx_input INTEGER[],
+  ctx_output INTEGER[], prompt_ts TIMESTAMPTZ[], turn_count)` — one row per
+  ingested JSONL; the four context arrays have equal cardinality, with
+  turn index and input delta derived by readers.
 - `records(file_key, line_num, uuid, request_id, ts, model,
   fresh_tokens, cache_creation_tokens, cache_read_tokens,
   output_tokens, eph5_tokens, eph1h_tokens, cost_usd, request_fee_usd,

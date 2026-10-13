@@ -230,33 +230,17 @@ def list_sessions(
     return {"items": items, "next_cursor": next_cursor}
 
 
-def _ctx_trace(ctx_turns) -> list:
-    """files.ctx_turns (canonical [{idx,ts,line,input,output,delta}])
-    reshaped to [{t: epoch_seconds, ctx: int}] for the OLD frontend
-    chart code."""
-    ctx_trace = []
-    for t in (ctx_turns or []):
-        ts_str = t.get("ts") if isinstance(t, dict) else None
-        try:
-            if ts_str:
-                dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                t_epoch = int(dt.timestamp())
-            else:
-                t_epoch = None
-            ctx_val = int(t.get("input", 0))
-        except (AttributeError, TypeError, ValueError):
-            continue
-        if t_epoch is None:
-            continue
-        ctx_trace.append({"t": t_epoch, "ctx": ctx_val})
-    return ctx_trace
+def _ctx_trace(timestamps: list[datetime | None], inputs: list[int]) -> list:
+    """Project typed file turns to [{t: epoch_seconds, ctx: int}]."""
+    return [{"t": int(ts.timestamp()), "ctx": int(value)}
+            for ts, value in zip(timestamps, inputs, strict=True) if ts is not None]
 
 
 @router.get("/sessions/{session_id}")
 def session_detail(session_id: str) -> dict:
     """Single-session aggregation including ctx_trace and burn rate.
 
-    `ctx_trace` is the canonical files.ctx_turns array reshaped to
+    `ctx_trace` is the typed file timeline reshaped to
     [{t: epoch_seconds, ctx: int}] for the OLD frontend chart code.
     `burn` is {tps, model} computed from the records table.
     `r2_key` is the MAIN file_key.
@@ -269,7 +253,7 @@ def session_detail(session_id: str) -> dict:
               SELECT f.session_id,
                      f.project_id,
                      f.file_key,
-                     f.ctx_turns,
+                     f.ctx_ts, f.ctx_input,
                      min(r.ts) AS first_event_at,
                      max(r.ts) AS last_event_at,
                      EXTRACT(EPOCH FROM (max(r.ts) - min(r.ts)))::bigint AS duration_s,
@@ -302,7 +286,7 @@ def session_detail(session_id: str) -> dict:
                 ON rp.file_id = r.file_id AND rp.line_num = r.line_num
               WHERE f.session_id = %s AND f.is_main = TRUE
               GROUP BY f.session_id, f.project_id, f.file_key, f.file_id,
-                       f.ctx_turns
+                       f.ctx_ts, f.ctx_input
               LIMIT 1
             )
             SELECT * FROM per_session
@@ -313,7 +297,7 @@ def session_detail(session_id: str) -> dict:
     if row is None:
         raise HTTPException(404, "session not found")
 
-    base = _aggregate_session_row((row[0], row[1], *row[4:15]))
+    base = _aggregate_session_row((row[0], row[1], *row[5:16]))
 
     # Burn (tps + dominant model) for this session.
     write_tokens = (
@@ -324,7 +308,7 @@ def session_detail(session_id: str) -> dict:
     span_s = max(base["duration_s"], 1)
     burn = {
         "tps": float(write_tokens) / span_s,
-        "model": row[15] or "",
+        "model": row[16] or "",
         "hit_5h_limit": False,
     }
 
@@ -333,6 +317,6 @@ def session_detail(session_id: str) -> dict:
         # Public form: the bucket segment never leaves the server
         # (SV-FILES-RECORDS).
         "r2_key": r2.public_key(row[2]),
-        "ctx_trace": _ctx_trace(row[3]),
+        "ctx_trace": _ctx_trace(row[3], row[4]),
         "burn": burn,
     }

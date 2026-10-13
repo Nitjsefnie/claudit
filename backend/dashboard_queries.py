@@ -144,18 +144,14 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
               -- a file modified in range can carry prompts sent before it
               -- (issue #214), and a missing or junk ts cannot be proven
               -- out of range, so it counts (all-range totals stay exactly
-              -- the old SUMs). Cast guarded like rate_limit_hits' below
-              -- (pg_input_is_valid in a CASE); in-range tests bind FIRST.
+              -- the old SUMs). Typed NULLs include migrated junk prompt
+              -- timestamps; in-range tests bind FIRST.
               COALESCE(SUM((SELECT COUNT(*) FILTER (
-                  WHERE CASE WHEN pg_input_is_valid(p, 'timestamptz') IS NOT TRUE
-                                   THEN TRUE
-                             ELSE p::timestamptz >= %s END)
-                FROM jsonb_array_elements_text(f.prompt_ts) AS p)), 0) AS total_prompts,
+                  WHERE p IS NULL OR p >= %s)
+                FROM unnest(f.prompt_ts) AS p)), 0) AS total_prompts,
               COALESCE(SUM((SELECT COUNT(*) FILTER (
-                  WHERE CASE WHEN pg_input_is_valid(t->>'ts', 'timestamptz') IS NOT TRUE
-                                   THEN TRUE
-                             ELSE (t->>'ts')::timestamptz >= %s END)
-                FROM jsonb_array_elements(f.ctx_turns) AS t)), 0) AS total_turns
+                  WHERE t IS NULL OR t >= %s)
+                FROM unnest(f.ctx_ts) AS t)), 0) AS total_turns
             FROM files f
             LEFT JOIN files_with_records fr ON fr.file_id = f.file_id
             LEFT JOIN sessions_with_main   sm ON sm.session_id = f.session_id

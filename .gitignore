@@ -83,6 +83,7 @@
 !/backend/
 /backend/*
 !/backend/*.py
+!/backend/file_timelines.py
 !/backend/.env.example
 !/backend/requirements.txt
 !/backend/schema.sql
@@ -90,6 +91,7 @@
 # every one of them is shipped, so the block names the family back rather
 # than one file.
 !/backend/schema_*.sql
+!/backend/schema_timelines.sql
 
 # ---- compose/ — the dev stack's Postgres first-boot init -------------------
 # The docker compose stack's init SQL (issue #941): deliberately NOT under

@@ -31,7 +31,6 @@ CREATE TABLE IF NOT EXISTS files (
   r2_last_modified    TIMESTAMPTZ NOT NULL,
   parsed_at           TIMESTAMPTZ NOT NULL,
   parser_version      TEXT NOT NULL,
-  ctx_turns           JSONB NOT NULL DEFAULT '[]'::jsonb,
   turn_count          INT   DEFAULT 0,
   prompt_count        INT   DEFAULT 0,
   rate_limit_hits     JSONB NOT NULL DEFAULT '[]'::jsonb
