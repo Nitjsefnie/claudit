@@ -7,10 +7,10 @@ Stdlib-only at import, so `ingest_fetch` may import this module freely.
 """
 from __future__ import annotations
 
+import importlib
 import os
 import signal
 import multiprocessing
-from multiprocessing import forkserver
 from concurrent.futures import ProcessPoolExecutor
 
 # CPython's forkserver handles identify the OS parent and its alive pipe.
@@ -31,6 +31,7 @@ def parse_pool(max_workers: int, parent_pid: int) -> ProcessPoolExecutor:
     """
     context = multiprocessing.get_context("forkserver")
     context.set_forkserver_preload(list(_PRELOAD_MODULES))
+    forkserver = importlib.import_module("multiprocessing.forkserver")
     forkserver.ensure_running()
     return ProcessPoolExecutor(
         max_workers=max_workers,
@@ -137,6 +138,7 @@ def parse_worker_init(parent_pid: int, service_pid: int | None = None,
             os._exit(0)
         # CPython passes this write end to every client, workers included.
         # Leaving it open would keep the server alive after service SIGKILL.
+        forkserver = importlib.import_module("multiprocessing.forkserver")
         alive_fd = getattr(forkserver._forkserver, "_forkserver_alive_fd")
         if alive_fd is not None:
             os.close(alive_fd)
