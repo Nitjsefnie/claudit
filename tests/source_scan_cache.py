@@ -23,6 +23,15 @@ from typing import Any, Literal, Never, cast
 class _Failure:
     kind: type[Exception]
     args: tuple[Any, ...]
+    attributes: tuple[tuple[str, object], ...]
+
+    @classmethod
+    def capture(cls, error: Exception) -> _Failure:
+        names = ("filename", "lineno", "offset", "end_lineno", "end_offset",
+                 "text", "msg")
+        attributes = tuple((name, getattr(error, name)) for name in names
+                           if hasattr(error, name))
+        return cls(type(error), error.args, attributes)
 
     def raise_for(self, filename: str | None = None) -> Never:
         args = self.args
@@ -30,7 +39,12 @@ class _Failure:
                 and len(args) > 1):
             details = (filename, *args[1][1:])
             args = (args[0], details, *args[2:])
-        raise self.kind(*args)
+        error = self.kind(*args)
+        for name, value in self.attributes:
+            if name == "filename" and value is not None and filename is not None:
+                value = filename
+            setattr(error, name, value)
+        raise error
 
 
 @dataclass
@@ -54,8 +68,7 @@ class SourceSnapshot:
                                       errors="strict", newline=None) as reader:
                     self._decoded[effective_encoding] = reader.read()
             except UnicodeError as error:
-                self._decoded[effective_encoding] = _Failure(
-                    type(error), error.args)
+                self._decoded[effective_encoding] = _Failure.capture(error)
         result = self._decoded[effective_encoding]
         if isinstance(result, _Failure):
             result.raise_for()
@@ -85,7 +98,7 @@ class SourceArtifacts:
                 self._tokens = tuple(tokenize.generate_tokens(
                     io.StringIO(self.source).readline))
             except (tokenize.TokenError, SyntaxError) as error:
-                self._tokens = _Failure(type(error), error.args)
+                self._tokens = _Failure.capture(error)
         if isinstance(self._tokens, _Failure):
             self._tokens.raise_for()
         return self._tokens
@@ -102,7 +115,7 @@ class SourceArtifacts:
                     feature_version=feature_version,
                     optimize=cast(Literal[-1, 0, 1, 2], optimize))
             except (SyntaxError, ValueError) as error:
-                self._trees[key] = _Failure(type(error), error.args)
+                self._trees[key] = _Failure.capture(error)
         result = self._trees[key]
         if isinstance(result, _Failure):
             result.raise_for(filename)
@@ -125,7 +138,7 @@ class SourceArtifacts:
                     flags=__future__.annotations.compiler_flag,
                     dont_inherit=True)
             except (SyntaxError, ValueError) as error:
-                self._code = _Failure(type(error), error.args)
+                self._code = _Failure.capture(error)
         if isinstance(self._code, _Failure):
             self._code.raise_for()
         assert isinstance(self._code, types.CodeType)
