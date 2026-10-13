@@ -535,7 +535,11 @@ def test_compiler_preserves_interpreter_optimization(optimization: str) -> None:
 def test_compile_errors_match_direct_compile(text: str) -> None:
     expected = _failure(lambda: _reference_code(text))
     artifacts = source_scan_cache.for_source(text)
-    if text != "x = (\n":
+    try:
+        ast.parse(text)
+    except SyntaxError as reference_error:
+        assert _diagnostic(_failure(artifacts.tree)) == _diagnostic(reference_error)
+    else:
         assert isinstance(artifacts.tree(), ast.Module)
     one = _failure(artifacts.scan_code)
     two = _failure(artifacts.scan_code)
