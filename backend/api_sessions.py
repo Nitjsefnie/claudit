@@ -285,8 +285,7 @@ def session_detail(session_id: str) -> dict:
               LEFT JOIN records_price rp
                 ON rp.file_id = r.file_id AND rp.line_num = r.line_num
               WHERE f.session_id = %s AND f.is_main = TRUE
-              GROUP BY f.session_id, f.project_id, f.file_key, f.file_id,
-                       f.ctx_ts, f.ctx_input
+              GROUP BY f.session_id, f.project_id, f.file_key, f.file_id
               LIMIT 1
             )
             SELECT * FROM per_session
