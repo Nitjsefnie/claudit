@@ -92,3 +92,12 @@ def test_bot_bump_preserves_existing_assignment_format(line):
     assert _classify(['backend/constants.py', 'src/pricing.json'],
                      line.format(digits='7') + 'OTHER = 1\n',
                      line.format(digits='8') + 'OTHER = 1\n') == (False, True, False)
+
+
+@pytest.mark.parametrize('before,after,want', [
+    ('99', '1', False), ('1', '99', False), ('99', '88', True),
+])
+def test_bot_version_width_preserves_measured_pair(before, after, want):
+    assert _classify(['backend/constants.py', 'src/pricing.json'],
+                     f'# comment\nPRICING_VERSION = "{before}"\n',
+                     f'# comment\nPRICING_VERSION = "{after}"\n') == (False, want, False)

@@ -293,8 +293,8 @@ including source under `examples/` or `.claude/` and extensionless shell
 files identified by their checked-out shebang. Bot-data-only refreshes
 require an exact pricing path set and a constants diff consisting solely
 of one removed and one added `PRICING_VERSION` assignment that differ
-only in the numeric digit run inside its string literal; every other byte,
-including the line terminator, must match. Other
+only in a numeric digit run of equal byte length inside its string literal;
+every other byte, including the line terminator, must match. Width changes, other
 constants changes and unreadable files run the full gate set.
 Master tightens with the other baselines; `ratchet-push` publishes the
 measured thresholds artifact without running the measurement again.
