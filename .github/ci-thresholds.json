@@ -12,9 +12,9 @@
   "module_size_baseline": {
     "backend/api.py": 709,
     "backend/bash_churn.py": 874,
-    "backend/ingest.py": 658,
+    "backend/ingest.py": 611,
     "backend/parse.py": 537,
-    "backend/schema.sql": 819,
+    "backend/schema.sql": 754,
     "public/app.css": 683,
     "scripts/plots/ccusage_plot_render.py": 639,
     "src/dashboard-charts-extra.jsx": 1210,
