@@ -232,6 +232,8 @@ BEGIN
   END IF;
   IF got IS NOT NULL AND got IS DISTINCT FROM
      'bucket_s:integer,bucket:timestamp with time zone,proj_id:integer,model_id:smallint,n:bigint,p10:double precision,p50:double precision,p90:double precision,outliers:jsonb'
+     AND got IS DISTINCT FROM
+     'bucket_s:integer,bucket:timestamp with time zone,proj_id:integer,model_id:smallint,n:bigint,p10:double precision,p50:double precision,p90:double precision,out_ts:timestamp with time zone[],out_latency_s:double precision[],out_file_id:integer[],out_line_num:integer[],out_high:boolean[]'
   THEN
     DROP TABLE latency_rollup;
   END IF;

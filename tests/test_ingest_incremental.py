@@ -77,7 +77,7 @@ _ROLLUPS = {
         "ORDER BY br.hour, p.project_id, dat.value, br.brief_ref"),
     "latency_rollup": (
         "SELECT l.bucket_s, l.bucket, p.project_id, dm.value, l.n, l.p10, "
-        "l.p50, l.p90, l.outliers "
+        "l.p50, l.p90, l.out_ts, l.out_latency_s, l.out_file_id, l.out_line_num, l.out_high "
         "FROM latency_rollup l "
         "JOIN projects p ON p.proj_id = l.proj_id "
         "JOIN dim_model dm ON dm.id = l.model_id "
@@ -449,7 +449,7 @@ def test_tied_latency_outliers_are_deterministic(
     ingest.rebuild_latency_rollup()
     with db.viz_conn() as conn:
         first = conn.execute(
-            "SELECT l.outliers FROM latency_rollup l "
+            "SELECT l.out_ts, l.out_latency_s, l.out_file_id, l.out_line_num, l.out_high FROM latency_rollup l "
             "JOIN projects p ON p.proj_id = l.proj_id "
             "JOIN dim_model dm ON dm.id = l.model_id "
             "WHERE l.bucket_s = 3600 "
@@ -459,7 +459,7 @@ def test_tied_latency_outliers_are_deterministic(
     ingest.rebuild_latency_rollup()
     with db.viz_conn() as conn:
         second = conn.execute(
-            "SELECT l.outliers FROM latency_rollup l "
+            "SELECT l.out_ts, l.out_latency_s, l.out_file_id, l.out_line_num, l.out_high FROM latency_rollup l "
             "JOIN projects p ON p.proj_id = l.proj_id "
             "JOIN dim_model dm ON dm.id = l.model_id "
             "WHERE l.bucket_s = 3600 "
