@@ -1,7 +1,18 @@
--- 2026-10-03 (issue #469): legacy provenance column for the former
--- note-derived request fee. Issue #879 retires that path; ingest no longer
--- writes the column and repricing clears it to NULL. Keep it additive and
--- nullable (SV-SCHEMA-AUTOAPPLY) so older binaries can ignore it and
--- rollback remains one-directional. A separate SCHEMA_PATHS entry keeps
--- schema.sql within its size ratchet.
-ALTER TABLE records ADD COLUMN IF NOT EXISTS request_fee_usd NUMERIC(12,6);
+-- 2026-10-03 (issue #469): the legacy request-fee column, retired by
+-- issue #879. No ADD COLUMN is issued here any more.
+--
+-- The column belongs to the #959 shape: schema_dims.sql's records CREATE
+-- makes `request_fee_usd` and schema_records_price.sql moves it onto the
+-- records_price sidecar, where the reprice pass clears it. On a database
+-- already in that shape an ADD here would land on `records` and be
+-- dropped again by that file's step 3 in this same transaction — the
+-- column never persists a value and every apply costs an attnum for
+-- good. On a pre-#959 database the whole table is dropped by
+-- schema_dims.sql's guarded migration in this transaction, so the ADD
+-- would be dead work there too (SV-SCHEMA-AUTOAPPLY: the chain converges
+-- without it).
+--
+-- This file stays a SCHEMA_PATHS entry: the stamp hashes every file's
+-- bytes in order, and dropping an entry changes what the stamp means
+-- mid-flight for no benefit. Rollback stays one-directional — an older
+-- binary ignores the sidecar column.

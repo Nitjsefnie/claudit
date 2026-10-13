@@ -32,8 +32,8 @@ CREATE TABLE IF NOT EXISTS files (
   parsed_at           TIMESTAMPTZ NOT NULL,
   parser_version      TEXT NOT NULL,
   ctx_turns           JSONB NOT NULL DEFAULT '[]'::jsonb,
-  turn_count          INT   NOT NULL DEFAULT 0,
-  prompt_count        INT   NOT NULL DEFAULT 0,
+  turn_count          INT   DEFAULT 0,
+  prompt_count        INT   DEFAULT 0,
   rate_limit_hits     JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
@@ -44,9 +44,9 @@ ALTER TABLE files ADD COLUMN IF NOT EXISTS
 -- rows. It is the only trace that a session switched lanes (Claude ->
 -- GLM), which an analysis over `records` must be able to exclude.
 ALTER TABLE files ADD COLUMN IF NOT EXISTS
-  models TEXT[] NOT NULL DEFAULT '{}';
+  models TEXT[] DEFAULT '{}';
 ALTER TABLE files ADD COLUMN IF NOT EXISTS
-  prompt_count INT NOT NULL DEFAULT 0;
+  prompt_count INT DEFAULT 0;
 -- Which agent role this transcript ran as -- parse.resolve_agent_type.
 -- Per-file, not per-record: a transcript is homogeneous (a file carrying
 -- isSidechain records carries nothing else). The DEFAULT matches
@@ -109,13 +109,9 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
   output_tokens_per_s NUMERIC(20,3);
 
--- Issue #350: the reprice pass rewrites every stale row on every
--- PRICING_VERSION bump. At the default fillfactor (100) the pages are
--- full, so each rewrite spills a new tuple version and index entries.
--- At 50 a page can absorb rewrites in place (HOT). One-time compaction on
--- existing deploys (the setting only shapes future page use):
--- `VACUUM FULL records` -- it holds ACCESS EXCLUSIVE, so off-peak.
-ALTER TABLE records SET (fillfactor = 50);
+-- Issue #350's fillfactor fix moved with the columns it protected:
+-- since #959 the reprice-written columns live on records_price, whose
+-- schema file stamps both fillfactors (records 100, sidecar 50).
 
 -- Cross-file uuid dedup, resolved at INGEST instead of on every read.
 -- `records` is immutable between ingests, but every read endpoint was
@@ -132,31 +128,34 @@ ALTER TABLE records SET (fillfactor = 50);
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
   is_canonical BOOLEAN NOT NULL DEFAULT TRUE;
 
--- 2026-09-14: three fields the API puts on the wire that the corpus
--- analysis needed and the row did not carry.
+-- 2026-09-14: the hidden part of the output tally, reported separately.
 --
---   stop_reason      from the CLOSING line of a streamed reply
---                    ('end_turn', 'tool_use', 'stop_sequence',
---                    'refusal'); earlier lines carry null. NULL on a
---                    stored row therefore means the closing usage never
---                    arrived, which is exactly the row whose
---                    output_tokens is the 1-3 opening placeholder —
---                    8k such rows hide ~2.2M output tokens.
---   effort           the harness's per-request effort setting
---                    ('high', 'max', ...), NULL when absent.
 --   thinking_tokens  usage.output_tokens_details.thinking_tokens,
 --                    the hidden part of output_tokens; 0 when the API
 --                    did not report it.
-ALTER TABLE records ADD COLUMN IF NOT EXISTS stop_reason TEXT;
-ALTER TABLE records ADD COLUMN IF NOT EXISTS effort TEXT;
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
   thinking_tokens BIGINT NOT NULL DEFAULT 0;
+
+-- The text dimension columns this file used to add to `records` here —
+-- stop_reason (the closing line's stop reason: 'end_turn', 'tool_use',
+-- 'stop_sequence', 'refusal', NULL when the closing usage never
+-- arrived), effort (the harness's per-request setting), long_context
+-- with its meter multipliers, provider, pricing_version and
+-- rate_fingerprint — belong to the pre-#959 shape only. schema_dims.sql
+-- creates their replacements (the nullable dim FKs, and the reprice
+-- columns that schema_records_price.sql moves onto records_price), and
+-- a database still carrying the old shape loses the whole table to that
+-- file's guarded drop in this same transaction. An ADD of any of them
+-- here therefore never persists a value: it is dropped again before the
+-- stamp is written, and costs an attnum for good on every apply — so
+-- none is issued (SV-SCHEMA-AUTOAPPLY's idempotence as absence).
 
 -- 2026-09-14: what happened between the previous request and this one
 -- (backend/turn_flags.py), so a prompt-cache miss can be attributed by
 -- GROUP BY instead of a re-read of the raw file.
 --
---   cli_version        the Claude Code build that sent the request.
+--   cli_version        the Claude Code build that sent the request —
+--                      a dim FK since #959 task 7 (no ADD: see above).
 --   turn_flags         transcript events in the window before it: a
 --                      blocking Stop hook, an interrupt, a compaction,
 --                      an API-error retry, a /model or /effort switch,
@@ -173,37 +172,6 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS
 --                      (cwd_rebuild). Empty when nothing happened.
 --   turn_tool_results  tool_result blocks in that window (parallel
 --                      tool batches are one of the miss triggers).
--- 2026-09-22: the long-context decision and pricing pair (issues #765, #878).
--- Members above their own threshold bill at model factors or global defaults;
--- metered rows store the pair used by cost. NULL flag/pair means no decision,
--- while legacy metered rows used global defaults.
-ALTER TABLE records ADD COLUMN IF NOT EXISTS long_context BOOLEAN,
-  ADD COLUMN IF NOT EXISTS long_context_input_mult DOUBLE PRECISION,
-  ADD COLUMN IF NOT EXISTS long_context_output_mult DOUBLE PRECISION;
--- 2026-09-25: the host that served the request, OpenRouter's
--- message.provider ("Novita", "Morph", "Stealth"). Priced by
--- pricing.PROVIDER_RATES; NULL on every other lane, which prices by model
--- alone exactly as before.
-ALTER TABLE records ADD COLUMN IF NOT EXISTS provider TEXT;
--- 2026-09-25 (issue #193): the rate-data semantics version this row's
--- cost_usd was computed under, stamped at persist time from
--- constants.PRICING_VERSION — so a reparse re-stamps it with the current
--- version. The reprice pass selects rows whose stored version differs
--- from the binary's; NULL means priced by a build older than the reprice
--- machinery, treated as stale and repriced. Additive and nullable
--- (SV-SCHEMA-AUTOAPPLY), and no reparse and no R2 refetch.
-ALTER TABLE records ADD COLUMN IF NOT EXISTS pricing_version TEXT;
--- 2026-09-29 (issue #351): pair-qualified reprice staleness. A row's
--- rate_fingerprint is the pair fingerprint (backend/rate_fingerprint.py)
--- of the rate data its stored cost was computed under; the reprice pass
--- restamps rows whose stored fingerprint equals the CURRENT fingerprint
--- of their (model, provider) pair set-based in SQL, and recomputes the
--- rest. Additive and nullable (SV-SCHEMA-AUTOAPPLY): pre-feature rows
--- read NULL and take the conservative recompute path once; older
--- binaries ignore the column and leave it NULL (rollback stays
--- one-directional).
-ALTER TABLE records ADD COLUMN IF NOT EXISTS rate_fingerprint TEXT;
-ALTER TABLE records ADD COLUMN IF NOT EXISTS cli_version TEXT;
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
   turn_flags TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
@@ -252,7 +220,6 @@ CREATE TABLE IF NOT EXISTS usage_rollup (
   PRIMARY KEY (session_id, hour, model, provider, is_main, long_context)
 );
 CREATE INDEX IF NOT EXISTS usage_rollup_hour_idx ON usage_rollup (hour);
-CREATE INDEX IF NOT EXISTS usage_rollup_project_idx ON usage_rollup (project_id, hour);
 
 -- Pre-aggregated tool calls, rebuilt at ingest alongside usage_rollup.
 -- Serves /api/tool-usage, /api/tool-error-rate, and the dashboard line-churn
@@ -282,7 +249,6 @@ ALTER TABLE tool_rollup ADD COLUMN IF NOT EXISTS
 ALTER TABLE tool_rollup ADD COLUMN IF NOT EXISTS
   lines_deleted BIGINT NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS tool_rollup_hour_idx ON tool_rollup (hour);
-CREATE INDEX IF NOT EXISTS tool_rollup_project_idx ON tool_rollup (project_id, hour);
 
 -- Pre-aggregated failure causes, grain
 -- (hour, project_id, model, tool_name, error_kind).
@@ -388,8 +354,6 @@ CREATE TABLE IF NOT EXISTS ctx_cost_rollup (
 );
 CREATE INDEX IF NOT EXISTS ctx_cost_rollup_hour_idx
   ON ctx_cost_rollup (hour);
-CREATE INDEX IF NOT EXISTS ctx_cost_rollup_project_idx
-  ON ctx_cost_rollup (project_id, hour);
 
 -- Pre-aggregated cost-by-agent-type for /api/cost-by-agent.
 --
@@ -416,8 +380,6 @@ CREATE TABLE IF NOT EXISTS agent_rollup (
 );
 CREATE INDEX IF NOT EXISTS agent_rollup_hour_idx
   ON agent_rollup (hour);
-CREATE INDEX IF NOT EXISTS agent_rollup_project_idx
-  ON agent_rollup (project_id, hour);
 
 -- Pre-aggregated reply-latency bands + outlier dots for /api/reply-latency.
 --
@@ -452,21 +414,19 @@ CREATE TABLE IF NOT EXISTS latency_rollup (
   outliers    JSONB       NOT NULL DEFAULT '[]'::jsonb,
   PRIMARY KEY (bucket_s, bucket, project_id, model)
 );
-CREATE INDEX IF NOT EXISTS latency_rollup_lookup_idx
-  ON latency_rollup (bucket_s, project_id, bucket);
 
--- Only ~19% of records carry a reply_latency_s; a partial covering index
--- keeps the live path (and the rollup build) off the other 81%.
-CREATE INDEX IF NOT EXISTS records_latency_idx ON records (ts)
-  INCLUDE (model, reply_latency_s, file_key, line_num)
-  WHERE reply_latency_s IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS records_uuid_idx ON records (uuid) WHERE uuid IS NOT NULL;
+-- Only ~19% of records carry a reply_latency_s; the partial covering
+-- index that keeps the live path (and the rollup build) off the other
+-- 81% moved to schema_dims.sql with the rest of the issue #959 shape.
+-- records_model_idx and records_request_idx moved there too (the first
+-- now keys model_id; the second is dropped with issue #958), as do the
+-- turn_flags GIN index and tool_uses' five indexes above/below — their
+-- columns are retyped or retired by the migration. records_uuid_idx is
+-- gone with #959's uuid split (rationale in schema_dims.sql); re-declaring it HERE would abort a re-apply whose records are already split, where no uuid column exists.
 CREATE INDEX IF NOT EXISTS records_ts_idx ON records (ts);
 -- Every read endpoint filters `is_canonical AND ts >= ...`.
 CREATE INDEX IF NOT EXISTS records_canonical_ts_idx
   ON records (ts) WHERE is_canonical;
-CREATE INDEX IF NOT EXISTS records_model_idx ON records (model);
 
 CREATE TABLE IF NOT EXISTS tool_uses (
   file_key   TEXT NOT NULL REFERENCES files(file_key) ON DELETE CASCADE,
@@ -530,35 +490,30 @@ ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS read_targets TEXT[];
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS write_targets TEXT[];
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS is_reread BOOLEAN;
 
+-- The partial reread index and the GIN over read_targets moved out with
+-- issue #958's index set; neither is recreated by the #959 migration.
+
 -- 2026-09-07: why a settled tool call failed.
 --
 -- `is_error` says THAT a call failed and nothing about why, so every
 -- question about failure causes meant leaving the DB for the raw
--- transcripts. Two columns, both NULL unless is_error is true:
---
---   error_kind  coarse and HARNESS-GENERIC -- 'rejected' (user or
---               permission denial), 'tool_error' (a <tool_use_error>
---               wrapper from the harness, or a Bash `Exit code N` --
---               the command RAN), 'failed' (everything else: the call
---               never ran).
---               Bounded cardinality, so it can carry a rollup grain.
---   error_text  the leading parse.ERROR_TEXT_MAX characters of the
---               failed result, for GROUP BY drill-down.
+-- transcripts. error_text carries the leading parse.ERROR_TEXT_MAX
+-- characters of the failed result, for GROUP BY drill-down; the coarse
+-- harness-generic cause (error_kind) is a dim FK on the #959 shape
+-- (schema_dims.sql's dim_error_kind), so its TEXT column is not added
+-- here — see the note above `records`.
 --
 -- A PreToolUse hook denial lands in 'failed' on purpose: its wording is
 -- the deploy's, not Claude Code's, so classifying it in the parser would
 -- bake one operator's hook set into a general tool. Grouping on
 -- error_text separates those without that coupling.
-ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS error_kind TEXT;
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS error_text TEXT;
 
 -- 2026-09-07: what a subagent dispatch ASKED for, read off the Agent/Task
 -- call arguments. `files.agent_type` records what actually ran and so
--- exists only when the subagent wrote a JSONL; these two exist for every
--- dispatch, including ones that never produced a file. NULL on every
--- non-dispatch tool, and on a dispatch that named neither field.
-ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS agent_type TEXT;
-ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS agent_model TEXT;
+-- exists only when the subagent wrote a JSONL; the asked-for role and
+-- model are dim FKs on the #959 shape (agent_type_id / agent_model_id),
+-- added by schema_dims.sql rather than here.
 
 -- 2026-09-07: how a dispatch was BRIEFED, from the same call arguments.
 -- dispatch_prompt_chars is the prompt's length; dispatch_brief_ref is
@@ -610,24 +565,6 @@ BEGIN
       PRIMARY KEY (session_id, hour, model, is_main, long_context);
   END IF;
 END $$;
--- 2026-09-25: provider joined the grain the same way, so a re-derived
--- breakdown prices each row by its own provider's rates. Same idempotent
--- swap, keyed on the new column.
-ALTER TABLE usage_rollup
-  ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT '';
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-     WHERE conname = 'usage_rollup_pkey'
-       AND conrelid = 'usage_rollup'::regclass
-       AND pg_get_constraintdef(oid) LIKE '%provider%'
-  ) THEN
-    ALTER TABLE usage_rollup DROP CONSTRAINT IF EXISTS usage_rollup_pkey;
-    ALTER TABLE usage_rollup ADD CONSTRAINT usage_rollup_pkey
-      PRIMARY KEY (session_id, hour, model, provider, is_main, long_context);
-  END IF;
-END $$;
 ALTER TABLE ctx_cost_rollup
   ADD COLUMN IF NOT EXISTS total_tokens BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE agent_rollup
@@ -639,10 +576,8 @@ ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS
 CREATE INDEX IF NOT EXISTS tool_uses_tool_use_id_idx
   ON tool_uses (tool_use_id) WHERE tool_use_id IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS tool_uses_error_kind_idx
-  ON tool_uses (error_kind, ts) WHERE error_kind IS NOT NULL;
-CREATE INDEX IF NOT EXISTS tool_uses_agent_type_idx
-  ON tool_uses (agent_type, ts) WHERE agent_type IS NOT NULL;
+-- tool_uses_error_kind_idx and tool_uses_agent_type_idx moved to
+-- schema_dims.sql: they key on the dim FKs now.
 
 -- 2026-09-24: the model that emitted the call, stored on the call. Readers
 -- used to join `records` on (file_key, line_num) for it, which misses
@@ -651,8 +586,8 @@ CREATE INDEX IF NOT EXISTS tool_uses_agent_type_idx
 -- line with one. Set at parse time -- the Claude path from the call's own
 -- assistant line (the same value records.model gets for that line), the
 -- lanes from the model billing the call's step. NULL only on rows written
--- before this column existed; the next reparse fills them.
-ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS model TEXT;
+-- before this column existed; the next reparse fills them. Stored as the
+-- dim FK model_id (#959), which schema_dims.sql creates.
 
 CREATE TABLE IF NOT EXISTS ingest_runs (
   id              BIGSERIAL PRIMARY KEY,

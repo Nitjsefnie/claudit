@@ -39,6 +39,7 @@ from test_reprice import (
     _seed_parents,
     _seeded_cost,
 )
+from tests import dims_seed
 from tests.reprice_fixture_builders import SeedRecord
 from tests.test_rate_fingerprint import _prefixed_tables, _refresh
 
@@ -77,13 +78,19 @@ def _seed_block(c, model: str, first_line: int, count: int, *,
     block shapes the pair-qualified tests need (issue #351)."""
     _seed_parents(c, _FILE_KEY)
     c.execute(
-        "INSERT INTO records (file_key, line_num, ts, model, fresh_tokens, "
-        "cache_creation_tokens, cache_read_tokens, output_tokens, "
-        "eph5_tokens, eph1h_tokens, cost_usd, provider, pricing_version, "
-        "rate_fingerprint) "
-        "SELECT %s, i, %s, %s, 1000, 2000, 3000, 100, 250, 500, %s, %s, %s, %s "
-        "FROM generate_series(%s::int, %s::int) AS i",
-        (_FILE_KEY, ts, model, cost, provider, pricing_version, fp,
+        "INSERT INTO records (file_id, line_num, ts, model_id, fresh_tokens, cache_creation_tokens, cache_read_tokens, output_tokens, eph5_tokens, eph1h_tokens, provider_id) SELECT %s, i, %s, %s, 1000, 2000, 3000, 100, 250, 500, %s FROM generate_series(%s::int, %s::int) AS i",
+        (dims_seed.file_id(c, _FILE_KEY), ts,
+         dims_seed.dim_id(c, "dim_model", model),
+         None if provider is None else dims_seed.dim_id(c, "dim_provider", provider),
+         first_line, first_line + count - 1),
+    )
+    c.execute(
+        "INSERT INTO records_price (file_id, line_num, cost_usd, "
+        "pricing_version_id, rate_fingerprint_id) "
+        "SELECT %s, i, %s, %s, %s FROM generate_series(%s::int, %s::int) AS i",
+        (dims_seed.file_id(c, _FILE_KEY), cost,
+         None if pricing_version is None else dims_seed.dim_id(c, "dim_pricing_version", pricing_version),
+         None if fp is None else dims_seed.dim_id(c, "dim_rate_fingerprint", fp),
          first_line, first_line + count - 1),
     )
 
@@ -129,8 +136,7 @@ def test_ingest_stamps_rate_fingerprint(fresh_db, mini_r2_env):
 
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT model, provider, rate_fingerprint, pricing_version "
-            "FROM records").fetchall()
+            "SELECT dm.value, dp.value, df.value, pv.value FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN dim_model dm ON dm.id = r.model_id LEFT JOIN dim_provider dp ON dp.id = r.provider_id LEFT JOIN dim_rate_fingerprint df ON df.id = rp.rate_fingerprint_id LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id").fetchall()
     assert rows, "the mirror must produce records, or this proves nothing"
     for model, provider, fingerprint, version in rows:
         assert fingerprint == rate_fingerprint.pair_fingerprint(model,
@@ -139,18 +145,12 @@ def test_ingest_stamps_rate_fingerprint(fresh_db, mini_r2_env):
         assert version == constants.PRICING_VERSION
 
 
-def test_rate_fingerprint_column_is_nullable_migration(fresh_db, mini_r2_env):
-    """The rate_fingerprint migration mirrors pricing_version's
-    (SV-SCHEMA-AUTOAPPLY): additive and nullable, existing rows keep
-    their place reading NULL — the conservative stale shape the reprice
-    pass recomputes once before stamping."""
+def test_rate_fingerprint_dim_is_nullable_migration(fresh_db, mini_r2_env):
+    """Since #959 the fingerprint rides a nullable dim FK: the catalog
+    admits NULL, apply_schema leaves stored rows alone, and a row seeded
+    without a fingerprint reads a NULL id (the conservative stale shape)."""
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
-
-    with db.viz_conn() as c:
-        c.execute(
-            "ALTER TABLE records DROP COLUMN IF EXISTS rate_fingerprint")
-        c.commit()
 
     with db.viz_conn() as c:
         before = c.execute("SELECT COUNT(*) FROM records").fetchone()
@@ -169,17 +169,18 @@ def test_rate_fingerprint_column_is_nullable_migration(fresh_db, mini_r2_env):
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT is_nullable FROM information_schema.columns "
-            "WHERE table_schema = 'public' AND table_name = 'records' "
-            "AND column_name = 'rate_fingerprint'").fetchone()
+            "WHERE table_schema = 'public' AND table_name = 'records_price' "
+            "AND column_name = 'rate_fingerprint_id'").fetchone()
         assert row is not None and row[0] == "YES", (
-            "schema.sql must add rate_fingerprint and admit NULL")
-        after, nulls = _pair(
-            c,
-            "SELECT COUNT(*), COUNT(*) FILTER ("
-            "WHERE rate_fingerprint IS NULL) FROM records")
-    assert after == before[0], "the migration must not disturb existing rows"
-    assert nulls == after, (
-        "pre-migration rows must read NULL, not be backfilled")
+            "records_price.rate_fingerprint_id must be a nullable dim FK")
+        _seed(c, _FILE_KEY, 99,
+              SeedRecord(rate_fingerprint=None, pricing_version=None))
+        after = c.execute("SELECT COUNT(*) FROM records").fetchone() or (0,)
+        nulls = c.execute(
+            "SELECT COUNT(*) FROM records_price WHERE rate_fingerprint_id IS NULL"
+        ).fetchone() or (0,)
+    assert after[0] == before[0] + 1, "the pass must not disturb stored rows"
+    assert nulls[0] >= 1, "a row written without a fingerprint reads NULL id"
 
 
 def test_clean_bump_restamps_set_based_without_reading_rows(
@@ -230,8 +231,7 @@ def test_clean_bump_restamps_set_based_without_reading_rows(
 
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT COUNT(*) FROM records "
-            "WHERE pricing_version IS DISTINCT FROM %s",
+            "SELECT COUNT(*) FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id WHERE pv.value IS DISTINCT FROM %s",
             (constants.PRICING_VERSION,)).fetchone()
     assert row is not None and row[0] == 0, (
         "every row of a clean bump ends at the current version")
@@ -255,8 +255,8 @@ def test_clean_restamp_respects_the_rollback_guard(fresh_db):
 
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT line_num, cost_usd, pricing_version FROM records "
-            "WHERE file_key = %s ORDER BY line_num", (_FILE_KEY,)).fetchall()
+            "SELECT r.line_num, rp.cost_usd, pv.value FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id WHERE f.file_key = %s ORDER BY r.line_num",
+            (_FILE_KEY,)).fetchall()
     assert len(rows) == 10
     for line_num, row_cost, version in rows:
         if line_num <= 5:
@@ -286,8 +286,8 @@ def test_stale_fingerprint_takes_the_python_path(fresh_db, monkeypatch,
 
     with db.viz_conn() as c:
         fingerprint, version = _pair(
-            c, "SELECT rate_fingerprint, pricing_version FROM records "
-               "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,))
+            c, "SELECT df.value, pv.value FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id LEFT JOIN dim_rate_fingerprint df ON df.id = rp.rate_fingerprint_id LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id WHERE f.file_key = %s AND r.line_num = 1",
+            (_FILE_KEY,))
     assert fingerprint == rate_fingerprint.pair_fingerprint(
         _SEED_MODEL, None), "the row now carries the current fingerprint"
     assert version == constants.PRICING_VERSION
@@ -311,8 +311,7 @@ def test_prefixed_rate_move_escapes_sql_clean_restamp(fresh_db, monkeypatch):
     _refresh()
     assert ingest_reprice.reprice_stale() == 2
     with db.viz_conn() as c:
-        rows = c.execute("SELECT cost_usd, pricing_version, rate_fingerprint "
-                         "FROM records ORDER BY line_num").fetchall()
+        rows = c.execute("SELECT rp.cost_usd, pv.value, df.value FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id LEFT JOIN dim_rate_fingerprint df ON df.id = rp.rate_fingerprint_id ORDER BY r.line_num").fetchall()
     # Fixed seed tokens cost .035 + 3*.015 before; .055 + 3*.045 after.
     assert [float(row[0]) for row in rows] == [0.19, 0.19]
     assert [row[1] for row in rows] == [constants.PRICING_VERSION] * 2
@@ -365,8 +364,7 @@ def test_moved_pair_recomputes_while_the_clean_pair_restamps(
 
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT line_num, cost_usd, pricing_version, rate_fingerprint "
-            "FROM records WHERE file_key = %s ORDER BY line_num",
+            "SELECT r.line_num, rp.cost_usd, pv.value, df.value FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id LEFT JOIN dim_rate_fingerprint df ON df.id = rp.rate_fingerprint_id WHERE f.file_key = %s ORDER BY r.line_num",
             (_FILE_KEY,)).fetchall()
     for line_num, row_cost, version, fingerprint in rows:
         if line_num <= 5:
@@ -402,8 +400,8 @@ def test_null_fingerprint_recomputes_once_then_goes_clean(
 
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT rate_fingerprint, pricing_version FROM records "
-            "WHERE file_key = %s", (_FILE_KEY,)).fetchall()
+            "SELECT df.value, pv.value FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id LEFT JOIN dim_rate_fingerprint df ON df.id = rp.rate_fingerprint_id LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id WHERE f.file_key = %s",
+            (_FILE_KEY,)).fetchall()
     assert rows and all(
         fingerprint == rate_fingerprint.pair_fingerprint(_SEED_MODEL, None)
         and version == constants.PRICING_VERSION
@@ -475,8 +473,7 @@ def test_clean_restamp_and_python_guard_agree_on_odd_versions(
 
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT line_num, cost_usd, pricing_version FROM records "
-            "WHERE file_key = %s ORDER BY line_num",
+            "SELECT r.line_num, rp.cost_usd, pv.value FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id WHERE f.file_key = %s ORDER BY r.line_num",
             (_FILE_KEY,)).fetchall()
     assert [row[0] for row in rows] == list(range(1, len(spellings) + 1))
     for (version, restampable), (_line_num, row_cost, stored) in zip(
@@ -519,14 +516,17 @@ def test_long_context_rule_change_shipped_with_a_bump_reprices(
     with db.viz_conn() as c:
         _seed_parents(c, _FILE_KEY)
         c.execute(
-            "INSERT INTO records (file_key, line_num, ts, model, "
-            "fresh_tokens, cache_creation_tokens, cache_read_tokens, "
-            "output_tokens, eph5_tokens, eph1h_tokens, cost_usd, provider, "
-            "long_context, pricing_version, rate_fingerprint) "
-            "SELECT %s, i, %s, %s, 1000, 2000, 3000, 100, 250, 500, %s, "
-            "NULL, FALSE, '0', %s FROM generate_series(1, 3) AS i",
-            (_FILE_KEY, _SEED_TS, _METER_377, cost,
-             rate_fingerprint.pair_fingerprint(_METER_377, None)))
+            "INSERT INTO records (file_id, line_num, ts, model_id, fresh_tokens, cache_creation_tokens, cache_read_tokens, output_tokens, eph5_tokens, eph1h_tokens) SELECT %s, i, %s, %s, 1000, 2000, 3000, 100, 250, 500 FROM generate_series(1, 3) AS i",
+            (dims_seed.file_id(c, _FILE_KEY), _SEED_TS,
+             dims_seed.dim_id(c, "dim_model", _METER_377)))
+        c.execute(
+            "INSERT INTO records_price (file_id, line_num, cost_usd, "
+            "long_context, pricing_version_id, rate_fingerprint_id) "
+            "SELECT %s, i, %s, FALSE, %s, %s FROM generate_series(1, 3) AS i",
+            (dims_seed.file_id(c, _FILE_KEY), cost,
+             dims_seed.dim_id(c, "dim_pricing_version", "0"),
+             dims_seed.dim_id(c, "dim_rate_fingerprint",
+                              rate_fingerprint.pair_fingerprint(_METER_377, None))))
         c.commit()
 
     real_fp = rate_fingerprint.pair_fingerprint
@@ -551,7 +551,7 @@ def test_long_context_rule_change_shipped_with_a_bump_reprices(
     assert ingest_reprice.reprice_stale() == 3
     with db.viz_conn() as c:
         flags = c.execute(
-            "SELECT bool_and(long_context) FROM records").fetchone()
+            "SELECT bool_and(long_context) FROM records_price").fetchone()
     assert flags is not None and flags[0], (
         "every row must come out under the changed rule (flag moved "
         "FALSE -> TRUE)")
@@ -647,8 +647,8 @@ def test_phase_b_skipped_when_every_stale_row_clean_restamps(
     assert re.search(r"\bclean_rows=20000\b", timing_line)
     with db.viz_conn() as c:
         stale = c.execute(
-            "SELECT COUNT(*) FROM records WHERE pricing_version "
-            "IS DISTINCT FROM %s", (constants.PRICING_VERSION,)).fetchone()
+            "SELECT COUNT(*) FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id WHERE pv.value IS DISTINCT FROM %s",
+            (constants.PRICING_VERSION,)).fetchone()
     assert stale is not None and stale[0] == 0, (
         "every stale row ends at the current version")
 
@@ -682,7 +682,7 @@ def test_phase_b_runs_while_any_row_escapes_the_sql_set(
     assert re.search(r"\bclean_rows=20000\b", timing_line)
     with db.viz_conn() as c:
         stale = c.execute(
-            "SELECT COUNT(*) FROM records WHERE pricing_version "
-            "IS DISTINCT FROM %s", (constants.PRICING_VERSION,)).fetchone()
+            "SELECT COUNT(*) FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id WHERE pv.value IS DISTINCT FROM %s",
+            (constants.PRICING_VERSION,)).fetchone()
     assert stale is not None and stale[0] == 0, (
         "the escapee ends at the current version like the clean rows")

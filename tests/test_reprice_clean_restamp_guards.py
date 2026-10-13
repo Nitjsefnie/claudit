@@ -32,6 +32,7 @@ from test_ingest import (  # pylint: disable=unused-import
 )
 
 from backend import constants, db, ingest_reprice, pricing, rate_fingerprint
+from tests import dims_seed
 
 UTC = timezone.utc
 
@@ -96,22 +97,36 @@ def _seed_guard_row(c, line_num: int, *, provider: str | None,
     )
     fresh, create, read, output, eph5, eph1h = _TOKENS
     c.execute(
-        "INSERT INTO records (file_key, line_num, ts, model, fresh_tokens, "
-        "cache_creation_tokens, cache_read_tokens, output_tokens, "
-        "eph5_tokens, eph1h_tokens, cost_usd, provider, pricing_version, "
-        "rate_fingerprint) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (_FILE_KEY, line_num, _SEED_TS, _GUARD_MODEL, fresh, create, read,
-         output, eph5, eph1h, cost, provider, _SEED_VERSION, fingerprint),
+        "INSERT INTO records (file_id, line_num, ts, model_id, "
+        "fresh_tokens, cache_creation_tokens, cache_read_tokens, "
+        "output_tokens, eph5_tokens, eph1h_tokens, provider_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (dims_seed.file_id(c, _FILE_KEY), line_num, _SEED_TS,
+         dims_seed.dim_id(c, "dim_model", _GUARD_MODEL),
+         fresh, create, read, output, eph5, eph1h,
+         None if provider is None
+         else dims_seed.dim_id(c, "dim_provider", provider)),
+    )
+    c.execute(
+        "INSERT INTO records_price (file_id, line_num, cost_usd, "
+        "pricing_version_id, rate_fingerprint_id) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (dims_seed.file_id(c, _FILE_KEY), line_num, cost,
+         dims_seed.dim_id(c, "dim_pricing_version", _SEED_VERSION),
+         dims_seed.dim_id(c, "dim_rate_fingerprint", fingerprint)),
     )
 
 
 def _guard_rows(c) -> dict[int, tuple]:
     """The two seeded rows as {line_num: (provider, cost, version, fp)}."""
     rows = c.execute(
-        "SELECT line_num, provider, cost_usd, pricing_version, "
-        "rate_fingerprint FROM records WHERE file_key = %s "
-        "ORDER BY line_num", (_FILE_KEY,)).fetchall()
+        "SELECT r.line_num, dp.value, rp.cost_usd, pv.value, df.value "
+        "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+        "LEFT JOIN dim_provider dp ON dp.id = r.provider_id "
+        "LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id "
+        "LEFT JOIN dim_rate_fingerprint df ON df.id = rp.rate_fingerprint_id "
+        "WHERE f.file_key = %s ORDER BY r.line_num",
+        (_FILE_KEY,)).fetchall()
     assert len(rows) == 2, "both seeded rows must survive the pass"
     return {row[0]: row[1:] for row in rows}
 

@@ -9,8 +9,8 @@ _record_updates and _stored_pricing_version_is_newer (and
 _row_is_unchanged, the fourth assembly helper) from
 backend.ingest_reprice — they must not change behaviour — and keeps
 its SQL constants local. Its one mechanical adaptation: the SELECT
-names records.rate_fingerprint too, because the shared _StaleRow now
-carries the field; the legacy writes stay exactly the pre-#351 shapes.
+names the sidecar's rate_fingerprint too, because the shared _StaleRow
+now carries the field; the legacy writes stay the pre-#351 shapes.
 
 Split from test_reprice_parity.py, which sat one line under the
 SV-CI-RATCHETS test ceiling once the differential landed.
@@ -52,6 +52,7 @@ from backend.ingest_reprice import (
     _StaleRow,
     _stored_pricing_version_is_newer,
 )
+from tests import dims_seed
 
 UTC = timezone.utc
 
@@ -76,40 +77,45 @@ _REAL_PROVIDER_ROWS = dict(pricing.PROVIDER_RATES)
 # _stored_pricing_version_is_newer from backend.ingest_reprice — they are
 # the assembly point and must not change behaviour — and keeps its SQL
 # constants local. The one mechanical adaptation: its SELECT names the
-# records.rate_fingerprint column too, because the shared _StaleRow now
+# sidecar's rate_fingerprint column too, because the shared _StaleRow now
 # carries the field; the legacy writes stay exactly the pre-#351 shapes.
-# (records.request_fee_usd joined the same SELECT when issue #469 added
+# (request_fee_usd joined the same SELECT when issue #469 added
 # it to _StaleRow; the legacy writes stay the pre-#469 shapes.)
 _LEGACY_SELECT_SQL = """
-    SELECT file_key, line_num, model, fresh_tokens, cache_creation_tokens,
-           cache_read_tokens, output_tokens, eph5_tokens, eph1h_tokens,
-           ts, long_context, provider, cost_usd, pricing_version,
-           rate_fingerprint, request_fee_usd
-      FROM records
-     WHERE (file_key, line_num) > (%s, %s)
-       AND pricing_version IS DISTINCT FROM %s
-     ORDER BY file_key, line_num
+    SELECT r.file_id, r.line_num, dm.value, r.fresh_tokens,
+           r.cache_creation_tokens, r.cache_read_tokens, r.output_tokens,
+           r.eph5_tokens, r.eph1h_tokens, r.ts, rp.long_context, dp.value,
+           rp.cost_usd, pv.value, df.value, rp.request_fee_usd
+      FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num
+      JOIN dim_model dm ON dm.id = r.model_id
+      LEFT JOIN dim_provider dp ON dp.id = r.provider_id
+      LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id
+      LEFT JOIN dim_rate_fingerprint df ON df.id = rp.rate_fingerprint_id
+     WHERE (r.file_id, r.line_num) > (%s, %s)
+       AND rp.pricing_version_id IS DISTINCT FROM %s
+     ORDER BY r.file_id, r.line_num
      LIMIT %s
 """
 
 # A batch's unchanged rows: version only, no fingerprint — the
 # pre-#351 write shape.
 _LEGACY_SQL_RESTAMP = """
-    UPDATE records r
-       SET pricing_version = %s
-      FROM unnest(%s::text[], %s::bigint[]) AS d(k, n)
-     WHERE r.file_key = d.k
-       AND r.line_num = d.n
+    UPDATE records_price rp
+       SET pricing_version_id = %s
+      FROM unnest(%s::bigint[], %s::bigint[]) AS d(k, n)
+     WHERE rp.file_id = d.k
+       AND rp.line_num = d.n
 """
 
 # A batch's moved rows: (cost, flag, version) — the pre-#351 shape.
 _LEGACY_SQL_REPRICE = """
-    UPDATE records r
-       SET cost_usd = d.cost, long_context = d.flag, pricing_version = %s
-      FROM unnest(%s::text[], %s::bigint[], %s::float8[], %s::boolean[])
+    UPDATE records_price rp
+       SET cost_usd = d.cost, long_context = d.flag,
+           pricing_version_id = %s
+      FROM unnest(%s::bigint[], %s::bigint[], %s::float8[], %s::boolean[])
            AS d(k, n, cost, flag)
-     WHERE r.file_key = d.k
-       AND r.line_num = d.n
+     WHERE rp.file_id = d.k
+       AND rp.line_num = d.n
 """
 
 log = logging.getLogger("claudit.ingest")
@@ -135,17 +141,19 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
     skipped = 0
     batches = 0
     rows_seen = 0
-    after_key: tuple[str, int] = ("", 0)
+    after_key: tuple[int, int] = (-1, 0)
     try:
         while True:
             if should_stop is not None and should_stop():
                 outcome = "aborted"
                 raise ingest_reprice.IngestAborted("shutdown requested")
             with db.viz_conn() as c:
+                version_id = dims_seed.dim_id(
+                    c, "dim_pricing_version", constants.PRICING_VERSION)
                 t0 = time.perf_counter()
                 cur = c.execute(
                     _LEGACY_SELECT_SQL,
-                    (after_key[0], after_key[1], constants.PRICING_VERSION,
+                    (after_key[0], after_key[1], version_id,
                      ingest_reprice.REPRICE_BATCH),
                 )
                 if ph is not None:
@@ -161,8 +169,8 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
                 rows_seen += len(raw_rows)
                 t0 = time.perf_counter()
                 rows = [_StaleRow(*raw) for raw in raw_rows]
-                restamp_keys: list[tuple[str, int]] = []
-                moved: list[tuple[str, int, float, bool | None]] = []
+                restamp_keys: list[tuple[int, int]] = []
+                moved: list[tuple[int, int, float, bool | None]] = []
                 for row in rows:
                     if _stored_pricing_version_is_newer(
                             row.pricing_version, constants.PRICING_VERSION):
@@ -170,9 +178,9 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
                         continue
                     updates = _record_updates(row)
                     if _row_is_unchanged(row, updates):
-                        restamp_keys.append((row.file_key, row.line_num))
+                        restamp_keys.append((row.file_id, row.line_num))
                     else:
-                        moved.append((row.file_key, row.line_num,
+                        moved.append((row.file_id, row.line_num,
                                       updates["cost_usd"],
                                       updates["long_context"]))
                 if ph is not None:
@@ -181,7 +189,7 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
                 t0 = time.perf_counter()
                 if restamp_keys:
                     c.execute(_LEGACY_SQL_RESTAMP,
-                              (constants.PRICING_VERSION,
+                              (version_id,
                                [k for k, _ in restamp_keys],
                                [n for _, n in restamp_keys]))
                 if ph is not None:
@@ -190,7 +198,7 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
                 t0 = time.perf_counter()
                 if moved:
                     c.execute(_LEGACY_SQL_REPRICE,
-                              (constants.PRICING_VERSION,
+                              (version_id,
                                [r[0] for r in moved],
                                [r[1] for r in moved],
                                [r[2] for r in moved],
@@ -207,7 +215,7 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
             restamped += len(restamp_keys)
             batches += 1
             last = rows[-1]
-            after_key = (last.file_key, last.line_num)
+            after_key = (last.file_id, last.line_num)
         outcome = "complete"
     finally:
         if ph is not None:
@@ -256,37 +264,82 @@ def _seed_shape_rows(c, rows: list[dict]) -> None:
     for line_num, row in enumerate(rows, start=1):
         fresh, create, read, output, eph5, eph1h = _TOKENS
         fresh = row.get("fresh", fresh)
+        fid = dims_seed.file_id(c, _FILE_KEY)
+        mid = dims_seed.dim_id(c, "dim_model", row["model"])
+        provid = (None if row.get("provider") is None
+                  else dims_seed.dim_id(c, "dim_provider", row["provider"]))
+        vid = (None if row.get("version") is None
+               else dims_seed.dim_id(c, "dim_pricing_version",
+                                     row["version"]))
+        fpid = (None if row.get("fp") is None
+                else dims_seed.dim_id(c, "dim_rate_fingerprint", row["fp"]))
         c.execute(
-            "INSERT INTO records (file_key, line_num, ts, model, "
+            "INSERT INTO records (file_id, line_num, ts, model_id, "
             "fresh_tokens, cache_creation_tokens, cache_read_tokens, "
-            "output_tokens, eph5_tokens, eph1h_tokens, cost_usd, provider, "
-            "long_context, pricing_version, rate_fingerprint) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-            "%s, %s)",
-            (_FILE_KEY, line_num, row.get("ts"), row["model"], fresh,
-             create, read, output, eph5, eph1h, row["cost"],
-             row.get("provider"), row.get("flag"), row["version"],
-             row.get("fp")))
+            "output_tokens, eph5_tokens, eph1h_tokens, provider_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (fid, line_num, row.get("ts"), mid, fresh,
+             create, read, output, eph5, eph1h, provid))
+        c.execute(
+            "INSERT INTO records_price (file_id, line_num, cost_usd, "
+            "long_context, pricing_version_id, rate_fingerprint_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (fid, line_num, row["cost"], row.get("flag"), vid, fpid))
 
 
 def _snapshot(c) -> tuple[list[str], list[tuple]]:
-    """The whole records table as (column names, rows), ordered."""
-    cur = c.execute("SELECT * FROM records ORDER BY file_key, line_num")
+    """The whole records table as (column names, rows), ordered.
+
+    The three TEXT projections ride beside the raw columns for
+    _versions/_fingerprint (#959 stored the ids); _restore strips them
+    before re-inserting, since they are not columns of the table.
+    """
+    cur = c.execute(
+        "SELECT r.*, rp.cost_usd, rp.long_context, "
+        "       rp.long_context_input_mult, rp.long_context_output_mult, "
+        "       rp.request_fee_usd, rp.pricing_version_id, "
+        "       rp.rate_fingerprint_id, f.file_key, "
+        "       pv.value AS pricing_version, df.value AS rate_fingerprint "
+        "  FROM records r "
+        "  JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num "
+        "  JOIN files f ON f.file_id = r.file_id "
+        "  LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id "
+        "  LEFT JOIN dim_rate_fingerprint df ON df.id = rp.rate_fingerprint_id "
+        " ORDER BY f.file_key, r.line_num")
     names = [column.name for column in cur.description]
     return names, cur.fetchall()
 
 
+_PROJECTIONS = ("file_key", "pricing_version", "rate_fingerprint")
+# The snapshot's records_price columns, named beside r.* above (#959
+# moved them off records); _restore writes each half to its own table.
+_PRICE_COLS = ("cost_usd", "long_context", "long_context_input_mult",
+               "long_context_output_mult", "request_fee_usd",
+               "pricing_version_id", "rate_fingerprint_id")
+
+
 def _restore(c, snapshot: tuple[list[str], list[tuple]]) -> None:
-    """Put the exact snapshot back (DELETE + re-INSERT of every column),
-    so the two passes run over byte-identical starting states."""
+    """Put the exact snapshot back (DELETE + re-INSERT of every column of
+    BOTH tables), so the two passes run over byte-identical starting
+    states. The DELETE cascades the sidecar rows away with records."""
     names, rows = snapshot
+    keep = [i for i, name in enumerate(names)
+            if name not in _PROJECTIONS]
+    rec_keep = [i for i in keep if names[i] not in _PRICE_COLS]
+    price_keep = [i for i in keep
+                  if names[i] in ("file_id", "line_num")
+                  or names[i] in _PRICE_COLS]
     c.execute("DELETE FROM records")
     if rows:
-        columns = ", ".join(names)
-        marks = ", ".join(["%s"] * len(names))
         with c.cursor() as cur:
             cur.executemany(
-                f"INSERT INTO records ({columns}) VALUES ({marks})", rows)
+                f"INSERT INTO records ({', '.join(names[i] for i in rec_keep)})"
+                f" VALUES ({', '.join(['%s'] * len(rec_keep))})",
+                [tuple(row[i] for i in rec_keep) for row in rows])
+            cur.executemany(
+                f"INSERT INTO records_price ({', '.join(names[i] for i in price_keep)})"
+                f" VALUES ({', '.join(['%s'] * len(price_keep))})",
+                [tuple(row[i] for i in price_keep) for row in rows])
     c.commit()
 
 
@@ -498,10 +551,13 @@ def test_legacy_and_pair_qualified_pass_agree(
     # the third run is the pure clean-restamp path: every non-guard row
     # stale again, fingerprints and costs already current.
     with db.viz_conn() as c:
+        stale_id = dims_seed.dim_id(c, "dim_pricing_version", _STALE)
+        current_id = dims_seed.dim_id(
+            c, "dim_pricing_version", constants.PRICING_VERSION)
         c.execute(
-            "UPDATE records SET pricing_version = %s "
-            "WHERE pricing_version = %s",
-            (_STALE, constants.PRICING_VERSION))
+            "UPDATE records_price SET pricing_version_id = %s "
+            "WHERE pricing_version_id = %s",
+            (stale_id, current_id))
         c.commit()
     ingest.reprice_stale()
     with db.viz_conn() as c:
