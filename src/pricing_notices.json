@@ -122,6 +122,8 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for deepseek/deepseek-v4-flash via Relace; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for glm-5-3 via Decart; the host was sampled",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba, glm-5-3 via Alibaba",
     "tag 'anthropic/fast' names neither a known region nor a quantization: claude-opus-4-8 via Anthropic, claude-opus-5 via Anthropic, claude-opus-5-5 via Anthropic",
     "tag 'azure/swedencentral' names neither a known region nor a quantization: gpt-4-1 via Azure, gpt-4-1-mini via Azure, gpt-4-1-nano via Azure, gpt-4o-mini via Azure, gpt-5 via Azure, gpt-5-1 via Azure, gpt-5-mini via Azure, gpt-5-nano via Azure",
@@ -249,6 +251,9 @@
       "DeepInfra": "cheapest resolution",
       "DeepSeek": "endpoint schedule"
     },
+    "deepseek/deepseek-v4-flash": {
+      "Relace": "no matching log state"
+    },
     "deepseek/deepseek-v4-flash-0731": {
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints selected"
@@ -267,6 +272,7 @@
     },
     "glm-5-3": {
       "BaseTen": "2 endpoints selected",
+      "Decart": "no matching log state",
       "Fireworks": "2 endpoints selected",
       "Mistral": "2 endpoints at one current price",
       "Sail Research": "2 endpoints at one current price"
