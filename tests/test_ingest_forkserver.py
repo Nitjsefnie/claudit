@@ -25,6 +25,7 @@ from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import ExitStack
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, call, patch
 
 import pytest
@@ -129,6 +130,7 @@ def blocked_worker(connection) -> None:
 
 
 def service() -> None:
+    # Challenge the preload's reset: exec preserves an ignored SIGTERM.
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     receive, send = multiprocessing.Pipe(duplex=False)
     with parse_pool(1, os.getpid()) as pool:
@@ -236,32 +238,54 @@ def _cleanup_children() -> None:
 def check(target: str) -> None:
     """Bound the executor owner from an independent process."""
     _subreaper()
-    proc = subprocess.Popen(  # pylint: disable=consider-using-with
-        [sys.executable, "-m", "tests.test_ingest_forkserver", "test", target],
-        start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True)
-    try:
+    # Nested sessions must not age the outer suite's numbered temp tree.
+    with TemporaryDirectory() as temporary:
+        proc = subprocess.Popen(  # pylint: disable=consider-using-with
+            [sys.executable, "-m", "tests.test_ingest_forkserver", "test", target,
+             "--basetemp", temporary],
+            start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True)
         try:
-            out, err = proc.communicate(timeout=30)
-        except subprocess.TimeoutExpired as exc:
-            raise AssertionError("process-pool test exceeded 30s bound") from exc
-        print(out, end="")
-        print(err, end="", file=sys.stderr)
-        assert proc.returncode == 0, "isolated test failed"
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-        proc.wait(timeout=10)
-        if sys.platform == "linux":
-            _cleanup_children()
-        else:
             try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        assert proc.stdout is not None and proc.stderr is not None
-        proc.stdout.close()
-        proc.stderr.close()
+                out, err = proc.communicate(timeout=30)
+            except subprocess.TimeoutExpired as exc:
+                raise AssertionError("process-pool test exceeded 30s bound") from exc
+            print(out, end="")
+            print(err, end="", file=sys.stderr)
+            assert proc.returncode == 0, "isolated test failed"
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=10)
+            if sys.platform == "linux":
+                _cleanup_children()
+            else:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            assert proc.stdout is not None and proc.stderr is not None
+            proc.stdout.close()
+            proc.stderr.close()
+
+
+def test_bounded_check_uses_a_private_temporary_tree(monkeypatch):
+    proc = Mock(returncode=0)
+    proc.communicate.return_value = ("", "")
+    proc.poll.return_value = 0
+
+    def starting(args, **kwargs):
+        assert Path(args[-1]).is_dir()
+        return proc
+    start = Mock(side_effect=starting)
+    monkeypatch.setattr(subprocess, "Popen", start)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sys.modules[__name__], "_subreaper", Mock())
+    monkeypatch.setattr(sys.modules[__name__], "_cleanup_children", Mock())
+    check("test-target")
+    args = start.call_args.args[0]
+    assert "--basetemp" in args
+    assert not Path(args[args.index("--basetemp") + 1]).exists()
 
 
 pytest_plugins = ("test_ingest",)
@@ -416,7 +440,7 @@ def test_pool_timing_parts_are_disjoint_slices(fresh_db, mini_r2_env, monkeypatc
     monkeypatch.setenv("INGEST_PERSIST_THREADS", "2")
     monkeypatch.setenv("CLAUDIT_TIMING", "1")
     monkeypatch.setattr(_timing, "TIMING_ON", True)
-    # SV-FIXTURE-SIZE): one project, and the .xz twin of its transcript.
+    # Keep SV-FIXTURE-SIZE: one project and its transcript's .xz twin.
     for child in mini_r2_env.iterdir():
         if child.name != "projA":
             if child.is_dir():
@@ -426,6 +450,7 @@ def test_pool_timing_parts_are_disjoint_slices(fresh_db, mini_r2_env, monkeypatc
     raw = (mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl").read_bytes()
     payload = raw * (1024 * 1024 // len(raw))
     (mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl.xz").write_bytes(lzma.compress(payload))
+    # Padding makes inflate dominate GET despite filesystem timing noise.
     monkeypatch.setattr(ingest, "_fetch_and_parse", padded_inflate)
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
         summary = ingest.run_ingest("test-proc-parts")
@@ -438,7 +463,7 @@ def test_pool_timing_parts_are_disjoint_slices(fresh_db, mini_r2_env, monkeypatc
         return int(m.group(1))
     assert _ms("child_decompress") > 0, line
     assert _ms("child_fetch") < _ms("child_decompress"), line
-    # One chunk, so no in-wall drain: the post-loop drain is persist
+    # One chunk puts the final persist drain outside wait_persist (#680).
     assert _ms("wait_persist") == 0, line
 
 
@@ -524,6 +549,6 @@ if __name__ == "__main__":
     elif sys.argv[1] == "test":
         controls = importlib.import_module("tests.test_ingest_forkserver")
         setattr(controls, "ISOLATED", True)
-        raise SystemExit(pytest.main([sys.argv[2], "-q", "--tb=short"]))
+        raise SystemExit(pytest.main([sys.argv[2], "-q", "--tb=short", *sys.argv[3:]]))
     else:
         probe(sys.argv[1])
