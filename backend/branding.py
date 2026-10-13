@@ -1,5 +1,5 @@
-"""The deploy's user-visible branding: APP_NAME, APP_TITLE,
-APP_DESCRIPTION, APP_PRIVACY_NOTICE_URL.
+"""The deploy's user-visible branding: CLAUDIT_APP_NAME, CLAUDIT_APP_TITLE,
+CLAUDIT_APP_DESCRIPTION, CLAUDIT_APP_PRIVACY_NOTICE_URL.
 
 One codebase is deployed over several buckets (claudit, codexmeter,
 kimimeter); which name the UI shows comes from the environment, never
@@ -31,8 +31,9 @@ from __future__ import annotations
 import html
 import json
 import logging
-import os
 import re
+
+from backend.env_config import getenv
 
 log = logging.getLogger("claudit.branding")
 
@@ -51,23 +52,23 @@ def _branded(env: str, default: str) -> str:
     An EMPTY or whitespace-only setting would render an empty logo and
     export a leading-underscore filename, so it reads as unset.
     """
-    return os.environ.get(env, "").strip() or default
+    return getenv(env, "").strip() or default
 
 
 def brand_name() -> str:
-    return _branded("APP_NAME", DEFAULT_NAME)
+    return _branded("CLAUDIT_APP_NAME", DEFAULT_NAME)
 
 
 def brand_title() -> str:
-    return _branded("APP_TITLE", DEFAULT_TITLE)
+    return _branded("CLAUDIT_APP_TITLE", DEFAULT_TITLE)
 
 
 def brand_description() -> str:
-    return _branded("APP_DESCRIPTION", DEFAULT_DESCRIPTION)
+    return _branded("CLAUDIT_APP_DESCRIPTION", DEFAULT_DESCRIPTION)
 
 
 def privacy_notice_url() -> str:
-    return _branded("APP_PRIVACY_NOTICE_URL", "")
+    return _branded("CLAUDIT_APP_PRIVACY_NOTICE_URL", "")
 
 
 _C0_SPACE = "".join(map(chr, range(0x21)))  # C0 controls + space

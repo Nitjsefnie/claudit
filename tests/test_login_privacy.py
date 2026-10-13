@@ -23,19 +23,19 @@ def _app_fixture():
 
 
 def test_login_page_without_notice_renders_no_privacy_link(app, monkeypatch):
-    """#270: APP_PRIVACY_NOTICE_URL unset — no privacy-link anchor, no
+    """#270: CLAUDIT_APP_PRIVACY_NOTICE_URL unset — no privacy-link anchor, no
     placeholder, and no leftover styling; the page is unchanged."""
-    monkeypatch.delenv("APP_PRIVACY_NOTICE_URL", raising=False)
+    monkeypatch.delenv("CLAUDIT_APP_PRIVACY_NOTICE_URL", raising=False)
     body = TestClient(app).get("/login").text
     assert '<a class="privacy-link"' not in body
     assert "privacy-link" not in body
 
 
 def test_login_page_renders_escaped_privacy_link(app, monkeypatch):
-    """#270: APP_PRIVACY_NOTICE_URL set — the anchor renders near the
+    """#270: CLAUDIT_APP_PRIVACY_NOTICE_URL set — the anchor renders near the
     guest button with the URL attribute-escaped exactly."""
     monkeypatch.setenv(
-        "APP_PRIVACY_NOTICE_URL", 'https://ex.example/p?x=1&z="q"'
+        "CLAUDIT_APP_PRIVACY_NOTICE_URL", 'https://ex.example/p?x=1&z="q"'
     )
     body = TestClient(app).get("/login").text
     assert (
@@ -64,13 +64,13 @@ def test_login_page_refuses_a_hostile_privacy_url(app, monkeypatch):
         "//evil.example/steal",
     ]
     for url in hostile:
-        monkeypatch.setenv("APP_PRIVACY_NOTICE_URL", url)
+        monkeypatch.setenv("CLAUDIT_APP_PRIVACY_NOTICE_URL", url)
         body = TestClient(app).get("/login").text
         assert "privacy-link" not in body, f"rendered {url!r} as a link"
 
 
 def test_login_page_privacy_link_label_is_present(app, monkeypatch):
     """#270: the rendered link reads exactly 'Privacy notice'."""
-    monkeypatch.setenv("APP_PRIVACY_NOTICE_URL", "https://ex.example/privacy")
+    monkeypatch.setenv("CLAUDIT_APP_PRIVACY_NOTICE_URL", "https://ex.example/privacy")
     body = TestClient(app).get("/login").text
     assert ">Privacy notice</a>" in body

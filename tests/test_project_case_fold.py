@@ -55,7 +55,7 @@ def test_windows_case_variants_are_one_project(fresh_db, tmp_path,
     _plant(bucket, "C--Users-M-kvalita", "s-up-a", "error_kinds.jsonl")
     _plant(bucket, "C--Users-M-kvalita", "s-up-b", "error_kinds.jsonl")
     _plant(bucket, "c--users-m-kvalita", "s-low", "error_kinds.jsonl")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
 
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
@@ -81,9 +81,9 @@ def test_pre53_mixed_case_project_rekeys_without_orphan(fresh_db, tmp_path,
     _plant(bucket, "C--Users-M-kvalita", "s-up-a", "error_kinds.jsonl")
     _plant(bucket, "C--Users-M-kvalita", "s-up-b", "error_kinds.jsonl")
     _plant(bucket, "c--users-m-kvalita", "s-low", "error_kinds.jsonl")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
 
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         cur.execute(
             "INSERT INTO projects (project_id, display_name, "
@@ -129,7 +129,7 @@ def test_lane_marker_windows_path_meets_the_claude_project(
     (bucket / "sessions" / proj / "project.json").write_text(
         json.dumps({"path": "C:\\Users\\Z\\Repo"}))
     _plant(bucket, "c--users-z-repo", "sess", "error_kinds.jsonl")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
 
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
@@ -151,7 +151,7 @@ def test_posix_case_variants_stay_two_projects(fresh_db, tmp_path,
     bucket = tmp_path / "r2" / "claude"
     _plant(bucket, "-root-Claudit", "s1", "error_kinds.jsonl")
     _plant(bucket, "-root-claudit", "s2", "error_kinds.jsonl")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
 
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None

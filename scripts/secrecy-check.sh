@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fails if a forbidden literal appears in the tree or in committed history.
 # Literals come from .secrecy-literals (gitignored, one per line) and from
-# .env's DATABASE_URL_AUTH. Findings name commits and files, never the value.
+# .env's CLAUDIT_DATABASE_URL_AUTH (and its deprecated name). Findings name commits and files, never the value.
 #
 #   scripts/secrecy-check.sh          tree + history
 #   scripts/secrecy-check.sh --tree   tree only
@@ -26,12 +26,14 @@ if [ -f .secrecy-literals ]; then
 fi
 
 if [ -f .env ]; then
-  AUTH_DB="$(sed -n 's/^[[:space:]]*\(export[[:space:]]\+\)\?DATABASE_URL_AUTH[[:space:]]*=[[:space:]]*//p' .env \
-    | head -n1 | tr -d '"'"'"'' | sed 's/?.*$//' | sed 's#.*/##' | tr -d '[:space:]')"
-  if [ -n "${AUTH_DB:-}" ] && [ "${#AUTH_DB}" -ge 4 ]; then
-    NEEDLES+=("$AUTH_DB")
-    LABELS+=("the auth-DB name")
-  fi
+  for AUTH_ENV in CLAUDIT_DATABASE_URL_AUTH DATABASE_URL_AUTH; do
+    AUTH_DB="$(sed -n 's/^[[:space:]]*\(export[[:space:]]\+\)\?'"$AUTH_ENV"'[[:space:]]*=[[:space:]]*//p' .env \
+      | head -n1 | tr -d '"'"'"'' | sed 's/?.*$//' | sed 's#.*/##' | tr -d '[:space:]')"
+    if [ -n "${AUTH_DB:-}" ] && [ "${#AUTH_DB}" -ge 4 ]; then
+      NEEDLES+=("$AUTH_DB")
+      LABELS+=("the auth-DB name")
+    fi
+  done
 fi
 
 # Nothing to check must not look like nothing found.

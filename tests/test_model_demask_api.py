@@ -35,11 +35,11 @@ def _client_fixture(monkeypatch):
     Auth is bypassed by mounting only the router into a clean app (the
     shape tests/test_api.py's _build_api_client uses)."""
     test_db = scratch_db.create_database("model_demask")
-    monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{test_db}")
     src = _REPO_ROOT / "fixtures/r2_mini"
     tmp = tempfile.mkdtemp(prefix="sv-demask-")
     shutil.copytree(src, Path(tmp) / "r2")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp}/r2/")
 
     db.reset_viz_pool()
     ingest.run_ingest(trigger="manual")

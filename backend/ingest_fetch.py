@@ -21,6 +21,7 @@ from concurrent.futures.process import ProcessPoolExecutor
 from botocore.exceptions import BotoCoreError, ClientError
 
 from backend import agent_sidecar, blob_cache, db, parse, r2
+from backend.flags import CollectionPolicy
 from backend.ingest_reprice import IngestAborted
 from backend.ingest_resolve import (  # noqa: F401  (re-export)
     FETCH_ATTEMPTS, FETCH_BACKOFF_S, FatalFetchError, VanishedObject,
@@ -55,7 +56,7 @@ def fetch_with_retry(key: str, etag: str | None = None,
     """Retry transient object-store failures; never retry bad payloads.
 
     `etag`/`size`, when given, switch this GET to the deploy's disk blob
-    cache (R2_BLOB_CACHE): r2.get_object answers a hit without the round
+    cache (CLAUDIT_R2_BLOB_CACHE): r2.get_object answers a hit without the round
     trip and stores a miss after it. The unit passes them only when the
     cache is enabled, so a patched fetch callable keeping the original
     (key) shape keeps working with the cache off — the bench's memory
@@ -87,10 +88,11 @@ def fetch_with_retry(key: str, etag: str | None = None,
 
 def fetch_and_parse(key: str, sidecar_key: str | None,
                     fetch: Callable,
-                    parse_file: Callable[[str, bytes], dict] | None = None,
+                    parse_file: Callable | None = None,
                     stages: dict[str, float] | None = None,
                     etag: str | None = None,
-                    size: int | None = None) -> dict:
+                    size: int | None = None, *,
+                    collection: CollectionPolicy | None = None) -> dict:
     """Fetch and parse one object without opening a database connection.
 
     `stages` books this file's child work (issue #662): the main fetch
@@ -110,9 +112,8 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
     """
     if stages is None:
         stages = getattr(_STAGES, "stages", None)
-    acc: dict[str, float] | None = stages
     fetch_started = None
-    if acc is not None:
+    if stages is not None:
         # A forked child inherits the forking thread's threadlocal copy,
         # stamp included: drop anything inherited so the first timed
         # file's decompress booking is this child's own work (M-2).
@@ -122,19 +123,23 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
             if etag is not None and blob_cache.enabled() else fetch(key))
     parse_started = (time.perf_counter()
                      if fetch_started is not None else None)
-    parsed = (parse.parse_file if parse_file is None else parse_file)(
-        key, data)
-    if (acc is not None and parse_started is not None
+    parse_file = parse.parse_file if parse_file is None else parse_file
+    if collection is None:
+        parsed = parse_file(key, data)
+    else:
+        parsed = parse_file(key, data, collection=collection)
+        parsed['collection_flags'] = collection.stamp()
+    if (stages is not None and parse_started is not None
             and fetch_started is not None):
         now = time.perf_counter()
-        acc["child_parse"] = now - parse_started
+        stages["child_parse"] = now - parse_started
         # Issue #680: the GET span carries the .xz inflate get_object ran
         # in-call (stamped on this thread); pop it first and book the GET
         # as span minus inflate, so child_fetch and child_decompress are
         # disjoint slices.
-        acc["child_decompress"] = r2.pop_decompress_seconds()
-        acc["child_fetch"] = ((parse_started - fetch_started)
-                              - acc["child_decompress"])
+        stages["child_decompress"] = r2.pop_decompress_seconds()
+        stages["child_fetch"] = ((parse_started - fetch_started)
+                                 - stages["child_decompress"])
     if sidecar_key is None or parsed["agent_type_in_band"]:
         return parsed
     sidecar_started = (time.perf_counter()
@@ -144,8 +149,8 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
     except (VanishedObject, *CORRUPT_PAYLOAD_ERRORS):
         return parsed
     finally:
-        if acc is not None and sidecar_started is not None:
-            acc["child_sidecar"] = time.perf_counter() - sidecar_started
+        if stages is not None and sidecar_started is not None:
+            stages["child_sidecar"] = time.perf_counter() - sidecar_started
     return agent_sidecar.apply_agent_sidecar(
         parsed, sidecar, r2.split_key(key)[1])
 
@@ -185,7 +190,11 @@ def pipeline_threads(todo: list[tuple], parser_version: str,
             if exc is not None:
                 record_failure(failed, obj.key, exc)
                 continue
-            persist_call(obj, proj, parsed, parser_version, current)
+            try:
+                persist_call(obj, proj, parsed, parser_version, current)
+            except Exception as error:  # noqa: BLE001
+                record_failure(failed, obj.key, error)
+                continue
             if scope is not None and not scope.full:
                 scope.add_contributions(old_contributions, {obj.key})
                 persisted_keys.add(obj.key)

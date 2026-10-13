@@ -208,8 +208,6 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS
   turn_flags TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE records ADD COLUMN IF NOT EXISTS
   turn_tool_results INT NOT NULL DEFAULT 0;
-CREATE INDEX IF NOT EXISTS records_turn_flags_idx
-  ON records USING GIN (turn_flags);
 
 -- Pre-aggregated usage, rebuilt at ingest (ingest.rebuild_rollup).
 --
@@ -469,7 +467,6 @@ CREATE INDEX IF NOT EXISTS records_ts_idx ON records (ts);
 CREATE INDEX IF NOT EXISTS records_canonical_ts_idx
   ON records (ts) WHERE is_canonical;
 CREATE INDEX IF NOT EXISTS records_model_idx ON records (model);
-CREATE INDEX IF NOT EXISTS records_request_idx ON records (request_id) WHERE request_id <> '';
 
 CREATE TABLE IF NOT EXISTS tool_uses (
   file_key   TEXT NOT NULL REFERENCES files(file_key) ON DELETE CASCADE,
@@ -481,7 +478,6 @@ CREATE TABLE IF NOT EXISTS tool_uses (
 );
 
 CREATE INDEX IF NOT EXISTS tool_uses_ts_idx   ON tool_uses (ts);
-CREATE INDEX IF NOT EXISTS tool_uses_tool_idx ON tool_uses (tool_name);
 
 -- 2026-05-08: tool_uses.is_error filled at parse time by matching
 -- assistant tool_use.id to user tool_result.tool_use_id within the
@@ -533,15 +529,6 @@ ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS read_kind TEXT;
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS read_targets TEXT[];
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS write_targets TEXT[];
 ALTER TABLE tool_uses ADD COLUMN IF NOT EXISTS is_reread BOOLEAN;
-
--- Partial: only settled whole-file reads carry the flag, so the index
--- stays a small fraction of the table.
-CREATE INDEX IF NOT EXISTS tool_uses_reread_idx
-  ON tool_uses (ts) WHERE is_reread;
--- GIN over the target arrays so `WHERE '<path>' = ANY(read_targets)`
--- and the containment operators do not sequential-scan 473k rows.
-CREATE INDEX IF NOT EXISTS tool_uses_read_targets_idx
-  ON tool_uses USING GIN (read_targets);
 
 -- 2026-09-07: why a settled tool call failed.
 --

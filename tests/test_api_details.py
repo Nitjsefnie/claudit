@@ -93,7 +93,7 @@ def test_dashboard_hourly_carries_line_churn(app_with_fresh_data):
     per hour, attributed to the hour's first model row like
     session_count — so summing the key across entries is exact, and the
     project/model filters scope it."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, conn.cursor() as cur:
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO tool_uses (file_key, line_num, idx, ts, tool_name, "
             "model, is_error, lines_added, lines_deleted) VALUES "
@@ -143,7 +143,7 @@ def test_dashboard_churn_uses_rollup_only_at_hourly_grain(
     retain exact live tool-call values."""
     file_key = "claude/projA/sess-A/sess-A.jsonl"
     now = datetime.now(timezone.utc)
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn:
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO records (file_key, line_num, uuid, request_id, "
@@ -166,7 +166,7 @@ def test_dashboard_churn_uses_rollup_only_at_hourly_grain(
     ingest.rebuild_rollup()
     ingest.rebuild_tool_rollup()
 
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn:
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE tool_uses SET lines_added = 70, lines_deleted = 30 "
@@ -216,7 +216,7 @@ def test_a_malformed_hit_ts_does_not_take_down_the_dashboard(app_with_fresh_data
     matches the shape passes them straight through to the cast it was
     meant to protect. Only real input validation excludes them.
     """
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, conn.cursor() as cur:
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE files SET r2_last_modified = now(), "
             "       rate_limit_hits = %s::jsonb "

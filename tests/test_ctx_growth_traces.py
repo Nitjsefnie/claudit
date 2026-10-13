@@ -29,11 +29,11 @@ def _client_fixture():
     router (auth bypassed), the same shape tests/test_api.py uses."""
     mp = pytest.MonkeyPatch()
     test_db = scratch_db.create_database("ctx_growth_traces")
-    mp.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
+    mp.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{test_db}")
     src = _REPO_ROOT / "fixtures/r2_mini"
     tmp = tempfile.mkdtemp(prefix="sv-ctx-traces-")
     shutil.copytree(src, Path(tmp) / "r2")
-    mp.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
+    mp.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp}/r2/")
     db.reset_viz_pool()
     ingest.run_ingest(trigger="manual")
     a = FastAPI()
@@ -60,7 +60,7 @@ def test_models_excludes_non_canonical_rows(client):
     """A read over records filters is_canonical (SV-CANONICAL-FLAG).
     list_models counted every row including replayed copies, so a model
     seen only by a losing duplicate was offered in the dropdown."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         cur.execute(
             "INSERT INTO records (file_key, line_num, uuid, ts, model, "
@@ -142,7 +142,7 @@ def test_traces_model_fold_ignores_non_canonical_rows(client):
     a read over records filters is_canonical (SV-CANONICAL-FLAG). A
     model present ONLY on losing duplicate rows must not win the fold
     even when it outnumbers the canonical rows."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         cur.execute(
             "SELECT file_key FROM files "

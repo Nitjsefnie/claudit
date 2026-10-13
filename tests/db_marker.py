@@ -60,7 +60,7 @@ import pytest
 #                        scratch DB in-body (issue #375 fixture)
 #   server               test_export_shutdown; provisions the export-shutdown
 #                        server's viz + auth scratch databases
-#   viz                  test_web_metrics; a fresh schema as DATABASE_URL_VIZ,
+#   viz                  test_web_metrics; a fresh schema as CLAUDIT_DATABASE_URL_VIZ,
 #                        with no ingest (issue #436)
 #   gated_client         test_web_metrics; the api router behind the real
 #                        auth middleware, as a guest

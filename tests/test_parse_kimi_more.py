@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from backend import parse, parse_kimi
-from backend.parse_kimi import _line_count
+from backend.parse_common import _line_count
 
 from tests.test_parse_kimi import (
     VALID_MODELS,

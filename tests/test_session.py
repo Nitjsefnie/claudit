@@ -137,7 +137,7 @@ def test_non_ascii_session_signature_is_generic_unauthorized(monkeypatch):
 
 
 def test_non_ascii_admin_token_is_unauthorized(monkeypatch):
-    monkeypatch.setenv("ADMIN_TOKEN", "expected-admin-secret")
+    monkeypatch.setenv("CLAUDIT_ADMIN_TOKEN", "expected-admin-secret")
     app = FastAPI()
     app.middleware("http")(session.auth_middleware)
 
@@ -419,7 +419,7 @@ def test_guest_token_ignores_generation():
 
 def test_set_session_cookie_owns_complete_flag_contract(monkeypatch):
     """One helper owns every issuance flag, including absent Domain."""
-    monkeypatch.setenv("COOKIE_SECURE", "1")
+    monkeypatch.setenv("CLAUDIT_COOKIE_SECURE", "1")
     response = Response()
 
     session.set_session_cookie(response, "token")

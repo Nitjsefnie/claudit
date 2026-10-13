@@ -13,20 +13,16 @@ tool results and interrupts. Each new message.id consumes that anchor; its
 last line supplies the end timestamp and output count, without max-merging.
 Failure epochs invalidate only spans containing a failed attempt.
 
-CLAUDIT_COLLECT_GENERATION_SPEED is read once at startup (issue #955).
-Unset or empty enables collection; 0/false/no disables both columns.
+The parser binds generation collection from its explicit per-file policy.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-import os
 
 from backend.parse_common import _to_dt
 
 GENERATION_S_MAX = 3600
-COLLECT_GENERATION_SPEED = os.environ.get(
-    "CLAUDIT_COLLECT_GENERATION_SPEED", "").lower() not in ("0", "false", "no")
 
 
 @dataclass(slots=True)

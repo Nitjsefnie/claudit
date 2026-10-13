@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import psycopg
 
-from backend import constants, db
+from backend import constants, db, flags
 
 
 @dataclass
@@ -121,6 +121,7 @@ def _fingerprint(conn: psycopg.Connection) -> str:
     value = {
         "derived": constants.DERIVED_STATE_VERSION,
         "parser": constants.PARSER_VERSION,
+        "collection_flags": flags.CONFIG.collection.stamp(),
         "pricing": constants.PRICING_VERSION,
         "latency_buckets": constants.LATENCY_BUCKETS,
         "ctx_bucket_width": constants.CTX_BUCKET_WIDTH,

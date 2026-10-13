@@ -55,11 +55,14 @@ jobs:
       # needs none.
       - name: Assert the resolved config is file-backed and credential-free
         run: |
-          resolved="$(env -u R2_ENDPOINT -u R2_BUCKET -u R2_ACCESS_KEY_ID -u R2_SECRET_ACCESS_KEY docker compose config)"
+          for name in CLAUDIT_R2_ENDPOINT CLAUDIT_R2_BUCKET CLAUDIT_R2_ACCESS_KEY_ID CLAUDIT_R2_SECRET_ACCESS_KEY; do
+            unset "$name" "${name#CLAUDIT_}"
+          done
+          resolved="$(docker compose config)"
           printf '%s\n' "$resolved"
-          printf '%s\n' "$resolved" | grep -Eq 'R2_ENDPOINT: "?file://'
-          printf '%s\n' "$resolved" | grep -Fq 'R2_ACCESS_KEY_ID: ""'
-          printf '%s\n' "$resolved" | grep -Fq 'R2_SECRET_ACCESS_KEY: ""'
+          printf '%s\n' "$resolved" | grep -Eq 'CLAUDIT_R2_ENDPOINT: "?file://'
+          printf '%s\n' "$resolved" | grep -Fq 'CLAUDIT_R2_ACCESS_KEY_ID: ""'
+          printf '%s\n' "$resolved" | grep -Fq 'CLAUDIT_R2_SECRET_ACCESS_KEY: ""'
           if printf '%s\n' "$resolved" | grep -Eq 'r2\.cloudflarestorage\.com'; then
             echo "the resolved config names a real object-store endpoint, not the file:// default"
             exit 1
@@ -70,7 +73,11 @@ jobs:
       # env: or a runner-exported R2_* credential must not reach the stack
       # a credential-free assert just proved.
       - name: Build the image and start the stack
-        run: env -u R2_ENDPOINT -u R2_BUCKET -u R2_ACCESS_KEY_ID -u R2_SECRET_ACCESS_KEY docker compose up -d --build
+        run: |
+          for name in CLAUDIT_R2_ENDPOINT CLAUDIT_R2_BUCKET CLAUDIT_R2_ACCESS_KEY_ID CLAUDIT_R2_SECRET_ACCESS_KEY; do
+            unset "$name" "${name#CLAUDIT_}"
+          done
+          docker compose up -d --build
 
       # The patience shape of scripts/ci/smoke.py: poll on a deadline,
       # keep the last observation for the failure message, and accept

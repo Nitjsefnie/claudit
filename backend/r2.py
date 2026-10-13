@@ -1,10 +1,10 @@
 """R2 (S3 API) client with a file:// mode for the local mirror.
 
-When R2_ENDPOINT starts with 'file://', the client walks the local
+When CLAUDIT_R2_ENDPOINT starts with 'file://', the client walks the local
 directory tree at the path. Otherwise it uses boto3 against R2's
 S3-compatible endpoint.
 
-Several buckets per deploy: R2_BUCKET may name SEVERAL buckets joined by
+Several buckets per deploy: CLAUDIT_R2_BUCKET may name SEVERAL buckets joined by
 '+' (e.g. 'claude', or 'claude+codex+kimi'); every stored file key is
 qualified with its bucket as `<bucket>/<object-key>`. list_keys() yields
 qualified keys, and get_object()/get_stream() split that first segment
@@ -33,12 +33,13 @@ from urllib.parse import urlparse
 import boto3
 from botocore.config import Config
 
+from backend.env_config import getenv, require_env
 from backend import blob_cache, timing
 
 # S3 bucket-name grammar: 3-63 chars of lowercase letters, digits and
 # hyphens, starting and ending letter/digit. R2 follows the same rules.
 _BUCKET_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$")
-_BUCKET_ENV = "R2_BUCKET"
+_BUCKET_ENV = "CLAUDIT_R2_BUCKET"
 _BUCKET_SEP = "+"
 _DEFAULT_BUCKET = "claude"
 
@@ -51,23 +52,23 @@ class R2Object(NamedTuple):
 
 
 def buckets() -> list[str]:
-    """The configured bucket names, in R2_BUCKET order, deduped.
+    """The configured bucket names, in CLAUDIT_R2_BUCKET order, deduped.
 
-    R2_BUCKET carries one or more bucket names joined by '+' — 'claude',
+    CLAUDIT_R2_BUCKET carries one or more bucket names joined by '+' — 'claude',
     or 'claude+codex+kimi' to serve several buckets from one deploy.
     Whitespace around a name is stripped, and every name is validated
     against the S3 bucket-name grammar: an invalid one raises ValueError
     naming it. Lifespan calls this before serving (app.
-    validate_bucket_config), so a bad R2_BUCKET aborts startup rather
+    validate_bucket_config), so a bad CLAUDIT_R2_BUCKET aborts startup rather
     than half-serving.
     """
-    raw = os.environ.get(_BUCKET_ENV) or _DEFAULT_BUCKET
+    raw = getenv(_BUCKET_ENV) or _DEFAULT_BUCKET
     names: list[str] = []
     for piece in raw.split(_BUCKET_SEP):
         name = piece.strip()
         if not _BUCKET_NAME_RE.match(name):
             raise ValueError(
-                f"R2_BUCKET entry {name!r} is not a valid S3 bucket "
+                f"CLAUDIT_R2_BUCKET entry {name!r} is not a valid S3 bucket "
                 + "name (3-63 chars of a-z, 0-9 and '-')"
             )
         if name not in names:
@@ -140,19 +141,19 @@ def redact(text: str | None) -> str | None:
 
 
 def _configured(key: str) -> tuple[str, str]:
-    """split_key() plus the refusal: a bucket not named in R2_BUCKET is
+    """split_key() plus the refusal: a bucket not named in CLAUDIT_R2_BUCKET is
     not ours to serve. Every read path goes through here."""
     bucket, object_key = split_key(key)
     if bucket not in buckets():
         raise ValueError(
-            f"bucket {bucket!r} is not configured in R2_BUCKET"
+            f"bucket {bucket!r} is not configured in CLAUDIT_R2_BUCKET"
         )
     return bucket, object_key
 
 
 def _is_file_mode() -> tuple[bool, str]:
     """Return (in_file_mode, root_path). root_path is '' when not in file mode."""
-    endpoint = os.environ.get("R2_ENDPOINT", "")
+    endpoint = getenv("CLAUDIT_R2_ENDPOINT", "")
     if endpoint.startswith("file://"):
         parsed = urlparse(endpoint)
         path = parsed.path
@@ -187,7 +188,7 @@ def _scan_root(root: str, bucket: str, multi: bool) -> str | None:
     whose mirror predates per-bucket directories: with no <bucket>/
     directory under the root, EVERY top-level directory there counts as
     belonging to that one bucket (root holding alpha/ and beta/ with
-    R2_BUCKET=claude stores keys as claude/alpha/... and claude/beta/...).
+    CLAUDIT_R2_BUCKET=claude stores keys as claude/alpha/... and claude/beta/...).
     With several buckets configured the fallback is OFF: a shared root
     cannot tell two buckets' objects apart — each would list (and each
     read would serve) the same tree. multi carries `len(buckets()) > 1`
@@ -199,7 +200,7 @@ def _scan_root(root: str, bucket: str, multi: bool) -> str | None:
     The bucket segment is resolved against buckets() HERE, not taken from
     the caller: get_object/get_stream reach this with the first segment
     of a stored file_key, which a request can name, so the path below is
-    built from the configured list element (an R2_BUCKET value) and a
+    built from the configured list element (a CLAUDIT_R2_BUCKET value) and a
     bucket outside the list raises the same ValueError _configured
     raises. The join still goes through _safe_join (realpath + containment
     check) like every other key-derived path here: list membership is not
@@ -209,7 +210,7 @@ def _scan_root(root: str, bucket: str, multi: bool) -> str | None:
     names = buckets()
     if bucket not in names:
         raise ValueError(
-            f"bucket {bucket!r} is not configured in R2_BUCKET"
+            f"bucket {bucket!r} is not configured in CLAUDIT_R2_BUCKET"
         )
     # Rebind to the allow-list element: the path segment below is built
     # from the configured name, never from the caller-derived string.
@@ -333,7 +334,7 @@ def get_object(key: str, etag: str | None = None,
                size: int | None = None) -> bytes:
     """Fetch one object by its stored, bucket-qualified key.
 
-    With `etag`, the deploy's blob cache (R2_BLOB_CACHE) is consulted
+    With `etag`, the deploy's blob cache (CLAUDIT_R2_BLOB_CACHE) is consulted
     first: a (key, etag) hit answers without the GET and a miss is
     stored after it, holding the object's RAW (compressed) bytes. `size`
     is the listing's byte length, the entry-length check on read. The
@@ -455,12 +456,12 @@ def _boto_client():
     if client is not None and getattr(_tls, "pid", None) == os.getpid():
         return client
 
-    endpoint = os.environ["R2_ENDPOINT"]
+    endpoint = require_env("CLAUDIT_R2_ENDPOINT")
     client = boto3.client(
         "s3",
         endpoint_url=endpoint,
-        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+        aws_access_key_id=require_env("CLAUDIT_R2_ACCESS_KEY_ID"),
+        aws_secret_access_key=require_env("CLAUDIT_R2_SECRET_ACCESS_KEY"),
         region_name="auto",
         config=Config(max_pool_connections=32, retries={"max_attempts": 3}),
     )

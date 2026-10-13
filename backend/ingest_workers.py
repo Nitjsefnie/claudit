@@ -10,18 +10,20 @@ from __future__ import annotations
 import os
 import signal
 
+from backend.env_config import getenv
+
 
 def worker_count() -> int:
     """Fetch+parse thread concurrency of the IN-PROCESS pipeline.
 
     Unset or unparseable -> auto (network-bound work, so oversubscribe
     cores). An explicit number is honoured, clamped to at least 1, so
-    INGEST_WORKERS=1 is a real "go sequential" switch for debugging.
-    With INGEST_PARSE_PROCESSES>1 the fetch runs inside the parse
+    CLAUDIT_INGEST_WORKERS=1 is a real "go sequential" switch for debugging.
+    With CLAUDIT_INGEST_PARSE_PROCESSES>1 the fetch runs inside the parse
     children and this knob governs only the markers pool.
     """
     auto = min(16, (os.cpu_count() or 4) * 2)
-    raw = os.environ.get("INGEST_WORKERS", "").strip()
+    raw = getenv("CLAUDIT_INGEST_WORKERS", "").strip()
     if not raw:
         return auto
     try:
@@ -38,10 +40,10 @@ def parse_process_count() -> int:
     threads regressed parse wall 1.63x against a serial run. Forked
     children get real parallelism. Unset or unparseable -> auto =
     min(8, max(1, cpu//2)); an explicit integer is honoured, clamped to
-    >= 1; INGEST_PARSE_PROCESSES=1 is the in-process pipeline.
+    >= 1; CLAUDIT_INGEST_PARSE_PROCESSES=1 is the in-process pipeline.
     """
     auto = min(8, max(1, (os.cpu_count() or 4) // 2))
-    raw = os.environ.get("INGEST_PARSE_PROCESSES", "").strip()
+    raw = getenv("CLAUDIT_INGEST_PARSE_PROCESSES", "").strip()
     if not raw:
         return auto
     try:
@@ -58,7 +60,7 @@ def persist_thread_count() -> int:
     with API traffic), so the default stays modest. Unset or
     unparseable -> 4; an explicit integer is honoured, clamped to >= 1.
     """
-    raw = os.environ.get("INGEST_PERSIST_THREADS", "").strip()
+    raw = getenv("CLAUDIT_INGEST_PERSIST_THREADS", "").strip()
     if not raw:
         return 4
     try:

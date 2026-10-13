@@ -5,10 +5,12 @@ this process, so two suites on one Postgres server never touch each
 other's databases (issue #68). Import it as `tests.scratch_db` only: the
 run tag is drawn at import, and a second import path would draw another.
 
-Deliberately free of `backend` imports except inside
-`scratch_viz_database`: conftest imports this module before it claims
-DATABASE_URL_VIZ, and backend.app would claim it first.
+Deliberately free of `backend` imports at module load:
+conftest imports this module before it claims
+CLAUDIT_DATABASE_URL_VIZ, and backend.app would claim it first.
 """
+from __future__ import annotations
+
 import itertools
 import os
 import re
@@ -41,6 +43,7 @@ SCHEMA = (
     Path(__file__).resolve().parents[1] / "backend" / "schema_replay.sql",
     Path(__file__).resolve().parents[1] / "backend" / "schema_web_search.sql",
     Path(__file__).resolve().parents[1] / "backend" / "schema_cache_write.sql",
+    Path(__file__).resolve().parents[1] / "backend" / "schema_collection.sql",
 )
 _RUN_NAME = re.compile(
     rf"^(?P<base>{RUN_PREFIX}(?P<epoch>\d+)_(?P<pid>\d+)_[0-9a-f]{{8}})"
@@ -134,10 +137,16 @@ def create_database(label: str, schema=SCHEMA) -> str:
         files = [schema] if isinstance(schema, Path) else list(schema)
         if not files:
             raise ValueError("schema must name at least one file, or be None")
+        ddl = None
+        if tuple(files) == SCHEMA:
+            from tests.schema_policy import fixture_ddl  # pylint: disable=import-outside-toplevel
+
+            ddl = fixture_ddl(files)
+        file_args = ["-f", "-"] if ddl is not None else list(
+            itertools.chain.from_iterable(("-f", str(f)) for f in files))
         proc = subprocess.run(
             ["psql", "-q", "-X", "-v", "ON_ERROR_STOP=1", "-d", name,
-             *itertools.chain.from_iterable(("-f", str(f)) for f in files)],
-            capture_output=True, text=True, check=False)
+             *file_args], input=ddl, capture_output=True, text=True, check=False)
         if proc.returncode:
             raise RuntimeError(f"applying schema to {name} failed:\n{proc.stderr}")
     return name
@@ -149,10 +158,10 @@ def drop_database(name: str) -> None:
 
 
 def scratch_viz_database(monkeypatch, label: str):
-    """Fixture body: a fresh database as DATABASE_URL_VIZ for the test."""
+    """Fixture body: a fresh database as CLAUDIT_DATABASE_URL_VIZ for the test."""
     from backend import db  # pylint: disable=import-outside-toplevel
     name = create_database(label)
-    monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{name}")
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")
     db.reset_viz_pool()
     try:
         yield name

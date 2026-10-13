@@ -227,7 +227,7 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     and still a check on the pass's column mapping.
     """
     bucket, lane_blobs = _proof_mirror(tmp_path)
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
     # Threshold 1: the small codex fixture parses long_context=TRUE; the
     # two 300k rollouts clear the REAL threshold either way, and the
     # claude rows carry no meter decision (non-members), and the
@@ -334,7 +334,7 @@ def test_reprice_matches_reparse_for_offset_less_timestamps(
     the driver stored it in the session zone; after a PRICING_VERSION
     bump the reprice then stored the cutover's other side, which no
     reparse reproduces."""
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
     sess = tmp_path / "r2" / "claude" / "issue376" / "sess376"
     sess.mkdir(parents=True)
     sess.joinpath("sess376.jsonl").write_bytes(

@@ -44,7 +44,7 @@ def _mini_r2_env_fixture(monkeypatch):
     src = _REPO_ROOT / "fixtures/r2_mini"
     tmp = tempfile.mkdtemp(prefix="sv-ingest-")
     shutil.copytree(src, Path(tmp) / "r2")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp}/r2/")
     yield Path(tmp) / "r2" / "claude"
     shutil.rmtree(tmp)
 
@@ -513,7 +513,7 @@ def test_parallel_ingest_matches_sequential_exactly(
     Fetch+parse is parallelised; if that leaked into ordering, dedup, or
     the per-file transaction boundary, the two snapshots would diverge.
     """
-    monkeypatch.setenv("INGEST_WORKERS", "1")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
     ingest.run_ingest("test-seq")
     sequential = _snapshot()
 
@@ -523,7 +523,7 @@ def test_parallel_ingest_matches_sequential_exactly(
         c.execute("DELETE FROM projects")
         c.commit()
 
-    monkeypatch.setenv("INGEST_WORKERS", "8")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "8")
     ingest.run_ingest("test-par")
     parallel = _snapshot()
 
@@ -535,11 +535,11 @@ def test_parallel_ingest_matches_sequential_exactly(
 
 
 def test_ingest_workers_defaults_and_clamps(monkeypatch):
-    monkeypatch.delenv("INGEST_WORKERS", raising=False)
+    monkeypatch.delenv("CLAUDIT_INGEST_WORKERS", raising=False)
     assert ingest.worker_count() >= 1
-    monkeypatch.setenv("INGEST_WORKERS", "0")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "0")
     assert ingest.worker_count() == 1
-    monkeypatch.setenv("INGEST_WORKERS", "not-a-number")
+    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "not-a-number")
     assert ingest.worker_count() >= 1
 
 

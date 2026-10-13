@@ -2,6 +2,8 @@
 paths:
   - "**/backend/parse*.py"
   - "**/backend/codex_fork.py"
+  - "**/backend/codex_tool_rows.py"
+  - "**/backend/kimi_tool_rows.py"
   - "**/backend/kimi_content.py"
   - "**/backend/bash_*.py"
   - "**/backend/turn_flags.py"
@@ -47,6 +49,10 @@ Request timing (`reply_latency_s`, `generation_s`, `output_tokens_per_s`)
 is computed only by the backend parser; the browser parser does not mirror
 it. The Reply Latency panel reads `reply_latency_s` through its endpoint;
 `generation_s` and `output_tokens_per_s` are stored only, with no reader.
+`CLAUDIT_COLLECT_GENERATION_SPEED` uses the registry startup grammar and
+explicit per-file policy: OFF skips the Claude generation clock and stores
+both fields as NULL. Codex and both Kimi lanes always store NULL; no speed
+rollup exists. Reply latency remains collected independently.
 
 **Lane parsers are a second lockstep pair.** `parse_file()` sniffs the
 format and dispatches Codex rollouts and both Kimi wire formats to
@@ -65,6 +71,16 @@ stop matching the grouped `long_context_meters` field after folding
 (membership is its key set, issue #883), or
 when `window.longContextFactorsFor(model)` stops matching
 `pricing.long_context_factors(model)`.
+
+Server optional collection is distinct from retained parsing semantics.
+`parse_file(..., collection=ALL_COLLECTIONS_ON)` takes an explicit policy;
+parsers read no environment. OFF skips independent optional producers and
+masks only registry-owned fields to None, after retained decisions settle.
+Browser parsers continue interpreting raw transcripts unchanged. Billing,
+request/tool identities, model attribution, failure/churn interpretation,
+latency, `prompt_ts` and `ctx_turns` retain semantic lockstep. An OFF policy
+never permits drift in those meanings. Exact switches and storage ownership
+live in `backend/flag_registry.py` and PRIVACY's collection switch inventory.
 
 Resolve a discrepancy against this spec and the fixtures: fix the side
 that departs. If the spec itself is wrong, change it here, in both
@@ -116,7 +132,8 @@ variable is a runtime path and yields nothing.
 
 ## Context intake is stored per call (SV-CONTEXT-INTAKE)
 
-Five `tool_uses` columns record what a call put INTO the context window
+With default-ON context-intake collection, five `tool_uses` columns record
+what a call put INTO the context window
 and whether it was already there:
 
 - `result_chars` — tool_result size, IMAGES INCLUDED (base64 is the
@@ -128,6 +145,10 @@ and whether it was already there:
   alike ranks grep-then-narrow as MORE wasteful than a blind `cat`.
 - `is_reread` — set by `parse._resolve_rereads`; NULL unless a settled
   whole-file read.
+
+`CLAUDIT_COLLECT_CONTEXT_INTAKE` OFF skips target scans, result sizing and
+reread resolution and stores all five columns as NULL. Line churn and the
+full failed-result text needed for heredoc survival are retained.
 
 Targets come from tool arguments for `Read`/`Edit`/`Write` and from
 COMMAND TEXT for `Bash` (`backend/bash_reads.py`). Bash write targets

@@ -92,17 +92,17 @@ def test_a_name_postgres_would_truncate_is_refused():
 
 
 def test_default_viz_dsn_is_run_unique_unless_exported():
-    """conftest's setdefault: an exported DATABASE_URL_VIZ wins, otherwise
+    """conftest's setdefault: an exported CLAUDIT_DATABASE_URL_VIZ wins, otherwise
     the default names this run."""
-    env = {k: v for k, v in os.environ.items() if k != "DATABASE_URL_VIZ"}
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDIT_DATABASE_URL_VIZ"}
     probe = ("import os, tests.conftest; from tests import scratch_db; "
-             "print(os.environ['DATABASE_URL_VIZ'] + ' ' + scratch_db.RUN_TAG)")
+             "print(os.environ['CLAUDIT_DATABASE_URL_VIZ'] + ' ' + scratch_db.RUN_TAG)")
     out = subprocess.run([sys.executable, "-c", probe], cwd=_REPO_ROOT, env=env,
                          capture_output=True, text=True, check=True).stdout
     dsn, tag = out.split()
     assert dsn == f"postgresql:///{scratch_db.RUN_PREFIX}{tag}"
 
-    env["DATABASE_URL_VIZ"] = "postgresql:///exported_by_caller"
+    env["CLAUDIT_DATABASE_URL_VIZ"] = "postgresql:///exported_by_caller"
     out = subprocess.run([sys.executable, "-c", probe], cwd=_REPO_ROOT, env=env,
                          capture_output=True, text=True, check=True).stdout
     assert out.split()[0] == "postgresql:///exported_by_caller"

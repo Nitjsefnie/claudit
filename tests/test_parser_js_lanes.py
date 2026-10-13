@@ -197,7 +197,7 @@ def _node_sniff(blobs: list[bytes]) -> list[str]:
     return json.loads(proc.stdout)
 
 
-APP_JSX = ROOT / "src" / "app.jsx"
+APP_JSX = ROOT / "src" / "dashboard-shape.js"
 CTX_INPUT_JS = ROOT / "src" / "ctx-input.js"
 TOKEN_BREAKDOWN_JS = ROOT / "src" / "token-breakdown.js"
 
@@ -483,7 +483,8 @@ class TestNodeDrivenLaneParsers:
           }}]);
           const source = require('fs').readFileSync({str(APP_JSX)!r}, 'utf8');
           const start = source.indexOf('function txToDashData');
-          const end = source.indexOf('\\nfunction App(', start);
+          const end = source.indexOf('\\nfunction backendAggregateRange', start);
+          require('./src/feature-flags.js');
           eval(source.slice(start, end));
           const dashboard = txToDashData(tx);
           console.log(JSON.stringify({{
@@ -669,7 +670,8 @@ class TestNodeDrivenLaneParsers:
           const tx = window.parseTranscript(text);
           const src = require('fs').readFileSync({str(APP_JSX)!r}, 'utf8');
           const start = src.indexOf('function txToDashData');
-          const end = src.indexOf('\\nfunction App(', start);
+          const end = src.indexOf('\\nfunction backendAggregateRange', start);
+          require('./src/feature-flags.js');
           eval(src.slice(start, end));
           const dash = txToDashData(tx);
           console.log(JSON.stringify({{

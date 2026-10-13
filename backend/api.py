@@ -20,10 +20,13 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from starlette.responses import StreamingResponse
 
 from backend import db, events, r2
+from backend.api_flag_gate import require_enabled
+from backend.api_tool_panels import router as tool_panels_router
+from backend.api_tool_panels import tool_usage, tool_error_rate
 from backend.api_cache import router as cache_router
 from backend.api_ctx_growth import router as ctx_growth_router
 from backend.api_common import HEATMAP_TZ, _bucket_seconds, _iso, _parse_range
@@ -35,7 +38,10 @@ from backend.cache import cache_response
 from backend.constants import (CTX_BUCKET_MAX, CTX_BUCKET_WIDTH,
                                LATENCY_BUCKETS)
 
-router = APIRouter(prefix="/api")
+__all__ = ["tool_usage", "tool_error_rate"]
+
+router = APIRouter(prefix="/api", dependencies=[Depends(require_enabled)])
+router.include_router(tool_panels_router)
 router.include_router(export_router)
 router.include_router(dashboard_router)
 router.include_router(sessions_router)
@@ -51,189 +57,6 @@ def me(request: Request) -> dict:
     return {
         "user_id": getattr(request.state, "user_id", None),
         "is_guest": bool(getattr(request.state, "is_guest", False)),
-    }
-
-
-def _tool_usage_source(bucket_s: int, project: str | None,
-                       model: str | None, since: datetime) -> tuple:
-    """(FROM, ts column, count expr, since predicate, tail, args) for the
-    bucketed tool-usage query.
-
-    tool_rollup pre-aggregates (hour, project, model, tool); see
-    ingest.rebuild_tool_rollup. Same bucket-width gate as /api/dashboard:
-    the 24h view buckets finer than an hour and takes the live path, which
-    filters on the call's own tool_uses.model and, like the rollup, counts
-    only canonical calls (a compaction sidecar's replays are not; see
-    SV-CANONICAL-FLAG). Args come back in the order
-    the placeholders appear in the SQL string: since (in WHERE), then
-    project, then model (both in the tail).
-    """
-    args: list[Any] = [since]
-    if project:
-        args.append(project)
-    if model:
-        args.append(f"%{model}%")
-    model_filter = "AND tu.model LIKE %s" if model else ""
-    if bucket_s >= 3600:
-        proj_filter = "AND tu.project_id = %s" if project else ""
-        return (
-            "tool_rollup tu", "tu.hour", "SUM(tu.n_total)",
-            "tu.hour >= date_trunc('hour', %s::timestamptz)",
-            f"{proj_filter} {model_filter}", args,
-        )
-
-    proj_filter = "AND f.project_id = %s" if project else ""
-    return (
-        "tool_uses tu\n            JOIN files f ON f.file_key = tu.file_key",
-        "tu.ts", "COUNT(*)", "tu.ts >= %s AND tu.is_canonical",
-        f"{proj_filter} {model_filter}", args,
-    )
-
-
-@router.get("/tool-usage")
-@cache_response
-def tool_usage(
-    rng: str = Query("30d", alias="range"),
-    project: str | None = Query(None),
-    model: str | None = Query(None),
-) -> dict:
-    """Bucketed tool-call counts. Bucket size = largest in [60s, 1d]
-    that yields ≥100 bins across the range. Frontend stacks to 100%
-    and promotes any tool that ever cracked top-N at any bucket.
-    Tools that never make the cut land in 'Other'.
-
-    `model=opus-4-7` filters to tool calls whose own model
-    (tool_uses.model) matches the substring."""
-    delta = _parse_range(rng)
-    since = datetime.now(timezone.utc) - delta
-    bucket_s = _bucket_seconds(delta)
-    tu_from, ts_col, cnt, since_pred, tail, args = (
-        _tool_usage_source(bucket_s, project, model, since)
-    )
-
-    with db.viz_conn() as c:
-        rows = c.execute(
-            db.sql_text(f"""
-            SELECT to_timestamp(
-                     floor(EXTRACT(EPOCH FROM {ts_col}) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
-                   ) AS bucket,
-                   tu.tool_name AS tool,
-                   {cnt}        AS n
-            FROM {tu_from}
-            WHERE {since_pred} {tail}
-            GROUP BY 1, 2
-            ORDER BY 1, 2
-            """),
-            args,
-        ).fetchall()
-
-    return {
-        "range": rng,
-        "project": project,
-        "bucket_s": bucket_s,
-        "buckets": [
-            {"ts": _iso(b), "tool": t, "n": int(n or 0)}
-            for (b, t, n) in rows
-        ],
-    }
-
-
-def _tool_error_rate_sql(bucket_s: int, project: str | None,
-                         model: str | None, args: list) -> str:
-    """The bucketed (n_total, n_error) per (model, tool_name) query.
-
-    Args appended in the order placeholders appear in the SQL string:
-    tu.ts >= %s (already in `args`), then project, then model.
-    """
-    if bucket_s >= 3600:
-        # n_rated/n_error already encode "is_error IS NOT NULL"; model <> ''
-        # drops rows stored before tool_uses.model existed, exactly as the
-        # live path below does.
-        proj_filter = ""
-        if project:
-            proj_filter = "AND project_id = %s"
-            args.append(project)
-        model_filter = ""
-        if model:
-            model_filter = "AND model LIKE %s"
-            args.append(f"%{model}%")
-        return f"""
-            SELECT to_timestamp(
-                     floor(EXTRACT(EPOCH FROM hour) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
-                   ) AS bucket,
-                   model, tool_name AS tool,
-                   SUM(n_rated) AS n_total,
-                   SUM(n_error) AS n_error
-            FROM tool_rollup
-            WHERE hour >= date_trunc('hour', %s::timestamptz)
-              AND model <> ''
-              {proj_filter}
-              {model_filter}
-            GROUP BY 1, 2, 3
-            HAVING SUM(n_rated) > 0
-            ORDER BY 1, 2, 3
-        """
-    proj_filter = ""
-    if project:
-        proj_filter = "AND f.project_id = %s"
-        args.append(project)
-    model_filter = ""
-    if model:
-        model_filter = "AND tu.model LIKE %s"
-        args.append(f"%{model}%")
-    return f"""
-            SELECT to_timestamp(
-                     floor(EXTRACT(EPOCH FROM tu.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
-                   ) AS bucket,
-                   tu.model     AS model,
-                   tu.tool_name AS tool,
-                   COUNT(*)                              AS n_total,
-                   COUNT(*) FILTER (WHERE tu.is_error)   AS n_error
-            FROM tool_uses tu
-            JOIN files   f ON f.file_key = tu.file_key
-            WHERE tu.is_error IS NOT NULL AND tu.is_canonical
-              AND tu.model <> ''
-              AND tu.ts >= %s
-              {proj_filter}
-              {model_filter}
-            GROUP BY 1, 2, 3
-            ORDER BY 1, 2, 3
-        """
-
-
-@router.get("/tool-error-rate")
-@cache_response
-def tool_error_rate(
-    rng: str = Query("30d", alias="range"),
-    project: str | None = Query(None),
-    model: str | None = Query(None),
-) -> dict:
-    """Bucketed (n_total, n_error) per (model, tool_name) over settled
-    tool calls only (is_error IS NOT NULL). The frontend computes
-    error-rate = n_error / n_total per series and EMA-smooths the
-    sequence.
-
-    `model` is an optional model substring filter (parity with
-    /api/tool-usage). Cross-file uuid dedup does NOT apply — tool_uses
-    aren't keyed on records.uuid; the natural boundary is per-file."""
-    delta = _parse_range(rng)
-    since = datetime.now(timezone.utc) - delta
-    bucket_s = _bucket_seconds(delta)
-    args: list[Any] = [since]
-    sql = _tool_error_rate_sql(bucket_s, project, model, args)
-
-    with db.viz_conn() as c:
-        rows = c.execute(db.sql_text(sql), args).fetchall()
-
-    return {
-        "range": rng,
-        "project": project,
-        "bucket_s": bucket_s,
-        "buckets": [
-            {"ts": _iso(b), "model": m, "tool": t,
-             "n_total": int(nt or 0), "n_error": int(ne or 0)}
-            for (b, m, t, nt, ne) in rows
-        ],
     }
 
 

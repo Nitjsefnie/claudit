@@ -71,8 +71,8 @@ def _client_fixture():
     sess.mkdir(parents=True)
     (sess / "sess-or.jsonl").write_text(_lines(start), encoding="utf-8")
     try:
-        mp.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
-        mp.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
+        mp.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{test_db}")
+        mp.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp}/r2/")
         db.reset_viz_pool()
         ingest.run_ingest(trigger="manual")
         a = FastAPI()
@@ -93,7 +93,7 @@ def _expected(start):
 
 def test_ingest_stores_the_provider_and_prices_by_it(client):
     _, start = client
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn:
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn:
         rows = conn.execute(
             "SELECT provider, model, cost_usd FROM records ORDER BY line_num"
         ).fetchall()
@@ -102,7 +102,7 @@ def test_ingest_stores_the_provider_and_prices_by_it(client):
 
 
 def test_the_rollup_keeps_provider_in_its_grain(client):
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn:
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn:
         got = conn.execute(
             "SELECT model, provider, SUM(requests) FROM usage_rollup "
             "GROUP BY 1, 2 ORDER BY 1, 2"

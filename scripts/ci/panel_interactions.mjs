@@ -69,7 +69,7 @@
 //
 // Bounds: the sweep hovers every marked target twice (centre, bottom
 // row) at every width, which is the guard's whole cost.
-// PANEL_INTERACTIONS_MAX_TARGETS defaults to 0 — unlimited (#834: a
+// CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS defaults to 0 — unlimited (#834: a
 // cap that silently samples is a guard that checks less than it
 // claims). An explicit cap that BITES is the `unhovered-targets`
 // finding and fails the run; the knob is for local debugging only.
@@ -233,7 +233,7 @@ export function variantsFrom(base) {
 const STYLE_PROPS = ['fill', 'fill-opacity', 'opacity', 'stroke',
   'stroke-width', 'stroke-dasharray', 'background-color'];
 
-const MAX_TARGETS = Number(process.env.PANEL_INTERACTIONS_MAX_TARGETS || '0');
+const MAX_TARGETS = Number(process.env.CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS || '0');
 
 // --- the #690 seeded-violation hooks -----------------------------------
 
@@ -243,10 +243,10 @@ const MAX_TARGETS = Number(process.env.PANEL_INTERACTIONS_MAX_TARGETS || '0');
 // scripts/ci/panel_interactions_seeds.mjs, which asserts exit 1 per
 // seed). A seed name outside the table is a setup error, refused.
 export const SEEDS = ['no-targets', 'other-region', 'cold-region'];
-const SEED = process.env.PANEL_INTERACTIONS_SEED || '';
+const SEED = process.env.CLAUDIT_PANEL_INTERACTIONS_SEED || '';
 
 if (SEED && !SEEDS.includes(SEED)) {
-  console.error(`unknown PANEL_INTERACTIONS_SEED '${SEED}' — known: `
+  console.error(`unknown CLAUDIT_PANEL_INTERACTIONS_SEED '${SEED}' — known: `
     + SEEDS.join(', '));
   process.exit(2);
 }
@@ -733,11 +733,11 @@ async function main() {
           targets = [...picked].map(i => targets[i]);
           record('unhovered-targets', panel.name,
             `swept ${targets.length} of ${hoverable.length} targets `
-            + `(PANEL_INTERACTIONS_MAX_TARGETS=${MAX_TARGETS})`, width);
+            + `(CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS=${MAX_TARGETS})`, width);
           if (width === WIDTHS[0]) {
             console.log(`CAPPED      ${panel.name}: swept `
               + `${targets.length} of ${hoverable.length} targets `
-              + `(PANEL_INTERACTIONS_MAX_TARGETS=${MAX_TARGETS}; 0 lifts it)`);
+              + `(CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS=${MAX_TARGETS}; 0 lifts it)`);
           }
         }
         for (const t of targets) {

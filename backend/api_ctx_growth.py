@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from starlette.requests import Request
 
-from backend import db, r2
+from backend import db, flags, r2
 from backend.api_common import _parse_range, Phases
 from backend.cache import cache_response
 
@@ -251,6 +251,6 @@ def context_growth_session(request: Request, session_id: str) -> dict:
         "session_id": session_id,
         **({} if is_guest else {"file_key": r2.public_key(file_key)}),
         "turns": turns,
-        "total_turns": count,
+        **({"total_turns": count} if flags.CONFIG.collection.enabled("file_extras") else {}),
         "final_ctx": final_ctx,
     }

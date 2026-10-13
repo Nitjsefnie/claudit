@@ -174,8 +174,8 @@ def _mirror_fixture(monkeypatch, tmp_path):
     """An empty file:// mirror of the default `claude` bucket."""
     bucket = tmp_path / "r2" / "claude"
     bucket.mkdir(parents=True)
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
-    monkeypatch.delenv("R2_BUCKET", raising=False)
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
     return bucket
 
 

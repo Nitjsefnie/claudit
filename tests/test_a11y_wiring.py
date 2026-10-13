@@ -172,7 +172,7 @@ def test_muted2_has_no_non_decorative_text_use():
                 f"a non-pseudo rule paints --muted-2: {sel.strip()!r} -- "
                 f"muted-2 computes 2.20:1 on --panel-2; recheck AA before "
                 f"widening its use")
-    app = APP.read_text(encoding="utf-8")
+    app = (ROOT / "src" / "dashboard-view.jsx").read_text(encoding="utf-8")
     for line in app.splitlines():
         if "--muted-2" in line:
             assert re.search(

@@ -2,7 +2,7 @@
 
 file_key is stored bucket-qualified (`<bucket>/<object-key>`,
 SV-FILES-RECORDS), and bucket names are infrastructure: a deploy may
-read buckets the client must not learn about. With R2_BUCKET naming two
+read buckets the client must not learn about. With CLAUDIT_R2_BUCKET naming two
 buckets and data in BOTH, no endpoint response body may contain either
 bucket name as a path prefix, while the object-key part stays present.
 
@@ -77,8 +77,8 @@ def _redact_app_fixture(fresh_db, tmp_path, monkeypatch):
     """Both buckets hold the SAME object key, so whichever row wins uuid
     dedup (and whichever main file a `LIMIT 1` picks) serves the same
     public form."""
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/")
-    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha+beta")
     d = tmp_path / "alpha" / "projS" / "sessS"
     d.mkdir(parents=True)
     (d / "sessS.jsonl").write_text(_transcript())
@@ -107,7 +107,7 @@ def _redact_app_fixture(fresh_db, tmp_path, monkeypatch):
 
 
 def test_public_key_strips_a_configured_bucket(monkeypatch):
-    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha+beta")
     assert r2.public_key("alpha/proj/s/x.jsonl") == "proj/s/x.jsonl"
     assert r2.public_key("beta/proj/s/x.jsonl") == "proj/s/x.jsonl"
 
@@ -115,12 +115,12 @@ def test_public_key_strips_a_configured_bucket(monkeypatch):
 def test_public_key_keeps_an_unconfigured_first_segment(monkeypatch):
     """A key whose first segment is not a configured bucket (a legacy
     bare object key, or an already-public key) is returned unchanged."""
-    monkeypatch.setenv("R2_BUCKET", "alpha")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha")
     assert r2.public_key("proj/s/x.jsonl") == "proj/s/x.jsonl"
 
 
 def test_public_key_edge_cases(monkeypatch):
-    monkeypatch.setenv("R2_BUCKET", "alpha")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha")
     assert r2.public_key("noslash") == "noslash"
     assert r2.public_key("") == ""
     assert r2.public_key(None) is None
@@ -190,8 +190,8 @@ def test_redact_strips_bucket_names_and_mirror_root(monkeypatch, tmp_path):
     """r2.redact is the free-text net: the mirror root and every
     configured bucket name — path segment, quoted !r, list element after
     a separator, or key prefix — become placeholders."""
-    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/mirror/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha+beta")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/mirror/")
     text = (
         "FileNotFoundError: no mirror directory for bucket 'beta'; "
         f"cannot stat {tmp_path}/mirror/alpha/projS/sessS/sessS.jsonl "
@@ -204,7 +204,7 @@ def test_redact_strips_bucket_names_and_mirror_root(monkeypatch, tmp_path):
 
 def test_failure_summary_is_count_only(monkeypatch):
     """The /health error phrase reports a count without naming projects."""
-    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha+beta")
     summary = getattr(ingest_runs, "failure_summary", None)
     assert callable(summary), "failure_summary belongs in ingest_runs"
     out = summary(
@@ -214,7 +214,7 @@ def test_failure_summary_is_count_only(monkeypatch):
 
 def test_failed_public_keys_strips_configured_bucket(monkeypatch):
     """Authenticated triage keeps the object key but drops the bucket."""
-    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha+beta")
     public_keys = getattr(ingest_runs, "failed_public_keys", None)
     assert callable(public_keys), "failed_public_keys belongs in ingest_runs"
     assert public_keys([

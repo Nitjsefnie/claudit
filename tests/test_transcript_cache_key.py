@@ -69,9 +69,9 @@ def _twin_app_fixture(monkeypatch):
     equal-mtime transcripts, ingested; the api router mounted on a clean
     app (auth bypassed, as test_api's _build_api_client does)."""
     test_db = scratch_db.create_database("issue375")
-    monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{test_db}")
     tmp = tempfile.mkdtemp(prefix="sv-issue375-")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp}/r2/")
     mirror = Path(tmp) / "r2" / "claude"
     for session, body in _TWINS:
         session_dir = mirror / "projA" / session
@@ -163,7 +163,7 @@ def test_replaced_object_serves_new_bytes(twin_app):
     assert row is not None
     old_etag = row[0]
 
-    root = os.environ["R2_ENDPOINT"].removeprefix("file://")
+    root = os.environ["CLAUDIT_R2_ENDPOINT"].removeprefix("file://")
     path = Path(root) / "claude" / "projA" / "sess-alice" / "sess-alice.jsonl"
     path.write_bytes(_ALICE_V2)
     os.utime(path, ns=(_REPLACED_MTIME_NS, _REPLACED_MTIME_NS))

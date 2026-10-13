@@ -31,7 +31,8 @@ from typing import Callable, Literal
 
 from orjson import JSONDecodeError, loads
 
-from backend import parse_codex, parse_kimi
+from backend import parse_codex, parse_kimi, parse_collection
+from backend.flags import ALL_COLLECTIONS_ON, CollectionPolicy
 from backend.agent_types import canonical_agent_type
 from backend.constants import DEFAULT_AGENT_TYPE
 from backend.parse_common import iter_lines
@@ -39,7 +40,7 @@ from backend.parse_common import iter_lines
 # The lane parsers parse_file dispatches to, keyed by sniff_format's
 # labels. parse.py imports this mapping (and sniff_format) so that
 # parse.parse_file and parse.sniff_format exist as its interface.
-LANE_PARSERS: dict[str, Callable[[str, bytes], dict]] = {
+LANE_PARSERS: dict[str, Callable[..., dict]] = {
     "codex": parse_codex.parse,
     "kimi-code": parse_kimi.parse_kimi_code,
     "legacy": parse_kimi.parse_legacy,
@@ -183,7 +184,7 @@ def refuse_unattributed(parsed: dict, fmt: str, file_key: str) -> dict:
     return parsed
 
 
-def to_claudit(parsed: dict, fmt: str) -> dict:
+def to_claudit(parsed: dict, fmt: str, *, collection: CollectionPolicy = ALL_COLLECTIONS_ON) -> dict:
     """Project one lane parse onto claudit's records/tool_uses columns.
 
     The lane parsers keep codexmeter's row shapes. claudit's schema needs
@@ -222,20 +223,22 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
         r.setdefault("is_replay", None)
         # "" is the schema's sentinel for "no request id" (the
         # records_request_idx partial index keys on request_id <> '').
-        r["request_id"] = ""
-        r["generation_s"] = None
-        r["output_tokens_per_s"] = None
-        r["stop_reason"] = None
-        r["effort"] = None
-        r["cli_version"] = None
-        r["turn_flags"] = []
-        r["turn_tool_results"] = 0
-        r["eph5_tokens"] = 0
-        r["eph1h_tokens"] = 0
-        # Provider-neutral cache-write count (issue #842), derived over
-        # the final records list in parse_file(); a lane row that reaches
-        # the projection directly carries the honest zero until then.
-        r["cache_write_tokens"] = 0
+        # Batch the fixed assignments in C, keeping their insertion order
+        # and a fresh turn_flags list for each record.
+        r.update({
+            "request_id": "",
+            "generation_s": None,
+            "output_tokens_per_s": None,
+            "stop_reason": None,
+            "effort": None,
+            "cli_version": None,
+            "turn_flags": [],
+            "turn_tool_results": 0,
+            "eph5_tokens": 0,
+            "eph1h_tokens": 0,
+            # Derived over the final records list by parse_file (#842).
+            "cache_write_tokens": 0,
+        })
         r.setdefault("web_search_requests", None)
     for tu in parsed["tool_uses"]:
         tc_id = str(tu.pop("tool_call_id", "") or "")
@@ -246,22 +249,22 @@ def to_claudit(parsed: dict, fmt: str) -> dict:
         # A settled failure already carries its (error_kind, error_text)
         # from parse_common._settle_lane_tool_result; default the rest to
         # NULL (SV-WHY-COLUMNS: a kind only on an errored call).
-        tu.setdefault("error_kind", None)
-        tu.setdefault("error_text", None)
-        tu.setdefault("agent_type", None)
-        tu.setdefault("agent_model", None)
-        tu.setdefault("dispatch_prompt_chars", None)
-        tu.setdefault("dispatch_brief_ref", None)
+        # Equivalent to six setdefault calls, with the field writes in C.
+        # Existing values win the union and keep their original positions;
+        # only missing defaults are appended, in the declared order.
+        tu.update(dict.fromkeys((
+            "error_kind", "error_text", "agent_type", "agent_model",
+            "dispatch_prompt_chars", "dispatch_brief_ref",
+        )) | tu)
         tu["dispatch_name"] = None
         tu.setdefault("is_replay", None)
-        tu["result_chars"] = None
-        tu["read_kind"] = None
-        tu["read_targets"] = None
-        tu["write_targets"] = None
-        tu["is_reread"] = None
+        tu.update(dict.fromkeys((
+            "result_chars", "read_kind", "read_targets", "write_targets", "is_reread",
+        )))
     out = dict(parsed)
-    out["prompt_count"] = parsed.get("prompt_count") or 0
-    out["models"] = sorted(filter(None, {r["model"] for r in parsed["records"]}))  # None dropped: refused rows never store (issue #688)
+    extras = "file_extras" not in collection.disabled
+    out["prompt_count"] = (parsed.get("prompt_count") or 0) if extras else None
+    out["models"] = parse_collection.collected_models(parsed["records"]) if extras else None
     # files.agent_type is NOT NULL; lane_agent_type never returns None.
     role = out.pop("agent_role", None)
     out["agent_type"] = lane_agent_type(fmt, role)

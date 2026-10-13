@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from backend import db
+from backend import db, flags
 from backend.constants import DEFAULT_AGENT_TYPE
 from backend.ingest_scope import Scope, current_scope
 
@@ -317,7 +317,7 @@ def adopt_original_models(scope: Scope | None = None) -> int:
     Runs at recompute_canonical's tail, on the flags it has just
     settled. Adopted rows are non-canonical, so no rollup
     reads them and the pass adds no hours to the scope; it extends
-    files.models with the adopted models, since the fork file journals
+    collected files.models with the adopted models, since the fork file journals
     its parent's requests.
     """
     scope = _phase_scope(scope)
@@ -331,6 +331,7 @@ def adopt_original_models(scope: Scope | None = None) -> int:
     with db.viz_conn() as conn:
         conn.execute("SET LOCAL work_mem = '64MB'")
         uuid_params = {
+            "file_extras": flags.CONFIG.collection.enabled("file_extras"),
             "uuids": (sorted(incremental_scope.affected_uuids)
                       if incremental else None),
         }
@@ -339,7 +340,7 @@ def adopt_original_models(scope: Scope | None = None) -> int:
                          if incremental else None),
         }
         # records: a losing replayed copy takes its uuid's original's
-        # model, and files.models gains it — one statement, one snapshot,
+        # model, and collected files.models gains it — one statement, one snapshot,
         # so `added` is derived before the rows move.
         cur = conn.execute(
             """
@@ -367,7 +368,9 @@ def adopt_original_models(scope: Scope | None = None) -> int:
                                               FROM unnest(f.models || added.added)
                                              AS m ORDER BY m))
                 FROM added
-               WHERE f.file_key = added.file_key
+               WHERE f.file_key = added.file_key AND %(file_extras)s
+                 AND NOT ('file_extras' = ANY(
+                       COALESCE(f.collection_flags, '{}'::text[])))
             )
             SELECT count(*) FROM upd
             """, uuid_params)

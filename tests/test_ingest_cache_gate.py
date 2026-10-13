@@ -252,7 +252,7 @@ def test_a_lane_marker_rekey_only_ingest_invalidates_and_broadcasts(
     lane.mkdir(parents=True)
     (lane / "wire.jsonl.xz").write_bytes(
         lzma.compress((_FIX_ROOT / "parser" / "codex_min.jsonl").read_bytes()))
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
 
     # Run 1: no marker — the lane project keys by its bare hash.
     assert ingest.run_ingest_locked("manual")["error"] is None

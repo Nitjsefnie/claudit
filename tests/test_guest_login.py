@@ -24,7 +24,7 @@ _ORIGINAL_GUEST_HTML = """  <div class="or">or</div>
 @pytest.fixture(name="client")
 def _client_fixture(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """Skip lifespan, as page-shell tests do, so no ingest or DB is needed."""
-    monkeypatch.delenv("GUEST_LOGIN", raising=False)
+    monkeypatch.delenv("CLAUDIT_GUEST_LOGIN", raising=False)
     return TestClient(app)
 
 
@@ -39,9 +39,9 @@ def test_guest_login_setting(
     monkeypatch: pytest.MonkeyPatch, value: str | None, enabled: bool
 ) -> None:
     if value is None:
-        monkeypatch.delenv("GUEST_LOGIN", raising=False)
+        monkeypatch.delenv("CLAUDIT_GUEST_LOGIN", raising=False)
     else:
-        monkeypatch.setenv("GUEST_LOGIN", value)
+        monkeypatch.setenv("CLAUDIT_GUEST_LOGIN", value)
     assert guest_login_enabled() is enabled
 
 
@@ -54,7 +54,7 @@ def test_sign_in_guest_controls_follow_setting(
     assert "Continue as guest" in default.text
     assert '<div class="or">or</div>' in default.text
 
-    monkeypatch.setenv("GUEST_LOGIN", "0")
+    monkeypatch.setenv("CLAUDIT_GUEST_LOGIN", "0")
     disabled = client.get("/login")
     assert disabled.status_code == 200
     assert 'formaction="/login/guest"' not in disabled.text
@@ -66,14 +66,14 @@ def test_sign_in_guest_controls_follow_setting(
 
 def test_sign_in_guest_markup_is_preserved(monkeypatch: pytest.MonkeyPatch) -> None:
     """Only the original guest block disappears, with identical page inputs."""
-    monkeypatch.delenv("GUEST_LOGIN", raising=False)
+    monkeypatch.delenv("CLAUDIT_GUEST_LOGIN", raising=False)
     request = Request({"type": "http", "state": {"csp_nonce": secrets.token_urlsafe(16)}})
     enabled = bytes(_login_page_response(request, "", 200).body).decode("utf-8")
     assert enabled.count(_ORIGINAL_GUEST_HTML) == 1
     # Pin the slot's leading boundary too: a substring alone admits a newline.
     assert enabled.count('  <div class="err" role="alert"></div>\n' + _ORIGINAL_GUEST_HTML) == 1
 
-    monkeypatch.setenv("GUEST_LOGIN", "0")
+    monkeypatch.setenv("CLAUDIT_GUEST_LOGIN", "0")
     disabled = bytes(_login_page_response(request, "", 200).body).decode("utf-8")
     assert disabled == enabled.replace(_ORIGINAL_GUEST_HTML, "")
 
@@ -87,7 +87,7 @@ def test_guest_route_disabled_returns_404_without_cookie(
     assert session.SESSION_COOKIE_NAME in default.cookies
     assert "session=" in default.headers["set-cookie"]
 
-    monkeypatch.setenv("GUEST_LOGIN", "0")
+    monkeypatch.setenv("CLAUDIT_GUEST_LOGIN", "0")
     disabled = client.post("/login/guest", headers=headers, follow_redirects=False)
     assert disabled.status_code == 404
     assert "set-cookie" not in disabled.headers
@@ -96,7 +96,7 @@ def test_guest_route_disabled_returns_404_without_cookie(
 def test_disabled_guest_route_never_mints_token(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("GUEST_LOGIN", "0")
+    monkeypatch.setenv("CLAUDIT_GUEST_LOGIN", "0")
     monkeypatch.setattr(
         session, "make_guest_session_token",
         lambda: pytest.fail("disabled guest login must not mint a token"),
@@ -119,7 +119,7 @@ def test_guest_cookie_refused_by_middleware_when_disabled(
     assert enabled.status_code == 200
     assert enabled.json() == {"user_id": 0, "is_guest": True}
 
-    monkeypatch.setenv("GUEST_LOGIN", "0")
+    monkeypatch.setenv("CLAUDIT_GUEST_LOGIN", "0")
     disabled = client.get("/api/me", follow_redirects=False)
     assert disabled.status_code == anonymous.status_code
     assert disabled.content == anonymous.content
@@ -136,7 +136,7 @@ def test_disabled_guest_cookie_never_bootstraps_guest_page(
     assert enabled.status_code == 200
     assert "window.IS_GUEST = true" in enabled.text
 
-    monkeypatch.setenv("GUEST_LOGIN", "0")
+    monkeypatch.setenv("CLAUDIT_GUEST_LOGIN", "0")
     disabled = client.get("/", follow_redirects=False)
     assert "window.IS_GUEST = true" not in disabled.text
     assert disabled.status_code == anonymous.status_code

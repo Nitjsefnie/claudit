@@ -39,7 +39,8 @@
   //                        than saying they are stale
   //
   // `hasData` is what the panels actually rendered (backendDashToShape
-  // returns null for a payload with no usable hour buckets): the shape
+  // retains surviving sessions, responses or projects without hours,
+  // and returns null only when no usable dashboard data survives): the shape
   // answers WHETHER there is data, and the state answers WHICH of the
   // other three states the caller is in when there is not.
   function summary(state, hasData) {

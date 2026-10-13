@@ -1,7 +1,7 @@
 // The #690 seeded-violation proof: each of the three Expected-Behavior
 // bullets needs a violation of its category planted into an otherwise
 // clean run, and the sweep must FAIL on it. This runner drives
-// panel_interactions.mjs once per seed with PANEL_INTERACTIONS_SEED set,
+// panel_interactions.mjs once per seed with CLAUDIT_PANEL_INTERACTIONS_SEED set,
 // asserts exit 1 per seed, and greps the sweep's output for the finding
 // kind each seed exists to prove, so a seed that fails for the WRONG
 // reason (the page broke, the ledger fired, the fixtures vanished) does
@@ -34,10 +34,10 @@ const SEED_KINDS = {
 // its exit code and the output the kind grep reads.
 const runSeed = ([seed, kind]) => new Promise(resolve => {
   const child = spawn(process.execPath, [SWEEP], {
-    env: { ...process.env, PANEL_INTERACTIONS_SEED: seed,
+    env: { ...process.env, CLAUDIT_PANEL_INTERACTIONS_SEED: seed,
       // One width: the seeds prove the CLASSIFIER, not the sweep's
       // reach, so three of the four renders add cost and prove nothing.
-      PANEL_LAYOUT_WIDTHS: '1440' },
+      CLAUDIT_PANEL_LAYOUT_WIDTHS: '1440' },
   });
   let out = '';
   child.stdout.on('data', d => { out += d; });

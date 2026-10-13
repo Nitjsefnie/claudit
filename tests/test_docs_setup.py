@@ -3,7 +3,7 @@
 The setup is written out three times -- README "Quick start",
 CONTRIBUTING "Getting it running" and AGENTS "Build and test commands"
 -- and nothing failed when they drifted: CONTRIBUTING once shipped
-without the DATABASE_URL_AUTH env-edit mention (issue #464). Like
+without the CLAUDIT_DATABASE_URL_AUTH env-edit mention (issue #464). Like
 test_panel_wiring.py, these are source-level pins: nothing here runs
 the commands or touches a database, and nothing else in the suite reads
 these docs, so a diverging edit passes every other test.
@@ -15,7 +15,7 @@ Three guards:
    the `CREATE TABLE users` psql step). Equality across docs alone would
    stay green if all three dropped the same step together.
 2. Env-edit mentions. Each doc's section text names both
-   DATABASE_URL_VIZ and DATABASE_URL_AUTH -- the historical drift was
+   CLAUDIT_DATABASE_URL_VIZ and CLAUDIT_DATABASE_URL_AUTH -- the historical drift was
    exactly this omission in one doc.
 3. Cross-doc equality. The three docs' normalized steps are equal as
    ORDERED lists, so an omission, an addition or a reorder in any
@@ -165,7 +165,7 @@ def test_each_doc_names_both_env_vars_in_its_setup_section():
     Guest-login config also names the same toggle the code reads."""
     for name, path, heading in _DOCS:
         section = _section(path, heading)
-        for var in ("DATABASE_URL_VIZ", "DATABASE_URL_AUTH"):
+        for var in ("CLAUDIT_DATABASE_URL_VIZ", "CLAUDIT_DATABASE_URL_AUTH"):
             assert var in section, (
                 f"{name}: the setup section no longer mentions {var} -- "
                 f"the historical drift (issue #464) was exactly this "
@@ -179,7 +179,7 @@ def test_compose_passes_through_guest_login_setting() -> None:
     """A comment cannot stand in for the app's configurable guest setting."""
     compose = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
     environment = compose["services"]["app"]["environment"]
-    assert environment.get(GUEST_LOGIN_ENV) == "${GUEST_LOGIN:-1}"
+    assert environment.get(GUEST_LOGIN_ENV) == "${CLAUDIT_GUEST_LOGIN:-1}"
 
 
 def test_the_three_docs_setup_steps_are_identical():

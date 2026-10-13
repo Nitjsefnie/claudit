@@ -43,6 +43,7 @@
 <!-- The backend serves this file with BACKEND_URL injected as window.BACKEND_URL -->
 <script>window.BACKEND_URL = window.BACKEND_URL || '';</script>
 
+<script src="/src/feature-flags.js"></script>
 <script src="/src/parser-cache-write.js"></script>
 <script src="/src/parser-lanes.js"></script>
 <script src="/src/parser-kimi.js"></script>
@@ -73,6 +74,7 @@
      PerformanceObserver entries start collecting at first paint; the
      index rewrite puts the response's CSP nonce on this tag. -->
 <script src="/src/perf.js"></script>
+<script src="/src/perf-feature-policy.js"></script>
 <script src="/src/deferred.js"></script>
 <script src="/src/cost-by-context.js"></script>
 <script type="text/babel" src="/src/event-helpers.jsx"></script>
@@ -102,6 +104,10 @@
 <script type="text/babel" src="/src/dashboard-summary.jsx"></script>
 <script type="text/babel" src="/src/picker-measure.jsx"></script>
 <script type="text/babel" src="/src/picker.jsx"></script>
+<script src="/src/dashboard-shape.js"></script>
+<script src="/src/burn-rate-legend.js"></script>
+<script type="text/babel" src="/src/app-navigation.jsx"></script>
+<script type="text/babel" src="/src/dashboard-view.jsx"></script>
 <script type="text/babel" src="/src/app.jsx"></script>
 <script type="text/babel">
   const root = ReactDOM.createRoot(document.getElementById('root'));
