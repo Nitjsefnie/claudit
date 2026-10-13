@@ -22,6 +22,7 @@ import ast
 from pathlib import Path
 
 from tests import scan_gate
+from tests.source_scan_cache import for_source, source as cached_source
 
 TESTS_DIR = Path(__file__).resolve().parent
 
@@ -59,11 +60,12 @@ def _fold_operands(tree) -> set[str]:
 
 def test_the_gate_sees_every_string_constant_in_the_tree():
     for path in sorted(TESTS_DIR.glob("*.py")):
-        source = path.read_text(encoding="utf-8")
+        source = cached_source(path)
         consts, _ = scan_gate.module_vocab(source)
-        tree = ast.parse(source)
+        artifacts = for_source(source)
+        tree = artifacts.tree()
         folded = _fold_operands(tree)
-        for node in ast.walk(tree):
+        for node in artifacts.nodes():
             if not (isinstance(node, ast.Constant)
                     and isinstance(node.value, str)):
                 continue
