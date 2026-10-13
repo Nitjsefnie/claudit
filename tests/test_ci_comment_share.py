@@ -22,12 +22,16 @@ CASES = [
     ('py_concat', 'py', '("a"\n # x\n "b")\n', (8, 10)),
     ('yaml_literal', 'yaml', 'a: |\n  text # data\n', (0, 12)),
     ('yaml_folded', 'yaml', 'a: >\n  text # data\n', (0, 12)),
+    ('yaml_literal_header', 'yaml', 'a: | # yes\n  data\n', (4, 11)),
+    ('yaml_folded_header', 'yaml', 'a: >-2 # yes\n  data\n', (4, 13)),
+    ('yaml_run_literal_header', 'yaml', 'run: |2- # yes\n  echo ok\n', (4, 17)),
+    ('yaml_run_folded_header', 'yaml', 'run: > # yes\n  echo ok\n', (4, 15)),
     ('yaml_block_reset', 'yaml', 'a: |\n  "text\nb: 1 # real\n', (5, 16)),
     ('yaml_run', 'yaml', 'run: |\n  # shell\n  cat <<EOF\n  # body\n  EOF\n  echo "multi\n    # string"\nb: 1 # real\n', (11, 53)),
     ('yaml_spaced_quote', 'yaml', "a: this is 'plain # real\n", (5, 19)),
     ('shell_command_scope', 'sh', 'echo "$(echo x # real\n)"\n', (5, 19)),
     ('shell_backtick_scope', 'sh', 'echo "`echo x # real\n`"\n', (5, 18)),
-    ('shell_parameter_command', 'sh', 'echo ${x:-$(echo x # literal\n)} # yes\n', (4, 30)),
+    ('shell_parameter_command', 'sh', 'echo ${x:-$(echo x # literal\n)} # yes\n', (12, 30)),
     ('shell_parameter_brace', 'sh', 'echo ${x:-foo{} # yes\n', (4, 18)),
     ('shell_parameter_scope', 'sh', 'echo ${x:- # literal} # yes\n', (4, 22)),
     ('heredoc_continued', 'sh', 'cat <<EOF \\\n  <<BAR\n# first\nEOF\n# second\nBAR\n# yes\n', (4, 37)),
@@ -38,15 +42,16 @@ CASES = [
     ('yaml_cr_comments', 'yaml', '# first\ra: 1 # yes\r', (10, 13)),
     ('yaml_key_colon', 'yaml', '"a:b": |\n  # data\n', (0, 12)),
     ('yaml_key_hash', 'yaml', "'a#b': >-\n  # data\n", (0, 13)),
-    ('yaml_escaped_run', 'yaml', '"ru\\u006e": |\n  # yes\n', (0, 16)),
-    ('yaml_alias_key', 'yaml', '&k run: x\n*k: |\n  # yes\n', (0, 15)),
+    ('yaml_escaped_run', 'yaml', '"ru\\u006e": |\n  # yes\n', (4, 16)),
+    ('yaml_single_run', 'yaml', "'run': |\n  # yes\n", (4, 11)),
+    ('yaml_double_run', 'yaml', '"run": |\n  # yes\n', (4, 11)),
     ('yaml_anchor', 'yaml', 'a: &v "x # data" # yes\n', (4, 16)),
     ('yaml_tag', 'yaml', 'a: !!str "x # data" # yes\n', (4, 19)),
     ('yaml_custom_tag', 'yaml', 'a: !tag "x # data" # yes\n', (4, 18)),
     ('yaml_verbatim_tag', 'yaml', 'a: !<tag:example.org,2026:x> "x # data" # yes\n', (4, 39)),
     ('yaml_flow_properties', 'yaml', '{a: &v "x # data", b: *v} # yes\n', (4, 23)),
     ('yaml_block_properties', 'yaml', 'a: &v !!str |\n  # data\n', (0, 15)),
-    ('yaml_run_properties', 'yaml', 'run: &v !!str |\n  cat <<EOF\n  # body\n  EOF\n  # yes\n', (0, 32)),
+    ('yaml_run_properties', 'yaml', 'run: &v !!str |\n  cat <<EOF\n  # body\n  EOF\n  # yes\n', (4, 32)),
     ('yaml_plain_continuation', 'yaml', "a: text\n  'plain # real\nb: 1 # yes\n", (9, 24)),
     ('shell_quoted_shift', 'sh', 'echo "$((1 << true))"\n# real\ntrue\n# yes\n', (9, 31)),
     ('shell_arithmetic', 'sh', 'echo "$((1 << 2))"\n# yes\n', (4, 19)),
@@ -63,7 +68,7 @@ CASES = [
     ('shell_continued_hash_escape', 'sh', 'echo foo\\\n\\# data\n# yes\n', (4, 18)),
     ('shell_single_quote_continuation', 'sh', "echo 'a\\\n# b' # yes\n", (4, 14)),
     ('shell_escaped_backslash_newline', 'sh', 'echo foo\\\\\n# yes\n', (4, 13)),
-    ('shell_continued_comment_bytes', 'sh', '# first\\\n second\necho x\n', (13, 18)),
+    ('shell_continued_comment_bytes', 'sh', '# first\\\n second\necho x\n', (7, 18)),
     ('shell_comment_final_backslash', 'sh', '# yes\\', (5, 5)),
     ('shell_continued_scope_opener', 'sh', 'echo "$\\\n(echo x # real\n)"\n', (5, 20)),
     ('shell_continued_quoted_delimiter', 'sh', 'cat <<"EO\\\nF"\n# data\nEOF\n# yes\n', (4, 23)),
@@ -155,7 +160,11 @@ REFUSED_SHELL = [
     '[[ ab == @(a)#b ]] && echo y\n',
     'cat <(case x in\nx) echo x ;; # real\nesac\n) # yes\n',
 ]
-REFUSED_SOURCES = [("refused.sh", source) for source in REFUSED_SHELL] + [
+REFUSED_SOURCES = [("refused.yaml", source) for source in [
+    '&k run: x\n*k: |\n  # yes\n',
+    '&k run: |\n  # yes\n',
+    '!!str run: |\n  # yes\n',
+]] + [("refused.sh", source) for source in REFUSED_SHELL] + [
     ("refused.yaml", "run: |\n" + "".join("  " + line for line in source.splitlines(keepends=True)))
     for source in REFUSED_SHELL if '$((' in source or source.startswith('((')
 ]
@@ -227,3 +236,15 @@ def test_unfinished_scopes_cli(name: str, source: str, tmp_path: Path) -> None:
     assert result.returncode != 0
     assert name in result.stderr
     assert not result.stdout
+
+
+@pytest.mark.parametrize('source,stdout,comments', [
+    ('# first\\\nprintf second\n', 'second', 7),
+    ('echo ${x:-$(echo x # real\n)}\n', 'x\n', 5),
+    ('echo ${x:-`echo x # real\n`}\n', 'x\n', 5),
+])
+def test_shell_comments_match_execution(source, stdout, comments):
+    result = subprocess.run(['bash', '-c', source], capture_output=True, text=True, check=True)
+    assert result.stdout == stdout
+    assert not result.stderr
+    assert counter.quoted_comments(source, shell=True) == comments
