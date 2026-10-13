@@ -31,7 +31,7 @@ def parse_pool(max_workers: int, service_pid: int) -> ProcessPoolExecutor:
     """
     context = multiprocessing.get_context("forkserver")
     context.set_forkserver_preload(list(_PRELOAD_MODULES))
-    # Loaded on first pool build: importing backend.ingest keeps master's module set.
+    # Lazy: importing backend.ingest must not load multiprocessing.forkserver (the suite bench counts bootstrap imports).
     forkserver = importlib.import_module("multiprocessing.forkserver")
     forkserver.ensure_running()
     return ProcessPoolExecutor(
