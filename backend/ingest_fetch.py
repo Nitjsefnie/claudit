@@ -30,9 +30,8 @@ from backend.ingest_progress import _set_progress
 from backend.ingest_timing import (
     _RUN_TIMING, _RunTiming, _emit_fetch_parse_parts,
 )
-from backend.ingest_workers import (  # pylint: disable=unused-import
-    parse_pool, parse_process_count, parse_worker_init, persist_thread_count,
-    worker_count,
+from backend.ingest_workers import (
+    parse_pool, parse_process_count, persist_thread_count, worker_count,
 )
 
 log = logging.getLogger("claudit.ingest")

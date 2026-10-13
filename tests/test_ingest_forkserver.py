@@ -34,6 +34,8 @@ from backend import ingest, ingest_fetch, ingest_workers, pricing, r2, rate_fing
 from backend.ingest_workers import parse_pool
 from backend import timing as _timing
 
+pytest_plugins = ("test_ingest",)
+
 _DECOMPRESS = lzma.decompress
 
 
@@ -67,7 +69,7 @@ def priced_parse(key: str, sidecar_key: str | None, etag: str | None = None, siz
             stack.enter_context(patch.object(pricing, name, value))
         rate_fingerprint.clear_fingerprint_cache()
         try:
-            return ingest_fetch.fetch_and_parse(key, sidecar_key, ingest_fetch.fetch_with_retry, etag=etag, size=size)
+            return ingest._fetch_and_parse(key, sidecar_key, etag, size)  # pylint: disable=protected-access
         finally:
             rate_fingerprint.clear_fingerprint_cache()
 
@@ -288,9 +290,6 @@ def test_bounded_check_uses_a_private_temporary_tree(monkeypatch):
     assert not Path(args[args.index("--basetemp") + 1]).exists()
 
 
-pytest_plugins = ("test_ingest",)
-
-
 _TRACKER_CLEANUP = re.compile(
     r"[^\n]*/multiprocessing/resource_tracker\.py:\d+: UserWarning: "
     r"resource_tracker: There appear to be 5 leaked semaphore objects "
@@ -303,7 +302,8 @@ _TRACKER_CLEANUP = re.compile(
 def test_reused_server_refreshes_configuration(monkeypatch, tmp_path, request):
     # The child consumed check()'s --basetemp, not pytest's numbered tree.
     basetemp = request.config.option.basetemp
-    assert basetemp and tmp_path.is_relative_to(Path(basetemp).resolve())
+    assert basetemp and tmp_path.is_relative_to(Path(basetemp).resolve()), (
+        "the nested pytest child did not consume check()'s --basetemp")
     monkeypatch.setenv("R2_ENDPOINT", "file:///first/")
     monkeypatch.setenv("R2_BUCKET", "claude")
     monkeypatch.setenv("CLAUDIT_TIMING", "1")

@@ -22,7 +22,7 @@ def _worker_environment() -> dict[str, str]:
     return os.environ.copy()
 
 
-def parse_pool(max_workers: int, parent_pid: int) -> ProcessPoolExecutor:
+def parse_pool(max_workers: int, service_pid: int) -> ProcessPoolExecutor:
     """Fork from a preloaded, single-threaded server reused across pools.
 
     The service's complete current environment travels in initargs,
@@ -31,13 +31,14 @@ def parse_pool(max_workers: int, parent_pid: int) -> ProcessPoolExecutor:
     """
     context = multiprocessing.get_context("forkserver")
     context.set_forkserver_preload(list(_PRELOAD_MODULES))
+    # Loaded on first pool build: importing backend.ingest keeps master's module set.
     forkserver = importlib.import_module("multiprocessing.forkserver")
     forkserver.ensure_running()
     return ProcessPoolExecutor(
         max_workers=max_workers,
         mp_context=context,
         initializer=parse_worker_init,
-        initargs=(getattr(forkserver._forkserver, "_forkserver_pid"), parent_pid,
+        initargs=(getattr(forkserver._forkserver, "_forkserver_pid"), service_pid,
                   _worker_environment()))
 
 from backend.env_config import getenv
