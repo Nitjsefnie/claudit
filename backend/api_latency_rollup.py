@@ -1,4 +1,10 @@
-"""Typed latency-rollup reads, projected to the public outlier shape."""
+"""Typed latency-rollup reads, projected to the public outlier shape.
+
+Outlier timestamps use PostgreSQL to_json in the reading session's TimeZone
+instead of the rebuilding session's spelling served by the JSONB reader;
+the spellings agree when rebuilds and reads share one TimeZone, as production's
+single pool does.
+"""
 from __future__ import annotations
 
 from datetime import datetime

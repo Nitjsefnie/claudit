@@ -319,8 +319,11 @@ full rebuild. Outlier dots store five parallel arrays: `out_ts TIMESTAMPTZ[]`,
 They are all NULL for a group without outliers; otherwise all are non-NULL
 with equal cardinality. Startup converts the JSONB dots in place, preserving
 element order and resolving `files.file_id`; a missing file keeps a NULL id.
-The reader spells timestamps through PostgreSQL `to_json` in its session
-timezone and resolves public file keys through `files` (NULL if missing).
+Outlier timestamps use PostgreSQL `to_json` in the reading session's TimeZone
+instead of the rebuilding session's spelling served by the JSONB reader;
+the spellings agree when rebuilds and reads share one TimeZone, as production's
+single pool does.
+The reader resolves public file keys through `files` (NULL if missing).
 Teammate resolution runs its full query every time;
 changed files add their record hours to the scope because
 `agent_rollup` reads `files.agent_type`.
