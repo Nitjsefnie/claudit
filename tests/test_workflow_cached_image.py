@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 
 import yaml
@@ -11,6 +12,7 @@ WORKFLOW = ROOT / ".github/workflows/docker-smoke.yml"
 OVERRIDE = ".github/docker-smoke.compose.yaml"
 POSTGRES_IMAGE = ROOT / ".github/actions/postgres-image/action.yml"
 CACHED = "$/.github/actions/cached-image"
+CACHED_ACTION = ROOT / ".github/actions/cached-image/action.yml"
 FILES = ["compose.yaml", OVERRIDE]
 # `docker compose -f a -f b <subcommand>`; the file list and the subcommand.
 COMPOSE = re.compile(r"docker compose((?:\s+-f\s+[^\s)\"]+)*)\s+([a-z]+)([^\n)\"]*)")
@@ -80,6 +82,8 @@ def test_cached_base_image_is_the_dockerfiles_from_reference():
     assert cached["fallback-ref"] == "${{ steps.base.outputs.fallback }}"
     assert cached["key"] == "${{ steps.base.outputs.key }}"
     assert 'echo "ref=${BASE_IMAGE}"' in base["run"]
+    assert re.findall(r'(?m)^ *echo "(fallback=[^"]*)"$', base["run"]) == [
+        "fallback=${BASE_FALLBACK_IMAGE}"]
     # A weekly bucket bounds how stale a cached tag-pinned base can get.
     assert "week=\"$(date -u +%G-W%V)\"" in base["run"]
     assert ("key=python-base-${RUNNER_OS}-${RUNNER_ARCH}-${BASE_IMAGE}-${week}"
@@ -103,3 +107,39 @@ def test_base_guard_rejects_a_dockerfile_that_names_another_base():
     assert guard in base["run"]
     # Failing after the outputs were written would still cache the base.
     assert base["run"].index(guard) < base["run"].index("GITHUB_OUTPUT")
+
+
+def _acquire_run() -> str:
+    return next(step for step in _load(CACHED_ACTION)["runs"]["steps"]
+                if step.get("id") == "acquire")["run"]
+
+
+def test_acquire_saves_only_a_successfully_pulled_image():
+    run = _acquire_run()
+    assignments = list(re.finditer(r"(?m)^ *pulled=(\w+)$", run))
+    assert [match[1] for match in assignments] == ["false", "true"]
+    success = re.search(
+        r'(?ms)^(?P<indent> *)if (?:timeout \d+ )?docker pull "\$ref" '
+        r'[^\n]*; then\n.*?^(?P=indent)fi$', run)
+    assert (success and assignments[0].start() < success.start()
+            < assignments[1].start() < success.end())
+    refusal = re.search(
+        r'(?ms)^(?P<indent> *)if \[ "\$pulled" != true \]; then\n'
+        r'(?P<body>.*?)^(?P=indent)fi$', run)
+    assert refusal and re.search(r"(?m)^ *exit 1$", refusal["body"])
+    assert refusal.end() < min(run.index("docker tag"), run.index("docker save"))
+
+
+def test_acquire_pull_attempts_have_a_timeout_and_finite_backoff():
+    run = _acquire_run()
+    pulls = re.findall(r"(?m)^ *if ([^\n]*docker pull[^\n]*); then$", run)
+    assert [shlex.split(command)[:5] for command in pulls] == [
+        ["timeout", "120", "docker", "pull", "$ref"]]
+    delays = re.findall(r"(?m)^ *for delay in (.*); do$", run)
+    assert [delay.split() for delay in delays] == [["0", "5", "15"]]
+
+
+def test_acquire_fails_on_command_errors_from_its_first_command():
+    commands = [line.strip() for line in _acquire_run().splitlines()
+                if line.strip() and not line.lstrip().startswith("#")]
+    assert commands[0] == "set -euo pipefail"
