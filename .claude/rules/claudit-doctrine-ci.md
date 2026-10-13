@@ -104,6 +104,16 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   and `scripts/` (`tests/` stays outside), checked and tightened by
   `scripts/ci/suppression_baseline.py` under the same never-added,
   never-raised, only-shrinks rules as module size.
+- Comment share (`comment_share_baseline`): exact `[comment bytes,
+  non-whitespace bytes]` pairs for tracked Python, JS/JSX/MJS/CJS,
+  YAML and shell sources above 15%, including extensionless shell.
+  Integer cross-products compare shares without rounding. Unrecorded
+  files stay at or below 15%; established entries never rise or get
+  added. `scripts/ci/comment_baseline.py --matches-tree` checks the
+  measured pairs before pytest in the tests canary, on comment-only
+  changes too. Master's `--tighten` lowers entries and drops those at
+  or below 15%, through `thresholds.write`. `--seed` introduces the
+  section once from the measured tree. No re-seed marker applies.
 - Suite cost (`suite_cost`): per-phase instruction counts (millions of
   bytecode instructions, one decimal; phases `collection`, `run`,
   `residual`) of ONE pytest pass over the pinned fixture

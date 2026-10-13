@@ -79,6 +79,7 @@ def _document(measured="92.6", floor="91.1"):
         },
         "reparse": _reparse_family(),
         "module_size_baseline": {},
+        "comment_share_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": {
             "collection": {"measured": Decimal("25.8"),

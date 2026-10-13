@@ -87,6 +87,7 @@ def _document(measured="92.6", floor="91.1", baseline=None, reparse=None,
         },
         "reparse": _reparse() if reparse is None else reparse,
         "module_size_baseline": baseline or {},
+        "comment_share_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": copy.deepcopy(SUITE_COST if suite is None else suite),
     }

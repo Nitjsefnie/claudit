@@ -83,6 +83,7 @@ def _document(suite=None):
             "javascript": {"measured": 50.0, "floor": 48.5},
         },
         "module_size_baseline": {},
+        "comment_share_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": copy.deepcopy(suite) if suite is not None else None,
         # The loader requires EVERY top-level family, so a synthetic

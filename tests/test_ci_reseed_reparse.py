@@ -104,6 +104,7 @@ def _document(suite_cost=True, reparse=True):
                            "floor": Decimal("88.9")},
         },
         "module_size_baseline": {},
+        "comment_share_baseline": {},
         "pylint_suppression_baseline": {},
     }
     if reparse:
