@@ -4,6 +4,7 @@ tests/test_branding.py
 tests/test_breakdown_exact_rate.py
 tests/test_cache_write_split.py
 tests/test_ci_classify_comment_only.py
+tests/test_ci_comment_share.py
 tests/test_classic_script_scope.py
 tests/test_ctx_input_js.py
 tests/test_ctx_turn_parity.py
