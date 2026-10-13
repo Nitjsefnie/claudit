@@ -300,7 +300,10 @@ _TRACKER_CLEANUP = re.compile(
 
 @requires_forkserver
 @bounded_pool_test
-def test_reused_server_refreshes_configuration(monkeypatch, tmp_path):
+def test_reused_server_refreshes_configuration(monkeypatch, tmp_path, request):
+    # The child consumed check()'s --basetemp, not pytest's numbered tree.
+    basetemp = request.config.option.basetemp
+    assert basetemp and tmp_path.is_relative_to(Path(basetemp).resolve())
     monkeypatch.setenv("R2_ENDPOINT", "file:///first/")
     monkeypatch.setenv("R2_BUCKET", "claude")
     monkeypatch.setenv("CLAUDIT_TIMING", "1")
