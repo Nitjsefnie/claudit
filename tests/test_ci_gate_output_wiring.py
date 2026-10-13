@@ -134,6 +134,10 @@ def _legs(gate):
 def _stub_gh(directory, paths, base_contents=None, head_contents=None):
     """An executable stub `gh` on PATH that answers the push-path reads."""
     script = directory / "gh"
+    if base_contents is None:
+        base_contents = {"backend/constants.py": 'PRICING_VERSION = "7"\n'}
+    if head_contents is None:
+        head_contents = {"backend/constants.py": 'PRICING_VERSION = "8"\n'}
     script.write_text(STUB_GH.format(
         head=BEFORE, paths=list(paths), base=BEFORE,
         base_contents=base_contents or {}, head_contents=head_contents or {}),

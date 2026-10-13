@@ -1110,7 +1110,7 @@
     ],
     "tests/test_ci_gate_output_wiring.py": [
       8159,
-      17042
+      17210
     ],
     "tests/test_ci_ratchets.py": [
       1985,
