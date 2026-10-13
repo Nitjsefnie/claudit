@@ -63,10 +63,21 @@ def test_a_null_model_row_is_not_masked_as_unknown(client):
     with db.viz_conn() as c:
         c.execute(
             """
-            INSERT INTO records (file_key, line_num, uuid, ts, model,
-                                 fresh_tokens, output_tokens, cost_usd)
-            VALUES ('claude/projA/sess-A/sess-A.jsonl', 9999,
-                    'empty-model-control-uuid', now(), '', 100, 5, 0.0)
+            INSERT INTO records (file_id, line_num, fallback, ts, model_id,
+                                 fresh_tokens, output_tokens)
+            SELECT f.file_id, 9999, 'empty-model-control-uuid', now(),
+                   m.id, 100, 5
+              FROM files f, dim_model m
+             WHERE f.file_key = 'claude/projA/sess-A/sess-A.jsonl'
+               AND m.value = ''
+            """
+        )
+        c.execute(
+            """
+            INSERT INTO records_price (file_id, line_num, cost_usd)
+            SELECT f.file_id, 9999, 0.0
+              FROM files f
+             WHERE f.file_key = 'claude/projA/sess-A/sess-A.jsonl'
             """
         )
 
@@ -90,11 +101,22 @@ def test_rollup_grains_do_not_mask_an_empty_model(client):
     with db.viz_conn() as c:
         c.execute(
             """
-            INSERT INTO records (file_key, line_num, uuid, ts, model,
-                                 fresh_tokens, output_tokens, cost_usd,
+            INSERT INTO records (file_id, line_num, fallback, ts, model_id,
+                                 fresh_tokens, output_tokens,
                                  reply_latency_s)
-            VALUES ('claude/projA/sess-A/sess-A.jsonl', 9998,
-                    'empty-model-rollup-uuid', now(), '', 100, 5, 0.0, 0.5)
+            SELECT f.file_id, 9998, 'empty-model-rollup-uuid', now(),
+                   m.id, 100, 5, 0.5
+              FROM files f, dim_model m
+             WHERE f.file_key = 'claude/projA/sess-A/sess-A.jsonl'
+               AND m.value = ''
+            """
+        )
+        c.execute(
+            """
+            INSERT INTO records_price (file_id, line_num, cost_usd)
+            SELECT f.file_id, 9998, 0.0
+              FROM files f
+             WHERE f.file_key = 'claude/projA/sess-A/sess-A.jsonl'
             """
         )
         c.execute("DELETE FROM ingest_derived_state")
@@ -103,13 +125,15 @@ def test_rollup_grains_do_not_mask_an_empty_model(client):
 
     with db.viz_conn() as c:
         usage_empty = _scalar(c, "SELECT COUNT(*) FROM usage_rollup "
-                                 "WHERE model = ''")
-        usage_unknown = _scalar(c, "SELECT COUNT(*) FROM usage_rollup "
-                                   "WHERE model = 'unknown'")
+                                 "WHERE model_id = 0")
+        usage_unknown = _scalar(
+            c, "SELECT COUNT(*) FROM usage_rollup WHERE model_id IN "
+               "(SELECT id FROM dim_model WHERE value = 'unknown')")
         latency_empty = _scalar(c, "SELECT COUNT(*) FROM latency_rollup "
-                                   "WHERE model = ''")
-        latency_unknown = _scalar(c, "SELECT COUNT(*) FROM latency_rollup "
-                                     "WHERE model = 'unknown'")
+                                   "WHERE model_id = 0")
+        latency_unknown = _scalar(
+            c, "SELECT COUNT(*) FROM latency_rollup WHERE model_id IN "
+               "(SELECT id FROM dim_model WHERE value = 'unknown')")
     assert usage_empty >= 1, (usage_empty, usage_unknown)
     assert latency_empty >= 1, (latency_empty, latency_unknown)
     assert usage_unknown == 0

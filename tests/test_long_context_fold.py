@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from backend import api, constants, db, ingest, ingest_reprice, pricing
 from backend import rate_fingerprint
 from tests import scratch_db
+from tests import dims_seed
 
 
 # 300k prompt / 2k output, no rate_limits (the API shape): the record
@@ -87,22 +88,37 @@ def _install_search_rate_tables(monkeypatch, token_rates: dict) -> None:
 def _seed_search_records(records: tuple[_SearchRecord, ...]) -> None:
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT file_key FROM records LIMIT 1").fetchone()
+            "SELECT f.file_key FROM records r "
+            "JOIN files f ON f.file_id = r.file_id LIMIT 1").fetchone()
         assert row is not None
         file_key = row[0]
-        c.execute("DELETE FROM records WHERE file_key = %s", (file_key,))
-        c.execute("UPDATE usage_rollup SET provider = %s WHERE model = %s",
-                  (_SEARCH_HOST, _SEARCH_MODEL))
+        c.execute(
+            "DELETE FROM records r USING files f "
+            "WHERE r.file_id = f.file_id AND f.file_key = %s", (file_key,))
+        host_id = dims_seed.dim_id(c, "dim_provider", _SEARCH_HOST)
+        model_id = dims_seed.dim_id(c, "dim_model", _SEARCH_MODEL)
+        c.execute(
+            "UPDATE usage_rollup SET provider_id = %s WHERE model_id = %s",
+            (host_id, model_id))
         for line_num, record in enumerate(records, start=1):
+            fid = dims_seed.file_id(c, file_key)
+            mid = dims_seed.dim_id(c, "dim_model", _SEARCH_MODEL)
+            provid = dims_seed.dim_id(c, "dim_provider", _SEARCH_HOST)
+            vid = dims_seed.dim_id(c, "dim_pricing_version",
+                                   constants.PRICING_VERSION)
             c.execute(
-                "INSERT INTO records (file_key, line_num, ts, model, "
+                "INSERT INTO records (file_id, line_num, ts, model_id, "
                 "fresh_tokens, cache_creation_tokens, cache_read_tokens, "
-                "output_tokens, eph5_tokens, eph1h_tokens, cost_usd, "
-                "web_search_requests, provider, pricing_version) "
-                "VALUES (%s, %s, %s, %s, %s, 0, 0, 0, 0, 0, %s, %s, %s, %s)",
-                (file_key, line_num, record.ts, _SEARCH_MODEL,
-                 record.fresh_tokens, record.cost, record.searches,
-                 _SEARCH_HOST, constants.PRICING_VERSION),
+                "output_tokens, eph5_tokens, eph1h_tokens, "
+                "web_search_requests, provider_id) "
+                "VALUES (%s, %s, %s, %s, %s, 0, 0, 0, 0, 0, %s, %s)",
+                (fid, line_num, record.ts, mid,
+                 record.fresh_tokens, record.searches, provid),
+            )
+            c.execute(
+                "INSERT INTO records_price (file_id, line_num, cost_usd, "
+                "pricing_version_id) VALUES (%s, %s, %s, %s)",
+                (fid, line_num, record.cost, vid),
             )
         c.commit()
 
@@ -147,7 +163,7 @@ def test_ingest_persists_the_long_context_flag(codex_app):
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT long_context, long_context_input_mult, "
-            "long_context_output_mult FROM records").fetchone()
+            "long_context_output_mult FROM records_price").fetchone()
         rollup_row = c.execute(
             "SELECT long_context FROM usage_rollup").fetchone()
     assert row is not None and rollup_row is not None
@@ -231,6 +247,55 @@ def test_cache_fold_places_token_and_search_cost_in_each_rate_epoch(
     assert sum(session_total["cost_buckets"].values()) == pytest.approx(6.1624)
 
 
+def _seed_meter_pair(model: str, old_fingerprint: str) -> None:
+    """Retarget the first stored record to the meter pair and plant a
+    second row carrying the old factors (#959's dim-FK shape)."""
+    with db.viz_conn() as c:
+        file_key, line_num = c.execute(
+            "SELECT f.file_key, r.line_num FROM records r "
+            "JOIN files f ON f.file_id = r.file_id "
+            "ORDER BY f.file_key, r.line_num"
+        ).fetchone() or (None, None)
+        assert file_key is not None and line_num is not None
+        mid = dims_seed.dim_id(c, "dim_model", model)
+        vid = dims_seed.dim_id(c, "dim_pricing_version", "0")
+        fpid = dims_seed.dim_id(c, "dim_rate_fingerprint", old_fingerprint)
+        fid = dims_seed.file_id(c, file_key)
+        c.execute(
+            "UPDATE records r SET model_id = %s, ts = %s, fresh_tokens = %s, "
+            "cache_creation_tokens = 0, cache_read_tokens = 0, "
+            "output_tokens = %s, eph5_tokens = 0, eph1h_tokens = 0, "
+            "provider_id = NULL "
+            "FROM files f "
+            "WHERE r.file_id = f.file_id AND f.file_key = %s "
+            "  AND r.line_num = %s",
+            (mid, _BLOB_TS, 1_000_000, 1_000_000, file_key, line_num),
+        )
+        c.execute(
+            "UPDATE records_price rp SET cost_usd = %s, long_context = TRUE, "
+            "pricing_version_id = %s, rate_fingerprint_id = %s, "
+            "long_context_input_mult = 5.0, long_context_output_mult = 5.0 "
+            "FROM records r JOIN files f ON f.file_id = r.file_id "
+            "WHERE rp.file_id = r.file_id AND rp.line_num = r.line_num "
+            "  AND f.file_key = %s AND r.line_num = %s",
+            (30.0, vid, fpid, file_key, line_num),
+        )
+        c.execute(
+            "INSERT INTO records (file_id, line_num, ts, model_id, "
+            "fresh_tokens, output_tokens) "
+            "VALUES (%s, %s, %s, %s, 1000000, 1000000)",
+            (fid, line_num + 1, _BLOB_TS, mid),
+        )
+        c.execute(
+            "INSERT INTO records_price (file_id, line_num, cost_usd, "
+            "long_context, pricing_version_id, rate_fingerprint_id, "
+            "long_context_input_mult, long_context_output_mult) "
+            "VALUES (%s, %s, 30.0, TRUE, %s, %s, 5.0, 5.0)",
+            (fid, line_num + 1, vid, fpid),
+        )
+        c.commit()
+
+
 def test_mixed_stored_factor_pairs_decompose_stored_total(
         codex_app, monkeypatch):
     """A committed partial reprice leaves old and new meter pairs together.
@@ -252,31 +317,7 @@ def test_mixed_stored_factor_pairs_decompose_stored_total(
     rate_fingerprint.clear_fingerprint_cache()
     old_fingerprint = rate_fingerprint.pair_fingerprint(model, None)
 
-    with db.viz_conn() as c:
-        file_key, line_num = c.execute(
-            "SELECT file_key, line_num FROM records ORDER BY file_key, line_num"
-        ).fetchone() or (None, None)
-        assert file_key is not None and line_num is not None
-        c.execute(
-            "UPDATE records SET model = %s, ts = %s, fresh_tokens = %s, "
-            "cache_creation_tokens = 0, cache_read_tokens = 0, "
-            "output_tokens = %s, eph5_tokens = 0, eph1h_tokens = 0, "
-            "cost_usd = %s, long_context = TRUE, "
-            "provider = NULL, pricing_version = '0', rate_fingerprint = %s, "
-            "long_context_input_mult = 5.0, long_context_output_mult = 5.0 "
-            "WHERE file_key = %s AND line_num = %s",
-            (model, _BLOB_TS, 1_000_000, 1_000_000, 30.0,
-             old_fingerprint, file_key, line_num),
-        )
-        c.execute(
-            "INSERT INTO records (file_key, line_num, ts, model, fresh_tokens, "
-            "output_tokens, cost_usd, long_context, provider, pricing_version, "
-            "rate_fingerprint, long_context_input_mult, long_context_output_mult) "
-            "VALUES (%s, %s, %s, %s, 1000000, 1000000, 30.0, TRUE, NULL, '0', "
-            "%s, 5.0, 5.0)",
-            (file_key, line_num + 1, _BLOB_TS, model, old_fingerprint),
-        )
-        c.commit()
+    _seed_meter_pair(model, old_fingerprint)
 
     monkeypatch.setattr(
         pricing,
@@ -302,10 +343,15 @@ def test_mixed_stored_factor_pairs_decompose_stored_total(
 
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT cost_usd, long_context_input_mult, "
-            "long_context_output_mult, rate_fingerprint, pricing_version "
-            "FROM records "
-            "ORDER BY file_key, line_num").fetchall()
+            "SELECT rp.cost_usd, rp.long_context_input_mult, "
+            "rp.long_context_output_mult, df.value, pv.value "
+            "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num "
+            "JOIN files f ON f.file_id = r.file_id "
+            "LEFT JOIN dim_rate_fingerprint df "
+            "  ON df.id = rp.rate_fingerprint_id "
+            "LEFT JOIN dim_pricing_version pv "
+            "  ON pv.id = rp.pricing_version_id "
+            "ORDER BY f.file_key, r.line_num").fetchall()
 
     body = codex_app.get("/api/cache?range=3650d").json()
     model_row = next(row for row in body["per_model"] if row["model"] == model)

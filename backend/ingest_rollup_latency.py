@@ -51,6 +51,18 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
     written = 0
     with db.viz_conn() as conn:
         conn.execute("SET LOCAL work_mem = '128MB'")
+        # The reserved all-projects row (project_id '', #959's R8) is
+        # schema state, but a wholesale DELETE FROM projects takes it —
+        # re-seed before any proj_id = 0 insert can violate the FK.
+        # WHERE NOT EXISTS: when the row stands (every rebuild but the
+        # one after such a wipe) the SELECT yields no row, so no insert
+        # is ever attempted; ON CONFLICT stays for the concurrent race.
+        conn.execute(
+            "INSERT INTO projects (proj_id, project_id, display_name, "
+            "first_seen_at, last_seen_at) "
+            "SELECT 0, '', '', now(), now() "
+            "WHERE NOT EXISTS (SELECT 1 FROM projects WHERE proj_id = 0) "
+            "ON CONFLICT DO NOTHING")
         if not incremental:
             # DELETE keeps concurrent readers on the committed old rows; TRUNCATE
             # takes ACCESS EXCLUSIVE for the full percentile rebuild.
@@ -69,13 +81,14 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
                     db.sql_text(f"""
                     DELETE FROM latency_rollup l
                      USING (
-                       SELECT project_id, bucket_start
+                       SELECT p.proj_id, d.bucket_start
                          FROM unnest(%(projects)s::text[],
                                      %(project_buckets)s::timestamptz[])
                               AS d(project_id, bucket_start)
+                         JOIN projects p ON p.project_id = d.project_id
                      ) d
                      WHERE l.bucket_s = {bucket_width}
-                       AND l.project_id = d.project_id
+                       AND l.proj_id = d.proj_id
                        AND l.bucket = d.bucket_start
                              + interval '{bucket_width // 2} seconds'
                     """), params)
@@ -87,24 +100,27 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
                          FROM unnest(%(buckets)s::timestamptz[])
                               AS d(bucket_start)
                      ) d
-                     WHERE l.bucket_s = {bucket_width} AND l.project_id = ''
+                     WHERE l.bucket_s = {bucket_width} AND l.proj_id = 0
                        AND l.bucket = d.bucket_start
                              + interval '{bucket_width // 2} seconds'
                     """), {"buckets": all_buckets})
 
             for project_scope in (True, False):
                 if not incremental:
-                    project_expr = "f.project_id" if project_scope else "''"
+                    project_expr = "p.proj_id" if project_scope else "0"
                     scope_join = (
-                        "JOIN files f ON f.file_key = r.file_key"
-                        if project_scope else ""
+                        "JOIN files f ON f.file_id = r.file_id "
+                        "JOIN projects p ON p.project_id = f.project_id"
+                        if project_scope else
+                        "JOIN files f ON f.file_id = r.file_id"
                     )
                     scope_filter = ""
                     query_params = None
                 elif project_scope:
-                    project_expr = "f.project_id"
+                    project_expr = "p.proj_id"
                     scope_join = db.sql_text(f"""
-                      JOIN files f ON f.file_key = r.file_key
+                      JOIN files f ON f.file_id = r.file_id
+                      JOIN projects p ON p.project_id = f.project_id
                       JOIN (
                         SELECT DISTINCT project_id, bucket_start
                           FROM unnest(%(projects)s::text[],
@@ -118,8 +134,9 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
                     scope_filter = ""
                     query_params = params
                 else:
-                    project_expr = "''"
+                    project_expr = "0"
                     scope_join = db.sql_text(f"""
+                      JOIN files f ON f.file_id = r.file_id
                       JOIN (
                         SELECT DISTINCT bucket_start
                           FROM unnest(%(buckets)s::timestamptz[])
@@ -137,9 +154,9 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
                                floor(EXTRACT(EPOCH FROM r.ts) / {bucket_width})
                                * {bucket_width} + {bucket_width} / 2
                              ) AS bucket,
-                             {project_expr} AS project_id,
-                             r.model AS model,
-                             r.ts, r.file_key, r.line_num,
+                             {project_expr} AS proj_id,
+                             r.model_id AS model_id,
+                             r.ts, f.file_key, r.line_num,
                              r.reply_latency_s AS latency_s
                         FROM records r
                         {scope_join}
@@ -147,7 +164,7 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
                          {scope_filter}
                     ),
                     bands AS (
-                      SELECT bucket, project_id, model, COUNT(*) AS n,
+                      SELECT bucket, proj_id, model_id, COUNT(*) AS n,
                              PERCENTILE_CONT(0.10) WITHIN GROUP
                                (ORDER BY latency_s) AS p10,
                              PERCENTILE_CONT(0.50) WITHIN GROUP
@@ -159,18 +176,18 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
                     ranked AS (
                       SELECT s.*, b.n AS bucket_n,
                              ROW_NUMBER() OVER (
-                               PARTITION BY s.bucket, s.project_id, s.model
+                               PARTITION BY s.bucket, s.proj_id, s.model_id
                                ORDER BY s.latency_s DESC, s.file_key, s.line_num
                              ) AS rn_high,
                              ROW_NUMBER() OVER (
-                               PARTITION BY s.bucket, s.project_id, s.model
+                               PARTITION BY s.bucket, s.proj_id, s.model_id
                                ORDER BY s.latency_s ASC, s.file_key, s.line_num
                              ) AS rn_low
-                        FROM src s JOIN bands b USING (bucket, project_id, model)
+                        FROM src s JOIN bands b USING (bucket, proj_id, model_id)
                        WHERE b.n >= 100
                     ),
                     picked AS (
-                      SELECT bucket, project_id, model,
+                      SELECT bucket, proj_id, model_id,
                              jsonb_agg(jsonb_build_object(
                                'ts', ts, 'latency_s', latency_s,
                                'file_key', file_key, 'line_num', line_num,
@@ -185,13 +202,13 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
                        GROUP BY 1, 2, 3
                     )
                     INSERT INTO latency_rollup
-                      (bucket_s, bucket, project_id, model, n, p10, p50, p90,
+                      (bucket_s, bucket, proj_id, model_id, n, p10, p50, p90,
                        outliers)
-                    SELECT {bucket_width}, b.bucket, b.project_id, b.model,
+                    SELECT {bucket_width}, b.bucket, b.proj_id, b.model_id,
                            b.n, b.p10, b.p50, b.p90,
                            COALESCE(p.outliers, '[]'::jsonb)
                       FROM bands b
-                      LEFT JOIN picked p USING (bucket, project_id, model)
+                      LEFT JOIN picked p USING (bucket, proj_id, model_id)
                     """), query_params)
                 written += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
         conn.commit()

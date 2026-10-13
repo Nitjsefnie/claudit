@@ -13,6 +13,7 @@ from test_ingest import _fresh_db_fixture as ingest_fresh_db_fixture  # pylint: 
 from test_ingest_incremental_dst import _use_timezone
 from test_ingest_incremental_review import _seed_rollups
 from backend import db, ingest, ingest_scope
+from tests import dims_seed
 
 
 def _walk_plan(node: dict[str, Any]) -> Iterator[dict[str, Any]]:
@@ -61,16 +62,24 @@ def test_actual_scoped_insert_plans_use_timestamp_indexes(
             "'e', 1, now(), now(), 'v' FROM generate_series(1, 200) i"
         )
         conn.execute(
-            "INSERT INTO records (file_key, line_num, uuid, ts, model) "
-            "SELECT 'bulk-' || i, n, i || '-' || n, "
-            "'2026-01-01T00:00Z'::timestamptz + n * interval '1 hour', "
-            "'model' FROM generate_series(1, 200) i "
-            "CROSS JOIN generate_series(1, 200) n"
+            "INSERT INTO records (file_id, line_num, fallback, ts, model_id) "
+            "SELECT (SELECT file_id FROM files "
+            "         WHERE file_key = 'bulk-' || i), "
+            "       n, i || '-' || n, "
+            "       '2026-01-01T00:00Z'::timestamptz + n * interval '1 hour', "
+            "       %s FROM generate_series(1, 200) i "
+            "CROSS JOIN generate_series(1, 200) n",
+            (dims_seed.dim_id(conn, "dim_model", "model"),),
         )
         conn.execute(
-            "INSERT INTO tool_uses (file_key, line_num, idx, tool_name, ts, "
-            "model) SELECT file_key, line_num, 0, 'Read', ts, model "
-            "FROM records WHERE file_key LIKE 'bulk-%'"
+            "INSERT INTO tool_uses (file_id, line_num, idx, tool_name_id, "
+            "ts, model_id) "
+            "SELECT r.file_id, r.line_num, 0, %s, r.ts, %s "
+            "FROM records r "
+            "JOIN files f ON f.file_id = r.file_id "
+            "WHERE f.file_key LIKE 'bulk-%%'",
+            (dims_seed.dim_id(conn, "dim_tool_name", "Read"),
+             dims_seed.dim_id(conn, "dim_model", "model")),
         )
         for table in ("records", "tool_uses", "files"):
             conn.execute(f"ANALYZE {table}")

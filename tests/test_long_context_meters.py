@@ -208,7 +208,7 @@ def test_the_codex_lane_decides_on_the_model_threshold(monkeypatch):
 
 def _stale_row(model: str, window: int, flag: bool | None) -> _StaleRow:
     return _StaleRow(
-        file_key="k/s/s.jsonl", line_num=1, model=model, fresh_tokens=window,
+        file_id=1, line_num=1, model=model, fresh_tokens=window,
         cache_creation_tokens=0, cache_read_tokens=0, output_tokens=100,
         eph5_tokens=0, eph1h_tokens=0, ts=None, long_context=flag,
         provider=None, cost_usd=Decimal(0), pricing_version="0",

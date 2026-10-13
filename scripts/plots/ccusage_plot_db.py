@@ -40,6 +40,14 @@ from ccusage_plot_timeline import plot_timeline  # noqa: E402
 from backend.env_config import getenv_with_dotenv, warn_deprecated_env  # noqa: E402
 # pylint: enable=wrong-import-position
 
+# The identity rebuild comes from the one definition (issue #959 task 8):
+# records.uuid is the split column set, so DISTINCT ON keys on the same
+# reconstruction the ingest's winner rule groups by.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from backend import uuid_split  # noqa: E402  pylint: disable=wrong-import-position
+
+_UUID_TEXT = uuid_split.uuid_text_sql("r")
+
 DEFAULT_DOTENV = Path(__file__).resolve().parents[2] / ".env"
 DB_URL: str | None = None  # rebound in main()
 
@@ -81,7 +89,8 @@ def load_events(cutoff=None, end=None, project=None):
 
     The records table is post-Phase-1: per-file (file_key, request_id)
     streaming-merge already happened at ingest. Phase 2 (cross-file uuid
-    dedup) is applied here via DISTINCT ON (uuid). Per-record cost is
+    dedup) is applied here via DISTINCT ON (the rebuilt identity text).
+    Per-record cost is
     precomputed by backend/pricing.py, so we don't re-run estimate_cost.
 
     `project`, when set, restricts to records whose file belongs to that
@@ -92,19 +101,21 @@ def load_events(cutoff=None, end=None, project=None):
     with closing(psycopg.connect(DB_URL)) as conn, conn.cursor() as cur:
         cur.execute(
             f"""
-            SELECT DISTINCT ON (COALESCE(r.uuid, r.file_key || ':' || r.line_num))
-                r.ts, r.model,
+            SELECT DISTINCT ON (COALESCE({_UUID_TEXT}, f.file_key || ':' || r.line_num))
+                r.ts, dm.value AS model,
                 r.fresh_tokens, r.output_tokens,
                 r.cache_creation_tokens, r.cache_read_tokens,
                 r.eph5_tokens, r.eph1h_tokens,
-                r.cost_usd
+                rp.cost_usd
             FROM records r
-            JOIN files f ON f.file_key = r.file_key
+            JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num
+            JOIN files f ON f.file_id = r.file_id
+            JOIN dim_model dm ON dm.id = r.model_id
             WHERE r.ts IS NOT NULL
               AND (%(cutoff)s::timestamptz IS NULL OR r.ts >= %(cutoff)s)
               AND (%(end)s::timestamptz    IS NULL OR r.ts <= %(end)s)
               {proj_filter}
-            ORDER BY COALESCE(r.uuid, r.file_key || ':' || r.line_num), r.ts
+            ORDER BY COALESCE({_UUID_TEXT}, f.file_key || ':' || r.line_num), r.ts
             """,
             {"cutoff": cutoff, "end": end, "project": project},
         )

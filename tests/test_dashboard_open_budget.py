@@ -203,7 +203,7 @@ def _main_file_with_records() -> tuple[str, str]:
             "SELECT f.file_key, f.session_id FROM files f "
             "WHERE f.is_main "
             "  AND EXISTS (SELECT 1 FROM records r "
-            "              WHERE r.file_key = f.file_key) "
+            "              WHERE r.file_id = f.file_id) "
             "ORDER BY f.file_key LIMIT 1")
         row = cur.fetchone()
         assert row is not None, "fixture has no main file with records"

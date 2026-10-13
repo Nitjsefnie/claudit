@@ -85,8 +85,9 @@ def activity_heatmap(
     # safe for this because HEATMAP_TZ's offsets are whole hours, so the
     # local hour bucket is preserved. There is no bucket-width gate here
     # (unlike /api/dashboard) — the grid is always hourly.
-    proj_filter = "AND u.project_id = %s" if project else ""
-    model_filter = "AND u.model LIKE %s" if model else ""
+    proj_filter = "AND pj.project_id = %s" if project else ""
+    model_filter = "AND dm.value LIKE %s" if model else ""
+    proj_join, model_join = (" JOIN projects pj ON pj.proj_id = u.proj_id" if project else ""), (" JOIN dim_model dm ON dm.id = u.model_id" if model else "")
     args: list[Any] = [HEATMAP_TZ, HEATMAP_TZ, since]
     if project:
         args.append(project)
@@ -101,7 +102,7 @@ def activity_heatmap(
                    SUM(u.requests)      AS requests,
                    SUM(u.output_tokens) AS output_tokens,
                    SUM(u.cost_usd)      AS cost_usd
-            FROM usage_rollup u
+            FROM usage_rollup u{proj_join}{model_join}
             WHERE u.hour >= date_trunc('hour', %s::timestamptz)
               {proj_filter} {model_filter}
             GROUP BY 1, 2
@@ -136,7 +137,7 @@ def _latency_filters(project: str | None, model: str | None,
         args.append(project)
     model_filter = ""
     if model:
-        model_filter = "AND r.model LIKE %s"
+        model_filter = "AND dm.value LIKE %s"
         args.append(f"%{model}%")
     return proj_filter, model_filter, args
 
@@ -153,20 +154,20 @@ def _latency_from_rollup(rng: str, project: str | None, model: str | None,
     roll_args: list[Any] = [bucket_s, project or "", since]
     roll_model = ""
     if model:
-        roll_model = "AND model LIKE %s"
+        roll_model = "AND dm.value LIKE %s"
         roll_args.append(f"%{model}%")
     with db.viz_conn() as c:
         rows = c.execute(
             db.sql_text(f"""
-            SELECT bucket, model, n, p10, p50, p90, outliers
-            FROM latency_rollup
+            SELECT bucket, dm.value AS model, n, p10, p50, p90, outliers
+            FROM latency_rollup l JOIN dim_model dm ON dm.id = l.model_id JOIN projects pj ON pj.proj_id = l.proj_id
             WHERE bucket_s = %s
-              AND project_id = %s
+              AND pj.project_id = %s
               AND bucket >= to_timestamp(
                     floor(EXTRACT(EPOCH FROM %s::timestamptz) / {bucket_s})
                     * {bucket_s} + {bucket_s} / 2.0)
               {roll_model}
-            ORDER BY bucket, model
+            ORDER BY bucket, dm.value
             """),
             roll_args,
         ).fetchall()
@@ -205,13 +206,12 @@ def _latency_live(rng: str, project: str | None, model: str | None,
     SELECT to_timestamp(
              floor(EXTRACT(EPOCH FROM r.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
            ) AS bucket,
-           r.model AS model,
+           dm.value AS model,
            COUNT(*) AS n,
            PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY r.reply_latency_s) AS p10,
            PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY r.reply_latency_s) AS p50,
            PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY r.reply_latency_s) AS p90
-    FROM records r
-    JOIN files f ON f.file_key = r.file_key
+    FROM records r JOIN files f ON f.file_id = r.file_id JOIN dim_model dm ON dm.id = r.model_id
     WHERE r.ts >= %s {proj_filter} {model_filter}
       AND r.reply_latency_s IS NOT NULL AND r.is_canonical
     GROUP BY 1, 2
@@ -226,27 +226,26 @@ def _latency_live(rng: str, project: str | None, model: str | None,
       SELECT to_timestamp(
                floor(EXTRACT(EPOCH FROM r.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
              ) AS bucket,
-             r.model AS model,
+             dm.value AS model,
              r.ts                AS event_ts,
-             r.file_key,
+             f.file_key,
              r.line_num,
              r.reply_latency_s AS latency_s,
              COUNT(*) OVER (PARTITION BY
                to_timestamp(floor(EXTRACT(EPOCH FROM r.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2),
-               r.model
+               dm.value
              ) AS bucket_n,
              ROW_NUMBER() OVER (PARTITION BY
                to_timestamp(floor(EXTRACT(EPOCH FROM r.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2),
-               r.model
+               dm.value
                ORDER BY r.reply_latency_s DESC
              ) AS rn_high,
              ROW_NUMBER() OVER (PARTITION BY
                to_timestamp(floor(EXTRACT(EPOCH FROM r.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2),
-               r.model
+               dm.value
                ORDER BY r.reply_latency_s ASC
              ) AS rn_low
-      FROM records r
-      JOIN files f ON f.file_key = r.file_key
+      FROM records r JOIN files f ON f.file_id = r.file_id JOIN dim_model dm ON dm.id = r.model_id
       WHERE r.ts >= %s {proj_filter} {model_filter}
         AND r.reply_latency_s IS NOT NULL AND r.is_canonical
     )
@@ -407,7 +406,7 @@ def _cost_by_context_sql(rng: str, project: str | None,
             tail += " AND f.project_id = %s"
             args.append(project)
         if model:
-            tail += " AND r.model LIKE %s"
+            tail += " AND dm.value LIKE %s"
             args.append(f"%{model}%")
         return (f"""
             SELECT {bucket_expr} AS ctx_bucket,
@@ -415,9 +414,8 @@ def _cost_by_context_sql(rng: str, project: str | None,
                    SUM(r.fresh_tokens + r.cache_creation_tokens
                        + r.cache_read_tokens + r.output_tokens)
                                  AS total_tokens,
-                   SUM(r.cost_usd) AS cost_usd
-              FROM records r
-              JOIN files f ON f.file_key = r.file_key
+                   SUM(rp.cost_usd) AS cost_usd
+              FROM records r JOIN files f ON f.file_id = r.file_id JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num {(" JOIN dim_model dm ON dm.id = r.model_id" if model else "")}
              WHERE r.is_canonical AND r.ts IS NOT NULL
                AND r.ts >= %s {tail}
              GROUP BY 1 ORDER BY 1
@@ -426,17 +424,18 @@ def _cost_by_context_sql(rng: str, project: str | None,
     args.append(since)
     tail = ""
     if project:
-        tail += " AND project_id = %s"
+        tail += " AND pj.project_id = %s"
         args.append(project)
     if model:
-        tail += " AND model LIKE %s"
+        tail += " AND dm.value LIKE %s"
         args.append(f"%{model}%")
+    joins = (" JOIN dim_model dm ON dm.id = c.model_id" if model else "") + (" JOIN projects pj ON pj.proj_id = c.proj_id" if project else "")
     return (f"""
         SELECT ctx_bucket,
                SUM(requests) AS requests,
                SUM(total_tokens) AS total_tokens,
                SUM(cost_usd) AS cost_usd
-          FROM ctx_cost_rollup
+          FROM ctx_cost_rollup c{joins}
          WHERE hour >= date_trunc('hour', %s::timestamptz) {tail}
          GROUP BY 1 ORDER BY 1
         """, args)
@@ -527,7 +526,7 @@ def _cost_by_agent_sql(rng: str, project: str | None,
             tail += " AND f.project_id = %s"
             args.append(project)
         if model:
-            tail += " AND r.model LIKE %s"
+            tail += " AND dm.value LIKE %s"
             args.append(f"%{model}%")
         return (f"""
             SELECT f.agent_type,
@@ -536,9 +535,8 @@ def _cost_by_agent_sql(rng: str, project: str | None,
                    SUM(r.fresh_tokens + r.cache_creation_tokens
                        + r.cache_read_tokens + r.output_tokens)
                                           AS total_tokens,
-                   SUM(r.cost_usd)        AS cost_usd
-              FROM records r
-              JOIN files f ON f.file_key = r.file_key
+                   SUM(rp.cost_usd)        AS cost_usd
+              FROM records r JOIN files f ON f.file_id = r.file_id JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num {(" JOIN dim_model dm ON dm.id = r.model_id" if model else "")}
              WHERE r.is_canonical AND r.ts IS NOT NULL
                AND r.ts >= %s {tail}
              GROUP BY 1 ORDER BY 5 DESC
@@ -546,18 +544,20 @@ def _cost_by_agent_sql(rng: str, project: str | None,
 
     tail = ""
     if project:
-        tail += " AND project_id = %s"
+        tail += " AND pj.project_id = %s"
         args.append(project)
     if model:
-        tail += " AND model LIKE %s"
+        tail += " AND dm.value LIKE %s"
         args.append(f"%{model}%")
+    joins = (" JOIN dim_model dm ON dm.id = a.model_id" if model else "") + (" JOIN projects pj ON pj.proj_id = a.proj_id" if project else "")
     return (f"""
-        SELECT agent_type,
+        SELECT dat.value AS agent_type,
                SUM(requests)      AS requests,
                SUM(output_tokens) AS output_tokens,
                SUM(total_tokens)  AS total_tokens,
                SUM(cost_usd)      AS cost_usd
-          FROM agent_rollup
+          FROM agent_rollup a
+          JOIN dim_agent_type dat ON dat.id = a.agent_type_id{joins}
          WHERE hour >= date_trunc('hour', %s::timestamptz) {tail}
          GROUP BY 1 ORDER BY 5 DESC
         """, args)
@@ -618,10 +618,10 @@ def list_models() -> dict:
     with db.viz_conn() as c:
         rows = c.execute(
             """
-            SELECT model, COUNT(*) AS n
-            FROM records
-            WHERE is_canonical AND model <> '' AND model <> '<synthetic>'
-            GROUP BY model
+            SELECT dm.value, COUNT(*) AS n
+            FROM records r JOIN dim_model dm ON dm.id = r.model_id
+            WHERE r.is_canonical AND dm.value <> '' AND dm.value <> '<synthetic>'
+            GROUP BY dm.value
             ORDER BY 2 DESC
             """
         ).fetchall()
@@ -672,24 +672,24 @@ def list_projects(rng: str = Query("30d", alias="range")) -> dict:
               FROM files GROUP BY project_id
             ) fc ON fc.project_id = p.project_id
             JOIN (
-              SELECT project_id,
-                     SUM(fresh_tokens + output_tokens
-                         + cache_creation_tokens
-                         + cache_read_tokens) AS total_tokens
-              FROM usage_rollup GROUP BY project_id
-              HAVING SUM(fresh_tokens + output_tokens
-                         + cache_creation_tokens
-                         + cache_read_tokens) <> 0
+              SELECT pj.project_id,
+                     SUM(u.fresh_tokens + u.output_tokens
+                         + u.cache_creation_tokens
+                         + u.cache_read_tokens) AS total_tokens
+              FROM usage_rollup u JOIN projects pj ON pj.proj_id = u.proj_id GROUP BY pj.project_id
+              HAVING SUM(u.fresh_tokens + u.output_tokens
+                         + u.cache_creation_tokens
+                         + u.cache_read_tokens) <> 0
             ) uc ON uc.project_id = p.project_id
             LEFT JOIN (
-              SELECT project_id,
-                     SUM(cost_usd) AS range_cost,
-                     SUM(fresh_tokens + output_tokens
-                         + cache_creation_tokens
-                         + cache_read_tokens) AS range_tokens
-              FROM usage_rollup
-              WHERE hour >= date_trunc('hour', %s::timestamptz)
-              GROUP BY project_id
+              SELECT pj.project_id,
+                     SUM(u.cost_usd) AS range_cost,
+                     SUM(u.fresh_tokens + u.output_tokens
+                         + u.cache_creation_tokens
+                         + u.cache_read_tokens) AS range_tokens
+              FROM usage_rollup u JOIN projects pj ON pj.proj_id = u.proj_id
+              WHERE u.hour >= date_trunc('hour', %s::timestamptz)
+              GROUP BY pj.project_id
             ) rc ON rc.project_id = p.project_id
             ORDER BY range_cost DESC, COALESCE(range_tokens, 0) DESC,
                      p.project_id

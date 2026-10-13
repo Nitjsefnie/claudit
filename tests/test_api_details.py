@@ -14,7 +14,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from backend import api, app as app_mod, cache, db, ingest
-from tests import mini_mirror
+from tests import dims_seed, mini_mirror
 
 # Pytest discovers imported fixture functions by their fixture marker.
 from tests.test_api import (  # pylint: disable=unused-import
@@ -94,16 +94,19 @@ def test_dashboard_hourly_carries_line_churn(app_with_fresh_data):
     session_count — so summing the key across entries is exact, and the
     project/model filters scope it."""
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, conn.cursor() as cur:
+        fid = dims_seed.file_id(cur, "claude/projA/sess-A/sess-A.jsonl")
+        tid = dims_seed.dim_id(cur, "dim_tool_name", "Edit")
+        mid = dims_seed.dim_id(cur, "dim_model", "claude-sonnet-4-5")
         cur.execute(
-            "INSERT INTO tool_uses (file_key, line_num, idx, ts, tool_name, "
-            "model, is_error, lines_added, lines_deleted) VALUES "
-            # The model filter reads the call's own tool_uses.model, as
+            "INSERT INTO tool_uses (file_id, line_num, idx, ts, "
+            "tool_name_id, model_id, is_error, lines_added, "
+            "lines_deleted) VALUES "
+            # The model filter reads the call's own tool_uses.model_id, as
             # ingest stores it for sess-A's assistant line.
-            "('claude/projA/sess-A/sess-A.jsonl', 2, 0, '2026-05-07T10:00:01Z', "
-            " 'Edit', 'claude-sonnet-4-5', FALSE, 10, 4), "
+            "(%s, 2, 0, '2026-05-07T10:00:01Z', %s, %s, FALSE, 10, 4), "
             # Errored call: parsed as zero churn, must add nothing.
-            "('claude/projA/sess-A/sess-A.jsonl', 2, 1, '2026-05-07T10:00:02Z', "
-            " 'Edit', 'claude-sonnet-4-5', TRUE, 0, 0)"
+            "(%s, 2, 1, '2026-05-07T10:00:02Z', %s, %s, TRUE, 0, 0)",
+            (fid, tid, mid, fid, tid, mid),
         )
         conn.commit()
 
@@ -145,20 +148,33 @@ def test_dashboard_churn_uses_rollup_only_at_hourly_grain(
     now = datetime.now(timezone.utc)
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn:
         with conn.cursor() as cur:
+            sonnet = dims_seed.dim_id(cur, "dim_model", "claude-sonnet-4-5")
             cur.execute(
-                "INSERT INTO records (file_key, line_num, uuid, request_id, "
-                "ts, model, fresh_tokens, output_tokens, "
+                "INSERT INTO records (file_id, line_num, fallback, request_id, "
+                "ts, model_id, fresh_tokens, output_tokens, "
                 "cache_creation_tokens, cache_read_tokens, eph5_tokens, "
-                "eph1h_tokens, cost_usd, is_canonical) VALUES "
-                "(%s, 9100, %s, 'rollup-boundary', %s, "
-                "'claude-sonnet-4-5', 1, 1, 0, 0, 0, 0, 0, TRUE)",
-                (file_key, f"rollup-boundary-{now.timestamp()}", now),
+                "eph1h_tokens, is_canonical) VALUES "
+                "((SELECT file_id FROM files WHERE file_key = %s), "
+                "%s, %s, 'rollup-boundary', %s, "
+                "%s, 1, 1, 0, 0, 0, 0, TRUE)",
+                (file_key, 9100, f"rollup-boundary-{now.timestamp()}", now,
+                 sonnet),
             )
+            # cost_usd is a reprice-written column and lives on the
+            # records_price sidecar (#959 R4); every writer keeps the pair.
             cur.execute(
-                "INSERT INTO tool_uses (file_key, line_num, idx, ts, "
-                "tool_name, is_error, lines_added, lines_deleted) VALUES "
-                "(%s, 9100, 0, %s, 'Edit', FALSE, 7, 3)",
-                (file_key, now),
+                "INSERT INTO records_price (file_id, line_num, cost_usd) "
+                "VALUES ((SELECT file_id FROM files WHERE file_key = %s), "
+                "%s, 0)",
+                (file_key, 9100),
+            )
+            edit_id = dims_seed.dim_id(cur, "dim_tool_name", "Edit")
+            cur.execute(
+                "INSERT INTO tool_uses (file_id, line_num, idx, ts, "
+                "tool_name_id, is_error, lines_added, lines_deleted) VALUES "
+                "((SELECT file_id FROM files WHERE file_key = %s), "
+                "9100, 0, %s, %s, FALSE, 7, 3)",
+                (file_key, now, edit_id),
             )
         conn.commit()
 
@@ -169,8 +185,11 @@ def test_dashboard_churn_uses_rollup_only_at_hourly_grain(
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE tool_uses SET lines_added = 70, lines_deleted = 30 "
-                "WHERE file_key = %s AND line_num = 9100",
+                "UPDATE tool_uses t SET lines_added = 70, "
+                "       lines_deleted = 30 "
+                "  FROM files f "
+                " WHERE t.file_id = f.file_id AND f.file_key = %s "
+                "   AND t.line_num = 9100",
                 (file_key,),
             )
         conn.commit()

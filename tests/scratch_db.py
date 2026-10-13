@@ -44,7 +44,25 @@ SCHEMA = (
     Path(__file__).resolve().parents[1] / "backend" / "schema_web_search.sql",
     Path(__file__).resolve().parents[1] / "backend" / "schema_cache_write.sql",
     Path(__file__).resolve().parents[1] / "backend" / "schema_collection.sql",
+    Path(__file__).resolve().parents[1] / "backend" / "schema_widths.sql",
+    Path(__file__).resolve().parents[1] / "backend" / "schema_dims.sql",
+    Path(__file__).resolve().parents[1] / "backend" / "schema_types.sql",
+    Path(__file__).resolve().parents[1] / "backend"
+    / "schema_records_price.sql",
 )
+
+# The schema every earlier file builds: everything except the #959
+# migration itself (the width guard, the shape file, the type
+# compaction that converges a database already in that shape, and the
+# records_price split those end at) — the LAST SCHEMA_PATHS entries.
+# A test standing an old-shape database up before applying the current
+# chain starts from this one tuple; keeping it here is what stops three
+# files from restating the same filter (and drifting apart on it).
+OLD_SCHEMA = tuple(
+    p for p in SCHEMA
+    if p.name not in ("schema_widths.sql", "schema_dims.sql",
+                      "schema_types.sql", "schema_records_price.sql"))
+
 _RUN_NAME = re.compile(
     rf"^(?P<base>{RUN_PREFIX}(?P<epoch>\d+)_(?P<pid>\d+)_[0-9a-f]{{8}})"
     r"(?:_[a-z0-9_]+)?$")
@@ -83,6 +101,45 @@ def admin_connection(**kwargs) -> psycopg.Connection:
     except psycopg.OperationalError:
         return psycopg.connect("postgresql:///template1", autocommit=True,
                                connect_timeout=5, **kwargs)
+
+
+def table_columns(conn, table: str) -> set[str]:
+    """One public table's column names — the catalog read every schema
+    assertion makes, defined once so the three schema suites cannot drift
+    apart on it."""
+    return {row[0] for row in conn.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = %s", (table,)
+    ).fetchall()}
+
+
+def seq_used(conn, sequence: str) -> int:
+    """Values the sequence has handed out; a fresh one has spent none."""
+    last, called = conn.execute(
+        f"SELECT last_value, is_called FROM {sequence}"  # noqa: S608
+    ).fetchone()
+    return last - 1 + (1 if called else 0)
+
+
+def seed_projects_with_file(conn, project_ids, file_key, session_id, ts,
+                            alias=None) -> None:
+    """Two `projects` rows and the one `files` row that ties the source to
+    the target — the seed the alias-fold and lane-rekey target-upsert tests
+    each used to spell out for themselves."""
+    for pid in project_ids:
+        conn.execute(
+            "INSERT INTO projects (project_id, display_name, "
+            "first_seen_at, last_seen_at) VALUES (%s, %s, %s, %s)",
+            (pid, pid, ts, ts))
+    conn.execute(
+        "INSERT INTO files (file_key, project_id, session_id, is_main, "
+        "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+        "parser_version) VALUES (%s, %s, %s, TRUE, 'e', 1, %s, %s, '0')",
+        (file_key, project_ids[0], session_id, ts, ts))
+    if alias is not None:
+        conn.execute(
+            "INSERT INTO project_aliases (pattern, project_id) "
+            "VALUES (%s, %s)", (alias, project_ids[1]))
 
 
 def hold_run_lease() -> None:

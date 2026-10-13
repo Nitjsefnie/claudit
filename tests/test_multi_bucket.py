@@ -168,7 +168,8 @@ def test_same_key_in_two_buckets_two_rows_one_project(
             "ORDER BY file_key"
         ).fetchall()
         n_projects = c.execute(
-            "SELECT COUNT(*) FROM projects").fetchone()
+            "SELECT COUNT(*) FROM projects "
+            "WHERE project_id <> ''").fetchone()
     assert rows == [
         (f"alpha/{_OBJ_KEY}", "projS", "sessS", True),
         (f"beta/{_OBJ_KEY}", "projS", "sessS", True),

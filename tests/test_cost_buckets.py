@@ -148,19 +148,34 @@ def test_cache_range_includes_null_timestamp_in_list_epoch(monkeypatch):
     boundary = datetime(2031, 1, 1, tzinfo=UTC)
     since = datetime(2030, 12, 1, tzinfo=UTC)
     monkeypatch.setattr(pricing, "RATE_EPOCHS", [boundary])
-    epoch_expr, epoch_params = rate_epoch_sql("ts")
+    epoch_expr, epoch_params = rate_epoch_sql("r.ts")
     canon_src, canon_args = _cache_canon_source(None, None, since)
+    # The #959 canon source joins files/dims and the records_price
+    # sidecar, so every relation and join target it names is faked here
+    # (CTEs shadow the base tables), including records.line_num — the
+    # sidecar join's key.
     canon_src = canon_src.replace(
-        "FROM records", "FROM records LEFT JOIN rate_bounds ON FALSE", 1)
+        "FROM records r",
+        "FROM records r LEFT JOIN rate_bounds ON FALSE", 1)
 
     with scratch_db.admin_connection() as conn:
         got = conn.execute(
             sql_text(
                 "WITH rate_bounds AS (SELECT NULL::text AS pair_model, "
                 "NULL::timestamptz[] AS boundaries WHERE FALSE), "
-                "records(ts, is_canonical) AS (VALUES "
-                "(NULL::timestamptz, TRUE), "
-                "('2030-12-31T00:00:00+00:00'::timestamptz, TRUE)) "
+                "records(ts, is_canonical, file_id, line_num, model_id, "
+                "        provider_id) "
+                "AS (VALUES "
+                "(NULL::timestamptz, TRUE, 1::bigint, 1::int, 1::bigint, "
+                " NULL::bigint), "
+                "('2030-12-31T00:00:00+00:00'::timestamptz, TRUE, "
+                " 1::bigint, 2::int, 1::bigint, NULL::bigint)), "
+                "records_price(file_id, line_num) AS "
+                "(VALUES (1::bigint, 1::int), (1::bigint, 2::int)), "
+                "files(file_id, project_id) AS "
+                "(VALUES (1::bigint, 'x'::text)), "
+                "dim_model(id, value) AS (VALUES (1::bigint, 'm'::text)), "
+                "dim_provider(id, value) AS (VALUES (1::bigint, 'p'::text)) "
                 f"SELECT ({epoch_expr}) AS rate_epoch, COUNT(*) "
                 f"{canon_src} GROUP BY rate_epoch ORDER BY rate_epoch"
             ),

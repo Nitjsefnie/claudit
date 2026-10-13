@@ -24,7 +24,7 @@ from test_ingest import (  # pylint: disable=unused-import
 
 from backend import constants, db, ingest
 
-from tests import mini_mirror
+from tests import dims_seed, mini_mirror
 
 #: How many transcripts the committed mirror holds, read from its
 #: tree (issue #503 grew it with the lane layout).
@@ -46,13 +46,18 @@ def test_newer_stored_parser_version_is_never_reparsed(
             "UPDATE files SET parser_version = %s WHERE session_id = 'sess-A'",
             (str(int(constants.PARSER_VERSION) + 1),),
         )
+        sentinel = dims_seed.dim_id(c, "dim_provider", "sentinel")
         c.execute(
-            "UPDATE records SET provider = 'sentinel' "
-            "WHERE file_key LIKE '%sess-A.jsonl'")
+            "UPDATE records r SET provider_id = %s "
+            "FROM files f "
+            "WHERE r.file_id = f.file_id "
+            "AND f.file_key LIKE '%%sess-A.jsonl'", (sentinel,))
         planted = c.execute(
-            "SELECT COUNT(*) FROM records "
-            "WHERE file_key LIKE '%sess-A.jsonl' "
-            "AND provider = 'sentinel'").fetchone()
+            "SELECT COUNT(*) FROM records r "
+            "JOIN files f ON f.file_id = r.file_id "
+            "LEFT JOIN dim_provider dp ON dp.id = r.provider_id "
+            "WHERE f.file_key LIKE '%sess-A.jsonl' "
+            "AND dp.value = 'sentinel'").fetchone()
         assert planted is not None and planted[0] > 0, (
             "the fixture must produce records for sess-A, or the "
             "sentinel proves nothing")
@@ -83,8 +88,10 @@ def test_newer_stored_parser_version_is_never_reparsed(
         "from there (issue #161)")
     with db.viz_conn() as c:
         kept = c.execute(
-            "SELECT DISTINCT provider FROM records "
-            "WHERE file_key LIKE '%sess-A.jsonl'").fetchall()
+            "SELECT DISTINCT dp.value FROM records r "
+            "JOIN files f ON f.file_id = r.file_id "
+            "LEFT JOIN dim_provider dp ON dp.id = r.provider_id "
+            "WHERE f.file_key LIKE '%sess-A.jsonl'").fetchall()
     assert kept == [("sentinel",)], (
         "the newer binary's column values must survive the rollback run")
     warned = [r for r in caplog.records

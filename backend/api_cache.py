@@ -50,19 +50,21 @@ def _cache_canon_source(project: str | None, model: str | None,
     model_filter = ""
     canon_args: list[Any] = [since]
     if project:
-        # Semi-join rather than a JOIN: the top-N queries below select a
-        # bare `file_key`, which both tables have — joining `files` in
-        # would make that reference ambiguous.
-        proj_filter = (
-            "AND file_key IN (SELECT file_key FROM files WHERE project_id = %s)"
-        )
+        # Join `files` for the project and the public file_key: since
+        # #959 only files carries file_key, the join is unambiguous.
+        proj_filter = "AND f.project_id = %s"
         canon_args.append(project)
     if model:
-        model_filter = "AND model LIKE %s"
+        model_filter = "AND dm.value LIKE %s"
         canon_args.append(f"%{model}%")
     canon_src = f"""
-        FROM records
-        WHERE (ts >= %s OR ts IS NULL) AND is_canonical {proj_filter} {model_filter}
+        FROM records r
+        JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num
+        JOIN files f ON f.file_id = r.file_id
+        JOIN dim_model dm ON dm.id = r.model_id
+        LEFT JOIN dim_provider dp ON dp.id = r.provider_id
+        WHERE (r.ts >= %s OR r.ts IS NULL) AND r.is_canonical
+          {proj_filter} {model_filter}
     """
     return canon_src, canon_args
 
@@ -71,7 +73,10 @@ def _rate_pair_inputs(c, ph: Phases) -> _RatePairInputs:
     """Read the rollup's distinct pairs and encode their own boundaries."""
     pairs = ph.execute(
         "rate_pairs", c,
-        "SELECT DISTINCT model, provider FROM usage_rollup",
+        """SELECT DISTINCT dm.value, dp.value
+             FROM usage_rollup u
+             JOIN dim_model dm ON dm.id = u.model_id
+             JOIN dim_provider dp ON dp.id = u.provider_id""",
     ).fetchall()
     # NULL is not masked as `unknown` (issue #653): ingest refuses a file
     # whose rows name no model, so a NULL here would mean that refusal
@@ -95,12 +100,15 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) \
     """Read pair boundaries, then run the per-model and top-10 queries."""
     pair_inputs = _rate_pair_inputs(c, ph)
 
-    epoch_expr, epoch_params = rate_epoch_sql("ts")
+    epoch_expr, epoch_params = rate_epoch_sql("r.ts")
+    # The rate-band join lands before WHERE: pair_model is the dim's
+    # TEXT (#959), so it matches the supplied pairs' text exactly.
     per_model_source = canon_src.replace(
-        "FROM records",
-        "FROM records LEFT JOIN rate_boundaries AS rate_bounds "
-        "ON rate_bounds.pair_model = records.model "
-        "AND rate_bounds.pair_provider = COALESCE(records.provider, '')",
+        "WHERE (r.ts >= %s OR r.ts IS NULL)",
+        "LEFT JOIN rate_boundaries AS rate_bounds "
+        "ON rate_bounds.pair_model = dm.value "
+        "AND rate_bounds.pair_provider = COALESCE(dp.value, '') "
+        "WHERE (r.ts >= %s OR r.ts IS NULL)",
         1,
     )
     per_model_rows = ph.execute(
@@ -116,8 +124,8 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) \
             FROM unnest(%s::text[], %s::text[], %s::text[])
                  AS supplied(model, provider, boundary_list)
         )
-        SELECT model,
-               provider,
+        SELECT dm.value AS model,
+               dp.value AS provider,
                ({epoch_expr})              AS rate_epoch,
                COALESCE(long_context, FALSE) AS long_context,
                COUNT(*)                    AS turns,
@@ -133,7 +141,8 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) \
                long_context_input_mult,
                long_context_output_mult
         {per_model_source}
-        GROUP BY model, provider, rate_epoch, COALESCE(long_context, FALSE),
+        GROUP BY dm.value, dp.value, rate_epoch,
+                 COALESCE(long_context, FALSE),
                  long_context_input_mult, long_context_output_mult
         ORDER BY cost_total DESC
         """,
@@ -143,10 +152,10 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) \
 
     top_output = ph.execute(
         "top_output", c, f"""
-        SELECT ts, line_num, request_id, model,
+        SELECT ts, r.line_num, request_id, dm.value,
                output_tokens, cache_read_tokens,
                eph1h_tokens, eph5_tokens, fresh_tokens,
-               cost_usd, file_key
+               cost_usd, f.file_key
         {canon_src}
         ORDER BY output_tokens DESC
         LIMIT 10
@@ -156,10 +165,10 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) \
 
     top_create = ph.execute(
         "top_create", c, f"""
-        SELECT ts, line_num, request_id, model,
+        SELECT ts, r.line_num, request_id, dm.value,
                cache_creation_tokens, eph1h_tokens, eph5_tokens,
                cache_read_tokens, output_tokens, fresh_tokens,
-               cost_usd, file_key
+               cost_usd, f.file_key
         {canon_src}
           AND cache_creation_tokens > 0
         ORDER BY cache_creation_tokens DESC
@@ -170,10 +179,10 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) \
 
     top_read = ph.execute(
         "top_read", c, f"""
-        SELECT ts, line_num, request_id, model,
+        SELECT ts, r.line_num, request_id, dm.value,
                cache_read_tokens, eph1h_tokens, eph5_tokens,
                output_tokens, fresh_tokens,
-               cost_usd, file_key
+               cost_usd, f.file_key
         {canon_src}
           AND cache_read_tokens > 0
         ORDER BY cache_read_tokens DESC

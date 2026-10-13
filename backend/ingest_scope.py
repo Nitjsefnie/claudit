@@ -10,7 +10,12 @@ from datetime import datetime, timedelta, timezone
 
 import psycopg
 
-from backend import constants, db, flags
+from backend import constants, db, flags, uuid_split
+
+# records.uuid is the split column set (issue #959 task 8): the affected
+# identities a run captures are the REBUILT texts, so the equality probes
+# downstream (ingest_rollup_state) match on the same reconstruction.
+_UUID_TEXT = uuid_split.uuid_text_sql("r")
 
 
 @dataclass
@@ -205,11 +210,12 @@ def capture_contributions(scope: Scope, conn: psycopg.Connection,
     if not file_keys:
         return contributions
     for file_key, project_id, hour, record_uuid, latency, ts in conn.execute(
-        """
-        SELECT r.file_key, f.project_id, date_trunc('hour', r.ts), r.uuid,
+        f"""
+        SELECT f.file_key, f.project_id, date_trunc('hour', r.ts),
+               {_UUID_TEXT} AS uuid,
                r.reply_latency_s, r.ts
-          FROM records r JOIN files f ON f.file_key = r.file_key
-         WHERE r.file_key = ANY(%s)
+          FROM records r JOIN files f ON f.file_id = r.file_id
+         WHERE f.file_key = ANY(%s)
         """, (list(file_keys),),
     ).fetchall():
         contribution = contributions[file_key]
@@ -220,10 +226,10 @@ def capture_contributions(scope: Scope, conn: psycopg.Connection,
             contribution.latency_null = True
     for file_key, project_id, hour, tool_use_id in conn.execute(
         """
-        SELECT tu.file_key, f.project_id, date_trunc('hour', tu.ts),
+        SELECT f.file_key, f.project_id, date_trunc('hour', tu.ts),
                tu.tool_use_id
-          FROM tool_uses tu JOIN files f ON f.file_key = tu.file_key
-         WHERE tu.file_key = ANY(%s)
+          FROM tool_uses tu JOIN files f ON f.file_id = tu.file_id
+         WHERE f.file_key = ANY(%s)
         """, (list(file_keys),),
     ).fetchall():
         contribution = contributions[file_key]

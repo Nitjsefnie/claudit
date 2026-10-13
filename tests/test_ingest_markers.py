@@ -364,7 +364,8 @@ def test_nul_in_rekey_marker_path_still_moves(fresh_db):
         key_layout.project_slug("/home/me/gamma"))
     with db.viz_conn() as c:
         assert c.execute(
-            "SELECT project_id, display_name FROM projects").fetchall() == [
+            "SELECT project_id, display_name FROM projects "
+            "WHERE project_id <> ''").fetchall() == [
             (slug, "/home/me/gamma")]
         assert c.execute(
             "SELECT project_id FROM files").fetchall() == [(slug,)]

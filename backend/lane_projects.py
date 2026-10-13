@@ -132,11 +132,14 @@ def rekey_stale_lane_projects(project_paths: dict[str, str],
                 INSERT INTO projects (project_id, display_name,
                   first_seen_at, last_seen_at)
                 SELECT %s, %s, MIN(r2_last_modified), MAX(r2_last_modified)
-                  FROM files WHERE file_key LIKE %s
+                  FROM files
+                 WHERE file_key LIKE %s
+                   AND NOT EXISTS (SELECT 1 FROM projects p
+                                    WHERE p.project_id = %s)
                 HAVING COUNT(*) > 0
                 ON CONFLICT (project_id) DO NOTHING
                 """,
-                (target_id, marker_path, pattern),
+                (target_id, marker_path, pattern, target_id),
             )
             cur.execute(
                 "UPDATE files SET project_id = %s WHERE file_key LIKE %s",

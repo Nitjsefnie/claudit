@@ -67,11 +67,17 @@ def _delete_orphan_projects() -> int:
     its files away. /api/projects already hides a usage-less project;
     deleting keeps the table itself honest instead of only the read.
     Runs every ingest, after the orphan-file sweep.
+
+    The reserved row (project_id '', issue #959's R8) is exempt: no file
+    ever references it — it IS the all-projects rollup grain's '' — so
+    the not-exists test above would delete it every run and take
+    latency_rollup's all-projects rows down its FK cascade with it.
     """
     _set_progress(phase="orphan_projects")
     with db.viz_conn() as c, c.cursor() as cur:
         cur.execute(
-            "DELETE FROM projects p WHERE NOT EXISTS "
+            "DELETE FROM projects p WHERE p.project_id <> '' "
+            "AND NOT EXISTS "
             "(SELECT 1 FROM files f WHERE f.project_id = p.project_id) "
             "RETURNING 1",
         )
