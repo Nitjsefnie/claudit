@@ -7,6 +7,8 @@ the real parser.js through node — no npm, no build step, matching the repo's
 no-toolchain rule. That both sides derive the same tables from the file is
 pinned in test_pricing_data.py.
 """
+from __future__ import annotations
+
 import json
 import os
 import shutil
@@ -17,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from backend import parse, pricing
+from tests.source_scan_cache import source as cached_source
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -49,7 +52,7 @@ class TestNodeHarnessesLoadLanes:
         """A pure source scan - no node, so no node skip (issue #812)."""
         offenders = []
         for path in sorted((ROOT / "tests").glob("test_*.py")):
-            text = path.read_text()
+            text = cached_source(path, encoding=None)
             for chunk in text.split("global.window")[1:]:
                 body = chunk.split('"""')[0]
                 needs = ("str(PARSER_JS)!r" in body
@@ -106,8 +109,7 @@ CASES = [
     ("openai/gpt-6-sol", None),
 ]
 
-_KEYMAP = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h",
-           "read": "read", "out": "output"}
+_KEYMAP = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h", "read": "read", "out": "output"}
 
 
 def _node_rates():
@@ -347,11 +349,9 @@ _NAIVE_TS_LINES = [
 # the naive text's LOCAL reading (22:30Z the day before, in Europe/
 # Berlin) differently from its UTC reading (00:30Z), so a cost equality
 # below cannot pass by accident.
-_CHEAP_JS_376 = {"fresh": 0.5, "c5": 0.625, "c1h": 1.0, "read": 0.05,
-                 "out": 2.5}
+_CHEAP_JS_376 = {"fresh": 0.5, "c5": 0.625, "c1h": 1.0, "read": 0.05, "out": 2.5}
 
-_OPUS_JS_376 = {"fresh": 9.0, "c5": 11.25, "c1h": 18.0, "read": 0.9,
-                "out": 45.0}
+_OPUS_JS_376 = {"fresh": 9.0, "c5": 11.25, "c1h": 18.0, "read": 0.9, "out": 45.0}
 
 
 class TestNodeDrivenBrowserMirror:

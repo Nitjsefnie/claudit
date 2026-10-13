@@ -49,12 +49,14 @@ from tests.node_skip_guard_impl import (
     _mentions_node,
     _mentions_node_ref,
     _module_level_statements,
+    _module_tree,
     _node_mark_lines,
     _node_names,
     _node_skip_offenders,
     _pytestmark_value,
     _skip_without_node_lines,
 )
+from tests.source_scan_cache import source as cached_source
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -63,8 +65,7 @@ def test_no_node_listed_file_sets_a_module_level_node_skip() -> None:
     """The node skip rides only the tests that run node - never the module."""
     offenders = []
     for rel in _listed_files(REPO_ROOT):
-        tree = ast.parse(
-            (REPO_ROOT / rel).read_text(encoding="utf-8"))
+        tree = _module_tree(REPO_ROOT / rel)
         node_names = _node_names(tree)
         for stmt, line in _module_level_statements(tree):
             value = _pytestmark_value(stmt)
@@ -433,9 +434,7 @@ def test_the_full_guard_fails_a_seeded_python_only_member(tmp_path) -> None:
     for rel in _listed_files(REPO_ROOT):
         target = tmp_path / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            (REPO_ROOT / rel).read_text(encoding="utf-8"),
-            encoding="utf-8")
+        target.write_text(cached_source(REPO_ROOT / rel), encoding="utf-8")
     assert not _node_skip_offenders(tmp_path)
     victim_rel = "tests/test_parser_js_mirror.py"
     victim = tmp_path / victim_rel
