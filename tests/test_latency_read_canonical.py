@@ -159,7 +159,7 @@ def test_reply_latency_live_excludes_non_canonical(lat_client) -> None:
         "a canonical extreme row must surface among the outliers")
 
 
-_OUT_NOW = datetime(2026, 6, 23, 10, 0, 0, 123456, tzinfo=timezone.utc)
+_OUT_NOW = datetime(2026, 6, 23, 10, 0, 0, 123400, tzinfo=timezone.utc)
 _OUT_COLUMNS = "out_ts, out_latency_s, out_file_id, out_line_num, out_high"
 
 
@@ -367,7 +367,7 @@ def test_outlier_arrays_migrate_and_rebuild_without_response_changes(monkeypatch
         zone = "UTC"
         responses = _outlier_responses()
         assert responses != before
-        assert b'2026-06-23T10:00:02.123456+00:00' in responses[0]
+        assert b'2026-06-23T10:00:02.1234+00:00' in responses[0]
         with db.viz_conn() as conn:
             conn.execute("UPDATE latency_rollup SET out_file_id[1] = NULL WHERE n = 200")
         responses = _outlier_responses()
