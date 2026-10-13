@@ -24,7 +24,7 @@ from tests.test_no_pinned_version_literals import _tree_problems
 from tests import test_scratch_db as scratch
 from tests import test_js_toolchain as js_toolchain
 from tests import test_node_skip_guard as node_guard
-from tests import test_parser_js_mirror as js_mirror
+from tests import test_parser_js_lanes_load as js_lanes
 from tests import test_scan_gate as scan_property
 from tests.node_skip_guard_impl import _node_skip_offenders
 
@@ -244,9 +244,9 @@ def _tree_guards(root: Path, monkeypatch: pytest.MonkeyPatch
     """The five converted guards, each re-rooted at a planted tree."""
     monkeypatch.setattr(scan_property, "TESTS_DIR", root / "tests")
     monkeypatch.setattr(js_toolchain, "REPO_ROOT", root)
-    monkeypatch.setattr(js_mirror, "ROOT", root)
+    monkeypatch.setattr(js_lanes, "ROOT", root)
     monkeypatch.setattr(node_guard, "REPO_ROOT", root)
-    lanes = js_mirror.TestNodeHarnessesLoadLanes()
+    lanes = js_lanes.TestNodeHarnessesLoadLanes()
     return (
         lambda: _failure(
             scan_property.test_the_gate_sees_every_string_constant_in_the_tree),
@@ -296,9 +296,9 @@ def test_tree_guards_share_one_read_and_parse_per_file(
     assert verdicts[5:7] == ({"seeded"}, ["test_pinned.py:test_server"])
     assert len(verdicts[7]) == 1 and verdicts[8] == ["test_pinned.py"]
     # The Node and lane guards reuse the shared AST without tokenizing it;
-    # only the scratch/version-admitted seed is tokenized, once. The two
-    # whole-tree walks are the shared node list and _fold_operands.
-    plain = {"read": 1, "parse": 1, "compile": 1, "index": 1, "walk": 2}
+    # only the scratch/version-admitted seed is tokenized, once. The one
+    # whole-tree walk is the shared node list, which _fold_operands reads.
+    plain = {"read": 1, "parse": 1, "compile": 1, "index": 1, "walk": 1}
     assert counts == {"test_node_a.py": plain, "test_node_b.py": plain,
                       "helper_node.py": plain,
                       "test_pinned.py": {**plain, "tokens": 1}}
