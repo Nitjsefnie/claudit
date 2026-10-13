@@ -14,7 +14,8 @@ inputs:
 # Exact keys only: the archive is saved only after a successful digest pull
 # in this action, never from a pre-existing tag. ECR replaced Docker Hub
 # after its anonymous pull limit (#885); a warm cache also avoids ECR
-# limits (#970). There is no fallback mirror on a cold miss. GitHub's
+# limits (#970). A cold miss retries ECR, then Google's mirror at the same
+# digest, so an ECR limit does not prevent warming the cache. GitHub's
 # immutable entries and branch scope keep PR writes out of master's reads;
 # PRs can read master.
 # refresh-pricing runs hourly on master (its job refuses other refs and its
@@ -28,11 +29,13 @@ runs:
       shell: bash
       env:
         POSTGRES_REPOSITORY: public.ecr.aws/docker/library/postgres:16
+        POSTGRES_FALLBACK_REPOSITORY: mirror.gcr.io/library/postgres
         POSTGRES_DIGEST: sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
       run: |
         set -euo pipefail
         {
           echo "ref=${POSTGRES_REPOSITORY}@${POSTGRES_DIGEST}"
+          echo "fallback=${POSTGRES_FALLBACK_REPOSITORY}@${POSTGRES_DIGEST}"
           echo "tag=claudit-postgres:${POSTGRES_DIGEST#sha256:}"
           echo "key=postgres-${RUNNER_OS}-${RUNNER_ARCH}-${POSTGRES_DIGEST}"
         } >> "$GITHUB_OUTPUT"
@@ -50,6 +53,7 @@ runs:
       env:
         CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
         POSTGRES_REF: ${{ steps.image.outputs.ref }}
+        POSTGRES_FALLBACK_REF: ${{ steps.image.outputs.fallback }}
         POSTGRES_TAG: ${{ steps.image.outputs.tag }}
       run: |
         set -euo pipefail
@@ -58,23 +62,31 @@ runs:
           docker load --input "$archive"
           exit 0
         fi
-        ref="$POSTGRES_REF"
         pulled=false
-        for delay in 0 5 15; do
-          sleep "$delay"
-          if timeout 120 docker pull "$ref" > "$RUNNER_TEMP/postgres-pull.log" 2>&1; then
-            cat "$RUNNER_TEMP/postgres-pull.log"
-            pulled=true
+        failures="$RUNNER_TEMP/postgres-pull-failures.log"
+        : > "$failures"
+        for ref in "$POSTGRES_REF" "$POSTGRES_FALLBACK_REF"; do
+          for delay in 0 5 15; do
+            sleep "$delay"
+            echo "Pulling $ref (retry delay ${delay}s)"
+            if timeout 120 docker pull "$ref" > "$RUNNER_TEMP/postgres-pull.log" 2>&1; then
+              cat "$RUNNER_TEMP/postgres-pull.log"
+              pulled=true
+              break
+            fi
+            cat "$RUNNER_TEMP/postgres-pull.log" >&2
+            {
+              echo "Registry $ref answered:"
+              cat "$RUNNER_TEMP/postgres-pull.log"
+            } >> "$failures"
+          done
+          if [ "$pulled" = true ]; then
             break
           fi
-          cat "$RUNNER_TEMP/postgres-pull.log" >&2
         done
         if [ "$pulled" != true ]; then
-          if grep -qiE 'toomanyrequests|Data limit exceeded' "$RUNNER_TEMP/postgres-pull.log"; then
-            echo "::error::Postgres image cache had no entry and the registry answered toomanyrequests / Data limit exceeded after three pull attempts." >&2
-          else
-            echo "::error::Postgres image cache had no entry and the registry pull failed after three attempts; see the pull output above." >&2
-          fi
+          echo "::error::Postgres image cache had no entry; both registries failed after three attempts each. Registry answers follow:" >&2
+          cat "$failures" >&2
           exit 1
         fi
         # Save the tag attached to THIS digest pull. A classic Docker store
