@@ -124,6 +124,9 @@ def heredoc_at(line: str, index: int) -> tuple[int, tuple[str, bool] | None]:
         if len(word) < 2 or word[-1] != word[0] or word[0] in word[1:-1]:
             raise MeasurementError('mixed-quoted heredoc delimiter refuses')
         literal = word[1:-1]
+        if word[0] == '"':
+            literal = re.sub(r'\\(\r?\n|[^\n])',
+                             lambda part: '' if part[1].endswith('\n') else part[0], literal)
     else:
         literal = word[1:] if word.startswith('\\') else word
         if any(char in "\"'" for char in literal):
@@ -142,6 +145,7 @@ class ShellScope:
     depth: int = 0
     command_substitution: bool = False
     inert: bool = False
+    word_start: bool = True
 
 
 @dataclass
@@ -216,24 +220,27 @@ class ShellLexer:
         return index + 1
 
     def word(self, line: str, index: int) -> int | None:
-        if index and not (line[index - 1].isspace() or line[index - 1] in ';&|(){}`'):
+        scope = self.scopes[-1]
+        if not scope.word_start or scope.quote or scope.close in ('}', '))') or line[index] == '#':
             return None
-        match = re.match(r'[a-zA-Z_]\w*', line[index:])
+        match = re.match(r'''(?:\\[^\n]|[^\s\\'"`$;&|(){}<>])+''', line[index:])
         if not match:
             return None
         end = index + match.end()
-        complete = end == len(line) or line[end].isspace() or line[end] in ';&|(){}'
-        if complete and match[0] == 'case' and any(scope.command_substitution for scope in self.scopes):
-            raise MeasurementError('case word inside command substitution refuses')
+        complete = (end == len(line) or line[end].isspace() or line[end] in ';&|(){}<>'
+                    or line[end] == '`' and scope.close == '`')
+        spelling = re.sub(r'\\(.)', r'\1', match[0])
+        if complete:
+            self.refuse_case(spelling)
         return end
+
+    def refuse_case(self, spelling: str) -> None:
+        if spelling == 'case' and any(frame.command_substitution for frame in self.scopes):
+            raise MeasurementError('case word inside command substitution refuses')
 
     def scope_step(self, line: str, index: int) -> int | None:
         scope = self.scopes[-1]
         char = line[index]
-        arithmetic = any(frame.close == '))' for frame in self.scopes)
-        spelling = line[index:index + 2] if char in ('\\', '$') else char
-        if arithmetic and any(quote in spelling for quote in "\"'"):
-            raise MeasurementError('quotes inside arithmetic refuse')
         if char == '\\' and scope.quote != "'":
             return index + 2
         if not scope.quote and line[index:index + 2] == "$'":
@@ -251,48 +258,80 @@ class ShellLexer:
         return None
 
     def step(self, line: str, index: int) -> tuple[int, int]:
-        moved = self.scope_step(line, index)
-        if moved is None:
-            moved = self.word(line, index)
-        if moved is not None:
-            return moved, 0
         scope, char = self.scopes[-1], line[index]
+        moved = self.word(line, index)
+        if moved is None:
+            moved = self.scope_step(line, index)
+        if moved is not None:
+            scope.word_start = char in '()' and not scope.quote
+            return moved, 0
         if char in "\"'":
             scope.quote = char
-        elif char == '#' and (index == 0 or line[index - 1].isspace()):
-            return len(line), 0 if scope.inert else non_whitespace_bytes(line[index:])
+        elif char == '#' and scope.word_start:
+            match = re.match(r'(?:\\(?:\r?\n|[^\n]|$)|[^\\\n])*', line[index:])
+            assert match is not None
+            return index + match.end(), int(not scope.inert)
         elif line[index:index + 2] == '<<':
             moved, heredoc = heredoc_at(line, index)
-            if any(frame.close == '))' for frame in self.scopes) and any(char in line[index:moved] for char in "\"'"):
-                raise MeasurementError('quotes inside arithmetic refuse')
             if heredoc:
+                word = re.sub(r'^<<-?[ \t]*', '', line[index:moved])
+                if not word.startswith(("'", '"')):
+                    self.refuse_case(heredoc[0])
                 self.waiting.append(heredoc)
+            scope.word_start = False
             return moved, 0
+        scope.word_start = char.isspace() or char in ';&|(){}<>'
         return index + 1, 0
 
-    def line(self, line: str) -> int:
-        if self.bodies:
-            if any(frame.close == '))' for frame in self.scopes) and any(char in line for char in "\"'"):
-                raise MeasurementError('quotes inside arithmetic refuse')
-            delimiter, strip_tabs = self.bodies[0]
-            candidate = line.rstrip('\r\n')
-            if strip_tabs:
-                candidate = candidate.lstrip('\t')
-            if candidate == delimiter:
-                self.bodies.pop(0)
-            return 0
+    def join_prefix(self, text: str, index: int, positions: list[int]
+                    ) -> tuple[str, list[int], int]:
+        match = re.match(r'''(?:\\(?:\r?\n|[^\n])|[^\\'"\n])*''', text[index:])
+        assert match is not None
+        prefix = match[0]
+        removed = {offset for gap in re.finditer(r'\\\r?\n', prefix)
+                   for offset in range(gap.start(), gap.end())}
+        kept = [offset for offset in range(len(prefix)) if offset not in removed]
+        end = index + len(prefix)
+        return (text[:index] + ''.join(prefix[offset] for offset in kept) + text[end:],
+                positions[:index] + [positions[index + offset] for offset in kept] + positions[end:],
+                index + len(kept))
+
+    def body(self, line: str) -> None:
+        if any(frame.close == '))' for frame in self.scopes) and any(char in line for char in "\"'"):
+            raise MeasurementError('quotes inside arithmetic refuse')
+        delimiter, strip_tabs = self.bodies[0]
+        candidate = line.rstrip('\r\n')
+        if strip_tabs:
+            candidate = candidate.lstrip('\t')
+        if candidate == delimiter:
+            self.bodies.pop(0)
+
+    def count(self, text: str) -> int:
+        original, positions = text, list(range(len(text) + 1))
         index = count = 0
-        continued = False
-        while index < len(line):
-            if (line[index:index + 2] in ('\\\n', '\\\r')
-                    and self.scopes[-1].quote != "'"):
-                continued = True
-            index, added = self.step(line, index)
-            count += added
-        scope = self.scopes[-1]
-        if not continued and not scope.quote and scope.close != '}':
-            self.bodies.extend(self.waiting)
-            self.waiting.clear()
+        joined_until = 0
+        while index < len(text):
+            if self.bodies:
+                end = text.find('\n', index) + 1 or len(text)
+                self.body(text[index:end])
+                index = end
+                continue
+            if index >= joined_until and self.scopes[-1].quote != "'":
+                text, positions, joined_until = self.join_prefix(text, index, positions)
+                if index == len(text):
+                    break
+            arithmetic = any(frame.close == '))' for frame in self.scopes)
+            moved, comment = self.step(text, index)
+            raw = original[positions[index]:positions[min(moved, len(text))]]
+            if arithmetic and any(char in raw for char in "\"'"):
+                raise MeasurementError('quotes inside arithmetic refuse')
+            if comment:
+                count += non_whitespace_bytes(raw)
+            scope = self.scopes[-1]
+            if text[index] == '\n' and not scope.quote and scope.close != '}':
+                self.bodies.extend(self.waiting)
+                self.waiting.clear()
+            index = moved
         return count
 
     def finish(self) -> None:
@@ -340,7 +379,7 @@ def quoted_comments(text: str, shell: bool = False) -> int:
     if not shell:
         return yaml_comments(text)
     lexer = ShellLexer()
-    count = sum(lexer.line(line) for line in io.StringIO(text))
+    count = lexer.count(text)
     lexer.finish()
     return count
 
