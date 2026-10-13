@@ -85,6 +85,27 @@ def test_image_digest_matches_compose_and_keys_both_cache_operations():
         assert "restore-keys" not in step["with"]
 
 
+def test_save_runs_only_after_a_pull_and_a_hit_never_reaches_one():
+    restore, acquire, save = _load(CACHED_ACTION)["runs"]["steps"]
+    assert restore["id"] == "cache" and "if" not in restore
+    assert acquire["env"]["CACHE_HIT"] == "${{ steps.cache.outputs.cache-hit }}"
+    assert "if" not in acquire and "continue-on-error" not in acquire
+    run = acquire["run"]
+    # On a hit the image is loaded and the step ends before any pull.
+    hit = ('if [ "$CACHE_HIT" = true ]; then\n'
+           '  docker load --input "$archive"\n'
+           '  exit 0\n'
+           'fi\n')
+    assert hit in run
+    emit = 'echo "pulled=true" >> "$GITHUB_OUTPUT"'
+    assert run.count(emit) == 1
+    assert run.index(hit) < run.index("docker pull") < run.index(emit)
+    # Only a pull in this run is saved, and a lost save race is not fatal.
+    assert save["uses"].startswith("actions/cache/save@")
+    assert save.get("if") == "steps.acquire.outputs.pulled == 'true'"
+    assert save.get("continue-on-error") == "true"
+
+
 def test_composite_external_actions_are_sha_pinned():
     uses = [step["uses"]
             for path in (ACTION, IMAGE_ACTION, CACHED_ACTION)
