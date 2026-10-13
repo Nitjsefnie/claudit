@@ -1,7 +1,5 @@
 {
   "notices": [
-    "alternating price: deepseek/deepseek-v4-flash-0731 via Inceptron: the listed rates equal the entry from 2026-10-10T00:07:15Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
-    "alternating price: glm-5-2 via Wafer: the listed rates equal the entry from 2026-10-07T11:05:30Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe'",
     "claude-haiku-4-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us'",
     "claude-haiku-5-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us-east-1'",
@@ -140,11 +138,6 @@
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
     "tag 'parasail/fast' names neither a known region nor a quantization: glm-5-3-flash via Parasail, kimi-k3 via Parasail",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek/deepseek-v4-flash-0731 via Wafer",
-    "the listing lags the listed-pricing log for deepseek/deepseek-v4-flash-0731 via Inceptron; the host was sampled",
-    "the listing lags the listed-pricing log for deepseek/deepseek-v4-flash-0731 via Relace; the host was sampled",
-    "the listing lags the listed-pricing log for glm-5-2 via InferenceNet; the host was sampled",
-    "the listing lags the listed-pricing log for glm-5-2 via Wafer; the host was sampled",
-    "the listing lags the listed-pricing log for glm-5-3-flash via Relace; the host was sampled",
     "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, anthropic/claude-sonnet-4, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, openai/gpt-3.5-turbo-0613, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-chat, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
   ],
   "sampled": {
@@ -258,9 +251,7 @@
     },
     "deepseek/deepseek-v4-flash-0731": {
       "Alibaba": "endpoint schedule",
-      "BaseTen": "2 endpoints selected",
-      "Inceptron": "listing lags log",
-      "Relace": "listing lags log"
+      "BaseTen": "2 endpoints selected"
     },
     "deepseek/deepseek-v4-pro": {
       "Alibaba": "2 endpoints selected"
@@ -273,8 +264,7 @@
     "glm-5-2": {
       "Alibaba": "3 endpoints selected",
       "BaseTen": "2 endpoints selected",
-      "InferenceNet": "listing lags log",
-      "Wafer": "listing lags log"
+      "Relace": "log series count mismatch"
     },
     "glm-5-3": {
       "BaseTen": "2 endpoints selected",
@@ -284,7 +274,6 @@
     },
     "glm-5-3-flash": {
       "BaseTen": "2 endpoints selected",
-      "Relace": "listing lags log",
       "Sail Research": "2 endpoints at one current price"
     },
     "gpt-5-3-codex": {
@@ -401,9 +390,6 @@
       "Io Net",
       "Nebius",
       "NextBit",
-      "Relace"
-    ],
-    "glm-5-2": [
       "Relace"
     ],
     "glm-5-3": [
