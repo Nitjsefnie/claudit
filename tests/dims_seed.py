@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from psycopg.types.json import Jsonb  # noqa: F401  (re-exported for seeds)
 
+__all__ = ["Jsonb"]
+
 
 def dim_id(conn, table: str, value: str) -> int:
     """The dim row's id for `value`, creating it if needed."""
@@ -95,10 +97,15 @@ def seed_latency_rollup(conn, project_id: str, bucket_s: int, bucket, *,
     else:
         pid = 0
     mid = dim_id(conn, "dim_model", model)
+    dots = outliers or []
     conn.execute(
         "INSERT INTO latency_rollup (bucket_s, bucket, proj_id, model_id, "
-        "n, p10, p50, p90, outliers) VALUES (%s, %s, %s, %s, %s, %s, %s, "
-        "%s, %s)",
+        "n, p10, p50, p90, out_ts, out_latency_s, out_file_id, out_line_num, out_high) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (bucket_s, bucket, pid, mid, n, p10, p50, p90,
-         Jsonb(outliers) if outliers is not None else '[]'),
+         [o["ts"] for o in dots] or None,
+         [o["latency_s"] for o in dots] or None,
+         [file_id(conn, o["file_key"]) for o in dots] or None,
+         [o["line_num"] for o in dots] or None,
+         [o.get("kind") == "high" for o in dots] or None),
     )

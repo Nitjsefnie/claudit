@@ -25,6 +25,7 @@ from starlette.responses import StreamingResponse
 
 from backend import db, events, r2
 from backend.api_flag_gate import require_enabled
+from backend.api_latency_rollup import latency_from_rollup as _latency_from_rollup
 from backend.api_tool_panels import router as tool_panels_router
 from backend.api_tool_panels import tool_usage, tool_error_rate
 from backend.api_cache import router as cache_router
@@ -140,60 +141,6 @@ def _latency_filters(project: str | None, model: str | None,
         model_filter = "AND dm.value LIKE %s"
         args.append(f"%{model}%")
     return proj_filter, model_filter, args
-
-
-def _latency_from_rollup(rng: str, project: str | None, model: str | None,
-                         bucket_s: int, since: datetime) -> dict:
-    """Percentiles cannot be summed across buckets, so unlike the other
-    rollups this one is precomputed PER display bucket width — the
-    widths are epoch-aligned and there are only a handful
-    (constants.LATENCY_BUCKETS). A range filter then just selects
-    buckets. project_id='' is the stored all-projects row: a project
-    filter changes the population inside each (bucket, model) group,
-    so it cannot be derived from the per-project rows."""
-    roll_args: list[Any] = [bucket_s, project or "", since]
-    roll_model = ""
-    if model:
-        roll_model = "AND dm.value LIKE %s"
-        roll_args.append(f"%{model}%")
-    with db.viz_conn() as c:
-        rows = c.execute(
-            db.sql_text(f"""
-            SELECT bucket, dm.value AS model, n, p10, p50, p90, outliers
-            FROM latency_rollup l JOIN dim_model dm ON dm.id = l.model_id JOIN projects pj ON pj.proj_id = l.proj_id
-            WHERE bucket_s = %s
-              AND pj.project_id = %s
-              AND bucket >= to_timestamp(
-                    floor(EXTRACT(EPOCH FROM %s::timestamptz) / {bucket_s})
-                    * {bucket_s} + {bucket_s} / 2.0)
-              {roll_model}
-            ORDER BY bucket, dm.value
-            """),
-            roll_args,
-        ).fetchall()
-    return {
-        "range": rng,
-        "project": project,
-        "model": model,
-        "bucket_s": bucket_s,
-        "bands": [
-            {
-                "ts": _iso(b), "model": m, "n": int(n or 0),
-                "p10": float(p10 or 0), "p50": float(p50 or 0), "p90": float(p90 or 0),
-            }
-            for (b, m, n, p10, p50, p90, _o) in rows
-        ],
-        "outliers": [
-            {
-                "ts": o.get("ts"), "model": m,
-                "latency_s": float(o.get("latency_s") or 0),
-                "file_key": r2.public_key(o.get("file_key")),
-                "line": int(o.get("line_num") or 0),
-            }
-            for (_b, m, _n, _a, _c2, _d, olist) in rows
-            for o in (olist or [])
-        ],
-    }
 
 
 def _latency_live(rng: str, project: str | None, model: str | None,

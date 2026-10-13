@@ -449,7 +449,11 @@ CREATE TABLE IF NOT EXISTS latency_rollup (
   p10          DOUBLE PRECISION,
   p50          DOUBLE PRECISION,
   p90          DOUBLE PRECISION,
-  outliers     JSONB        NOT NULL DEFAULT '[]'::jsonb,
+  out_ts       TIMESTAMPTZ[],
+  out_latency_s DOUBLE PRECISION[],
+  out_file_id  INTEGER[],
+  out_line_num INTEGER[],
+  out_high     BOOLEAN[],
   PRIMARY KEY (bucket_s, bucket, proj_id, model_id)
 );
 CREATE INDEX IF NOT EXISTS latency_rollup_lookup_idx

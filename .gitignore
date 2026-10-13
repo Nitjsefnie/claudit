@@ -84,6 +84,7 @@
 /backend/*
 !/backend/*.py
 !/backend/file_timelines.py
+!/backend/api_latency_rollup.py
 !/backend/.env.example
 !/backend/requirements.txt
 !/backend/schema.sql

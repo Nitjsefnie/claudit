@@ -77,3 +77,77 @@ BEGIN
     );
   END IF;
 END $$;
+
+-- Outlier arrays retain the JSON element order and reuse files.file_id.
+ALTER TABLE latency_rollup ADD COLUMN IF NOT EXISTS out_ts TIMESTAMPTZ[];
+ALTER TABLE latency_rollup ADD COLUMN IF NOT EXISTS out_latency_s DOUBLE PRECISION[];
+ALTER TABLE latency_rollup ADD COLUMN IF NOT EXISTS out_file_id INTEGER[];
+ALTER TABLE latency_rollup ADD COLUMN IF NOT EXISTS out_line_num INTEGER[];
+ALTER TABLE latency_rollup ADD COLUMN IF NOT EXISTS out_high BOOLEAN[];
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_attribute
+     WHERE attrelid = 'latency_rollup'::regclass AND attname = 'outliers'
+       AND NOT attisdropped
+  ) THEN
+    CREATE FUNCTION pg_temp.outlier_ts(v jsonb) RETURNS timestamptz[]
+    LANGUAGE sql AS $body$
+      SELECT array_agg((o->>'ts')::timestamptz ORDER BY n)
+        FROM jsonb_array_elements(v) WITH ORDINALITY AS dots(o, n)
+    $body$;
+    CREATE FUNCTION pg_temp.outlier_latency(v jsonb) RETURNS double precision[]
+    LANGUAGE sql AS $body$
+      SELECT array_agg((o->>'latency_s')::double precision ORDER BY n)
+        FROM jsonb_array_elements(v) WITH ORDINALITY AS dots(o, n)
+    $body$;
+    CREATE FUNCTION pg_temp.outlier_files(v jsonb) RETURNS integer[]
+    LANGUAGE sql AS $body$
+      SELECT array_agg(f.file_id ORDER BY n)
+        FROM jsonb_array_elements(v) WITH ORDINALITY AS dots(o, n)
+        LEFT JOIN files f ON f.file_key = o->>'file_key'
+    $body$;
+    CREATE FUNCTION pg_temp.outlier_lines(v jsonb) RETURNS integer[]
+    LANGUAGE sql AS $body$
+      SELECT array_agg((o->>'line_num')::integer ORDER BY n)
+        FROM jsonb_array_elements(v) WITH ORDINALITY AS dots(o, n)
+    $body$;
+    CREATE FUNCTION pg_temp.outlier_high(v jsonb) RETURNS boolean[]
+    LANGUAGE sql AS $body$
+      SELECT array_agg(o->>'kind' = 'high' ORDER BY n)
+        FROM jsonb_array_elements(v) WITH ORDINALITY AS dots(o, n)
+    $body$;
+    ALTER TABLE latency_rollup
+      ALTER COLUMN out_ts TYPE TIMESTAMPTZ[] USING pg_temp.outlier_ts(outliers),
+      ALTER COLUMN out_latency_s TYPE DOUBLE PRECISION[] USING pg_temp.outlier_latency(outliers),
+      ALTER COLUMN out_file_id TYPE INTEGER[] USING pg_temp.outlier_files(outliers),
+      ALTER COLUMN out_line_num TYPE INTEGER[] USING pg_temp.outlier_lines(outliers),
+      ALTER COLUMN out_high TYPE BOOLEAN[] USING pg_temp.outlier_high(outliers);
+    ALTER TABLE latency_rollup DROP COLUMN outliers;
+    -- Force a second heap rewrite after the drop to reclaim its JSON bytes.
+    ALTER TABLE latency_rollup ALTER COLUMN out_ts TYPE TIMESTAMPTZ[]
+      USING CASE WHEN out_ts IS NULL THEN NULL ELSE out_ts || '{}'::timestamptz[] END;
+    DROP FUNCTION pg_temp.outlier_ts(jsonb);
+    DROP FUNCTION pg_temp.outlier_latency(jsonb);
+    DROP FUNCTION pg_temp.outlier_files(jsonb);
+    DROP FUNCTION pg_temp.outlier_lines(jsonb);
+    DROP FUNCTION pg_temp.outlier_high(jsonb);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'latency_rollup'::regclass AND conname = 'latency_out_cardinality'
+  ) THEN
+    ALTER TABLE latency_rollup ADD CONSTRAINT latency_out_cardinality CHECK (
+      (out_ts IS NULL AND out_latency_s IS NULL AND out_file_id IS NULL
+       AND out_line_num IS NULL AND out_high IS NULL)
+      OR (out_ts IS NOT NULL AND out_latency_s IS NOT NULL AND out_file_id IS NOT NULL
+          AND out_line_num IS NOT NULL AND out_high IS NOT NULL
+          AND cardinality(out_ts) = cardinality(out_latency_s)
+          AND cardinality(out_ts) = cardinality(out_file_id)
+          AND cardinality(out_ts) = cardinality(out_line_num)
+          AND cardinality(out_ts) = cardinality(out_high))
+    );
+  END IF;
+END $$;
