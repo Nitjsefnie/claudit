@@ -12,6 +12,8 @@ Words split only at space, tab, newline and ;&|()<> (`<(`/`>(` open a process
 substitution inside the word); braces are word text.
 `[[ =~ ]]` operands and word-glued parentheses other than `name()` or
 `name=(` refuse; a compound assignment's `)` continues its word.
+YAML scalar headers retain comments. Resolved run keys use shell bodies;
+aliased or property-prefixed block keys refuse lexical resolution.
 """
 from __future__ import annotations
 
@@ -151,7 +153,6 @@ class ShellScope:
     quote: str = ''
     depth: int = 0
     command_substitution: bool = False
-    inert: bool = False
     word_start: bool = True
     conditional: bool = False
 
@@ -163,9 +164,7 @@ class ShellLexer:
     bodies: list[tuple[str, bool]] = field(default_factory=list)
 
     def push(self, close: str) -> None:
-        scope = self.scopes[-1]
-        self.scopes.append(ShellScope(close=close, inert=scope.inert or scope.close == '}',
-                                      command_substitution=close == '`'))
+        self.scopes.append(ShellScope(close=close, command_substitution=close == '`'))
 
     def substitution(self, line: str, index: int) -> int | None:
         scope = self.scopes[-1]
@@ -285,9 +284,9 @@ class ShellLexer:
         if char in "\"'":
             scope.quote = char
         elif char == '#' and scope.word_start:
-            match = re.match(r'(?:\\(?:\r?\n|[^\n]|$)|[^\\\n])*', line[index:])
+            match = re.match(r'[^\n]*', line[index:])
             assert match is not None
-            return index + match.end(), int(not scope.inert)
+            return index + match.end(), 1
         elif line[index:index + 2] == '<<':
             moved, heredoc = heredoc_at(line, index)
             if heredoc:
@@ -302,7 +301,7 @@ class ShellLexer:
 
     def join_prefix(self, text: str, index: int, positions: list[int]
                     ) -> tuple[str, list[int], int]:
-        match = re.match(r'''(?:\\(?:\r?\n|[^\n])|[^\\'"\n])*''', text[index:])
+        match = re.match(r'''(?:\\(?:\r?\n|[^\n])|[^\\'"\n#])*''', text[index:])
         assert match is not None
         prefix = match[0]
         removed = {offset for gap in re.finditer(r'\\\r?\n', prefix)
@@ -386,12 +385,21 @@ def yaml_comments(text: str) -> int:
         gap = text[end:token.start_mark.index]
         count += sum(non_whitespace_bytes(match[0]) for match in
                      re.finditer(r'#[^\r\n\x85\u2028\u2029]*', gap))
-        if isinstance(token, token_types.ScalarToken) and token.style in ('|', '>') and index >= 3:
-            marker, key, value = tokens[index - 3:index]
-            if (isinstance(marker, token_types.KeyToken) and isinstance(key, token_types.ScalarToken)
-                    and key.plain and key.value == 'run' and isinstance(value, token_types.ValueToken)):
-                count += yaml_block(text, token, marker.start_mark.column)
         end = max(end, token.end_mark.index)
+        if isinstance(token, token_types.ScalarToken) and token.style in ('|', '>'):
+            extent = text[token.start_mark.index:token.end_mark.index]
+            header = re.match(r'[|>][1-9+-]*[ \t]+(#[^\r\n\x85\u2028\u2029]*)', extent)
+            count += non_whitespace_bytes(header[1]) if header else 0
+            value_index = index - 1
+            while isinstance(tokens[value_index], (token_types.AnchorToken, token_types.TagToken)):
+                value_index -= 1
+            if value_index < 2 or not isinstance(tokens[value_index], token_types.ValueToken):
+                continue
+            marker, key = tokens[value_index - 2:value_index]
+            if not isinstance(marker, token_types.KeyToken) or not isinstance(key, token_types.ScalarToken):
+                raise MeasurementError('block scalar key cannot be resolved lexically')
+            if key.value == 'run':
+                count += yaml_block(text, token, marker.start_mark.column)
     return count
 
 
