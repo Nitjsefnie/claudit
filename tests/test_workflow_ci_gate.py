@@ -445,17 +445,15 @@ def test_the_canary_job_is_named_for_what_it_is():
         "pytest (${{ matrix.os }}, ${{ matrix.python-version }})")
 
 
-def test_tests_and_refresh_postgres_images_are_digest_pinned_in_lockstep():
-    # The EQUALITY is pinned here -- refresh-pricing could not move its
-    # postgres image alone without this failing. That every site pulls from
-    # the mirror is test_ci_workflows.py's job.
-    tests_image = (
-        yaml.safe_load(TESTS_WORKFLOW.read_text(encoding="utf-8"))
-        ["jobs"]["pytest"]["services"]["postgres"]["image"])
-    refresh_image = (
-        yaml.safe_load(REFRESH_WORKFLOW.read_text(encoding="utf-8"))
-        ["jobs"]["refresh"]["services"]["postgres"]["image"])
-    assert tests_image == refresh_image
+def test_tests_and_refresh_share_the_pinned_postgres_action():
+    # Both publishing measurements come from the same composite; its digest
+    # and compose lockstep are pinned by test_workflow_postgres_action.py.
+    for path, job_name in ((TESTS_WORKFLOW, "pytest"),
+                           (REFRESH_WORKFLOW, "refresh")):
+        job = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"][job_name]
+        assert "services" not in job
+        actions = [step.get("uses") for step in job["steps"]]
+        assert actions.count("$/.github/actions/postgres") == 1
 
 
 def test_the_pytest_job_pushes_nothing_and_the_deploy_key_has_two_wirings():

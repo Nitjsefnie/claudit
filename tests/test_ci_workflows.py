@@ -277,40 +277,30 @@ def _service_images() -> list[tuple[str, str]]:
 POSTGRES_MIRROR = "public.ecr.aws/docker/library/postgres:"
 
 
-def test_every_postgres_service_pulls_from_the_public_ecr_mirror() -> None:
-    """Docker Hub refuses anonymous runner pulls under its rate limit
-    (issue #885), so every workflow's Postgres comes from AWS's mirror of
-    the Docker Official Image. All five sites are counted, so a refactor
-    that stopped finding them cannot pass this vacuously."""
+def test_every_postgres_job_uses_the_cached_action() -> None:
+    """A service/container bypass would pull before the cache can restore."""
     postgres = [(where, image) for where, image in _service_images()
                 if "postgres" in image]
-    assert len(postgres) == 5, postgres
-    off_mirror = [(where, image) for where, image in postgres
-                  if not image.startswith(POSTGRES_MIRROR)]
-    assert not off_mirror, (
-        "pull Postgres from " + POSTGRES_MIRROR + " (issue #885): "
-        + repr(off_mirror))
+    assert not postgres, postgres
+    callers = []
+    for path in _workflow_files():
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for job in (doc.get("jobs") or {}).values():
+            callers.extend(path.name for step in job.get("steps", [])
+                           if step.get("uses") == "$/.github/actions/postgres")
+    assert sorted(callers) == sorted([
+        "tests.yml", "test-data.yml", "test-data-explore.yml",
+        "smoke.yml", "refresh-pricing.yml"]), callers
 
 
-def test_postgres_service_images_share_one_digest() -> None:
-    """One Postgres image across every workflow that starts one.
-
-    Two digests of the same tag are two databases: a leg's results stop
-    being comparable with a gate leg's, which is the whole reason the
-    publish path pins what it measured on.
-    """
-    postgres = {where: image for where, image in _service_images()
-                if image.split("@", 1)[0].split(":", 1)[0].rsplit(
-                    "/", 1)[-1] == "postgres"}
-    assert postgres, (
-        "no workflow starts a Postgres service — extend this test if the "
-        "image's name changed"
-    )
-    digests = {image.rpartition("@")[2] for image in postgres.values()}
-    assert len(digests) == 1, (
-        "the Postgres service images disagree on their digest: "
-        f"{dict(sorted(postgres.items()))}"
-    )
+def test_postgres_action_pulls_a_digest_from_the_public_ecr_mirror() -> None:
+    """The shared miss path retains the mirror and reviewed digest pin."""
+    path = REPO_ROOT / ".github/actions/postgres/action.yml"
+    steps = yaml.safe_load(path.read_text(encoding="utf-8"))["runs"]["steps"]
+    image = next(step for step in steps if step.get("id") == "image")
+    assert image["env"]["POSTGRES_REPOSITORY"].startswith(POSTGRES_MIRROR)
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}",
+                        image["env"]["POSTGRES_DIGEST"])
 
 
 def test_codeql_matrix_analyses_the_workflows() -> None:
