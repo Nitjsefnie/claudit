@@ -13,7 +13,8 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture as ingest_fresh_db_fixture,
     _mini_r2_env_fixture as ingest_mini_r2_env,
 )
-from backend import constants, db, ingest, pricing, timing
+from backend import constants, db, ingest, pricing, timing, uuid_split
+from tests import dims_seed
 
 # Synthetic rates, deliberately unlike any real price (SV-TEST-DATA):
 # the simulated pricing bump the reprice-gate tests apply before their
@@ -26,15 +27,76 @@ UTC = timezone.utc
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PARSER_FIXTURES = _ROOT / "fixtures" / "parser"
+# The #959 shape stores dim FK ids; every snapshot projects the TEXT
+# back through its dim so incremental and full rebuilds still compare
+# as the old text grain did (one row per logical grain either way).
 _ROLLUPS = {
-    "usage_rollup": "session_id, hour, model, provider, is_main, long_context",
-    "tool_rollup": "hour, project_id, model, tool_name",
-    "tool_error_rollup": "hour, project_id, model, tool_name, error_kind",
-    "dispatch_rollup": "hour, project_id, agent_type, agent_model",
-    "dispatch_brief_rollup": "hour, project_id, agent_type, brief_ref",
-    "latency_rollup": "bucket_s, bucket, project_id, model",
-    "ctx_cost_rollup": "hour, project_id, model, ctx_bucket",
-    "agent_rollup": "hour, project_id, model, agent_type",
+    "usage_rollup": (
+        "SELECT s.session_id, p.project_id, u.hour, dm.value, dp.value, "
+        "u.is_main, u.long_context, u.first_ts, u.last_ts, u.requests, "
+        "u.fresh_tokens, u.output_tokens, u.cache_creation_tokens, "
+        "u.cache_read_tokens, u.eph5_tokens, u.eph1h_tokens, "
+        "u.thinking_tokens, u.cost_usd "
+        "FROM usage_rollup u "
+        "JOIN sessions s ON s.ses_id = u.ses_id "
+        "JOIN projects p ON p.proj_id = u.proj_id "
+        "JOIN dim_model dm ON dm.id = u.model_id "
+        "JOIN dim_provider dp ON dp.id = u.provider_id "
+        "ORDER BY s.session_id, u.hour, dm.value, dp.value, u.is_main, "
+        "u.long_context"),
+    "tool_rollup": (
+        "SELECT tr.hour, p.project_id, dm.value, dtn.value, tr.n_total, "
+        "tr.n_rated, tr.n_error, tr.lines_added, tr.lines_deleted "
+        "FROM tool_rollup tr "
+        "JOIN projects p ON p.proj_id = tr.proj_id "
+        "JOIN dim_model dm ON dm.id = tr.model_id "
+        "JOIN dim_tool_name dtn ON dtn.id = tr.tool_name_id "
+        "ORDER BY tr.hour, p.project_id, dm.value, dtn.value"),
+    "tool_error_rollup": (
+        "SELECT ter.hour, p.project_id, dm.value, dtn.value, dek.value, "
+        "ter.n "
+        "FROM tool_error_rollup ter "
+        "JOIN projects p ON p.proj_id = ter.proj_id "
+        "JOIN dim_model dm ON dm.id = ter.model_id "
+        "JOIN dim_tool_name dtn ON dtn.id = ter.tool_name_id "
+        "JOIN dim_error_kind dek ON dek.id = ter.error_kind_id "
+        "ORDER BY ter.hour, p.project_id, dm.value, dtn.value, dek.value"),
+    "dispatch_rollup": (
+        "SELECT dr.hour, p.project_id, dat.value, dam.value, dr.n "
+        "FROM dispatch_rollup dr "
+        "JOIN projects p ON p.proj_id = dr.proj_id "
+        "JOIN dim_agent_type dat ON dat.id = dr.agent_type_id "
+        "JOIN dim_agent_model dam ON dam.id = dr.agent_model_id "
+        "ORDER BY dr.hour, p.project_id, dat.value, dam.value"),
+    "dispatch_brief_rollup": (
+        "SELECT br.hour, p.project_id, dat.value, br.brief_ref, br.n, "
+        "br.prompt_chars "
+        "FROM dispatch_brief_rollup br "
+        "JOIN projects p ON p.proj_id = br.proj_id "
+        "JOIN dim_agent_type dat ON dat.id = br.agent_type_id "
+        "ORDER BY br.hour, p.project_id, dat.value, br.brief_ref"),
+    "latency_rollup": (
+        "SELECT l.bucket_s, l.bucket, p.project_id, dm.value, l.n, l.p10, "
+        "l.p50, l.p90, l.outliers "
+        "FROM latency_rollup l "
+        "JOIN projects p ON p.proj_id = l.proj_id "
+        "JOIN dim_model dm ON dm.id = l.model_id "
+        "ORDER BY l.bucket_s, l.bucket, p.project_id, dm.value"),
+    "ctx_cost_rollup": (
+        "SELECT cr.hour, p.project_id, dm.value, cr.ctx_bucket, cr.requests, "
+        "cr.total_tokens, cr.cost_usd "
+        "FROM ctx_cost_rollup cr "
+        "JOIN projects p ON p.proj_id = cr.proj_id "
+        "JOIN dim_model dm ON dm.id = cr.model_id "
+        "ORDER BY cr.hour, p.project_id, dm.value, cr.ctx_bucket"),
+    "agent_rollup": (
+        "SELECT ar.hour, p.project_id, dm.value, dat.value, ar.requests, "
+        "ar.output_tokens, ar.total_tokens, ar.cost_usd "
+        "FROM agent_rollup ar "
+        "JOIN projects p ON p.proj_id = ar.proj_id "
+        "JOIN dim_model dm ON dm.id = ar.model_id "
+        "JOIN dim_agent_type dat ON dat.id = ar.agent_type_id "
+        "ORDER BY ar.hour, p.project_id, dm.value, dat.value"),
 }
 _MEMBER_RELATIVE = (
     "projT/sess-t/subagents/"
@@ -68,18 +130,18 @@ def _derived_snapshot() -> dict[str, list[tuple]]:
     """Return every rollup row and the canonical/agent flags, all ordered."""
     with db.viz_conn() as conn:
         snapshot = {
-            table: conn.execute(
-                db.sql_text(f"SELECT * FROM {table} ORDER BY {order_by}")
-            ).fetchall()
-            for table, order_by in _ROLLUPS.items()
+            table: conn.execute(db.sql_text(sql)).fetchall()
+            for table, sql in _ROLLUPS.items()
         }
         snapshot["records.is_canonical"] = conn.execute(
-            "SELECT file_key, line_num, is_canonical FROM records "
-            "ORDER BY file_key, line_num"
+            "SELECT f.file_key, r.line_num, r.is_canonical "
+            "FROM records r JOIN files f ON f.file_id = r.file_id "
+            "ORDER BY f.file_key, r.line_num"
         ).fetchall()
         snapshot["tool_uses.is_canonical"] = conn.execute(
-            "SELECT file_key, line_num, idx, is_canonical FROM tool_uses "
-            "ORDER BY file_key, line_num, idx"
+            "SELECT f.file_key, t.line_num, t.idx, t.is_canonical "
+            "FROM tool_uses t JOIN files f ON f.file_id = t.file_id "
+            "ORDER BY f.file_key, t.line_num, t.idx"
         ).fetchall()
         snapshot["files.agent_type"] = conn.execute(
             "SELECT file_key, agent_type FROM files ORDER BY file_key"
@@ -127,7 +189,9 @@ def _canonical_file(record_uuid: str) -> tuple[str, ...] | None:
     """Return the current canonical file for one UUID."""
     with db.viz_conn() as conn:
         return conn.execute(
-            "SELECT file_key FROM records WHERE uuid = %s AND is_canonical",
+            "SELECT f.file_key FROM records r "
+            "JOIN files f ON f.file_id = r.file_id "
+            f"WHERE {uuid_split.uuid_text_sql('r')} = %s AND r.is_canonical",
             (record_uuid,),
         ).fetchone()
 
@@ -308,10 +372,12 @@ def test_dirty_latency_with_null_timestamp_forces_full(
     assert ingest.run_ingest(trigger="manual")["error"] is None
     file_key = "claude/projA/sess-A/sess-A.jsonl"
     with db.viz_conn() as conn:
+        fid = dims_seed.file_id(conn, file_key)
+        mid = dims_seed.dim_id(conn, "dim_model", "test-model")
         conn.execute(
-            "INSERT INTO records (file_key, line_num, uuid, model, "
+            "INSERT INTO records (file_id, line_num, fallback, model_id, "
             "reply_latency_s) VALUES (%s, %s, %s, %s, %s)",
-            (file_key, 9000, "null-time-latency", "test-model", 5.0),
+            (fid, 9000, "null-time-latency", mid, 5.0),
         )
         conn.commit()
     changed = mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl"
@@ -371,23 +437,33 @@ def test_tied_latency_outliers_are_deterministic(
         assert source is not None
         file_key, project_id = source
         with conn.cursor() as cur:
+            fid = dims_seed.file_id(conn, file_key)
+            mid = dims_seed.dim_id(conn, "dim_model", "tied-model")
             cur.executemany(
-                "INSERT INTO records (file_key, line_num, ts, model, "
+                "INSERT INTO records (file_id, line_num, ts, model_id, "
                 "reply_latency_s) VALUES (%s, %s, %s, %s, %s)",
-                [(file_key, 1000 + index, "2026-01-01T12:00:00Z",
-                  "tied-model", 5.0) for index in range(100)],
+                [(fid, 1000 + index, "2026-01-01T12:00:00Z",
+                  mid, 5.0) for index in range(100)],
             )
         conn.commit()
     ingest.rebuild_latency_rollup()
     with db.viz_conn() as conn:
         first = conn.execute(
-            "SELECT outliers FROM latency_rollup WHERE bucket_s = 3600 "
-            "AND project_id = %s AND model = 'tied-model'", (project_id,),
+            "SELECT l.outliers FROM latency_rollup l "
+            "JOIN projects p ON p.proj_id = l.proj_id "
+            "JOIN dim_model dm ON dm.id = l.model_id "
+            "WHERE l.bucket_s = 3600 "
+            "AND p.project_id = %s AND dm.value = 'tied-model'",
+            (project_id,),
         ).fetchone()
     ingest.rebuild_latency_rollup()
     with db.viz_conn() as conn:
         second = conn.execute(
-            "SELECT outliers FROM latency_rollup WHERE bucket_s = 3600 "
-            "AND project_id = %s AND model = 'tied-model'", (project_id,),
+            "SELECT l.outliers FROM latency_rollup l "
+            "JOIN projects p ON p.proj_id = l.proj_id "
+            "JOIN dim_model dm ON dm.id = l.model_id "
+            "WHERE l.bucket_s = 3600 "
+            "AND p.project_id = %s AND dm.value = 'tied-model'",
+            (project_id,),
         ).fetchone()
     assert first is not None and second == first

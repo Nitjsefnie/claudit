@@ -5,11 +5,27 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from backend import db, flags
+from backend import db, flags, uuid_split
 from backend.constants import DEFAULT_AGENT_TYPE
 from backend.ingest_scope import Scope, current_scope
 
 log = logging.getLogger("claudit.ingest")
+
+# records.uuid is the split column set (issue #959 task 8). Every read
+# below rebuilds or groups by it through these three fragments, so the
+# winner rule and the incremental probes keep seeing the ORIGINAL text:
+#   _UUID_TEXT      — the byte-identical rebuild, for equality probes;
+#   _UUID_PARTITION — the grouping key, the parts rather than the text:
+#                     equal parts iff equal text (uuid_split's docstring
+#                     and schema_dims' CHECKs), so this picks the same
+#                     winners as PARTITION BY uuid did, without building
+#                     a 40-byte string per row per pass;
+#   _UUID_ABSENT    — `uuid IS NULL` (always-canonical legacy rows).
+_UUID_TEXT = uuid_split.uuid_text_sql("r")
+_WINNER_UUID_TEXT = uuid_split.uuid_text_sql("w")
+_UUID_PARTITION = uuid_split.uuid_partition_sql("r")
+_UUID_ABSENT = uuid_split.uuid_absent_sql("r")
+_UUID_PRESENT = uuid_split.uuid_present_sql("r")
 
 # The canonical winner prefers an ATTRIBUTED copy (issue #529): a forked
 # Codex rollout replays its parent's history with no model declaration in
@@ -22,8 +38,12 @@ log = logging.getLogger("claudit.ingest")
 # them (a live model-less file is refused at parse); `<synthetic>` is
 # Claude's harness-fabricated stub model, which names no model at all
 # (issue #563, kept in lockstep with the browser's isAttributed).
-_UNATTRIBUTED = ("(COALESCE(model, '')"
-                 " IN ('', 'unknown', '(unknown)', '<synthetic>'))")
+# Since #959 the model is a dim FK, so the rank reads the dim's TEXT —
+# through the `dm` alias every winner query joins. records.model_id is
+# NOT NULL and tool_uses.model_id nullable, so COALESCE keeps the old
+# NULL-is-unattributed behaviour on the tool side.
+_UNATTRIBUTED_SQL = ("(COALESCE(dm.value, '')"
+                     " IN ('', 'unknown', '(unknown)', '<synthetic>'))")
 
 # A replayed copy loses to an original of the same identity, whatever the
 # key order (issue #687): a forked Codex rollout re-journals its parent's
@@ -32,7 +52,23 @@ _UNATTRIBUTED = ("(COALESCE(model, '')"
 # rank tied and the fork's `subagents/…` key won, counting the parent's
 # history as the fork's. NULL (every non-Codex row, and every row parsed
 # before #687) ranks as an original.
-_REPLAY_LAST = "(is_replay IS TRUE)"
+
+
+def _replay_last(fact_alias: str) -> str:
+    """The replay rank as SQL over the fact table's alias."""
+    return f"({fact_alias}.is_replay IS TRUE)"
+
+
+def _winner_order(fact_alias: str) -> str:
+    """The tie-break chain, ending in file_key TEXT order (R2).
+
+    files.file_key is JOINED, never the fact's file_id: file_id is
+    first-seen order, which would flip ties the browser's
+    record-dedup.js — whose arrival order stands in for file_key —
+    resolves the other way (SV-CANONICAL-FLAG lockstep).
+    """
+    return (f"{_replay_last(fact_alias)}, {_UNATTRIBUTED_SQL}, "
+            f"f.file_key, {fact_alias}.line_num")
 
 
 def _phase_scope(scope: Scope | None) -> Scope | None:
@@ -57,13 +93,20 @@ def purge_suppressed(scope: Scope | None = None) -> int:
         if not row or not row[0]:
             return 0
         deleted = 0
-        filter_sql = " AND tu.file_key = ANY(%(file_keys)s)" if incremental else ""
+        # Model text lives in dim_model now (#959), so the ILIKE match
+        # reads the dim row for each fact's model_id; file scoping goes
+        # through files.file_key -> file_id.
+        filter_sql = (" AND tu.file_id IN (SELECT file_id FROM files "
+                      "WHERE file_key = ANY(%(file_keys)s))") if incremental else ""
         params = {"file_keys": file_keys} if incremental else None
         cur = conn.execute(
             f"""
             DELETE FROM tool_uses tu
-             WHERE EXISTS (SELECT 1 FROM suppressed_models s
-                            WHERE tu.model ILIKE s.pattern){filter_sql}
+             WHERE EXISTS (SELECT 1 FROM dim_model dm
+                            WHERE dm.id = tu.model_id
+                              AND EXISTS (SELECT 1 FROM suppressed_models s
+                                           WHERE dm.value ILIKE s.pattern))
+               {filter_sql}
             RETURNING 1
             """, params)
         deleted += len(cur.fetchall())
@@ -71,20 +114,27 @@ def purge_suppressed(scope: Scope | None = None) -> int:
             f"""
             DELETE FROM tool_uses tu
              USING records r
-             WHERE tu.model IS NULL
-               AND tu.file_key = r.file_key
+             WHERE tu.model_id IS NULL
+               AND tu.file_id = r.file_id
                AND tu.line_num = r.line_num
-               AND EXISTS (SELECT 1 FROM suppressed_models s
-                            WHERE r.model ILIKE s.pattern){filter_sql}
+               AND EXISTS (SELECT 1 FROM dim_model dm
+                            WHERE dm.id = r.model_id
+                              AND EXISTS (SELECT 1 FROM suppressed_models s
+                                           WHERE dm.value ILIKE s.pattern))
+               {filter_sql}
             RETURNING 1
             """, params)
         deleted += len(cur.fetchall())
-        filter_sql = " AND r.file_key = ANY(%(file_keys)s)" if incremental else ""
+        filter_sql = (" AND r.file_id IN (SELECT file_id FROM files "
+                      "WHERE file_key = ANY(%(file_keys)s))") if incremental else ""
         cur = conn.execute(
             f"""
             DELETE FROM records r
-             WHERE EXISTS (SELECT 1 FROM suppressed_models s
-                            WHERE r.model ILIKE s.pattern){filter_sql}
+             WHERE EXISTS (SELECT 1 FROM dim_model dm
+                            WHERE dm.id = r.model_id
+                              AND EXISTS (SELECT 1 FROM suppressed_models s
+                                           WHERE dm.value ILIKE s.pattern))
+               {filter_sql}
             RETURNING 1
             """, params)
         deleted += len(cur.fetchall())
@@ -102,11 +152,12 @@ def resolve_teammate_agent_types(scope: Scope | None = None) -> int:
             """
             WITH resolved AS (
               SELECT DISTINCT ON (f.file_key) f.file_key,
-                     COALESCE(tu.agent_type, %(default)s) AS agent_type
+                     COALESCE(dt.value, %(default)s) AS agent_type
                 FROM files f
                 JOIN files p ON p.project_id = f.project_id
                             AND p.session_id = f.session_id
-                JOIN tool_uses tu ON tu.file_key = p.file_key
+                JOIN tool_uses tu ON tu.file_id = p.file_id
+                LEFT JOIN dim_agent_type dt ON dt.id = tu.agent_type_id
                WHERE f.teammate_name IS NOT NULL
                  AND tu.dispatch_name = f.teammate_name
                  AND tu.is_error IS NOT TRUE
@@ -114,7 +165,7 @@ def resolve_teammate_agent_types(scope: Scope | None = None) -> int:
                  AND tu.is_canonical
                  AND tu.ts <= COALESCE(
                        (SELECT min(r.ts) FROM records r
-                         WHERE r.file_key = f.file_key),
+                         WHERE r.file_id = f.file_id),
                        'infinity')
                ORDER BY f.file_key, tu.ts DESC, tu.line_num DESC
             )
@@ -129,8 +180,8 @@ def resolve_teammate_agent_types(scope: Scope | None = None) -> int:
             for project_id, hour in conn.execute(
                 """
                 SELECT f.project_id, date_trunc('hour', r.ts)
-                  FROM records r JOIN files f ON f.file_key = r.file_key
-                 WHERE r.file_key = ANY(%s)
+                  FROM records r JOIN files f ON f.file_id = r.file_id
+                 WHERE f.file_key = ANY(%s)
                 """, (list(changed_files),),
             ).fetchall():
                 scope.add_hour(project_id, hour)
@@ -177,74 +228,73 @@ def recompute_canonical(scope: Scope | None = None) -> int:
     with db.viz_conn() as conn:
         conn.execute("SET LOCAL work_mem = '64MB'")
         if not incremental:
-            cur = conn.execute(
-                f"""
+            cur = conn.execute(db.sql_text(f"""
                 UPDATE records r SET is_canonical = w.canon
                   FROM (
-                    SELECT file_key, line_num,
-                           (uuid IS NULL OR ROW_NUMBER() OVER (
-                              PARTITION BY uuid
-                              ORDER BY {_REPLAY_LAST}, {_UNATTRIBUTED}, file_key,
-                              line_num
+                    SELECT r.file_id, r.line_num,
+                           ({_UUID_ABSENT} OR ROW_NUMBER() OVER (
+                              PARTITION BY {_UUID_PARTITION}
+                              ORDER BY {_winner_order('r')}
                             ) = 1) AS canon
-                      FROM records
+                      FROM records r
+                      JOIN files f ON f.file_id = r.file_id
+                      JOIN dim_model dm ON dm.id = r.model_id
                   ) w
-                 WHERE r.file_key = w.file_key AND r.line_num = w.line_num
+                 WHERE r.file_id = w.file_id AND r.line_num = w.line_num
                    AND r.is_canonical IS DISTINCT FROM w.canon
-                """
-            )
+                """))
             changed += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
-            cur = conn.execute(
-                f"""
+            cur = conn.execute(db.sql_text(f"""
                 UPDATE tool_uses t SET is_canonical = w.canon
                   FROM (
-                    SELECT file_key, line_num, idx,
-                           (tool_use_id IS NULL OR ROW_NUMBER() OVER (
-                              PARTITION BY tool_use_id
-                              ORDER BY {_REPLAY_LAST}, {_UNATTRIBUTED}, file_key,
-                              line_num, idx
+                    SELECT t.file_id, t.line_num, t.idx,
+                           (t.tool_use_id IS NULL OR ROW_NUMBER() OVER (
+                              PARTITION BY t.tool_use_id
+                              ORDER BY {_winner_order('t')}, t.idx
                             ) = 1) AS canon
-                      FROM tool_uses
+                      FROM tool_uses t
+                      JOIN files f ON f.file_id = t.file_id
+                      LEFT JOIN dim_model dm ON dm.id = t.model_id
                   ) w
-                 WHERE t.file_key = w.file_key AND t.line_num = w.line_num
+                 WHERE t.file_id = w.file_id AND t.line_num = w.line_num
                    AND t.idx = w.idx
                    AND t.is_canonical IS DISTINCT FROM w.canon
-                """
-            )
+                """))
             changed += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
         else:
             assert incremental_scope is not None
             if incremental_scope.affected_uuids:
-                rows = conn.execute(
-                    f"""
+                rows = conn.execute(db.sql_text(f"""
                     WITH winners AS (
-                      SELECT file_key, line_num,
+                      SELECT r.file_id, r.line_num,
                              ROW_NUMBER() OVER (
-                               PARTITION BY uuid
-                               ORDER BY {_REPLAY_LAST}, {_UNATTRIBUTED},
-                                      file_key, line_num
+                               PARTITION BY {_UUID_PARTITION}
+                               ORDER BY {_winner_order('r')}
                              ) = 1 AS canon
-                        FROM records WHERE uuid = ANY(%s)
+                        FROM records r
+                        JOIN files f ON f.file_id = r.file_id
+                        JOIN dim_model dm ON dm.id = r.model_id
+                       WHERE {_UUID_TEXT} = ANY(%s)
                     ), changed AS (
                       UPDATE records r SET is_canonical = w.canon
-                        FROM winners w JOIN files f ON f.file_key = w.file_key
-                       WHERE r.file_key = w.file_key AND r.line_num = w.line_num
+                        FROM winners w JOIN files f ON f.file_id = w.file_id
+                       WHERE r.file_id = w.file_id AND r.line_num = w.line_num
                          AND r.is_canonical IS DISTINCT FROM w.canon
                       RETURNING f.project_id, date_trunc('hour', r.ts) AS hour,
                                 (r.reply_latency_s IS NOT NULL AND r.ts IS NULL)
                                   AS latency_null
                     ) SELECT project_id, hour, latency_null FROM changed
-                    """, (sorted(incremental_scope.affected_uuids),),
+                    """), (sorted(incremental_scope.affected_uuids),),
                 ).fetchall()
                 _updated_record_rows(incremental_scope, rows)
                 changed += len(rows)
             if incremental_scope.dirty_files:
                 rows = conn.execute(
-                    """
+                    f"""
                     UPDATE records r SET is_canonical = TRUE
                       FROM files f
-                     WHERE r.file_key = f.file_key
-                       AND r.file_key = ANY(%s) AND r.uuid IS NULL
+                     WHERE r.file_id = f.file_id
+                       AND f.file_key = ANY(%s) AND {_UUID_ABSENT}
                        AND r.is_canonical IS DISTINCT FROM TRUE
                     RETURNING f.project_id, date_trunc('hour', r.ts) AS hour,
                               (r.reply_latency_s IS NOT NULL AND r.ts IS NULL)
@@ -255,26 +305,27 @@ def recompute_canonical(scope: Scope | None = None) -> int:
                 changed += len(rows)
 
             if incremental_scope.affected_tool_use_ids:
-                rows = conn.execute(
-                    f"""
+                rows = conn.execute(db.sql_text(f"""
                     WITH winners AS (
-                      SELECT file_key, line_num, idx,
+                      SELECT t.file_id, t.line_num, t.idx,
                              ROW_NUMBER() OVER (
-                               PARTITION BY tool_use_id
-                               ORDER BY {_REPLAY_LAST}, {_UNATTRIBUTED},
-                                      file_key, line_num, idx
+                               PARTITION BY t.tool_use_id
+                               ORDER BY {_winner_order('t')}, t.idx
                              ) = 1 AS canon
-                        FROM tool_uses WHERE tool_use_id = ANY(%s)
+                        FROM tool_uses t
+                        JOIN files f ON f.file_id = t.file_id
+                        LEFT JOIN dim_model dm ON dm.id = t.model_id
+                       WHERE t.tool_use_id = ANY(%s)
                     ), changed AS (
                       UPDATE tool_uses t SET is_canonical = w.canon
-                        FROM winners w JOIN files f ON f.file_key = w.file_key
-                       WHERE t.file_key = w.file_key
+                        FROM winners w JOIN files f ON f.file_id = w.file_id
+                       WHERE t.file_id = w.file_id
                          AND t.line_num = w.line_num AND t.idx = w.idx
                          AND t.is_canonical IS DISTINCT FROM w.canon
                       RETURNING f.project_id,
                                 date_trunc('hour', t.ts) AS hour
                     ) SELECT project_id, hour FROM changed
-                    """, (sorted(incremental_scope.affected_tool_use_ids),),
+                    """), (sorted(incremental_scope.affected_tool_use_ids),),
                 ).fetchall()
                 _updated_tool_hours(incremental_scope, rows)
                 changed += len(rows)
@@ -283,8 +334,8 @@ def recompute_canonical(scope: Scope | None = None) -> int:
                     """
                     UPDATE tool_uses t SET is_canonical = TRUE
                       FROM files f
-                     WHERE t.file_key = f.file_key
-                       AND t.file_key = ANY(%s) AND t.tool_use_id IS NULL
+                     WHERE t.file_id = f.file_id
+                       AND f.file_key = ANY(%s) AND t.tool_use_id IS NULL
                        AND t.is_canonical IS DISTINCT FROM TRUE
                     RETURNING f.project_id, date_trunc('hour', t.ts)
                     """, (sorted(incremental_scope.dirty_files),),
@@ -340,37 +391,56 @@ def adopt_original_models(scope: Scope | None = None) -> int:
                          if incremental else None),
         }
         # records: a losing replayed copy takes its uuid's original's
-        # model, and collected files.models gains it — one statement, one snapshot,
-        # so `added` is derived before the rows move.
+        # model, and files.models gains it — one statement, one snapshot,
+        # so `added` is derived before the rows move. The model travels
+        # as its dim id (the SET) beside the dim's TEXT (files.models,
+        # which stays a TEXT[] on the small files table, #959).
+        # The join is on the REBUILT identity text — the one spelling
+        # every other uuid read uses. Equal texts iff equal parts
+        # (uuid_split's docstring + schema_dims' CHECK disjointness), so
+        # this matches exactly the pairs `w.uuid = r.uuid` matched —
+        # winners are always uuid-bearing, so an absent-uuid row still
+        # never joins. It must be EQUALITY: `IS NOT DISTINCT FROM` over
+        # the parts has no hash or merge join path, which forced the
+        # planner into a nested loop whose inner side seq-scanned the
+        # whole records table once per replayed copy — quadratic at
+        # corpus scale (measured: 14,011 outer rows against 1.79M inner,
+        # hours; the equality form plans as a parallel hash join).
         cur = conn.execute(
-            """
+            f"""
             WITH winners AS (
-              SELECT uuid, model FROM records
-               WHERE is_canonical AND is_replay IS NOT TRUE
-                 AND uuid IS NOT NULL AND model IS NOT NULL
+              SELECT r.uuid_col, r.seq, r.fallback,
+                     r.model_id, dm.value AS model
+                FROM records r
+                JOIN dim_model dm ON dm.id = r.model_id
+               WHERE r.is_canonical AND r.is_replay IS NOT TRUE
+                 AND {_UUID_PRESENT}
             ), adopt AS (
-              SELECT r.file_key, r.line_num, w.model AS winner_model
-                FROM records r JOIN winners w ON w.uuid = r.uuid
+              SELECT r.file_id, r.line_num,
+                     w.model_id AS winner_model_id, w.model AS winner_model
+                FROM records r JOIN winners w
+                  ON {_WINNER_UUID_TEXT} = {_UUID_TEXT}
                WHERE r.is_replay IS TRUE AND r.is_canonical IS FALSE
-                 AND r.model IS DISTINCT FROM w.model
-                 AND (%(uuids)s::text[] IS NULL OR r.uuid = ANY(%(uuids)s))
+                 AND r.model_id IS DISTINCT FROM w.model_id
+                 AND (%(uuids)s::text[] IS NULL
+                      OR {_UUID_TEXT} = ANY(%(uuids)s))
             ), upd AS (
-              UPDATE records r SET model = a.winner_model
+              UPDATE records r SET model_id = a.winner_model_id
                 FROM adopt a
-               WHERE r.file_key = a.file_key AND r.line_num = a.line_num
-              RETURNING r.file_key
+               WHERE r.file_id = a.file_id AND r.line_num = a.line_num
+              RETURNING r.file_id
             ), added AS (
-              SELECT file_key, array_agg(DISTINCT winner_model) AS added
-                FROM adopt GROUP BY file_key
+              SELECT file_id, array_agg(DISTINCT winner_model) AS added
+                FROM adopt GROUP BY file_id
             ), files_upd AS (
               UPDATE files f
                  SET models = (SELECT array(SELECT DISTINCT m
                                               FROM unnest(f.models || added.added)
                                              AS m ORDER BY m))
                 FROM added
-               WHERE f.file_key = added.file_key AND %(file_extras)s
+               WHERE f.file_id = added.file_id AND %(file_extras)s
                  AND NOT ('file_extras' = ANY(
-                       COALESCE(f.collection_flags, '{}'::text[])))
+                       COALESCE(f.collection_flags, '{{}}'::text[])))
             )
             SELECT count(*) FROM upd
             """, uuid_params)
@@ -381,20 +451,22 @@ def adopt_original_models(scope: Scope | None = None) -> int:
         cur = conn.execute(
             """
             WITH winners AS (
-              SELECT tool_use_id, model FROM tool_uses
-               WHERE is_canonical AND is_replay IS NOT TRUE
-                 AND tool_use_id IS NOT NULL AND model IS NOT NULL
+              SELECT t.tool_use_id, t.model_id
+                FROM tool_uses t
+               WHERE t.is_canonical AND t.is_replay IS NOT TRUE
+                 AND t.tool_use_id IS NOT NULL AND t.model_id IS NOT NULL
             ), adopt AS (
-              SELECT t.file_key, t.line_num, t.idx, w.model AS winner_model
+              SELECT t.file_id, t.line_num, t.idx,
+                     w.model_id AS winner_model_id
                 FROM tool_uses t JOIN winners w ON w.tool_use_id = t.tool_use_id
                WHERE t.is_replay IS TRUE AND t.is_canonical IS FALSE
-                 AND t.model IS DISTINCT FROM w.model
+                 AND t.model_id IS DISTINCT FROM w.model_id
                  AND (%(tool_ids)s::text[] IS NULL
                       OR t.tool_use_id = ANY(%(tool_ids)s))
             )
-            UPDATE tool_uses t SET model = a.winner_model
+            UPDATE tool_uses t SET model_id = a.winner_model_id
               FROM adopt a
-             WHERE t.file_key = a.file_key AND t.line_num = a.line_num
+             WHERE t.file_id = a.file_id AND t.line_num = a.line_num
                AND t.idx = a.idx
             """, tool_params)
         changed += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0

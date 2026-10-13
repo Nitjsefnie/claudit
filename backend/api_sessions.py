@@ -194,18 +194,20 @@ def list_sessions(
              SUM(r.eph5_tokens)          AS cache_create_5m_tokens,
              SUM(r.eph1h_tokens)         AS cache_create_1h_tokens,
              SUM(r.cache_read_tokens)    AS cache_read_tokens,
-             SUM(r.cost_usd)             AS cost_usd,
+             SUM(rp.cost_usd)            AS cost_usd,
              (SELECT json_agg(json_build_object('model', model, 'count', c))
               FROM (
-                SELECT r2.model, COUNT(*) AS c
+                SELECT dm2.value AS model, COUNT(*) AS c
                 FROM records r2
-                JOIN files f2 ON f2.file_key = r2.file_key
-                WHERE f2.session_id = f.session_id AND r2.model <> ''
+                JOIN files f2 ON f2.file_id = r2.file_id
+                JOIN dim_model dm2 ON dm2.id = r2.model_id
+                WHERE f2.session_id = f.session_id AND dm2.value <> ''
                   AND r2.is_canonical
-                GROUP BY r2.model
+                GROUP BY dm2.value
               ) sub) AS models_raw
       FROM records r
-      JOIN files f ON f.file_key = r.file_key
+      JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num
+      JOIN files f ON f.file_id = r.file_id
       WHERE r.is_canonical {proj_filter}
       GROUP BY f.session_id
     )
@@ -271,31 +273,36 @@ def session_detail(session_id: str) -> dict:
                      min(r.ts) AS first_event_at,
                      max(r.ts) AS last_event_at,
                      EXTRACT(EPOCH FROM (max(r.ts) - min(r.ts)))::bigint AS duration_s,
-                     COUNT(r.file_key) AS request_count,
+                     COUNT(r.file_id) AS request_count,
                      SUM(r.fresh_tokens)         AS input_tokens,
                      SUM(r.output_tokens)        AS output_tokens,
                      SUM(r.eph5_tokens)          AS cache_create_5m_tokens,
                      SUM(r.eph1h_tokens)         AS cache_create_1h_tokens,
                      SUM(r.cache_read_tokens)    AS cache_read_tokens,
-                     SUM(r.cost_usd)             AS cost_usd,
+                     SUM(rp.cost_usd)            AS cost_usd,
                      (SELECT json_agg(json_build_object('model', model, 'count', c))
                       FROM (
-                        SELECT model, COUNT(*) AS c
+                        SELECT dm2.value AS model, COUNT(*) AS c
                         FROM records r2
-                        WHERE r2.file_key = f.file_key AND r2.model <> ''
+                        JOIN dim_model dm2 ON dm2.id = r2.model_id
+                        WHERE r2.file_id = f.file_id AND dm2.value <> ''
                           AND r2.is_canonical
-                        GROUP BY model
+                        GROUP BY dm2.value
                       ) sub) AS models_raw,
-                     (SELECT model FROM records r3
-                      WHERE r3.file_key = f.file_key AND r3.model <> ''
+                     (SELECT dm3.value FROM records r3
+                      JOIN dim_model dm3 ON dm3.id = r3.model_id
+                      WHERE r3.file_id = f.file_id AND dm3.value <> ''
                         AND r3.is_canonical
-                      GROUP BY model ORDER BY count(*) DESC LIMIT 1
+                      GROUP BY dm3.value ORDER BY count(*) DESC LIMIT 1
                      ) AS dom_model
               FROM files f
               LEFT JOIN records r
-                ON r.file_key = f.file_key AND r.is_canonical
+                ON r.file_id = f.file_id AND r.is_canonical
+              LEFT JOIN records_price rp
+                ON rp.file_id = r.file_id AND rp.line_num = r.line_num
               WHERE f.session_id = %s AND f.is_main = TRUE
-              GROUP BY f.session_id, f.project_id, f.file_key, f.ctx_turns
+              GROUP BY f.session_id, f.project_id, f.file_key, f.file_id,
+                       f.ctx_turns
               LIMIT 1
             )
             SELECT * FROM per_session

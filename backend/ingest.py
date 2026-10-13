@@ -13,7 +13,7 @@ NULL every column the older binary does not know (issue #118). Orphan
 files (R2 key gone) are deleted. CASCADE drops records.
 
 Per-session work spans TWO transactions:
-  1. DELETE FROM records WHERE file_key=... + INSERT INTO files (UPSERT)
+  1. DELETE FROM records WHERE file_id=... + INSERT INTO files (UPSERT)
      + bulk INSERT INTO records — all in one transaction so a crash
      mid-loop leaves either the old state or the new state.
   2. (Implicit) The orphan delete + projects upserts also commit in
@@ -25,17 +25,16 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import partial
 
 import psycopg
 
-from backend.env_config import require_env
 from backend import flags, ingest_collection, collection_rollups
 from backend.flags import CollectionPolicy
-from backend import blob_cache, cache, constants, db, events, ingest_fetch, key_layout, lane_projects, parse, r2, timing  # pylint: disable=unused-import
+from backend import blob_cache, cache, constants, db, events, ingest_fetch, ingest_vacuum, key_layout, lane_projects, parse, r2, timing  # pylint: disable=unused-import
 from backend.ingest_fetch import (  # noqa: F401  (re-export)
     fetch_with_retry as _fetch_with_retry,
     parse_process_count, persist_thread_count,
@@ -53,6 +52,9 @@ from backend.ingest_scan import (  # noqa: F401  (re-export)  # pylint: disable=
     _Wire, _fetch_marker, _resolve_project_paths, _scan_objects,
 )
 from backend import ingest_lockwatch
+from backend.ingest_lockwatch import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
+    _INGEST_LOCK_KEY, _db_run_lock,
+)
 from backend.ingest_reprice import IngestAborted, reprice_stale  # noqa: F401  (re-export)
 from backend.ingest_timing import (  # noqa: F401  (re-export)
     _RUN_TIMING, _RunTiming, _record_phase, _record_scope, _timed_step,
@@ -95,12 +97,6 @@ log = logging.getLogger("claudit.ingest")
 # a skipped run is correct behaviour, not an error — the next hourly tick
 # picks up whatever is left.
 _RUN_LOCK = threading.Lock()
-
-# Advisory-lock key for the db-wide ingest lock (_db_run_lock below). A
-# sibling of db._SCHEMA_LOCK_KEY (0x5356_4D49) — same prefix, next value —
-# so the schema migration and an ingest run can never take each other's
-# lock on one database.
-_INGEST_LOCK_KEY = 0x5356_4D4A
 
 # Cooperative abort (issue #103): a SIGTERM during a run used to wait out
 # the whole ingest until systemd SIGKILLed mid-run. Lifespan teardown sets
@@ -174,60 +170,6 @@ def _run_lock_nonblocking():
     finally:
         if acquired:
             _RUN_LOCK.release()
-
-
-@contextmanager
-def _db_run_lock() -> Iterator[bool]:
-    """Try the db-wide ingest advisory lock on a DEDICATED connection.
-
-    _RUN_LOCK above serialises one process; two app instances sharing one
-    database still ran their ingests concurrently (issue #102: two runs
-    2.4 ms apart, one rollup rebuild UniqueViolation, two ingest_runs
-    rows). pg_try_advisory_lock is session-scoped, so the server releases
-    it when the holding connection dies — a crashed instance can never
-    leave the ingest locked.
-
-    The connection exists ONLY to hold the lock: opened here, closed in
-    the outer finally on every exit path (success, fatal error, and any
-    abort unwinding through the yield), so no pooled connection ever
-    returns to the pool with the lock still held.
-
-    Yields False when another instance holds it — a skipped run is correct
-    behaviour, not an error. A connect failure propagates, the same as
-    today's behaviour when the database is down.
-    """
-    conn = psycopg.Connection.connect(
-        require_env("CLAUDIT_DATABASE_URL_VIZ"), autocommit=True)
-    try:
-        row = conn.execute(  # pylint: disable=no-member
-            "SELECT pg_try_advisory_lock(%s)", (_INGEST_LOCK_KEY,)
-        ).fetchone()
-        assert row is not None  # SELECT always yields exactly one row
-        acquired = bool(row[0])
-        ingest_lockwatch.hold(conn, _INGEST_LOCK_KEY)
-        try:
-            yield acquired
-        finally:
-            ingest_lockwatch.release()
-            if acquired:
-                # Issue #154: the unlock must never mask the body's error;
-                # the swallow leaves no stale lock either way — the expected
-                # failure is the lock session dying mid-run, where the
-                # server releases a session-scoped advisory lock at session
-                # death, and a still-live session is ended by the close()
-                # in the outer finally on every exit path regardless.
-                try:
-                    conn.execute(  # pylint: disable=no-member
-                        "SELECT pg_advisory_unlock(%s)", (_INGEST_LOCK_KEY,))
-                except Exception as exc:
-                    log.warning(
-                        "ingest advisory-lock unlock failed; the lock is "
-                        "released server-side when the lock session dies, "
-                        "and a still-live session is ended by the close() "
-                        "in the outer finally; any in-flight run error is "
-                        "preserved: %s", exc)
-    finally:
-        conn.close()  # pylint: disable=no-member
 
 
 def _skip(trigger: str, reason: str) -> dict:
@@ -393,7 +335,7 @@ def _rebuild_derived_state() -> int:
             scope.start_rollups()
         with _timed_step(phase):
             _set_progress(phase=phase)
-            rows = rebuild() or 0
+            rows = ingest_vacuum.note_phase(phase, rebuild() or 0)
         if phase == "reprice" and rows and scope is not None:
             scope.promote_full("reprice changed records")
         if phase == "canonical" and scope is not None:
@@ -405,6 +347,13 @@ def _rebuild_derived_state() -> int:
     if scope is not None:
         scope.check_dirty_threshold(scope.dirty_files)
         scope.check_latency_null()
+    # Post-ingest VACUUM (issue #959): outside every transaction, once
+    # the rollup rebuild has finished — before the run closes, so
+    # finished_at still marks the run's work as complete. The run's own
+    # stop guard is consulted inside; a failure is booked as a summary
+    # warning, never as the run's error.
+    with _timed_step("vacuum"):
+        ingest_vacuum.vacuum_after_run(check_shutdown=_check_shutdown)
     return changed
 
 
@@ -503,6 +452,7 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
     with _timed_step("open_run"):
         started, run_id = _open_run_swept(trigger)
         _set_progress(phase="listing", done=0, total=0, run_id=run_id, started_at=started.isoformat())
+        ingest_vacuum.begin_run()
         listed = inserted = reparsed = deleted = vanished = newer = changed = lane_moved = 0
         # Per-object failures (qualified key, message). Counted in `error`,
         # whose public /health surface cannot carry keys (issue #253).
@@ -525,6 +475,7 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         _record_scope("full" if scope.full else "incremental")
         listed, inserted, reparsed, deleted, vanished, newer, lane_moved = (
             _walk_and_persist(constants.PARSER_VERSION, failed))
+        ingest_vacuum.note_files(inserted + reparsed + deleted + lane_moved)
     except IngestAborted as exc:
         abort_msg = str(exc) or "shutdown requested"
         log.warning("ingest (%s): aborted, %s", trigger, abort_msg)
@@ -637,10 +588,12 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         _set_progress(phase="idle", done=0, total=0)
         # Authenticated triage only (/admin/ingest response). The broadcast
         # above serializes eagerly (json.dumps inside broadcast_threadsafe),
-        # so this field never reaches the guest-visible SSE payload (issue
-        # #253); ingest_runs.error is count-only at the source. Keep this
-        # assignment here to preserve that serialization boundary.
+        # so these fields never reach the guest-visible SSE payload (issue
+        # #253 and constraint 1); ingest_runs.error is count-only at the
+        # source. Keep these assignments here to preserve that boundary.
         summary["failed_keys"] = failed_public_keys(failed)
+        if (vacuum_warning := ingest_vacuum.take_warning()) is not None:
+            summary["vacuum_warning"] = vacuum_warning
         if fatal is None and not aborted and not failed:
             mark_complete()
     if (current := _RUN_TIMING.get()) is not None:

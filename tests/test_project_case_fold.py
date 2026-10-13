@@ -64,7 +64,8 @@ def test_windows_case_variants_are_one_project(fresh_db, tmp_path,
         pids = [r[0] for r in c.execute(
             "SELECT DISTINCT project_id FROM files ORDER BY 1")]
         projects = c.execute(
-            "SELECT project_id, display_name FROM projects").fetchall()
+            "SELECT project_id, display_name FROM projects "
+            "WHERE project_id <> ''").fetchall()
     assert pids == ["c--users-m-kvalita"]
     assert projects == [
         ("c--users-m-kvalita", "C--Users-M-kvalita"),
@@ -107,7 +108,8 @@ def test_pre53_mixed_case_project_rekeys_without_orphan(fresh_db, tmp_path,
         pids = [r[0] for r in c.execute(
             "SELECT DISTINCT project_id FROM files")]
         projects = c.execute(
-            "SELECT project_id, display_name FROM projects").fetchall()
+            "SELECT project_id, display_name FROM projects "
+            "WHERE project_id <> ''").fetchall()
     assert pids == ["c--users-m-kvalita"], (
         "every file, stored and new, is re-keyed onto the folded id")
     assert projects == [
@@ -157,7 +159,8 @@ def test_posix_case_variants_stay_two_projects(fresh_db, tmp_path,
     assert result["error"] is None
     with db.viz_conn() as c:
         projects = c.execute(
-            "SELECT project_id, display_name FROM projects").fetchall()
+            "SELECT project_id, display_name FROM projects "
+            "WHERE project_id <> ''").fetchall()
     # Sorted in Python, never ORDER BY: the two rows differ only in
     # case, and a database collation may rank them either way — the
     # test is about WHICH rows exist, not their stored order.

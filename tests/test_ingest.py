@@ -11,11 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from backend import api, cache, constants, db, ingest
+from backend import api, cache, constants, db, ingest, uuid_split
 from backend.api_ctx_growth import context_growth_traces
 from backend.api_dashboard import dashboard
 from backend.api_web_metrics import web_metrics_readout
-from tests import mini_mirror, scratch_db
+from tests import dims_seed, mini_mirror, scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIX_ROOT = _REPO_ROOT / "fixtures"
@@ -68,7 +68,7 @@ def test_ingest_inserts_one_row_per_jsonl(fresh_db, mini_r2_env):
         assert n_main == shape["main"]
         n_sess = _scalar(c, "SELECT COUNT(DISTINCT session_id) FROM files")
         assert n_sess == shape["sessions"]
-        n_proj = _scalar(c, "SELECT COUNT(*) FROM projects")
+        n_proj = _scalar(c, "SELECT COUNT(*) FROM projects WHERE project_id <> ''")
         assert n_proj == shape["projects"]
 
 
@@ -81,10 +81,13 @@ def test_records_populated_with_no_write_time_dedup(fresh_db, mini_r2_env):
         n = _scalar(c, "SELECT COUNT(*) FROM records")
         assert n > 0
         # All three files' rows for 'shared-uuid-1' kept verbatim
-        cnt = _scalar(c, "SELECT COUNT(*) FROM records WHERE uuid = 'shared-uuid-1'")
+        cnt = _scalar(c, f"SELECT COUNT(*) FROM records r WHERE {uuid_split.uuid_text_sql('r')} = 'shared-uuid-1'")
         assert cnt == 3
         # Query-time dedup gives 1
-        cnt_distinct = _scalar(c, "SELECT COUNT(DISTINCT uuid) FROM records WHERE uuid = 'shared-uuid-1'")
+        cnt_distinct = _scalar(
+            c, f"SELECT COUNT(DISTINCT {uuid_split.uuid_text_sql('r')}) "
+               f"FROM records r "
+               f"WHERE {uuid_split.uuid_text_sql('r')} = 'shared-uuid-1'")
         assert cnt_distinct == 1
 
 
@@ -112,8 +115,8 @@ def test_nul_in_tool_text_still_stores(fresh_db, mini_r2_env):
         assert _scalar(c, "SELECT count(*) FROM files WHERE file_key = %s",
                        (fk,)) == 1, "NUL-bearing transcript refused at persist"
         rows = c.execute(
-            "SELECT tool_name, read_targets FROM tool_uses "
-            "WHERE file_key = %s ORDER BY idx", (fk,)).fetchall()
+            "SELECT dtn.value, read_targets FROM tool_uses t JOIN files f ON f.file_id = t.file_id JOIN dim_tool_name dtn ON dtn.id = t.tool_name_id WHERE f.file_key = %s ORDER BY t.idx",
+            (fk,)).fetchall()
     assert [r[0] for r in rows] == ["SkillSkill", "Read"]
     assert rows[1][1] == ["/tmp/ab.md"]
 
@@ -159,7 +162,7 @@ def test_records_cascade_on_file_delete(fresh_db, mini_r2_env):
     target.unlink()
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
-        n = _scalar(c, "SELECT COUNT(*) FROM records WHERE file_key LIKE '%sess-A.jsonl'")
+        n = _scalar(c, "SELECT COUNT(*) FROM records r JOIN files f ON f.file_id = r.file_id WHERE f.file_key LIKE '%sess-A.jsonl'")
         assert n == 0
 
 
@@ -224,7 +227,7 @@ def test_xz_compressed_jsonl_ingests_transparently(fresh_db, mini_r2_env):
         assert row[2] == "sess-A"
         n_main = _scalar(c, "SELECT COUNT(*) FROM files WHERE is_main")
         assert n_main == shape["main"]
-        n_rec = _scalar(c, "SELECT COUNT(*) FROM records WHERE file_key LIKE '%sess-A.jsonl.xz'")
+        n_rec = _scalar(c, "SELECT COUNT(*) FROM records r JOIN files f ON f.file_id = r.file_id WHERE f.file_key LIKE '%sess-A.jsonl.xz'")
         assert n_rec > 0, "records populate from decompressed bytes"
 
 
@@ -243,21 +246,24 @@ def test_is_canonical_matches_read_time_distinct_on(fresh_db, mini_r2_env):
 
     with db.viz_conn() as c:
         flagged = c.execute(
-            "SELECT file_key, line_num FROM records "
-            "WHERE is_canonical ORDER BY file_key, line_num"
+            "SELECT f.file_key, r.line_num FROM records r JOIN files f ON f.file_id = r.file_id WHERE r.is_canonical ORDER BY f.file_key, r.line_num"
         ).fetchall()
-        # What the read endpoints used to compute on every request.
+        # The pre-#959 text rule, still the rule (R2: file_key TEXT order).
+        uuid_text = uuid_split.uuid_text_sql("r")
         expected = c.execute(
-            """
+            f"""
             SELECT file_key, line_num FROM (
-              (SELECT DISTINCT ON (uuid) file_key, line_num
-                 FROM records WHERE uuid IS NOT NULL
-                ORDER BY uuid,
-                         (COALESCE(model, '')
+              (SELECT DISTINCT ON ({uuid_text}) f.file_key, r.line_num
+                 FROM records r JOIN files f ON f.file_id = r.file_id
+                 JOIN dim_model dm ON dm.id = r.model_id
+                WHERE {uuid_split.uuid_present_sql("r")}
+                ORDER BY {uuid_text}, (COALESCE(dm.value, '')
                           IN ('', 'unknown', '(unknown)', '<synthetic>')),
-                         file_key, line_num)
+                         f.file_key, r.line_num)
               UNION ALL
-              (SELECT file_key, line_num FROM records WHERE uuid IS NULL)
+              (SELECT f.file_key, r.line_num FROM records r
+                 JOIN files f ON f.file_id = r.file_id
+                 WHERE {uuid_split.uuid_absent_sql("r")})
             ) t ORDER BY file_key, line_num
             """
         ).fetchall()
@@ -316,16 +322,16 @@ def _seed_winner_shapes(c) -> None:
                 "now(), %s)",
                 (f"shape-{idx}-{label}", constants.PARSER_VERSION))
             c.execute(
-                "INSERT INTO records (file_key, line_num, uuid, model, "
-                "is_replay) VALUES (%s, %s, %s, %s, %s)",
-                (f"shape-{idx}-{label}", pos + 1, f"u-{idx}", model, replay))
+                "INSERT INTO records (file_id, line_num, fallback, model_id, is_replay) VALUES (%s, %s, %s, %s, %s)",
+                (dims_seed.file_id(c, f"shape-{idx}-{label}"), pos + 1,
+                 f"u-{idx}", dims_seed.dim_id(c, "dim_model", model), replay))
 
 
 def _sql_winners() -> dict[str, str]:
     """The winning copy's arrival label per shape, from the flags."""
     with db.viz_conn() as c:
         flagged = c.execute(
-            "SELECT file_key, is_canonical FROM records WHERE is_canonical"
+            "SELECT f.file_key, r.is_canonical FROM records r JOIN files f ON f.file_id = r.file_id WHERE r.is_canonical"
         ).fetchall()
     winners = {}
     for file_key, _flag in flagged:
@@ -489,18 +495,15 @@ def _snapshot():
             "ORDER BY file_key"
         ).fetchall()
         records = c.execute(
-            "SELECT file_key, line_num, uuid, request_id, model, fresh_tokens, "
-            "cache_creation_tokens, cache_read_tokens, output_tokens, "
-            "eph5_tokens, eph1h_tokens, cost_usd FROM records "
-            "ORDER BY file_key, line_num"
+            f"SELECT f.file_key, r.line_num, "
+            f"{uuid_split.uuid_text_sql('r')} AS uuid, r.request_id, dm.value, r.fresh_tokens, r.cache_creation_tokens, r.cache_read_tokens, r.output_tokens, r.eph5_tokens, r.eph1h_tokens, rp.cost_usd FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id JOIN dim_model dm ON dm.id = r.model_id ORDER BY f.file_key, r.line_num"
         ).fetchall()
         tools = c.execute(
-            "SELECT file_key, line_num, idx, tool_name, is_error FROM tool_uses "
-            "ORDER BY file_key, line_num, idx"
+            "SELECT f.file_key, t.line_num, t.idx, dtn.value, t.is_error FROM tool_uses t JOIN files f ON f.file_id = t.file_id JOIN dim_tool_name dtn ON dtn.id = t.tool_name_id ORDER BY f.file_key, t.line_num, t.idx"
         ).fetchall()
         projects = c.execute(
             "SELECT project_id, first_seen_at, last_seen_at FROM projects "
-            "ORDER BY project_id"
+            "WHERE project_id <> '' ORDER BY project_id"
         ).fetchall()
     return files, records, tools, projects
 
@@ -603,9 +606,9 @@ def test_suppressed_model_records_are_purged(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         before = _scalar(
-            c, "SELECT COUNT(*) FROM records WHERE model = 'claude-opus-4-7'")
+            c, "SELECT COUNT(*) FROM records r JOIN dim_model dm ON dm.id = r.model_id WHERE dm.value = 'claude-opus-4-7'")
         others = _scalar(
-            c, "SELECT COUNT(*) FROM records WHERE model <> 'claude-opus-4-7'")
+            c, "SELECT COUNT(*) FROM records r JOIN dim_model dm ON dm.id = r.model_id WHERE dm.value <> 'claude-opus-4-7'")
     assert before > 0 and others > 0, (
         "fixture must carry both, or this proves nothing")
 
@@ -615,14 +618,13 @@ def test_suppressed_model_records_are_purged(fresh_db, mini_r2_env):
     with db.viz_conn() as c:
         assert _scalar(
             c,
-            "SELECT COUNT(*) FROM records WHERE model = 'claude-opus-4-7'") == 0
+            "SELECT COUNT(*) FROM records r JOIN dim_model dm ON dm.id = r.model_id WHERE dm.value = 'claude-opus-4-7'") == 0
         assert _scalar(
-            c, "SELECT COUNT(*) FROM records WHERE model <> 'claude-opus-4-7'"
+            c, "SELECT COUNT(*) FROM records r JOIN dim_model dm ON dm.id = r.model_id WHERE dm.value <> 'claude-opus-4-7'"
         ) == others
         # The rollups read `records`, so they inherit the purge.
         assert _scalar(
-            c, "SELECT COUNT(*) FROM usage_rollup "
-               "WHERE model = 'claude-opus-4-7'") == 0
+            c, "SELECT COUNT(*) FROM usage_rollup u JOIN dim_model dm ON dm.id = u.model_id WHERE dm.value = 'claude-opus-4-7'") == 0
 
 
 def test_suppression_matches_a_bare_model_id_exactly(fresh_db, mini_r2_env):
@@ -635,10 +637,9 @@ def test_suppression_matches_a_bare_model_id_exactly(fresh_db, mini_r2_env):
     with db.viz_conn() as c:
         assert _scalar(
             c,
-            "SELECT COUNT(*) FROM records WHERE model = 'claude-opus-4-7'") == 0
+            "SELECT COUNT(*) FROM records r JOIN dim_model dm ON dm.id = r.model_id WHERE dm.value = 'claude-opus-4-7'") == 0
         assert _scalar(
-            c, "SELECT COUNT(*) FROM records "
-               "WHERE model = 'claude-sonnet-4-5'") > 0
+            c, "SELECT COUNT(*) FROM records r JOIN dim_model dm ON dm.id = r.model_id WHERE dm.value = 'claude-sonnet-4-5'") > 0
 
 
 def test_suppressed_tool_uses_go_with_their_records(fresh_db, mini_r2_env):
@@ -647,13 +648,12 @@ def test_suppressed_tool_uses_go_with_their_records(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT file_key, line_num FROM records "
-            "WHERE model = 'claude-opus-4-7' ORDER BY file_key, line_num LIMIT 1"
+            "SELECT f.file_key, r.line_num FROM records r JOIN files f ON f.file_id = r.file_id JOIN dim_model dm ON dm.id = r.model_id WHERE dm.value = 'claude-opus-4-7' ORDER BY f.file_key, r.line_num LIMIT 1"
         ).fetchone()
         assert row is not None
         c.execute(
-            "INSERT INTO tool_uses (file_key, line_num, idx, tool_name) "
-            "VALUES (%s, %s, 0, 'Bash')", (row[0], row[1]))
+            "INSERT INTO tool_uses (file_id, line_num, idx, tool_name_id) VALUES ((SELECT file_id FROM files WHERE file_key = %s), %s, 0, (SELECT id FROM dim_tool_name WHERE value = 'Bash'))",
+            (row[0], row[1]))
         c.commit()
 
     _suppress("claude-opus-%")
@@ -661,8 +661,8 @@ def test_suppressed_tool_uses_go_with_their_records(fresh_db, mini_r2_env):
 
     with db.viz_conn() as c:
         assert _scalar(
-            c, "SELECT COUNT(*) FROM tool_uses WHERE file_key = %s "
-               "AND line_num = %s", (row[0], row[1])) == 0
+            c, "SELECT COUNT(*) FROM tool_uses t JOIN files f ON f.file_id = t.file_id WHERE f.file_key = %s AND t.line_num = %s",
+            (row[0], row[1])) == 0
 
 
 def _plant(mirror, project, session, fixture):

@@ -35,7 +35,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import api, cache, db
-from tests import scratch_db
+from tests import dims_seed, scratch_db
 
 _MODEL = "lat-live-canon-probe"
 _FILE_KEY = "projLat/sessLat/lat.jsonl"
@@ -67,18 +67,30 @@ def _seed() -> None:
                 "VALUES (%s, 'projLat', 'sessLat', TRUE, 'etag-lat', 1, "
                 "now(), now(), 'test')",
                 (_FILE_KEY,))
+            fid = dims_seed.file_id(cur, _FILE_KEY)
+            mid = dims_seed.dim_id(cur, "dim_model", _MODEL)
             cur.execute(
-                "INSERT INTO records (file_key, line_num, uuid, ts, model, "
-                "output_tokens, cost_usd, reply_latency_s, is_canonical) "
-                "SELECT %s, g, 'uuid-lat-' || g, now(), %s, 1, 0.0, %s, TRUE "
+                "INSERT INTO records (file_id, line_num, fallback, ts, model_id, "
+                "output_tokens, reply_latency_s, is_canonical) "
+                "SELECT %s, g, 'uuid-lat-' || g, now(), %s, 1, %s, TRUE "
                 "FROM generate_series(1, %s) AS g",
-                (_FILE_KEY, _MODEL, _CANON_LATENCY_S, _CANON_ROWS))
+                (fid, mid, _CANON_LATENCY_S, _CANON_ROWS))
             cur.execute(
-                "INSERT INTO records (file_key, line_num, uuid, ts, model, "
-                "output_tokens, cost_usd, reply_latency_s, is_canonical) "
-                "VALUES (%s, %s, 'uuid-lat-noncanon', now(), %s, 1, 0.0, "
+                "INSERT INTO records_price (file_id, line_num) "
+                "SELECT %s, g FROM generate_series(1, %s) AS g",
+                (fid, _CANON_ROWS))
+            fid = dims_seed.file_id(cur, _FILE_KEY)
+            mid = dims_seed.dim_id(cur, "dim_model", _MODEL)
+            cur.execute(
+                "INSERT INTO records (file_id, line_num, fallback, ts, model_id, "
+                "output_tokens, reply_latency_s, is_canonical) "
+                "VALUES (%s, %s, 'uuid-lat-noncanon', now(), %s, 1, "
                 "%s, FALSE)",
-                (_FILE_KEY, _NONCANON_LINE, _MODEL, _NONCANON_LATENCY_S))
+                (fid, _NONCANON_LINE, mid, _NONCANON_LATENCY_S))
+            cur.execute(
+                "INSERT INTO records_price (file_id, line_num) "
+                "VALUES (%s, %s)",
+                (fid, _NONCANON_LINE))
         conn.commit()
 
 
@@ -130,8 +142,9 @@ def test_reply_latency_live_excludes_non_canonical(lat_client) -> None:
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE records SET is_canonical = TRUE "
-                "WHERE file_key = %s AND line_num = %s",
+                "UPDATE records r SET is_canonical = TRUE "
+                "FROM files f WHERE r.file_id = f.file_id "
+                "AND f.file_key = %s AND r.line_num = %s",
                 (_FILE_KEY, _NONCANON_LINE))
         conn.commit()
     cache.response_cache.clear()

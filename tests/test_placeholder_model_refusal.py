@@ -122,11 +122,13 @@ def test_a_modelless_file_is_refused_and_stores_no_rows(
             "SELECT COUNT(*) FROM files WHERE file_key = %s",
             (key,)).fetchone() == (0,)
         assert c.execute(
-            "SELECT COUNT(*) FROM records WHERE file_key = %s",
-            (key,)).fetchone() == (0,)
+            "SELECT COUNT(*) FROM records r "
+            "JOIN files f ON f.file_id = r.file_id "
+            "WHERE f.file_key = %s", (key,)).fetchone() == (0,)
         assert c.execute(
-            "SELECT COUNT(*) FROM tool_uses WHERE file_key = %s",
-            (key,)).fetchone() == (0,)
+            "SELECT COUNT(*) FROM tool_uses t "
+            "JOIN files f ON f.file_id = t.file_id "
+            "WHERE f.file_key = %s", (key,)).fetchone() == (0,)
         # The well-formed mirror files of the same run still store.
         assert c.execute(
             "SELECT COUNT(*) FROM files WHERE file_key <> %s",

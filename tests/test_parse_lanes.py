@@ -144,16 +144,16 @@ def test_a_lane_transcript_persists_through_ingest(
         assert row[1] == prompt_count
         assert row[2] == models
         n_records = c.execute(
-            "SELECT COUNT(*) FROM records WHERE file_key = %s", (key,)
-        ).fetchone()
+            "SELECT COUNT(*) FROM records r JOIN files f ON f.file_id = r.file_id WHERE f.file_key = %s",
+            (key,)).fetchone()
         assert n_records is not None and n_records[0] == len(out["records"])
         empty_request_ids = c.execute(
-            "SELECT COUNT(*) FROM records WHERE file_key = %s "
-            "AND request_id <> ''", (key,)).fetchone()
+            "SELECT COUNT(*) FROM records r JOIN files f ON f.file_id = r.file_id WHERE f.file_key = %s AND r.request_id <> ''",
+            (key,)).fetchone()
         assert empty_request_ids is not None and empty_request_ids[0] == 0
         ids = [r[0] for r in c.execute(
-            "SELECT tool_use_id FROM tool_uses WHERE file_key = %s "
-            "ORDER BY idx", (key,)).fetchall()]
+            "SELECT t.tool_use_id FROM tool_uses t JOIN files f ON f.file_id = t.file_id WHERE f.file_key = %s ORDER BY t.idx",
+            (key,)).fetchall()]
     assert ids == [tu["tool_use_id"] for tu in out["tool_uses"]]
     assert tool_use_id in ids
 
@@ -356,12 +356,10 @@ def test_lane_roles_and_dispatches_persist_through_ingest(fresh_db):
         role = c.execute("SELECT agent_type FROM files WHERE file_key = %s",
                          (key,)).fetchone()
         calls = c.execute(
-            "SELECT agent_type, agent_model FROM tool_uses "
-            "WHERE file_key = %s AND agent_type IS NOT NULL ORDER BY idx",
+            "SELECT dat.value, dam.value FROM tool_uses t JOIN files f ON f.file_id = t.file_id LEFT JOIN dim_agent_type dat ON dat.id = t.agent_type_id LEFT JOIN dim_agent_model dam ON dam.id = t.agent_model_id WHERE f.file_key = %s AND t.agent_type_id IS NOT NULL ORDER BY t.idx",
             (key,)).fetchall()
         rolled = c.execute(
-            "SELECT agent_type, agent_model, n FROM dispatch_rollup "
-            "ORDER BY agent_type").fetchall()
+            "SELECT dat.value, COALESCE(dam.value, ''), n FROM dispatch_rollup dr JOIN dim_agent_type dat ON dat.id = dr.agent_type_id JOIN dim_agent_model dam ON dam.id = dr.agent_model_id ORDER BY dat.value").fetchall()
     assert role is not None and role[0] == "Explore"
     assert calls == [("implementer", "gpt-6-astra"), ("Explore", None)]
     assert rolled == [("Explore", "", 1), ("implementer", "gpt-6-astra", 1)]

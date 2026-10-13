@@ -94,7 +94,23 @@ VERSION = _read_version()
 # the set of columns parse_file() emits. A rate change in src/pricing.json
 # reprices stored records instead of reparsing them: bump PRICING_VERSION
 # below for that.
-PARSER_VERSION = "109"
+# 108 -- issue #959: the persist path stores dim FK ids and file_id, and
+#        the startup migration drops records/tool_uses; without a bump the
+#        stored parser_version would match and ingest would skip the
+#        reparse that refills the dropped facts.
+# 109 -- issue #959 task 7: the migration drops and rebuilds the facts
+#        again (SMALLINT/INTEGER storage widths, widest-first order,
+#        cli_version as a dim, read_kind as boolean) and persist now
+#        stores empty read/write target arrays as NULL — same reason,
+#        same fix: the bump is what makes ingest refill what dropped.
+# 110 -- issue #959 task 8: records.uuid becomes the split column set
+#        (uuid_col/seq/fallback, backend/uuid_split.py — the split
+#        happens at persist, so parse.py output is unchanged), and the
+#        shape guard drops any records still carrying the TEXT uuid.
+#        Dropping rows alone cannot refill them: files.parser_version
+#        would still match, so the bump is what forces the reparse that
+#        restores the dropped facts.
+PARSER_VERSION = "110"
 
 # The rate-data semantics version, stored per record: the ONLY switch
 # that forces a REPRICE, and a reprice never refetches R2 — the reprice

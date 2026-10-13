@@ -23,11 +23,16 @@ def test_tool_uses_canonical_dedups_shared_tool_use_id(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT file_key, is_canonical FROM tool_uses "
-            "WHERE tool_use_id = 'toolu_shared' ORDER BY file_key"
+            "SELECT f.file_key, t.is_canonical FROM tool_uses t "
+            "JOIN files f ON f.file_id = t.file_id "
+            "WHERE t.tool_use_id = 'toolu_shared' ORDER BY f.file_key"
         ).fetchall()
-        rolled = _scalar(c, "SELECT COALESCE(SUM(n_total), 0) FROM tool_rollup "
-                            "WHERE tool_name = 'Bash'")
+        rolled = _scalar(c,
+                         "SELECT COALESCE(SUM(n_total), 0) "
+                         "FROM tool_rollup tr "
+                         "JOIN dim_tool_name dtn "
+                         "  ON dtn.id = tr.tool_name_id "
+                         "WHERE dtn.value = 'Bash'")
     assert [r[1] for r in rows] == [True, False], rows
     assert rows[0][0].endswith("agent-aaaa.jsonl")
     assert rolled == 1
@@ -70,8 +75,7 @@ def test_latency_rollup_counts_canonical_records_only(fresh_db, mini_r2_env):
     ingest.rebuild_latency_rollup()
     with db.viz_conn() as c:
         canon = _scalar(c, "SELECT COUNT(*) FROM records WHERE is_canonical")
-        rolled = _scalar(c, "SELECT SUM(n) FROM latency_rollup "
-                            "WHERE project_id = '' AND bucket_s = %s",
+        rolled = _scalar(c, "SELECT SUM(n) FROM latency_rollup WHERE proj_id = 0 AND bucket_s = %s",
                          (max(constants.LATENCY_BUCKETS),))
     assert rolled == canon
 
@@ -87,7 +91,7 @@ def test_files_models_survive_suppression(fresh_db, mini_r2_env):
         c.commit()
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
-        left = _scalar(c, "SELECT COUNT(*) FROM records WHERE model LIKE 'claude-opus-%'")
+        left = _scalar(c, "SELECT COUNT(*) FROM records r JOIN dim_model dm ON dm.id = r.model_id WHERE dm.value LIKE 'claude-opus-%'")
         named = _scalar(c, "SELECT COUNT(*) FROM files f WHERE EXISTS ("
                            "SELECT 1 FROM unnest(f.models) m JOIN suppressed_models s "
                            "ON m ILIKE s.pattern)")

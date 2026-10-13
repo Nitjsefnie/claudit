@@ -115,8 +115,11 @@ def rekey_folded_projects() -> int:
 
     Runs in _rebuild_derived_state after "reprice" and before
     "canonical" — identity before any derived state, so the rollups
-    rebuilt after it see only folded ids. Per move: upsert the target
-    `projects` row, move every file in ONE statement evaluated against
+    rebuilt after it see only folded ids. Per move: insert the target
+    `projects` row when the store lacks it — the anti-join keeps a
+    target that already exists from costing a proj_id, since a
+    DEFAULT nextval fires before ON CONFLICT rejects the row — move
+    every file in ONE statement evaluated against
     the pre-fold ids, then drop each emptied source row — the NOT EXISTS
     guard keeps a project that is another move's target (its row freshly
     repopulated by this same pass) from being dropped. After the moves,
@@ -165,11 +168,14 @@ def rekey_folded_projects() -> int:
                           first_seen_at, last_seen_at)
                         SELECT %s, %s, MIN(r2_last_modified),
                                MAX(r2_last_modified)
-                          FROM files WHERE project_id = %s
+                          FROM files
+                         WHERE project_id = %s
+                           AND NOT EXISTS (SELECT 1 FROM projects p
+                                            WHERE p.project_id = %s)
                         HAVING COUNT(*) > 0
                         ON CONFLICT (project_id) DO NOTHING
                         """,
-                        (tgt, tgt, src))
+                        (tgt, tgt, src, tgt))
                 if scope is not None and not scope.full:
                     rows = cur.execute(
                         """

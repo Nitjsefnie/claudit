@@ -71,8 +71,10 @@ def test_tool_failure_columns_persist(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT idx, is_error, error_kind, error_text FROM tool_uses "
-            "WHERE file_key LIKE '%sess-K.jsonl' ORDER BY idx"
+            "SELECT t.idx, t.is_error, dek.value, t.error_text "
+            "FROM tool_uses t JOIN files f ON f.file_id = t.file_id "
+            "LEFT JOIN dim_error_kind dek ON dek.id = t.error_kind_id "
+            "WHERE f.file_key LIKE '%sess-K.jsonl' ORDER BY t.idx"
         ).fetchall()
     assert [r[2] for r in rows] == ["failed", "rejected", "tool_error", None]
     assert "PreToolUse hook" in rows[0][3]
@@ -85,8 +87,8 @@ def test_web_search_request_counts_persist_nullable(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT f.session_id, r.web_search_requests, r.request_fee_usd "
-            "FROM records r JOIN files f USING (file_key) "
+            "SELECT f.session_id, r.web_search_requests, rp.request_fee_usd "
+            "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
             "WHERE f.project_id = %s ORDER BY f.session_id",
             ("projSearch",)).fetchall()
     assert rows == [("sess-no-search", None, None),
@@ -101,8 +103,12 @@ def test_agent_dispatch_columns_persist(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT idx, tool_name, agent_type, agent_model FROM tool_uses "
-            "WHERE file_key LIKE '%sess-D.jsonl' ORDER BY idx"
+            "SELECT t.idx, dtn.value, dat.value, dam.value "
+            "FROM tool_uses t JOIN files f ON f.file_id = t.file_id "
+            "JOIN dim_tool_name dtn ON dtn.id = t.tool_name_id "
+            "LEFT JOIN dim_agent_type dat ON dat.id = t.agent_type_id "
+            "LEFT JOIN dim_agent_model dam ON dam.id = t.agent_model_id "
+            "WHERE f.file_key LIKE '%sess-D.jsonl' ORDER BY t.idx"
         ).fetchall()
     assert rows[0][1:] == ("Agent", "Explore", "haiku")
     assert rows[1][2] is None and rows[1][3] is None
@@ -116,11 +122,15 @@ def test_tool_error_rollup_totals_match_raw(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         rolled = dict(c.execute(
-            "SELECT error_kind, SUM(n) FROM tool_error_rollup GROUP BY 1"
+            "SELECT dek.value, SUM(n) "
+            "FROM tool_error_rollup ter "
+            "JOIN dim_error_kind dek ON dek.id = ter.error_kind_id "
+            "GROUP BY 1"
         ).fetchall())
         raw = dict(c.execute(
-            "SELECT error_kind, COUNT(*) FROM tool_uses "
-            "WHERE error_kind IS NOT NULL AND ts IS NOT NULL GROUP BY 1"
+            "SELECT dek.value, COUNT(*) FROM tool_uses t "
+            "JOIN dim_error_kind dek ON dek.id = t.error_kind_id "
+            "WHERE t.ts IS NOT NULL GROUP BY 1"
         ).fetchall())
     assert rolled == raw
     # The literal is the PLANTED fixture's own contribution, read from the
@@ -128,9 +138,11 @@ def test_tool_error_rollup_totals_match_raw(fresh_db, mini_r2_env):
     # wires (issue #503), one of which settles a failed call of its own,
     # so the global tally is the planted three plus that one.
     assert dict(c.execute(
-        "SELECT error_kind, COUNT(*) FROM tool_uses "
-        "WHERE error_kind IS NOT NULL AND ts IS NOT NULL "
-        "AND file_key LIKE '%sess-K%' GROUP BY 1"
+        "SELECT dek.value, COUNT(*) FROM tool_uses t "
+        "JOIN files f ON f.file_id = t.file_id "
+        "JOIN dim_error_kind dek ON dek.id = t.error_kind_id "
+        "WHERE t.ts IS NOT NULL "
+        "AND f.file_key LIKE '%sess-K%' GROUP BY 1"
     ).fetchall()) == {"failed": 1, "rejected": 1, "tool_error": 1}
 
 
@@ -140,11 +152,14 @@ def test_dispatch_rollup_totals_match_raw(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         rolled = c.execute(
-            "SELECT agent_type, agent_model, SUM(n) FROM dispatch_rollup "
+            "SELECT dat.value, dam.value, SUM(n) "
+            "FROM dispatch_rollup dr "
+            "JOIN dim_agent_type dat ON dat.id = dr.agent_type_id "
+            "JOIN dim_agent_model dam ON dam.id = dr.agent_model_id "
             "GROUP BY 1, 2 ORDER BY 1"
         ).fetchall()
         raw_total = _scalar(c, "SELECT COUNT(*) FROM tool_uses "
-                               "WHERE agent_type IS NOT NULL")
+                               "WHERE agent_type_id IS NOT NULL")
     assert rolled == [("Explore", "haiku", 1)]
     assert sum(r[2] for r in rolled) == raw_total
 
@@ -156,9 +171,11 @@ def test_dispatch_brief_columns_persist(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT idx, tool_name, dispatch_brief_ref, "
-            "dispatch_prompt_chars FROM tool_uses "
-            "WHERE file_key LIKE '%sess-B.jsonl' ORDER BY idx"
+            "SELECT t.idx, dtn.value, t.dispatch_brief_ref, "
+            "t.dispatch_prompt_chars FROM tool_uses t "
+            "JOIN files f ON f.file_id = t.file_id "
+            "JOIN dim_tool_name dtn ON dtn.id = t.tool_name_id "
+            "WHERE f.file_key LIKE '%sess-B.jsonl' ORDER BY t.idx"
         ).fetchall()
     assert rows[0][2] is True
     assert rows[1][2] is False and rows[1][3] == 188
@@ -518,6 +535,7 @@ def test_cache_write_tokens_persist_through_ingest(fresh_db):
     )
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT cache_write_tokens FROM records WHERE file_key = %s "
-            "ORDER BY line_num", (key,)).fetchall()
+            "SELECT r.cache_write_tokens FROM records r "
+            "JOIN files f ON f.file_id = r.file_id "
+            "WHERE f.file_key = %s ORDER BY r.line_num", (key,)).fetchall()
     assert [r[0] for r in rows] == [600, 100, 40, 0, 500, 0]

@@ -45,25 +45,27 @@ def _rollup_source(use_rollup: bool, roll_proj: str, roll_model: str) -> str:
     column names, so every query after this point is written once.
     """
     if use_rollup:
-        roll_from = "usage_rollup u"
+        # Project the dim TEXT back inside the source so both fragments
+        # expose the SAME column names (#959); queries below use `u.*`.
+        roll_from = """(SELECT se.session_id, pj.project_id, u.is_main, u.hour,
+                 u.first_ts, u.last_ts, dm.value AS model, u.long_context,
+                 dp.value AS provider, u.requests, u.fresh_tokens,
+                 u.output_tokens, u.cache_creation_tokens, u.cache_read_tokens,
+                 u.eph5_tokens, u.eph1h_tokens, u.thinking_tokens, u.cost_usd
+            FROM usage_rollup u JOIN sessions se ON se.ses_id = u.ses_id JOIN dim_model dm ON dm.id = u.model_id JOIN dim_provider dp ON dp.id = u.provider_id JOIN projects pj ON pj.proj_id = u.proj_id) u"""
         # date_trunc so the partial hour containing `since` is included
         # rather than silently dropped.
         roll_since = "u.hour >= date_trunc('hour', %s::timestamptz)"
     else:
-        roll_from = """(
-          SELECT f.session_id, f.project_id, f.is_main,
+        roll_from = """(SELECT f.session_id, f.project_id, f.is_main,
                  r.ts AS hour, r.ts AS first_ts, r.ts AS last_ts,
-                 r.model AS model,
-                 COALESCE(r.long_context, FALSE) AS long_context,
-                 COALESCE(r.provider, '') AS provider,
-                 1::bigint AS requests,
+                 dm.value AS model, COALESCE(rp.long_context, FALSE) AS long_context,
+                 COALESCE(dp.value, '') AS provider, 1::bigint AS requests,
                  r.fresh_tokens, r.output_tokens, r.cache_creation_tokens,
                  r.cache_read_tokens, r.eph5_tokens, r.eph1h_tokens,
-                 r.thinking_tokens, r.cost_usd
-            FROM records r
-            JOIN files f ON f.file_key = r.file_key
-           WHERE r.is_canonical AND r.ts IS NOT NULL
-        ) u"""
+                 r.thinking_tokens, rp.cost_usd
+            FROM records r JOIN files f ON f.file_id = r.file_id JOIN dim_model dm ON dm.id = r.model_id LEFT JOIN dim_provider dp ON dp.id = r.provider_id LEFT JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num
+           WHERE r.is_canonical AND r.ts IS NOT NULL) u"""
         roll_since = "u.hour >= %s"
     return f"""
         FROM {roll_from}
@@ -81,8 +83,8 @@ def _churn_source(project: str | None, model: str | None,
     line with no record still matches.
     """
     if use_rollup:
-        proj_filter = "AND tu.project_id = %s" if project else ""
-        model_filter = "AND tu.model LIKE %s" if model else ""
+        proj_filter = "AND pj.project_id = %s" if project else ""
+        model_filter = "AND dm.value LIKE %s" if model else ""
         args: list[Any] = [since]
         if project:
             args.append(project)
@@ -90,7 +92,7 @@ def _churn_source(project: str | None, model: str | None,
             args.append(f"%{model}%")
         return {
             "sql": f"""
-                FROM tool_rollup tu
+                FROM tool_rollup tu JOIN dim_model dm ON dm.id = tu.model_id JOIN projects pj ON pj.proj_id = tu.proj_id
                 WHERE tu.hour >= date_trunc('hour', %s::timestamptz)
                   {proj_filter} {model_filter}
                   AND (tu.lines_added > 0 OR tu.lines_deleted > 0)
@@ -105,12 +107,11 @@ def _churn_source(project: str | None, model: str | None,
     if project:
         args.append(project)
     if model:
-        model_filter = "AND tu.model LIKE %s"
+        model_filter = "AND dm.value LIKE %s"
         args.append(f"%{model}%")
     return {
         "sql": f"""
-            FROM tool_uses tu
-            JOIN files f ON f.file_key = tu.file_key
+            FROM tool_uses tu JOIN files f ON f.file_id = tu.file_id LEFT JOIN dim_model dm ON dm.id = tu.model_id
             WHERE tu.ts >= %s {proj_filter} {model_filter} AND tu.is_canonical
               AND (tu.lines_added > 0 OR tu.lines_deleted > 0)
         """,
@@ -132,7 +133,7 @@ def _dashboard_sources(project: str | None, model: str | None,
         proj_filter = "AND f.project_id = %s"
         file_args.append(project)
     if model:
-        model_filter = "AND d.model LIKE %s"
+        model_filter = "AND dmm.value LIKE %s"
 
     # Cross-file uuid dedup is resolved at ingest into records.is_canonical
     # (see ingest.recompute_canonical), so reads filter a boolean instead of
@@ -141,8 +142,7 @@ def _dashboard_sources(project: str | None, model: str | None,
     # clause there is nothing expensive left to share between the queries,
     # and each one now scans records directly via records_canonical_ts_idx.
     canon_src = f"""
-        FROM records d
-        JOIN files f ON f.file_key = d.file_key
+        FROM records d JOIN files f ON f.file_id = d.file_id JOIN dim_model dmm ON dmm.id = d.model_id
         WHERE d.ts >= %s AND d.is_canonical {proj_filter} {model_filter}
     """
     canon_args: list[Any] = [since]

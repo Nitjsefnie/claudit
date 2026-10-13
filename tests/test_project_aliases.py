@@ -131,7 +131,8 @@ def _owners() -> dict[str, int]:
 def _project_ids() -> set[str]:
     with db.viz_conn() as c:
         return {r[0] for r in c.execute(
-            "SELECT project_id FROM projects").fetchall()}
+            "SELECT project_id FROM projects "
+            "WHERE project_id <> ''").fetchall()}
 
 
 def test_first_match_is_the_lexicographically_smallest_matching_pattern(
@@ -344,7 +345,10 @@ def test_ingest_folds_an_aliased_project_end_to_end(fresh_db, mini_r2_env):
             tgt_rows = _scalar(c, "SELECT COUNT(*) FROM projects "
                                   "WHERE project_id = 'projB'")
             rolled = dict(c.execute(
-                "SELECT project_id, COUNT(*) FROM usage_rollup GROUP BY 1"
+                "SELECT p.project_id, COUNT(*) "
+                "FROM usage_rollup u "
+                "JOIN projects p ON p.proj_id = u.proj_id "
+                "GROUP BY 1"
             ).fetchall())
         assert _owners() == mini_mirror.folded_owners("projA", "projB"), (
             "every file in the mirror lands on the target id")

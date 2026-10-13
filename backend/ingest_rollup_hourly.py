@@ -76,9 +76,13 @@ def _scoped_source(source_alias: str, scope: Scope | None
                    ) -> tuple[str, str, dict]:
     """Build index-driven candidates for a scoped hourly aggregate."""
     source_table = _SOURCE_TABLES[source_alias]
+    price_join = (
+        " LEFT JOIN records_price rp ON rp.file_id = r.file_id"
+        " AND rp.line_num = r.line_num" if source_alias == "r" else ""
+    )
     full_source = (
         f"{source_table} {source_alias} "
-        f"JOIN files f ON f.file_key = {source_alias}.file_key"
+        f"JOIN files f ON f.file_id = {source_alias}.file_id{price_join}"
     )
     if scope is None or scope.full:
         return "", full_source, {}
@@ -100,7 +104,7 @@ def _scoped_source(source_alias: str, scope: Scope | None
         f"AND {source_alias}.is_canonical"
         ") AS candidate "
         " JOIN files f "
-        "ON f.file_key = (candidate.source_row).file_key "
+        "ON f.file_id = (candidate.source_row).file_id "
         "AND f.project_id = d.project_id"
         ")"
     )
@@ -109,7 +113,7 @@ def _scoped_source(source_alias: str, scope: Scope | None
         "CROSS JOIN LATERAL "
         f"(SELECT (candidate_rows.source_row).*) AS {source_alias} "
         "CROSS JOIN LATERAL "
-        "(SELECT (candidate_rows.file_row).*) AS f"
+        "(SELECT (candidate_rows.file_row).*) AS f" + price_join
     )
     return cte, source, {
         "range_projects": projects,
@@ -126,11 +130,16 @@ def _delete_scope(conn, table: str, scope: Scope | None) -> dict:
     if not projects:
         return {}
     params = {"projects": projects, "hours": hours}
+    # Scope keys stay TEXT project ids (the scope's own vocabulary);
+    # the rollups store proj_id (#959), so the pairs resolve through
+    # projects here — one join over a handful of pairs.
     conn.execute(
         f"""DELETE FROM {table} t
               USING unnest(%(projects)s::text[], %(hours)s::timestamptz[])
-                    AS d(project_id, hour)
-             WHERE t.project_id = d.project_id AND t.hour = d.hour""",
+                    AS d(project_id, hour),
+                    projects p
+             WHERE p.project_id = d.project_id
+               AND t.proj_id = p.proj_id AND t.hour = d.hour""",
         params,
     )
     return params
@@ -160,24 +169,77 @@ def _run_hourly(table: str, insert_sql: str, source_alias: str,
     return written
 
 
+def ensure_sessions() -> None:
+    """Insert every stored file's (project, session) into `sessions`.
+
+    usage_rollup's grain is ses_id since #959, so the rows must exist
+    before any rollup row can reference one. `files` is small, so the
+    DISTINCT pass beats threading a per-file upsert through persist.
+
+    The NOT EXISTS anti-join is what keeps a rebuild from spending a
+    ses_id per session it merely re-observes: the INSERT's tuple — and
+    with it the DEFAULT nextval — is formed before ON CONFLICT sees the
+    conflict, so rows already stored must never reach the INSERT at all.
+    DO NOTHING stays for the race against a concurrent rebuild.
+    """
+    with db.viz_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO sessions (proj_id, session_id)
+            SELECT DISTINCT p.proj_id, f.session_id
+              FROM files f
+              JOIN projects p ON p.project_id = f.project_id
+             WHERE NOT EXISTS (
+                     SELECT 1 FROM sessions s
+                      WHERE s.proj_id = p.proj_id
+                        AND s.session_id = f.session_id)
+            ON CONFLICT (proj_id, session_id) DO NOTHING
+            """
+        )
+        conn.commit()
+
+
+def ensure_agent_type_dims() -> None:
+    """files.agent_type stays TEXT (#959 keeps the small files table
+    plain); agent_rollup stores its dim id, so every stored value is
+    inserted before the build joins dim_agent_type.
+
+    Same allocation rule as `ensure_sessions`: the anti-join keeps
+    already-stored values away from the INSERT, so a rebuild spends one
+    dim id per value it introduces and none per value it re-reads (DO
+    UPDATE there also locked the row on every rebuild)."""
+    with db.viz_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO dim_agent_type (value)
+            SELECT DISTINCT agent_type FROM files f
+             WHERE NOT EXISTS (SELECT 1 FROM dim_agent_type d
+                                WHERE d.value = f.agent_type)
+            ON CONFLICT (value) DO NOTHING
+            """
+        )
+        conn.commit()
+
+
 def rebuild_rollup(scope: Scope | None = None) -> int:
     """Rebuild usage_rollup from canonical records."""
     scope = _phase_scope(scope)
+    ensure_sessions()
     written = _run_hourly(
         "usage_rollup",
         """
         INSERT INTO usage_rollup (
-          session_id, project_id, hour, model, is_main, long_context,
-          provider, first_ts, last_ts, requests,
+          ses_id, proj_id, hour, model_id, is_main, long_context,
+          provider_id, first_ts, last_ts, requests,
           fresh_tokens, output_tokens, cache_creation_tokens,
           cache_read_tokens, eph5_tokens, eph1h_tokens,
           thinking_tokens, cost_usd
         )
         {scope_cte}
-        SELECT f.session_id, f.project_id, date_trunc('hour', r.ts) AS hour,
-               r.model AS model, f.is_main,
-               COALESCE(r.long_context, FALSE) AS long_context,
-               COALESCE(r.provider, '') AS provider,
+        SELECT s.ses_id, p.proj_id, date_trunc('hour', r.ts) AS hour,
+               r.model_id, f.is_main,
+               COALESCE(rp.long_context, FALSE) AS long_context,
+               COALESCE(r.provider_id, 0) AS provider_id,
                MIN(r.ts), MAX(r.ts), COUNT(*),
                COALESCE(SUM(r.fresh_tokens), 0),
                COALESCE(SUM(r.output_tokens), 0),
@@ -186,8 +248,11 @@ def rebuild_rollup(scope: Scope | None = None) -> int:
                COALESCE(SUM(r.eph5_tokens), 0),
                COALESCE(SUM(r.eph1h_tokens), 0),
                COALESCE(SUM(r.thinking_tokens), 0),
-               COALESCE(SUM(r.cost_usd), 0)
+               COALESCE(SUM(rp.cost_usd), 0)
           FROM {source_from}
+          JOIN projects p ON p.project_id = f.project_id
+          JOIN sessions s ON s.proj_id = p.proj_id
+                        AND s.session_id = f.session_id
          WHERE {scope_filter}r.is_canonical AND r.ts IS NOT NULL
          GROUP BY 1, 2, 3, 4, 5, 6, 7
         """,
@@ -204,17 +269,19 @@ def rebuild_tool_rollup(scope: Scope | None = None) -> int:
         "tool_rollup",
         """
         INSERT INTO tool_rollup (
-          hour, project_id, model, tool_name, n_total, n_rated, n_error,
+          hour, proj_id, model_id, tool_name_id, n_total, n_rated, n_error,
           lines_added, lines_deleted
         )
         {scope_cte}
-        SELECT date_trunc('hour', tu.ts) AS hour, f.project_id,
-               COALESCE(tu.model, '') AS model, tu.tool_name, COUNT(*) AS n_total,
+        SELECT date_trunc('hour', tu.ts) AS hour, p.proj_id,
+               COALESCE(tu.model_id, 0) AS model_id, tu.tool_name_id,
+               COUNT(*) AS n_total,
                COUNT(*) FILTER (WHERE tu.is_error IS NOT NULL) AS n_rated,
                COUNT(*) FILTER (WHERE tu.is_error) AS n_error,
                SUM(tu.lines_added) AS lines_added,
                SUM(tu.lines_deleted) AS lines_deleted
           FROM {source_from}
+          JOIN projects p ON p.project_id = f.project_id
          WHERE {scope_filter}tu.ts IS NOT NULL AND tu.is_canonical
          GROUP BY 1, 2, 3, 4
         """,
@@ -231,14 +298,15 @@ def rebuild_tool_error_rollup(scope: Scope | None = None) -> int:
         "tool_error_rollup",
         """
         INSERT INTO tool_error_rollup (
-          hour, project_id, model, tool_name, error_kind, n
+          hour, proj_id, model_id, tool_name_id, error_kind_id, n
         )
         {scope_cte}
-        SELECT date_trunc('hour', tu.ts) AS hour, f.project_id,
-               COALESCE(tu.model, '') AS model, tu.tool_name, tu.error_kind,
-               COUNT(*) AS n
+        SELECT date_trunc('hour', tu.ts) AS hour, p.proj_id,
+               COALESCE(tu.model_id, 0) AS model_id, tu.tool_name_id,
+               tu.error_kind_id, COUNT(*) AS n
           FROM {source_from}
-         WHERE {scope_filter}tu.ts IS NOT NULL AND tu.error_kind IS NOT NULL
+          JOIN projects p ON p.project_id = f.project_id
+         WHERE {scope_filter}tu.ts IS NOT NULL AND tu.error_kind_id IS NOT NULL
            AND tu.is_canonical
          GROUP BY 1, 2, 3, 4, 5
         """,
@@ -254,12 +322,16 @@ def rebuild_dispatch_rollup(scope: Scope | None = None) -> int:
     written = _run_hourly(
         "dispatch_rollup",
         """
-        INSERT INTO dispatch_rollup (hour, project_id, agent_type, agent_model, n)
+        INSERT INTO dispatch_rollup (hour, proj_id, agent_type_id,
+                                     agent_model_id, n)
         {scope_cte}
-        SELECT date_trunc('hour', tu.ts) AS hour, f.project_id, tu.agent_type,
-               COALESCE(tu.agent_model, '') AS agent_model, COUNT(*) AS n
+        SELECT date_trunc('hour', tu.ts) AS hour, p.proj_id,
+               tu.agent_type_id,
+               COALESCE(tu.agent_model_id, 0) AS agent_model_id,
+               COUNT(*) AS n
           FROM {source_from}
-         WHERE {scope_filter}tu.ts IS NOT NULL AND tu.agent_type IS NOT NULL
+          JOIN projects p ON p.project_id = f.project_id
+         WHERE {scope_filter}tu.ts IS NOT NULL AND tu.agent_type_id IS NOT NULL
            AND tu.is_canonical
          GROUP BY 1, 2, 3, 4
         """,
@@ -276,14 +348,15 @@ def rebuild_dispatch_brief_rollup(scope: Scope | None = None) -> int:
         "dispatch_brief_rollup",
         """
         INSERT INTO dispatch_brief_rollup (
-          hour, project_id, agent_type, brief_ref, n, prompt_chars
+          hour, proj_id, agent_type_id, brief_ref, n, prompt_chars
         )
         {scope_cte}
-        SELECT date_trunc('hour', tu.ts) AS hour, f.project_id,
-               COALESCE(tu.agent_type, '') AS agent_type,
+        SELECT date_trunc('hour', tu.ts) AS hour, p.proj_id,
+               COALESCE(tu.agent_type_id, 0) AS agent_type_id,
                tu.dispatch_brief_ref AS brief_ref, COUNT(*) AS n,
                COALESCE(SUM(tu.dispatch_prompt_chars), 0) AS prompt_chars
           FROM {source_from}
+          JOIN projects p ON p.project_id = f.project_id
          WHERE {scope_filter}tu.ts IS NOT NULL AND tu.dispatch_brief_ref IS NOT NULL
            AND tu.is_canonical
          GROUP BY 1, 2, 3, 4
@@ -301,10 +374,11 @@ def rebuild_ctx_cost_rollup(scope: Scope | None = None) -> int:
         "ctx_cost_rollup",
         """
         INSERT INTO ctx_cost_rollup (
-          hour, project_id, model, ctx_bucket, requests, total_tokens, cost_usd
+          hour, proj_id, model_id, ctx_bucket, requests, total_tokens,
+          cost_usd
         )
         {scope_cte}
-        SELECT date_trunc('hour', r.ts) AS hour, f.project_id, r.model,
+        SELECT date_trunc('hour', r.ts) AS hour, p.proj_id, r.model_id,
                CASE WHEN r.fresh_tokens + r.cache_creation_tokens
                              + r.cache_read_tokens >= %(mx)s THEN %(mx)s
                     WHEN r.fresh_tokens + r.cache_creation_tokens
@@ -315,8 +389,9 @@ def rebuild_ctx_cost_rollup(scope: Scope | None = None) -> int:
                COUNT(*) AS requests,
                SUM(r.fresh_tokens + r.cache_creation_tokens
                    + r.cache_read_tokens + r.output_tokens) AS total_tokens,
-               SUM(r.cost_usd) AS cost_usd
+               SUM(rp.cost_usd) AS cost_usd
           FROM {source_from}
+          JOIN projects p ON p.project_id = f.project_id
          WHERE {scope_filter}r.is_canonical AND r.ts IS NOT NULL
          GROUP BY 1, 2, 3, 4
         """,
@@ -329,21 +404,24 @@ def rebuild_ctx_cost_rollup(scope: Scope | None = None) -> int:
 def rebuild_agent_rollup(scope: Scope | None = None) -> int:
     """Rebuild canonical request totals by the file's resolved agent role."""
     scope = _phase_scope(scope)
+    ensure_agent_type_dims()
     written = _run_hourly(
         "agent_rollup",
         """
         INSERT INTO agent_rollup (
-          hour, project_id, model, agent_type, requests, output_tokens,
+          hour, proj_id, model_id, agent_type_id, requests, output_tokens,
           total_tokens, cost_usd
         )
         {scope_cte}
-        SELECT date_trunc('hour', r.ts) AS hour, f.project_id, r.model,
-               f.agent_type, COUNT(*) AS requests,
+        SELECT date_trunc('hour', r.ts) AS hour, p.proj_id, r.model_id,
+               dat.id AS agent_type_id, COUNT(*) AS requests,
                SUM(r.output_tokens) AS output_tokens,
                SUM(r.fresh_tokens + r.cache_creation_tokens
                    + r.cache_read_tokens + r.output_tokens) AS total_tokens,
-               SUM(r.cost_usd) AS cost_usd
+               SUM(rp.cost_usd) AS cost_usd
           FROM {source_from}
+          JOIN projects p ON p.project_id = f.project_id
+          JOIN dim_agent_type dat ON dat.value = f.agent_type
          WHERE {scope_filter}r.is_canonical AND r.ts IS NOT NULL
          GROUP BY 1, 2, 3, 4
         """,

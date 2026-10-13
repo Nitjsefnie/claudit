@@ -24,8 +24,9 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture, _scalar, _FLAKY_KEY,
 )
 
-from backend import (api, app as app_mod, constants, db, events, ingest, ingest_fetch, ingest_runs, timing)
-from tests import mini_mirror
+from backend import (api, app as app_mod, constants, db, events, ingest,
+                     ingest_fetch, ingest_runs, timing)
+from tests import dims_seed, mini_mirror
 from tests.test_ingest_forkserver import (noop_parse as _noop_parse, worker_report as _worker_report,)
 from tests.test_ingest_forkserver import requires_forkserver
 
@@ -119,10 +120,13 @@ def test_per_object_failure_still_rebuilds_derived_state(fresh_db, mini_r2_env, 
     with db.viz_conn() as c:
         # Tool calls hang off the file whose fetch fails, so the reparse
         # never deletes them and tool_rollup has something to rebuild from.
+        flaky_fid = dims_seed.file_id(c, _FLAKY_KEY)
+        read_id = dims_seed.dim_id(c, "dim_tool_name", "Read")
         c.execute(
-            "INSERT INTO tool_uses (file_key, line_num, idx, ts, tool_name, "
-            "is_error) VALUES (%s, 9001, 0, now(), 'Read', false)",
-            (_FLAKY_KEY,),
+            "INSERT INTO tool_uses (file_id, line_num, idx, ts, "
+            "tool_name_id, is_error) VALUES (%s, 9001, 0, now(), "
+            "%s, false)",
+            (flaky_fid, read_id),
         )
         # Wreck every piece of derived state, then prove the run restores it.
         c.execute("TRUNCATE usage_rollup")
@@ -166,9 +170,9 @@ def test_ctx_cost_rollup_totals_equal_the_live_aggregate(fresh_db, mini_r2_env):
                      ELSE ((fresh_tokens + cache_creation_tokens
                             + cache_read_tokens) / 50000) * 50000
                    END AS ctx_bucket,
-                   COUNT(*), SUM(cost_usd)
-              FROM records
-             WHERE is_canonical AND ts IS NOT NULL
+                   COUNT(*), SUM(rp.cost_usd)
+              FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num
+             WHERE r.is_canonical AND r.ts IS NOT NULL
              GROUP BY 1 ORDER BY 1
             """
         ).fetchall()

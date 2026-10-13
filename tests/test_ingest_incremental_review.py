@@ -13,6 +13,7 @@ from test_ingest import (  # pylint: disable=unused-import
 from test_ingest_incremental import _derived_snapshot, _timing_lines
 from backend import db, ingest, ingest_scope, timing
 from backend.ingest_rollup_latency import _overlapping_bucket_starts
+from tests import dims_seed
 
 
 def _rebuild_rollups(scope: ingest_scope.Scope | None = None) -> None:
@@ -41,25 +42,37 @@ def _seed_rollups() -> None:
                 "now(), 'v')",
                 (file_key, project_id, file_key),
             )
+        model_id = dims_seed.dim_id(conn, "dim_model", "model")
+        agent_tool = dims_seed.dim_id(conn, "dim_tool_name", "Agent")
+        read_tool = dims_seed.dim_id(conn, "dim_tool_name", "Read")
+        failed_kind = dims_seed.dim_id(conn, "dim_error_kind", "failed")
+        worker_type = dims_seed.dim_id(conn, "dim_agent_type", "worker")
         for file_key, ts in (
             ("a", "2026-01-01T13:15:00Z"),
             ("z", "2026-01-02T14:45:00Z"),
         ):
+            fid = dims_seed.file_id(conn, file_key)
             conn.execute(
-                "INSERT INTO records (file_key, line_num, uuid, ts, model, "
-                "reply_latency_s) VALUES (%s, 1, 'shared', %s, 'model', 5), "
-                "(%s, 2, NULL, %s, 'model', NULL)",
-                (file_key, ts, file_key, ts),
+                "INSERT INTO records (file_id, line_num, fallback, ts, model_id, "
+                "reply_latency_s) VALUES "
+                "(%s, 1, 'shared', %s, %s, 5), "
+                "(%s, 2, NULL, %s, %s, NULL)",
+                (fid, ts, model_id, fid, ts, model_id),
             )
             conn.execute(
-                "INSERT INTO tool_uses (file_key, line_num, idx, tool_name, "
-                "tool_use_id, ts, model, is_error, error_kind, agent_type, "
-                "dispatch_brief_ref, dispatch_prompt_chars) VALUES "
-                "(%s, 3, 0, 'Agent', 'shared-call', %s, 'model', TRUE, "
-                "'failed', 'worker', TRUE, 50), "
-                "(%s, 4, 0, 'Read', NULL, NULL, 'model', FALSE, NULL, NULL, "
+                "INSERT INTO records_price (file_id, line_num) "
+                "VALUES (%s, 1), (%s, 2)", (fid, fid))
+            conn.execute(
+                "INSERT INTO tool_uses (file_id, line_num, idx, "
+                "tool_name_id, tool_use_id, ts, model_id, is_error, "
+                "error_kind_id, agent_type_id, dispatch_brief_ref, "
+                "dispatch_prompt_chars) VALUES "
+                "(%s, 3, 0, %s, 'shared-call', %s, %s, TRUE, "
+                "%s, %s, TRUE, 50), "
+                "(%s, 4, 0, %s, NULL, NULL, %s, FALSE, NULL, NULL, "
                 "NULL, NULL)",
-                (file_key, ts, file_key),
+                (fid, agent_tool, ts, model_id, failed_kind, worker_type,
+                 fid, read_tool, model_id),
             )
         conn.commit()
     ingest.recompute_canonical()
@@ -79,15 +92,23 @@ def _apply_shape(scope: ingest_scope.Scope, shape: str) -> set[str]:
                 "parser_version) VALUES ('0', 'q', '0', TRUE, 'e', 1, now(), "
                 "now(), 'v')"
             )
+            zero_fid = dims_seed.file_id(conn, "0")
+            model_id = dims_seed.dim_id(conn, "dim_model", "model")
+            read_tool = dims_seed.dim_id(conn, "dim_tool_name", "Read")
             conn.execute(
-                "INSERT INTO records (file_key, line_num, uuid, ts, model, "
-                "reply_latency_s) VALUES ('0', 1, 'shared', "
-                "'2026-01-03T15:00Z', 'model', 9)"
+                "INSERT INTO records (file_id, line_num, fallback, ts, model_id, "
+                "reply_latency_s) VALUES (%s, 1, 'shared', "
+                "'2026-01-03T15:00Z', %s, 9)",
+                (zero_fid, model_id),
             )
             conn.execute(
-                "INSERT INTO tool_uses (file_key, line_num, idx, tool_name, "
-                "tool_use_id, ts, model) VALUES ('0', 3, 0, 'Read', "
-                "'shared-call', '2026-01-03T15:00Z', 'model')"
+                "INSERT INTO records_price (file_id, line_num) "
+                "VALUES (%s, 1)", (zero_fid,))
+            conn.execute(
+                "INSERT INTO tool_uses (file_id, line_num, idx, "
+                "tool_name_id, tool_use_id, ts, model_id) VALUES "
+                "(%s, 3, 0, %s, 'shared-call', '2026-01-03T15:00Z', %s)",
+                (zero_fid, read_tool, model_id),
             )
         elif shape == "move_remove":
             conn.execute(
@@ -95,22 +116,31 @@ def _apply_shape(scope: ingest_scope.Scope, shape: str) -> set[str]:
                 "agent_type = 'worker' WHERE file_key = 'a'"
             )
             conn.execute(
-                "UPDATE records SET ts = '2026-01-04T16:00Z' "
-                "WHERE file_key = 'a'"
+                "UPDATE records r SET ts = '2026-01-04T16:00Z' "
+                "FROM files f WHERE r.file_id = f.file_id "
+                "AND f.file_key = 'a'"
             )
-            conn.execute("DELETE FROM tool_uses WHERE file_key = 'a'")
+            conn.execute(
+                "DELETE FROM tool_uses t USING files f "
+                "WHERE t.file_id = f.file_id AND f.file_key = 'a'")
         elif shape == "null_ts":
             conn.execute(
-                "UPDATE records SET ts = NULL, reply_latency_s = NULL "
-                "WHERE file_key = 'a'"
+                "UPDATE records r SET ts = NULL, reply_latency_s = NULL "
+                "FROM files f WHERE r.file_id = f.file_id "
+                "AND f.file_key = 'a'"
             )
         else:
             conn.execute("INSERT INTO suppressed_models VALUES ('suppressed')")
+            suppressed_id = dims_seed.dim_id(conn, "dim_model", "suppressed")
             conn.execute(
-                "UPDATE records SET model = 'suppressed' WHERE file_key = 'a'"
+                "UPDATE records r SET model_id = %s "
+                "FROM files f WHERE r.file_id = f.file_id "
+                "AND f.file_key = 'a'", (suppressed_id,)
             )
             conn.execute(
-                "UPDATE tool_uses SET model = 'suppressed' WHERE file_key = 'a'"
+                "UPDATE tool_uses t SET model_id = %s "
+                "FROM files f WHERE t.file_id = f.file_id "
+                "AND f.file_key = 'a'", (suppressed_id,)
             )
         conn.commit()
         ingest_scope.capture_and_add(scope, conn, dirty)
@@ -154,8 +184,9 @@ def test_fractional_timezone_latency(fresh_db, monkeypatch):
     with db.viz_conn() as conn:
         ingest_scope.capture_and_add(scope, conn, {"a"})
         conn.execute(
-            "UPDATE records SET reply_latency_s = 17 "
-            "WHERE file_key = 'a' AND line_num = 1"
+            "UPDATE records r SET reply_latency_s = 17 "
+            "FROM files f WHERE r.file_id = f.file_id "
+            "AND f.file_key = 'a' AND r.line_num = 1"
         )
         conn.commit()
     ingest.rebuild_latency_rollup(scope)
@@ -253,3 +284,46 @@ def test_late_full_promotion_does_not_complete_incremental_rollups(
         recovered = ingest.run_ingest(trigger="manual")
     assert recovered["error"] is None
     assert "scope=full" in _timing_lines(caplog)[-1]
+
+
+def test_reserved_project_reseed_never_attempts_an_insert_when_present(
+        fresh_db):
+    """The latency rebuild's reserved-projects re-seed (proj_id 0, R8's
+    all-projects row) must do NOTHING when the row already stands — the
+    usual case. A BEFORE INSERT probe counts ATTEMPTS (it fires before
+    ON CONFLICT DO NOTHING can resolve the conflict), so the unguarded
+    INSERT ... VALUES form reddens here with 1 attempt."""
+    with db.viz_conn() as conn:
+        conn.execute("CREATE TABLE _reseed_probe (n int NOT NULL)")
+        conn.execute(
+            "CREATE FUNCTION _count_reseed() RETURNS trigger AS $fn$ "
+            "BEGIN INSERT INTO _reseed_probe VALUES (1); RETURN NEW; END; "
+            "$fn$ LANGUAGE plpgsql")
+        conn.execute(
+            "CREATE TRIGGER _reseed_attempts BEFORE INSERT ON projects "
+            "FOR EACH ROW EXECUTE FUNCTION _count_reseed()")
+        conn.commit()
+    ingest.rebuild_latency_rollup()
+    with db.viz_conn() as conn:
+        attempts = conn.execute(
+            "SELECT COUNT(*) FROM _reseed_probe").fetchone()
+    assert attempts is not None and attempts[0] == 0, (
+        "the re-seed attempted an insert although proj_id 0 exists")
+
+
+def test_reserved_project_reseed_restores_the_row_when_missing(fresh_db):
+    """End state the guard must not change: a wholesale projects wipe
+    takes the reserved row, and the next latency rebuild puts it back."""
+    with db.viz_conn() as conn:
+        conn.execute("DELETE FROM projects WHERE proj_id = 0")
+        count = conn.execute(
+            "SELECT COUNT(*) FROM projects WHERE proj_id = 0"
+        ).fetchone()
+        assert count is not None and count[0] == 0
+        conn.commit()
+    ingest.rebuild_latency_rollup()
+    with db.viz_conn() as conn:
+        row = conn.execute(
+            "SELECT project_id FROM projects WHERE proj_id = 0"
+        ).fetchone()
+    assert row == ("",), row

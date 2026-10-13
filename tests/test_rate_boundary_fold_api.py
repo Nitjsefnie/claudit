@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from backend import api, api_cache, db, pricing
 from backend.cache import response_cache
 from tests import scratch_db
+from tests import dims_seed
 
 UTC = timezone.utc
 
@@ -85,19 +86,28 @@ def _seed_records(records, rollup_pairs):
                 res=pricing.resolve(model, ts, provider),
             )
             conn.execute(
-                "INSERT INTO records (file_key, line_num, ts, model, "
-                "fresh_tokens, cost_usd, is_canonical, long_context, provider) "
-                "VALUES (%s, %s, %s, %s, %s, %s, TRUE, FALSE, %s)",
-                (file_key, line_num, ts, model, fresh, cost, provider),
+                "INSERT INTO records (file_id, line_num, ts, model_id, "
+                "fresh_tokens, is_canonical, provider_id) "
+                "VALUES ((SELECT file_id FROM files WHERE file_key = %s), "
+                "%s, %s, %s, %s, TRUE, %s)",
+                (file_key, line_num, ts,
+                 dims_seed.dim_id(conn, "dim_model", model),
+                 fresh,
+                 None if provider is None
+                 else dims_seed.dim_id(conn, "dim_provider", provider)),
+            )
+            conn.execute(
+                "INSERT INTO records_price (file_id, line_num, cost_usd, "
+                "long_context) "
+                "VALUES ((SELECT file_id FROM files WHERE file_key = %s), "
+                "%s, %s, FALSE)",
+                (file_key, line_num, cost),
             )
         for index, (model, provider, ts) in enumerate(rollup_pairs):
-            hour = ts.replace(minute=0, second=0, microsecond=0)
-            conn.execute(
-                "INSERT INTO usage_rollup (session_id, project_id, hour, "
-                "model, first_ts, last_ts, provider) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (f"synthetic-rollup-{index}", project_id, hour, model,
-                 ts, ts, provider),
+            dims_seed.seed_usage_rollup(
+                conn, project_id, f"synthetic-rollup-{index}",
+                ts.replace(minute=0, second=0, microsecond=0),
+                model=model, provider=provider or "",
             )
 
 

@@ -17,6 +17,7 @@ import os
 import shutil
 import tempfile
 from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg
@@ -26,6 +27,7 @@ from fastapi.testclient import TestClient
 
 from backend import api, api_dashboard, cache, db, ingest
 from tests import scratch_db
+from tests import dims_seed
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -104,7 +106,7 @@ def test_dashboard_tokens_by_project_shape(app_with_data):
             "SELECT f.project_id, "
             "SUM(d.fresh_tokens + d.output_tokens + d.cache_creation_tokens "
             "+ d.cache_read_tokens) "
-            "FROM records d JOIN files f ON f.file_key = d.file_key "
+            "FROM records d JOIN files f ON f.file_id = d.file_id "
             "WHERE d.is_canonical GROUP BY 1"
         ).fetchall())
     by_proj = {r["project"]: r["total_tokens"] for r in tbp
@@ -125,11 +127,11 @@ def test_dashboard_tokens_by_project_shows_a_free_lane(app_with_fresh_data):
             "first_seen_at, last_seen_at) "
             "VALUES ('projFree', 'projFree', now(), now())"
         )
-        cur.execute(
-            "INSERT INTO usage_rollup (session_id, project_id, hour, model, "
-            "is_main, first_ts, last_ts, requests, fresh_tokens, cost_usd) "
-            "VALUES ('sess-free', 'projFree', date_trunc('hour', now()), "
-            "'m', TRUE, now(), now(), 2, 1234, 0)"
+        dims_seed.seed_usage_rollup(
+            cur, "projFree", "sess-free",
+            datetime.now(timezone.utc).replace(
+                minute=0, second=0, microsecond=0),
+            requests=2, fresh_tokens=1234, cost_usd=0,
         )
         conn.commit()
     body = app_with_fresh_data.get("/api/dashboard?range=3650d&fresh=1").json()
