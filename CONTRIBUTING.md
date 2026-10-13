@@ -393,7 +393,7 @@ Two tests are worth knowing about before you touch pricing:
   byte-identical output. If you touch ingest concurrency, this is the test
   that catches you. Its sibling in
   `tests/test_ingest_pipeline.py` pins the process-pool pipeline
-  (issue #309) against the same bar: forked parse children plus persist
+  (issue #309) against the same bar: forkserver parse children plus persist
   threads must land exactly what the in-process pipeline lands, and
   `test_process_pool_persists_survive_a_per_file_failure` pins per-file
   failure isolation there.

@@ -440,14 +440,16 @@ def _boto_client():
     only documented thread-safe for method calls, and a private client per
     worker also gives each its own connection pool.
 
-    The stamp is the fork guard (issue #338): a fork-context pool child
+    The stamp is the fork guard (issue #338): any fork-started child
     inherits the forking thread's thread-local — the client the ingest
-    listing built, still holding its open TLS sockets. A child that reused
-    it would read and write the same SSL streams the parent and the other
-    children use, corrupting every one of them (`ssl.SSLError: record
-    layer failure`), so a cached client whose stamp is not this process's
-    pid is treated as absent: the child keeps the inherited client only as
-    an unreachable reference and builds its own. Never close the inherited
+    listing built, still holding its open TLS sockets. (The ingest parse
+    pool has used a preloaded forkserver since #964, so its workers no
+    longer inherit that client; the guard covers any other fork.) A child
+    that reused it would read and write the same SSL streams the parent
+    and the other children use, corrupting every one of them
+    (`ssl.SSLError: record layer failure`), so a cached client whose stamp
+    is not this process's pid is treated as absent: the child keeps the
+    inherited client only as an unreachable reference and builds its own. Never close the inherited
     one — a close could write to the shared streams; the duplicated
     descriptors are simply dropped. The stamp lives in the thread-local
     beside the client, never as an attribute on the botocore object.
