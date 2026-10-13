@@ -32,6 +32,9 @@ CASES = [
     ('shell_command_scope', 'sh', 'echo "$(echo x # real\n)"\n', (5, 19)),
     ('shell_backtick_scope', 'sh', 'echo "`echo x # real\n`"\n', (5, 18)),
     ('shell_parameter_command', 'sh', 'echo ${x:-$(echo x # literal\n)} # yes\n', (12, 30)),
+    ('shell_comment_physical_newline', 'sh', '# first\\\nprintf second\n', (7, 19)),
+    ('shell_parameter_nested_command', 'sh', 'echo ${x:-$(echo x # real\n)}\n', (5, 23)),
+    ('shell_parameter_nested_backtick', 'sh', 'echo ${x:-`echo x # real\n`}\n', (5, 22)),
     ('shell_parameter_brace', 'sh', 'echo ${x:-foo{} # yes\n', (4, 18)),
     ('shell_parameter_scope', 'sh', 'echo ${x:- # literal} # yes\n', (4, 22)),
     ('heredoc_continued', 'sh', 'cat <<EOF \\\n  <<BAR\n# first\nEOF\n# second\nBAR\n# yes\n', (4, 37)),
@@ -215,7 +218,7 @@ def test_missing_dependency_fails_cli(dependency: str, tmp_path: Path) -> None:
     if dependency == "node":
         git = shutil.which("git")
         assert git
-        (tmp_path / "git").symlink_to(git)
+        (tmp_path / Path(git).name).symlink_to(git)
     env["PATH" if dependency == "node" else "CLAUDIT_ESPREE_DIR"] = str(tmp_path)
     result = subprocess.run([sys.executable, str(ROOT / "scripts/ci/comment_share.py"),
                              "--report", "--root", str(tmp_path)], env=env,
@@ -238,6 +241,7 @@ def test_unfinished_scopes_cli(name: str, source: str, tmp_path: Path) -> None:
     assert not result.stdout
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='POSIX bash runtime evidence; Windows uses the WSL stub')
 @pytest.mark.parametrize('source,stdout,comments', [
     ('# first\\\nprintf second\n', 'second', 7),
     ('echo ${x:-$(echo x # real\n)}\n', 'x\n', 5),
@@ -248,3 +252,10 @@ def test_shell_comments_match_execution(source, stdout, comments):
     assert result.stdout == stdout
     assert not result.stderr
     assert counter.quoted_comments(source, shell=True) == comments
+
+
+def test_unresolved_node_names_missing_executable(tmp_path: Path, monkeypatch):
+    (tmp_path / 'a.js').write_text('// hi\n', encoding='utf-8')
+    monkeypatch.setattr(shutil, 'which', lambda _executable: None)
+    with pytest.raises(counter.MeasurementError, match='node'):
+        counter.javascript_comments(tmp_path, ['a.js'])
