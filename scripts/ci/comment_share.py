@@ -1,3 +1,14 @@
+"""Measure UTF-8 comment bytes on tracked source files.
+
+Shell subset: words/operators, ordinary and ANSI-C string quotes, escapes,
+command/backtick/parameter scopes, grouping, quote-free arithmetic, here-strings,
+and continued commands with ordered literal-word heredocs. Delimiters must be
+nonempty words, unquoted, wholly single/double quoted, or backslash-prefixed;
+Whitespace/escape syntax in delimiters, ANSI-C or mixed quoting refuses.
+Single/double quotes anywhere in arithmetic
+and unquoted case words inside command/backtick substitutions refuse.
+Top-level case words are opaque; this is lexical measurement, not execution.
+"""
 from __future__ import annotations
 
 import argparse
@@ -14,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
-from yaml.tokens import AliasToken, AnchorToken, KeyToken, ScalarToken, TagToken
+from yaml.tokens import KeyToken, ScalarToken, ValueToken
 
 ROOT = Path(__file__).resolve().parents[2]
 SUFFIXES = {'.py': 'python', '.js': 'javascript', '.jsx': 'javascript',
@@ -107,31 +118,21 @@ def heredoc_at(line: str, index: int) -> tuple[int, tuple[str, bool] | None]:
         return index + 3, None
     match = HEREDOC.match(line, index)
     if not match:
-        return index + 2, None
-    word = re.sub(r"\$'((?:\\.|[^'])*)'", ansi_delimiter, match[2])
-    return match.end(), (shlex.split(word)[0], bool(match[1]))
-
-
-def ansi_delimiter(match: re.Match[str]) -> str:
-    prefix = match.string[:match.start()]
-    if (len(prefix) - len(prefix.rstrip('\\'))) % 2:
-        return match[0]
-    escapes = dict(zip('abefnrtv', '\a\b\x1b\f\n\r\t\v', strict=True))
-    escapes['E'] = '\x1b'
-
-    def expand(escape: re.Match[str]) -> str:
-        value = escape[1]
-        if value[0] in 'xuU':
-            return chr(int(value[1:], 16))
-        if value[0] in '01234567':
-            return chr(int(value, 8))
-        if value[0] == 'c' and len(value) == 2:
-            return chr(127 if value[1] == '?' else ord(value[1].upper()) & 31)
-        return escapes.get(value, value if value in "\\\"'?" else '\\' + value)
-
-    decoded = re.sub(r'\\(x[\da-fA-F]{1,2}|u[\da-fA-F]{1,4}|U[\da-fA-F]{1,8}|[0-7]{1,3}|c.|.)',
-                     expand, match[1])
-    return shlex.quote(decoded)
+        raise MeasurementError('unsupported heredoc delimiter')
+    word = match[2]
+    if word.startswith(("'", '"')):
+        if len(word) < 2 or word[-1] != word[0] or word[0] in word[1:-1]:
+            raise MeasurementError('mixed-quoted heredoc delimiter refuses')
+        literal = word[1:-1]
+    else:
+        literal = word[1:] if word.startswith('\\') else word
+        if any(char in "\"'" for char in literal):
+            raise MeasurementError('ANSI-C or mixed-quoted heredoc delimiter refuses')
+    if not literal or re.search(r'[\s<>|;&()\\]', literal):
+        raise MeasurementError('heredoc delimiter must be a literal plain word')
+    if match.end() < len(line) and not (line[match.end()].isspace() or line[match.end()] in '<>|;&()'):
+        raise MeasurementError('unsupported heredoc delimiter suffix')
+    return match.end(), (literal, bool(match[1]))
 
 
 @dataclass
@@ -139,9 +140,7 @@ class ShellScope:
     close: str = ''
     quote: str = ''
     depth: int = 0
-    cases: list[str] = field(default_factory=list)
-    pattern_depth: int = 0
-    command: bool = True
+    command_substitution: bool = False
     inert: bool = False
 
 
@@ -153,21 +152,22 @@ class ShellLexer:
 
     def push(self, close: str) -> None:
         scope = self.scopes[-1]
-        scope.command = False
-        self.scopes.append(ShellScope(close=close, inert=scope.inert or scope.close == '}'))
+        self.scopes.append(ShellScope(close=close, inert=scope.inert or scope.close == '}',
+                                      command_substitution=close == '`'))
 
     def substitution(self, line: str, index: int) -> int | None:
         scope = self.scopes[-1]
         char = line[index]
         if scope.quote in ("'", "$'"):
             return None
-        arithmetic = not scope.quote and not (scope.cases and scope.cases[-1] == 'pattern')
+        arithmetic = not scope.quote
         if line[index:index + 3] == '$((' or arithmetic and line[index:index + 2] == '((':
             self.push('))')
             return index + (3 if line[index] == '$' else 2)
         if line[index:index + 2] in ('${', '$('):
             close = '}' if line[index + 1] == '{' else ')'
             self.push(close)
+            self.scopes[-1].command_substitution = close == ')'
             return index + 2
         if char == '`':
             if scope.close == '`':
@@ -181,9 +181,6 @@ class ShellLexer:
 
     def parenthesis(self, line: str, index: int) -> int | None:
         scope, char = self.scopes[-1], line[index]
-        if scope.cases and scope.cases[-1] == 'pattern':
-            self.pattern(line[index], line[index - 1:index])
-            return index + 1 if char in '()' else None
         if scope.close == '))' and not scope.depth and line[index:index + 2] == '))':
             self.scopes.pop()
             return index + 2
@@ -203,16 +200,6 @@ class ShellLexer:
             return None
         return index + 1
 
-    def pattern(self, char: str, previous: str) -> None:
-        scope = self.scopes[-1]
-        if char == '(' and (scope.pattern_depth or previous in '@*+?!' and previous):
-            scope.pattern_depth += 1
-        elif char == ')':
-            if scope.pattern_depth:
-                scope.pattern_depth -= 1
-            else:
-                scope.cases[-1], scope.command = 'body', True
-
     def parameter(self, line: str, index: int) -> int:
         scope, char = self.scopes[-1], line[index]
         if scope.quote not in ("'", "$'") and (line[index:index + 2] in ('${', '$(') or char == '`'):
@@ -229,31 +216,28 @@ class ShellLexer:
         return index + 1
 
     def word(self, line: str, index: int) -> int | None:
-        if index and not (line[index - 1].isspace() or line[index - 1] in ';&|(){}'):
+        if index and not (line[index - 1].isspace() or line[index - 1] in ';&|(){}`'):
             return None
         match = re.match(r'[a-zA-Z_]\w*', line[index:])
         if not match:
             return None
-        scope, word = self.scopes[-1], match[0]
         end = index + match.end()
         complete = end == len(line) or line[end].isspace() or line[end] in ';&|(){}'
-        closing_case = bool(scope.cases) and not scope.pattern_depth and (scope.command or scope.cases[-1] == 'pattern')
-        if complete and word == 'in' and scope.cases and scope.cases[-1] == 'subject':
-            scope.cases[-1] = 'pattern'
-        elif complete and word == 'esac' and line[end:end + 1] not in (')', '|') and closing_case:
-            scope.cases.pop()
-        elif complete and word == 'case' and scope.command and (not scope.cases or scope.cases[-1] == 'body'):
-            scope.cases.append('subject')
-        scope.command = complete and word in ('if', 'then', 'elif', 'else', 'do', 'while', 'until')
+        if complete and match[0] == 'case' and any(scope.command_substitution for scope in self.scopes):
+            raise MeasurementError('case word inside command substitution refuses')
         return end
 
     def scope_step(self, line: str, index: int) -> int | None:
         scope = self.scopes[-1]
         char = line[index]
+        arithmetic = any(frame.close == '))' for frame in self.scopes)
+        spelling = line[index:index + 2] if char in ('\\', '$') else char
+        if arithmetic and any(quote in spelling for quote in "\"'"):
+            raise MeasurementError('quotes inside arithmetic refuse')
         if char == '\\' and scope.quote != "'":
             return index + 2
         if not scope.quote and line[index:index + 2] == "$'":
-            scope.quote, scope.command = "$'", False
+            scope.quote = "$'"
             return index + 2
         if scope.close == '}':
             return self.parameter(line, index)
@@ -266,20 +250,10 @@ class ShellLexer:
             return index + 1
         return None
 
-    def command_step(self, line: str, index: int) -> int | None:
-        scope = self.scopes[-1]
-        moved = self.word(line, index)
-        if moved is not None:
-            return moved
-        if scope.cases and line[index:index + 2] in (';;', ';&'):
-            scope.cases[-1], scope.command = 'pattern', True
-            return index + (3 if line[index:index + 3] == ';;&' else 2)
-        return None
-
     def step(self, line: str, index: int) -> tuple[int, int]:
         moved = self.scope_step(line, index)
         if moved is None:
-            moved = self.command_step(line, index)
+            moved = self.word(line, index)
         if moved is not None:
             return moved, 0
         scope, char = self.scopes[-1], line[index]
@@ -289,17 +263,17 @@ class ShellLexer:
             return len(line), 0 if scope.inert else non_whitespace_bytes(line[index:])
         elif line[index:index + 2] == '<<':
             moved, heredoc = heredoc_at(line, index)
+            if any(frame.close == '))' for frame in self.scopes) and any(char in line[index:moved] for char in "\"'"):
+                raise MeasurementError('quotes inside arithmetic refuse')
             if heredoc:
                 self.waiting.append(heredoc)
             return moved, 0
-        if char in ';&|\n{}' or char == '!' and line[index + 1:index + 2].isspace():
-            scope.command = True
-        elif not char.isspace():
-            scope.command = False
         return index + 1, 0
 
     def line(self, line: str) -> int:
         if self.bodies:
+            if any(frame.close == '))' for frame in self.scopes) and any(char in line for char in "\"'"):
+                raise MeasurementError('quotes inside arithmetic refuse')
             delimiter, strip_tabs = self.bodies[0]
             candidate = line.rstrip('\r\n')
             if strip_tabs:
@@ -322,84 +296,43 @@ class ShellLexer:
         return count
 
     def finish(self) -> None:
-        if len(self.scopes) != 1 or any(scope.quote or scope.cases for scope in self.scopes):
+        if len(self.scopes) != 1 or any(scope.quote for scope in self.scopes):
             raise MeasurementError('unterminated shell scope or quote')
         pending = self.bodies or self.waiting
         if pending:
             raise MeasurementError(f'unterminated heredoc: {pending[0][0]}')
 
 
-def yaml_block(text: str, token: ScalarToken, key: str, parent: int
-               ) -> tuple[int, int, int]:
-    newline = re.search(r'\r\n|[\r\n\x85\u2028\u2029]', text[token.start_mark.index:])
+def yaml_block(text: str, token: ScalarToken, key_column: int) -> int:
+    extent = text[token.start_mark.index:token.end_mark.index]
+    newline = re.search(r'\r\n|[\r\n\x85\u2028\u2029]', extent)
     if newline is None:
-        return len(text), len(text), 0
-    start = token.start_mark.index + newline.end()
-    body = []
-    for line in text[start:].splitlines(keepends=True):
-        if line.strip() and len(line) - len(line.lstrip(' ')) <= parent:
-            break
-        body.append(line)
-    end = start + sum(len(line) for line in body)
-    count = 0
-    if key == 'run':
-        header = text[token.start_mark.index:start].split('#', 1)[0]
-        digit = next((int(char) for char in header if char.isdigit()), None)
-        indent = parent + digit if digit is not None else next(
-            (len(line) - len(line.lstrip(' ')) for line in body if line.strip()), parent + 1)
-        script = ''.join(line[min(indent, len(line) - len(line.lstrip(' '))):]
-                         for line in body)
-        count = quoted_comments(script, shell=True)
-    return start, end, count
+        return 0
+    header = extent[:newline.start()]
+    body = extent[newline.end():].splitlines(keepends=True)
+    indicator = re.match(r'[|>][+-]?([1-9])', header)
+    indent = key_column + int(indicator[1]) if indicator else next(
+        (len(line) - len(line.lstrip(' ')) for line in body if line.strip()), key_column + 1)
+    script = ''.join(line[min(indent, len(line) - len(line.lstrip(' '))):] for line in body)
+    return quoted_comments(script, shell=True)
 
 
 def yaml_comments(text: str) -> int:
     try:
-        tokens = list(yaml.scan(text))
+        tokens = list(yaml.scan(text, Loader=yaml.SafeLoader))
     except yaml.YAMLError as error:
         raise MeasurementError(f'YAML tokenization failed: {error}') from error
-    spans = []
-    anchors: dict[str, str] = {}
-    key = anchor = ''
-    parent = count = 0
-    reading_key = False
-    for token in tokens:
-        if isinstance(token, KeyToken):
-            reading_key, key, parent = True, '', token.start_mark.column
-        elif isinstance(token, AnchorToken):
-            anchor = token.value
-        elif isinstance(token, AliasToken):
-            key = anchors.get(token.value, '') if reading_key else ''
-            reading_key, anchor = False, ''
-        elif isinstance(token, ScalarToken):
-            if anchor:
-                anchors[anchor] = token.value
-                anchor = ''
-            if token.style in ("'", '"'):
-                spans.append((token.start_mark.index, token.end_mark.index))
-            if reading_key:
-                key, reading_key = token.value, False
-            else:
-                if token.style in ('|', '>'):
-                    start, end, added = yaml_block(text, token, key, parent)
-                    spans.append((start, end))
-                    count += added
-                key = ''
-        elif not isinstance(token, TagToken):
-            anchor = ''
-    return count + yaml_hashes(text, spans)
-
-
-def yaml_hashes(text: str, spans: list[tuple[int, int]]) -> int:
-    count = 0
-    comment_end = 0
-    for match in re.finditer(r'(?<!\S)#', text):
-        start = match.start()
-        if start < comment_end or any(begin <= start < end for begin, end in spans):
-            continue
-        newline = re.search(r'[\r\n\x85\u2028\u2029]', text[start:])
-        comment_end = start + newline.start() if newline else len(text)
-        count += non_whitespace_bytes(text[start:comment_end])
+    count = end = 0
+    for index, token in enumerate(tokens):
+        gap = text[end:token.start_mark.index]
+        count += sum(non_whitespace_bytes(match[0]) for match in
+                     re.finditer(r'#[^\r\n\x85\u2028\u2029]*', gap))
+        if isinstance(token, ScalarToken) and token.style in ('|', '>') and index >= 3:
+            marker, key, value = tokens[index - 3:index]
+            if (isinstance(marker, KeyToken) and isinstance(key, ScalarToken)
+                    and key.plain and key.value == 'run' and isinstance(value, ValueToken)):
+                count += yaml_block(text, token, marker.start_mark.column)
+        end = max(end, token.end_mark.index)
     return count
 
 
