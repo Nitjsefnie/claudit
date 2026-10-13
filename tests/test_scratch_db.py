@@ -22,7 +22,7 @@ import pytest
 from psycopg import sql
 
 from tests import scratch_db
-from tests.source_scan_cache import for_source, source
+from tests.source_scan_cache import for_source, source as cached_source
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -457,7 +457,7 @@ def _db_text(path: Path) -> str | None:
     free module out of the comment-stripping pass entirely (issue
     #510); None is the caller's skip signal.
     """
-    text = source(path)
+    text = cached_source(path)
     return text if _db_vocab(text) else None
 
 

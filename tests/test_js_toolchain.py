@@ -46,6 +46,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.source_scan_cache import source as cached_source
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_JSON = REPO_ROOT / "package.json"
 PACKAGE_LOCK = REPO_ROOT / "package-lock.json"
@@ -504,7 +506,7 @@ def test_js_coverage_measured_set_matches_its_derivation() -> None:
               list_file.read_text(encoding="utf-8").splitlines() if line.strip()]
     derived = sorted(
         f"tests/{path.name}" for path in sorted((REPO_ROOT / "tests").glob("*.py"))
-        if '["node"' in path.read_text(encoding="utf-8"))
+        if '["node"' in cached_source(path))
     assert listed == derived, (
         "the measured set (scripts/ci/node_test_files.txt) no longer equals "
         "grep -lF '[\"node\"' tests/*.py: a node-executing test file was "

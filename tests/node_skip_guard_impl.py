@@ -13,6 +13,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.source_scan_cache import for_source, source as cached_source
+
 
 def _listed_files(root: Path) -> list[str]:
     list_file = root / "scripts" / "ci" / "node_test_files.txt"
@@ -22,14 +24,20 @@ def _listed_files(root: Path) -> list[str]:
         if line.strip())
 
 
+def _module_tree(path: Path) -> ast.Module:
+    """The shared exec-mode AST of a UTF-8 source file."""
+    tree = for_source(cached_source(path)).tree()
+    assert isinstance(tree, ast.Module)
+    return tree
+
+
 def _node_skip_offenders(root: Path) -> list[str]:
     """The #759 branch: file:line (test) for every node-skipped test that
     never runs node, across every listed file."""
     offenders = []
     cache: dict[str, dict] = {}
     for rel in _listed_files(root):
-        tree = ast.parse((root / rel).read_text(encoding="utf-8"))
-        ctx = _context_from_tree(tree, root, cache)
+        ctx = _context_from_tree(_module_tree(root / rel), root, cache)
         for line, name in _test_offenders_in_ctx(ctx):
             offenders.append(f"{rel}:{line} ({name})")
     return offenders
@@ -157,8 +165,7 @@ def _cross_file_target(ctx: dict, name: str):
         if not path.exists():
             return None
         target = _context_from_tree(
-            ast.parse(path.read_text(encoding="utf-8")), ctx["root"],
-            ctx["cache"])
+            _module_tree(path), ctx["root"], ctx["cache"])
         ctx["cache"][rel] = target
     return target, orig
 
