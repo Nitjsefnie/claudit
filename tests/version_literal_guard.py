@@ -11,6 +11,7 @@ in the test module, which the suite-cost bench already pins.
 from __future__ import annotations
 
 import ast
+import re
 from collections.abc import Iterator
 from typing import NamedTuple
 
@@ -161,13 +162,31 @@ def _splits(norm: str) -> Iterator[str]:
     non-empty `norm` yields only non-empty candidates (the loop starts
     at 1); the empty query yields the empty candidate, which no
     committed table names as a key, so the fold still answers None on
-    it."""
+    it.
+
+    Candidates come out in ascending cut order. A snapshot suffix
+    (``^-?\\d{6,8}$``, whose ``$`` also admits one trailing newline) is
+    at most ``_SNAPSHOT_TAIL`` characters long, so only cuts within that
+    distance of the end are tried against it, one by one; the ``[``/``@``
+    cuts before them are found by a regex scan, never a per-character
+    loop."""
     yield norm
-    for i in range(1, len(norm)):
+    size = len(norm)
+    tail = max(1, size - _SNAPSHOT_TAIL)
+    for match in _BRACKET_AT.finditer(norm, 1, tail):
+        yield norm[:match.start()]
+    for i in range(tail, size):
         rest = norm[i:]
         # pylint: disable-next=protected-access
         if rest[0] in "[@" or pricing._SNAPSHOT_SUFFIX.match(rest):
             yield norm[:i]
+
+
+# The cuts opening a ``[``/``@`` tail, as zero-width matches; and the
+# longest tail the snapshot suffix can match: ``-``, eight digits and
+# the newline ``$`` admits.
+_BRACKET_AT = re.compile(r"(?=[\[@])")
+_SNAPSHOT_TAIL = 10
 
 
 def _match_wanted_scan(norm: str, wanted: frozenset[str]) -> str | None:
