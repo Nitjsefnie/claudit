@@ -295,8 +295,8 @@ def test_tree_guards_share_one_read_and_parse_per_file(
     assert verdicts[:5] == (None, None, None, None, [])
     assert verdicts[5:7] == ({"seeded"}, ["test_pinned.py:test_server"])
     assert len(verdicts[7]) == 1 and verdicts[8] == ["test_pinned.py"]
-    # The Node and lane guards reuse the shared AST without tokenizing it;
-    # only the scratch/version-admitted seed is tokenized, once. The one
+    # Node guards reuse the shared AST; the lane guard splits cached text.
+    # Only the scratch/version-admitted seed is tokenized, once. The one
     # whole-tree walk is the shared node list, which _fold_operands reads.
     plain = {"read": 1, "parse": 1, "compile": 1, "index": 1, "walk": 1}
     assert counts == {"test_node_a.py": plain, "test_node_b.py": plain,
