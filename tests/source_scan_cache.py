@@ -147,6 +147,7 @@ class SourceArtifacts:
 
 _Signature = tuple[int, int, int, int, int]
 RACY_MARGIN_NS = 2_000_000_000
+SNAPSHOT_READ_ATTEMPTS = 3
 _current: dict[Path, tuple[_Signature, int, SourceSnapshot]] = {}
 _history: dict[tuple[Path, str], SourceSnapshot] = {}
 _artifacts: dict[str, SourceArtifacts] = {}
@@ -173,12 +174,17 @@ def snapshot(path: Path) -> SourceSnapshot:
         if (signature == before and before[3] < cutoff
                 and before[4] < cutoff):
             return record
-    record_time_ns = _now_ns()
-    with resolved.open("rb") as reader:
-        opened = _signature(os.fstat(reader.fileno()))
-        data = reader.read()
-        after = _signature(os.fstat(reader.fileno()))
-    if opened != after:
+    for attempt in range(SNAPSHOT_READ_ATTEMPTS):
+        if attempt:
+            before = _signature(resolved.stat())
+        record_time_ns = _now_ns()
+        with resolved.open("rb") as reader:
+            opened = _signature(os.fstat(reader.fileno()))
+            data = reader.read()
+            after = _signature(os.fstat(reader.fileno()))
+        if opened == after and before == _signature(resolved.stat()):
+            break
+    else:
         raise RuntimeError(f"Source generation changed during read: {resolved}")
     content_hash = hashlib.sha256(data).hexdigest()
     key = (resolved, content_hash)
@@ -186,8 +192,7 @@ def snapshot(path: Path) -> SourceSnapshot:
     if record is None:
         record = SourceSnapshot(resolved, content_hash, data)
         _history[key] = record
-    # Keep path-stat metadata separate from descriptor metadata. A replacement
-    # before open leaves the old signature here, forcing the next call to read.
+    # Only the validated pre-open path signature participates in cache lookup.
     _current[resolved] = (before, record_time_ns, record)
     return record
 

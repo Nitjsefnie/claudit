@@ -212,6 +212,70 @@ def test_path_and_descriptor_signatures_may_differ(
     assert calls[0][path.resolve()] == 1
 
 
+@pytest.mark.parametrize("stage", ["after-open", "after-fstat-replace",
+                                   "after-fstat-rewrite"])
+def test_path_changes_outside_descriptor_observations_retry(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str) -> None:
+    path = tmp_path / "racing.py"
+    path.write_bytes(b"old = 1\n")
+    replacement = tmp_path / "replacement.py"
+    replacement.write_bytes(b"new_value = 2\n")
+    original_open = Path.open
+    reads = 0
+
+    @contextmanager
+    def racing_open(file: Path, *args: Any, **kwargs: Any) -> Iterator[Any]:
+        nonlocal reads
+        reads += 1
+        with original_open(file, *args, **kwargs) as handle:
+            if reads == 1 and stage == "after-open":
+                try:
+                    replacement.replace(path)
+                except PermissionError:
+                    if os.name != "nt":
+                        raise
+                    pytest.skip("Windows disallows replacing this open reader")
+            yield handle
+        if reads == 1 and stage == "after-fstat-replace":
+            replacement.replace(path)
+        if reads == 1 and stage == "after-fstat-rewrite":
+            with original_open(path, "wb") as writer:
+                writer.write(b"new_value = 2\n")
+
+    monkeypatch.setattr(Path, "open", racing_open)
+    assert source_scan_cache.snapshot(path).raw == b"new_value = 2\n"
+    assert reads == 2
+
+
+@pytest.mark.parametrize("persistent", [False, True])
+def test_path_signature_mismatch_retries_are_bounded(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, persistent: bool) -> None:
+    path = tmp_path / "metadata.py"
+    path.write_bytes(b"value = 1\n")
+    original_stat = Path.stat
+    observations = 0
+
+    def changing_stat(file: Path, *args: Any, **kwargs: Any) -> Any:
+        nonlocal observations
+        stat = original_stat(file, *args, **kwargs)
+        if file != path:
+            return stat
+        observations += 1
+        changed = observations % 2 == 0 if persistent else observations == 2
+        return types.SimpleNamespace(
+            st_dev=stat.st_dev, st_ino=stat.st_ino, st_size=stat.st_size,
+            st_mtime_ns=stat.st_mtime_ns, st_ctime_ns=stat.st_ctime_ns + changed)
+
+    monkeypatch.setattr(Path, "stat", changing_stat)
+    if persistent:
+        with pytest.raises(RuntimeError, match="Source generation changed during read"):
+            source_scan_cache.snapshot(path)
+        assert observations == 6
+    else:
+        assert source_scan_cache.snapshot(path).raw == b"value = 1\n"
+        assert observations == 4
+
+
 def test_replacement_between_path_stat_and_open_is_reread(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "replaced.py"
@@ -615,7 +679,7 @@ def test_generation_changed_during_read_fails_explicitly(
             def changing_read() -> bytes:
                 data = handle.read()
                 with original_open(file, "wb") as writer:
-                    writer.write(b"new_value = 2\n")
+                    writer.write(data + b"\n")
                 return data
 
             yield types.SimpleNamespace(fileno=handle.fileno,
@@ -625,4 +689,4 @@ def test_generation_changed_during_read_fails_explicitly(
         patch.setattr(Path, "open", changing_open)
         assert isinstance(_failure(lambda: source_scan_cache.snapshot(path)),
                           RuntimeError)
-    assert source_scan_cache.source(path) == "new_value = 2\n"
+    assert source_scan_cache.source(path) == "old = 1\n\n\n\n"
