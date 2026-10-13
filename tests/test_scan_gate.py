@@ -19,6 +19,7 @@ UNPINNED on purpose: never add it to suite_bench_files.txt.
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 from pathlib import Path
 
 from tests import scan_gate
@@ -27,7 +28,7 @@ from tests.source_scan_cache import for_source, source as cached_source
 TESTS_DIR = Path(__file__).resolve().parent
 
 
-def _fold_operands(tree) -> set[str]:
+def _fold_operands(nodes: Iterable[ast.AST]) -> set[str]:
     """Values the compiler swallows into a folded RESULT constant.
 
     ``'a' + 'b'`` and ``'cd' * 16`` fold, and the fold is CHAINED: the
@@ -51,7 +52,7 @@ def _fold_operands(tree) -> set[str]:
                 return left | right
         return None
 
-    for node in ast.walk(tree):
+    for node in nodes:
         folded = strings_if_folds(node)
         if folded is not None:
             found |= folded
@@ -63,8 +64,7 @@ def test_the_gate_sees_every_string_constant_in_the_tree():
         source = cached_source(path)
         consts, _ = scan_gate.module_vocab(source)
         artifacts = for_source(source)
-        tree = artifacts.tree()
-        folded = _fold_operands(tree)
+        folded = _fold_operands(artifacts.nodes())
         for node in artifacts.nodes():
             if not (isinstance(node, ast.Constant)
                     and isinstance(node.value, str)):
