@@ -3,7 +3,7 @@
 Five workflows install the PostgreSQL client from the PGDG apt repo:
 tests.yml, test-data.yml, test-data-explore.yml, smoke.yml and
 refresh-pricing.yml. The step shells out to psql, and the client major
-must match the service major, so the install cannot be dropped.
+must match the container major, so the install cannot be dropped.
 
 The invariants pinned here:
 

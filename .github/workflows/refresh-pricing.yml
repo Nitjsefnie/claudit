@@ -87,26 +87,6 @@ jobs:
     permissions:
       contents: read  # nothing here pushes; this job only reads the tree
 
-    services:
-      postgres:
-        # The suite's database, as in tests.yml, but pinned by digest: this
-        # job produces the data the push job publishes, so the image the
-        # measurements come from must be the reviewed one.
-        # The service starts on every run, quiet ones included; a job cannot
-        # start a service part-way.
-        image: public.ecr.aws/docker/library/postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
       PGHOST: localhost
       PGPORT: "5432"
@@ -131,6 +111,9 @@ jobs:
           # the token out of .git/config for any later step to reuse.
           persist-credentials: false
 
+      - name: Start cached Postgres
+        uses: $/.github/actions/postgres
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           # No dependency cache: this job writes to master, and a cache any
@@ -140,7 +123,7 @@ jobs:
       - name: Fetch and append
         id: fetch
         # stdlib only: nothing is installed before the fetch, so beyond the
-        # Postgres service a quiet hour costs one checkout, one model-catalog
+        # cached Postgres a quiet hour costs one checkout, one model-catalog
         # request, and two requests per tracked model. A refused host blocks
         # only itself: the script still
         # writes every other move and exits nonzero, so this step records the
@@ -191,15 +174,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
-
-      - name: Wait for postgres
-        if: steps.moved.outputs.moved == 'true'
-        run: |
-          for _ in $(seq 1 30); do
-            pg_isready -q && exit 0
-            sleep 1
-          done
-          echo "postgres never became ready"; exit 1
 
       - name: Run the suite against the new rates
         if: steps.moved.outputs.moved == 'true'
