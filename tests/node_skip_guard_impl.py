@@ -450,9 +450,11 @@ def _measurement_args(args: list[ast.expr]) -> bool:
     values = [arg.value for arg in args[1:] if isinstance(arg, ast.Constant) and isinstance(arg.value, str)]
     if not values or len(values) != len(args) - 1 or not all(values):
         return False
-    if any(value in ('--help', '-h') or value.startswith('-') and value != '--report' for value in values):
-        return False
-    return '--report' in values or any(not value.startswith('-') for value in values)
+    if values == ['--report']:
+        return True
+    if len(values) == 3 and values[0] == '--root':
+        values = values[2:] + values[:2]
+    return len(values) == 3 and values[:2] == ['--report', '--root'] and not values[2].startswith('-')
 
 
 def _pytestmark_value(stmt: ast.stmt) -> ast.expr | None:
