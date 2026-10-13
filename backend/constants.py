@@ -81,8 +81,8 @@ VERSION = _read_version()
 
 
 # Parse-output schema/semantics version. Ingest reparses every file whose
-# stored `parser_version` differs from this, so it is the ONLY switch that
-# forces a full reparse.
+# stored `parser_version` is older. This code version invalidates parse output;
+# files.collection_flags separately records the explicit collection policy.
 #
 # It lives HERE, in code, and not in the environment: a parser change and the
 # reparse it requires must travel in the same commit. When this was read from
@@ -94,7 +94,7 @@ VERSION = _read_version()
 # the set of columns parse_file() emits. A rate change in src/pricing.json
 # reprices stored records instead of reparsing them: bump PRICING_VERSION
 # below for that.
-PARSER_VERSION = "108"
+PARSER_VERSION = "109"
 
 # The rate-data semantics version, stored per record: the ONLY switch
 # that forces a REPRICE, and a reprice never refetches R2 — the reprice

@@ -128,7 +128,7 @@ _LOGIN_HTML = """<!DOCTYPE html>
 
 def _privacy_notice_slots() -> dict[str, str]:
     """The two _LOGIN_HTML slots for the operator's privacy notice
-    (issue #270). Empty unless APP_PRIVACY_NOTICE_URL is set, so the
+    (issue #270). Empty unless CLAUDIT_APP_PRIVACY_NOTICE_URL is set, so the
     unset page stays byte-identical to before — no anchor, no empty
     href, and no styling either. The URL goes through
     ``branding.url_attr`` (SV-BRAND-ESCAPE): attribute-escaping alone

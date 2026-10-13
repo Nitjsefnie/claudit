@@ -488,3 +488,43 @@ def test_the_bench_gates_on_the_surface_beside_its_measurement():
     # decide the answer.
     assert bench.SURFACE_GATE.exists()
     assert bench.check_surface() == 0
+
+
+def test_extracted_helpers_have_reachable_code_objects():
+    """Moving helpers must keep their real definitions visible to the walker."""
+    reached = walk.reachable_surface()
+    objects = set(walk.code_objects(reached).values())
+    for name in ('parse_tool_rows._tool_use_row',
+                 'parse_tool_rows._resolve_tool_errors',
+                 'codex_tool_rows._codex_tool_call',
+                 'codex_tool_rows._codex_tool_result',
+                 'kimi_tool_rows._legacy_tool_call',
+                 'kimi_tool_rows._kimi_dispatch_args',
+                 'parse_collection.mask_collected_fields'):
+        assert name in reached
+        assert name in objects
+
+
+def test_surface_scenarios_cover_on_each_off_and_all_off():
+    """Every registry group gets an independent scenario, without changing the bench."""
+    from backend.flag_registry import COLLECTION_SPECS  # pylint: disable=import-outside-toplevel
+    scenarios = surface.collection_scenarios()
+    disabled = [p.disabled for p in scenarios]
+    keys = {s.key for s in COLLECTION_SPECS}
+    assert len(scenarios) == len(keys) + 2
+    assert disabled == [frozenset()] + [frozenset({s.key}) for s in COLLECTION_SPECS] + [frozenset(keys)]
+
+
+def test_surface_scenario_uses_instrumented_module_reference(monkeypatch):
+    """Capturing parse_file before instrumentation would hide all scenario calls."""
+    from backend import parse  # pylint: disable=import-outside-toplevel
+    from backend.flags import ALL_COLLECTIONS_ON  # pylint: disable=import-outside-toplevel
+    entries = _corpus()[:1]
+    assert surface.run_collection_pass(entries, ALL_COLLECTIONS_ON) > 0
+
+    def instrumented(*_args, **kwargs):
+        assert kwargs['collection'] is ALL_COLLECTIONS_ON
+        raise RuntimeError('instrumented parser reached')
+    monkeypatch.setattr(parse, 'parse_file', instrumented)
+    with pytest.raises(RuntimeError, match='instrumented parser reached'):
+        surface.run_collection_pass(entries, ALL_COLLECTIONS_ON)

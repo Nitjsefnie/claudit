@@ -1,13 +1,13 @@
 """R2 → Postgres ingest.
 
 Per-file granularity: every object key `key_layout.classify()` accepts —
-across EVERY configured bucket (R2_BUCKET names one or more, joined by
+across EVERY configured bucket (CLAUDIT_R2_BUCKET names one or more, joined by
 '+') → one row in `files`, keyed by the bucket-qualified
 `<bucket>/<object-key>`, + N rows in `records` (per Phase-1-deduped
 record). Cross-file uuid dedup resolves at ingest into records.is_canonical; reads filter the flag.
 
-Reparse trigger per FILE: row missing OR etag changed OR parser_version
-mismatch — never a NEWER stored parser_version: an older binary's
+Reparse trigger per FILE: missing row, changed etag, parser version or
+collection policy — never a NEWER stored parser_version: an older binary's
 ingest rewrites each file's rows with its own column list, which would
 NULL every column the older binary does not know (issue #118). Orphan
 files (R2 key gone) are deleted. CASCADE drops records.
@@ -23,7 +23,6 @@ Per-session work spans TWO transactions:
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -33,7 +32,10 @@ from functools import partial
 
 import psycopg
 
-from backend import blob_cache, cache, constants, db, events, ingest_fetch, key_layout, lane_projects, parse, r2, timing
+from backend.env_config import require_env
+from backend import flags, ingest_collection, collection_rollups
+from backend.flags import CollectionPolicy
+from backend import blob_cache, cache, constants, db, events, ingest_fetch, key_layout, lane_projects, parse, r2, timing  # pylint: disable=unused-import
 from backend.ingest_fetch import (  # noqa: F401  (re-export)
     fetch_with_retry as _fetch_with_retry,
     parse_process_count, persist_thread_count,
@@ -195,7 +197,7 @@ def _db_run_lock() -> Iterator[bool]:
     today's behaviour when the database is down.
     """
     conn = psycopg.Connection.connect(
-        os.environ["DATABASE_URL_VIZ"], autocommit=True)
+        require_env("CLAUDIT_DATABASE_URL_VIZ"), autocommit=True)
     try:
         row = conn.execute(  # pylint: disable=no-member
             "SELECT pg_try_advisory_lock(%s)", (_INGEST_LOCK_KEY,)
@@ -271,20 +273,14 @@ def wait_for_run(timeout: float) -> bool:
 
 
 def _existing_files() -> dict:
-    """file_key → (etag, parser_version) for reparse decisions."""
-    with db.viz_conn() as c:
-        return {
-            row[0]: (row[1], row[2])
-            for row in c.execute(
-                "SELECT file_key, r2_etag, parser_version FROM files"
-            ).fetchall()
-        }
+    """Compatibility seam for the stored-file policy snapshot."""
+    return ingest_collection.existing_files()
 
 
 def _collect_todo(existing: dict, parser_version: str,
                   failed: list[tuple[str, str]]) -> tuple:
     """Walk the bucket: count objects, remember live keys, and queue the
-    files whose etag/parser_version says they need (re)parsing.
+    files whose source/code/collection policy needs (re)parsing.
 
     Returns (listed, todo, seen_keys, newer, moved). todo holds (obj, proj,
     stored) per file needing work, fetched+parsed later on a pool. newer
@@ -308,11 +304,6 @@ def _collect_todo(existing: dict, parser_version: str,
         project_paths = _resolve_project_paths(
             marker_items, worker_count(), failed
         )
-    listed = 0
-    seen_keys: set[str] = set()
-    seen_projects: dict[str, dict] = {}
-    todo: list[tuple] = []
-    newer = 0
     with _timed_step("lane_ids"):
         stored_lane = lane_projects.stored_lane_ids()
         moved = lane_projects.rekey_stale_lane_projects(
@@ -320,22 +311,10 @@ def _collect_todo(existing: dict, parser_version: str,
         if moved and (scope := current_scope()) is not None:
             scope.promote_full("lane-project identity move")
     with _timed_step("plan"):
-        for obj in wire_objs:
-            info = key_layout.classify(r2.split_key(obj.key)[1])
-            if info is None:  # pragma: no cover - the scan kept only transcripts
-                continue
-            listed += 1
-            seen_keys.add(obj.key)
-            tracked = _track_walked_project(
-                seen_projects, info, obj, project_paths, stored_lane)
-
-            stored = existing.get(obj.key)
-            if (stored is None or stored[0] != obj.etag
-                    or stored[1] != parser_version):
-                if _stored_version_is_newer(stored, parser_version):
-                    newer += 1
-                    continue
-                todo.append((obj, tracked, stored))
+        listed, todo, seen_keys, newer = ingest_collection.collect_wires(
+            wire_objs, existing, parser_version, flags.CONFIG.collection,
+            partial(_track_walked_project, project_paths=project_paths,
+                    stored_lane=stored_lane))
     current = _RUN_TIMING.get()
     if current is not None:
         current.todo = len(todo)
@@ -351,7 +330,8 @@ def _fetch_parse_persist(todo: list[tuple], parser_version: str,
     """
     return ingest_fetch.fetch_parse_persist(
         todo, parser_version, failed, seen_keys,
-        parse_call=_fetch_and_parse, persist_call=_persist_one,
+        parse_call=partial(_fetch_and_parse, collection=flags.CONFIG.collection),
+        persist_call=_persist_one,
         check_shutdown=_check_shutdown)
 
 
@@ -400,7 +380,10 @@ def _rebuild_derived_state() -> int:
         # Issue #436: the only phase reading a table no other phase writes.
         ("web_metrics_rollup", rebuild_web_metrics_rollup),
     )
-    changed = 0
+    disabled = collection_rollups.disabled_rollups(flags.CONFIG.collection)
+    _check_shutdown()
+    changed = collection_rollups.clear_disabled_rollups(disabled)
+    phases = collection_rollups.collected_phases(phases, disabled)
     scope = current_scope()
     if scope is not None:
         scope.check_latency_null()
@@ -658,7 +641,7 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         # #253); ingest_runs.error is count-only at the source. Keep this
         # assignment here to preserve that serialization boundary.
         summary["failed_keys"] = failed_public_keys(failed)
-        if fatal is None and not aborted:
+        if fatal is None and not aborted and not failed:
             mark_complete()
     if (current := _RUN_TIMING.get()) is not None:
         current.outcome = "aborted" if aborted else "ok" if fatal is None else "fatal"
@@ -667,7 +650,9 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
 
 
 def _fetch_and_parse(key: str, sidecar_key: str | None = None,
-                     etag: str | None = None, size: int | None = None) -> dict:
+                     etag: str | None = None, size: int | None = None, *,
+                     collection: CollectionPolicy | None = None) -> dict:
     """Run the extracted parser while preserving the patched fetch callback."""
     return ingest_fetch.fetch_and_parse(key, sidecar_key, _fetch_with_retry,
-                                        parse.parse_file, etag=etag, size=size)
+                                        parse.parse_file, etag=etag, size=size,
+                                        collection=collection)

@@ -81,8 +81,8 @@ createdb claudit_auth
 psql claudit_auth -c "CREATE TABLE users (user_id BIGINT PRIMARY KEY, \
 config JSONB NOT NULL DEFAULT '{}'::jsonb)"
 
-cp backend/.env.example .env      # then edit: DATABASE_URL_VIZ, DATABASE_URL_AUTH, R2_*, ADMIN_TOKEN
-                                  # DATABASE_URL_AUTH=postgresql:///claudit_auth (the .env.example default,
+cp backend/.env.example .env      # then edit: CLAUDIT_DATABASE_URL_VIZ, CLAUDIT_DATABASE_URL_AUTH, CLAUDIT_R2_*, CLAUDIT_ADMIN_TOKEN
+                                  # CLAUDIT_DATABASE_URL_AUTH=postgresql:///claudit_auth (the .env.example default,
                                   # postgresql:///users, names a database this block does not create)
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r backend/requirements.txt
@@ -94,11 +94,11 @@ python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 fixture; see the README's [Quick start](README.md#quick-start) for what
 populates it and why it stays out of this repository.
 
-No R2 credentials? Point `R2_ENDPOINT` at a directory instead — the
+No R2 credentials? Point `CLAUDIT_R2_ENDPOINT` at a directory instead — the
 client walks the tree in `file://` mode:
 
 ```bash
-R2_ENDPOINT=file:///path/to/transcripts/
+CLAUDIT_R2_ENDPOINT=file:///path/to/transcripts/
 ```
 
 `fixtures/r2_mini/` is a tiny mirror you can point at to get a working
@@ -140,7 +140,7 @@ a meter composes up without colliding:
 POSTGRES_HOST_PORT=15432 CLAUDIT_HOST_PORT=18000 docker compose up -d
 ```
 
-In-container `/api/export` needs `EXPORT_PYTHON` pointed at an interpreter with
+In-container `/api/export` needs `CLAUDIT_EXPORT_PYTHON` pointed at an interpreter with
 the renderer's dependencies (e.g. a derived image), while the rest of the
 service runs stock.
 
@@ -151,7 +151,7 @@ init script. A plain `docker compose down` keeps the volume, and the
 databases (and the data already ingested into them) are still there next
 time.
 
-**Storage defaults to the bundled fixtures.** `R2_ENDPOINT` points at the
+**Storage defaults to the bundled fixtures.** `CLAUDIT_R2_ENDPOINT` points at the
 repository's `fixtures/r2_mini/`, mounted read-only into the container at
 `/opt/claudit/fixtures`, so a fresh stack ingests a working sample with no
 credentials and makes no outbound calls at run time — the same "no
@@ -162,20 +162,20 @@ in `compose.yaml`, and the same file the bare-metal route seeds from
 `backend/.env.example`:
 
 ```bash
-R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com
-R2_BUCKET=claude
-R2_ACCESS_KEY_ID=...
-R2_SECRET_ACCESS_KEY=...
+CLAUDIT_R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com
+CLAUDIT_R2_BUCKET=claude
+CLAUDIT_R2_ACCESS_KEY_ID=...
+CLAUDIT_R2_SECRET_ACCESS_KEY=...
 ```
 
 Note that a `.env` written for the bare-metal route is inherited by Compose
-as-is: its socket DSNs (`DATABASE_URL_VIZ=postgresql:///claudit`) and host
-paths (`R2_ENDPOINT=file:///path/to/r2/`) do not resolve inside a
+as-is: its socket DSNs (`CLAUDIT_DATABASE_URL_VIZ=postgresql:///claudit`) and host
+paths (`CLAUDIT_R2_ENDPOINT=file:///path/to/r2/`) do not resolve inside a
 container. Delete a variable to fall back to the compose default, or give
-it a container-reachable value — `DATABASE_URL_VIZ`/`DATABASE_URL_AUTH` at
-host `db`, port 5432, and `R2_ENDPOINT` at a path inside the container.
+it a container-reachable value — `CLAUDIT_DATABASE_URL_VIZ`/`CLAUDIT_DATABASE_URL_AUTH` at
+host `db`, port 5432, and `CLAUDIT_R2_ENDPOINT` at a path inside the container.
 An exported shell variable beats `.env` in Compose's precedence, so a
-leftover `DATABASE_URL_VIZ` in your shell overrides the file too.
+leftover `CLAUDIT_DATABASE_URL_VIZ` in your shell overrides the file too.
 
 **The browser still needs the internet.** React, ReactDOM and Babel load
 from unpkg.com at run time in the page (README:
@@ -313,7 +313,7 @@ The rest need GitHub and run on their own:
 | `scorecard` | OpenSSF Scorecard: measures the repository's supply-chain posture (branch protection, signed releases, pinned actions, review history) and uploads the SARIF to code scanning. Weekly on Saturday, and on manual dispatch. It is a **trend signal, not a gate** — it runs on no contribution event, so it is never a second verdict on a commit `ci-gate` already judges, and a red scorecard never blocks a release or a merge. Publishing (`publish_results`, over OIDC) happens only on the upstream default branch: a fork's run files into the fork's store, another branch's under this repository's name. The write permissions it needs (`security-events`, `id-token`) sit on the job, never on the workflow, because upstream refuses to publish from a workflow that declares write permissions above the job. |
 | `audit` | `pip-audit` over every requirements file, resolving the full transitive tree. Also runs daily as a standalone cron — an advisory lands without a commit here to hang it on. |
 | `panel-layout` | The rendered-layout gate (issue #631). Drives the real page in headless Chromium against the frozen payload set in `fixtures/layout/` at three viewport widths, and reads back every panel region's `getBoundingClientRect()`: each must sit inside its own panel, and no two may intersect. It exists because nothing else in the suite renders the dashboard, which is how issue #630's legend-over-chart reached a user with every other check green. One generic check over every panel, not a suite per panel; no database and no bucket. The browser driver is a devDependency like every other CI tool here. |
-| `docker-smoke` | The container leg (issue #941): builds the `Dockerfile` image and boots the compose stack (`compose.yaml` — digest-pinned Postgres with its first-boot init, the app on the `file://` fixture mirror) on a bare runner that carries no `R2_*` variables. Asserts the RESOLVED compose config is file-backed and credential-free before `up`, probes `/health` until the startup ingest finishes against the mounted mirror, and tears the stack down under `if: always()`. A ci-gate leg on every change that is neither docs-only nor bot-data-only. |
+| `docker-smoke` | The container leg (issue #941): builds the `Dockerfile` image and boots the compose stack (`compose.yaml` — digest-pinned Postgres with its first-boot init, the app on the `file://` fixture mirror) on a bare runner that carries no `CLAUDIT_R2_*` variables. Asserts the RESOLVED compose config is file-backed and credential-free before `up`, probes `/health` until the startup ingest finishes against the mounted mirror, and tears the stack down under `if: always()`. A ci-gate leg on every change that is neither docs-only nor bot-data-only. |
 | `actionlint` | `actionlint` + `zizmor` over the workflow files themselves. A broken workflow does not go red, it silently stops running. Runs as a ci-gate leg on every non-docs change. |
 | `release` | Cuts a tagged release when `VERSION` changes on `master`, after every other check on that commit has passed. A dev version (`X.Y.Z-dev`) skips everything — nothing is tagged. |
 | `version-guard` | Fails a master push or PR whose tree `VERSION` names an already-published release (an existing `v<VERSION>` tag). Under the dev-suffix discipline (`0.4.0-dev` between releases) this only ever fires on a missed bump. The hourly pricing bot's own commits are exempt; PRs get no carve-out. |
@@ -350,7 +350,7 @@ Two tests are worth knowing about before you touch pricing:
   design. Skips its node cases if `node` is absent — do not take a skip
   as a pass.
 - `tests/test_ingest.py::test_parallel_ingest_matches_sequential_exactly`
-  ingests the same mirror at `INGEST_WORKERS=1` and `=8` and requires
+  ingests the same mirror at `CLAUDIT_INGEST_WORKERS=1` and `=8` and requires
   byte-identical output. If you touch ingest concurrency, this is the test
   that catches you. Its sibling in
   `tests/test_ingest_pipeline.py` pins the process-pool pipeline
@@ -437,3 +437,8 @@ A bug report that pins down *where* the arithmetic goes wrong is worth as
 much as a patch, and is often easier to review. If you are unsure whether
 something is a bug or intended, open an issue and ask — a wrong premise
 caught early is cheaper than a correct fix to the wrong problem.
+
+Configuration uses `CLAUDIT_` names (SV-ENV-PREFIX). Unprefixed names shipped
+in v0.4.0 remain deprecated fallbacks for one release; a prefixed value wins.
+Rename old `.env` keys to avoid startup warnings. Unreleased settings such as
+`GUEST_LOGIN` and the blob-cache settings have no fallback.

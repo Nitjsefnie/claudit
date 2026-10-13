@@ -40,26 +40,7 @@ def _harness() -> str:
     parts = [
         _slice("src/dashboard-charts-extra.jsx", "function shortModelName",
                "\nfunction ContextGrowthPanel"),
-        _slice("src/app.jsx", "function modelProviderLabel",
-               "\nfunction App()"),
-        # The end marker is the next top-level declaration. It used to be
-        # `function tokenPanels`, and issue #436 moved that function to
-        # src/panel-gating.js -- so the slice below now ends at
-        # `backendDashToShape` and the two panel gates are REQUIRED as a
-        # module instead, which is where they live. Both halves of that move
-        # are the lesson of #451: a test that reaches into a file by position
-        # has to be repointed when the code moves, and a test that reaches by
-        # NAME keeps working.
-        # Ends at TopBar, the next top-level declaration, so the slice keeps
-        # BOTH backendAggregateRange and the backendDashToShape it calls and
-        # stops before the first JSX. It used to end at `function tokenPanels`
-        # when that was the next declaration after backendDashToShape;
-        # issue #436 moved tokenPanels to src/panel-gating.js, so the boundary
-        # moved with it. Both halves are the lesson of #451: a test that
-        # reaches into a file by position has to be repointed when the code
-        # moves, and one that reaches by NAME keeps working.
-        _slice("src/app.jsx", "function backendAggregateRange",
-               "\nfunction TopBar"),
+        (ROOT / "src" / "dashboard-shape.js").read_text(encoding="utf-8"),
         Path("src/token-breakdown.js").read_text(encoding="utf-8"),
     ]
     return f"""
@@ -71,6 +52,7 @@ def _harness() -> str:
       require({str(ROOT / 'src' / 'parser.js')!r});
       require({str(ROOT / 'src' / 'ctx-input.js')!r});
       require({str(ROOT / 'src' / 'panel-gating.js')!r});
+      require({str(ROOT / 'src' / 'feature-flags.js')!r});
       window.dashboardCol = {{}};
       eval({json.dumps(chr(10).join(parts))});
       window.shortModelName = shortModelName;
@@ -291,8 +273,8 @@ def _dashboard_body_fixture():
     sess.mkdir(parents=True)
     (sess / "sess-bd.jsonl").write_text(_transcript(start), encoding="utf-8")
     try:
-        mp.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
-        mp.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
+        mp.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{test_db}")
+        mp.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp}/r2/")
         db.reset_viz_pool()
         result = ingest.run_ingest(trigger="manual")
         assert result["error"] is None, result["error"]

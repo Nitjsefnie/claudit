@@ -35,7 +35,7 @@ LOGIN = ROOT / "backend" / "login_page.py"
 # h1 SITES per file across the src tree: app.jsx carries Dashboard's
 # Overview heading, SessionView's two Inspector paths and the App's
 # fetch-error branch.
-_H1_SITES = {"app.jsx": 4, "sessions-list.jsx": 1, "cache-view.jsx": 1}
+_H1_SITES = {"app.jsx": 3, "dashboard-view.jsx": 1, "sessions-list.jsx": 1, "cache-view.jsx": 1}
 
 
 def _src_files() -> list[Path]:
@@ -72,7 +72,8 @@ def test_every_page_renders_exactly_one_h1():
     """Each page state renders exactly one level-one heading, named for
     its page."""
     app_src = _strip_line_comments(APP.read_text(encoding="utf-8"))
-    dashboard = _panel_src("Dashboard", app_src)
+    dashboard = _panel_src("Dashboard", _strip_line_comments(
+        (ROOT / "src" / "dashboard-view.jsx").read_text(encoding="utf-8")))
     assert dashboard.count("<h1") == 1, (
         "Dashboard must render exactly one h1 (its page title)")
     assert "<h1>Overview</h1>" in dashboard

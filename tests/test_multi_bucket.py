@@ -1,4 +1,4 @@
-"""Several buckets per deploy: R2_BUCKET names several buckets joined by
+"""Several buckets per deploy: CLAUDIT_R2_BUCKET names several buckets joined by
 '+', every stored file key is `<bucket>/<object-key>`, and a failure to
 list ANY configured bucket aborts the whole run before the orphan sweep —
 a partial listing must never be allowed to sweep a bucket's history.
@@ -54,8 +54,8 @@ def _fresh_db_fixture(monkeypatch):
 @pytest.fixture(name="two_buckets")
 def _two_buckets_fixture(monkeypatch, tmp_path):
     """alpha and beta mirrors holding the SAME object key."""
-    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/")
-    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha+beta")
     _seed(tmp_path, "alpha", _TX_A)
     _seed(tmp_path, "beta", _TX_B)
     return tmp_path
@@ -67,21 +67,21 @@ def _two_buckets_fixture(monkeypatch, tmp_path):
 
 
 def test_buckets_splits_strips_and_dedupes(monkeypatch):
-    monkeypatch.setenv("R2_BUCKET", "alpha + beta +alpha")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha + beta +alpha")
     assert r2.buckets() == ["alpha", "beta"]
 
 
 def test_buckets_rejects_invalid_name(monkeypatch):
-    monkeypatch.setenv("R2_BUCKET", "claude+Bad_Name")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "claude+Bad_Name")
     with pytest.raises(ValueError, match="Bad_Name"):
         r2.buckets()
-    monkeypatch.setenv("R2_BUCKET", "alpha++beta")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha++beta")
     with pytest.raises(ValueError, match="''"):
         r2.buckets()
 
 
 def test_buckets_default_is_claude(monkeypatch):
-    monkeypatch.delenv("R2_BUCKET", raising=False)
+    monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
     assert r2.buckets() == ["claude"]
 
 
@@ -110,8 +110,8 @@ def test_get_object_reads_from_the_named_bucket(two_buckets):
 
 
 def test_get_object_refuses_unconfigured_bucket(monkeypatch, tmp_path):
-    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/")
-    monkeypatch.setenv("R2_BUCKET", "alpha")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha")
     _seed(tmp_path, "alpha", _TX_A)
     with pytest.raises(ValueError, match="not configured"):
         r2.get_object("c/x")
@@ -123,8 +123,8 @@ def test_traversal_still_blocked_on_the_object_key_part(
         monkeypatch, tmp_path):
     """The bucket segment is refused by name; traversal INSIDE the
     object-key part still hits _safe_join's PermissionError."""
-    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/")
-    monkeypatch.setenv("R2_BUCKET", "alpha")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha")
     (tmp_path / "alpha").mkdir()
     with pytest.raises(PermissionError):
         r2.get_object("alpha/../../etc/passwd")
@@ -141,8 +141,8 @@ def test_single_bucket_stores_bucket_qualified_key(fresh_db, tmp_path,
                                                    monkeypatch):
     """A single-bucket deploy re-keys too: stored identity is
     'claude/<object-key>', not the bare object key."""
-    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/")
-    monkeypatch.delenv("R2_BUCKET", raising=False)
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/")
+    monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
     _seed(tmp_path, "claude", _TX_A)
 
     result = ingest.run_ingest(trigger="manual")
@@ -254,8 +254,8 @@ def _sidecar_app_fixture(fresh_db, tmp_path, monkeypatch):
     """A session whose file lives in bucket alpha, with one sidecar of
     its own; beta holds the SAME-shaped sidecar under the same relative
     path, so a request that reached across would find beta's copy."""
-    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/")
-    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha+beta")
     _seed(tmp_path, "alpha", _TX_A)
     sess = tmp_path / "alpha" / "projT" / "sessT"
     sess.mkdir(parents=True)
@@ -327,8 +327,8 @@ def test_single_bucket_missing_root_aborts_the_run_before_the_sweep(
     """Single-bucket file mode: an endpoint root that is missing (an
     unmounted mountpoint) must abort the ingest with a fatal, never list
     empty — the orphan sweep would delete the bucket's entire history."""
-    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/absent/")
-    monkeypatch.delenv("R2_BUCKET", raising=False)
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/absent/")
+    monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
 
     result = ingest.run_ingest(trigger="manual")
 
@@ -338,15 +338,15 @@ def test_single_bucket_missing_root_aborts_the_run_before_the_sweep(
 
 
 # ---------------------------------------------------------------------------
-# Startup validates R2_BUCKET
+# Startup validates CLAUDIT_R2_BUCKET
 # ---------------------------------------------------------------------------
 
 
 def test_startup_refuses_an_invalid_bucket_name(monkeypatch):
-    """app.validate_bucket_config runs in lifespan, so a bad R2_BUCKET
+    """app.validate_bucket_config runs in lifespan, so a bad CLAUDIT_R2_BUCKET
     aborts boot — instead of the scheduler booking a fatal while the
     server half-serves and every transcript fetch 500s."""
-    monkeypatch.setenv("R2_BUCKET", "claude+Bad_Name")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "claude+Bad_Name")
     with pytest.raises(ValueError, match="Bad_Name"):
         app_mod.validate_bucket_config()
 
@@ -369,8 +369,8 @@ def test_lane_and_claude_projects_of_one_directory_merge_by_slug(
     """A Claude-layout session of /x/repo (project dir IS the slug) and
     a Codex session whose project.json names /x/repo land under ONE
     project_id '-x-repo', with the path as the display name."""
-    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/")
-    monkeypatch.setenv("R2_BUCKET", "alpha+beta")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha+beta")
     claude = tmp_path / "alpha" / "-x-repo" / "sessC"
     claude.mkdir(parents=True)
     (claude / "sessC.jsonl").write_text(_TX_A, newline="\n")

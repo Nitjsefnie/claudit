@@ -169,6 +169,8 @@ def test_cost_by_context_hover_matches_the_reference():
 
 
 APP = ROOT / "src" / "app.jsx"
+VIEW = ROOT / "src" / "dashboard-view.jsx"
+SHAPE = ROOT / "src" / "dashboard-shape.js"
 SUMMARY = ROOT / "src" / "dashboard-summary.jsx"
 FETCH = ROOT / "src" / "dashboard-fetch.js"
 CACHE_VIEW = ROOT / "src" / "views" / "cache-view.jsx"
@@ -208,7 +210,7 @@ _GATED_ELEMENTS = {
 
 
 def test_every_dash_grid_panel_is_gated_on_having_data():
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (APP, VIEW, SHAPE)))
     for title, guard in _GATED_PANELS.items():
         idx = src.index(f'title="{title}"')
         # The guard sits immediately before the element that carries the
@@ -224,13 +226,13 @@ def test_backend_token_key_sums_are_absent_safe():
     """cache_create is derived by ADDING two optional wire fields. Once
     the backend suppresses them, `undefined + undefined` is NaN, which
     poisons the panel rather than zeroing it."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (APP, VIEW, SHAPE)))
     assert "(h.cache_5m_tokens || 0) + (h.cache_1h_tokens || 0)" in src
     assert "cache_create: h.cache_5m_tokens + h.cache_1h_tokens" not in src
 
 
 def test_cache_ttl_panel_is_gated_on_cache_create_data():
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (APP, VIEW, SHAPE)))
     for element, guard in _GATED_ELEMENTS.items():
         idx = src.index(element)
         window = src[max(0, idx - 220):idx]
@@ -247,7 +249,7 @@ def test_tokens_by_model_mirrors_cost_by_model():
     charted rows. Pinned at the source level (nothing here renders
     React): a copy that dropped fixedColors would lose the model colour
     the burn-rate dots and Cost by Model already carry."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (APP, VIEW, SHAPE)))
     cost = src.index('title="Cost by Model"')
     tokens = src.index('title="Tokens by Model"')
     for idx in (cost, tokens):
@@ -272,7 +274,7 @@ def test_cost_surfaces_are_hidden_when_the_whole_range_is_free():
     NaN%, and the total-cost card reads $0 next to the real token
     counts. Each is gated on there being cost in view, the way the
     Cost (USD) time series already is."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (APP, VIEW, SHAPE)))
     idx = src.index('title="Cost by Model"')
     assert "costByModelTotal > 0 && (" in src[max(0, idx - 260):idx]
     # The card sits in the summary row, so the guard is inline on it.
@@ -290,7 +292,7 @@ def test_token_breakdown_drops_its_cost_bar_when_the_range_is_free():
     """The cost bar is dropped, not blanked: with costTotal 0 every row
     is 0 and `r.value / costTotal` is NaN, which renders "NaN%" on each
     label. The token bar stays — tokens are non-zero either way."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (APP, VIEW, SHAPE)))
     idx = src.index('title="Token Breakdown — by cost"')
     assert "hasCost && (" in src[max(0, idx - 200):idx]
     assert "const hasCost = costRows.some(r => r.cost > 0);" in src
@@ -317,7 +319,7 @@ def test_context_panel_renders_both_measures_from_one_component():
     one implementation, and a second copy would drift out from under
     them."""
     extra = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
-    app = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    app = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (APP, VIEW, SHAPE)))
     assert extra.count("function CostByContextPanel(") == 1
     assert "measure === 'tokens'" in extra
     assert 'window.CostByContextPanel' in extra
@@ -325,7 +327,7 @@ def test_context_panel_renders_both_measures_from_one_component():
     assert app.count("<window.CostByContextPanel") == 2
     assert 'measure="tokens"' in app
     cost_mount = app.index("<window.CostByContextPanel")
-    assert "hasCost && (" in app[max(0, cost_mount - 200):cost_mount]
+    assert "(hasCost || !sharedCostEnabled || !events.length) && (" in app[max(0, cost_mount - 200):cost_mount]
 
 
 def test_a_lone_survivor_in_a_two_column_grid_spans_the_row():
@@ -344,7 +346,7 @@ def test_thinking_panel_is_gated_and_never_enters_a_total():
     added to `t.total` or to the Token Breakdown rows — both of those
     partition the billed tokens, and a subset counted there is a double
     count that inflates every derived figure."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (APP, VIEW, SHAPE)))
     idx = src.index('title="Thinking Output"')
     assert "panels.thinking && (" in src[max(0, idx - 220):idx]
     assert "t.total = t.input + t.output + t.cc + t.cr;" in src
@@ -362,10 +364,9 @@ def test_browser_prices_an_undeclared_ttl_at_the_1h_rate():
     a cache write with no declared TTL the way backend/pricing does — at
     the 1h rate — or the breakdown disagrees with the stored total it is
     meant to decompose (SV-COST-SPLIT)."""
-    # Both browser re-derivations: the synthetic preview's per-event cost
-    # (app.jsx) and the breakdown fold (src/token-breakdown.js).
+    # Both browser pricing folds, in their current modules.
     src = "\n".join((
-        _strip_line_comments(APP.read_text(encoding="utf-8")),
+        _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (APP, VIEW, SHAPE))),
         _strip_line_comments(
             (APP.parent / "token-breakdown.js").read_text(encoding="utf-8")),
     ))
@@ -413,7 +414,7 @@ def test_tokens_by_project_mirrors_the_cost_panel_treatment():
     filter gate, humanFmt + share-of-charted labels — but gated on
     having tokens, never on cost, so a free lane (llamameter, priced $0)
     still sees its project split."""
-    src = _strip_line_comments(APP.read_text(encoding="utf-8"))
+    src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (APP, VIEW, SHAPE)))
     # Wired from the backend key, absent-safe like cost_by_project.
     assert "tokensByProject: b.tokens_by_project || []" in src
     # The whole panel is behind the project filter and a has-tokens guard.
@@ -493,12 +494,11 @@ def test_vbar_fmt_is_value_only():
                 f"bar's share, so it renders twice")
     assert sites >= 1, "no window.VBar call sites found - the guard would pass vacuously"
 
-
 # --- Issue #394: the Overview's fetch state -----------------------------
 
 
 def _app() -> str:
-    return _strip_line_comments(APP.read_text(encoding="utf-8"))
+    return _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (APP, VIEW, SHAPE)))
 
 
 def _dashboard_effect(src: str) -> str:
@@ -565,9 +565,10 @@ def test_dashboard_fetch_state_is_declared_and_passed_down():
     from a pending one."""
     src = _app()
     assert re.search(r"const \[dashFetch,\s*setDashFetch\]\s*=\s*"
-                     r"useState\(\(\) => window\.dashboardFetch\.start\(\)\)", src), (
+                     r"useState\(\(\) => window\.dashboardFeaturesOn\(\)\s*"
+                     r"\? window\.dashboardFetch\.start\(\) : window\.dashboardFetch\.loaded\(\)\)", src), (
         "App no longer opens its dashboard fetch state at `start()`")
-    assert re.search(r"<Dashboard\b[^>]*\bdashFetch=\{dashFetch\}", src, re.S), (
+    assert re.search(r"<window\.Dashboard\b[^>]*\bdashFetch=\{dashFetch\}", src, re.S), (
         "Dashboard is not handed the fetch state, so it can only see the "
         "data and cannot render an empty or error state")
 
@@ -577,7 +578,7 @@ def test_dashboard_summary_renders_every_non_data_state():
     block renders every other one. Reading a null shape as "still
     loading" instead is the bug (#394)."""
     src = _app()
-    assert re.search(r"\{summary\.kind === 'data' &&\s*\(", src), (
+    assert re.search(r"\{window\.featureOn\('summary'\) && summary\.kind === 'data' &&\s*\(", src), (
         "the stat block is no longer gated on the resolved state, so an "
         "empty range renders it exactly like a full one")
     status = _strip_line_comments(SUMMARY.read_text(encoding="utf-8"))

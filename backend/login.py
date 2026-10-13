@@ -278,7 +278,7 @@ def reset_login_rate_limits() -> None:
 
 @router.get("/login")
 async def login_page(request: Request) -> HTMLResponse:
-    # The upper-cased APP_NAME is the page's brand word; html-escaped —
+    # The upper-cased CLAUDIT_APP_NAME is the page's brand word; html-escaped —
     # every slot is a real HTML context. Default = today's CLAUDIT.
     return _login_page_response(request, "", 200)
 

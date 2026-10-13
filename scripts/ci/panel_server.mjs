@@ -20,8 +20,8 @@ export const FIXTURES = join(REPO, 'fixtures', 'layout');
 // where every label is longest relative to the space it has. 320 is the
 // viewport issue #630 was reported at, where the panel's title ran off
 // the right edge and the legend's wrapped row fell off the bottom.
-// Override locally with PANEL_LAYOUT_WIDTHS=1440,375.
-export const WIDTHS = (process.env.PANEL_LAYOUT_WIDTHS || '1440,1024,375,320')
+// Override locally with CLAUDIT_PANEL_LAYOUT_WIDTHS=1440,375.
+export const WIDTHS = (process.env.CLAUDIT_PANEL_LAYOUT_WIDTHS || '1440,1024,375,320')
   .split(',').map(Number).filter(n => n > 0);
 
 // Every /api path the frontend fetches, and the fixture that answers it.

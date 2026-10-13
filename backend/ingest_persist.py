@@ -15,6 +15,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from backend import constants, db, key_layout, parse, pricing, r2, rate_fingerprint
+from backend.flags import CollectionPolicy
+from backend.flag_registry import COLLECTION_SPECS
+from backend.parse_collection import mask_collected_fields
 
 
 def _strip_nul(value: Any) -> Any:
@@ -60,6 +63,10 @@ def _persist(obj, proj, parsed, parser_version) -> None:
     the key alone would re-split a merged lane project on any run whose
     marker read failed.
     """
+    stamp = parsed.get('collection_flags')
+    if stamp:
+        # Final storage boundary; use the worker's actual stamp, never ambient CONFIG.
+        mask_collected_fields(parsed, CollectionPolicy(frozenset(stamp), COLLECTION_SPECS))
     info = key_layout.classify(r2.split_key(obj.key)[1])
     if info is None:
         raise ValueError(f"not a transcript key: {obj.key}")
@@ -118,6 +125,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
               r2_last_modified,
               parsed_at,
               parser_version,
+              collection_flags,
               ctx_turns,
               turn_count,
               prompt_count,
@@ -136,6 +144,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
               %(r2_last_modified)s,
               %(parsed_at)s,
               %(parser_version)s,
+              %(collection_flags)s,
               %(ctx_turns)s::jsonb,
               %(turn_count)s,
               %(prompt_count)s,
@@ -153,6 +162,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
               r2_last_modified = EXCLUDED.r2_last_modified,
               parsed_at = EXCLUDED.parsed_at,
               parser_version = EXCLUDED.parser_version,
+              collection_flags = EXCLUDED.collection_flags,
               ctx_turns = EXCLUDED.ctx_turns,
               turn_count = EXCLUDED.turn_count,
               prompt_count = EXCLUDED.prompt_count,
@@ -172,6 +182,7 @@ def _persist(obj, proj, parsed, parser_version) -> None:
                 "r2_last_modified": obj.last_modified,
                 "parsed_at": datetime.now(timezone.utc),
                 "parser_version": parser_version,
+                "collection_flags": list(stamp) if stamp is not None else None,
                 "ctx_turns": json.dumps(parsed["ctx_turns"], default=str),
                 "turn_count": parsed["turn_count"],
                 "prompt_count": parsed["prompt_count"],

@@ -85,7 +85,8 @@ backend/          — FastAPI application
   reply_timing.py — independent Claude reply/generation clocks: reply latency
                     anchors on non-interrupt user text; generation spans use
                     any non-replayed user line through a message.id's last line;
-                    startup-read CLAUDIT_COLLECT_GENERATION_SPEED (default on)
+                    CLAUDIT_COLLECT_GENERATION_SPEED via explicit policy
+                    (registry default on; Claude only, other lanes NULL)
   codex_fork.py   — the Codex rollout's head: first declared model,
                     fork detection (forked_from_id), replay-prefix
                     marking for the canonical rank (issue #687)
@@ -160,8 +161,8 @@ backend/          — FastAPI application
   ingest_scope.py — per-run dirty scope and derived-state fingerprint
                     (SV-ROLLUP, SV-SCHEMA-AUTOAPPLY)
   ingest_fetch.py — fetch/parse worker pools, cooperative abort, thread
-                    and process pipelines (INGEST_PARSE_PROCESSES /
-                    INGEST_PERSIST_THREADS); re-exported via ingest so
+                    and process pipelines (CLAUDIT_INGEST_PARSE_PROCESSES /
+                    CLAUDIT_INGEST_PERSIST_THREADS); re-exported via ingest so
                     tests keep their patch seams
   ingest_resolve.py — per-item outcome pairing (resolve /
                     resolve_futures), failure booking and the fetch
@@ -285,22 +286,26 @@ createdb claudit_auth
 psql claudit_auth -c "CREATE TABLE users (user_id BIGINT PRIMARY KEY, \
 config JSONB NOT NULL DEFAULT '{}'::jsonb)"
 
-cp backend/.env.example .env              # edit: DATABASE_URL_VIZ, DATABASE_URL_AUTH, R2_*, ADMIN_TOKEN
+cp backend/.env.example .env              # edit: CLAUDIT_DATABASE_URL_VIZ, CLAUDIT_DATABASE_URL_AUTH, CLAUDIT_R2_*, CLAUDIT_ADMIN_TOKEN
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r backend/requirements.txt
 
 python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 ```
 
+Runtime collection and feature switches are documented in
+[Configuration](README.md#configuration); the stored-field inventory is in
+[Privacy: collection switch inventory](PRIVACY.md#collection-switch-inventory).
+
 The first request may block on the startup ingest (~30 s warm, minutes
 cold against a large bucket); `/health` reflects ingest state via
-`ingest_runs`. Without R2 credentials, point `R2_ENDPOINT` at
+`ingest_runs`. Without R2 credentials, point `CLAUDIT_R2_ENDPOINT` at
 `fixtures/r2_mini/`.
 
 ```bash
 # Out-of-band ingest; admin POSTs need a same-origin Origin header.
 curl -X POST http://127.0.0.1:8000/admin/ingest \
-  -H "X-Admin-Token: $ADMIN_TOKEN" \
+  -H "X-Admin-Token: $CLAUDIT_ADMIN_TOKEN" \
   -H "Origin: http://127.0.0.1:8000"
 ```
 
@@ -334,7 +339,7 @@ CONTRIBUTING.md. Tests never pin repository-managed data
   `pbkdf2_sha256$<iterations>$<salt>$<hash>`; new writes use 600,000.
   `web_password_salt` must stay populated (the verifier gates on it),
   so external user management can issue credentials. Cookies are
-  HMAC-signed, `HttpOnly`, `Secure` (`COOKIE_SECURE`), `SameSite=strict`,
+  HMAC-signed, `HttpOnly`, `Secure` (`CLAUDIT_COOKIE_SECURE`), `SameSite=strict`,
   7-day TTL.
 - **Login**: every credential failure (unknown id, no password, wrong
   password) returns the same generic 401 body and costs about one

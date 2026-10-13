@@ -4,7 +4,7 @@ Small jsonl + zip samples for manual UI testing and parser unit tests.
 
 ## Convention
 
-- Keep individual files under 200 KB. Larger samples go gitignored under `fixtures/large/` or stay in a local mirror you point `R2_ENDPOINT` at (`R2_ENDPOINT=file:///path/to/mirror/`).
+- Keep individual files under 200 KB. Larger samples go gitignored under `fixtures/large/` or stay in a local mirror you point `CLAUDIT_R2_ENDPOINT` at (`CLAUDIT_R2_ENDPOINT=file:///path/to/mirror/`).
 - Naming: `sample-<feature>-<small-uuid>.jsonl` (e.g. `sample-subagent-fan-out-7a9d.jsonl`).
 - Each fixture should target a SPECIFIC parser feature so the corresponding test name maps 1:1.
 

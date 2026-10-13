@@ -42,6 +42,9 @@ def project_records(file_key: str, events: list[dict]) -> list[dict]:
             res=res,
         )
         generation = generation_values(ev.get("generation"))
+        # Same ordered row as one literal. Keep each constant-key batch
+        # below 16 fields so CPython builds maps in C instead of emitting
+        # a MAP_ADD for each early field of a wide dictionary literal.
         records.append({
             "file_key": file_key,
             "line_num": ev["line_num"],
@@ -57,6 +60,7 @@ def project_records(file_key: str, events: list[dict]) -> list[dict]:
             "text_chars": int(ev.get("text_chars", 0)),
             "reply_latency_s": ev.get("reply_latency_s"),
             "generation_s": generation[0],
+        } | {
             "output_tokens_per_s": generation[1],
             "stop_reason": ev.get("stop_reason"),
             "effort": ev.get("effort"),

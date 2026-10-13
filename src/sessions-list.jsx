@@ -76,7 +76,7 @@ function SessionsList({ synth, onOpen }) {
       <div className="sessions-table">
         <div className="srow shead">
           <div>id</div><div>started</div><div>duration</div><div>model</div>
-          <div className="num">requests</div><div className="num">tokens</div><div className="num">cost</div><div></div>
+          <div className="num">requests</div><div className="num">tokens</div><div className="num">cost</div>{window.featureOn('inspector') && <div></div>}
         </div>
         {rows.slice(0, 80).map(r => (
           <div key={r.id} className="srow">
@@ -92,11 +92,11 @@ function SessionsList({ synth, onOpen }) {
             <div className="num mono">{r.reqs}</div>
             <div className="num mono">{window.humanFmt(r.total)}</div>
             <div className="num mono">{window.humanCurrency(r.cost)}</div>
-            <div className="num"><button className="open-btn" onClick={() => onOpen(r.id)}>open ›</button></div>
+            {window.featureOn('inspector') && <div className="num"><button className="open-btn" onClick={() => onOpen(r.id)}>open ›</button></div>}
           </div>
         ))}
       </div>
-      <div className="page-foot muted">List of {rows.length} sessions reconstructed from <code>usage_events</code> via 30-minute gap rule. Click <em>open</em> to drop a real .jsonl into the inspector.</div>
+      {window.featureOn('inspector') && <div className="page-foot muted">List of {rows.length} sessions reconstructed from <code>usage_events</code> via 30-minute gap rule. Click <em>open</em> to drop a real .jsonl into the inspector.</div>}
     </div>
   );
 }

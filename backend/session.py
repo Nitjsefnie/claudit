@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import os
 import secrets
 import time
 from urllib.parse import urlparse
@@ -25,6 +24,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from backend import db
+from backend.env_config import getenv
 from backend.guest_login import guest_login_enabled
 
 
@@ -48,7 +48,7 @@ def set_session_cookie(response: Response, token: str) -> None:
         SESSION_COOKIE_NAME,
         token,
         httponly=True,
-        secure=os.environ.get("COOKIE_SECURE", "1") == "1",
+        secure=getenv("CLAUDIT_COOKIE_SECURE", "1") == "1",
         samesite="strict",
         max_age=SESSION_COOKIE_MAX_AGE,
         path="/",
@@ -255,7 +255,7 @@ def make_guest_session_token() -> str:
 
 
 # The per-user capability key in the auth DB's `users.config`, and the only
-# one the app reads. `ADMIN_TOKEN` cannot be it: that is a bearer header for
+# one the app reads. `CLAUDIT_ADMIN_TOKEN` cannot be it: that is a bearer header for
 # /admin/*, which a browser session cannot present and which has no route to
 # hand one out. This row is already read on every session resolution, and the
 # auth DB is READ-ONLY here — an operator is granted upstream, never here.
@@ -334,7 +334,7 @@ _AUTH_PUBLIC_PATHS = {
 def _admin_denied(request: Request) -> Response | None:
     """Admin-token + origin gate for /admin/*; None means allowed."""
     token = request.headers.get("x-admin-token", "")
-    expected = os.environ.get("ADMIN_TOKEN", "")
+    expected = getenv("CLAUDIT_ADMIN_TOKEN", "")
     if not expected or not hmac.compare_digest(
         token.encode("utf-8"), expected.encode("utf-8")
     ):

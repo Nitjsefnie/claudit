@@ -131,6 +131,31 @@ def corpus(base_entries, entry_type, root: Path = ROOT) -> list:
     return entries
 
 
+def collection_scenarios() -> tuple:
+    """Bounded explicit ON, each registered OFF, and all-OFF policies."""
+    # pylint: disable=import-outside-toplevel
+    from backend.flags import ALL_COLLECTIONS_ON, CollectionPolicy
+    from backend.flag_registry import COLLECTION_SPECS
+    return (ALL_COLLECTIONS_ON,) + tuple(
+        CollectionPolicy(frozenset({spec.key}), COLLECTION_SPECS)
+        for spec in COLLECTION_SPECS
+    ) + (CollectionPolicy(frozenset(spec.key for spec in COLLECTION_SPECS),
+                          COLLECTION_SPECS),)
+
+
+def run_collection_pass(entries, collection) -> int:
+    """Call the monitored parser module reference, with the scenario's policy."""
+    # pylint: disable=import-outside-toplevel
+    from backend import agent_sidecar, parse
+    records = 0
+    for entry in entries:
+        parsed = parse.parse_file(entry.key, entry.blob, collection=collection)
+        if entry.sidecar_blob is not None:
+            agent_sidecar.apply_agent_sidecar(parsed, entry.sidecar_blob, entry.key)
+        records += len(parsed['records'])
+    return records
+
+
 def gap(entries, run_pass, root: Path = ROOT) -> tuple:
     """What the corpus does NOT exercise of the surface the pass can reach.
 
@@ -160,7 +185,16 @@ def gap(entries, run_pass, root: Path = ROOT) -> tuple:
         entries, run_pass, passes=1, warmup=0, qualnames=table)
     if not counts.available:
         return None, counts.reason
-    return unexercised(surface, counts.executed, allowed), ''
+    executed = set(counts.executed)
+    for collection in collection_scenarios():
+        def scenario_pass(scenario_entries, scenario_collection=collection):
+            return run_collection_pass(scenario_entries, scenario_collection)
+        counts = _phases().measure_counts(
+            entries, scenario_pass, passes=1, warmup=0, qualnames=table)
+        if not counts.available:
+            return None, counts.reason
+        executed.update(counts.executed)
+    return unexercised(surface, executed, allowed), ''
 
 
 def _phases():

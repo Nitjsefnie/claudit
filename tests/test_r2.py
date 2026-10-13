@@ -28,7 +28,7 @@ def _mini_r2_fixture(monkeypatch):
     # as_uri, not an f"file://{path}" spelling: on Windows the f-string
     # form reads the drive letter as the URL host and loses it from the
     # path, pointing the mirror at a relative directory.
-    monkeypatch.setenv("R2_ENDPOINT", f"{Path(tmp).as_uri()}/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{Path(tmp).as_uri()}/")
     yield root
     shutil.rmtree(tmp)
 
@@ -143,7 +143,7 @@ def test_get_stream_inflates_xz(mini_r2):
 def test_get_object_cache_hit_skips_the_read(mini_r2, monkeypatch, tmp_path):
     """A (key, etag) hit answers from the disk cache: the mirror file is
     rewritten underneath it and the cached bytes still come back."""
-    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path / "cache"))
     key = "claude/proj-a/sess-1/sess-1.jsonl"
     assert r2.get_object(key, "etag-one", 6) == b"hello\n"
     (mini_r2 / "proj-a" / "sess-1" / "sess-1.jsonl").write_bytes(b"CHANGED")
@@ -152,7 +152,7 @@ def test_get_object_cache_hit_skips_the_read(mini_r2, monkeypatch, tmp_path):
 
 def test_get_object_cache_miss_falls_through_to_the_object(
         mini_r2, monkeypatch, tmp_path):
-    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path / "cache"))
     key = "claude/proj-a/sess-1/sess-1.jsonl"
     # No entry yet: the miss reads the object and stores it for the next
     # run, and a different etag is a different entry.
@@ -170,7 +170,7 @@ def test_get_object_cache_miss_on_size_mismatch(
     itself reads the mismatch as a miss is pinned one level down, in
     test_blob_cache — here the fallback GET would return the same
     bytes either way.)"""
-    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path / "cache"))
     key = "claude/proj-a/sess-1/sess-1.jsonl"
     assert r2.get_object(key, "etag-one", 6) == b"hello\n"
     assert r2.get_object(key, "etag-one", 99) == b"hello\n"  # re-read, not served
@@ -180,7 +180,7 @@ def test_get_object_cache_stores_raw_xz_bytes(
         mini_r2, monkeypatch, tmp_path):
     """The entry holds the compressed bytes; a hit inflates like the GET
     would, so TIMING's decompress stage stays booked either way."""
-    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path / "cache"))
     plain = b'{"type":"user"}\n{"type":"assistant"}\n'
     key = "claude/proj-a/sess-1/sess-1.jsonl.xz"
     path = mini_r2 / "proj-a" / "sess-1" / "sess-1.jsonl.xz"
@@ -197,7 +197,7 @@ def test_get_object_without_etag_never_touches_the_cache(
         mini_r2, monkeypatch, tmp_path):
     """Serving and the bench speak the plain (key) shape: even with the
     cache enabled, no entry is written or read."""
-    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path / "cache"))
     assert r2.get_object("claude/proj-a/sess-1/sess-1.jsonl") == b"hello\n"
     assert not (tmp_path / "cache").exists()
 
@@ -245,16 +245,16 @@ def test_scan_root_refuses_a_bucket_not_in_r2_bucket(monkeypatch, tmp_path):
     against buckets() and builds the path from the CONFIGURED list
     element, not from the caller's string (which reaches it as the first
     segment of a stored file key via get_object/get_stream). A bucket
-    outside R2_BUCKET raises _configured's ValueError before any path is
+    outside CLAUDIT_R2_BUCKET raises _configured's ValueError before any path is
     built, and for a configured bucket the returned root is built from
     the configured name."""
-    monkeypatch.setenv("R2_BUCKET", "claude")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "claude")
     # Refusal: not in the list, no path is built at all (multi=True is
     # the None-returning case, multi=False the root fallback — both must
     # refuse before either answer is reachable).
-    with pytest.raises(ValueError, match="is not configured in R2_BUCKET"):
+    with pytest.raises(ValueError, match="is not configured in CLAUDIT_R2_BUCKET"):
         r2._scan_root(str(tmp_path), "codex", multi=True)  # pylint: disable=protected-access
-    with pytest.raises(ValueError, match="is not configured in R2_BUCKET"):
+    with pytest.raises(ValueError, match="is not configured in CLAUDIT_R2_BUCKET"):
         r2._scan_root(str(tmp_path), "codex", multi=False)  # pylint: disable=protected-access
     # Configured name: `<root>/claude` when the mirror has that
     # directory, the endpoint root itself (fallback) when it does not.
@@ -280,8 +280,8 @@ def test_list_keys_refuses_a_missing_endpoint_root(monkeypatch, tmp_path):
     typo'd path, an unmounted mountpoint): the listing must raise like
     the multi-bucket refusal does, never yield empty and let the orphan
     sweep delete the bucket's whole history."""
-    monkeypatch.setenv("R2_ENDPOINT", f"{tmp_path.as_uri()}/absent/")
-    monkeypatch.delenv("R2_BUCKET", raising=False)
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/absent/")
+    monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
     with pytest.raises(FileNotFoundError):
         list(r2.list_keys())
 
@@ -291,8 +291,8 @@ def test_list_keys_refuses_a_root_that_is_not_a_directory(
     """Same scenario with the root present but a plain file."""
     notdir = tmp_path / "notadir"
     notdir.write_text("not a mirror", newline="\n")
-    monkeypatch.setenv("R2_ENDPOINT", notdir.as_uri())
-    monkeypatch.delenv("R2_BUCKET", raising=False)
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", notdir.as_uri())
+    monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
     with pytest.raises(FileNotFoundError):
         list(r2.list_keys())
 
@@ -368,17 +368,17 @@ class TestBotoClientFork:
     def _tls_state_fixture(self):
         """Snapshot/restore this thread's cached-client state so the
         test's client never leaks into another test, and point
-        R2_ENDPOINT at a well-formed, never-dialed URL: `_boto_client`
+        CLAUDIT_R2_ENDPOINT at a well-formed, never-dialed URL: `_boto_client`
         refuses the suite's `file://` endpoint at construction, and the
         endpoint is only ever dialed by an actual GET, which no test
         here performs."""
         keys = ("client", "pid")
         saved = {k: getattr(r2._tls, k, None) for k in keys}  # pylint: disable=protected-access
         had = {k: hasattr(r2._tls, k) for k in keys}  # pylint: disable=protected-access
-        saved_endpoint = os.environ["R2_ENDPOINT"]
-        os.environ["R2_ENDPOINT"] = "https://r2.invalid/s3"
+        saved_endpoint = os.environ["CLAUDIT_R2_ENDPOINT"]
+        os.environ["CLAUDIT_R2_ENDPOINT"] = "https://r2.invalid/s3"
         yield
-        os.environ["R2_ENDPOINT"] = saved_endpoint
+        os.environ["CLAUDIT_R2_ENDPOINT"] = saved_endpoint
         for k in keys:
             if had[k]:
                 setattr(r2._tls, k, saved[k])  # pylint: disable=protected-access

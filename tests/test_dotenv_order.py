@@ -50,7 +50,7 @@ from backend import api_common, api_export
 print(json.dumps({
     "export_python": api_export._EXPORT_PYTHON,
     "timing_on": api_common.TIMING_ON,
-    "database_url_viz": os.environ["DATABASE_URL_VIZ"],
+    "database_url_viz": os.environ["CLAUDIT_DATABASE_URL_VIZ"],
 }))
 """
 
@@ -63,33 +63,33 @@ def _import_app_settings(
     """Import the app with a temporary dotenv file and no DB access."""
     dotenv_path = tmp_path / "quickstart.env"
     dotenv_path.write_text(
-        "DATABASE_URL_VIZ=postgresql:///dotenv-database\n"
-        "EXPORT_PYTHON=dotenv-python\n"
+        "CLAUDIT_DATABASE_URL_VIZ=postgresql:///dotenv-database\n"
+        "CLAUDIT_EXPORT_PYTHON=dotenv-python\n"
         "CLAUDIT_TIMING=1\n",
         encoding="utf-8",
     )
 
     env = os.environ.copy()
     for name in (
-        "DATABASE_URL_VIZ",
-        "DATABASE_URL_AUTH",
-        "EXPORT_PYTHON",
+        "CLAUDIT_DATABASE_URL_VIZ",
+        "CLAUDIT_DATABASE_URL_AUTH",
+        "CLAUDIT_EXPORT_PYTHON",
         "CLAUDIT_TIMING",
-        "R2_ENDPOINT",
+        "CLAUDIT_R2_ENDPOINT",
         "R2_ACCOUNT_ID",
-        "R2_ACCESS_KEY_ID",
-        "R2_SECRET_ACCESS_KEY",
-        "R2_BUCKET",
-        "INGEST_WORKERS",
+        "CLAUDIT_R2_ACCESS_KEY_ID",
+        "CLAUDIT_R2_SECRET_ACCESS_KEY",
+        "CLAUDIT_R2_BUCKET",
+        "CLAUDIT_INGEST_WORKERS",
         "CLAUDIT_WARM_CACHE",
-        "ADMIN_TOKEN",
-        "COOKIE_SECURE",
-        "APP_NAME",
-        "APP_TITLE",
-        "APP_DESCRIPTION",
+        "CLAUDIT_ADMIN_TOKEN",
+        "CLAUDIT_COOKIE_SECURE",
+        "CLAUDIT_APP_NAME",
+        "CLAUDIT_APP_TITLE",
+        "CLAUDIT_APP_DESCRIPTION",
     ):
         env.pop(name, None)
-    env["DATABASE_URL_VIZ"] = "postgresql:///test-default"
+    env["CLAUDIT_DATABASE_URL_VIZ"] = "postgresql:///test-default"
     env["PGHOST"] = "/nonexistent/claudit-issue267-sock"
     env.update(exported or {})
 
@@ -120,7 +120,7 @@ def test_exported_setting_wins_and_other_dotenv_settings_load(
     tmp_path: Path,
 ) -> None:
     settings = _import_app_settings(
-        tmp_path, exported={"EXPORT_PYTHON": "environment-python"}
+        tmp_path, exported={"CLAUDIT_EXPORT_PYTHON": "environment-python"}
     )
 
     assert settings == {

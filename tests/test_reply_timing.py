@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import importlib
 from pathlib import Path
 
 from orjson import dumps, loads
 import pytest
 
-from backend import reply_timing, constants, db, ingest, parse, r2
+from backend import constants, db, flags, ingest, parse, r2
+from backend.flags import ALL_COLLECTIONS_ON, CollectionPolicy
 from tests import scratch_db
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
@@ -56,7 +56,8 @@ def test_other_system_preserves_reply_latency():
     assert out["records"][0]["reply_latency_s"] == pytest.approx(10.0)
 
 
-def _parse_fixture(name: str, *, list_text: bool = False) -> dict:
+def _parse_fixture(name: str, *, list_text: bool = False,
+                   collection: CollectionPolicy = ALL_COLLECTIONS_ON) -> dict:
     blob = (FIX / f"{name}.jsonl").read_bytes()
     if list_text:
         rows = [loads(line) for line in blob.splitlines()]
@@ -65,7 +66,7 @@ def _parse_fixture(name: str, *, list_text: bool = False) -> dict:
                 text = row["message"]["content"]
                 row["message"]["content"] = [{"type": "text", "text": text}]
         blob = b"\n".join(dumps(row) for row in rows)
-    return parse.parse_file("k/sess/sess.jsonl", blob)
+    return parse.parse_file("k/sess/sess.jsonl", blob, collection=collection)
 
 
 def test_generation_s_last_line():
@@ -155,10 +156,10 @@ def test_generation_s_valid_duration(stamp, expected):
 
 
 @pytest.mark.parametrize("name", ["generation_s_last_line", "non_object_nested_claude"])
-def test_generation_speed_collection_off(monkeypatch, name):
+def test_generation_speed_collection_off(name):
     enabled = _parse_fixture(name)
-    monkeypatch.setattr(reply_timing, "COLLECT_GENERATION_SPEED", False)
-    disabled = _parse_fixture(name)
+    disabled = _parse_fixture(name, collection=flags.resolve_config(
+        {"CLAUDIT_COLLECT_GENERATION_SPEED": "0"}).collection)
     assert enabled["records"][0]["generation_s"] == 9
     for record in disabled["records"]:
         assert record["generation_s"] is None
@@ -169,11 +170,11 @@ def test_generation_speed_collection_off(monkeypatch, name):
     assert disabled == enabled
 
 
-def test_generation_speed_conflicting_role(monkeypatch):
+def test_generation_speed_conflicting_role():
     outputs = []
     for flag in (True, False):
-        monkeypatch.setattr(reply_timing, "COLLECT_GENERATION_SPEED", flag)
-        result = _parse_fixture("generation_speed_conflicting_role")
+        collection = flags.resolve_config({"CLAUDIT_COLLECT_GENERATION_SPEED": str(int(flag))}).collection
+        result = _parse_fixture("generation_speed_conflicting_role", collection=collection)
         for record in result["records"]:
             del record["generation_s"], record["output_tokens_per_s"]
         outputs.append(result)
@@ -183,20 +184,12 @@ def test_generation_speed_conflicting_role(monkeypatch):
 
 
 @pytest.mark.parametrize("value,expected", [
-    (None, True), ("", True), ("0", False), ("false", False),
+    (None, True), ("", False), ("0", False), ("false", False),
     ("no", False), ("FALSE", False), ("1", True), ("other", True),
 ])
-def test_generation_speed_startup_switch(monkeypatch, value, expected):
-    try:
-        with monkeypatch.context() as env:
-            if value is None:
-                env.delenv("CLAUDIT_COLLECT_GENERATION_SPEED", raising=False)
-            else:
-                env.setenv("CLAUDIT_COLLECT_GENERATION_SPEED", value)
-            actual = importlib.reload(reply_timing).COLLECT_GENERATION_SPEED
-    finally:
-        importlib.reload(reply_timing)
-    assert actual is expected
+def test_generation_speed_startup_switch(value, expected):
+    env = {} if value is None else {"CLAUDIT_COLLECT_GENERATION_SPEED": value}
+    assert flags.resolve_config(env).collection.enabled("generation_speed") is expected
 
 
 @pytest.mark.parametrize("name", ["codex_min.jsonl", "kimi_code_min.jsonl", "kimi_legacy_min.jsonl"])

@@ -131,8 +131,8 @@ def _codex_app_fixture(fresh_db, tmp_path, monkeypatch):
     mirror = tmp_path / "codex" / "sessions" / "payg" / "s1"
     mirror.mkdir(parents=True)
     (mirror / "wire.jsonl").write_bytes(_BLOB)
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp_path}/")
-    monkeypatch.setenv("R2_BUCKET", "codex")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "codex")
 
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None, result["error"]

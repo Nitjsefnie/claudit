@@ -101,20 +101,20 @@ def free_port() -> int:
 def server_env(port: int) -> dict:
     env = dict(os.environ)
     env.update({
-        "DATABASE_URL_VIZ": f"postgresql:///{VIZ_DB}",
-        "DATABASE_URL_AUTH": f"postgresql:///{AUTH_DB}",
+        "CLAUDIT_DATABASE_URL_VIZ": f"postgresql:///{VIZ_DB}",
+        "CLAUDIT_DATABASE_URL_AUTH": f"postgresql:///{AUTH_DB}",
         # The committed mini mirror, through the R2 client's file:// mode.
         # The trailing slash matters: r2.py treats the endpoint as a
         # directory root.
-        "R2_ENDPOINT": f"file://{REPO_ROOT / 'fixtures' / 'r2_mini'}/",
-        "R2_BUCKET": "claude",
+        "CLAUDIT_R2_ENDPOINT": f"file://{REPO_ROOT / 'fixtures' / 'r2_mini'}/",
+        "CLAUDIT_R2_BUCKET": "claude",
         "R2_ACCOUNT_ID": "",
-        "R2_ACCESS_KEY_ID": "",
-        "R2_SECRET_ACCESS_KEY": "",
-        "ADMIN_TOKEN": "smoke-admin",
+        "CLAUDIT_R2_ACCESS_KEY_ID": "",
+        "CLAUDIT_R2_SECRET_ACCESS_KEY": "",
+        "CLAUDIT_ADMIN_TOKEN": "smoke-admin",
         # TestClient-equivalent: this talks plain HTTP, so Secure cookies
         # would never come back and the guest flow could not be checked.
-        "COOKIE_SECURE": "0",
+        "CLAUDIT_COOKIE_SECURE": "0",
         "CLAUDIT_WARM_CACHE": "0",
         "PORT": str(port),
     })

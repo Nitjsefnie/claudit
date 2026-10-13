@@ -205,7 +205,7 @@ def test_setenv_with_a_version_name_is_flagged():
 
 
 def test_setenv_with_an_unrelated_name_is_not_flagged():
-    assert detect("monkeypatch.setenv('R2_BUCKET', 'claude')\n") == []
+    assert detect("monkeypatch.setenv('CLAUDIT_R2_BUCKET', 'claude')\n") == []
 
 
 def test_setenv_with_a_derived_value_is_not_flagged():

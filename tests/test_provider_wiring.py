@@ -18,7 +18,8 @@ def _src() -> str:
     # app.jsx and the extracted token-breakdown module: every app-side
     # pricing site, wherever the fold it belongs to lives.
     return re.sub(r"(?<![:'\"\w])//.*$", "", "\n".join(
-        (APP.read_text(encoding="utf-8"),
+        ((APP.parent / "dashboard-shape.js").read_text(encoding="utf-8"),
+         (APP.parent / "dashboard-view.jsx").read_text(encoding="utf-8"),
          (APP.parent / "token-breakdown.js").read_text(encoding="utf-8"))),
         flags=re.M)
 
@@ -39,6 +40,6 @@ def test_backend_hourly_rows_carry_the_provider_onto_events():
 def test_model_panels_key_by_model_and_provider():
     src = _src()
     assert "b.cost_by_model_provider" in src
-    assert re.search(r"label = modelProviderLabel\(e\.model,\s*e\.provider\)", src)
+    assert re.search(r"label = window\.modelProviderLabel\(e\.model,\s*e\.provider\)", src)
     assert "byModel[label]" in src and "tokensByModel[label]" in src
     assert "modelProviderLabel(short(r.model), r.provider)" in src

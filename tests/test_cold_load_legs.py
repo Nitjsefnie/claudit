@@ -95,7 +95,7 @@ def test_the_picker_strip_mounts_before_the_list_lands():
     src = APP.read_text(encoding="utf-8")
     i = src.index("<window.ProjectPicker")
     window = src[max(0, i - 160):i]
-    assert "backendOn && !isGuest && (" in window, (
+    assert "backendOn && !isGuest && window.featureOn('project_picker') && (" in window, (
         "ProjectPicker's mount gate no longer reads backendOn && !isGuest "
         "— the strip unmounts pre-projects again")
     assert "projects" not in window, (

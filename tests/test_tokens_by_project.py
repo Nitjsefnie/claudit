@@ -36,11 +36,11 @@ def _build_api_client(mp, label: str):
     Auth is bypassed by mounting only the router into a clean app.
     """
     test_db = scratch_db.create_database(label)
-    mp.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
+    mp.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{test_db}")
     src = _REPO_ROOT / "fixtures/r2_mini"
     tmp = tempfile.mkdtemp(prefix="sv-tokens-proj-")
     shutil.copytree(src, Path(tmp) / "r2")
-    mp.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
+    mp.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp}/r2/")
 
     # Response cache is process-global and keyed by endpoint+params only:
     # an entry another test module populated would serve foreign data.
@@ -119,7 +119,7 @@ def test_dashboard_tokens_by_project_shows_a_free_lane(app_with_fresh_data):
     tokens_by_project (the llama free-lane case): the tokens panel
     measures usage, not money. Cost by Project keeps its rule — the
     zero-cost project stays out of THAT list."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, conn.cursor() as cur:
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO projects (project_id, display_name, "
             "first_seen_at, last_seen_at) "

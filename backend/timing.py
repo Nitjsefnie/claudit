@@ -2,17 +2,18 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 from contextlib import contextmanager
 from typing import Any
+
+from backend.env_config import getenv
 
 # Per-phase wall-clock for the heavy read endpoints, emitted as one log
 # line per request. Gated on CLAUDIT_TIMING so it costs nothing normally,
 # but stays in the tree — reconstructing these queries by hand in psql
 # drifts from what the endpoint actually runs and hides everything that
 # happens outside SQL (row marshalling, response serialisation).
-TIMING_ON = os.environ.get("CLAUDIT_TIMING", "").lower() not in ("", "0", "false", "no")
+TIMING_ON = getenv("CLAUDIT_TIMING", "").lower() not in ("", "0", "false", "no")
 
 _CLAUDIT_LOGGER = logging.getLogger("claudit")
 

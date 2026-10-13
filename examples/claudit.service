@@ -22,7 +22,7 @@ Wants=postgresql.service
 # The checkout, the .venv inside it and the .env file must all be readable by
 # that account; keep .env owned by claudit at mode 0600 so its credentials
 # stay private. If you serve transcripts from a local file:// mirror
-# (R2_ENDPOINT=file:///...), the mirror must live OUTSIDE /tmp, /var/tmp,
+# (CLAUDIT_R2_ENDPOINT=file:///...), the mirror must live OUTSIDE /tmp, /var/tmp,
 # /home and /root — the sandbox makes the service's /tmp private and denies
 # it /home and /root entirely — e.g. /var/lib/claudit/mirror.
 
@@ -34,22 +34,22 @@ WorkingDirectory=/opt/claudit
 EnvironmentFile=/opt/claudit/.env
 
 # Databases: with User=claudit, a socket DSN such as
-# DATABASE_URL_VIZ=postgresql:///claudit connects over the unix socket under
+# CLAUDIT_DATABASE_URL_VIZ=postgresql:///claudit connects over the unix socket under
 # peer auth as the OS user "claudit", so that Postgres role must exist (and
 # own its database):
 #
 #   CREATE ROLE claudit LOGIN;
 #   CREATE DATABASE claudit OWNER claudit;
 #
-# (and likewise for the DATABASE_URL_AUTH database) — or point both DSNs at
+# (and likewise for the CLAUDIT_DATABASE_URL_AUTH database) — or point both DSNs at
 # TCP (e.g. 127.0.0.1) with a password stored in this file instead.
 
-# Export-PNG subprocess (see .env.example): EXPORT_PYTHON names the
+# Export-PNG subprocess (see .env.example): CLAUDIT_EXPORT_PYTHON names the
 # interpreter the render child runs under. matplotlib ships in
 # requirements-dev.txt, NOT backend/requirements.txt, so the app's own .venv
-# cannot render exports — point EXPORT_PYTHON at a Python that has
+# cannot render exports — point CLAUDIT_EXPORT_PYTHON at a Python that has
 # backend/requirements.txt and requirements-dev.txt installed. If the
-# interpreter lacks a module, /api/export answers 503 naming EXPORT_PYTHON.
+# interpreter lacks a module, /api/export answers 503 naming CLAUDIT_EXPORT_PYTHON.
 
 ExecStart=/opt/claudit/.venv/bin/python -m uvicorn backend.app:app \
     --host 127.0.0.1 --port 8000 \

@@ -3,7 +3,7 @@
 A PARSER_VERSION bump changes the parser, not the objects, yet every
 full reparse re-fetched the whole bucket one GET at a time per parse
 child — and the GET round-trips were ~70% of a run's parse-process
-time. Enabled per deploy by `R2_BLOB_CACHE` (a directory), the cache
+time. Enabled per deploy by `CLAUDIT_R2_BLOB_CACHE` (a directory), the cache
 lets a reparse read those bytes from the meter's own disk instead.
 Entries are keyed by the bucket-qualified key and the listing etag —
 the same identity the reparse decision already trusts (SV-FILES-
@@ -17,17 +17,20 @@ that cannot work must cost nothing beyond one hash per fetch.
 """
 from __future__ import annotations
 
+
 import hashlib
 import logging
 import os
 import tempfile
 
+from backend.env_config import getenv, require_env
+
 log = logging.getLogger("claudit.blob_cache")
 
 #: The cache directory; unset or blank disables the cache entirely.
-_ENV = "R2_BLOB_CACHE"
+_ENV = "CLAUDIT_R2_BLOB_CACHE"
 #: Size cap prune() enforces; invalid values fall back to the default.
-_CAP_ENV = "R2_BLOB_CACHE_MAX_BYTES"
+_CAP_ENV = "CLAUDIT_R2_BLOB_CACHE_MAX_BYTES"
 #: The default size cap: sized to hold a compressed corpus of a few GB
 #: whole, so a fully populated bucket never prunes between reparses.
 DEFAULT_CAP_BYTES = 4 * 1024 ** 3
@@ -35,11 +38,11 @@ DEFAULT_CAP_BYTES = 4 * 1024 ** 3
 
 def enabled() -> bool:
     """Whether the deploy named a cache directory."""
-    return bool(os.environ.get(_ENV, "").strip())
+    return bool(getenv(_ENV, "").strip())
 
 
 def _root() -> str:
-    return os.environ[_ENV].strip()
+    return require_env(_ENV).strip()
 
 
 def _log_safe(value: object) -> str:
@@ -116,7 +119,7 @@ def store(key: str, etag: str, data: bytes) -> bool:
 def prune(cap_bytes: int | None = None) -> int:
     """Drop the oldest entries (mtime) until the cache fits the cap.
 
-    `cap_bytes` defaults to R2_BLOB_CACHE_MAX_BYTES, then to
+    `cap_bytes` defaults to CLAUDIT_R2_BLOB_CACHE_MAX_BYTES, then to
     DEFAULT_CAP_BYTES. In-flight temps count as entries: a crashed
     writer's temp is the oldest thing in the cache, so it leaves
     first, and a live writer whose temp is taken has its store turn
@@ -158,7 +161,7 @@ def prune(cap_bytes: int | None = None) -> int:
 
 def _cap() -> int:
     try:
-        value = int(os.environ.get(_CAP_ENV, ""))
+        value = int(getenv(_CAP_ENV, ""))
     except ValueError:
         return DEFAULT_CAP_BYTES
     # A negative cap would wipe the cache every run; garbage or a

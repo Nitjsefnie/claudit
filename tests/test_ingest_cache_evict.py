@@ -22,7 +22,7 @@ def _mini_r2_env_fixture(monkeypatch):
     src = _REPO_ROOT / "fixtures/r2_mini"
     tmp = tempfile.mkdtemp(prefix="sv-ingest-")
     shutil.copytree(src, Path(tmp) / "r2")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp}/r2/")
     yield Path(tmp) / "r2" / "claude"
     shutil.rmtree(tmp)
 

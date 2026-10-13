@@ -4,7 +4,7 @@
 A database-backed rewrite that shares an ancestor with ccusage_plot.py
 (upstream nhz-io/ccusage-plot), with the JSONL walker swapped for a
 `claudit` SELECT — uses backend/parse.py's already-deduped + cost-priced
-`records` rows. DSN comes from DATABASE_URL_VIZ in the env or .env at the
+`records` rows. DSN comes from CLAUDIT_DATABASE_URL_VIZ in the env or .env at the
 repo root.
 
 All matplotlib rendering lives in ccusage_plot_render.py (issue #8 split):
@@ -14,10 +14,12 @@ It runs both as a script (sys.path[0] is this directory, so the plain
 in the test suite, which adds this directory to sys.path itself.
 """
 
+from __future__ import annotations
+
 __version__ = "1.2.0-db"
 
 import argparse
-import os
+import logging
 import sys
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
@@ -25,41 +27,31 @@ from pathlib import Path
 
 import psycopg
 
-from ccusage_plot_render import (
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+# pylint: disable=wrong-import-position
+from ccusage_plot_render import (  # noqa: E402
     parse_datetime, parse_highlight, parse_period, resolve_tz,
 )
-from ccusage_plot_timeline import plot_timeline
+from ccusage_plot_features import (  # noqa: E402
+    has_drawable_features, parse_disabled_features, resolve_features,
+)
+from ccusage_plot_timeline import plot_timeline  # noqa: E402
+from backend.env_config import getenv_with_dotenv, warn_deprecated_env  # noqa: E402
+# pylint: enable=wrong-import-position
 
 DEFAULT_DOTENV = Path(__file__).resolve().parents[2] / ".env"
 DB_URL: str | None = None  # rebound in main()
 
 
-def _read_dotenv_db_url(path: Path) -> str | None:
-    """Pull DATABASE_URL_VIZ out of a .env file. Returns None if missing/unreadable."""
-    try:
-        for raw in path.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, _, v = line.partition("=")
-            if k.strip() == "DATABASE_URL_VIZ":
-                return v.strip().strip('"').strip("'")
-    except OSError:
-        pass
-    return None
-
-
 def _resolve_db_url(cli_url: str | None) -> str:
     if cli_url:
         return cli_url
-    env_url = os.environ.get("DATABASE_URL_VIZ")
-    if env_url:
-        return env_url
-    dotenv_url = _read_dotenv_db_url(DEFAULT_DOTENV)
-    if dotenv_url:
-        return dotenv_url
+    url = getenv_with_dotenv("CLAUDIT_DATABASE_URL_VIZ", str(DEFAULT_DOTENV))
+    if url:
+        return url
     print(
-        f"Error: DATABASE_URL_VIZ not set (checked env and {DEFAULT_DOTENV}).",
+        f"Error: CLAUDIT_DATABASE_URL_VIZ not set (checked env and {DEFAULT_DOTENV}).",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -214,7 +206,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--db-url",
         default=None,
-        help="Postgres DSN (default: DATABASE_URL_VIZ env / .env)",
+        help="Postgres DSN (default: CLAUDIT_DATABASE_URL_VIZ env / .env)",
     )
     parser.add_argument(
         "--project",
@@ -225,6 +217,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--highlight",
         default=None,
         help="Highlight a daily time window, e.g. 5-11 or 5:00-11:30 (uses --tz)",
+    )
+    parser.add_argument(
+        "--disabled-features", type=parse_disabled_features, default=None,
+        help="Server-resolved disabled feature keys (JSON array; overrides env)",
     )
     return parser
 
@@ -286,8 +282,16 @@ def _resolve_date_range(args, tz):
 
 def main():
     global DB_URL
-    args = _build_parser().parse_args()
+    parser = _build_parser()
+    args = parser.parse_args()
+    disabled = resolve_features(args.disabled_features)
+    if args.project is not None and 'project_picker' in disabled:
+        parser.error("project picker is disabled")
+    if not has_drawable_features(disabled):
+        print("No enabled panels to render.", file=sys.stderr)
+        sys.exit(3)
     DB_URL = _resolve_db_url(args.db_url)
+    warn_deprecated_env(logging.getLogger("claudit.plot"))
 
     tz = resolve_tz(args.tz) if args.tz else None
     start, end, period_label = _resolve_date_range(args, tz)
@@ -310,6 +314,7 @@ def main():
     plot_timeline(
         events, period_label, output_path, tz=tz, highlight=highlight,
         limit_hits=lambda: find_limit_hits(events, project=args.project),
+        disabled_features=disabled,
     )
 
 

@@ -54,7 +54,7 @@ def _seed() -> None:
     non-canonical extreme row, all sharing one (bucket, model) group
     (`now()` is the whole transaction's single timestamp, so every row
     lands in the same 900s bucket)."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn:
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO projects (project_id, display_name, "
@@ -87,7 +87,7 @@ def _lat_client_fixture(monkeypatch):
     """A fresh DB holding one seeded (bucket, model) group, served by a
     TestClient on the api router (auth bypassed)."""
     test_db = scratch_db.create_database("latency_canon")
-    monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{test_db}")
     db.reset_viz_pool()
     try:
         _seed()
@@ -127,7 +127,7 @@ def test_reply_latency_live_excludes_non_canonical(lat_client) -> None:
     # Flip the row canonical out of band: production invalidates the
     # response cache at ingest; the test does the same by hand, exactly
     # as test_models_excludes_non_canonical_rows does.
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn:
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE records SET is_canonical = TRUE "

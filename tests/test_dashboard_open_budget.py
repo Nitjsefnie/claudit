@@ -159,7 +159,7 @@ def _seed_large_ctx_turns(turns: int = 400) -> None:
     same keys backend/ctx_turns.py writes, so the body the traces would
     add is unmistakably over budget.
     """
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         cur.execute(
             "UPDATE files SET ctx_turns = ("
@@ -197,7 +197,7 @@ def test_dashboard_payload_stays_within_budget(app_with_fresh_data):
 def _main_file_with_records() -> tuple[str, str]:
     """A main file that also has usage records, so its session lands in
     the dashboard's sessions panel (which is folded from usage_rollup)."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         cur.execute(
             "SELECT f.file_key, f.session_id FROM files f "
@@ -212,7 +212,7 @@ def _main_file_with_records() -> tuple[str, str]:
 
 def _seed_ctx_turn_inputs(file_key: str, inputs: list[int]) -> None:
     """Rewrite one file's ctx_turns to `inputs`, in order."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, \
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         cur.execute(
             "UPDATE files SET ctx_turns = ("

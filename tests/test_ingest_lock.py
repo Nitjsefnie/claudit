@@ -34,7 +34,7 @@ def _wait_db_lock_free(timeout_s: float = 10.0) -> None:
     """
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+        with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
                                      autocommit=True)) as probe:
             row = probe.execute(  # pylint: disable=no-member
                 "SELECT pg_try_advisory_lock(%s)",
@@ -56,7 +56,7 @@ def test_ingest_skips_when_another_instance_holds_the_db_lock(
     with UniqueViolation, both wrote ingest_runs rows. When ANOTHER instance
     holds the db-wide advisory lock, a run must decline in the same dict
     shape as the in-process skip, naming the other instance."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
                                  autocommit=True)) as holder:
         row = holder.execute(  # pylint: disable=no-member
             "SELECT pg_try_advisory_lock(%s)",
@@ -83,7 +83,7 @@ def test_ingest_lock_released_after_a_run(fresh_db, mini_r2_env):
     fresh connection — another instance's next run — can take the lock."""
     ingest.run_ingest(trigger="manual")
 
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
                                  autocommit=True)) as probe:
         row = probe.execute(  # pylint: disable=no-member
             "SELECT pg_try_advisory_lock(%s)",
@@ -100,7 +100,7 @@ def test_ingest_lock_released_when_holder_dies(fresh_db, mini_r2_env):
     The advisory lock is session-scoped: the SERVER releases it when the
     holding connection dies, so a surviving instance's next run proceeds
     with no unlock step ever having run."""
-    holder = psycopg.connect(os.environ["DATABASE_URL_VIZ"], autocommit=True)
+    holder = psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"], autocommit=True)
     try:
         row = holder.execute(  # pylint: disable=no-member
             "SELECT pg_try_advisory_lock(%s)",
@@ -111,7 +111,7 @@ def test_ingest_lock_released_when_holder_dies(fresh_db, mini_r2_env):
             "SELECT pg_backend_pid()").fetchone()
         assert pid_row is not None
 
-        with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+        with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
                                      autocommit=True)) as killer:
             killed = killer.execute(  # pylint: disable=no-member
                 "SELECT pg_terminate_backend(%s)",
@@ -317,7 +317,7 @@ def test_abort_releases_the_db_lock(fresh_db, mini_r2_env, monkeypatch):
         ingest._SHUTDOWN.clear()  # pylint: disable=protected-access
 
     assert result.get("aborted") is True, result
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
                                  autocommit=True)) as probe:
         row = probe.execute(  # pylint: disable=no-member
             "SELECT pg_try_advisory_lock(%s)",
@@ -422,7 +422,7 @@ def test_wait_for_run(fresh_db, mini_r2_env):
 
 def _advisory_holder_pid() -> int:
     """The pid of the backend holding the ingest advisory lock."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
                                  autocommit=True)) as probe:
         row = probe.execute(  # pylint: disable=no-member
             "SELECT pid FROM pg_locks WHERE locktype = 'advisory' "
@@ -441,7 +441,7 @@ def test_bounded_step_notices_a_dead_lock_session(fresh_db, mini_r2_env):
     and a run that kept going unlocked would race a second instance."""
     with ingest._db_run_lock() as acquired:  # pylint: disable=protected-access
         assert acquired is True
-        with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+        with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
                                      autocommit=True)) as killer:
             killer.execute(  # pylint: disable=no-member
                 "SELECT pg_terminate_backend(%s)",
@@ -457,7 +457,7 @@ def test_lost_lock_session_aborts_the_run(fresh_db, mini_r2_env, monkeypatch):
     is free again for another instance."""
     def kill_lock_session() -> int:
         pid = _advisory_holder_pid()
-        with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"],
+        with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
                                      autocommit=True)) as killer:
             killer.execute(  # pylint: disable=no-member
                 "SELECT pg_terminate_backend(%s)", (pid,))
@@ -643,7 +643,7 @@ def test_lock_gone_with_a_live_session_aborts(fresh_db):
     the lock."""
     from backend import ingest_lockwatch  # pylint: disable=import-outside-toplevel
 
-    conn = psycopg.connect(os.environ["DATABASE_URL_VIZ"], autocommit=True)
+    conn = psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"], autocommit=True)
     key = ingest._INGEST_LOCK_KEY  # pylint: disable=protected-access
     ingest_lockwatch.hold(conn, key)
     try:

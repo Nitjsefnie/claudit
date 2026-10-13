@@ -170,8 +170,8 @@ def _pin_corpus_env():
     # Windows leg of the matrix failed on exactly that before this line was
     # as_uri(); r2.py's own comment on Windows file URLs names the shape
     # (file:///C:/mirror/) and as_uri() is what produces it.
-    os.environ['R2_ENDPOINT'] = MIRROR.as_uri()
-    os.environ['R2_BUCKET'] = BUCKET
+    os.environ['CLAUDIT_R2_ENDPOINT'] = MIRROR.as_uri()
+    os.environ['CLAUDIT_R2_BUCKET'] = BUCKET
 
 
 _pin_corpus_env()

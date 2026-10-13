@@ -9,8 +9,10 @@ it (one direction only, so there is no cycle).
 from __future__ import annotations
 
 import sys
+from collections.abc import Collection
 from datetime import timedelta, timezone
 
+from ccusage_plot_features import DRAWABLE_FEATURES, has_drawable_features
 from ccusage_plot_render import (
     BG_AXES, BG_DARK, BORDER, CHARTS, COLORS, GRID, TEXT, TEXT_DIM,
     TZ_ALIASES, add_highlight_bands, apply_theme, build_sessions,
@@ -97,7 +99,28 @@ def _timeline_figure():
     return fig, axes, ax_burn
 
 
-def _timeline_header(fig, events, ctx, tz, highlight):
+def _feature_figure(disabled: Collection[str]) -> tuple:
+    """Compact only the enabled panels; default geometry uses the old path."""
+    if not any(key in disabled for key in DRAWABLE_FEATURES):
+        return _timeline_figure()
+    if plt is None or gridspec is None:
+        raise RuntimeError("matplotlib is required to render plots")
+    count = (len(CHARTS) if 'usage_timeseries' not in disabled else 0)
+    count += int('model_comparison' not in disabled)
+    count += int('token_breakdown' not in disabled)
+    rows = (count + 1) // 2
+    burn = 'burn_rate' not in disabled
+    fig = plt.figure(figsize=(18, max(7, rows * 5.5 + int(burn) * 7)))
+    grid = gridspec.GridSpec(rows + int(burn), 2, figure=fig,
+                             top=0.87 if rows else 0.75, bottom=0.07, hspace=0.65, wspace=0.3,
+                             height_ratios=[1] * rows + ([1.25] if burn else []))
+    axes = [fig.add_subplot(grid[i // 2, :] if i == count - 1 and count % 2
+                            else grid[i // 2, i % 2]) for i in range(count)]
+    ax_burn = fig.add_subplot(grid[rows, :]) if burn else None
+    return fig, axes, ax_burn
+
+
+def _timeline_header(fig, events, ctx, tz, highlight, show_summary=True):
     """Suptitle (plan/version) + subtitle (range, calls, cost)."""
     display_tz = tz if tz else timezone.utc
     timestamps = ctx["timestamps"]
@@ -126,6 +149,8 @@ def _timeline_header(fig, events, ctx, tz, highlight):
         "  |  ".join(title_parts),
         fontsize=18, fontweight="bold", color="#ffffff", y=0.99,
     )
+    if not show_summary:
+        return
     subtitle_parts = [
         date_range_str,
         f"{len(events)} API calls",
@@ -343,48 +368,53 @@ def _plot_token_breakdown(ax_breakdown, events):
         ax_breakdown.set_xlim(0, max(cat_totals) * 1.35)
 
 
-def _plot_panels(axes, ctx, events, highlight, tz):
-    """The six binned metric panels + cost-by-model + token breakdown."""
-    for idx, (title, key, is_currency) in enumerate(CHARTS):
-        _plot_metric_panel(
-            axes[idx], ctx, events, title, key, is_currency, highlight, tz
-        )
-
-    _plot_cost_by_model(axes[len(CHARTS)], events)
-    _plot_token_breakdown(axes[len(CHARTS) + 1], events)
-
-    # Hide unused axes slots
-    for i in range(len(CHARTS) + 2, len(axes)):
-        axes[i].set_visible(False)
+def _plot_panels(axes, ctx, events, highlight, tz, disabled_features=()):
+    """Draw only enabled metric, model and token panels."""
+    remaining = iter(axes)
+    if 'usage_timeseries' not in disabled_features:
+        for title, key, is_currency in CHARTS:
+            _plot_metric_panel(
+                next(remaining), ctx, events, title, key, is_currency, highlight, tz
+            )
+    if 'model_comparison' not in disabled_features:
+        _plot_cost_by_model(next(remaining), events)
+    if 'token_breakdown' not in disabled_features:
+        _plot_token_breakdown(next(remaining), events)
 
 
 def plot_timeline(events, period_str, output_path, tz=None, highlight=None,
-                  limit_hits=None):
+                  limit_hits=None, disabled_features: frozenset[str] = frozenset()):
     """Render the full dashboard PNG: 6 metric panels + cost-by-model +
     token breakdown + the full-width burn-rate row.
 
     `limit_hits` is a zero-arg callable (evaluated lazily — only when a
-    burn panel will actually render) or an already-computed list.
+    burn panel and rate-limit overlays are enabled) or an already-computed list.
+    Disabled groups allocate no axes; summary controls only header statistics.
     """
+    if not has_drawable_features(disabled_features):
+        return
     if plt is None:
         raise RuntimeError("matplotlib is required to render plots")
     apply_theme()
     ctx = _timeline_ctx(events, tz)
-    fig, axes, ax_burn = _timeline_figure()
+    fig, axes, ax_burn = _feature_figure(disabled_features)
 
-    _timeline_header(fig, events, ctx, tz, highlight)
+    _timeline_header(fig, events, ctx, tz, highlight,
+                     show_summary='summary' not in disabled_features)
 
-    _plot_panels(axes, ctx, events, highlight, tz)
+    _plot_panels(axes, ctx, events, highlight, tz, disabled_features)
 
-    # -- Burn rate panel (full width, bottom row) --
-    style_axes(ax_burn)
-    sessions = build_sessions(events)
-    if sessions:
-        window_boundaries = find_window_boundaries(events)
-        hits = limit_hits() if callable(limit_hits) else (limit_hits or [])
-        plot_burn_rate(ax_burn, events, sessions, window_boundaries, hits,
-                       view_start=events[0]["timestamp"],
-                       view_end=events[-1]["timestamp"])
+    # -- Burn rate panel --
+    if ax_burn is not None:
+        style_axes(ax_burn)
+        sessions = build_sessions(events)
+        if sessions:
+            window_boundaries = find_window_boundaries(events)
+            show_rates = 'rate_limits' not in disabled_features
+            hits = (limit_hits() if callable(limit_hits) else (limit_hits or [])) if show_rates else []
+            plot_burn_rate(ax_burn, events, sessions, window_boundaries, hits,
+                           view_start=events[0]["timestamp"],
+                           view_end=events[-1]["timestamp"], show_rate_limits=show_rates)
 
     fig.savefig(output_path, dpi=150, bbox_inches="tight", facecolor=BG_DARK)
     plt.close()

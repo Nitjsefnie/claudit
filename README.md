@@ -139,8 +139,8 @@ Cost/Tokens by Context Size and Cost/Tokens by Agent Type — originate here.
   every cost breakdown reconciles). Kimi's kimi-code and legacy wire
   formats land in the same tables with their own rate rows. The
   browser's Inspector parses every format too (`src/parser-lanes.js`).
-- **Configurable branding** — `APP_NAME` / `APP_TITLE` /
-  `APP_DESCRIPTION` set the browser title, meta description, logo,
+- **Configurable branding** — `CLAUDIT_APP_NAME` / `CLAUDIT_APP_TITLE` /
+  `CLAUDIT_APP_DESCRIPTION` set the browser title, meta description, logo,
   sign-in page and export-PNG filename, so this codebase can serve as
   codexmeter or kimimeter by config alone.
 - **Time-range picker** (24h / 7d / 30d / 90d / 1y / all).
@@ -210,30 +210,115 @@ own stored columns, with no full reparse).
 
 ## Configuration
 
-- `R2_BUCKET` names one or more buckets joined by `+` (e.g. `R2_BUCKET=claude`
-  or `R2_BUCKET=codex+kimi`). Every stored file key is qualified with its
+All app configuration names start with `CLAUDIT_`. Names read by v0.4.0
+remain deprecated fallbacks for one release after this rename (listed in
+`backend/env_config.py`). The prefixed name wins when both are set, even if
+empty. Startup warns once for each active old name, without logging values;
+old names shadowed by a prefixed name are not reported. Rename your `.env`
+keys to remove the warnings. `GUEST_LOGIN` and the blob-cache settings were
+unreleased and have no fallback: use `CLAUDIT_GUEST_LOGIN`,
+`CLAUDIT_R2_BLOB_CACHE` and `CLAUDIT_R2_BLOB_CACHE_MAX_BYTES`.
+
+- `CLAUDIT_R2_BUCKET` names one or more buckets joined by `+` (e.g. `CLAUDIT_R2_BUCKET=claude`
+  or `CLAUDIT_R2_BUCKET=codex+kimi`). Every stored file key is qualified with its
   bucket as `<bucket>/<object-key>`; a bucket not named here is not served
   or listed, and an invalid name aborts startup. Configuring several buckets
   is how one deploy serves Codex and Kimi transcripts beside Claude Code
   ones (a codexmeter / kimimeter deploy).
-- `APP_NAME`, `APP_TITLE`, `APP_DESCRIPTION` brand every user-visible
+- `CLAUDIT_APP_NAME`, `CLAUDIT_APP_TITLE`, `CLAUDIT_APP_DESCRIPTION` brand every user-visible
   surface — browser title, meta description, logo text, sign-in page,
   export-PNG filename. Unset, they reproduce the claudit strings exactly;
-  a codexmeter deploy sets `APP_NAME=codexmeter` and nothing else changes.
-- `APP_PRIVACY_NOTICE_URL` optionally renders a "Privacy notice" link on
+  a codexmeter deploy sets `CLAUDIT_APP_NAME=codexmeter` and nothing else changes.
+- `CLAUDIT_APP_PRIVACY_NOTICE_URL` optionally renders a "Privacy notice" link on
   the sign-in page; unset, the page is unchanged. An operator's notice
   can disclose the third-party hosts the app contacts: the sign-in page
   itself loads nothing off-site, while the dashboard behind it fetches
   unpkg.com, fonts.googleapis.com and fonts.gstatic.com.
-- `EXPORT_PYTHON` names the interpreter the export-PNG subprocess runs
+- `CLAUDIT_EXPORT_PYTHON` names the interpreter the export-PNG subprocess runs
   under (default `/usr/bin/python3`). The plot script imports matplotlib
   and psycopg, and matplotlib ships in `requirements-dev.txt` — not
   `backend/requirements.txt` — so a stock quickstart venv cannot render
   exports. Point it at a Python with both installed; if the interpreter
-  is missing one, `/api/export` answers `503` naming `EXPORT_PYTHON`
+  is missing one, `/api/export` answers `503` naming `CLAUDIT_EXPORT_PYTHON`
   instead of an opaque 500.
-- The rest of the environment (`DATABASE_URL_VIZ`, `R2_ENDPOINT`, auth and
+- The rest of the environment (`CLAUDIT_DATABASE_URL_VIZ`, `CLAUDIT_R2_ENDPOINT`, auth and
   admin keys) is documented inline in [`backend/.env.example`](backend/.env.example).
+
+### Startup collection and feature switches
+
+Collection and feature switches default ON when absent. Set a switch to
+`0` to disable it. They are read once at process startup, so an environment
+change requires a service restart. A collection change takes effect on the
+next successful ingest; it sets the registered parsed fields to SQL `NULL`
+and clears and stops rebuilding any registered optional rollups. A feature
+change affects the corresponding display or API surface after restart. The
+two sets are independent: hiding a feature does not stop collecting its data,
+and collection switches only disable a feature when that feature declares an
+exclusive collection dependency. No current feature depends exclusively on the
+existing collection groups. Generation speed is stored only, with no display
+feature or rollup.
+
+The explicit-value grammar is shared with `CLAUDIT_TIMING`: values are
+lowercased without trimming. `""`, `"0"`, `"false"`, and `"no"` are false;
+every other value is true, including `"off"`, spaces, and values with leading
+or trailing whitespace. A bare process with an explicitly empty switch gets
+false. Compose uses `${VAR:-default}`, so an empty Compose value resolves to
+the default instead; use `0` to disable portably. The complete variable list
+is in [`backend/.env.example`](backend/.env.example).
+
+`CLAUDIT_HIDE_RATE_LIMITS` remains the inverse compatibility alias and defaults
+OFF. Rate-limit display is enabled only when `CLAUDIT_FEATURE_RATE_LIMITS` is
+enabled and the legacy alias is false; a truthy legacy alias wins even when
+`CLAUDIT_FEATURE_RATE_LIMITS=1`. This switch affects display only. Rate-limit
+events continue to be collected and stored.
+
+#### Collection switches
+
+| Environment variable | Stored data group |
+|---|---|
+| `CLAUDIT_COLLECT_TURN_CONTEXT` | Turn flags, turn tool-result summaries, and CLI version |
+| `CLAUDIT_COLLECT_REQUEST_METADATA` | Reply stop reason and effort |
+| `CLAUDIT_COLLECT_CACHE_WRITE_TOKENS` | Cache-write token count |
+| `CLAUDIT_COLLECT_CONTEXT_INTAKE` | Tool-result size, read/write targets and read-kind metadata |
+| `CLAUDIT_COLLECT_ERROR_TEXT` | Failed tool-result text |
+| `CLAUDIT_COLLECT_FILE_EXTRAS` | File model list and prompt/turn counts |
+| `CLAUDIT_COLLECT_TOOL_ERROR_KINDS` | Tool error classification and its optional rollup |
+| `CLAUDIT_COLLECT_DISPATCH_ANALYTICS` | Dispatch model/prompt metadata and its optional rollups |
+| `CLAUDIT_COLLECT_GENERATION_SPEED` | Claude generation duration and output tokens per second; other lanes store NULL |
+
+The exact stored columns and rollup tables for each group are listed in the
+[collection switch inventory](PRIVACY.md#collection-switch-inventory). Raw
+transcript objects and their disk-cache copies are unaffected.
+
+#### Feature switches
+
+| Environment variable | Display or API group |
+|---|---|
+| `CLAUDIT_FEATURE_USAGE_TIMESERIES` | Input, Output, Cache Create, Cache Read, Total Tokens, and Cost time series |
+| `CLAUDIT_FEATURE_THINKING_OUTPUT` | Thinking Output panel |
+| `CLAUDIT_FEATURE_LINE_CHURN` | Lines Added/Deleted panel and summary cell |
+| `CLAUDIT_FEATURE_MODEL_COMPARISON` | Cost/Tokens by Model |
+| `CLAUDIT_FEATURE_TOKEN_BREAKDOWN` | Token Breakdown card and embedded bars |
+| `CLAUDIT_FEATURE_PROJECT_COMPARISON` | Cost/Tokens by Project |
+| `CLAUDIT_FEATURE_CACHE_TTL` | Prompt-Cache TTL Split card and share strip |
+| `CLAUDIT_FEATURE_RESPONSE_SIZES` | Response Sizes card |
+| `CLAUDIT_FEATURE_CONTEXT_GROWTH` | Per-Session Context Growth and comparison plots |
+| `CLAUDIT_FEATURE_BURN_RATE` | Session Burn Rate card |
+| `CLAUDIT_FEATURE_CONTEXT_COMPARISON` | Cost/Tokens by Context Size |
+| `CLAUDIT_FEATURE_TOOL_USAGE` | Tool Usage Ratio card |
+| `CLAUDIT_FEATURE_REPLY_LATENCY` | Reply Latency card |
+| `CLAUDIT_FEATURE_PAGE_PERFORMANCE` | Operator Page Performance card and readout |
+| `CLAUDIT_FEATURE_TOOL_ERROR_RATE` | Tool Error Rate card |
+| `CLAUDIT_FEATURE_AGENT_COMPARISON` | Cost/Tokens by Agent Type |
+| `CLAUDIT_FEATURE_ACTIVITY_HEATMAP` | Activity Heatmap, margin totals, and legend |
+| `CLAUDIT_FEATURE_SUMMARY` | Overview summary strip and PNG header statistics |
+| `CLAUDIT_FEATURE_RATE_LIMITS` | Rate-limit counts, marks, legend, tooltip, and accessible description |
+| `CLAUDIT_FEATURE_SESSIONS` | Sessions navigation and list |
+| `CLAUDIT_FEATURE_CACHE` | Cache navigation, CacheView, and ContextGrowthAgg companion |
+| `CLAUDIT_FEATURE_INSPECTOR` | Inspector navigation, transcript/sidecar reads, and session details |
+| `CLAUDIT_FEATURE_PROJECT_PICKER` | Project picker, project-list endpoint, and project-filter affordance |
+| `CLAUDIT_FEATURE_EXPORT_PNG` | PNG button and export endpoint |
+| `CLAUDIT_FEATURE_LIVE_UPDATES` | EventSource, live-update indicator, and SSE endpoint |
 
 ### Client-side internet requirement
 
@@ -250,10 +335,10 @@ authoritative pin list is `public/index.html` itself.
 
 The first ingest this build runs over a database created by an earlier
 build **re-keys every stored file**: this build's `r2.list_keys` yields
-bucket-qualified keys whatever `R2_BUCKET` says, so stored identity
+bucket-qualified keys whatever `CLAUDIT_R2_BUCKET` says, so stored identity
 moves from the bare object key to `<bucket>/<object-key>` and each old
 row is deleted and re-inserted under its new key in the same run.
-Adding a bucket to `R2_BUCKET` on an already-migrated deploy re-keys
+Adding a bucket to `CLAUDIT_R2_BUCKET` on an already-migrated deploy re-keys
 nothing. That one-time run has known, self-healing behaviour:
 
 - (a) until the run finishes, the new rows (which default
@@ -281,7 +366,7 @@ psql claudit -f backend/schema.sql
 createdb claudit_auth
 psql claudit_auth -c "CREATE TABLE users (user_id BIGINT PRIMARY KEY, \
 config JSONB NOT NULL DEFAULT '{}'::jsonb)"
-cp backend/.env.example .env  # edit: DATABASE_URL_VIZ, DATABASE_URL_AUTH, R2_*, ADMIN_TOKEN
+cp backend/.env.example .env  # edit: CLAUDIT_DATABASE_URL_VIZ, CLAUDIT_DATABASE_URL_AUTH, CLAUDIT_R2_*, CLAUDIT_ADMIN_TOKEN
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r backend/requirements.txt
 python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
@@ -290,8 +375,8 @@ python3 -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 The second database is the **auth database**, holding the `users` table
 the login page reads. claudit owns no schema for it — in production it is
 provisioned and populated by your own user-management process, and the
-application only ever READS it. Set `DATABASE_URL_AUTH` to point at the
-database just created (`DATABASE_URL_AUTH=postgresql:///claudit_auth`);
+application only ever READS it. Set `CLAUDIT_DATABASE_URL_AUTH` to point at the
+database just created (`CLAUDIT_DATABASE_URL_AUTH=postgresql:///claudit_auth`);
 the shipped `backend/.env.example` defaults to
 `postgresql:///users`, a database this quick start does not create.
 
@@ -312,7 +397,7 @@ about both:
   not the application, that is the real boundary: claudit issues no write
   against the auth DB, but a `GRANT`-less role cannot read it either, and
   startup then aborts with `auth DB: role '<role>' lacks SELECT on
-  'users'`. So when `DATABASE_URL_AUTH` connects as a role other than the
+  'users'`. So when `CLAUDIT_DATABASE_URL_AUTH` connects as a role other than the
   table's owner, run `GRANT SELECT ON users TO <role>` too.
 
 A `users` table outside the `public` schema aborts with the same
@@ -324,7 +409,7 @@ of which variable was wrong (issue #463).
 The table starts empty, so there is no credentialed account yet —
 **Continue as guest** on the sign-in page gets you in without one, and
 [Auth](#auth) has the credential shape a real sign-in needs. Guest login
-is enabled by default; `GUEST_LOGIN=0` turns it off.
+is enabled by default; `CLAUDIT_GUEST_LOGIN=0` turns it off.
 
 The first request blocks while ingest runs (~30s on a warm DB,
 several minutes for a cold cache against the full `claude` bucket).
@@ -337,8 +422,8 @@ answering while the run proceeds.
 The server needs outbound reachability to the configured R2 endpoint
 and its Postgres instance.
 
-For local dev without R2 credentials, point `R2_ENDPOINT` at a
-filesystem mirror (e.g. `R2_ENDPOINT=file:///tmp/r2/`) — the R2
+For local dev without R2 credentials, point `CLAUDIT_R2_ENDPOINT` at a
+filesystem mirror (e.g. `CLAUDIT_R2_ENDPOINT=file:///tmp/r2/`) — the R2
 client falls back to walking the directory tree.
 
 ## Operations
@@ -401,7 +486,7 @@ records return during ingest, are counted and priced, and change the
 totals. Back up both tables with:
 
 ```bash
-pg_dump --table=suppressed_models --table=project_aliases --data-only "$DATABASE_URL_VIZ" > deployment_state.sql
+pg_dump --table=suppressed_models --table=project_aliases --data-only "$CLAUDIT_DATABASE_URL_VIZ" > deployment_state.sql
 ```
 
 If a database is lost or damaged beyond repair, recreate it with
@@ -411,7 +496,7 @@ restart the service to kick an ingest with both per-deployment tables in
 place:
 
 ```bash
-psql "$DATABASE_URL_VIZ" --file=deployment_state.sql
+psql "$CLAUDIT_DATABASE_URL_VIZ" --file=deployment_state.sql
 ```
 
 The `user_session` table is also not derived from the bucket; it holds
@@ -445,7 +530,7 @@ per IP+user pair and 20 per IP, per 5-minute window.
 Sessions are HMAC-signed cookies with a 7-day TTL. A **Continue as
 guest** button mints a read-only guest session (no project filter, no
 per-session transcript access; cookie invalidates on every server
-restart). Guest login is enabled by default; `GUEST_LOGIN=0` turns it
+restart). Guest login is enabled by default; `CLAUDIT_GUEST_LOGIN=0` turns it
 off: the button and "or" divider disappear, `/login/guest` returns 404,
 and existing guest cookies are refused. Exporting or erasing one person's
 data is an operator procedure, documented in [`PRIVACY.md`](PRIVACY.md).

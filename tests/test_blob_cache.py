@@ -17,12 +17,12 @@ from backend import blob_cache
 @pytest.fixture(name="cache_root")
 def _cache_root(monkeypatch, tmp_path):
     root = tmp_path / "blob-cache"
-    monkeypatch.setenv("R2_BLOB_CACHE", str(root))
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(root))
     return root
 
 
 def test_disabled_when_unset(monkeypatch):
-    monkeypatch.delenv("R2_BLOB_CACHE", raising=False)
+    monkeypatch.delenv("CLAUDIT_R2_BLOB_CACHE", raising=False)
     assert not blob_cache.enabled()
     assert blob_cache.lookup("claude/k", "e", 1) is None
     assert blob_cache.store("claude/k", "e", b"x") is False
@@ -30,7 +30,7 @@ def test_disabled_when_unset(monkeypatch):
 
 
 def test_disabled_when_blank(monkeypatch):
-    monkeypatch.setenv("R2_BLOB_CACHE", "   ")
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", "   ")
     assert not blob_cache.enabled()
 
 
@@ -82,13 +82,13 @@ def test_store_best_effort_when_root_is_not_creatable(
         monkeypatch, tmp_path):
     blocker = tmp_path / "blocker"
     blocker.write_text("a file, not a directory")
-    monkeypatch.setenv("R2_BLOB_CACHE", str(blocker / "cache"))
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(blocker / "cache"))
     assert blob_cache.store("claude/k", "e", b"x") is False
     assert blob_cache.lookup("claude/k", "e", 1) is None
 
 
 def test_lookup_best_effort_when_root_is_missing(monkeypatch, tmp_path):
-    monkeypatch.setenv("R2_BLOB_CACHE", str(tmp_path / "never-created"))
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path / "never-created"))
     assert blob_cache.lookup("claude/k", "e", 1) is None
 
 
@@ -130,7 +130,7 @@ def test_prune_sweeps_abandoned_temps_too(cache_root):
 
 def test_prune_cap_from_env(cache_root, monkeypatch):
     blob_cache.store("claude/a", "e", b"x" * 10)
-    monkeypatch.setenv("R2_BLOB_CACHE_MAX_BYTES", "5")
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE_MAX_BYTES", "5")
     blob_cache.prune()
     assert blob_cache.lookup("claude/a", "e", 10) is None
 
@@ -158,7 +158,7 @@ def test_store_failure_log_carries_no_control_characters(
     one record, no newline, nothing that could forge a second line."""
     blocker = tmp_path / "blocker"
     blocker.write_text("a file, not a directory")
-    monkeypatch.setenv("R2_BLOB_CACHE", str(blocker / "cache"))
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(blocker / "cache"))
     key = ("claude/p/s/w.jsonl.xz\r\ninjected\x07\x1bline\x00end"
            "\x7f\x85nel")
     record = _store_failure_record(caplog, key)
@@ -193,15 +193,15 @@ def test_store_failure_log_scrubs_the_exception_text(
 
 def test_prune_cap_env_garbage_falls_to_default(cache_root, monkeypatch):
     blob_cache.store("claude/a", "e", b"x" * 10)
-    monkeypatch.setenv("R2_BLOB_CACHE_MAX_BYTES", "garbage")
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE_MAX_BYTES", "garbage")
     blob_cache.prune()
     assert blob_cache.lookup("claude/a", "e", 10) is not None
 
 
 def test_prune_negative_cap_env_falls_to_default(cache_root, monkeypatch):
-    """A negative R2_BLOB_CACHE_MAX_BYTES would wipe the cache every
+    """A negative CLAUDIT_R2_BLOB_CACHE_MAX_BYTES would wipe the cache every
     run; it falls back to the default instead of thrashing."""
     blob_cache.store("claude/a", "e", b"x" * 10)
-    monkeypatch.setenv("R2_BLOB_CACHE_MAX_BYTES", "-1")
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE_MAX_BYTES", "-1")
     blob_cache.prune()
     assert blob_cache.lookup("claude/a", "e", 10) is not None

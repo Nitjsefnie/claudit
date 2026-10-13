@@ -95,8 +95,8 @@ def _fake_pool_class(server: FakeServer) -> type[ConnectionPool]:
 @pytest.mark.parametrize(
     ("pool_factory", "cache_attr", "dsn_env"),
     [
-        pytest.param(db.viz_pool, "_VIZ", "DATABASE_URL_VIZ", id="viz"),
-        pytest.param(db.auth_pool, "_AUTH", "DATABASE_URL_AUTH", id="auth"),
+        pytest.param(db.viz_pool, "_VIZ", "CLAUDIT_DATABASE_URL_VIZ", id="viz"),
+        pytest.param(db.auth_pool, "_AUTH", "CLAUDIT_DATABASE_URL_AUTH", id="auth"),
     ],
 )
 def test_pool_replaces_connection_terminated_while_idle(

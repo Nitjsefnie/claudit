@@ -143,8 +143,8 @@ def _mirror(monkeypatch, tmp_path, fixture: Path, parent_bytes: bytes | None):
     if parent_bytes is not None:
         parent = root / "mini/sessions/toyproj/sessA/wire.jsonl"
         parent.write_bytes(parent_bytes)
-    monkeypatch.setenv("R2_ENDPOINT", root.as_uri() + "/")
-    monkeypatch.setenv("R2_BUCKET", "mini")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", root.as_uri() + "/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "mini")
     return root
 
 
@@ -477,8 +477,8 @@ def test_a_claude_modelless_copy_is_refused(
         d = root / "mini" / proj / "sessU"
         d.mkdir(parents=True)
         (d / "sessU.jsonl").write_text(_claude_copy(model, out))
-    monkeypatch.setenv("R2_ENDPOINT", root.as_uri() + "/")
-    monkeypatch.setenv("R2_BUCKET", "mini")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", root.as_uri() + "/")
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "mini")
 
     result = ingest.run_ingest(trigger="manual")
     assert result["failed"] == 1

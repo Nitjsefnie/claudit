@@ -12,7 +12,11 @@ tests/test_dashboard_fetch_js.py
 tests/test_dashboard_latency_pins.py
 tests/test_deferred_js.py
 tests/test_empty_usage_parity.py
+tests/test_env_prefix_scripts.py
+tests/test_feature_ui.py
+tests/test_flags.py
 tests/test_heatmap_layout_wiring.py
+tests/test_hide_rate_limits_render.py
 tests/test_ingest.py
 tests/test_js_toolchain.py
 tests/test_model_colors.py

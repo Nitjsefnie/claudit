@@ -99,7 +99,7 @@ def _failing_child_argv(stderr_text: str) -> list[str]:
 def test_export_missing_module_child_is_503_naming_export_python(
     app_with_data, tmp_path, stderr_text
 ):
-    """A plot child that died of ModuleNotFoundError means the EXPORT_PYTHON
+    """A plot child that died of ModuleNotFoundError means the CLAUDIT_EXPORT_PYTHON
     interpreter lacks matplotlib or psycopg — answer 503 naming the knob,
     not an opaque 500 (issue #115)."""
     out_path = str(tmp_path / "out.png")
@@ -107,7 +107,7 @@ def test_export_missing_module_child_is_503_naming_export_python(
         asyncio.run(api_export._render_export(  # pylint: disable=protected-access
             _failing_child_argv(stderr_text), out_path))
     assert excinfo.value.status_code == 503
-    assert "EXPORT_PYTHON" in str(excinfo.value.detail)
+    assert "CLAUDIT_EXPORT_PYTHON" in str(excinfo.value.detail)
 
 
 @pytest.mark.parametrize("rc, stderr_text", [
@@ -147,7 +147,7 @@ def test_export_no_data_child_is_404(app_with_data, tmp_path, capsys):
 
 
 def test_export_no_data_range_answers_404_not_500(app_with_data, monkeypatch, tmp_path):
-    """End to end through the REAL plot child (EXPORT_PYTHON = the test
+    """End to end through the REAL plot child (CLAUDIT_EXPORT_PYTHON = the test
     interpreter, so matplotlib and psycopg are importable): an export for
     a project with no records must not answer 500 — the child's no-data
     exit maps to 404 (issue #445). On unfixed code the child exits 1 on
@@ -182,7 +182,7 @@ def test_plot_db_project_filter_subsets_events(app_with_data, monkeypatch, reque
     and every returned event belongs to the requested project."""
     mod = _load_plot_db_module(monkeypatch, request)
     # Dynamic import hides DB_URL from static checking; main() rebinds it.
-    setattr(mod, "DB_URL", os.environ["DATABASE_URL_VIZ"])
+    setattr(mod, "DB_URL", os.environ["CLAUDIT_DATABASE_URL_VIZ"])
 
     all_events = mod.load_events(None, None)
     assert all_events, "fixture should yield records"
@@ -205,11 +205,11 @@ def _build_api_client(mp, label: str):
     Auth is bypassed by mounting only the router into a clean app.
     """
     test_db = scratch_db.create_database(label)
-    mp.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
+    mp.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{test_db}")
     src = _REPO_ROOT / "fixtures/r2_mini"
     tmp = tempfile.mkdtemp(prefix="sv-api-")
     shutil.copytree(src, Path(tmp) / "r2")
-    mp.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
+    mp.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp}/r2/")
 
     db.reset_viz_pool()
 
@@ -312,7 +312,7 @@ def test_projects_range_scoped_ordering_and_zero_token_exclusion(app_with_fresh_
     conflated. A lane priced at $0 has usage and must stay listed; a
     project with all-time usage but nothing in the selected range stays
     listed too, sorted to the bottom."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, conn.cursor() as cur:
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO projects (project_id, display_name, first_seen_at, last_seen_at) VALUES "
             "('projNeverToken', 'projNeverToken', now(), now()), "
@@ -585,10 +585,10 @@ def _app_with_rl_data_fixture(monkeypatch):
     own ts. Yields (client, in_range_ts, out_of_range_ts).
     """
     test_db = scratch_db.create_database("api_rl")
-    monkeypatch.setenv("DATABASE_URL_VIZ", f"postgresql:///{test_db}")
+    monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{test_db}")
     tmp = tempfile.mkdtemp(prefix="sv-api-rl-")
     shutil.copytree(_REPO_ROOT / "fixtures/r2_mini", Path(tmp) / "r2")
-    monkeypatch.setenv("R2_ENDPOINT", f"file://{tmp}/r2/")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp}/r2/")
 
     now = datetime.now(timezone.utc)
     in_range = (now - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -641,7 +641,7 @@ def _app_with_rl_data_fixture(monkeypatch):
 def _insert_tz_probe_rows():
     """Two records with a unique model, one in winter (CET, UTC+1) and one
     in summer (CEST, UTC+2), to prove the endpoint is DST-aware."""
-    with closing(psycopg.connect(os.environ["DATABASE_URL_VIZ"])) as conn, conn.cursor() as cur:
+    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO projects (project_id, display_name, first_seen_at, last_seen_at) "
             "VALUES ('projTZ', 'projTZ', now(), now()) ON CONFLICT DO NOTHING"
