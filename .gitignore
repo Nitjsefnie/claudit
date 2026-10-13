@@ -153,6 +153,7 @@
 /scripts/*
 !/scripts/*.sh
 !/scripts/bench_parser.py
+!/scripts/uuid_gate.py
 !/scripts/pre-push
 !/scripts/ci/
 /scripts/ci/*
@@ -182,3 +183,6 @@
 !/tests/
 /tests/*
 !/tests/*.py
+# The API-response parity capture (issue #959): golden payloads the
+# pre-migration code produced, compared after the surrogate-id change.
+!/tests/dims_api_golden.json
