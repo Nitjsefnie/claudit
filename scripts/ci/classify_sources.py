@@ -30,6 +30,7 @@ def pricing_change(event: dict, run: Callable, refs_reader: Callable, blob_reade
 
 
 def numeric_assignment_only(before: bytes, after: bytes) -> bool:
+    """Only same-width digits may change; the measured byte pair stays exact."""
     old, new = before.splitlines(keepends=True), after.splitlines(keepends=True)
     edits = [change for change in difflib.SequenceMatcher(None, old, new).get_opcodes()
              if change[0] != 'equal']
@@ -39,7 +40,7 @@ def numeric_assignment_only(before: bytes, after: bytes) -> bool:
     if kind != 'replace' or last - first != 1 or stop - start != 1:
         return False
     removed, added = VERSION.fullmatch(old[first]), VERSION.fullmatch(new[start])
-    if removed is None or added is None:
+    if removed is None or added is None or len(removed[2]) != len(added[2]):
         return False
     return (old[first][:removed.start(2)] + old[first][removed.end(2):]
             == new[start][:added.start(2)] + new[start][added.end(2):])

@@ -6,8 +6,8 @@ here. A node skip rides a test that itself runs node, judged by its
 transitive same-file call closure LAUNCHING node through a subprocess
 call - never by an incidental string constant in the body (#812) - and
 a mark predicate built from a module-level variable that names node is
-a node skip too (#812). The comment-share measurement function and Python
-CLI are trusted node entry points; parameter data is never a skip mark.
+a node skip too (#812). Measurement calls need literal JavaScript inputs;
+the report CLI launches node. Parameter data is never a skip mark.
 """
 from __future__ import annotations
 
@@ -415,11 +415,33 @@ def _measurement_launch(nodes: list[ast.AST], imported: dict[str, str]) -> bool:
         for local, qualified in imported.items():
             target = qualified + name[len(local):] if name == local or name.startswith(local + '.') else ''
             if target in ('scripts.ci.comment_share.measure_files',
-                          'scripts.ci.comment_share.javascript_comments', 'scripts.ci.comment_share.main'):
+                          'scripts.ci.comment_share.javascript_comments') and _measurement_input(node, target):
                 return True
         if _measurement_cli(node):
             return True
     return False
+
+
+def _measurement_input(node: ast.Call, target: str) -> bool:
+    argument = 'sources' if target.endswith('.measure_files') else 'paths'
+    if len(node.args) > 2 or any(isinstance(arg, ast.Starred) for arg in node.args):
+        return False
+    if (any(kw.arg not in ('root', argument) for kw in node.keywords)
+            or len(node.args) == 2 and node.keywords
+            or node.args and any(kw.arg == 'root' for kw in node.keywords)):
+        return False
+    value = node.args[1] if len(node.args) == 2 else next(
+        (kw.value for kw in node.keywords if kw.arg == argument), None)
+    try:
+        data = ast.literal_eval(value) if value is not None else None
+    except (ValueError, TypeError, SyntaxError):
+        return False
+    if argument == 'sources':
+        return isinstance(data, dict) and any(
+            isinstance(path, str) and path.endswith(('.js', '.jsx', '.mjs', '.cjs'))
+            and language == 'javascript' for path, language in data.items())
+    return isinstance(data, (list, tuple)) and bool(data) and all(
+        isinstance(path, str) and path.endswith(('.js', '.jsx', '.mjs', '.cjs')) for path in data)
 
 
 def _measurement_cli(node: ast.Call) -> bool:

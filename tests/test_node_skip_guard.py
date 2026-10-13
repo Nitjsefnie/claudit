@@ -27,7 +27,7 @@ closure step (a skipif names node and would otherwise trivially
 ground), and a function's docstring is excluded (a Python-only test's
 prose must not ground its closure). Residuals, disclosed: a helper
 outside the ``tests.`` package (except comment-share measurement
-entry points, whose implementation launches node) or a conftest fixture resolves
+calls with literal JavaScript inputs, and the report CLI) or a conftest fixture resolves
 nowhere and fails loud as a false offender, the deny-guard's safe
 direction; a node launched without a ``subprocess`` call (an
 ``os.system``, a shelled wrapper) is not seen as an invocation, nor is
@@ -212,9 +212,12 @@ def test_node_parameter_data_and_other_decorators_are_not_skips() -> None:
 
 def test_comment_measurement_entry_points_ground_real_node_skips() -> None:
     for imports, body in (
-        ("from scripts.ci import comment_share as counter\n", "counter.measure_files()"),
-        ("import scripts.ci.comment_share as counter\n", "counter.measure_files()"),
-        ("from scripts.ci.comment_share import measure_files as measure\n", "measure()"),
+        ("from scripts.ci import comment_share as counter\n", "counter.measure_files(Path('.'), {'a.js': 'javascript'})"),
+        ("import scripts.ci.comment_share as counter\n", "counter.measure_files(Path('.'), {'a.js': 'javascript'})"),
+        ("from scripts.ci.comment_share import measure_files as measure\n", "measure(Path('.'), {'a.js': 'javascript'})"),
+        ("from scripts.ci import comment_share as counter\n", "counter.javascript_comments(Path('.'), ['a.mjs'])"),
+        ("from scripts.ci.comment_share import javascript_comments as measure\n", "measure(root=Path('.'), paths=('a.cjs',))"),
+        ("from scripts.ci import comment_share as counter\n", "counter.measure_files(sources={'a.jsx': 'javascript'})"),
         ("import subprocess\n", "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report'])"),
         ("import subprocess\n", "subprocess.run([sys.executable, ROOT / 'scripts/ci/comment_share.py', '--report'])"),
         ("import subprocess\n", "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report', '--root', '.'])"),
@@ -227,6 +230,16 @@ def test_comment_measurement_entry_points_ground_real_node_skips() -> None:
 
 @pytest.mark.parametrize('body', [
     "counter.python_comments('x = 1')",
+    "counter.main(['--help'])",
+    "counter.javascript_comments(Path('.'), [])",
+    "counter.measure_files(Path('.'), {})",
+    "counter.measure_files()",
+    "counter.javascript_comments(Path('.'), paths)",
+    "counter.measure_files(Path('.'), {'a.py': 'python'})",
+    "counter.measure_files(Path('.'), {'a.js': 'python'})",
+    "counter.measure_files(Path('.'), sources)",
+    "counter.measure_files(Path('.'), sources=None)",
+    "counter.javascript_comments(Path('.'), ['a.js'], **options)",
     "subprocess.run(['echo', 'scripts/ci/comment_share.py'])",
     "subprocess.run(['python3', 'other.py', 'scripts/ci/comment_share.py'])",
     "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--help'])",
