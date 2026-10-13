@@ -459,13 +459,15 @@ def test_holder_lookup_ignores_another_database(fresh_db):
     """Issue #965: while only a backend on another database of the instance
     holds the key, the lookup finds no holder, so the callers' termination
     never runs and that backend survives."""
-    peer_db = f"{fresh_db}_peer"
+    peer_db = scratch_db.db_name("ingest_peer")
     scratch_db.create_empty_database(peer_db)
     try:
         with closing(psycopg.connect(dbname=peer_db, autocommit=True)) as peer:
             peer.execute(  # pylint: disable=no-member
                 "SELECT pg_advisory_lock(%s)",
                 (ingest._INGEST_LOCK_KEY,))  # pylint: disable=protected-access
+            # A lookup that crosses databases fails pytest.raises (DID NOT
+            # RAISE); the SELECT after it asserts the peer is still alive.
             with pytest.raises(AssertionError, match="must hold"), closing(
                     psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
                                     autocommit=True)) as killer:
