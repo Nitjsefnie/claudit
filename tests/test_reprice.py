@@ -32,6 +32,7 @@ from test_ingest import (  # pylint: disable=unused-import
 )
 
 from backend import constants, db, ingest, ingest_reprice, pricing
+from tests import dims_seed
 from tests.reprice_fixture_builders import (
     SEED_INPUTS as _SEED_INPUTS,
     SEED_MODEL as _SEED_MODEL,
@@ -77,7 +78,9 @@ def test_ingest_stamps_pricing_version(fresh_db, mini_r2_env):
         total, stamped = _pair(
             c,
             "SELECT COUNT(*), COUNT(*) FILTER ("
-            "WHERE pricing_version = %s) FROM records",
+            "WHERE pv.value = %s) FROM records r "
+            "JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num "
+            "JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id",
             (constants.PRICING_VERSION,),
         )
     assert total > 0, "the mirror must produce records, or this proves nothing"
@@ -86,20 +89,13 @@ def test_ingest_stamps_pricing_version(fresh_db, mini_r2_env):
         f"with pricing_version {constants.PRICING_VERSION!r}")
 
 
-def test_pricing_version_column_is_nullable_migration(fresh_db, mini_r2_env):
-    """A DB already holding pre-migration-shaped records rows gains the
-    column at the next schema pass: additive, NULL-allowing, and the
-    existing rows keep their place — reading NULL, the shape the reprice
-    pass treats as stale."""
+def test_pricing_version_dim_is_nullable_migration(fresh_db, mini_r2_env):
+    """Since #959 the version rides a nullable dim FK instead of a TEXT
+    column: the catalog admits NULL, apply_schema leaves stored rows
+    alone, and a row written without a version reads NULL — the shape
+    the reprice pass treats as stale."""
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
-
-    # Put the DB into the pre-migration shape: the column the new schema
-    # would create is absent while data is already in `records`.
-    with db.viz_conn() as c:
-        c.execute(
-            "ALTER TABLE records DROP COLUMN IF EXISTS pricing_version")
-        c.commit()
 
     with db.viz_conn() as c:
         before = c.execute("SELECT COUNT(*) FROM records").fetchone()
@@ -118,17 +114,18 @@ def test_pricing_version_column_is_nullable_migration(fresh_db, mini_r2_env):
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT is_nullable FROM information_schema.columns "
-            "WHERE table_schema = 'public' AND table_name = 'records' "
-            "AND column_name = 'pricing_version'").fetchone()
+            "WHERE table_schema = 'public' AND table_name = 'records_price' "
+            "AND column_name = 'pricing_version_id'").fetchone()
         assert row is not None and row[0] == "YES", (
-            "schema.sql must add pricing_version and admit NULL")
-        after, nulls = _pair(
-            c,
-            "SELECT COUNT(*), COUNT(*) FILTER ("
-            "WHERE pricing_version IS NULL) FROM records")
-    assert after == before[0], "the migration must not disturb existing rows"
-    assert nulls == after, (
-        "pre-migration rows must read NULL, not be backfilled")
+            "records_price.pricing_version_id must be a nullable dim FK")
+        _seed(c, _FILE_KEY, 99, SeedRecord(pricing_version=None))
+        after = c.execute(
+            "SELECT COUNT(*) FROM records").fetchone() or (0,)
+        nulls = c.execute(
+            "SELECT COUNT(*) FROM records_price WHERE pricing_version_id IS NULL"
+        ).fetchone() or (0,)
+    assert after[0] == before[0] + 1, "the pass must not disturb stored rows"
+    assert nulls[0] >= 1, "a row written without a version reads NULL id"
 
 
 def _seed_meter_row(c, line_num: int, *, model: str, fresh_tokens: int,
@@ -136,18 +133,25 @@ def _seed_meter_row(c, line_num: int, *, model: str, fresh_tokens: int,
                     long_context: bool | None = None) -> None:
     """One stale record row whose tally the test chooses, inserted
     DIRECTLY: the fixed-tally _seed can carry no meter-sized tally and
-    names no long_context. The INSERT names the long_context column, so
+    names no long_context. The sidecar INSERT names the long_context column, so
     a seeded flag is really in the row before the pass runs."""
     _seed_parents(c, _FILE_KEY)
+    fid = dims_seed.file_id(c, _FILE_KEY)
+    mid = dims_seed.dim_id(c, "dim_model", model)
+    provid = (None if provider is None
+              else dims_seed.dim_id(c, "dim_provider", provider))
     c.execute(
-        "INSERT INTO records (file_key, line_num, ts, model, fresh_tokens, "
-        "cache_creation_tokens, cache_read_tokens, output_tokens, "
-        "eph5_tokens, eph1h_tokens, cost_usd, provider, long_context, "
-        "pricing_version) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (_FILE_KEY, line_num, _SEED_TS, model, fresh_tokens,
-         0, 0, 0, 0, 0, 0.5, provider, long_context, None),
+        "INSERT INTO records (file_id, line_num, ts, model_id, "
+        "fresh_tokens, cache_creation_tokens, cache_read_tokens, "
+        "output_tokens, eph5_tokens, eph1h_tokens, provider_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (fid, line_num, _SEED_TS, mid, fresh_tokens,
+         0, 0, 0, 0, 0, provid),
     )
+    c.execute(
+        "INSERT INTO records_price (file_id, line_num, cost_usd, "
+        "long_context, pricing_version_id) VALUES (%s, %s, %s, %s, %s)",
+        (fid, line_num, 0.5, long_context, None))
 
 
 def _seeded_cost() -> float:
@@ -190,7 +194,8 @@ def test_reprice_multiplies_stored_search_count_and_clears_old_fee(
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT cost_usd, request_fee_usd, web_search_requests "
-            "FROM records WHERE file_key = %s AND line_num = 1",
+            "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+            "WHERE f.file_key = %s AND r.line_num = 1",
             (_FILE_KEY,)).fetchone()
     assert row is not None
     cost, old_fee, searches = row
@@ -214,8 +219,10 @@ def test_reprice_null_search_count_does_not_charge_search_or_keep_old_fee(
     assert ingest_reprice.reprice_stale() == 1
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT cost_usd, request_fee_usd FROM records "
-            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+            "SELECT cost_usd, request_fee_usd FROM records r "
+            "JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+            "WHERE f.file_key = %s AND r.line_num = 1",
+            (_FILE_KEY,)).fetchone()
     assert row is not None
     cost, old_fee = row
     expected = round(pricing.compute_cost(
@@ -240,8 +247,12 @@ def test_reprice_restamps_when_search_cost_already_matches(fresh_db,
     assert ingest_reprice.reprice_stale() == 0
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT pricing_version, request_fee_usd FROM records "
-            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+            "SELECT pv.value, request_fee_usd FROM records r "
+            "JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+            "LEFT JOIN dim_pricing_version pv "
+            "  ON pv.id = rp.pricing_version_id "
+            "WHERE f.file_key = %s AND r.line_num = 1",
+            (_FILE_KEY,)).fetchone()
     assert row is not None
     version, old_fee = row
     assert version == constants.PRICING_VERSION
@@ -252,8 +263,10 @@ def _rows(c) -> list:
     """The seeded file's record rows as (line_num, cost_usd,
     pricing_version), ordered by line_num."""
     return c.execute(
-        "SELECT line_num, cost_usd, pricing_version FROM records "
-        "WHERE file_key = %s ORDER BY line_num",
+        "SELECT r.line_num, rp.cost_usd, pv.value "
+        "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+        "LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id "
+        "WHERE f.file_key = %s ORDER BY r.line_num",
         (_FILE_KEY,),
     ).fetchall()
 
@@ -270,8 +283,11 @@ def test_reprice_selects_null_version(fresh_db):
 
     with db.viz_conn() as c:
         cost, version = _pair(
-            c, "SELECT cost_usd, pricing_version FROM records "
-               "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,))
+            c, "SELECT rp.cost_usd, pv.value "
+               "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+               "LEFT JOIN dim_pricing_version pv "
+               "  ON pv.id = rp.pricing_version_id "
+               "WHERE f.file_key = %s AND r.line_num = 1", (_FILE_KEY,))
     assert float(cost) == _seeded_cost()
     assert version == constants.PRICING_VERSION
 
@@ -336,8 +352,11 @@ def test_reprice_reprices_a_non_integer_version(fresh_db):
 
     with db.viz_conn() as c:
         cost, version = _pair(
-            c, "SELECT cost_usd, pricing_version FROM records "
-               "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,))
+            c, "SELECT rp.cost_usd, pv.value "
+               "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+               "LEFT JOIN dim_pricing_version pv "
+               "  ON pv.id = rp.pricing_version_id "
+               "WHERE f.file_key = %s AND r.line_num = 1", (_FILE_KEY,))
     assert float(cost) == _seeded_cost()
     assert version == constants.PRICING_VERSION
 
@@ -465,8 +484,11 @@ def test_reprice_prices_a_weekly_schedule(fresh_db,
 
     with db.viz_conn() as c:
         cost, _version = _pair(
-            c, "SELECT cost_usd, pricing_version FROM records "
-               "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,))
+            c, "SELECT rp.cost_usd, pv.value "
+               "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+               "LEFT JOIN dim_pricing_version pv "
+               "  ON pv.id = rp.pricing_version_id "
+               "WHERE f.file_key = %s AND r.line_num = 1", (_FILE_KEY,))
     assert float(cost) == round(pricing.compute_cost(
         prov.model, **_SEED_INPUTS, ts=ts,
         adjustments=pricing.CostAdjustments(long_context=False),
@@ -500,8 +522,11 @@ def test_reprice_rederives_long_context_for_the_meters_models(fresh_db):
 
     with db.viz_conn() as c:
         rows = c.execute(
-            "SELECT line_num, long_context, cost_usd, pricing_version "
-            "FROM records WHERE file_key = %s ORDER BY line_num",
+            "SELECT r.line_num, rp.long_context, rp.cost_usd, pv.value "
+            "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+            "LEFT JOIN dim_pricing_version pv "
+            "  ON pv.id = rp.pricing_version_id "
+            "WHERE f.file_key = %s ORDER BY r.line_num",
             (_FILE_KEY,)).fetchall()
     codex, claude = rows
     assert codex[0] == 1 and claude[0] == 2
@@ -532,8 +557,10 @@ def test_reprice_keeps_a_nonmember_codex_rows_stored_flag(fresh_db, monkeypatch)
 
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT long_context, cost_usd FROM records "
-            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+            "SELECT long_context, cost_usd FROM records r "
+            "JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+            "WHERE f.file_key = %s AND r.line_num = 1",
+            (_FILE_KEY,)).fetchone()
     assert row is not None
     assert row[0] is True
     assert float(row[1]) == flat
@@ -558,8 +585,12 @@ def test_reprice_claims_a_pre_fold_null_row_of_a_member(fresh_db):
 
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT long_context, cost_usd, pricing_version FROM records "
-            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+            "SELECT rp.long_context, rp.cost_usd, pv.value "
+            "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+            "LEFT JOIN dim_pricing_version pv "
+            "  ON pv.id = rp.pricing_version_id "
+            "WHERE f.file_key = %s AND r.line_num = 1",
+            (_FILE_KEY,)).fetchone()
     assert row is not None, "the seeded meter row must exist"
     flag, cost, version = row
     assert flag is True, (
@@ -581,16 +612,24 @@ def test_reprice_unbills_a_lapsed_members_stored_true(fresh_db):
     with db.viz_conn() as c:
         _seed_meter_row(c, 1, model="gpt-6-sol", fresh_tokens=250_000,
                         long_context=True)
-        c.execute("UPDATE records SET model = 'claude-opus-4-7' "
-                  "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,))
+        new_model = dims_seed.dim_id(c, "dim_model", "claude-opus-4-7")
+        c.execute(
+            "UPDATE records r SET model_id = %s "
+            "  FROM files f "
+            " WHERE r.file_id = f.file_id AND f.file_key = %s "
+            "   AND r.line_num = 1", (new_model, _FILE_KEY))
         c.commit()
 
     assert ingest_reprice.reprice_stale() == 1
 
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT long_context, cost_usd, pricing_version FROM records "
-            "WHERE file_key = %s AND line_num = 1", (_FILE_KEY,)).fetchone()
+            "SELECT rp.long_context, rp.cost_usd, pv.value "
+            "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+            "LEFT JOIN dim_pricing_version pv "
+            "  ON pv.id = rp.pricing_version_id "
+            "WHERE f.file_key = %s AND r.line_num = 1",
+            (_FILE_KEY,)).fetchone()
     assert row is not None, "the seeded lapsed row must exist"
     flag, cost, version = row
     assert flag is False, (
@@ -614,8 +653,12 @@ def test_reprice_derives_a_provider_rows_flag_too(fresh_db):
 
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT long_context, cost_usd, pricing_version FROM records "
-            "WHERE (file_key, line_num) = (%s, 1)", (_FILE_KEY,)).fetchone()
+            "SELECT rp.long_context, rp.cost_usd, pv.value "
+            "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+            "LEFT JOIN dim_pricing_version pv "
+            "  ON pv.id = rp.pricing_version_id "
+            "WHERE (f.file_key, r.line_num) = (%s, 1)",
+            (_FILE_KEY,)).fetchone()
     assert row is not None, "the seeded provider row must exist"
     flag, cost, version = row
     assert flag is True

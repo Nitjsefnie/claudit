@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from backend import agent_sidecar, blob_cache, db, parse, r2
+from backend import agent_sidecar, blob_cache, db, ingest_vacuum, parse, r2
 from backend.flags import CollectionPolicy
 from backend.ingest_reprice import IngestAborted
 from backend.ingest_resolve import (  # noqa: F401  (re-export)
@@ -170,8 +170,15 @@ def pipeline_threads(todo: list[tuple], parser_version: str,
     vanished = 0
     workers = worker_count()
     chunk = max(1, workers * 4)
+    batch_vacuum = ingest_vacuum.BatchVacuum(
+        enabled=scope is not None and scope.full,
+        check_shutdown=check_shutdown)
     for start in range(0, len(todo), chunk):
         check_shutdown()
+        if start:
+            # Between persist batches: a full reparse reclaims its
+            # per-file dead rows before the next batch inserts (issue #959).
+            batch_vacuum.maybe(reparsed)
         for (obj, proj, stored), parsed, exc in resolve(
             todo[start:start + chunk],
             lambda it: parse_call(it[0].key, it[0].sidecar_key,
@@ -337,6 +344,9 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
     processes = parse_process_count()
     persist_workers = persist_thread_count()
     chunk = max(1, processes * 4)
+    batch_vacuum = ingest_vacuum.BatchVacuum(
+        enabled=scope is not None and scope.full,
+        check_shutdown=check_shutdown)
 
     def drain(persist_futures: dict, stored_by_key: dict,
               in_wall: bool = True) -> None:
@@ -387,6 +397,11 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
                     for it in items}
                 if pending is not None:
                     drain(*pending)
+                    # Between persist batches: a full reparse reclaims
+                    # its per-file dead rows before the next drain
+                    # inserts into them (issue #959); the new chunk's
+                    # parses are already running underneath.
+                    batch_vacuum.maybe(reparsed)
                 pending = None
                 wait_started = (time.perf_counter()
                                 if current is not None else None)

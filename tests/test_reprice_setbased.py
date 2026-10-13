@@ -14,7 +14,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import re
-from pathlib import Path
 
 import pytest
 
@@ -103,12 +102,19 @@ def test_reprice_endpoint_matches_the_assembly_point(fresh_db):
 
     with db.viz_conn() as c:
         raw = c.execute(
-            "SELECT file_key, line_num, model, fresh_tokens, "
-            "cache_creation_tokens, cache_read_tokens, output_tokens, "
-            "eph5_tokens, eph1h_tokens, ts, long_context, provider, "
-            "cost_usd, pricing_version, rate_fingerprint, "
-            "request_fee_usd, web_search_requests FROM records "
-            "WHERE file_key = %s ORDER BY line_num", (_FILE_KEY,)).fetchall()
+            "SELECT f.file_key, r.line_num, dm.value, r.fresh_tokens, "
+            "r.cache_creation_tokens, r.cache_read_tokens, "
+            "r.output_tokens, r.eph5_tokens, r.eph1h_tokens, r.ts, "
+            "rp.long_context, dp.value, rp.cost_usd, pv.value, df.value, "
+            "rp.request_fee_usd, r.web_search_requests "
+            "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
+            "JOIN dim_model dm ON dm.id = r.model_id "
+            "LEFT JOIN dim_provider dp ON dp.id = r.provider_id "
+            "LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id "
+            "LEFT JOIN dim_rate_fingerprint df "
+            "  ON df.id = rp.rate_fingerprint_id "
+            "WHERE f.file_key = %s ORDER BY r.line_num",
+            (_FILE_KEY,)).fetchall()
     assert len(raw) == 3
     for tup in raw:
         row = ingest_reprice._StaleRow(*tup)  # pylint: disable=protected-access
@@ -268,22 +274,3 @@ def test_reprice_pass_emits_no_timing_when_off(fresh_db, caplog):
 
     assert not [record.getMessage() for record in caplog.records
                 if record.getMessage().startswith("TIMING reprice")]
-
-
-def test_reprice_table_stores_at_fillfactor_50():
-    """Issue #350's write fix is the storage shape, not the statement:
-    the restamp UPDATE rewrites every stale row, and a page at the
-    default fillfactor cannot hold its rows' new versions, so every
-    rewrite is non-HOT — new heap tuples plus entries in all eight
-    indexes, 57.6s and 2.66 GB WAL per full-table restamp measured on a
-    1.33M-row fixture. At 50 a page absorbs its rows' rewrites in place:
-    12.2s and 499 MB, stable across consecutive bump cycles. CI-scale
-    tables never fill their pages, so the suite pins the source line;
-    every startup applies it (SV-SCHEMA-AUTOAPPLY) and an existing
-    deploy compacts once with `VACUUM FULL records`."""
-    schema = (Path(db.__file__).parent / "schema.sql").read_text()
-    assert re.findall(r"ALTER TABLE records SET \(fillfactor = (\d+)\);",
-                      schema) == ["50"], (
-        "records must store at fillfactor 50, stated exactly once - "
-        "PostgreSQL applies the LAST assignment, so a second, later or "
-        "conflicting line would win silently over the pinned one")
