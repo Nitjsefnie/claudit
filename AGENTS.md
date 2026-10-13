@@ -395,12 +395,18 @@ classification and still pass. Two deliberate shapes, not drift: the
 tests canary runs the suite-cost bench and gates it against committed
 instruction budgets (`scripts/ci/suite_bench.py`), and
 `refresh-pricing.yml` deliberately keeps its dependency installs uncached
-despite the pip-cache rule. The five database workflows use
-`.github/actions/postgres/action.yml` to restore a digest-keyed image
-archive and start Postgres from a local tag with `--pull never`; the hourly
-master refresh keeps that image cache warm for PR reads. A cold miss retries
-public ECR, then `mirror.gcr.io` at the same pinned digest; both failures
-report the cache miss and each registry's answers.
+despite the pip-cache rule. Registry images come from the Actions
+cache through one composite, `.github/actions/cached-image/action.yml`:
+an exact-key restore, else three bounded pulls from public ECR, then
+three from `mirror.gcr.io` at the same reference, then save; when both
+fail the job reports the cache miss and each registry's answers. The
+five database workflows use `.github/actions/postgres/action.yml`, which
+gets the digest-keyed image through `postgres-image` and starts it from a
+local tag with `--pull never`; the hourly master refresh keeps that entry
+warm for PR reads. `docker-smoke` restores the same Postgres entry, runs
+it via the `.github/docker-smoke.compose.yaml` override
+(`pull_policy: never`), and caches the Dockerfile's tag-pinned base under
+a weekly key.
 
 **Releases are cut by editing the root `VERSION`** (one semver line,
 no `v`). Between releases it carries the next version with `-dev`; a

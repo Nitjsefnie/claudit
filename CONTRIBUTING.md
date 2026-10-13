@@ -117,8 +117,8 @@ docker compose up
 
 That builds the root `Dockerfile` and starts two services:
 
-- **db** — a digest-pinned PostgreSQL 16 (the same image the shared CI
-  action starts; Compose pulls it directly). On its first boot, against an
+- **db** — a digest-pinned PostgreSQL 16 (the same image CI uses; a
+  local `docker compose up` pulls it directly). On its first boot, against an
   empty data directory,
   `compose/postgres-init.sql` creates the `claudit` application database and
   the external `claudit_auth` database with its two-column `users` table —
@@ -309,12 +309,12 @@ The rest need GitHub and run on their own:
 | `coverage-comment` | Posts the informational patch-coverage comment (issue #560). Fires on the ci-gate run's completion and only for a pull-request run, because `tests` is a `workflow_call` callee and produces no run of its own. It is the write-capable half of a boundary the `tests` leg cannot cross: that leg checks out and RUNS the proposed tree, so it holds `contents: read` and nothing more — before issue #560 it held `pull-requests: write` for the comment itself, which on a fork is read-only anyway, so no fork pull request ever saw the readout. Only the RENDERED BODY crosses, as an artifact. Every artifact byte is untrusted: the destination pull request is resolved from the `workflow_run` event's own `pull_requests`, the artifact's claim is only compared with it (a mismatch fails the step loudly), the body must be an ordinary file, is size-capped and refused rather than truncated, and reaches GitHub as a file argument — never executed, never shell-interpolated. No `actions/checkout`, no pull-request code, no `checks: write`; it publishes no check run, joins no aggregate, and is not a gate. A run without the artifact refreshes the marker so a previous commit's percentage cannot look current. If GitHub ever hands back an empty `pull_requests` array, the number is resolved from the base repository by merge-ref lookup instead, and the run posts **nothing** rather than posting a number it cannot prove is current. |
 | `test-data` | Would a refresh-shaped change — moved rates, bumped version constants — break the suite? Perturbs the tree exactly that way (`scripts/ci/perturb_test_data.py`) and runs the full suite against it on the cached Postgres 16 container; no coverage, no ratchet — the verdict is the perturbed suite's pass/fail. Runs on three fixed seeds so the verdict is deterministic (the appended `from` stamps are decoupled from the seed, so any seed is safe) — one matrix job per seed, in parallel (issue #456), so the leg's wall is a single suite run. A ci-gate leg, skipped on docs-only changes that touch none of the three setup docs. The second half of SV-TEST-DATA's enforcement. |
 | `test-data-explore` | The daily explorer for `test-data`: draws three wall-clock seeds and runs the same full perturbed suite per seed, naming any failing seed in the run summary. Not a ci-gate leg — a red run means "look at this seed", never "block". |
-| `gate-freshness` | Publishes the `gate freshness` check run on every open PR head, on each master push (all heads) and each `pull_request_target` event (the event's own head, filtered to the base it protects): red iff master holds a commit the head lacks whose changed paths hit the gate trigger set — the workflows, local actions and CI scripts, the ratchet data, the scanner/lint/type configs, the requirements files. A `.github/ci-thresholds.json` tighten triggers this workflow although the gate suites ignore it. Unreadable per-head compares publish red; a global read failure publishes nothing and exits nonzero. Advisory until the `require-ci-aggregate` ruleset requires the name `gate freshness`. |
+| `gate-freshness` | Publishes the `gate freshness` check run on every open PR head, on each master push (all heads) and each `pull_request_target` event (the event's own head, filtered to the base it protects): red iff master holds a commit the head lacks whose changed paths hit the gate trigger set — the workflows, local actions and CI scripts, the ratchet data, the scanner/lint/type configs, the requirements files, the docker-smoke Compose override. A `.github/ci-thresholds.json` tighten triggers this workflow although the gate suites ignore it. Unreadable per-head compares publish red; a global read failure publishes nothing and exits nonzero. Advisory until the `require-ci-aggregate` ruleset requires the name `gate freshness`. |
 | `codeql` | Security analysis for Python and JS; findings go to the Security tab, not the build. Also runs weekly as a standalone cron, because new queries only ever see code that changed after they shipped. |
 | `scorecard` | OpenSSF Scorecard: measures the repository's supply-chain posture (branch protection, signed releases, pinned actions, review history) and uploads the SARIF to code scanning. Weekly on Saturday, and on manual dispatch. It is a **trend signal, not a gate** — it runs on no contribution event, so it is never a second verdict on a commit `ci-gate` already judges, and a red scorecard never blocks a release or a merge. Publishing (`publish_results`, over OIDC) happens only on the upstream default branch: a fork's run files into the fork's store, another branch's under this repository's name. The write permissions it needs (`security-events`, `id-token`) sit on the job, never on the workflow, because upstream refuses to publish from a workflow that declares write permissions above the job. |
 | `audit` | `pip-audit` over every requirements file, resolving the full transitive tree. Also runs daily as a standalone cron — an advisory lands without a commit here to hang it on. |
 | `panel-layout` | The rendered-layout gate (issue #631). Drives the real page in headless Chromium against the frozen payload set in `fixtures/layout/` at three viewport widths, and reads back every panel region's `getBoundingClientRect()`: each must sit inside its own panel, and no two may intersect. It exists because nothing else in the suite renders the dashboard, which is how issue #630's legend-over-chart reached a user with every other check green. One generic check over every panel, not a suite per panel; no database and no bucket. The browser driver is a devDependency like every other CI tool here. |
-| `docker-smoke` | The container leg (issue #941): builds the `Dockerfile` image and boots the compose stack (`compose.yaml` — digest-pinned Postgres with its first-boot init, the app on the `file://` fixture mirror) on a bare runner that carries no `CLAUDIT_R2_*` variables. Asserts the RESOLVED compose config is file-backed and credential-free before `up`, probes `/health` until the startup ingest finishes against the mounted mirror, and tears the stack down under `if: always()`. A ci-gate leg on every change that is neither docs-only nor bot-data-only. |
+| `docker-smoke` | The container leg (issue #941): builds the `Dockerfile` image and boots the compose stack (`compose.yaml` — digest-pinned Postgres with its first-boot init, the app on the `file://` fixture mirror) on a bare runner that carries no `CLAUDIT_R2_*` or legacy `R2_*` variables. Asserts the RESOLVED compose config is file-backed and credential-free before `up`, probes `/health` until the startup ingest finishes against the mounted mirror, and tears the stack down under `if: always()`. Both registry images come from the Actions cache (below): every compose call adds `.github/docker-smoke.compose.yaml`, which runs `db` from the cached Postgres tag with `pull_policy: never`, and the build finds the cached base in the local image store because nothing passes `--pull`. A ci-gate leg on every change that is neither docs-only nor bot-data-only. |
 | `actionlint` | `actionlint` + `zizmor` over the workflow files themselves. A broken workflow does not go red, it silently stops running. Runs as a ci-gate leg on every non-docs change. |
 | `release` | Cuts a tagged release when `VERSION` changes on `master`, after every other check on that commit has passed. A dev version (`X.Y.Z-dev`) skips everything — nothing is tagged. |
 | `version-guard` | Fails a master push or PR whose tree `VERSION` names an already-published release (an existing `v<VERSION>` tag). Under the dev-suffix discipline (`0.4.0-dev` between releases) this only ever fires on a missed bump. The hourly pricing bot's own commits are exempt; PRs get no carve-out. |
@@ -323,23 +323,40 @@ The rest need GitHub and run on their own:
 | `pr-gate` | Checks every non-draft PR's description against `.github/PULL_REQUEST_TEMPLATE.md` and requires a reference to an issue assigned to the PR's author. A non-conforming PR gets a comment naming what is missing and is closed; the gate reopens it once the description is corrected. Never runs pull-request code. See [Pull requests](#pull-requests). |
 | `secrets` | gitleaks sweeps the full tree and the full git history for credentials — a digest-pinned binary under the default ruleset, findings redacted in the public log (commit + path + rule, never the matched string). Runs daily, because a push carrying `[skip ci]` or a commit that predates the workflow is scanned the next morning rather than never. Complements `scripts/secrecy-check.sh`, the local literal-based check for this repo's own known-sensitive strings. |
 
-The five database workflows (`tests`, `test-data`, `test-data-explore`,
-`smoke`, `refresh-pricing`) start Postgres through
-`.github/actions/postgres/action.yml` after checkout. The action restores
-an image archive by the full pinned digest and runner OS/architecture;
-on a miss it pulls from public ECR with three bounded attempts and backoff,
-then tries `mirror.gcr.io/library/postgres` at the same digest with its own
-three bounded attempts if ECR fails. A successful pull from either source
-is tagged and saved. Concurrent saves may lose the race without failing
-the job. A restored local tag starts with `--pull never`, and the action
-waits for TCP readiness; there are no job `services:` or separate wait
-steps in these five workflows. Credentials remain `postgres` and the
+CI never depends on an anonymous registry image pull succeeding at that
+moment when the Actions cache has the image. One composite,
+`.github/actions/cached-image/action.yml`, restores an image archive by an
+exact key; on a miss it pulls from public ECR with three bounded attempts
+and backoff, then tries the same reference on `mirror.gcr.io` with its own
+three bounded attempts. Only a successful pull from either source is
+tagged and saved. Concurrent saves may lose the race without failing the
+job. A loaded archive carries a local tag, and callers use that tag, never
+a registry reference.
+
+The Postgres image's identity lives in `.github/actions/postgres-image/action.yml`:
+the full pinned digest, the key (digest plus runner OS/architecture), the
+`mirror.gcr.io/library/postgres` fallback at the same digest, and the local
+tag `claudit-postgres:<digest>`. The five database workflows (`tests`,
+`test-data`, `test-data-explore`, `smoke`, `refresh-pricing`) start
+Postgres through `.github/actions/postgres/action.yml` after checkout,
+which gets that image, starts the tag with `--pull never`, and waits for
+TCP readiness; there are no job `services:` or separate wait steps in
+these five workflows. Credentials remain `postgres` and the
 published localhost port remains 5432. The hourly `refresh-pricing` job
 runs only on master and restores even when rates are unchanged, warming
 master's entry for PR reads and keeping it active within the cache's
 seven-day unused-entry expiry. Its dependency installs still use no cache.
-A cold cache needs access to at least one registry; if both sources fail,
-the job reports the cache miss and each registry's answers in the log.
+`docker-smoke` restores that same Postgres entry. It also caches the
+Dockerfile's base — its `FROM` reference on public ECR, with
+`mirror.gcr.io/library/python` at the same tag as fallback — saved under
+the Dockerfile's exact reference. That base is tag-pinned, so its key adds
+the ISO week (UTC): an entry is restored only in the week it was saved, so
+the build never uses a base more than seven days old. The leg runs on
+master pushes that are neither docs-only nor bot-data-only; the first such
+push in a week saves that week's entry for PR reads, and a week with no
+such push leaves each PR to pull and cache its own on its first run. A test keeps the workflow's base reference equal to the Dockerfile's
+`FROM`. A cold cache needs access to at least one registry; if both sources
+fail, the job reports the cache miss and each registry's answers in the log.
 
 Python dependency caches follow one rule: restore on any event, save only
 from a push of `master`. `refresh-pricing` leaves its dependencies uncached. The explicit
