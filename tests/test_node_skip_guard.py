@@ -44,6 +44,8 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+
+import pytest
 from tests.node_skip_guard_impl import (
     _is_module_node_importorskip,
     _listed_files,
@@ -214,20 +216,30 @@ def test_comment_measurement_entry_points_ground_real_node_skips() -> None:
         ("import scripts.ci.comment_share as counter\n", "counter.measure_files()"),
         ("from scripts.ci.comment_share import measure_files as measure\n", "measure()"),
         ("import subprocess\n", "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report'])"),
+        ("import subprocess\n", "subprocess.run([sys.executable, ROOT / 'scripts/ci/comment_share.py', '--report'])"),
+        ("import subprocess\n", "subprocess.run(['python3', 'scripts/ci/comment_share.py', 'src/parser.js'])"),
     ):
         tree = ast.parse(imports + "@pytest.mark.skipif(shutil.which('node') is None)\n"
                          + f"def test_measure():\n    {body}\n")
         assert not _skip_without_node_lines(tree)
 
 
-def test_measurement_names_without_an_entry_point_do_not_ground_skips() -> None:
-    for body in ("counter.python_comments('x = 1')",
-                 "subprocess.run(['echo', 'scripts/ci/comment_share.py'])",
-                 "subprocess.run(['python3', 'other.py', 'scripts/ci/comment_share.py'])"):
-        tree = ast.parse("from scripts.ci import comment_share as counter\nimport subprocess\n"
-                         "@pytest.mark.skipif(shutil.which('node') is None)\n"
-                         + f"def test_python():\n    {body}\n")
-        assert _skip_without_node_lines(tree) == [(4, 'test_python')]
+@pytest.mark.parametrize('body', [
+    "counter.python_comments('x = 1')",
+    "subprocess.run(['echo', 'scripts/ci/comment_share.py'])",
+    "subprocess.run(['python3', 'other.py', 'scripts/ci/comment_share.py'])",
+    "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--help'])",
+    "subprocess.run(['python3', 'scripts/ci/comment_share.py', '-h'])",
+    "subprocess.run(['python3', 'other-scripts/ci/comment_share.py', '--report'])",
+    "subprocess.run(['python3', OTHER / 'scripts/ci/comment_share.py', '--report'])",
+    "subprocess.run(['python3', 'scripts/ci/comment_share.py'])",
+    "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report', '--help'])"
+])
+def test_measurement_names_without_an_entry_point_do_not_ground_skips(body) -> None:
+    tree = ast.parse("from scripts.ci import comment_share as counter\nimport subprocess\n"
+                     "@pytest.mark.skipif(shutil.which('node') is None)\n"
+                     + f"def test_python():\n    {body}\n")
+    assert _skip_without_node_lines(tree) == [(4, 'test_python')]
 
 
 def test_a_node_running_class_member_is_left_alone() -> None:
@@ -482,3 +494,21 @@ def test_the_full_guard_fails_a_seeded_python_only_member(tmp_path) -> None:
     assert len(offenders) == 1
     assert victim_rel in offenders[0]
     assert "test_seeded_python_only" in offenders[0]
+
+
+@pytest.mark.parametrize('imports, mark', [
+    ("from pytest import mark\n", "mark.skipif"),
+    ("from pytest import mark as pm\n", "pm.skipif"),
+    ("import pytest as pt\n", "pt.mark.skipif"),
+    ("import pytest as pt\nm = pt.mark\n", "m.skipif"),
+    ("from pytest import mark\nnode_skip = mark.skipif\n", "node_skip"),
+    ("import pytest\nfirst = pytest.mark\nsecond = first\n", "second.skip"),
+    ("", "unknown.skipif"),
+])
+def test_aliased_node_skip_marks_refuse_python_only_and_accept_node(imports, mark) -> None:
+    source = imports + f"@{mark}(shutil.which('node') is None, reason='node absent')\n"
+    source += "def test_subject():\n    "
+    tree = ast.parse(source + "assert 1 + 1 == 2\n")
+    assert _skip_without_node_lines(tree) == [(len(imports.splitlines()) + 2, 'test_subject')]
+    tree = ast.parse(source + "subprocess.run(['node', '-e', '1+1'])\n")
+    assert not _skip_without_node_lines(tree)

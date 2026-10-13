@@ -970,7 +970,7 @@
     ],
     "tests/node_skip_guard_impl.py": [
       3384,
-      13886
+      15290
     ],
     "tests/pricing_data_loader_helpers.py": [
       2845,
@@ -1386,7 +1386,7 @@
     ],
     "tests/test_node_skip_guard.py": [
       5231,
-      17854
+      19302
     ],
     "tests/test_overview_a11y_wiring.py": [
       8226,
