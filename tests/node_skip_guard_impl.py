@@ -65,6 +65,7 @@ def _context_from_tree(tree: ast.Module, root: Path | None,
         "fixtures": _fixture_table(module_funcs),
         "imported": _imported_names(tree),
         "node_names": _node_names(tree),
+        "mark_names": _mark_names(tree),
         "measurement_imports": _measurement_imports(tree),
     }
 
@@ -175,7 +176,7 @@ def _cross_file_target(ctx: dict, name: str):
 
 def _skip_without_node(func, ctx, class_methods,
                        class_mark: bool) -> list[tuple[int, str]]:
-    own_mark = any(_skip_mark_mentions_node(d, ctx["node_names"])
+    own_mark = any(_skip_mark_mentions_node(d, ctx["node_names"], ctx["mark_names"])
                    for d in func.decorator_list)
     if not (own_mark or class_mark):
         return []
@@ -291,7 +292,7 @@ def _class_mark_mentions_node(cls: ast.ClassDef, ctx: dict) -> bool:
         if id(c) in seen:
             continue
         seen.add(id(c))
-        if any(_skip_mark_mentions_node(v, ctx["node_names"])
+        if any(_skip_mark_mentions_node(v, ctx["node_names"], ctx["mark_names"])
                for s in _conditionals_descended(c.body)
                if (v := _pytestmark_value(s)) is not None):
             return True
@@ -356,13 +357,40 @@ def _mentions_node_ref(value: ast.expr, node_names: dict) -> bool:
         for n in ast.walk(value))
 
 
-def _skip_mark_mentions_node(value: ast.expr, names: dict) -> bool:
+def _mark_name(value: ast.expr, aliases: dict[str, str]) -> str:
+    if isinstance(value, ast.Name):
+        return aliases.get(value.id, value.id)
+    if isinstance(value, ast.Attribute):
+        return _mark_name(value.value, aliases) + '.' + value.attr
+    return ''
+
+
+def _mark_names(tree: ast.Module) -> dict[str, str]:
+    aliases = {}
+    for stmt, _line in _module_level_statements(tree):
+        if isinstance(stmt, ast.Import):
+            for alias in stmt.names:
+                if alias.name == 'pytest':
+                    aliases[alias.asname or alias.name] = 'pytest'
+        elif isinstance(stmt, ast.ImportFrom) and stmt.module == 'pytest':
+            for alias in stmt.names:
+                if alias.name == 'mark':
+                    aliases[alias.asname or alias.name] = 'pytest.mark'
+        elif isinstance(stmt, (ast.Assign, ast.AnnAssign)) and stmt.value is not None:
+            targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    aliases[target.id] = _mark_name(stmt.value, aliases)
+    return aliases
+
+
+def _skip_mark_mentions_node(value: ast.expr, names: dict, marks: dict) -> bool:
     if isinstance(value, (ast.List, ast.Tuple)):
-        return any(_skip_mark_mentions_node(item, names) for item in value.elts)
+        return any(_skip_mark_mentions_node(item, names, marks) for item in value.elts)
     if isinstance(value, ast.Name) and value.id in names:
-        return _skip_mark_mentions_node(names[value.id], {})
-    return (isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute)
-            and ast.unparse(value.func) in ('pytest.mark.skip', 'pytest.mark.skipif')
+        return _skip_mark_mentions_node(names[value.id], {}, marks)
+    return (isinstance(value, ast.Call)
+            and _mark_name(value.func, marks).rsplit('.', 1)[-1] in ('skip', 'skipif')
             and _mentions_node_ref(value, names))
 
 
@@ -408,8 +436,23 @@ def _measurement_cli(node: ast.Call) -> bool:
             isinstance(args[0], ast.Constant) and isinstance(args[0].value, str)
             and Path(args[0].value).name.startswith('python')):
         return False
-    return any(isinstance(part, ast.Constant) and isinstance(part.value, str)
-               and part.value.endswith('scripts/ci/comment_share.py') for part in ast.walk(args[1]))
+    return _measurement_args(args[1:])
+
+
+def _measurement_args(args: list[ast.expr]) -> bool:
+    script = args[0]
+    if isinstance(script, ast.BinOp) and isinstance(script.op, ast.Div):
+        if not isinstance(script.left, ast.Name) or script.left.id != 'ROOT':
+            return False
+        script = script.right
+    if not isinstance(script, ast.Constant) or script.value != 'scripts/ci/comment_share.py':
+        return False
+    values = [arg.value for arg in args[1:] if isinstance(arg, ast.Constant) and isinstance(arg.value, str)]
+    if not values or len(values) != len(args) - 1 or not all(values):
+        return False
+    if any(value in ('--help', '-h') or value.startswith('-') and value != '--report' for value in values):
+        return False
+    return '--report' in values or any(not value.startswith('-') for value in values)
 
 
 def _pytestmark_value(stmt: ast.stmt) -> ast.expr | None:
