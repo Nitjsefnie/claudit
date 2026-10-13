@@ -286,6 +286,11 @@ def _timeline_responses():
     return [r.content.decode() for r in responses]
 
 
+def _analyze_timeline_queries(conn):
+    """Match the planner statistics used for the master response capture."""
+    conn.execute("ANALYZE files, records, records_price, dim_model")
+
+
 def _timeline_schema(conn):
     return conn.execute(
         "SELECT column_name, udt_name, is_nullable, column_default "
@@ -306,11 +311,13 @@ def test_typed_timelines_migrate_in_place(monkeypatch):
             fresh_shape = _timeline_schema(conn)
             _seed_old_timelines(conn)
             _seed_distinguishable_timelines(conn)
+            _analyze_timeline_queries(conn)
             prompt_attnum = conn.execute(
                 "SELECT attnum FROM pg_attribute WHERE attrelid = 'files'::regclass "
                 "AND attname = 'prompt_ts'").fetchone()
         db.apply_schema()
         with db.viz_conn() as conn:
+            _analyze_timeline_queries(conn)
             assert _timeline_schema(conn) == [
                 ("ctx_input", "_int4", "NO", "'{}'::integer[]"),
                 ("ctx_line", "_int4", "NO", "'{}'::integer[]"),
@@ -355,6 +362,7 @@ def test_typed_timelines_migrate_in_place(monkeypatch):
             if old != new}
         db.apply_schema()
         with db.viz_conn() as conn:
+            _analyze_timeline_queries(conn)
             assert _timeline_schema(conn) == fresh_shape
             assert conn.execute(
                 "SELECT attnum FROM pg_attribute WHERE attrelid = 'files'::regclass "
@@ -382,11 +390,11 @@ def test_persist_refuses_non_derivable_ctx_turns(fresh_db, field):
         assert conn.execute("SELECT COUNT(*) FROM files").fetchone() == (0,)
 
 
-# Response bytes captured from the JSONB readers over the synthetic seed.
+# Response bytes captured from the JSONB readers after analyzing the seed tables.
 _LEGACY_TIMELINE_RESPONSES = [
     (
-        '{"traces":[{"model":"synthetic-wire-model","turns":[100,250,80]},{"model":"","turns":[909,4000]},{"m'
-        'odel":"","turns":[303,707]},{"model":"","turns":[901,800]}]}'
+        '{"traces":[{"model":"synthetic-wire-model","turns":[100,250,80]},{"model":"","turns":[901,800]},{"mo'
+        'del":"","turns":[303,707]},{"model":"","turns":[909,4000]}]}'
     ),
     (
         '{"range":"30d","project":null,"per_turn":{"n":9,"mean":894,"p50":707,"p90":1527,"p99":3752,"max":400'
