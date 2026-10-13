@@ -25,6 +25,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tokenize
@@ -415,11 +416,14 @@ def quoted_comments(text: str, shell: bool = False) -> int:
 def javascript_comments(root: Path, paths: list[str]) -> dict[str, int]:
     if not paths:
         return {}
+    node = shutil.which('node')
+    if node is None:
+        raise MeasurementError('node executable not found')
     espree_dir = os.environ.get('CLAUDIT_ESPREE_DIR') or str(ROOT / 'node_modules')
     helper = Path(__file__).with_name('js_comment_ranges.mjs')
     try:
         result = subprocess.run(
-            ['node', str(helper), str(Path(espree_dir).resolve())],
+            [node, str(helper), str(Path(espree_dir).resolve())],
             input=json.dumps([str(root / rel) for rel in paths]),
             capture_output=True, text=True, check=True, timeout=60)
     except subprocess.CalledProcessError as error:
