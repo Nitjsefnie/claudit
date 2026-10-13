@@ -287,7 +287,7 @@ measured pairs; `--tighten` lowers entries and drops files at or below 15%.
 The introducing change uses `--seed` once, through `thresholds.write`;
 an established entry can never rise or be added. The tests canary installs
 node/espree from the lockfile and PyYAML from `requirements-test.txt`, then
-runs the check before pytest, including on comment-only changes. Docs-only
+runs the check after the JS toolchain install, including on comment-only changes. Docs-only
 changes skip it because they change no measured source. Bot-data-only
 refreshes change JSON plus a numeric pricing-version increment, which
 cannot increase comment share.

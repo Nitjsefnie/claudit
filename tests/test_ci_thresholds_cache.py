@@ -76,7 +76,7 @@ def test_unchanged_bytes_decode_once_with_fresh_results_and_live_validation(tmp_
     data['comment_share_baseline'] = {'unique-byte-cache.py': [20, 100]}
     thresholds.write(target, data, False)
     profile = tmp_path / 'profile.json'
-    monkeypatch.setenv('DEBUG_SUITE_INSTRUCTIONS', str(profile))
+    monkeypatch.setenv('CLAUDIT_DEBUG_SUITE_INSTRUCTIONS', str(profile))
     cold, first = _decoded_instructions(target, profile)
     assert cold > 0
     first['comment_share_baseline']['unique-byte-cache.py'][0] = 0
