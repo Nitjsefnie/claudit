@@ -77,6 +77,7 @@ def test_explicit_names_every_convention_read_config():
         "setup.cfg",
         "pyrightconfig.json",
         "eslint.config.mjs",
+        ".github/docker-smoke.compose.yaml",
     }
 
 
@@ -105,7 +106,8 @@ def test_exempt_beats_every_other_part_of_the_set():
     # otherwise match.
     for name in ("src/pricing.json", "src/pricing_notices.json",
                  "backend/constants.py", "VERSION",
-                 "backend", "tests", "fixtures", "compose"):
+                 "backend", "tests", "fixtures", "compose",
+                 "compose.yaml", "Dockerfile"):
         assert name in gts.EXEMPT, name
         assert not gts.is_triggered(name)
     assert not gts.is_triggered(
