@@ -217,7 +217,8 @@ def test_comment_measurement_entry_points_ground_real_node_skips() -> None:
         ("from scripts.ci.comment_share import measure_files as measure\n", "measure()"),
         ("import subprocess\n", "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report'])"),
         ("import subprocess\n", "subprocess.run([sys.executable, ROOT / 'scripts/ci/comment_share.py', '--report'])"),
-        ("import subprocess\n", "subprocess.run(['python3', 'scripts/ci/comment_share.py', 'src/parser.js'])"),
+        ("import subprocess\n", "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report', '--root', '.'])"),
+        ("import subprocess\n", "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--root', '.', '--report'])"),
     ):
         tree = ast.parse(imports + "@pytest.mark.skipif(shutil.which('node') is None)\n"
                          + f"def test_measure():\n    {body}\n")
@@ -233,7 +234,9 @@ def test_comment_measurement_entry_points_ground_real_node_skips() -> None:
     "subprocess.run(['python3', 'other-scripts/ci/comment_share.py', '--report'])",
     "subprocess.run(['python3', OTHER / 'scripts/ci/comment_share.py', '--report'])",
     "subprocess.run(['python3', 'scripts/ci/comment_share.py'])",
-    "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report', '--help'])"
+    "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report', '--help'])",
+    "subprocess.run(['python3', 'scripts/ci/comment_share.py', 'src/parser.js'])",
+    "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report', 'src/parser.js'])"
 ])
 def test_measurement_names_without_an_entry_point_do_not_ground_skips(body) -> None:
     tree = ast.parse("from scripts.ci import comment_share as counter\nimport subprocess\n"
