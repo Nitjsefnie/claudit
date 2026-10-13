@@ -39,7 +39,7 @@ SCHEMA_PATH = _HERE / "schema.sql"
 # Order within one transaction does not change atomicity — the whole
 # list is still one script, one lock set, one stamp.
 # schema_timelines.sql follows the identity conversions and converges
-# the file timeline columns in place.
+# the file timeline columns and latency outlier arrays in place.
 SCHEMA_PATHS = (SCHEMA_PATH, _HERE / "schema_web_metrics.sql",
                 _HERE / "schema_request_fee.sql",
                 _HERE / "schema_replay.sql",
