@@ -1,10 +1,14 @@
 """docker-smoke gets both of its images through the shared image cache."""
 from __future__ import annotations
 
+import os
 import re
 import shlex
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -114,23 +118,103 @@ def _acquire_run() -> str:
                 if step.get("id") == "acquire")["run"]
 
 
-def test_acquire_saves_only_a_successfully_pulled_image():
-    run = _acquire_run()
-    assignments = list(re.finditer(r"(?m)^ *pulled=(\w+)$", run))
-    assert [match[1] for match in assignments] == ["false", "true"]
-    success = re.search(
-        r'(?ms)^(?P<indent> *)if timeout 120 docker pull "\$ref" '
-        r'> "\$log" 2>&1; then\n.*?^(?P=indent)fi$', run)
-    assert (success and assignments[0].start() < success.start()
-            < assignments[1].start() < success.end())
-    # A closing fi bounds failure arms too; the flag must precede any switch.
-    before_assignment = run[success.start():assignments[1].start()]
-    assert not re.search(r"(?m)(?:^|;)[ \t]*(?:else|elif)\b", before_assignment)
-    refusal = re.search(
-        r'(?ms)^(?P<indent> *)if \[ "\$pulled" != true \]; then\n'
-        r'(?P<body>.*?)^(?P=indent)fi$', run)
-    assert refusal and re.search(r"(?m)^ *exit 1$", refusal["body"])
-    assert refusal.end() < min(run.index("docker tag"), run.index("docker save"))
+@pytest.fixture(scope="module", name="acquire_runner")
+def _acquire_runner(tmp_path_factory):
+    """Run real Bash; skip only Windows or missing Bash, never Ubuntu CI."""
+    bash = shutil.which("bash")
+    if os.name == "nt" or bash is None:
+        pytest.skip("acquire script requires POSIX Bash")
+    step = next(step for step in _load(CACHED_ACTION)["runs"]["steps"]
+                if step.get("id") == "acquire")
+    bin_dir = tmp_path_factory.mktemp("acquire-bin")
+    stubs = {
+        "docker": '''#!/bin/sh
+set -eu
+printf '%s\t' "$@" >> "$DOCKER_LOG"
+printf '\n' >> "$DOCKER_LOG"
+case "$1" in
+  pull)
+    case "$2" in
+      "$IMAGE_REF") rc="$PRIMARY_PULL_RC" ;;
+      "$IMAGE_FALLBACK_REF") rc="$MIRROR_PULL_RC" ;;
+      *) exit 2 ;;
+    esac
+    if [ "$rc" != 0 ]; then
+      echo 'Error response from daemon: toomanyrequests: Data limit exceeded' >&2
+    fi
+    exit "$rc" ;;
+  tag|save|image|load) exit 0 ;;
+  *) exit 2 ;;
+esac
+''',
+        "timeout": '#!/bin/sh\nshift\nexec "$@"\n',
+        "sleep": "#!/bin/sh\nexit 0\n",
+    }
+    for name, body in stubs.items():
+        stub = bin_dir / name
+        stub.write_text(body, encoding="utf-8")
+        stub.chmod(0o755)
+
+    def run(tmp_path, primary_rc, mirror_rc, cache_hit):
+        script = tmp_path / "acquire.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        output, log = tmp_path / "output", tmp_path / "docker.log"
+        output.write_text("", encoding="utf-8")
+        log.write_text("", encoding="utf-8")
+        values = {
+            "steps.cache.outputs.cache-hit": cache_hit,
+            "inputs.label": "Test image", "inputs.ref": "primary/image:test",
+            "inputs.fallback-ref": "mirror/image:test",
+            "inputs.tag": "local/image:test", "inputs.archive": "image.tar",
+        }
+        env = {name: values[expr.removeprefix("${{").removesuffix("}}").strip()]
+               for name, expr in step["env"].items()}
+        # Only cat uses the minimal system path; Docker, timers and sleeps
+        # are stubs. Successful tag/save/image calls model an existing image.
+        env.update(PATH=str(bin_dir) + os.pathsep + os.defpath,
+                   RUNNER_TEMP=str(tmp_path), GITHUB_OUTPUT=str(output),
+                   DOCKER_LOG=str(log), PRIMARY_PULL_RC=str(primary_rc),
+                   MIRROR_PULL_RC=str(mirror_rc))
+        result = subprocess.run(
+            [bash, "--noprofile", "--norc", "-e", "-o", "pipefail", str(script)],
+            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10,
+            check=False)
+        calls = [line.rstrip("\t").split("\t")
+                 for line in log.read_text(encoding="utf-8").splitlines()]
+        return result, calls, output.read_text(encoding="utf-8")
+
+    return run
+
+
+@pytest.mark.parametrize("case,primary_rc,mirror_rc,cache_hit", [
+    ("refusal", 1, 1, ""), ("primary", 0, 1, ""),
+    ("mirror", 1, 0, ""), ("hit", 1, 1, "true"),
+])
+def test_acquire_execution(case, primary_rc, mirror_rc, cache_hit,
+                           tmp_path, acquire_runner):
+    """Exercise Bash control flow; skip only Windows or unavailable Bash."""
+    result, calls, output = acquire_runner(tmp_path, primary_rc, mirror_rc, cache_hit)
+    archive = str(tmp_path / "image.tar")
+    if case == "refusal":
+        assert result.returncode != 0, (calls, output, result.stderr)
+        assert not any(call[0] in ("tag", "save") for call in calls), calls
+        assert "pulled=true" not in output, output
+        assert "image cache had no entry" in result.stderr, result.stderr
+        assert "toomanyrequests: Data limit exceeded" in result.stderr, result.stderr
+        assert calls == ([["pull", "primary/image:test"]] * 3
+                         + [["pull", "mirror/image:test"]] * 3)
+    elif case == "hit":
+        assert result.returncode == 0, result.stderr
+        assert calls == [["load", "--input", archive]], calls
+        assert "pulled=true" not in output, output
+    else:
+        assert result.returncode == 0, result.stderr
+        source = "primary/image:test" if case == "primary" else "mirror/image:test"
+        pulls = ([["pull", "primary/image:test"]] if case == "primary" else
+                 [["pull", "primary/image:test"]] * 3 + [["pull", "mirror/image:test"]])
+        assert calls == pulls + [["tag", source, "local/image:test"],
+                                 ["save", "--output", archive, "local/image:test"]]
+        assert output.splitlines() == ["pulled=true"], output
 
 
 def test_acquire_pull_attempts_have_a_timeout_and_finite_backoff():
