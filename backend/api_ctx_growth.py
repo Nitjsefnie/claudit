@@ -18,6 +18,7 @@ from starlette.requests import Request
 from backend import db, flags, r2
 from backend.api_common import _parse_range, Phases
 from backend.cache import cache_response
+from backend.file_timelines import ctx_objects
 
 router = APIRouter()
 
@@ -37,10 +38,10 @@ def ctx_traces_rows(c: Any, since: datetime, project: str | None = None) -> list
     return c.execute(
         f"""
         WITH scoped_files AS (
-          SELECT f.file_id, f.file_key, f.session_id, f.is_main, f.ctx_turns
+          SELECT f.file_id, f.file_key, f.session_id, f.is_main, f.ctx_input
           FROM files f
           WHERE f.r2_last_modified >= %s {proj_filter}
-            AND jsonb_array_length(f.ctx_turns) > 0
+            AND cardinality(f.ctx_input) > 0
         ),
         -- Scoped to the files actually returned. Unrestricted, this
         -- ran an ordered-set aggregate over every record in the
@@ -61,7 +62,7 @@ def ctx_traces_rows(c: Any, since: datetime, project: str | None = None) -> list
         )
         SELECT sf.file_key, sf.session_id, sf.is_main,
                COALESCE(fm.model, '') AS model,
-               sf.ctx_turns
+               sf.ctx_input
         FROM scoped_files sf
         LEFT JOIN file_models fm ON fm.file_id = sf.file_id
         """,
@@ -78,13 +79,8 @@ def ctx_end_rows(c: Any, since: datetime, project: str | None = None) -> dict:
     records) and then throw away every trace but the last turn. This runs
     ONE query over `files` alone, with no records join (issue #838).
 
-    `ctx_turns` is machine-written by backend/ctx_turns.py, which always
-    writes an object carrying a POSITIVE int `input`, so the jsonb
-    projection (`-> -1 ->> 'input'`) is exact for real data and the
-    `try`/`except` is defensive only: its shapes are unreachable from
-    that writer. Should one occur anyway, the fallback is None — NOT the
-    old server-side fold's behaviour, which yielded 0 for a missing or
-    None `input` and raised on a non-numeric string.
+    The array subscript projects only the final stored context input.
+    A NULL input is returned as None by the defensive conversion below.
 
     Rows come back ordered by (session_id, file_key), and the dict is
     built in that order, so the LAST row for one session id wins —
@@ -99,11 +95,11 @@ def ctx_end_rows(c: Any, since: datetime, project: str | None = None) -> dict:
         args.append(project)
     rows = c.execute(
         f"""
-        SELECT f.session_id, f.ctx_turns -> -1 ->> 'input'
+        SELECT f.session_id, f.ctx_input[cardinality(f.ctx_input)]
         FROM files f
         WHERE f.r2_last_modified >= %s {proj_filter}
           AND f.is_main = TRUE
-          AND jsonb_array_length(f.ctx_turns) > 0
+          AND cardinality(f.ctx_input) > 0
         ORDER BY f.session_id, f.file_key
         """,
         args,
@@ -123,11 +119,7 @@ def project_traces(rows: list) -> list[dict]:
     return [
         {
             "model": model or "",
-            "turns": [
-                int(t.get("input", 0) or 0)
-                for t in (turns or [])
-                if isinstance(t, dict)
-            ],
+            "turns": [int(value or 0) for value in (turns or [])],
         }
         for (_fk, _sid, _is_main, model, turns) in rows
     ]
@@ -160,7 +152,7 @@ def context_growth_agg(
 ) -> dict:
     """Distribution stats for context size, computed two ways:
        - per_turn: every turn across every file in scope (input distribution)
-       - per_session_final: the LAST turn of each MAIN file's ctx_turns
+       - per_session_final: the LAST context input of each MAIN file
     Returns mean, p50, p90, p99, max, n for both."""
     delta = _parse_range(rng)
     since = datetime.now(timezone.utc) - delta
@@ -181,8 +173,8 @@ def context_growth_agg(
               PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY input_int) AS p99,
               MAX(input_int) AS max
             FROM (
-              SELECT ((turn->>'input')::int) AS input_int
-              FROM files f, jsonb_array_elements(f.ctx_turns) AS turn
+              SELECT input_int
+              FROM files f, unnest(f.ctx_input) AS input_int
               WHERE f.r2_last_modified >= %s {proj_filter}
             ) t
             """),
@@ -199,11 +191,11 @@ def context_growth_agg(
               PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY final_input) AS p99,
               MAX(final_input) AS max
             FROM (
-              SELECT ((f.ctx_turns -> -1 ->> 'input')::int) AS final_input
+              SELECT f.ctx_input[cardinality(f.ctx_input)] AS final_input
               FROM files f
               WHERE f.is_main = TRUE
                 AND f.r2_last_modified >= %s {proj_filter}
-                AND jsonb_array_length(f.ctx_turns) > 0
+                AND cardinality(f.ctx_input) > 0
             ) t
             """),
             args,
@@ -232,22 +224,19 @@ def context_growth_agg(
 
 @router.get("/context-growth/session/{session_id}")
 def context_growth_session(request: Request, session_id: str) -> dict:
-    """Main-file ctx_turns, without file_key for guests (issue #244)."""
+    """Main-file context turns, without file_key for guests (issue #244)."""
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT file_key, ctx_turns, turn_count "
+            "SELECT file_key, ctx_ts, ctx_line, ctx_input, ctx_output, turn_count "
             "FROM files WHERE session_id = %s AND is_main = TRUE LIMIT 1",
             (session_id,),
         ).fetchone()
     if row is None:
         raise HTTPException(404, "session not found")
-    file_key, turns, count = row
-    final_ctx, is_guest = 0, bool(getattr(request.state, "is_guest", False))
-    if turns:
-        try:
-            final_ctx = int(turns[-1].get("input", 0))
-        except (KeyError, IndexError, TypeError):
-            final_ctx = 0
+    file_key, timestamps, lines, inputs, outputs, count = row
+    turns = ctx_objects(timestamps, lines, inputs, outputs)
+    final_ctx = int(inputs[-1] or 0) if inputs else 0
+    is_guest = bool(getattr(request.state, "is_guest", False))
     return {
         "session_id": session_id,
         **({} if is_guest else {"file_key": r2.public_key(file_key)}),

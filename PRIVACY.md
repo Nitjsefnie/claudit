@@ -97,7 +97,8 @@ Each group defaults ON independently. Parser callers pass the resolved policy
 explicitly; OFF avoids independent analysis work, while values required for
 retained decisions still exist internally. In particular, full failure text
 and classification settle churn before optional error storage is masked.
-`files.prompt_ts` and `files.ctx_turns` remain collected when file extras are
+`files.prompt_ts` and the parallel `files.ctx_ts`, `ctx_line`, `ctx_input`,
+`ctx_output` arrays remain collected when file extras are
 OFF; billing tokens, request/tool identities, latency and `is_error` remain.
 `files.collection_flags` stores the sorted disabled keys for a file's parse;
 NULL or an empty array means all ON, including future default-ON groups.

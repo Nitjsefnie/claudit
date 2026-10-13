@@ -151,7 +151,7 @@ def test_traces_model_fold_ignores_non_canonical_rows(client):
             conn.cursor() as cur:
         cur.execute(
             "SELECT file_key FROM files "
-            "WHERE jsonb_array_length(ctx_turns) > 0 LIMIT 1"
+            "WHERE cardinality(ctx_input) > 0 LIMIT 1"
         )
         row = cur.fetchone()
         assert row is not None, "fixture has no traced file"
