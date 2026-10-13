@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+from functools import partial
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,8 +15,10 @@ from test_collection_flags import GROUPS, sample, synthetic_rates
 from test_canonical_model_attribution import (
     DIFFERENT_MODEL_FORK_FIXTURE, _switching_parent_rollout,
 )
-from backend import cache, constants, db, flags, ingest, parse, timing
+from backend import cache, constants, db, flags, ingest, parse, pricing, timing
 from backend.flag_registry import COLLECTION_SPECS
+from backend.flags import CollectionPolicy
+from tests import test_ingest_forkserver as child_units
 
 __all__ = ['_fresh_db_fixture', 'synthetic_rates']
 FIX = Path(__file__).resolve().parents[1] / 'fixtures' / 'parser'
@@ -90,6 +94,28 @@ def _marker() -> tuple:
         ).fetchone()
     assert row is not None
     return row
+
+
+def _policy_child_parse(key: str, sidecar: str | None, etag: str | None, size: int | None, *, tables: dict, expected: CollectionPolicy, collection: CollectionPolicy | None = None) -> dict:
+    real = parse.parse_file
+
+    def checked(file_key, blob, *, collection=None):
+        assert collection is not None and collection == expected
+        return real(file_key, blob, collection=collection)
+    with patch.object(parse, 'parse_file', checked):
+        return child_units.priced_parse(key, sidecar, etag, size, tables=tables, collection=collection)
+
+
+def _faulted_child_parse(key: str, sidecar: str | None, etag: str | None, size: int | None, *, tables: dict, failed_key: str, stage: str, collection: CollectionPolicy | None = None) -> dict:
+    target, name = {'fetch': (ingest, '_fetch_with_retry'), 'parse': (parse, 'parse_file')}[stage]
+    real = getattr(target, name)
+
+    def failing(file_key, *args, **kwargs):
+        if file_key == failed_key:
+            raise OSError('injected file failure')
+        return real(file_key, *args, **kwargs)
+    with patch.object(target, name, failing):
+        return child_units.priced_parse(key, sidecar, etag, size, tables=tables, collection=collection)
 
 
 def test_null_stamp_equals_default_without_reparse(fresh_db, mirror):
@@ -201,7 +227,7 @@ def test_thread_and_process_workers_use_parent_policy(
     expected = flags.ALL_COLLECTIONS_ON
 
     def checked(file_key, blob, *, collection=None):
-        # This spy runs in the actual fork child too; ignoring explicit policy fails.
+        # Threads use this spy; workers recreate it in _policy_child_parse.
         assert collection is not None and collection == expected
         return real(file_key, blob, collection=collection)
 
@@ -218,6 +244,9 @@ def test_thread_and_process_workers_use_parent_policy(
         _config(monkeypatch, 'turn_context')
         expected = flags.CONFIG.collection
         monkeypatch.setenv('CLAUDIT_INGEST_PARSE_PROCESSES', str(processes))
+        if processes > 1:
+            tables = {name: getattr(pricing, name) for name in pricing.RateTables.__annotations__}
+            monkeypatch.setattr(ingest, '_fetch_and_parse', partial(_policy_child_parse, tables=tables, expected=expected))
         _run()
         assert _rows('records', key)[0]['turn_flags'] is None
         assert _rows('files', key)[0]['collection_flags'] == ['turn_context']
@@ -430,7 +459,11 @@ def test_failed_file_keeps_old_policy_stamp_and_retries(
                 raise OSError('injected file failure')
         return real(*args, **kwargs)
 
-    with patch.object(target, name, failing):
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(target, name, failing))
+        if processes > 1 and stage != 'persist':
+            tables = {name: getattr(pricing, name) for name in pricing.RateTables.__annotations__}
+            stack.enter_context(patch.object(ingest, '_fetch_and_parse', partial(_faulted_child_parse, tables=tables, failed_key=key, stage=stage)))
         result = ingest.run_ingest('collection-failure')
     assert result['failed'] == 1 and result['error']
     assert (_rows('files', key), _rows('records', key)) == before

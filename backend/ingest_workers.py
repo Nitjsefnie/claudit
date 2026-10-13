@@ -3,7 +3,7 @@
 Split out of `ingest_fetch` for the module-size ratchet; `ingest_fetch`
 re-exports these names so the established call surface — `ingest`'s
 seam re-exports and the tests' monkeypatch seams — keeps resolving.
-Stdlib-only at import, so `ingest_fetch` may import this module freely.
+Configuration imports stay leaf-ward of `ingest_fetch`.
 """
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ import os
 import signal
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
+
+from backend.env_config import getenv
 
 # CPython's forkserver handles identify the OS parent and its alive pipe.
 # pylint: disable=protected-access
@@ -28,6 +30,9 @@ def parse_pool(max_workers: int, service_pid: int) -> ProcessPoolExecutor:
     The service's complete current environment travels in initargs,
     not the server's environment snapshot. CPython's private server PID
     identifies the actual OS parent for the #373 orphan race check.
+    Startup CONFIG/export settings stay frozen: parse units receive the
+    service's current CollectionPolicy in the pickled call; feature flags
+    and export settings are consumed only by the service, never a worker.
     """
     context = multiprocessing.get_context("forkserver")
     context.set_forkserver_preload(list(_PRELOAD_MODULES))
@@ -40,8 +45,6 @@ def parse_pool(max_workers: int, service_pid: int) -> ProcessPoolExecutor:
         initializer=parse_worker_init,
         initargs=(getattr(forkserver._forkserver, "_forkserver_pid"), service_pid,
                   _worker_environment()))
-
-from backend.env_config import getenv
 
 
 def worker_count() -> int:
@@ -151,5 +154,5 @@ def parse_worker_init(parent_pid: int, service_pid: int | None = None,
         # psycopg's implementation) remain service-start settings. Runtime
         # SDK configuration, including CA/proxy additions/removals, is fresh.
         from backend import timing  # pylint: disable=import-outside-toplevel
-        timing.TIMING_ON = os.environ.get("CLAUDIT_TIMING", "").lower() not in (
+        timing.TIMING_ON = getenv("CLAUDIT_TIMING", "").lower() not in (
             "", "0", "false", "no")
