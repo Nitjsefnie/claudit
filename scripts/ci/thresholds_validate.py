@@ -18,6 +18,7 @@ something outside the tree.
 from __future__ import annotations
 
 import importlib
+import functools
 import json
 from decimal import Decimal, InvalidOperation
 from typing import NamedTuple
@@ -69,6 +70,14 @@ def number(value, name):
             value, (int, float, Decimal)):
         raise ValueError(f'{name} must be a JSON number')
     try:
+        return _finite_number(value, name, repr(value))
+    except TypeError:
+        raise ValueError(f'{name} must be finite') from None
+
+
+@functools.lru_cache(maxsize=4096, typed=True)
+def _finite_number(value, name, spelling):
+    try:
         result = value if isinstance(value, Decimal) else Decimal(str(value))
     except (InvalidOperation, ValueError):
         raise ValueError(f'{name} must be a JSON number') from None
@@ -90,11 +99,13 @@ def required_fields(value, expected, name, labels, optional=()):
     """
     if not isinstance(value, dict):
         raise ValueError(f'{name} must be an object')
+    expected_set = set(expected) | set(optional)
+    if value.keys() == expected_set:
+        return
     label = labels.get(name, f'field: {name}.{{field}}')
     for field in expected:
         if field not in value:
             raise ValueError(f'missing {label.format(field=field)}')
-    expected_set = set(expected) | set(optional)
     for field in value:
         if field not in expected_set:
             raise ValueError(f'unknown {label.format(field=field)}')
@@ -157,6 +168,7 @@ def count_value(value, name):
     return result
 
 
+@functools.lru_cache(maxsize=4096)
 def _path_component_safe(component):
     safe = bool(component) and component not in ('.', '..')
     safe = safe and component.rstrip(' .') == component
@@ -184,6 +196,11 @@ def module_path(value):
     """
     if not isinstance(value, str) or not value or '\\' in value:
         raise ValueError(f'unsafe module path: {value!r}')
+    return _checked_module_path(value)
+
+
+@functools.lru_cache(maxsize=4096)
+def _checked_module_path(value):
     if value.startswith('/') or value.startswith('//'):
         raise ValueError(f'unsafe module path: {value!r}')
     try:
@@ -212,13 +229,21 @@ def suite_identity(value, name):
 def comment_share_value(value: object, name: str) -> list[int]:
     if not isinstance(value, list) or len(value) != 2:
         raise ValueError(f'{name} must be [comment bytes, non-whitespace bytes]')
-    counts = [number(item, name) for item in value]
+    try:
+        return list(_comment_pair(value[0], value[1], name))
+    except TypeError:
+        raise ValueError(f'{name} byte counts must be JSON numbers') from None
+
+
+@functools.lru_cache(maxsize=4096, typed=True)
+def _comment_pair(first, second, name):
+    counts = [number(item, name) for item in (first, second)]
     if any(item < 0 or item != item.to_integral_value() for item in counts):
         raise ValueError(f'{name} byte counts must be non-negative integers')
     comments, total = (int(item) for item in counts)
     if total == 0 or comments > total or comments * 100 <= total * 15:
         raise ValueError(f'{name} must have a share above 15% and at most 100%')
-    return [comments, total]
+    return comments, total
 
 
 class ReseedVerdict(NamedTuple):

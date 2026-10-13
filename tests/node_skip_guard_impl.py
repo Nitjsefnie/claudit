@@ -6,7 +6,8 @@ here. A node skip rides a test that itself runs node, judged by its
 transitive same-file call closure LAUNCHING node through a subprocess
 call - never by an incidental string constant in the body (#812) - and
 a mark predicate built from a module-level variable that names node is
-a node skip too (#812).
+a node skip too (#812). The comment-share measurement function and Python
+CLI are trusted node entry points; parameter data is never a skip mark.
 """
 from __future__ import annotations
 
@@ -64,6 +65,7 @@ def _context_from_tree(tree: ast.Module, root: Path | None,
         "fixtures": _fixture_table(module_funcs),
         "imported": _imported_names(tree),
         "node_names": _node_names(tree),
+        "measurement_imports": _measurement_imports(tree),
     }
 
 
@@ -77,7 +79,8 @@ def _test_offenders_in_ctx(ctx: dict) -> list[tuple[int, str]]:
     closure step (a skipif decorator is not part of the body the
     closure walks), and so is each step's docstring (prose must not
     ground a closure). A call the closure cannot resolve - a conftest
-    fixture, a helper outside the tests package - grounds nothing and
+    fixture, a helper outside the tests package apart from the known
+    comment-share measurement entry points - grounds nothing and
     fails loud, the deny-guard's safe direction."""
     offenders: list[tuple[int, str]] = []
     for cls in ctx["classes"].values():
@@ -172,7 +175,7 @@ def _cross_file_target(ctx: dict, name: str):
 
 def _skip_without_node(func, ctx, class_methods,
                        class_mark: bool) -> list[tuple[int, str]]:
-    own_mark = any(_mentions_node_ref(d, ctx["node_names"])
+    own_mark = any(_skip_mark_mentions_node(d, ctx["node_names"])
                    for d in func.decorator_list)
     if not (own_mark or class_mark):
         return []
@@ -187,7 +190,7 @@ def _grounds_in_node(func, ctx, class_methods,
         return False
     visited.add(id(func))
     flat = [n for stmt in _closure_stmts(func) for n in ast.walk(stmt)]
-    if _launches_node(flat):
+    if _launches_node(flat) or _measurement_launch(flat, ctx["measurement_imports"]):
         return True
     targets = _call_targets(flat, func, ctx, class_methods)
     return any(_grounds_in_node(t, tctx, tcls, visited)
@@ -288,7 +291,7 @@ def _class_mark_mentions_node(cls: ast.ClassDef, ctx: dict) -> bool:
         if id(c) in seen:
             continue
         seen.add(id(c))
-        if any(_mentions_node_ref(v, ctx["node_names"])
+        if any(_skip_mark_mentions_node(v, ctx["node_names"])
                for s in _conditionals_descended(c.body)
                if (v := _pytestmark_value(s)) is not None):
             return True
@@ -351,6 +354,62 @@ def _mentions_node_ref(value: ast.expr, node_names: dict) -> bool:
     return _mentions_node(value) or any(
         isinstance(n, ast.Name) and n.id in node_names
         for n in ast.walk(value))
+
+
+def _skip_mark_mentions_node(value: ast.expr, names: dict) -> bool:
+    if isinstance(value, (ast.List, ast.Tuple)):
+        return any(_skip_mark_mentions_node(item, names) for item in value.elts)
+    if isinstance(value, ast.Name) and value.id in names:
+        return _skip_mark_mentions_node(names[value.id], {})
+    return (isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute)
+            and ast.unparse(value.func) in ('pytest.mark.skip', 'pytest.mark.skipif')
+            and _mentions_node_ref(value, names))
+
+
+def _measurement_imports(tree: ast.Module) -> dict[str, str]:
+    imported = {}
+    for stmt, _line in _module_level_statements(tree):
+        if isinstance(stmt, ast.ImportFrom) and stmt.module in ('scripts.ci', 'scripts.ci.comment_share'):
+            for alias in stmt.names:
+                imported[alias.asname or alias.name] = f'{stmt.module}.{alias.name}'
+        elif isinstance(stmt, ast.Import):
+            for alias in stmt.names:
+                if alias.name == 'scripts.ci.comment_share':
+                    imported[alias.asname or alias.name] = alias.name
+    return imported
+
+
+def _measurement_launch(nodes: list[ast.AST], imported: dict[str, str]) -> bool:
+    for node in nodes:
+        if not isinstance(node, ast.Call):
+            continue
+        name = ast.unparse(node.func)
+        for local, qualified in imported.items():
+            target = qualified + name[len(local):] if name == local or name.startswith(local + '.') else ''
+            if target in ('scripts.ci.comment_share.measure_files',
+                          'scripts.ci.comment_share.javascript_comments', 'scripts.ci.comment_share.main'):
+                return True
+        if _measurement_cli(node):
+            return True
+    return False
+
+
+def _measurement_cli(node: ast.Call) -> bool:
+    if not (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == 'subprocess' and node.func.attr in _SUBPROCESS_LAUNCHERS):
+        return False
+    if not node.args or not isinstance(node.args[0], (ast.List, ast.Tuple)):
+        return False
+    args = node.args[0].elts
+    if len(args) < 2:
+        return False
+    executable = ast.unparse(args[0])
+    if executable != 'sys.executable' and not (
+            isinstance(args[0], ast.Constant) and isinstance(args[0].value, str)
+            and Path(args[0].value).name.startswith('python')):
+        return False
+    return any(isinstance(part, ast.Constant) and isinstance(part.value, str)
+               and part.value.endswith('scripts/ci/comment_share.py') for part in ast.walk(args[1]))
 
 
 def _pytestmark_value(stmt: ast.stmt) -> ast.expr | None:
