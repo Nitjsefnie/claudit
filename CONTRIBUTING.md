@@ -361,11 +361,12 @@ least one registry; if both sources fail, the job reports the cache miss
 and each registry's answers in the log.
 
 Python dependency caches follow one rule: restore on any event, save only
-from a push of `master`. `refresh-pricing` leaves its dependencies uncached. The explicit
-`actions/cache/restore` / `actions/cache/save` steps replace
-`cache: pip`, whose post-job save ran after the pull-request checkout, so
-untrusted PR code would have written the cross-run cache a later master
-run installs from. `tests/test_workflow_pip_cache.py` pins the shape.
+from a push of `master`. `refresh-pricing` leaves its dependencies
+uncached. The explicit `actions/cache/restore` / `actions/cache/save`
+steps replace `cache: pip`, whose post-job save ran after the
+pull-request checkout, so untrusted PR code would have written the
+cross-run cache a later master run installs from.
+`tests/test_workflow_pip_cache.py` pins the shape.
 
 If you are changing dependencies, run `pip-audit -r backend/requirements.txt
 -r requirements-dev.txt -r requirements-test.txt` too.

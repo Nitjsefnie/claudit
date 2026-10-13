@@ -177,3 +177,18 @@ def test_postgres_failure_message_is_unchanged():
     assert ('echo "::error::${IMAGE_LABEL} image cache had no entry; both '
             'registries failed after three attempts each. Registry answers '
             'follow:" >&2') in acquire["run"]
+
+
+def test_postgres_publishes_the_input_port_and_waits_for_tcp_readiness():
+    action = _load(ACTION)
+    start = action["runs"]["steps"][-1]
+    assert action["inputs"]["port"]["default"] == "5432"
+    assert start["env"]["POSTGRES_PORT"] == "${{ inputs.port }}"
+    args, = _docker_commands(start["run"], "run")
+    ports = [args[i + 1] for i, arg in enumerate(args) if arg in ("--publish", "-p")]
+    ports += [arg.split("=", 1)[1] for arg in args if arg.startswith("--publish=")]
+    assert ports == ["127.0.0.1:${POSTGRES_PORT}:5432"]
+    probes = re.findall(r"(?m)^ *if (docker exec[^\n]*); then$", start["run"])
+    assert [shlex.split(probe) for probe in probes] == [[
+        "docker", "exec", "$POSTGRES_CONTAINER", "pg_isready", "-q",
+        "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"]]
