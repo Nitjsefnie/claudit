@@ -746,7 +746,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-14T16:54:48Z",
+  "provider_rates_fetched": "2026-10-14T17:53:54Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -33046,6 +33046,26 @@
           "from": "2026-10-09T19:15:53Z",
           "output": 13.0118079303,
           "read": 0.3245698773
+        },
+        {
+          "band": {
+            "fresh": [
+              0.4,
+              2.4
+            ],
+            "output": [
+              12.8244727248,
+              14.0
+            ],
+            "read": [
+              0.3,
+              0.45
+            ]
+          },
+          "fresh": 0.6653487639,
+          "from": "2026-10-14T17:26:06Z",
+          "output": 13.0762393839,
+          "read": 0.325477452
         }
       ],
       "Sail Research": [
