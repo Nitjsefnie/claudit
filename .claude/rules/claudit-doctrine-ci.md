@@ -109,9 +109,10 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   YAML and shell sources above 15%, including extensionless shell.
   Integer cross-products compare shares without rounding. Unrecorded
   files stay at or below 15%; established entries never rise or get
-  added. `scripts/ci/comment_baseline.py` permits lower or equal shares
-  above 15%, even when byte pairs differ. Like size/suppression gates,
-  deleted-file or at/below-15% entries require cleanup. The check runs after
+  added. `scripts/ci/comment_baseline.py` fails only for a measured share
+  above its entry or an unrecorded share above 15%. Lower/equal shares,
+  changed pairs without a rise, deleted-file and at/below-15% entries pass.
+  The check runs after
   pytest and the JS toolchain install, on comment-only changes too.
   On master pushes only, `--tighten` lowers entries and drops deleted or
   at/below-15% files, through `thresholds.write`. `--seed` introduces the

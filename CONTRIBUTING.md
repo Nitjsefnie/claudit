@@ -281,11 +281,11 @@ The comment-share baseline (`comment_share_baseline`) holds exact
 `[comment bytes, non-whitespace bytes]` pairs for every tracked Python,
 JS/JSX/MJS/CJS, YAML and shell source above 15% (extensionless shell
 scripts included). Comparisons use integer cross-products; display rounding
-never affects the gate. `scripts/ci/comment_baseline.py` fails on a rise
-or an unrecorded file above 15%. Lower or equal shares above 15% pass even
-when their byte pairs change. Like the size and suppression gates, entries
-for deleted files or files at or below 15% require cleanup. On master pushes
-only, `--tighten` lowers pairs and drops deleted or at/below-15% entries.
+never affects the gate. `scripts/ci/comment_baseline.py` fails only when a
+measured share rises above its entry, or an unrecorded file exceeds 15%.
+Lower/equal shares, changed byte pairs without a rise, deleted-file entries
+and entries now at or below 15% pass on PRs. On master pushes only,
+`--tighten` lowers pairs and drops deleted or at/below-15% entries.
 The introducing change uses `--seed` once, through `thresholds.write`;
 an established entry can never rise or be added. The tests canary installs
 node/espree from the lockfile and PyYAML from `requirements-test.txt`, then

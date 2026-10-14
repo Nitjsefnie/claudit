@@ -27,8 +27,9 @@ def policy():
     ((20, 100), {'x.py': [19, 100]}, True),
     ((25, 100), {'x.py': [30, 100]}, False),
     ((35, 200), {'x.py': [20, 100]}, False),
-    ((15, 100), {'x.py': [20, 100]}, True),
+    ((15, 100), {'x.py': [20, 100]}, False),
     ((40, 200), {'x.py': [20, 100]}, False),
+    ((14, 100), {'x.py': [20, 100]}, False),
     ((0, 0), {}, False),
 ])
 def test_exact_boundary_and_rise(counts, baseline, want):
@@ -101,7 +102,7 @@ def test_pr_check_accepts_lower_shares_and_master_tightens(tmp_path, monkeypatch
     assert module.main([*args, '--tighten']) == 0
     assert thresholds.comment_share_baseline(thresholds.load(target)) == {'x.py': [40, 200]}
     monkeypatch.setattr(module.comment_share, 'measure_files', lambda _root: {'x.py': (15, 100)})
-    assert module.main(args) == 1
+    assert module.main(args) == 0
     assert module.main([*args, '--tighten']) == 0
     assert thresholds.comment_share_baseline(thresholds.load(target)) == {}
     assert module.main(args) == 0
@@ -147,6 +148,14 @@ def test_comment_only_runs_check_with_dependencies():
     assert "github.event_name == 'push'" in ratchet['if']
 
 
-def test_deleted_entry_matches_precedent_and_tighten_removes_it():
-    assert policy().violations({}, {'gone.py': [20, 100]})
-    assert policy().tightened({'gone.py': [20, 100]}, {}) == {}
+def test_deleted_entry_passes_pr_and_master_tighten_removes_it(tmp_path, monkeypatch):
+    module = policy()
+    target = tmp_path / 'thresholds.json'
+    data = thresholds.load()
+    data['comment_share_baseline'] = {'gone.py': [20, 100]}
+    thresholds.write(target, data)
+    monkeypatch.setattr(module.comment_share, 'measure_files', lambda _root: {})
+    args = ['--thresholds', str(target)]
+    assert module.main(args) == 0
+    assert module.main([*args, '--tighten']) == 0
+    assert thresholds.comment_share_baseline(thresholds.load(target)) == {}
