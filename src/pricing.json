@@ -245,10 +245,6 @@
           "BaseTen": {
             "tag": "baseten/fp8",
             "why": "BaseTen lists glm-5.2 under baseten/fp8 beside a throughput tier, with no bare baseten endpoint. Pinned to baseten/fp8: fp8 is the list-price quantization endpoint; the throughput tier is a distinct offering."
-          },
-          "Decart": {
-            "tag": "decart/mxfp4",
-            "why": "Decart lists glm-5.2 under decart/mxfp4 beside a throughput tier, with no bare decart endpoint. Pinned to decart/mxfp4: mxfp4 is the list-price quantization endpoint; the throughput tier is a distinct offering."
           }
         },
         "vendor_host": "Z.AI"
@@ -14997,6 +14993,13 @@
           "from": "2026-10-11T03:01:41Z",
           "output": 2.3869197046,
           "read": 0.1491824815
+        },
+        {
+          "fresh": 2.5,
+          "from": "2026-10-14T17:53:54Z",
+          "note": "decart/fast (fp4), Decart's only glm-5.2 endpoint from here: decart/mxfp4, which the earlier entries priced, left the listing between the 2026-10-14T16:54:48Z refresh that last listed it and this one.",
+          "output": 9.0,
+          "read": 0.54
         }
       ],
       "DeepInfra": [
