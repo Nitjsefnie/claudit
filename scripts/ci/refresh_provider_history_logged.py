@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import price_band
+from refresh_common import detection_stamp
+from refresh_prices import RefreshError
 from refresh_provider_history import (
     Move, _entry, _floored_log, _new_log_states, _price_instant,
     _set_search_rate,
@@ -93,6 +95,28 @@ def _prepare_log_change(model: str, hosts: dict, host: str,
         _append_token_states(change, additions, at)
     _form_band(change, at)
     return change
+
+
+def _append_endpoint_state(change: _LogChange, at: datetime) -> None:
+    """Reconcile the resulting row with its endpoint at detection time."""
+    newest = change.history[-1]
+    rates = effective_rates(newest)
+    listed = change.listing.rates
+    if (all(round(float(rates[field]), 10) == round(float(listed[field]), 10)
+            for field in rates) or price_band.in_band(newest, listed)):
+        return
+    stamp = detection_stamp(at)
+    where = f"{change.model} via {change.host}"
+    reason = "row was out of step with its endpoint's listed price"
+    newest_from = newest.get("from")
+    if newest_from is not None and _price_instant(newest_from, where) >= at:
+        raise RefreshError(
+            f"{where}: {reason}; the stored newest entry is dated {newest_from}, "
+            "not before the detection instant; the host was refused")
+    _append_token_states(change, [_entry(stamp, change.listing)], at)
+    _form_band(change, at)
+    assert change.move is not None
+    change.move.reason = reason
 
 
 def _defer_committed_search_change(
@@ -224,9 +248,13 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
     run: a state inside the band is no news, and states outside it append the
     one entry returned by price_band.reform. An unbanded row whose window
     classifies as oscillating gets its new states plus the one band entry
-    price_band.formation returns. Search changes share an entry newly created
-    at that instant; a collision with committed history is deferred to the
-    next actual append (issues #663, #664, #665; SV-RATE-REFRESH).
+    price_band.formation returns. A row still out of step with the listing
+    appends its listed state through those rules at detection, or refuses
+    when that instant cannot follow its newest entry. Search changes share
+    an entry newly created at that instant; a collision with committed
+    history is deferred to the next actual append (issues #663, #664, #665;
+    SV-RATE-REFRESH).
     """
     change = _prepare_log_change(model, hosts, host, listing, entries, at)
+    _append_endpoint_state(change, at)
     return _append_search_change(change, at, deferred_notices)

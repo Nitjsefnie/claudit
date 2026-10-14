@@ -250,7 +250,12 @@ def report(stamp: str, result: Result, tracked: dict,
     if not result.moves:
         lines.append("no rate moved")
     for model, source in tracked.items():
-        section = [_move_text(move) for move in result.moves if move.model == model]
+        section = []
+        for move in result.moves:
+            if move.model == model:
+                section.append(_move_text(move))
+                if move.reason:
+                    section.append(f"    {move.host}: {move.reason}")
         if standing:
             vanished = sorted({host for name, host in result.vanished
                                if name == model})

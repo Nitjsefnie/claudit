@@ -27,6 +27,7 @@ class Move:
     # The `fresh` rate of the entry the run appended, when it is not the
     # listing's — a band entry prices the window mean, not the listing.
     entry_fresh: float | None = None
+    reason: str | None = None
 
 
 def _entry(stamp: str, listing: Listing) -> dict:

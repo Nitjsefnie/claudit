@@ -317,9 +317,17 @@ same rules:
   - **Hourly append.** For a log-backed host with a row, every entry
     whose `from` is after the row's newest `from` and whose rates
     differ from its predecessor is appended, oldest first, so a flip
-    between runs is recorded as its two moves. A first-seen host gets
-    the whole series from its first change point. The hourly run never
-    rewrites an entry.
+    between runs is recorded as its two moves. After those states are
+    accounted for, the resulting row's token rates at fetch time must
+    match its selected endpoint's listed price, or that price must lie
+    inside the row's band. Otherwise the listed state enters the same
+    log-path append machinery at detection time, under the existing
+    band-formation and escape rules; the changed host is named with the
+    reason that its row was out of step with its endpoint's listed price.
+    Its `web_search` follows the separate sampling rule. An in-step row
+    with no token or search move stays silent and writes nothing. A first-seen host
+    imports from the history floor as above. The hourly run never rewrites
+    an entry.
   - **The log must match the listing.** The series' state at the fetch
     instant must equal the listed price fetched in the same run: the
     run reads each series truncated at that instant, so a point dated
@@ -454,9 +462,12 @@ same rules:
 
   A refusal blocks only itself: every other move is appended, tested
   and committed with the bump, then the run exits nonzero, naming each
-  refused host. A detection time not after a row's newest entry leaves
-  that host untouched with a notice — appending after it would refuse
-  the file — and blocks nothing else.
+  refused host. A log-backed row out of step with its selected endpoint's
+  listed price is also REFUSED by name when detection is not after its
+  newest `from`: the run must not end green with that stale price. The row
+  stays untouched and other hosts still proceed. An ordinary move blocked
+  by the same timing keeps the existing untouched-with-notice behaviour —
+  appending after it would refuse the file.
 
 - Four automatic rules resolve the mechanical multi-price shapes with no
   human decision, beneath an explicit resolution (which keeps precedence,
