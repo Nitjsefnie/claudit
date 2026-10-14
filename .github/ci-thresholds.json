@@ -670,15 +670,15 @@
     ],
     "scripts/ci/refresh_provider_history.py": [
       1764,
-      4485
+      4505
     ],
     "scripts/ci/refresh_provider_rates.py": [
-      6963,
-      15150
+      6956,
+      15159
     ],
     "scripts/ci/refresh_report.py": [
       1970,
-      11931
+      12007
     ],
     "scripts/ci/refresh_selection.py": [
       4537,
