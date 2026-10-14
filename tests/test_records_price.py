@@ -24,6 +24,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from itertools import takewhile
 from pathlib import Path
+from typing import cast
 
 import psycopg
 import pytest
@@ -335,8 +336,8 @@ def test_no_reprice_statement_targets_records_in_source():
 # ---------------------------------------------------------------------------
 # Cost-reading endpoint equality over a fixed seed: byte-identical
 # responses for the small cost-by panels, exact cost fields for the
-# heavier readers. The dataset mirrors the pre/post A/B capture: three
-# rows, known costs (0.5 + 1.25 + 0.125 = 1.875), one long-context meter
+# heavier readers. The dataset uses three
+# rows, costs derived from dated rates, one long-context meter
 # row, one web-search row.
 # ---------------------------------------------------------------------------
 
@@ -345,12 +346,45 @@ _EP_TS = datetime.now(UTC).replace(hour=1, minute=0, second=0,
 _EP_FILE = "capture/sess/main.jsonl"
 _EP_SESSION = "sess-capture"
 _EP_PROJECT = "capture-project"
-# (line, fresh, create, read, output, cost, long_context, mults, ws)
+_EP_TTLS = {1: (100, 200), 2: (0, 0), 3: (0, 0)}
+
+
+def _endpoint_buckets(tokens: tuple[int, ...],
+                      factors: tuple[float, float] = (1.0, 1.0),
+                      searches: int = 0) -> dict[str, float]:
+    """Independent TTL arithmetic over the seed's dated pricing rates."""
+    rates = pricing.resolve(SEED_MODEL, _EP_TS).rates
+    fresh, create, read, output, eph5, eph1h = tokens
+    in_mult, out_mult = factors
+    return {
+        "fresh": fresh * rates["fresh"] * in_mult / 1_000_000,
+        "create_5m": eph5 * rates["create_5m"] * in_mult / 1_000_000,
+        "create_1h": (eph1h + max(0, create - eph5 - eph1h))
+        * rates["create_1h"] * in_mult / 1_000_000,
+        "read": read * rates["read"] * in_mult / 1_000_000,
+        "output": output * rates["output"] * out_mult / 1_000_000,
+        "web_search": searches * rates.get("web_search", 0.0),
+    }
+
+
+# (line, fresh, create, read, output, cost, long_context, mults, ws).
+# NUMERIC(12,6) stores each independently priced seed cost at six places.
+# The search row stores half the token cost plus the full search fee.
 _EP_ROWS = [
-    (1, 1000, 500, 2000, 100, "0.500000", False, (None, None), None),
-    (2, 300000, 0, 0, 50, "1.250000", True, (1.5, 2.0), 3),
-    (3, 42, 7, 13, 9, "0.125000", False, (None, None), None),
+    (line, fresh, create, read, output,
+     round(sum(value * (0.5 if lc and key != "web_search" else 1.0)
+               for key, value in _endpoint_buckets(
+         (fresh, create, read, output, *_EP_TTLS[line]),
+         cast(tuple[float, float], mults) if lc else (1.0, 1.0),
+         ws or 0).items()), 6), lc, mults, ws)
+    for line, fresh, create, read, output, lc, mults, ws in (
+        (1, 1000, 500, 2000, 100, False, (None, None), None),
+        (2, 300000, 0, 0, 50, True, (1.5, 2.0), 3),
+        (3, 42, 7, 13, 9, False, (None, None), None),
+    )
 ]
+_EP_SMALL_COST = round(_EP_ROWS[0][5] + _EP_ROWS[2][5], 6)
+_EP_TOTAL_COST = round(sum(row[5] for row in _EP_ROWS), 6)
 
 
 def _seed_endpoint_rows(conn) -> None:
@@ -374,10 +408,11 @@ def _seed_endpoint_rows(conn) -> None:
             "model_id, fresh_tokens, cache_creation_tokens, "
             "cache_read_tokens, output_tokens, eph5_tokens, eph1h_tokens, "
             "text_chars, web_search_requests, thinking_tokens) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, 0, %s, %s, "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
             "10)",
             (fid, line, f"uuid-{line}", f"req-{line}", _EP_TS, model_id,
-             fresh, create, read, output, (fresh + create + read) * 4, ws))
+             fresh, create, read, output, *_EP_TTLS[line],
+             (fresh + create + read) * 4, ws))
         conn.execute(
             "INSERT INTO records_price (file_id, line_num, cost_usd, "
             "long_context, long_context_input_mult, "
@@ -423,18 +458,18 @@ def _bytes(payload) -> bytes:
 
 def test_cost_by_context_response_is_byte_identical(cost_client):
     """The live cost-by-context path (range=1d takes the records pass)
-    must return exactly the seeded truth: same bytes a pre-split
-    deployment returned for the same rows."""
+    must return exactly the seeded truth, including cumulative shares."""
+    total = _EP_SMALL_COST + _EP_ROWS[1][5]
     expected = {
         "range": "1d", "project": None, "model": None,
         "bucket_width": 50000, "bucket_max": 1000000,
-        "total_cost_usd": 1.875, "total_tokens": 303721,
-        "buckets": [
+        "total_cost_usd": total,
+        "total_tokens": 303721, "buckets": [
             {"ctx_bucket": 0, "requests": 2, "total_tokens": 3671,
-             "cost_usd": 0.625, "cum_share": 0.625 / 1.875,
+             "cost_usd": _EP_SMALL_COST, "cum_share": _EP_SMALL_COST / total,
              "cum_token_share": 3671 / 303721},
             {"ctx_bucket": 300000, "requests": 1, "total_tokens": 300050,
-             "cost_usd": 1.25, "cum_share": 1.0,
+             "cost_usd": _EP_ROWS[1][5], "cum_share": 1.0,
              "cum_token_share": 1.0},
         ],
     }
@@ -447,10 +482,10 @@ def test_cost_by_agent_response_is_byte_identical(cost_client):
     """Same for the live cost-by-agent path."""
     expected = {
         "range": "1d", "project": None, "model": None,
-        "total_cost_usd": 1.875, "total_tokens": 303721,
+        "total_cost_usd": _EP_TOTAL_COST, "total_tokens": 303721,
         "agents": [{"agent_type": "general-purpose", "requests": 3,
                     "output_tokens": 159, "total_tokens": 303721,
-                    "cost_usd": 1.875, "share": 1.0}],
+                    "cost_usd": _EP_TOTAL_COST, "share": 1.0}],
     }
     resp = cost_client.get("/api/cost-by-agent?range=1d")
     assert resp.status_code == 200
@@ -467,8 +502,8 @@ def test_sessions_list_response_is_byte_identical(cost_client):
             "first_event_at": stamp, "last_event_at": stamp,
             "duration_s": 0, "request_count": 3,
             "input_tokens": 301042, "output_tokens": 159,
-            "cache_create_5m_tokens": 0, "cache_create_1h_tokens": 0,
-            "cache_read_tokens": 2013, "cost_usd": 1.875,
+            "cache_create_5m_tokens": 100, "cache_create_1h_tokens": 200,
+            "cache_read_tokens": 2013, "cost_usd": _EP_TOTAL_COST,
             "models": {SEED_MODEL: 3}, "limit_hits": 0,
         }],
         "next_cursor": None,
@@ -491,41 +526,44 @@ def test_cache_response_is_byte_identical(cost_client):
     """The /api/cache fold's full bytes: model rows, the TTL-split
     buckets, and all three top-N lists in their measure order."""
     stamp = _EP_TS.isoformat()  # UTC: cost_client pins the session TimeZone
+    # SQL groups rows 1+3 together, separately from the metered search row.
+    plain = _endpoint_buckets((1042, 507, 2013, 109, 100, 200))
+    metered = _endpoint_buckets((300000, 0, 0, 50, 0, 0), (1.5, 2.0), 3)
+    search = metered.pop("web_search")
+    # The search group's token decomposition reconciles to its stored total.
+    scale = (_EP_ROWS[1][5] - search) / sum(metered.values())
+    buckets = {key: round(value * scale + plain[key], 4)
+               for key, value in metered.items()}
+    buckets["web_search"] = round(search + plain["web_search"], 4)
+    total = round(_EP_ROWS[1][5] + _EP_SMALL_COST, 4)
     expected = {
         "range": "all", "project": None,
         "per_model": [{
             "model": SEED_MODEL, "turns": 3,
             "fresh": 301042, "cache_create": 507, "cache_read": 2013,
-            "output": 159, "eph5": 0, "eph1h": 0,
-            "cost_total": 1.875, "estimated_rate": False,
+            "output": 159, "eph5": 100, "eph1h": 200,
+            "cost_total": total, "estimated_rate": False,
             "banded_rate": False, "hit_rate_pct": 0.7,
         }],
         "per_model_provider": [{
             "model": SEED_MODEL, "turns": 3,
             "fresh": 301042, "cache_create": 507, "cache_read": 2013,
-            "output": 159, "eph5": 0, "eph1h": 0,
-            "cost_total": 1.875, "estimated_rate": False,
+            "output": 159, "eph5": 100, "eph1h": 200,
+            "cost_total": total, "estimated_rate": False,
             "banded_rate": False, "provider": None, "hit_rate_pct": 0.7,
         }],
         "session_total": {
             "turns": 3, "fresh": 301042, "cache_create": 507,
-            "cache_read": 2013, "output": 159, "eph5": 0, "eph1h": 0,
-            "cost_total": 1.875,
-            # The TTL-split buckets over this seed, exactly as the
-            # pre-split fold returned them (the metered row's stored
-            # total and its bucket decomposition are pinned apart by
-            # the existing fold tests).
-            "cost_buckets": {
-                "fresh": 1.2239, "create_5m": 0.0, "create_1h": 0.0051,
-                "read": 0.001, "output": 0.0041, "web_search": 0.03,
-            },
+            "cache_read": 2013, "output": 159, "eph5": 100, "eph1h": 200,
+            "cost_total": total,
+            "cost_buckets": buckets,
             "estimated_rate": False, "banded_rate": False,
             "hit_rate_pct": 0.7,
         },
         "top_output": [
             {"ts": stamp, "line": line, "request_id": f"req-{line}",
              "model": SEED_MODEL, "output": out, "c_read": read,
-             "c_create_1h": 0, "c_create_5m": 0, "fresh": fresh,
+             "c_create_1h": _EP_TTLS[line][1], "c_create_5m": _EP_TTLS[line][0], "fresh": fresh,
              "cost": float(cost), "file_key": _EP_FILE}
             # ORDER BY output_tokens DESC over the seed's three rows
             # (r[4] is output_tokens).
@@ -534,8 +572,8 @@ def test_cache_response_is_byte_identical(cost_client):
         ],
         "top_cache_create": [
             {"ts": stamp, "line": line, "request_id": f"req-{line}",
-             "model": SEED_MODEL, "c_create": create, "c_create_1h": 0,
-             "c_create_5m": 0, "c_read": read, "output": out,
+             "model": SEED_MODEL, "c_create": create, "c_create_1h": _EP_TTLS[line][1],
+             "c_create_5m": _EP_TTLS[line][0], "c_read": read, "output": out,
              "fresh": fresh, "cost": float(cost), "file_key": _EP_FILE}
             # WHERE cache_creation_tokens > 0, ORDER BY it DESC: lines 1, 3.
             for (line, fresh, create, read, out, cost, _lc, _mult, _ws)
@@ -543,8 +581,8 @@ def test_cache_response_is_byte_identical(cost_client):
         ],
         "top_cache_read": [
             {"ts": stamp, "line": line, "request_id": f"req-{line}",
-             "model": SEED_MODEL, "c_read": read, "c_create_1h": 0,
-             "c_create_5m": 0, "output": out, "fresh": fresh,
+             "model": SEED_MODEL, "c_read": read, "c_create_1h": _EP_TTLS[line][1],
+             "c_create_5m": _EP_TTLS[line][0], "output": out, "fresh": fresh,
              "cost": float(cost), "file_key": _EP_FILE}
             # WHERE cache_read_tokens > 0, ORDER BY it DESC: lines 1, 3.
             for (line, fresh, _create, read, out, cost, _lc, _mult,
@@ -561,6 +599,8 @@ def test_dashboard_response_is_byte_identical(cost_client):
     1800 s bucket path, the folds, and the file-count summary."""
     bucket = (_EP_TS + timedelta(minutes=15)).isoformat()  # UTC, pinned
     epoch = float(_EP_TS.timestamp())
+    # Model totals add the two hourly floats, rather than the SQL total.
+    hourly_cost = _EP_SMALL_COST + _EP_ROWS[1][5]
     expected = {
         "range": "4d", "project": None, "bucket_s": 1800,
         "hourly": [
@@ -569,22 +609,24 @@ def test_dashboard_response_is_byte_identical(cost_client):
             # 1800 s bucket midpoint.
             {"hour": bucket, "model": SEED_MODEL, "long_context": False,
              "provider": None, "input_tokens": 1042, "output_tokens": 109,
+             "cache_5m_tokens": 100, "cache_1h_tokens": 200,
              "cache_read_tokens": 2013, "thinking_tokens": 20,
-             "cost_usd": 0.625, "requests": 2, "session_count": 1,
+             "cost_usd": _EP_SMALL_COST, "requests": 2, "session_count": 1,
              "lines_added": 0, "lines_deleted": 0},
             {"hour": bucket, "model": SEED_MODEL, "long_context": True,
              "provider": None, "input_tokens": 300000, "output_tokens": 50,
+             "cache_5m_tokens": 0, "cache_1h_tokens": 0,
              "cache_read_tokens": 0, "thinking_tokens": 10,
-             "cost_usd": 1.25, "requests": 1, "session_count": 0,
+             "cost_usd": _EP_ROWS[1][5], "requests": 1, "session_count": 0,
              "lines_added": 0, "lines_deleted": 0},
         ],
         "token_types": ["input_tokens", "output_tokens",
-                        "thinking_tokens", "cache_read_tokens"],
-        "cost_by_model": [{"model": SEED_MODEL, "cost_usd": 1.875}],
+                        "thinking_tokens", "cache_5m_tokens", "cache_1h_tokens", "cache_read_tokens"],
+        "cost_by_model": [{"model": SEED_MODEL, "cost_usd": hourly_cost}],
         "cost_by_model_provider": [{"model": SEED_MODEL, "provider": None,
-                                    "cost_usd": 1.875,
-                                    "total_tokens": 303214}],
-        "cost_by_project": [{"project": _EP_PROJECT, "cost_usd": 1.875}],
+                                    "cost_usd": hourly_cost,
+                                    "total_tokens": 303514}],
+        "cost_by_project": [{"project": _EP_PROJECT, "cost_usd": _EP_TOTAL_COST}],
         "tokens_by_project": [{"project": _EP_PROJECT,
                                "total_tokens": 303721}],
         "rate_limit_hits": [],
@@ -593,7 +635,7 @@ def test_dashboard_response_is_byte_identical(cost_client):
             "session_id": _EP_SESSION, "start_ts": epoch, "end_ts": epoch,
             "requests": 3, "input_tokens": 301042, "output_tokens": 159,
             "cache_create_tokens": 507, "cache_read_tokens": 2013,
-            "cost_usd": 1.875, "model": SEED_MODEL,
+            "cost_usd": _EP_TOTAL_COST, "model": SEED_MODEL,
             "models_used": [SEED_MODEL], "ctx_at_end": None,
         }],
         "total_sessions": 1, "main_w_usage": 1, "main_empty": 0,
@@ -618,12 +660,12 @@ def test_session_detail_response_is_byte_identical(cost_client):
         "first_event_at": stamp, "last_event_at": stamp,
         "duration_s": 0, "request_count": 3,
         "input_tokens": 301042, "output_tokens": 159,
-        "cache_create_5m_tokens": 0, "cache_create_1h_tokens": 0,
-        "cache_read_tokens": 2013, "cost_usd": 1.875,
+        "cache_create_5m_tokens": 100, "cache_create_1h_tokens": 200,
+        "cache_read_tokens": 2013, "cost_usd": _EP_TOTAL_COST,
         "models": {SEED_MODEL: 3}, "limit_hits": 0,
         "r2_key": _EP_FILE, "ctx_trace": [],
         # tps = write tokens / max(duration, 1).
-        "burn": {"tps": 301042.0, "model": SEED_MODEL,
+        "burn": {"tps": 301342.0, "model": SEED_MODEL,
                  "hit_5h_limit": False},
     }
     resp = cost_client.get(f"/api/sessions/{_EP_SESSION}")
