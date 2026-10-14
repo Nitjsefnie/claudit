@@ -71,7 +71,7 @@ jobs:
         with:
           python-version: "3.13.14"
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         # The JavaScript coverage ratchet measures V8 block coverage, which
         # can shift across V8 minors; pin the EXACT node the seed was
         # measured with so a runner-side drift cannot move the measurement
@@ -156,7 +156,7 @@ jobs:
 
       - name: Upload coverage.xml
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-xml
           path: coverage.xml
@@ -209,7 +209,7 @@ jobs:
         # A missing artifact is not this job's failure: coverage-comment.yml
         # reads its absence as "not measured" and refreshes the marker, and
         # the readout is informational (issue #129).
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: diff-coverage-comment
           path: ${{ runner.temp }}/coverage-comment
@@ -332,7 +332,7 @@ jobs:
         # and a red gate's numbers stay inspectable: it uploads
         # whenever the bench RAN, not only when its gate passed.
         if: ${{ !cancelled() && steps.suite_bench.outcome != 'skipped' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: suite-measurement
           path: ${{ runner.temp }}/suite-measurement.json
@@ -397,7 +397,7 @@ jobs:
 
       - name: Upload the ratchet data
         if: steps.ratchet.outputs.changed == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ratchet-push
           path: ${{ runner.temp }}/ratchet-data
