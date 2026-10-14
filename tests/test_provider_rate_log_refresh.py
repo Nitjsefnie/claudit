@@ -252,7 +252,7 @@ def test_log_changes_at_or_before_the_newest_entry_are_ignored(tmp_path, capsys)
     (
         "2031-01-01T00:00:00+00:00", RATE_A,
         [("2030-12-31T23:50:00Z", RATE_A), ("2031-01-01T00:00:00Z", RATE_B)],
-        RATE_B, [],
+        RATE_B, [_entry(STAMP, RATE_B)],
         None,
     ),
 ])

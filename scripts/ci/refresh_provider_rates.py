@@ -2,9 +2,9 @@
 """Refresh src/pricing.json's OpenRouter provider rates (SV-RATE-REFRESH).
 
 Fetches every tracked model's endpoints and listed-pricing log. A host with
-one provable endpoint history appends each logged rate change at OpenRouter's
-change time; a first row imports its log from the history floor
-(HISTORY_FLOOR) onward, since earlier states price no record the meters hold.
+one provable endpoint history appends logged changes at their change times,
+then any out-of-step listed state at detection; a first row imports its log
+from the history floor (HISTORY_FLOOR) onward, since earlier states price no record the meters hold.
 Hosts without an unambiguous
 log join are sampled at detection time and use the existing alternation rule.
 No existing entry is rewritten by the hourly refresh. A run that appends
@@ -51,12 +51,11 @@ These refuse the host or model they concern, which appends nothing:
   relists it. An unreadable catalog proves nothing about delisting, so
   the empty-endpoints refusal stands while the catalog cannot be read.
 
-Every other sampled move is still written, then the script exits nonzero
-naming each refusal. A detection time not after a sampled row's newest
-entry leaves that host untouched with a notice; appending after it would
-refuse the file, and one host's damage never blocks the others. The
-one-time, human-reviewed history rewrite
-lives in backfill_provider_rates.py.
+Other moves are written before the run exits nonzero naming each refusal.
+A detection time not after a sampled row's newest entry leaves it untouched
+with a notice. A log-backed row out of step with its endpoint is refused
+when detection cannot follow its newest entry. The history rewrite lives
+in backfill_provider_rates.py.
 
 The same run tracks the first-party vendor table (refresh_vendor_rates,
 SV-VENDOR-RATES): a catalog id under a configured
@@ -238,7 +237,8 @@ def _refresh_model(context: RefreshContext, model: str, source: dict,
     vanished = [(model, host) for host in hosts
                 if host not in listed.rows and host not in listed.refused
                 and host not in listed.untracked]
-    return ModelResult(moves, vanished, list(listed.refused.values()), notices, logged.sampled)
+    return ModelResult(moves, vanished, list(listed.refused.values()) + logged.refusals,
+                       notices, logged.sampled)
 
 
 def refresh(doc: dict, fetch: Fetch, stamp: str,

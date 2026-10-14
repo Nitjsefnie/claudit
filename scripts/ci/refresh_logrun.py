@@ -7,20 +7,22 @@ from datetime import datetime
 from typing import Any, Callable
 
 import refresh_pricelog
+from refresh_prices import RefreshError
 
 
 @dataclass
 class LogRows:
-    """One model's log-backed moves and sampled rows."""
+    """One model's log-backed moves, refusals, and sampled rows."""
     moves: list[Any]
     sampled_rows: dict[str, Any]
     sampled: dict[str, str]
     notices: list[str]
+    refusals: list[str]
 
 
 def _unavailable_log_rows(model: str, rows: dict[str, Any], reason: str) -> LogRows:
     notice = f"listed-pricing log unavailable for {model}: {reason}; its hosts were sampled"
-    return LogRows([], rows, {host: reason for host in rows}, [notice])
+    return LogRows([], rows, {host: reason for host in rows}, [notice], [])
 
 
 def _append_joined_rows(
@@ -28,7 +30,7 @@ def _append_joined_rows(
         joined: dict[str, refresh_pricelog.HostLog],
         append_logged: Callable[[str, dict, str, Any, list[dict], datetime], Any],
         same_rates: Callable[[dict, dict], bool], at: datetime) -> LogRows:
-    result = LogRows([], {}, {}, [])
+    result = LogRows([], {}, {}, [], [])
     for host, listing in rows.items():
         match = joined.get(host)
         reason = match.reason if match else "no series joined to the listed host"
@@ -39,7 +41,11 @@ def _append_joined_rows(
                   hosts[host][-1].get("schedule") != listing.schedule):
                 reason = "stored schedule changed outside the price log"
             else:
-                move = append_logged(model, hosts, host, listing, match.entries, at)
+                try:
+                    move = append_logged(model, hosts, host, listing, match.entries, at)
+                except RefreshError as exc:
+                    result.refusals.append(str(exc))
+                    continue
                 if move:
                     result.moves.append(move)
                 continue
