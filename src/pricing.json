@@ -746,7 +746,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-14T10:54:03Z",
+  "provider_rates_fetched": "2026-10-14T13:48:17Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -11612,6 +11612,13 @@
           "from": "2026-10-10T22:20:44Z",
           "output": 2.1896021655,
           "read": 0.0906935808
+        },
+        {
+          "fresh": 0.43771,
+          "from": "2026-10-14T13:48:17Z",
+          "note": "74.1% off",
+          "output": 0.87542,
+          "read": 0.03626
         }
       ],
       "Cloudflare": [
