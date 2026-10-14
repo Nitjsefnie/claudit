@@ -57,12 +57,12 @@ def test_pair_validation_reuses_work_and_returns_independent_values():
             schema.comment_share_value(changed, 'unique-cache-byte-pair')
 
 
-def _decoded_instructions(target, profile_file):
+def _decoded_instructions(target, profile_file, reseed_in_flight):
     counter = phases.InstructionCounter()
     assert counter.available
     try:
         with counter.window('run'):
-            document = thresholds.load(target, False)
+            document = thresholds.load(target, reseed_in_flight)
     finally:
         counter.close()
     rows = json.loads(profile_file.read_text())
@@ -72,15 +72,16 @@ def _decoded_instructions(target, profile_file):
 
 def test_unchanged_bytes_decode_once_with_fresh_results_and_live_validation(tmp_path, monkeypatch):
     target = tmp_path / 'thresholds.json'
+    reseed_in_flight = verdict if any(verdict := thresholds.verdict(None)) else False
     data = thresholds.load()
     data['comment_share_baseline'] = {'unique-byte-cache.py': [20, 100]}
-    thresholds.write(target, data, False)
+    thresholds.write(target, data, reseed_in_flight)
     profile = tmp_path / 'profile.json'
     monkeypatch.setenv('CLAUDIT_DEBUG_SUITE_INSTRUCTIONS', str(profile))
-    cold, first = _decoded_instructions(target, profile)
+    cold, first = _decoded_instructions(target, profile, reseed_in_flight)
     assert cold > 0
     first['comment_share_baseline']['unique-byte-cache.py'][0] = 0
-    warm, fresh = _decoded_instructions(target, profile)
+    warm, fresh = _decoded_instructions(target, profile, reseed_in_flight)
     assert warm == 0
     rows = json.loads(profile.read_text())
     assert not any(row['function'] == 'normalise' and Path(row['file']).name == 'thresholds.py'
@@ -89,10 +90,9 @@ def test_unchanged_bytes_decode_once_with_fresh_results_and_live_validation(tmp_
     payload = json.loads(target.read_text())
     payload['comment_share_baseline']['unique-byte-cache.py'] = [True, 2]
     target.write_text(json.dumps(payload), encoding='utf-8')
-    with pytest.raises(ValueError):
-        thresholds.load(target, False)
-
-    del payload['suite_cost']
+    with pytest.raises(ValueError, match='comment_share_baseline'):
+        thresholds.load(target, reseed_in_flight)
+    payload.pop('suite_cost', None)
     payload['comment_share_baseline'] = {}
     target.write_text(json.dumps(payload), encoding='utf-8')
     assert 'suite_cost' not in thresholds.load(target, True)
