@@ -396,8 +396,7 @@
     ],
     "glm-5-3": [
       "Nebius",
-      "OpenInference",
-      "Tenstorrent"
+      "OpenInference"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
