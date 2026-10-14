@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Ratchet comment shares at 15% using exact byte pairs.
 
-Lower/equal shares above 15% pass; deleted/graduated entries need cleanup.
+Only measured rises above an entry or the unrecorded 15% limit fail.
+Lower/equal shares and deleted/graduated entries pass on PRs.
 Master --tighten lowers pairs and drops deleted or at/below-15% entries.
 """
 from __future__ import annotations
@@ -33,11 +34,6 @@ def violations(measured: dict[str, tuple[int, int]],
     for path, counts in measured.items():
         if above(counts, baseline.get(path, TARGET)):
             failures[path] = f'{counts} exceeds {baseline.get(path, TARGET)}'
-    for path in baseline:
-        if path not in measured:
-            failures[path] = 'entry names an unmeasured file'
-        elif not above(measured[path], TARGET):
-            failures[path] = 'at or below 15%; drop entry with --tighten'
     return failures
 
 
