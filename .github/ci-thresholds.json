@@ -102,11 +102,11 @@
     ],
     ".github/workflows/test-data-explore.yml": [
       1836,
-      4241
+      4267
     ],
     ".github/workflows/test-data.yml": [
-      3118,
-      5427
+      3113,
+      5422
     ],
     ".github/workflows/tests.yml": [
       6670,
@@ -257,8 +257,8 @@
       1031
     ],
     "backend/constants.py": [
-      7479,
-      8416
+      5945,
+      6862
     ],
     "backend/ctx_input.py": [
       498,
@@ -310,7 +310,7 @@
     ],
     "backend/ingest.py": [
       9505,
-      21337
+      21411
     ],
     "backend/ingest_abort.py": [
       632,
@@ -346,7 +346,7 @@
     ],
     "backend/ingest_progress.py": [
       2042,
-      4057
+      4063
     ],
     "backend/ingest_reprice.py": [
       8764,
@@ -605,8 +605,8 @@
       11871
     ],
     "scripts/ci/gate_trigger_set.py": [
-      3720,
-      6754
+      3940,
+      7191
     ],
     "scripts/ci/js_comment_tokens.mjs": [
       1251,
@@ -633,12 +633,12 @@
       3140
     ],
     "scripts/ci/perturb_test_data.py": [
-      7025,
-      14089
+      7450,
+      14943
     ],
     "scripts/ci/perturbed_leg_bench.py": [
-      3232,
-      9976
+      3275,
+      10511
     ],
     "scripts/ci/price_band.py": [
       6441,
@@ -1026,7 +1026,7 @@
     ],
     "tests/reprice_fixture_builders.py": [
       499,
-      2754
+      2764
     ],
     "tests/scan_gate.py": [
       3155,
@@ -1154,7 +1154,7 @@
     ],
     "tests/test_canonical_model_attribution.py": [
       5997,
-      21553
+      21593
     ],
     "tests/test_ci_classify_comment_only.py": [
       3833,
@@ -1338,7 +1338,7 @@
     ],
     "tests/test_gate_trigger_set.py": [
       1385,
-      5129
+      5157
     ],
     "tests/test_git_meta.py": [
       966,
@@ -1358,7 +1358,7 @@
     ],
     "tests/test_ingest.py": [
       6611,
-      24388
+      24408
     ],
     "tests/test_ingest_blob_cache.py": [
       1225,
@@ -1374,7 +1374,7 @@
     ],
     "tests/test_ingest_fetch.py": [
       5439,
-      19737
+      19762
     ],
     "tests/test_ingest_lock.py": [
       9281,
@@ -1386,7 +1386,7 @@
     ],
     "tests/test_ingest_more.py": [
       4316,
-      18671
+      18691
     ],
     "tests/test_ingest_pipeline.py": [
       1362,
@@ -1394,7 +1394,7 @@
     ],
     "tests/test_ingest_rollback.py": [
       1818,
-      5387
+      5417
     ],
     "tests/test_ingest_vacuum.py": [
       6716,
@@ -1469,8 +1469,8 @@
       12876
     ],
     "tests/test_no_pinned_version_literals.py": [
-      8098,
-      23686
+      8089,
+      23677
     ],
     "tests/test_node_skip_guard.py": [
       5236,
@@ -1526,7 +1526,7 @@
     ],
     "tests/test_parse_lanes.py": [
       4769,
-      25694
+      25719
     ],
     "tests/test_parse_more.py": [
       5091,
@@ -1585,12 +1585,12 @@
       1796
     ],
     "tests/test_perturb_test_data.py": [
-      6113,
-      24233
+      6181,
+      24582
     ],
     "tests/test_perturbed_leg_bench.py": [
-      1707,
-      7995
+      1739,
+      8441
     ],
     "tests/test_picker_fit_js.py": [
       4928,
@@ -1642,7 +1642,7 @@
     ],
     "tests/test_project_aliases.py": [
       4218,
-      18747
+      18772
     ],
     "tests/test_project_case_fold.py": [
       1783,
@@ -1706,7 +1706,7 @@
     ],
     "tests/test_records_price.py": [
       5797,
-      23410
+      23430
     ],
     "tests/test_release_gate.py": [
       5723,
@@ -1742,7 +1742,7 @@
     ],
     "tests/test_reprice_clean_restamp_guards.py": [
       3918,
-      9542
+      9562
     ],
     "tests/test_reprice_differential.py": [
       6356,
@@ -1790,7 +1790,7 @@
     ],
     "tests/test_sequence_allocation.py": [
       1790,
-      7510
+      7525
     ],
     "tests/test_sessions_read_canonical.py": [
       2946,
@@ -1817,8 +1817,8 @@
       2181
     ],
     "tests/test_smoke_server_env.py": [
-      906,
-      1483
+      903,
+      1480
     ],
     "tests/test_storage_widths.py": [
       3585,
@@ -1894,7 +1894,7 @@
     ],
     "tests/test_uuid_split.py": [
       4563,
-      14300
+      14315
     ],
     "tests/test_vbar_label_geometry.py": [
       2047,
@@ -1953,8 +1953,8 @@
       14198
     ],
     "tests/version_literal_guard.py": [
-      4645,
-      9525
+      4724,
+      9689
     ]
   },
   "coverage": {
