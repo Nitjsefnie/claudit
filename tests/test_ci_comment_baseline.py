@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib
 import json
+import shlex
 import sys
 from pathlib import Path
 
@@ -24,6 +25,9 @@ def policy():
     ((149999999999999999, 1000000000000000000), {}, False),
     ((150000000000000001, 1000000000000000000), {}, True),
     ((20, 100), {'x.py': [19, 100]}, True),
+    ((25, 100), {'x.py': [30, 100]}, False),
+    ((35, 200), {'x.py': [20, 100]}, False),
+    ((15, 100), {'x.py': [20, 100]}, True),
     ((40, 200), {'x.py': [20, 100]}, False),
     ((0, 0), {}, False),
 ])
@@ -78,26 +82,29 @@ def test_section_required_and_paths_safe():
         thresholds.normalise(data, False)
 
 
-def test_cli_tighten_and_matches_tree(tmp_path, monkeypatch):
+def test_pr_check_accepts_lower_shares_and_master_tightens(tmp_path, monkeypatch):
     module = policy()
     target = tmp_path / 'thresholds.json'
     data = thresholds.load()
     data['comment_share_baseline'] = {'x.py': [30, 100]}
     thresholds.write(target, data)
     monkeypatch.setattr(module.comment_share, 'measure_files', lambda _root: {'x.py': (20, 100)})
-    args = ['--thresholds', str(target)]
+    steps = yaml.load((ROOT / '.github/workflows/tests.yml').read_text(), Loader=yaml.BaseLoader)['jobs']['pytest']['steps']
+    check = next(step for step in steps if step.get('name') == 'Comment share baseline')
+    args = [*shlex.split(check['run'])[2:], '--thresholds', str(target)]
     assert module.main(args) == 0
-    assert module.main([*args, '--matches-tree']) == 1
     assert module.main([*args, '--tighten']) == 0
     assert thresholds.comment_share_baseline(thresholds.load(target)) == {'x.py': [20, 100]}
-    assert module.main([*args, '--matches-tree']) == 0
+    assert module.main(args) == 0
     monkeypatch.setattr(module.comment_share, 'measure_files', lambda _root: {'x.py': (40, 200)})
-    assert module.main([*args, '--matches-tree']) == 1
+    assert module.main(args) == 0
     assert module.main([*args, '--tighten']) == 0
     assert thresholds.comment_share_baseline(thresholds.load(target)) == {'x.py': [40, 200]}
     monkeypatch.setattr(module.comment_share, 'measure_files', lambda _root: {'x.py': (15, 100)})
+    assert module.main(args) == 1
     assert module.main([*args, '--tighten']) == 0
     assert thresholds.comment_share_baseline(thresholds.load(target)) == {}
+    assert module.main(args) == 0
 
 
 def test_seed_uses_writer_and_refuses_second_seed(tmp_path, monkeypatch):
@@ -126,7 +133,7 @@ def test_comment_only_runs_check_with_dependencies():
     assert 'if' not in job
     steps = job['steps']
     check = next(step for step in steps if step.get('name') == 'Comment share baseline')
-    assert check['run'] == 'python3 scripts/ci/comment_baseline.py --matches-tree'
+    assert check['run'] == 'python3 scripts/ci/comment_baseline.py'
     assert check['if'] == "${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}"
     install = next(step for step in steps if step.get('run') == 'npm ci --no-audit --no-fund')
     assert install['if'] == check['if']
@@ -137,3 +144,9 @@ def test_comment_only_runs_check_with_dependencies():
     ratchet = next(step for step in steps if step.get('id') == 'ratchet')
     assert 'python3 scripts/ci/comment_baseline.py --tighten' in ratchet['run']
     assert "github.ref == 'refs/heads/master'" in ratchet['if']
+    assert "github.event_name == 'push'" in ratchet['if']
+
+
+def test_deleted_entry_matches_precedent_and_tighten_removes_it():
+    assert policy().violations({}, {'gone.py': [20, 100]})
+    assert policy().tightened({'gone.py': [20, 100]}, {}) == {}
