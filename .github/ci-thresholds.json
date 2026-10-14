@@ -129,8 +129,8 @@
       2304
     ],
     "backend/api.py": [
-      6264,
-      20058
+      5895,
+      18724
     ],
     "backend/api_cache.py": [
       2482,
@@ -141,8 +141,8 @@
       12179
     ],
     "backend/api_ctx_growth.py": [
-      2306,
-      6844
+      2040,
+      6586
     ],
     "backend/api_dashboard.py": [
       2899,
@@ -156,9 +156,13 @@
       403,
       2576
     ],
+    "backend/api_latency_rollup.py": [
+      644,
+      2054
+    ],
     "backend/api_sessions.py": [
-      3035,
-      9318
+      2950,
+      9028
     ],
     "backend/api_tool_panels.py": [
       1487,
@@ -270,7 +274,7 @@
     ],
     "backend/dashboard_queries.py": [
       1434,
-      8483
+      8274
     ],
     "backend/db.py": [
       7327,
@@ -287,6 +291,10 @@
     "backend/events.py": [
       1113,
       2393
+    ],
+    "backend/file_timelines.py": [
+      202,
+      1145
     ],
     "backend/flags.py": [
       639,
@@ -322,7 +330,7 @@
     ],
     "backend/ingest_identity.py": [
       1931,
-      4402
+      4632
     ],
     "backend/ingest_lockwatch.py": [
       2786,
@@ -334,7 +342,7 @@
     ],
     "backend/ingest_persist.py": [
       5886,
-      13807
+      13805
     ],
     "backend/ingest_progress.py": [
       2042,
@@ -513,8 +521,8 @@
       737
     ],
     "backend/schema_files.py": [
-      2152,
-      2676
+      2284,
+      2837
     ],
     "backend/schema_indexes.py": [
       835,
@@ -990,7 +998,7 @@
     ],
     "tests/dims_seed.py": [
       802,
-      3084
+      3310
     ],
     "tests/git_meta.py": [
       941,
@@ -1030,7 +1038,7 @@
     ],
     "tests/scratch_db.py": [
       3300,
-      9112
+      9204
     ],
     "tests/test_a11y_wiring.py": [
       7532,
@@ -1230,7 +1238,7 @@
     ],
     "tests/test_ctx_growth_traces.py": [
       1911,
-      5765
+      5758
     ],
     "tests/test_ctx_input_js.py": [
       1081,
@@ -1249,8 +1257,8 @@
       3290
     ],
     "tests/test_dashboard_open_budget.py": [
-      4747,
-      10191
+      4773,
+      10231
     ],
     "tests/test_database_url_viz_default.py": [
       1474,
@@ -1350,7 +1358,7 @@
     ],
     "tests/test_ingest.py": [
       6611,
-      24395
+      24388
     ],
     "tests/test_ingest_blob_cache.py": [
       1225,
@@ -1413,8 +1421,8 @@
       6213
     ],
     "tests/test_latency_read_canonical.py": [
-      1811,
-      4825
+      2007,
+      12635
     ],
     "tests/test_login.py": [
       4296,
@@ -1644,10 +1652,6 @@
       1823,
       3590
     ],
-    "tests/test_prompt_ts.py": [
-      2002,
-      6024
-    ],
     "tests/test_provider_pricing.py": [
       7365,
       27021
@@ -1702,7 +1706,7 @@
     ],
     "tests/test_records_price.py": [
       5658,
-      21360
+      21577
     ],
     "tests/test_release_gate.py": [
       5723,
@@ -1818,7 +1822,7 @@
     ],
     "tests/test_storage_widths.py": [
       3585,
-      10783
+      11261
     ],
     "tests/test_suite_bench.py": [
       5404,
