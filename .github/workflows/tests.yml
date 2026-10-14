@@ -234,7 +234,7 @@ jobs:
 
       - name: Comment share baseline
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
-        run: python3 scripts/ci/comment_baseline.py --matches-tree
+        run: python3 scripts/ci/comment_baseline.py
 
       - name: JavaScript coverage gate
         # The front-end half of the same ratchet (issue #266):

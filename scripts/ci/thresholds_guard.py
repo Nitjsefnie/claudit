@@ -28,8 +28,8 @@ HEAD back to the last family-present commit (reseed.py), under that
 family's own marker — suite_cost under ``[suite-cost-re-seed]``,
 reparse under ``[reparse-re-seed]`` — so commits landing on the
 delete before the seed read the absence through the delete's marker.
-The truth of seeded values is pinned separately, by the
-committed-document-matches-tree tests, which run on the same merge ref.
+Size and suppression seeds have separate committed-tree tests.
+Comment shares permit reductions until master tightens.
 
 The guard runs from the tree under test, like every other gate step: it
 shares the steps' threat model, closing the accidental and
