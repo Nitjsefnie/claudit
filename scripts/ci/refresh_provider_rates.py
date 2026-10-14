@@ -4,9 +4,8 @@
 Fetches every tracked model's endpoints and listed-pricing log. A host with
 one provable endpoint history appends logged changes at their change times,
 then any out-of-step listed state at detection; a first row imports its log
-from the history floor (HISTORY_FLOOR) onward, since earlier states price no record the meters hold.
-Hosts without an unambiguous
-log join are sampled at detection time and use the existing alternation rule.
+from HISTORY_FLOOR onward; earlier states price no stored record.
+Unjoined hosts sample at detection with the alternation rule.
 No existing entry is rewritten by the hourly refresh. A run that appends
 bumps PRICING_VERSION (a reprice, never a reparse) by one from whatever
 backend/constants.py holds and moves provider_rates_fetched; a quiet run
@@ -51,11 +50,12 @@ These refuse the host or model they concern, which appends nothing:
   relists it. An unreadable catalog proves nothing about delisting, so
   the empty-endpoints refusal stands while the catalog cannot be read.
 
-Other moves are written before the run exits nonzero naming each refusal.
-A detection time not after a sampled row's newest entry leaves it untouched
-with a notice. A log-backed row out of step with its endpoint is refused
-when detection cannot follow its newest entry. The history rewrite lives
-in backfill_provider_rates.py.
+Refusals keep rows untouched and exit 1. At an equal detection
+cutover, an out-of-step logged row is refused by name; other moves publish.
+A future retained cutover plus another provider move sets provider_rates_fetched
+before that cutover: final validation fails the whole run, writing nothing.
+Sampled timing collisions keep their notice. The history rewrite is in
+backfill_provider_rates.py.
 
 The same run tracks the first-party vendor table (refresh_vendor_rates,
 SV-VENDOR-RATES): a catalog id under a configured
