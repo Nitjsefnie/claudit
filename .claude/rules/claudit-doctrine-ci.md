@@ -109,10 +109,12 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   YAML and shell sources above 15%, including extensionless shell.
   Integer cross-products compare shares without rounding. Unrecorded
   files stay at or below 15%; established entries never rise or get
-  added. `scripts/ci/comment_baseline.py --matches-tree` checks the
-  measured pairs after pytest and the JS toolchain install in the tests
-  canary, on comment-only changes too. Master's `--tighten` lowers entries and drops those at
-  or below 15%, through `thresholds.write`. `--seed` introduces the
+  added. `scripts/ci/comment_baseline.py` permits lower or equal shares
+  above 15%, even when byte pairs differ. Like size/suppression gates,
+  deleted-file or at/below-15% entries require cleanup. The check runs after
+  pytest and the JS toolchain install, on comment-only changes too.
+  On master pushes only, `--tighten` lowers entries and drops deleted or
+  at/below-15% files, through `thresholds.write`. `--seed` introduces the
   section once from the measured tree. No re-seed marker applies.
 - Suite cost (`suite_cost`): per-phase instruction counts (millions of
   bytecode instructions, one decimal; phases `collection`, `run`,
@@ -260,9 +262,9 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   latter admitted only on a commit carrying that family's own re-seed
   marker (`[suite-cost-re-seed]` for suite_cost, `[reparse-re-seed]`
   for reparse). A marker buys the absence, never a raised budget
-  (the upward-move refusal stands). The truth of every seed is pinned
-  by the committed-document-matches-tree tests, which run on the same
-  merge ref.
+  (the upward-move refusal stands). Size and suppression seeds are pinned
+  by committed-tree tests on the same merge ref; comment shares permit
+  reductions until master tightens.
 - Coverage numbers carry exactly one decimal (`92.0`, never `92` or
   `92.00`) — what the ratchet writes, `coverage --precision=1`
   measures and the JS gate's `toFixed(1)` reads. The document is

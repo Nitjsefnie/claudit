@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Ratchet exact [comment bytes, non-whitespace bytes] shares at 15%."""
+"""Ratchet comment shares at 15% using exact byte pairs.
+
+Lower/equal shares above 15% pass; deleted/graduated entries need cleanup.
+Master --tighten lowers pairs and drops deleted or at/below-15% entries.
+"""
 from __future__ import annotations
 
 import argparse
@@ -52,7 +56,6 @@ def main(argv: list[str] | None = None) -> int:
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--tighten', action='store_true')
     modes.add_argument('--seed', action='store_true', help='introduce an absent section once')
-    modes.add_argument('--matches-tree', action='store_true', help='also refuse stale entries')
     parser.add_argument('--root', type=Path, default=comment_share.ROOT)
     parser.add_argument('--thresholds', type=Path, default=thresholds.THRESHOLDS)
     args = parser.parse_args(argv)
@@ -75,8 +78,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f'{len(updated)} comment-share entries recorded')
             return 0
         found = violations(measured, baseline)
-        if args.matches_tree and baseline != entries(measured):
-            found['matches-tree'] = 'baseline differs from measured byte pairs; run --tighten'
         for path, detail in found.items():
             print(f'{path}: {detail}', file=sys.stderr)
         if found:
