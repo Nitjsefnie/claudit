@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from backend.pricing_rows import encode_pricing_doc
 
 from tests.refresh_fixture_builders import RATES_B, seed_doc
 
@@ -54,13 +55,14 @@ def _sandbox(tmp_path, monkeypatch):
         (LOADER_JS, "pricing-loader.js"),
         (VENDOR_TABLES_JS, "vendor-tables.js"),
         (HHMM_JS, "hhmm-spelling.js"),
+        (HHMM_JS.with_name("pricing-rows.js"), "pricing-rows.js"),
         (PARSER_USAGE_JS, "parser-usage.js"),
         (PARSER_JS, "parser.js"),
         (RATES_JS, "rates.js"),
     ):
         shutil.copy(source, tmp_path / name)
     (tmp_path / "pricing.json").write_text(
-        json.dumps(_doc(), indent=2, sort_keys=True), encoding="utf-8")
+        json.dumps(encode_pricing_doc(_doc()), indent=2, sort_keys=True), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -117,7 +119,7 @@ def test_browser_cost_charges_each_search_and_reports_the_count(sandbox):
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_old_fee_shaped_note_is_not_a_rate_or_per_record_charge(sandbox):
     (sandbox / "pricing.json").write_text(
-        json.dumps(_doc(note=OLD_FEE_NOTE), indent=2, sort_keys=True),
+        json.dumps(encode_pricing_doc(_doc(note=OLD_FEE_NOTE)), indent=2, sort_keys=True),
         encoding="utf-8")
     got = _node(sandbox, """
       const resolved = window.resolveModelRate(

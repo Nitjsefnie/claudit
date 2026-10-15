@@ -85,6 +85,7 @@ from refresh_prices import (MIN_PROMPT_TOKENS as _MIN_PROMPT,  # noqa: E402
 from refresh_report import vendor_report  # noqa: E402
 import refresh_pricelog  # noqa: E402
 from backend import pricing  # noqa: E402
+from backend.pricing_document import expand_pricing_doc  # noqa: E402
 
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
@@ -397,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
+        doc = expand_pricing_doc(json.loads(PRICING_JSON.read_text(encoding="utf-8")))
         vendor = vendor_pass(doc, refresh_pricelog.fetch_models,
                              refresh_pricelog.fetch_endpoints)
         print(vendor_report(stamp, vendor))

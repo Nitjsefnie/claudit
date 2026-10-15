@@ -7,6 +7,7 @@ import shutil
 from datetime import datetime, timedelta
 
 import pytest
+from backend.pricing_rows import encode_pricing_doc
 
 from fastapi.testclient import TestClient
 
@@ -177,10 +178,11 @@ def test_both_sides_read_an_edge_spelling_as_the_same_instant(
     want = int(_at(stamp).timestamp() * 1000)
     assert want in [int(e.timestamp() * 1000)
                     for e in pricing.load_tables(doc)["RATE_EPOCHS"]]
-    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
+    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
@@ -203,10 +205,11 @@ def test_a_provider_row_that_begins_at_a_time_prices_from_then_on(monkeypatch):
 def test_a_provider_row_that_begins_at_a_time_prices_from_then_on_in_the_browser(
         tmp_path):
     (tmp_path / "pricing.json").write_text(
-        json.dumps(_with_newcomer()), encoding="utf-8")
+        json.dumps(encode_pricing_doc(_with_newcomer())), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
+    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
@@ -277,10 +280,11 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
             stamps += [_stamp(edge + timedelta(seconds=s)) for s in (-1, 0, 1)]
     model, host = SCHEDULED
     tables = pricing.load_tables(doc)
-    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
+    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
@@ -359,10 +363,11 @@ def test_a_row_that_begins_then_moves_prices_alike_in_the_browser(tmp_path):
     model, host = _GLM_MODEL_ID, "Newcomer"
     stamps = [_stamp(_at(CUT) - timedelta(seconds=1)), CUT,
               _stamp(_at(LATER) - timedelta(seconds=1)), LATER, None]
-    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
+    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
@@ -387,10 +392,11 @@ def test_a_row_that_begins_then_moves_prices_alike_in_the_browser(tmp_path):
 def test_rate_epochs_include_provider_window_ends_and_row_starts_in_the_browser(
         tmp_path):
     (tmp_path / "pricing.json").write_text(
-        json.dumps(_provider_only_doc()), encoding="utf-8")
+        json.dumps(encode_pricing_doc(_provider_only_doc())), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
+    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")

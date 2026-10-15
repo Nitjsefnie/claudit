@@ -4,6 +4,8 @@ from __future__ import annotations
 import copy
 import json
 
+from backend.pricing_rows import decode_pricing_doc, encode_pricing_doc
+
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 CACHE_WRITE_FIELDS = ("create_5m", "create_1h")
 
@@ -42,7 +44,8 @@ def _walk_histories(doc: dict):
 
 def expand_pricing_doc(doc: dict) -> dict:
     """Copy a document into its complete in-memory rate and timestamp shape."""
-    out = copy.deepcopy(doc)
+    out = (decode_pricing_doc(doc) if "_format" in doc
+           else copy.deepcopy(doc))
     for history in _walk_histories(out):
         for index, entry in enumerate(history):
             if index == 0:
@@ -59,7 +62,8 @@ def expand_pricing_doc(doc: dict) -> dict:
 
 def compact_pricing_doc(doc: dict) -> dict:
     """Copy a document, omitting cache tiers and leading null timestamps."""
-    out = copy.deepcopy(doc)
+    out = (decode_pricing_doc(doc) if "_format" in doc
+           else copy.deepcopy(doc))
     for history in _walk_histories(out):
         for index, entry in enumerate(history):
             if index == 0 and entry.get("from") is None:
@@ -81,24 +85,28 @@ def compact_pricing_doc(doc: dict) -> dict:
 
 def serialize_pricing_doc(doc: dict) -> str:
     """Serialize the canonical compact document used by every writer."""
-    return json.dumps(compact_pricing_doc(doc), indent=2, sort_keys=True,
+    return json.dumps(encode_pricing_doc(compact_pricing_doc(doc)),
+                      indent=2, sort_keys=True,
                       allow_nan=False) + "\n"
 
 
-def check_compact_shape(doc: dict) -> None:
+def check_compact_shape(doc: dict, decoded: dict | None = None) -> None:
     """Refuse a STORED document whose cache-write rates repeat ``fresh``.
 
     ``compact_pricing_doc`` strips an equal ``create_5m``/``create_1h``
     pair at every write, so a present equal pair in the stored file is a
     hand edit (SV-RATE-DATA: present only when it differs). This runs at
     the raw-file boundaries only — pricing_load's module load and the
-    browser loader's fetch — never inside ``load_tables``: the shared
-    validation accepts the expanded intermediate ``expand_pricing_doc``
-    materialises, by design. Mirrored by src/pricing-loader.js's
+    browser loader's fetch, and when ``load_tables`` receives stored rows.
+    Decoded inputs still accept the expanded intermediate materialised by
+    ``expand_pricing_doc``. Pass the already-decoded document at boundaries
+    to avoid decoding twice. Mirrored by src/pricing-loader.js's
     ``checkCompactShape``.
     """
-    models = doc.get("models")
-    providers = doc.get("providers")
+    if decoded is None:
+        decoded = decode_pricing_doc(doc)
+    models = decoded.get("models")
+    providers = decoded.get("providers")
     rows = list(models.items()) if isinstance(models, dict) else []
     if isinstance(providers, dict):
         rows += [(f"{model} via {host}", entries)

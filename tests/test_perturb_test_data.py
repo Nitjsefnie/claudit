@@ -28,9 +28,9 @@ from tests.refresh_fixture_builders import (
     DEFAULT_ROW, RATES_A, RATES_B, seed_doc as build_seed_doc,
 )
 
-
 from backend import pricing
 from backend.pricing_document import serialize_pricing_doc
+from tests.pricing_row_helpers import decoded_pricing_doc
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "perturb_test_data.py"
@@ -110,7 +110,7 @@ def _run(tmp_path: Path) -> tuple[dict, dict, str, Path]:
     pricing_path, constants_path, doc = _seed_tree(tmp_path)
     perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
     perturb_module.bump_constants(constants_path, tmp_path / "parser_version.py")
-    perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
+    perturbed = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     text = pricing_path.read_text(encoding="utf-8")
     return doc, perturbed, text, constants_path
 
@@ -121,7 +121,7 @@ def _run_twice(tmp_path: Path) -> tuple[dict, dict, Path]:
     for _ in range(2):
         perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
         perturb_module.bump_constants(constants_path, tmp_path / "parser_version.py")
-    perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
+    perturbed = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     return doc, perturbed, constants_path
 
 
@@ -149,7 +149,7 @@ def _moved_field_of(entry: dict) -> str:
 
 def test_every_row_gains_exactly_five_entries(tmp_path):
     doc, perturbed, _text, _path = _run(tmp_path)
-    compact = json.loads(serialize_pricing_doc(doc))
+    compact = decoded_pricing_doc(json.loads(serialize_pricing_doc(doc)))
     for key, entries in compact["models"].items():
         assert len(perturbed["models"][key]) == len(entries) + 5
         assert perturbed["models"][key][:-5] == entries
@@ -262,7 +262,7 @@ def test_an_offset_spelled_newest_stamp_perturbs_cleanly(tmp_path):
     rows, _seed, _base = perturb_module.perturb_pricing(
         pricing_path, seed=int(NOW.timestamp()))
     assert rows == 5, "the seed doc's five rate rows"
-    perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
+    perturbed = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     assert pricing.load_tables(perturbed)
     for entries in _histories(perturbed):
         instants = [None if entry.get("from") is None else
@@ -356,7 +356,7 @@ def test_the_single_field_choice_follows_the_seed(tmp_path):
         pricing_path.write_text(pristine, encoding="utf-8")
         perturb_module.perturb_pricing(
             pricing_path, seed=int(NOW.timestamp()) + offset)
-        perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
+        perturbed = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
         choices.append([_moved_field_of(entries[-1])
                         for entries in _histories(perturbed)])
     assert choices[0] != choices[1]
@@ -397,7 +397,7 @@ def test_the_row_shuffle_is_observable_in_the_stamp_order(tmp_path):
     """The rows are processed in a seeded-shuffled order: the order the
     rows receive their stamps differs from the file's row order."""
     pricing_path, _constants_path, _doc = _seed_tree(tmp_path)
-    seed_doc = json.loads(pricing_path.read_text(encoding="utf-8"))
+    seed_doc = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     seed_doc["models"] = {f"acme/model-{index:02d}":
                           [{"from": None, **RATES_A}]
                           for index in range(12)}
@@ -407,7 +407,7 @@ def test_the_row_shuffle_is_observable_in_the_stamp_order(tmp_path):
         json.dumps(seed_doc, indent=2, sort_keys=True) + "\n",
         encoding="utf-8")
     perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
-    perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
+    perturbed = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     keys = sorted(seed_doc["models"])
     by_stamp = sorted(
         keys,
@@ -448,7 +448,7 @@ def test_the_perturbed_doc_passes_the_loaders_validation(tmp_path):
     seed = 42
     pricing_path, _constants_path, doc = _seed_tree(tmp_path)
     perturb_module.perturb_pricing(pricing_path, seed=seed)
-    perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
+    perturbed = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     tables = pricing.load_tables(perturbed)
     for key in doc["models"]:
         base = doc["models"][key][-1]
@@ -480,8 +480,8 @@ def test_the_perturbed_doc_passes_the_loaders_validation(tmp_path):
 
 
 def test_the_file_stays_in_the_canonical_layout(tmp_path):
-    _doc, perturbed, text, _path = _run(tmp_path)
-    assert text == json.dumps(perturbed, indent=2, sort_keys=True) + "\n"
+    _doc, _perturbed, text, _path = _run(tmp_path)
+    assert text == json.dumps(json.loads(text), indent=2, sort_keys=True) + "\n"
 
 
 def test_the_constants_file_bumps_exactly_plus_one(tmp_path):
@@ -507,7 +507,7 @@ def test_a_future_newest_stamp_still_bounds_its_row(tmp_path):
     pricing_path.write_text(
         json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
-    perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
+    perturbed = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     stamps = [datetime.fromisoformat(entry["from"].replace("Z", "+00:00"))
               for entry in perturbed["models"]["acme/acme-9"][-5:]]
     for stamp in stamps:
@@ -616,7 +616,7 @@ def test_appended_stamps_decouple_from_the_seed_and_pins_hold(tmp_path):
     newest real stamp, and the six closed-window pins of
     tests/test_provider_pricing.py keep reading their pristine rates at
     SEEDED."""
-    pristine = json.loads(_real_pricing_text())
+    pristine = decoded_pricing_doc(json.loads(_real_pricing_text()))
     document_max = _document_max_stamp(_rows_of(pristine))
     for seed in (42, int(time.time())):
         tree = tmp_path / str(seed)
@@ -624,7 +624,7 @@ def test_appended_stamps_decouple_from_the_seed_and_pins_hold(tmp_path):
         pricing_path = tree / "pricing.json"
         pricing_path.write_text(_real_pricing_text(), encoding="utf-8")
         perturb_module.perturb_pricing(pricing_path, seed=seed)
-        perturbed = json.loads(pricing_path.read_text(encoding="utf-8"))
+        perturbed = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
 
         for (key, real_entries), (_key, entries) in zip(
                 _rows_of(pristine), _rows_of(perturbed), strict=True):

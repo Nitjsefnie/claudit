@@ -89,6 +89,7 @@
         skipWs();
         const t = top();
         if (!t) { dead = true; return; }
+        if (!t.obj) t.index++;
         const c = text[pos];
         if (c === ',') { pos++; return; }
         if (t.obj ? c === '}' : c === ']') { pos++; stack.pop(); continue; }
@@ -99,8 +100,8 @@
 
     skipWs();
     const first = text[pos];
-    if (first === '{') stack.push({ obj: true, key: null, window: false });
-    else if (first === '[') stack.push({ obj: false, schedule: false });
+    if (first === '{') stack.push({ obj: true, key: null, window: false, path: [] });
+    else if (first === '[') stack.push({ obj: false, schedule: false, path: [], index: 0 });
     else return;                       // a scalar root: nothing to check
     pos++;
 
@@ -130,15 +131,16 @@
         continue;
       }
       // A value position:
+      const path = [...t.path, t.obj ? t.key : t.index];
       const v = text[pos];
       if (v === '{') {
         pos++;
-        stack.push({ obj: true, key: null, window: !t.obj && t.schedule });
+        stack.push({ obj: true, key: null, window: !t.obj && t.schedule, path });
         continue;
       }
       if (v === '[') {
         pos++;
-        stack.push({ obj: false, schedule: t.obj && t.key === 'schedule' });
+        stack.push({ obj: false, schedule: t.obj && t.key === 'schedule', path, index: 0 });
         continue;
       }
       if (v === '"') {
@@ -149,6 +151,13 @@
         // A malformed token (a bare '-', a leading zero) is not an offense:
         // JSON.parse refuses the file and names it.
         if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(token)) return;
+        if (!t.obj && t.path[0] === 'providers'
+            && ((t.path.length === 4 && t.index === 0)
+                || (t.path.length === 5 && t.path[4] === 0))
+            && !/^-?\d+$/.test(token)) {
+          throw _pricingError(`${t.path[1]} via ${t.path[2]}[${t.path[3]}]: `
+            + `timestamp delta at offset ${at} must be spelled a plain JSON integer`);
+        }
         if (t.obj && t.window && (t.key === 'start' || t.key === 'end')
             && !/^-?\d+$/.test(token)) {
           offenses.push(`offset ${at} spells a schedule ${t.key} as ${token}`);
