@@ -93,8 +93,33 @@ def test_unchanged_bytes_decode_once_with_fresh_results_and_live_validation(tmp_
     with pytest.raises(ValueError, match='comment_share_baseline'):
         thresholds.load(target, reseed_in_flight)
     payload.pop('suite_cost', None)
+    payload.pop('reparse', None)
     payload['comment_share_baseline'] = {}
     target.write_text(json.dumps(payload), encoding='utf-8')
-    assert 'suite_cost' not in thresholds.load(target, True)
+    opened = thresholds.load(target, schema.ReseedVerdict(suite_cost=True, reparse=True))
+    assert 'suite_cost' not in opened
+    assert 'reparse' not in opened
     with pytest.raises(ValueError):
         thresholds.load(target, False)
+
+
+def test_cache_validation_inside_reparse_reseed_window(tmp_path, monkeypatch):
+    source = tmp_path / 'reparse-window.json'
+    payload = {
+        'schema_version': 1,
+        'coverage': {language: {'measured': 80.0, 'floor': 78.5}
+                     for language in thresholds.COVERAGE_LANGUAGES},
+        'suite_cost': {phase: {'measured': 1.0, 'floor': 2.5}
+                       for phase in thresholds.SUITE_COST_PHASES},
+        **{member: {} for member in thresholds.BASELINE_MEMBERS},
+    }
+    source.write_text(json.dumps(payload), encoding='utf-8')
+    load = thresholds.load
+    monkeypatch.setattr(
+        thresholds, 'verdict',
+        lambda requested=None: schema.ReseedVerdict(suite_cost=False, reparse=True)
+        if requested is None else requested)
+    monkeypatch.setattr(
+        thresholds, 'load',
+        lambda path=source, reseed_in_flight=None: load(path, reseed_in_flight))
+    test_unchanged_bytes_decode_once_with_fresh_results_and_live_validation(tmp_path, monkeypatch)
