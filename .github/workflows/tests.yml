@@ -3,7 +3,7 @@ name: tests
 on:
   # Trigger ownership moved to ci-gate.yml (issue #127): this file is
   # called as a leg; workflow_dispatch keeps a direct run possible.
-  workflow_call: {inputs: {comment_only: {description: "narrow the portable matrix", type: string, default: "false"}}}
+  workflow_call: {inputs: {comment_only: {description: "narrow the portable matrix", type: string, default: "false"}, thresholds_only: {description: "narrow to thresholds checks and calibration gates", type: string, default: "false"}}}
   workflow_dispatch:
 
 # Least privilege: without an explicit block every job inherits the
@@ -128,13 +128,22 @@ jobs:
         id: pytest
         # No --cov-fail-under: the gate is its own step below, so
         # "tests failed" and "coverage dropped" stay distinguishable.
-        run: python -m pytest tests/ -q --tb=short -ra --cov=backend --cov-report=term
+        env:
+          CLAUDIT_THRESHOLDS_ONLY: ${{ inputs.thresholds_only }}
+        run: |
+          if [ "$CLAUDIT_THRESHOLDS_ONLY" = 'true' ]; then
+            # The list is derived and pinned by test_ci_gate_thresholds.py.
+            # shellcheck disable=SC2046
+            python -m pytest $(sed '/^#/d;/^$/d' scripts/ci/thresholds_test_files.txt) -q --tb=short -ra
+          else
+            python -m pytest tests/ -q --tb=short -ra --cov=backend --cov-report=term
+          fi
 
       - name: Coverage summary
         # Renders whether or not the gate below passes: a coverage
         # regression is only actionable if you can see WHICH file lost
         # lines. Recorded ratchet values sit beside the report.
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
         run: |
           recorded_measured="$(python3 scripts/ci/thresholds.py \
             --coverage-measured python)"
@@ -155,7 +164,7 @@ jobs:
           python -m coverage xml -o coverage.xml
 
       - name: Upload coverage.xml
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-xml
@@ -167,7 +176,7 @@ jobs:
         # request ADDED, which did the suite execute. PR-only, and
         # INFORMATIONAL BY DESIGN: no threshold, no gate; the module
         # exits 0 for any result it computed, even 0%.
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' }}
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' && inputs.thresholds_only != 'true' }}
         env:
           REPO: ${{ github.repository }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -192,7 +201,7 @@ jobs:
         # this artifact is produced by a run of the pull request's own
         # tests.yml, so its claim about which pull request it belongs to
         # carries no authority.
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' }}
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' && inputs.thresholds_only != 'true' }}
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
@@ -205,7 +214,7 @@ jobs:
           wc -c < "$RUNNER_TEMP/coverage-comment/body.md"
 
       - name: Upload the patch-coverage comment
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' }}
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' && inputs.thresholds_only != 'true' }}
         # A missing artifact is not this job's failure: coverage-comment.yml
         # reads its absence as "not measured" and refreshes the marker, and
         # the readout is informational (issue #129).
@@ -217,7 +226,7 @@ jobs:
           retention-days: 5
 
       - name: Coverage gate
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
         # A RATCHET, not a target: the floor is committed data, seeded
         # 1.5 under the measured coverage that recorded it; master
         # raises it past the hysteresis, never lowers it.
@@ -226,14 +235,14 @@ jobs:
           python -m coverage report "--fail-under=${floor}" --precision=1
 
       - name: Install the JS toolchain from the lockfile
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
         # npm ci installs package-lock.json exactly, so the c8 pin means
         # what it says and is visible to Dependabot (issue #361). Same
         # lockfile eslint.yml installs from.
         run: npm ci --no-audit --no-fund
 
       - name: Comment share baseline
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
         run: python3 scripts/ci/comment_baseline.py
 
       - name: JavaScript coverage gate
@@ -242,7 +251,7 @@ jobs:
         # pytest run spawns, and c8 folds them over src/**/*.js — the
         # files node actually executes (.jsx panels are outside it).
         id: jscov
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
         env:
           NODE_V8_COVERAGE: ${{ runner.temp }}/v8-coverage
         run: |
@@ -275,14 +284,14 @@ jobs:
         # Growth is fixed by moving code into a new module, never by
         # raising the recorded ceiling: a file that outgrew its entry
         # or crossed its ceiling fails here; master tightens below.
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
         run: python3 scripts/ci/size_baseline.py
 
       - name: Pylint suppression baseline
         # The same only-shrinks ratchet for inline complexity
         # suppressions (issue #389): a file's count never rises past its
         # record; an unrecorded file stays at zero. Master tightens below.
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
+        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
         run: python3 scripts/ci/suppression_baseline.py
 
       - name: Threshold direction guard
@@ -322,7 +331,7 @@ jobs:
         # (ratchet-push.yml) via the upload below.
         id: suite_bench
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
-                && steps.jscov.outcome == 'success' }}
+                && (steps.jscov.outcome == 'success' || inputs.thresholds_only == 'true') }}
         uses: $/.github/actions/suite-bench
         with:
           measurement: ${{ runner.temp }}/suite-measurement.json
@@ -409,7 +418,7 @@ jobs:
     # mechanical split), where no Postgres container runs: the full
     # suite, the ratchets and the DB tests stay in the `pytest` job.
     # A comment-only change skips the matrix; the canary still runs it.
-    if: inputs.comment_only != 'true'
+    if: inputs.comment_only != 'true' && inputs.thresholds_only != 'true'
     name: pytest (${{ matrix.os }}, ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20

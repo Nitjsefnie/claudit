@@ -137,7 +137,8 @@ def test_tests_job_measures_and_gates_on_every_event():
     # "Merging and CI" with:-inputs ruling.
     assert bench["if"] == (
         "${{ !cancelled() && steps.pytest.outcome == 'success' "
-        "&& steps.jscov.outcome == 'success' }}")
+        "&& (steps.jscov.outcome == 'success' "
+        "|| inputs.thresholds_only == 'true') }}")
 
     # One upload, located by its condition (the workflow's behaviour,
     # never a with: input — fleet-rules, "Merging and CI" with:-inputs

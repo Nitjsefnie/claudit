@@ -94,16 +94,24 @@ def comment_only(needs):
     return _classify_output(needs, 'comment_only')
 
 
+def thresholds_only(needs):
+    """The classifier's thresholds_only output, read fail-closed."""
+    return _classify_output(needs, 'thresholds_only')
+
+
 def _narrowed(name, needs):
     """Whether classification legitimately skips leg `name`.
 
     A docs-only run skips every leg; a data-only run skips every leg
     OUTSIDE the cheap set — lint and smoke are why the class exists; a
     comment-only run skips exactly the legs a comment cannot affect.
+    A thresholds-only run requires tests and skips the other gate legs.
     """
     if docs_only(needs):
         return True
     if data_only(needs) and name not in CHEAP_LEGS:
+        return True
+    if thresholds_only(needs) and name in EXPECTED_LEGS[1:] and name != 'tests':
         return True
     return comment_only(needs) and name in COMMENT_ONLY_SKIPPED
 
@@ -148,6 +156,13 @@ def decide(needs):
             return PASSED, (
                 f'data-only change: {len(skipped)} gate legs skipped by '
                 f'classification ({joined}); cheap legs ran ({cheap})')
+        if thresholds_only(needs):
+            skipped = sorted(name for name, result in entries
+                             if result == 'skipped')
+            joined = ', '.join(skipped)
+            return PASSED, (
+                f'thresholds-only change: {len(skipped)} gate legs skipped by '
+                f'classification ({joined}); tests ran narrowed')
         if comment_only(needs):
             skipped = sorted(name for name, result in entries
                              if result == 'skipped')
@@ -181,6 +196,8 @@ def render(needs, verdict, message):
         f'{"true" if _classify_output(needs, "data_only") else "false"}',
         f'comment-only narrowing: '
         f'{"true" if _classify_output(needs, "comment_only") else "false"}',
+        f'thresholds-only narrowing: '
+        f'{"true" if thresholds_only(needs) else "false"}',
     ]
     classify = needs.get('classify')
     reason = ((classify or {}).get('outputs') or {}).get('reason')
@@ -201,6 +218,8 @@ def render(needs, verdict, message):
                 note = ' (docs-only narrowing)'
             elif data_only(needs) and name not in CHEAP_LEGS:
                 note = ' (data-only narrowing)'
+            elif thresholds_only(needs) and _narrowed(name, needs):
+                note = ' (thresholds-only narrowing)'
             elif comment_only(needs) and name in COMMENT_ONLY_SKIPPED:
                 note = ' (comment-only narrowing)'
         lines.append(f'| {name} | {result}{note} |')
