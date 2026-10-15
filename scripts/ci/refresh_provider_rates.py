@@ -50,10 +50,10 @@ These refuse the host or model they concern, which appends nothing:
   relists it. An unreadable catalog proves nothing about delisting, so
   the empty-endpoints refusal stands while the catalog cannot be read.
 
-Refusals keep rows untouched and exit 1. At an equal detection
-cutover, an out-of-step logged row is refused by name; other moves publish.
-A future retained cutover plus another provider move sets provider_rates_fetched
-before that cutover: final validation fails the whole run, writing nothing.
+Refusals keep rows untouched and exit 1. At an equal or future detection
+cutover, an out-of-step logged row is refused by name; other moves publish
+before exiting 1. provider_rates_fetched keeps the later of its stored
+instant and detection, so it never falls below a retained cutover.
 Sampled timing collisions keep their notice. The history rewrite is in
 backfill_provider_rates.py.
 
@@ -252,8 +252,8 @@ def refresh(doc: dict, fetch: Fetch, stamp: str,
         source_doc, fetch, region, stamp,
         datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc))
     result = _refresh_models(context, tracked, logs, catalog)
-    # The loaders' own rules, run on what would be written: among them, a
-    # detection time not after a row's newest entry.
+    # The loaders' own rules, run on what would be written, including the
+    # stored fetch stamp bounding every retained entry.
     try:
         pricing.load_tables(result.doc)
     except ValueError as exc:
@@ -282,7 +282,9 @@ def _refresh_models(context: RefreshContext, tracked: dict,
         result.notices += outcome.notices
         result.sampled[model] = outcome.sampled
     if result.moves:
-        result.doc["provider_rates_fetched"] = context.stamp
+        result.doc["provider_rates_fetched"] = max(
+            result.doc["provider_rates_fetched"], context.stamp,
+            key=datetime.fromisoformat)
     return result
 
 
