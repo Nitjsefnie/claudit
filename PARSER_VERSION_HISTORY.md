@@ -54,4 +54,6 @@ them: bump `PRICING_VERSION` in `constants.py` for that.
 - **111** — issue #1023 task 1: Bash write targets now include link names,
   touch operands, local rsync destinations, explicit extraction directories,
   curl/wget output files and Python venv directories. Reparse stored calls
-  to populate their previously empty write-target arrays.
+  to populate their previously empty write-target arrays. Downloads,
+  extraction, rsync and venv creation use the per-call unknown-size churn
+  fallback; touch and ln add zero content lines.
