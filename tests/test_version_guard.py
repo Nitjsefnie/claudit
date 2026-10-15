@@ -12,7 +12,6 @@ import pytest
 
 from scripts.ci.version_guard import (
     BOT_EMAIL,
-    BOT_FILES,
     Decision,
     decide,
     is_bot_exempt,
@@ -22,7 +21,8 @@ from scripts.ci.version_guard import (
 
 BOT = BOT_EMAIL
 HUMAN = "dev@example.com"
-BOTH_FILES = list(BOT_FILES)
+BOTH_FILES = ["src/pricing.json", "backend/constants.py"]
+NOTICE_FILES = BOTH_FILES + ["src/pricing_notices.json"]
 
 
 # --- parse_version ---------------------------------------------------------
@@ -59,23 +59,35 @@ def test_bot_exempt_bot_author_both_files():
     assert is_bot_exempt(BOT, BOTH_FILES) is True
 
 
-def test_bot_exempt_bot_author_subset_of_its_files():
-    # A strict subset of the carve-out set keeps the bot's shape.
-    assert is_bot_exempt(BOT, ["src/pricing.json"]) is True
+def test_bot_exempt_bot_author_with_notices_baseline():
+    assert is_bot_exempt(BOT, NOTICE_FILES) is True
+
+
+@pytest.mark.parametrize("files", [
+    ["src/pricing.json"],
+    ["backend/constants.py"],
+    ["src/pricing_notices.json"],
+    ["src/pricing.json", "src/pricing_notices.json"],
+    ["backend/constants.py", "src/pricing_notices.json"],
+])
+def test_bot_exempt_refuses_incomplete_shapes(files):
+    assert is_bot_exempt(BOT, files) is False
 
 
 def test_bot_exempt_requires_a_non_empty_file_set():
     assert is_bot_exempt(BOT, []) is False
 
 
-def test_bot_exempt_bot_author_extra_file():
-    assert is_bot_exempt(BOT, BOTH_FILES + ["VERSION"]) is False
+@pytest.mark.parametrize("files", [BOTH_FILES, NOTICE_FILES])
+def test_bot_exempt_bot_author_extra_file(files):
+    assert is_bot_exempt(BOT, files + ["VERSION"]) is False
 
 
-def test_bot_exempt_needs_bot_author_and_file_shape():
+@pytest.mark.parametrize("files", [BOTH_FILES, NOTICE_FILES])
+def test_bot_exempt_needs_bot_author_and_file_shape(files):
     # The carve-out is keyed on author AND files — either alone is not enough.
-    assert is_bot_exempt(HUMAN, BOTH_FILES) is False
-    assert is_bot_exempt("", BOTH_FILES) is False
+    assert is_bot_exempt(HUMAN, files) is False
+    assert is_bot_exempt("", files) is False
     assert is_bot_exempt(HUMAN, []) is False
 
 
@@ -114,13 +126,15 @@ def test_decide_tag_plus_human_refuses():
     assert "already published" in result.reason
 
 
-def test_decide_tag_plus_bot_commit_passes():
-    result = decide("0.3.0", True, BOT, BOTH_FILES)
+@pytest.mark.parametrize("files", [BOTH_FILES, NOTICE_FILES])
+def test_decide_tag_plus_bot_commit_passes(files):
+    result = decide("0.3.0", True, BOT, files)
     assert result.ok is True
 
 
-def test_decide_tag_plus_bot_commit_extra_file_refuses():
-    result = decide("0.3.0", True, BOT, BOTH_FILES + ["VERSION"])
+@pytest.mark.parametrize("files", [BOTH_FILES, NOTICE_FILES])
+def test_decide_tag_plus_bot_commit_extra_file_refuses(files):
+    result = decide("0.3.0", True, BOT, files + ["VERSION"])
     assert result.ok is False
 
 
