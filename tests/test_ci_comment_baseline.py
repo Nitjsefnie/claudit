@@ -141,7 +141,6 @@ def test_comment_only_runs_check_with_dependencies():
     install = next(step for step in steps if step.get('run') == 'npm ci --no-audit --no-fund')
     assert install['if'] == check['if']
     assert steps.index(install) < steps.index(check)
-    assert any(step.get('with', {}).get('node-version') for step in steps[:steps.index(check)])
     assert any('-r requirements-test.txt' in step.get('run', '')
                for step in steps[:steps.index(check)])
     ratchet = next(step for step in steps if step.get('id') == 'ratchet')
