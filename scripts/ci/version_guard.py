@@ -9,11 +9,14 @@ which one a deployment runs. The version-guard workflow checks that on
 every master push and PR.
 
 THE BOT CARVE-OUT. The hourly pricing bot commits as
-`github-actions[bot]`, touching only `src/pricing.json` and
-`backend/constants.py` (the PRICING_VERSION bump). Those commits don't
-change released behaviour, so they must pass even when the tree version is
-stale — a version move is a human commit's job. The carve-out is keyed on
-author AND file shape, never on paths alone: paths-only would need a
+`github-actions[bot]` and stages `src/pricing.json`, `backend/constants.py`
+(the PRICING_VERSION bump), and `src/pricing_notices.json` (the notice
+baseline). Git records only files that differ: an exempt commit touches
+exactly the pricing/constants pair or that pair plus the notices baseline.
+Those commits don't change released behaviour, so they must pass even when
+the tree version is stale — a version move is a human commit's job.
+The carve-out is keyed on author AND file shape, never on paths alone:
+paths-only would need a
 maintained shipped/non-shipped path list whose every omission silently
 guts the guarantee.
 
@@ -35,9 +38,11 @@ from typing import NamedTuple
 # The identity of the hourly pricing bot's commits (SV-RATE-REFRESH).
 BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 
-# The only files a pricing-bot commit ever touches: the rate data and the
-# PRICING_VERSION bump that forces a reprice, not a reparse, of the records.
-BOT_FILES = frozenset({"src/pricing.json", "backend/constants.py"})
+# Mirror classify_changes.py's BOT_CORE / BOT_SIGNATURE / BOT_COMMIT_SHAPES
+# (#932) locally: version-guard.yml needs this script to stay standalone.
+BOT_CORE = frozenset({"src/pricing.json", "backend/constants.py"})
+BOT_SIGNATURE = BOT_CORE | {"src/pricing_notices.json"}
+BOT_COMMIT_SHAPES = frozenset({BOT_CORE, BOT_SIGNATURE})
 
 # `X.Y.Z` with an optional `-<prerelease>` suffix. The core stays free of
 # hyphens, so the first `-` in a matched string is the suffix separator.
@@ -68,7 +73,7 @@ def parse_version(text: str) -> tuple[str, str]:
 
 
 def is_bot_exempt(author_email: str, changed_files: list[str]) -> bool:
-    """True iff the commit is the pricing bot touching only its own files.
+    """True iff the pricing bot's changed-file set matches either whole shape.
 
     Both halves are load-bearing: the bot's email alone says nothing (any
     workflow could push under it), and the file set alone would reduce the
@@ -78,9 +83,7 @@ def is_bot_exempt(author_email: str, changed_files: list[str]) -> bool:
     """
     if author_email != BOT_EMAIL:
         return False
-    if not changed_files:
-        return False
-    return set(changed_files) <= BOT_FILES
+    return frozenset(changed_files) in BOT_COMMIT_SHAPES
 
 
 def decide(
@@ -113,8 +116,8 @@ def decide(
         return Decision(
             True,
             f"v{core} is already published, but this commit is the pricing "
-            "bot touching only its own files (src/pricing.json, "
-            "backend/constants.py) — exempt",
+            "bot touching exactly src/pricing.json and backend/constants.py, "
+            "with or without src/pricing_notices.json — exempt",
         )
     return Decision(
         False,
