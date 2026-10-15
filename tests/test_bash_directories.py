@@ -48,18 +48,18 @@ def test_worktree_add_path_is_a_write_target(command, expected):
 
 @pytest.mark.parametrize("command,expected", [
     ("git clone https://github.com/x/y /tmp/clone-x", ["/tmp/clone-x"]),
-    ("git clone https://github.com/x/y", ["/work/y"]),
-    ("git clone https://github.com/x/y.git", ["/work/y"]),
-    ("git clone git@github.com:x/y.git", ["/work/y"]),
-    ("git clone https://github.com/x/y/", ["/work/y"]),
+    ("git clone https://github.com/x/y", []),
+    ("git clone https://github.com/x/y.git", []),
+    ("git clone git@github.com:x/y.git", []),
+    ("git clone https://github.com/x/y/", []),
     ("git clone -b main https://github.com/x/y /tmp/clone-x", ["/tmp/clone-x"]),
     ("git clone --origin upstream https://github.com/x/y /tmp/clone-x",
      ["/tmp/clone-x"]),
-    ("git clone --depth 1 https://github.com/x/y", ["/work/y"]),
+    ("git clone --depth 1 https://github.com/x/y", []),
     ("git clone https://github.com/x/y.git /tmp/clone-x", ["/tmp/clone-x"]),
-    ("git clone '$U'", ["/work/$U"]),
+    ("git clone '$U'", []),
     ("git clone \"$U\"", []),
-    ("git clone -c http.sslVerify=false https://github.com/x/y", ["/work/y"]),
+    ("git clone -c http.sslVerify=false https://github.com/x/y", []),
     ("git clone -c http.sslVerify=false https://github.com/x/y /tmp/clone-x",
      ["/tmp/clone-x"]),
     ("git clone --config http.sslVerify https://github.com/x/y /tmp/clone-x",
@@ -154,7 +154,7 @@ def test_stray_close_paren_keeps_operator_splitting():
 
 
 def test_directory_targets_join_file_writes_in_order():
-    writes = scan("mkdir -p /tmp/w && cd /tmp/w && git clone https://github.com/x/y",
+    writes = scan("mkdir -p /tmp/w && cd /tmp/w && git clone https://github.com/x/y y",
                   "/repo")[2]
     assert writes == ["/tmp/w", "/tmp/w/y"]
 

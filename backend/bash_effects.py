@@ -2,7 +2,7 @@
 
 The effect half of the old `bash_literals`, split so that module stays
 the bounded-words half: what a command line's payload text is and what
-paths it puts on disk — `sed_parts`, `destination_paths`, `perl_paths`,
+paths it puts on disk — `sed_parts`, `destination_paths`,
 and the pipeline folds (`shell_effects`, `effects_from_tokens`).
 `command_options` refuses any flag the command's modes dict does not
 list, so an unparsable command names nothing rather than a guessed path.
@@ -89,20 +89,6 @@ def destination_paths(name: str, args: list[str], *, literal_only: bool = True,
     else:
         paths = [target] if len(sources) == 1 and not directory else []
     return paths
-
-
-def perl_paths(args: list[str], *, literal_only: bool = True) -> list[str]:
-    """In-place Perl one-liners; program and option arguments are not files."""
-    modes = {"-" + c: 0 for c in "pnwWl"}
-    modes.update({"-" + c: 1 for c in "eEIMmF"})
-    modes["-i"] = 2
-    try:
-        options, files = command_options(args, modes)
-    except ValueError:
-        return []
-    flags = dict(options)
-    is_file = literal_path if literal_only else _file_sink
-    return [p for p in files if is_file(p)] if "-i" in flags and ("-e" in flags or "-E" in flags) else []
 
 
 def _printf_format(fmt: str) -> list[str | None] | None:
@@ -294,8 +280,6 @@ def _other_stage_payload(args: list[ShellWord], pending: str | None) -> tuple[st
         _, sources, target = _copy_parts(name, list(args[1:]))
         empty = bool(sources) and all(source == "/dev/null" for source in sources)
         return "" if empty else None, bool(sources and target and _file_sink(target)), ""
-    if name == "perl":
-        return None, bool(perl_paths(list(args[1:]), literal_only=False)), ""
     if name in (":", "true", "false"):
         return "", False, ""
     if name == "cat":

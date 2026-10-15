@@ -43,7 +43,7 @@ from backend.bash_segments import (_ASSIGN, _DECLARATION_BUILTINS,
                                    _unmatched_close)
 from backend.bash_literals import ShellWord, literal_path
 from backend.bash_operand import _looks_like_path, _operand_paths
-from backend.bash_effects import destination_paths, perl_paths, sed_parts
+from backend.bash_effects import destination_paths, sed_parts
 from backend.bash_directories import directory_targets
 from backend.bash_write_targets import WRITE_TARGET_COMMANDS, write_targets
 from backend.target_paths import resolve_target as _resolve, windows_absolute
@@ -370,16 +370,16 @@ class _Scan:
             target = _expand(operands[0], self.env, self)
             self.base = _resolve(target, self.base) if target is not None else None
             return
-        if name in ("cp", "install", "mv", "perl"):
-            paths = perl_paths(operands) if name == "perl" else destination_paths(name, operands, base=self.base)
+        if name in ("cp", "install", "mv"):
+            paths = destination_paths(name, operands, base=self.base)
             for path in paths:
                 self.add(self.writes, path)
             return
         if targets := directory_targets(name, operands) or write_targets(name, operands):
             # A command that CREATES reports what it puts on disk: the
             # directories `mkdir` makes, the checkout `git worktree add`
-            # materialises, the clone's directory (or the one the URL
-            # derives), and a `mktemp` template named outright.
+            # materialises, an explicit clone directory, and a `mktemp`
+            # template named outright.
             self.record_targets(targets)
             return
         if name in _WRITE_CMDS or (name == "sed" and _sed_in_place(operands)):
