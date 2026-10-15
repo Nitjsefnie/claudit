@@ -124,10 +124,14 @@ def test_speed_yml_is_gone():
 def test_tests_job_measures_and_gates_on_every_event():
     doc = _load("tests.yml")
     job = _job(doc, "pytest")
-    bench = [step for step in _steps(job)
+    steps = _steps(job)
+    bench = [step for step in steps
              if step.get("id") == "suite_bench"]
     assert len(bench) == 1
     bench = bench[0]
+    guard = next(step for step in steps
+                 if step.get("name") == "Threshold direction guard")
+    assert steps.index(guard) + 1 == steps.index(bench)
     # The gate runs wherever the canary runs -- every non-docs,
     # non-data event. Only a green suite and a green JavaScript
     # coverage pass are worth measuring. The bench action's own input
