@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from backend import pricing, rate_fingerprint
-from backend.pricing_document import omit_default_rates
+from backend.pricing_document import omit_default_rates, serialize_pricing_doc
 from backend.pricing_load import load_tables
 from backend.pricing_rows import encode_pricing_doc, decode_pricing_doc
 from scripts.ci import perturb_test_data
@@ -187,7 +187,7 @@ def test_conversion_is_idempotent_and_keeps_canonical_layout(tmp_path):
     assert path.read_bytes() == converted
     text = converted.decode("utf-8")
     doc = json.loads(text)
-    assert text == json.dumps(doc, indent=2, sort_keys=True) + "\n"
+    assert text == serialize_pricing_doc(doc)
     expected = _sparse_doc(_synthetic_doc())
     expected["providers"][ROW_KEY][HOST][0]["from"] = None
     assert decode_pricing_doc(doc) == expected

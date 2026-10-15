@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from backend import pricing
-from backend.pricing_document import expand_pricing_doc
+from backend.pricing_document import expand_pricing_doc, serialize_pricing_doc
 from tests.refresh_fixture_builders import (_discount, _endpoint,
                                             _overrides, _per_token,
                                             DEFAULT_ROW)
@@ -304,7 +304,7 @@ def test_a_moved_price_appends_an_entry_from_the_detection_time(tmp_path, capsys
     after["providers"][GLM]["OpenInference"] = history[:-1]
     assert after == {**before, "provider_rates_fetched": STAMP}
     text = run.pricing.read_text(encoding="utf-8")
-    assert text == json.dumps(json.loads(text), indent=2, sort_keys=True) + "\n"
+    assert text == serialize_pricing_doc(json.loads(text))
     assert "OpenInference" in out and f"{history[-2]['fresh']!r} → {history[-1]['fresh']!r}" in out
 
 

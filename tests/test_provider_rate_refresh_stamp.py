@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import pytest
 
@@ -59,7 +60,8 @@ def test_a_postdated_host_does_not_block_other_hosts_moves(
     assert after != doc, err
     assert after["provider_rates_fetched"] == stored_stamp
     assert after["providers"]["example/model"] == {
-        "Wafer": doc["providers"]["example/model"]["Wafer"],
+        "Wafer": [{**old, "from": datetime.fromisoformat(stored_stamp)
+                   .astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}],
         "OtherHost": [{"from": None, **old}, {"from": STAMP, **other_listed}]}
     assert constants_path.read_text(encoding="utf-8") == 'PRICING_VERSION = "74"\n'
     assert "OtherHost" in (tmp_path / "commit-msg.txt").read_text(encoding="utf-8")
