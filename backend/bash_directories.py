@@ -1,4 +1,4 @@
-"""Directory targets: what mkdir, mktemp and git put on disk.
+"""Directory targets: what mkdir and mktemp put on disk.
 
 The writer family behind issue #655: a seat's worktrees, clones and
 scratch directories are usually the largest things it leaves behind, and
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from backend.bash_literals import ShellWord, command_options
+from backend.bash_literals import command_options
 
 _MKDIR_MODES: dict[str, int] = dict.fromkeys(
     ("-p", "--parents", "-v", "--verbose", "-Z", "--context"), 0)
@@ -24,25 +24,6 @@ _MKDIR_MODES.update(dict.fromkeys(("-m", "--mode"), 1))
 _MKTEMP_MODES: dict[str, int] = dict.fromkeys(
     ("-d", "--directory", "-q", "--quiet", "-u", "--dry-run"), 0)
 _MKTEMP_MODES.update({"-p": 1, "--tmpdir": 2})
-
-_WORKTREE_MODES: dict[str, int] = dict.fromkeys(
-    ("-f", "--force", "--detach", "--checkout", "--lock", "--no-track",
-     "--guess-remote", "--overwrite", "--orphan", "--bare",
-     "-q", "--quiet", "--verbose"), 0)
-_WORKTREE_MODES.update({"--track": 2, "--reason": 1})
-_WORKTREE_MODES.update(dict.fromkeys(("-b", "-B"), 1))
-
-_CLONE_MODES: dict[str, int] = dict.fromkeys(
-    ("-l", "--local", "--no-hardlinks", "-s", "--shared", "-n",
-     "--no-checkout", "--bare", "--mirror", "-q", "--quiet", "--verbose",
-     "--progress", "--no-single-branch", "--no-tags", "--sparse",
-     "--dissociate", "--also-filter-submodules"), 0)
-_CLONE_MODES.update({"-c": 1, "--recurse-submodules": 2})
-_CLONE_MODES.update(dict.fromkeys(
-    ("-b", "-B", "--branch", "-o", "--origin", "--template", "--reference",
-     "-u", "--upload-pack", "--depth", "--deepen", "-j", "--jobs",
-     "--filter", "--bundle-uri", "--separate-git-dir", "--ref-format",
-     "--server-option", "--shallow-exclude", "--shallow-since"), 1))
 
 
 def _no_glob_chars(token: str) -> bool:
@@ -78,67 +59,11 @@ def _mktemp_targets(operands: list[str]) -> list[str]:
     return [template] if _no_glob_chars(template) else []
 
 
-def _clone_name(url: str) -> str | None:
-    """The directory name a bare `git clone URL` derives from the URL."""
-    name = url.rstrip("/").rsplit("/", 1)[-1]
-    if name.endswith(".git"):
-        name = name[:-len(".git")]
-    return name if name and _no_glob_chars(name) else None
-
-
-def _worktree_add_targets(args: list[str]) -> list[str]:
-    """The <path> operand of a `git worktree add`, its first non-flag."""
-    try:
-        _, operands = command_options(args, _WORKTREE_MODES)
-    except ValueError:
-        return []
-    for tok in operands[:1]:
-        if _no_glob_chars(tok):
-            return [tok]
-    return []
-
-
-def _clone_targets(args: list[str]) -> list[str]:
-    """`git clone`'s directory operand, or the name derived from the URL.
-
-    A derived name keeps the URL token's literal provenance, so a quoted
-    `'$NAME'` books the verbatim text and an unresolvable one is dropped.
-    """
-    try:
-        _, operands = command_options(args, _CLONE_MODES)
-    except ValueError:
-        return []
-    if len(operands) >= 2:
-        return [operands[1]] if _no_glob_chars(operands[1]) else []
-    if operands:
-        name = _clone_name(operands[0])
-        if name and getattr(operands[0], "literal", True):
-            return [ShellWord(name)]
-    return []
-
-
-def _git_write_targets(operands: list[str]) -> list[str]:
-    """The checkout a `git worktree add` or `git clone` creates.
-
-    `git -C …` and other global options before the subcommand refuse,
-    because they move the repository the subcommand acts on.
-    """
-    if not operands or operands[0].startswith("-"):
-        return []
-    subcommand, args = operands[0], operands[1:]
-    if subcommand == "worktree" and args and args[0] == "add":
-        return _worktree_add_targets(args[1:])
-    if subcommand == "clone":
-        return _clone_targets(args)
-    return []
-
-
 # The directory-creating commands, each mapping to the operands it puts
 # on disk.
 _DIRECTORY_TARGETS: dict[str, Callable[[list[str]], list[str]]] = {
     "mkdir": _mkdir_targets,
     "mktemp": _mktemp_targets,
-    "git": _git_write_targets,
 }
 
 
