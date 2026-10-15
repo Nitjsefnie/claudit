@@ -134,29 +134,38 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   `src/pricing.json`), so a data-only refresh cannot move the gate;
   `tests/test_suite_cost_pricing_growth.py` fails when the measured
   phases move with rows appended to the deployed document (issue
-  #840). Seeded via the loader's writer
-  (`suite_ratchet.py --seed`, only when the member is absent) FROM A
-  RUNNER MEASUREMENT — the environment the gate and the master-push
-  record path share; `residual` is environment-sensitive, so a
-  non-runner seed would gate runners red; tightened by the master-push
-  bot (`suite_ratchet.py --tighten`, past the 1.5 hysteresis, both
-  fields, never raised). The interpreter micro is pinned in the
-  workflows that run the bench. The budgets are BOUND TO THE WORKLOAD
-  THEY MEASURED: the fixture's tree-scanning tests (the db-marker
-  derivation, the version-literal guard, the scratch-DB scan) spend
-  per-line over ``tests/``, so a change to that tree's content moves
-  the counts with no fixture, interpreter or machine change. Every
-  measurement records the workload identity `tests_tree_lines` (the
-  tests/*.py line total) whenever its tree has one, and a seed writes
-  it beside the budgets when its reading carries it; the gate names a
-  drifted identity when a phase breaches instead of reading it as
-  slowness, and the guard refuses a hand-moved identity on an
-  established family — the sanctioned re-seed, measured on the tree
-  the seed describes, is the only writer. Sanctioned RE-SEED: when the recorded
-  workload legitimately changes — the fixture list, the interpreter
-  pin, the code the pinned tests execute, or the scanned tree's
-  content (issue #524: the day's 345.9→348.6 step was #518's +643 test
-  lines moving the scans, not a runner change) — it lands as TWO reviewed
+  #840). Each phase carries `measured` and `floor = measured + 1.5`
+  in millions, plus optional `per_line`: a non-negative integer in
+  instructions per tests-tree line. At a run tree of L lines, the
+  effective ceiling is `floor + per_line * max(0, L - L_seed) / 1e6`,
+  where L_seed is the recorded `tests_tree_lines`. Missing identities
+  or absent/zero `per_line` apply no growth allowance.
+  Seed via the loader's writer, only when the family is absent:
+  `suite_ratchet.py --seed m1 --growth m2` requires TWO gateable RUNNER
+  MEASUREMENTS with `PYTHONHASHSEED=0` and positive identities. m1
+  measures the final tree the seed lands on; m2 measures the same code
+  plus a larger probe tree (L2 > L1). Record m1's counts and identity,
+  and derive each slope as `max(0, ceil((c2 - c1) * 1e6 / (L2 - L1)))`.
+  The environment is the one the gate and master-push record path share;
+  `residual` is environment-sensitive. The interpreter micro is pinned
+  in the workflows that run the bench.
+  The master-push bot (`suite_ratchet.py --tighten`) compares at the
+  seed tree: subtract the budgeted growth from the artifact count c to
+  obtain exact c_norm. Tighten only when L >= L_seed and
+  `recorded_measured - c_norm > 1.5`. Round a qualifying non-negative
+  c_norm UP to one decimal as measured, and set floor = measured + 1.5.
+  Negative c_norm skips that phase with a seed-candidate diagnostic;
+  smaller-tree artifacts never tighten, and missing artifact identities
+  are refused when a budget exists. Slopes and the seed identity never
+  move on a tighten. The guard forbids any per_line or identity change
+  on an established family, as well as measured/floor raises.
+  The fixture's tree-scanning tests spend per-line over `tests/`.
+  Ordinary growth at the seeded slope is budgeted; it does not trigger
+  a re-seed. Measurements record `tests_tree_lines` (the tests/*.py line
+  total); differing known identities produce an informational drift note
+  on passes and breaches, naming any positive slopes and applied growth.
+  Sanctioned RE-SEED: a legitimately changed fixture list, interpreter
+  pin, code the pinned tests execute, or per-line slope lands as TWO reviewed
   gate-definers, never one. The first deletes the stale member under
   the commit-message marker `[suite-cost-re-seed]`
   (`scripts/ci/reseed.py`) — the only way `thresholds.load` accepts a
@@ -168,9 +177,9 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   per family: a marker buys that family's ABSENCE only, never a raised
   budget and never another family's absence (issue #698). The second
   seeds the new counts through the family's own writer —
-  `suite_ratchet.py --seed` for suite_cost, `reparse_ratchet.py
-  --seed` for reparse — FROM A RUNNER MEASUREMENT, cited by run id in
-  the PR body, never hand-derived.
+  `suite_ratchet.py --seed m1 --growth m2` for suite_cost (both runner
+  artifacts), `reparse_ratchet.py --seed` for reparse (one runner
+  artifact) — cited by run id in the PR body, never hand-derived.
   Against a base that predates the family, those entries are a
   brand-new member's seed. One change cannot do both (the guard refuses
   an upward move the base carries): the delete is its own commit and
@@ -181,19 +190,18 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   the loader asked (`thresholds.verdict()`); `normalise` takes it as a
   required argument, so no helper can read strict by omission.
 
-  **The measuring run measured the tree master will hold once the seed
-  lands, the seed change's own edits included.** A budget binds to the
-  tree it was measured on, so a measured tree master does not hold
-  records numbers no later run reproduces — and the recorded identity
-  catches the resulting drift only when it lies in `tests/` — while the
-  guard admits no hand correction of either, so the repair is another
-  delete+seed pair.
-  Two properties of the run decide it, both read off the canary: the
+  **The m1 run measures the final tree master will hold once the seed
+  lands, the seed change's own edits included.** Its counts and identity
+  anchor the growth model; m2 differs only by its larger probe tree and
+  supplies the slopes. Neither identity nor slopes are corrected by hand;
+  an invalid seed requires another delete+seed pair.
+  Two properties qualify each runner artifact, both read off the canary: the
   run RAN the tests leg (a docs-only or bot-data push skips that leg and
   carries no artifact), and the bench RAN (its step is gated on the
   suite and the JS coverage having succeeded, so a run whose suite
-  failed carries no measurement either). Which run carries both follows
-  from whether the window's changes have merged, not from choice:
+  failed carries no measurement either). The m2 artifact comes from a
+  probe run of the same code; source m1 according to whether the final
+  code and tests have merged:
 
   - They have MERGED: the `suite-measurement` artifact of the newest
     commit the window takes whose ci-gate run RAN the tests leg. A
@@ -210,7 +218,7 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
     includes the seed PR itself: that same artifact from the seed PR's
     OWN ci-gate run on the commit carrying its FINAL CODE AND TESTS,
     the last push before the data-only one. So the seed change lands
-    its code and tests, waits for that run, seeds from its artifact,
+    its code and tests, waits for that run, seeds from m1 and the m2 probe artifact,
     and regenerates the family in a later push touching nothing but
     `.github/ci-thresholds.json`. That later run is the CHECK, not the
     source: it must be green and name no workload-identity drift, and
@@ -218,12 +226,12 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
     values cannot come from its own run — they must exist before the
     seed commit is written — so the source is always an earlier run.
 
-  Both sources are measured BEFORE the merge: the artifact is retained
+  Both artifacts are measured BEFORE the seed merge: artifacts are retained
   for a day, and for a seed change touching ONLY
   `.github/ci-thresholds.json` a master push is path-ignored by
   ci-gate, so no master run exists afterwards to re-measure against.
 
-  The measured tree MUST NOT CHANGE between the measuring run and the
+  The final m1 tree MUST NOT CHANGE between the measuring run and the
   merge; the seed's own write of `.github/ci-thresholds.json`, and
   documentation-only paths, are the only permitted differences. `tests/`
   is the part of that tree the recorded identity detects
@@ -231,8 +239,9 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   line the pinned tests execute — a pricing bot's `src/pricing.json` and
   `backend/constants.py` reach them through `tests/conftest.py` — so a
   code line landing after the measuring run invalidates it the same way.
-  When the tree did change, the source is a fresh run of the FINAL tree;
-  recorded numbers are never adjusted to fit.
+  When that tree changes before seeding, obtain a fresh pair measuring
+  the FINAL tree and its growth probe; recorded numbers are never adjusted
+  to fit. Once seeded, ordinary growth uses the recorded per-line allowance.
 
   **The window is bounded.** `reseed._MAX_VISITS` caps the marker walk.
   On master each commit is one visit, and this repository rebase-merges,

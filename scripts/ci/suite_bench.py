@@ -1,57 +1,48 @@
 #!/usr/bin/env python3
 """Measure one pytest run's cost in instructions, phase by phase.
 
-The suite-cost gate's instrument (issue #452). The old gate compared
-WALL-CLOCK durations between two checkouts, A/B/A/B, against a pinned
-baseline release; a runner's speed varies by roughly a factor of two
-between jobs, so the ratio measured the runners as much as the code.
-This bench replaces that with a committed instruction-count ratchet:
+The suite-cost gate uses instruction counts, partitioned into collection,
+run and residual. ``sys.monitoring``'s INSTRUCTION event counts retired
+bytecodes. A count is exact for one tree, interpreter and library set;
+session-level work outside the wrapped phases remains environment-sensitive.
 
-- A COUNT IS EXACT FOR ONE (TREE CONTENT, INTERPRETER, LIBRARY SET),
-  AND THE BENCH ESTABLISHES THE STATE IT MEASURES UNDER. ``sys.monitoring``'s
-  INSTRUCTION event fires once per bytecode the interpreter retires;
-  the same tree under the same interpreter and libraries retires the
-  same count -- issue #524's series drew exact repeats across the
-  runner fleet and a 12-vCPU box on identical trees (box-vs-runner
-  within 0.5M in ``run``, residual 6.4 = 6.4), through a clean library
-  set. THE LIBRARY SET IS PART OF THE STATE: the box's site-packages
-  carries extra pytest plugins that tax every test, so a local reading
-  comparable with the runners' comes from a venv holding exactly
-  ``backend/requirements.txt`` + ``requirements-test.txt``.
-  The state includes the tree's BYTECODE CACHES: the interpreter
-  compiles a module the first time it imports it and loads the cached
-  bytecode after that, and the two cost about as much again, so the
-  same tree reads 29.1M instructions at collection cold and 14.2M warm.
-  One pass over the pinned fixture (``suite_bench_files.txt``), no
-  statistics, one collect-only warm-up pass BEFORE the counted window,
-  ``PYTHONHASHSEED=0`` by re-exec: repeated runs in one state are
-  identical (five-run probes, two seed values).
-  WHAT THE COUNT IS NOT INDEPENDENT OF IS THE TREE CONTENT the pinned
-  tests scan: the fixture's tree-scanning tests spend per-line over
-  ``tests/``, so a tests/-tree change moves the counts with no fixture,
-  interpreter or machine change. A budget therefore describes ONE
-  workload, and every measurement and seed records the workload
-  identity ``tests_tree_lines`` (the tests/*.py line total), which the
-  gate names when a reading against it has drifted (SV-CI-RATCHETS).
-  The session-level code outside the wrapped phases stays
-  environment-sensitive. The budgets are SEEDED FROM A RUNNER
-  MEASUREMENT, the environment the gate and the master-push record
-  path share, and the 1.5 gap covers library and interpreter drift.
-  The gate reads the
-  committed file, so one gate's verdict is one state's reading, and
-  ``--check`` refuses a measurement not taken under
-  ``PYTHONHASHSEED=0``. The partition into collection / run /
-  residual is complete (suite_phases.partition refuses a negative
-  residual).
-- THE COMMITTED DOCUMENT IS THE BASELINE. No baseline-release checkout,
-  no merge-base computation, no A/B pairing, no ratio: the budgets live
-  in ``.github/ci-thresholds.json`` next to the coverage ratchets and
-  are tightened downward, never raised, by ``suite_ratchet.py``.
-- WALL TIME IS TELEMETRY AT MOST, and the only time reading these
-  modules take is ``time.process_time()`` -- the portable fallback when
-  no ``sys.monitoring`` exists, marked ``process_time`` in the
-  measurement and NEVER gateable: ``--check`` on a counts-less
-  measurement fails closed.
+The bench establishes its measuring state: the pinned fixture
+``suite_bench_files.txt``, a collect-only bytecode-cache warm-up before
+the counted window, and ``PYTHONHASHSEED=0`` by re-exec. Comparable local
+readings require a venv holding exactly ``backend/requirements.txt`` and
+``requirements-test.txt``; extra pytest plugins change the workload.
+The collection / run / residual partition is complete, and
+``suite_phases.partition`` refuses a negative residual.
+
+Tree-scanning tests spend per-line over ``tests/``. Each measurement
+records ``tests_tree_lines`` (the recursive tests/*.py line total),
+which supplies L for the growth allowance. Committed phase budgets in
+``.github/ci-thresholds.json`` carry measured and floor = measured + 1.5
+at a seed identity L_seed, plus optional per_line instructions per line.
+The gate ceiling at L is
+``floor + per_line * max(0, L - L_seed) / 1e6`` million instructions;
+absent identities or absent/zero per_line apply no growth allowance.
+Ordinary growth at the seeded slope is budgeted. The 1.5M gap covers
+interpreter and library drift.
+
+``suite_ratchet.py --seed m1 --growth m2`` requires TWO runner
+measurements: m1 of the final tree the seed lands on, and m2 of the
+same code plus a larger probe tree. Both must carry gateable counts,
+``PYTHONHASHSEED=0`` and positive identities, with L2 > L1. The seed
+records m1's counts and identity and derives each non-negative integer
+per_line slope by rounding the instruction difference per added line upward
+and clamping at zero; convert million counts to instructions first.
+The tighten bot subtracts budgeted growth before comparing with the
+recorded measured value, requires a saving greater than 1.5M, rounds
+qualifying targets upward to one decimal, and preserves slope and identity.
+Smaller-tree artifacts never tighten; negative normalized phases skip
+with a seed-candidate diagnostic. Changed fixture lists, interpreter
+pins, executed code or per-line slopes use the sanctioned re-seed path.
+
+Wall time does not gate. ``time.process_time()`` supplies portable
+telemetry when ``sys.monitoring`` is unavailable, marked ``process_time``
+in the measurement. ``--check`` fails closed for counts-less measurements
+and measurements not taken under ``PYTHONHASHSEED=0``.
 
   python3 scripts/ci/suite_bench.py --write m.json   # measure + write
   python3 scripts/ci/suite_bench.py --check m.json   # gate it
@@ -178,14 +169,14 @@ def warm_bytecode_caches(fixture: list[Path], repo_root: Path) -> None:
 
 
 def _tests_tree_lines(repo_root: Path) -> int:
-    """The scanned tree's size: the workload identity the seed binds to.
+    """The scanned tree's size L, used against the budget's seed identity.
 
     The fixture's tree-scanning tests (the db-marker derivation, the
     version-literal guard, the scratch-DB scan) walk ``tests/``
-    recursively, and their cost is per-line over that set: a change to
-    the tree's content moves the counts with no fixture, interpreter or
-    machine change (issue #524's series). A tree with no ``tests/`` has
-    no scanned workload and records an honest 0.
+    recursively, and their cost is per-line over that set. Budgets allow
+    per_line * max(0, L - L_seed) additional instructions for this growth;
+    the gate converts that allowance to millions. A tree with no
+    ``tests/`` has no scanned workload and records an honest 0.
     """
     root = repo_root / 'tests'
     if not root.is_dir():

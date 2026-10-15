@@ -223,10 +223,9 @@ def normalise(data: dict, reseed_in_flight: object) -> dict:
 def _suite_cost(family):
     """Validate one suite_cost member: three phases, ceilings above.
 
-    Each phase record carries measured and floor, the floor the ceiling
-    a run must stay under and so exactly the calibration gap ABOVE the
-    measured value — the mirror of coverage, whose floor sits below its
-    quality number.
+    Each phase carries measured and floor, exactly the calibration gap
+    ABOVE measured. Optional per_line adds instructions per tests-tree
+    line above the seed; without it the floor is the absolute ceiling.
     """
     if not isinstance(family, dict):
         raise ValueError(f'{SUITE_COST_FAMILY} must be an object')
@@ -236,7 +235,8 @@ def _suite_cost(family):
     for phase in SUITE_COST_PHASES:
         prefix = f'{SUITE_COST_FAMILY}.{phase}'
         record = family[phase]
-        _required_fields(record, _SUITE_COST_FIELDS, prefix)
+        _required_fields(record, _SUITE_COST_FIELDS, prefix,
+                         optional=('per_line',))
         measured = instruction_value(record['measured'],
                                      f'{prefix}.measured')
         floor = instruction_value(record['floor'], f'{prefix}.floor')
@@ -245,6 +245,9 @@ def _suite_cost(family):
         if floor - measured != CALIBRATION_GAP:
             raise ValueError(f'{prefix} calibration gap must be 1.5')
         normalised[phase] = {'measured': measured, 'floor': floor}
+        if 'per_line' in record:
+            normalised[phase]['per_line'] = validate.per_line_value(
+                record['per_line'], f'{prefix}.per_line')
     identity = family.get(SUITE_COST_IDENTITY)
     if identity is not None:
         normalised[SUITE_COST_IDENTITY] = suite_identity(
@@ -337,7 +340,7 @@ def coverage(data, language, reseed_in_flight=None):
 
 
 def suite_cost(data, reseed_in_flight=None):
-    """The committed suite-cost budgets: {phase: {measured, floor}}.
+    """The committed budgets: {phase: {measured, floor, per_line?}}.
 
     Empty inside the re-seed window — while any commit in the walk's
     span from HEAD back to the last family-present one carries the

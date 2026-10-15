@@ -543,3 +543,43 @@ def test_instruction_value_bounds():
         thresholds.instruction_value(Decimal("4"), "m")
     with pytest.raises(ValueError, match="exactly one decimal place"):
         thresholds.instruction_value(Decimal("4.25"), "m")
+
+
+@pytest.mark.parametrize("per_line", [0, 200, Decimal("200.0")])
+def test_suite_cost_per_line_round_trips(tmp_path, per_line):
+    doc = _document()
+    doc["suite_cost"]["collection"]["per_line"] = per_line
+    target = tmp_path / "thresholds.json"
+    thresholds.write(target, doc, False)
+    before = target.read_bytes()
+    loaded = thresholds.load(target, False)
+    assert loaded["suite_cost"]["collection"]["per_line"] == int(per_line)
+    thresholds.write(target, loaded, False)
+    assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize("per_line, reason", [
+    (-1, "non-negative integer"),
+    (1.5, "non-negative integer"),
+    ("200", "JSON number"),
+    (True, "JSON number"),
+])
+def test_suite_cost_per_line_refuses_invalid_value(tmp_path, per_line, reason):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["suite_cost"]["run"]["per_line"] = per_line
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=rf"suite_cost.run.per_line.*{reason}"):
+        thresholds.load(target, False)
+
+
+def test_suite_cost_without_per_line_keeps_old_canonical_bytes(tmp_path):
+    doc = _document()
+    expected = (json.dumps(doc, indent=2, sort_keys=True, default=float)
+                + "\n").encode("utf-8")
+    target = tmp_path / "thresholds.json"
+    thresholds.write(target, doc, False)
+    loaded = thresholds.load(target, False)
+    assert loaded["suite_cost"] == SUITE_COST
+    thresholds.write(target, loaded, False)
+    assert target.read_bytes() == expected

@@ -186,6 +186,11 @@ def _suite_cost_moves(base, head, established):
     if not after:
         return []
     for phase in thresholds.SUITE_COST_PHASES:
+        if after[phase].get('per_line') != before[phase].get('per_line'):
+            moves.append(
+                f'{thresholds.SUITE_COST_FAMILY}.{phase}.per_line: '
+                f'{before[phase].get("per_line")} -> '
+                f'{after[phase].get("per_line")}')
         for field in ('measured', 'floor'):
             if after[phase][field] > before[phase][field]:
                 moves.append(

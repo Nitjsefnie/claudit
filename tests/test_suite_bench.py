@@ -243,8 +243,8 @@ def pytest_sessionstart(session):
         assert observed["base"] is not None, observed
         assert observed["exists"], observed
         assert observed["entries"] == [], observed
-        base = Path(observed["base"])
-        assert Path(observed["root"]) == base
+        base = Path(observed["base"]).resolve()
+        assert Path(observed["root"]).resolve() == base
         assert not any(p.name.startswith("pytest-of-") for p in base.parents)
         assert not base.is_relative_to(REPO_ROOT)
         assert not base.exists()

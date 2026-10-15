@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 """Read, write, report and gate a suite-bench measurement.
 
-The other half of ``suite_bench.py``: that module runs the fixture and
-takes the reading, this one carries it between the process that measured
-it, the CI step that prints it, the gate that holds every phase to its
-recorded budget, and the ratchet that tightens them. Split because one
-module doing both would outgrow the per-file size ratchet, and an
-outgrown file moves code rather than growing a baseline entry
-(SV-CI-RATCHETS).
+``suite_bench.py`` runs the fixture and takes the reading. This module
+carries it between the measuring process, the CI report, the gate that
+holds each phase to its growth-adjusted budget, and the tighten ratchet.
 
 A measurement is a small JSON document carrying the run's phase
 partition:
@@ -25,6 +21,10 @@ partition:
 - ``total_million_instructions`` -- the phase sum, carried so a
   partition hole cannot hide behind a missing field: it is checked
   against the phases on every read.
+- ``tests_tree_lines`` -- the scanned tests/*.py line total L. With a
+  recorded seed identity L_seed, a phase's effective ceiling is
+  ``floor + per_line * max(0, L - L_seed) / 1e6`` million instructions.
+  Missing identities or absent/zero per_line apply no growth allowance.
 """
 from __future__ import annotations
 
@@ -163,7 +163,7 @@ def measurement_from_file(path) -> Measurement:
 
 
 def _identity(data: dict) -> int | None:
-    """The measurement's workload identity, or None when it predates it.
+    """The measurement's workload identity, or None when absent.
 
     An integer when present — 0 is an honest reading for a tree with
     no tests/; positivity is the loader's rule, not this reader's. A
@@ -179,41 +179,64 @@ def _identity(data: dict) -> int | None:
 
 
 def _workload_drift_note(measurement: Measurement, budgets: dict) -> str | None:
-    """Why a reading against this budget is not a regression, if it isn't.
+    """Explain a changed tree identity on either a pass or a breach.
 
-    A budget binds to the workload it measured (SV-CI-RATCHETS): when
-    both identities are known and differ, a breach names the workload
-    change instead of reading as slowness, and a pass within the
-    hysteresis still gets the early warning a re-seed can be scheduled
-    against.
+    With both identities known and different, name each positive slope
+    and its applied growth allowance. Drift much larger than that
+    allowance is a seed candidate. With no positive slope, name the
+    workload mismatch and the re-seed remedy; absent identities are silent.
     """
     committed = budgets.get(thresholds.SUITE_COST_IDENTITY)
     measured = measurement.tests_tree_lines
     if committed is None or measured is None or committed == measured:
         return None
-    return (f'workload identity drifted: this run scanned '
-            f'{measured} tests-tree lines against a seed recorded at '
-            f'{committed} — the budgets describe a different workload '
-            f'than the one they measured; the doctrine\'s re-seed path, '
-            f'taken against a draw of the current tree, is the remedy '
-            f'(issue #524)')
+    prefix = (f'workload identity drifted: this run scanned '
+              f'{measured} tests-tree lines against a seed recorded at '
+              f'{committed} — ')
+    growth = [
+        f'{phase}: {budgets[phase]["per_line"]} instructions per line '
+        f'({_budgeted_growth(measured, budgets, phase)} {UNIT} applied)'
+        for phase in PHASES if budgets[phase].get('per_line', 0) > 0]
+    if growth:
+        return (prefix + 'growth is budgeted at ' + '; '.join(growth)
+                + '. Instruction drift much larger than the budgeted '
+                'growth is a seed candidate.')
+    return (prefix + 'the budgets describe a different workload '
+            'than the one they measured; the doctrine\'s re-seed path, '
+            'taken against a draw of the current tree, is the remedy '
+            '(issue #524)')
+
+
+def _budgeted_growth(lines, budgets, phase) -> Decimal:
+    """Extra millions allowed above a phase's seed-tree ceiling."""
+    seed = budgets.get(thresholds.SUITE_COST_IDENTITY)
+    if lines is None or seed is None:
+        return Decimal(0)
+    return (Decimal(budgets[phase].get('per_line', 0))
+            * max(0, lines - seed) / Decimal(1_000_000))
 
 
 def _over_budget(counts: dict, budgets: dict) -> list:
-    """Every phase over its recorded ceiling. Counts only: a wall or
-    CPU reading may never move this verdict."""
+    """Phases above their seed ceiling plus budgeted tests-tree growth.
+
+    ``counts`` may carry tests_tree_lines beside the phase readings.
+    A wall or CPU reading may never move this verdict.
+    """
     over = []
     for phase in PHASES:
         measured = counts[phase]
-        ceiling = budgets[phase]['floor']
+        growth = _budgeted_growth(
+            counts.get(thresholds.SUITE_COST_IDENTITY), budgets, phase)
+        ceiling = budgets[phase]['floor'] + growth
         if measured > ceiling:
+            allowance = f' (budgeted growth {growth} {UNIT})' if growth else ''
             over.append(f'{phase}: {measured} {UNIT}, '
-                        f'ceiling {ceiling}')
+                        f'ceiling {ceiling}{allowance}')
     return over
 
 
 def check(path, thresholds_path=None) -> int:
-    """Gate a written measurement against the committed budgets.
+    """Gate each phase against floor plus its budgeted tests-tree growth.
 
     A counts-less measurement (the process_time fallback) fails closed:
     the absence of an instruction count is not a pass.
@@ -245,7 +268,9 @@ def check(path, thresholds_path=None) -> int:
     if not budgets:
         print(NO_BUDGET_LINE)
         return 0
-    over = _over_budget(measurement.counts, budgets)
+    over = _over_budget(
+        {**measurement.counts,
+         thresholds.SUITE_COST_IDENTITY: measurement.tests_tree_lines}, budgets)
     if over:
         print('suite cost over its recorded budget:', file=sys.stderr)
         for line in over:

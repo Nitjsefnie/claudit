@@ -235,6 +235,14 @@ def suite_identity(value, name):
     return int(result)
 
 
+def per_line_value(value, name):
+    """A suite phase's non-negative instructions per tests-tree line."""
+    result = number(value, name)
+    if result < 0 or result != result.to_integral_value():
+        raise ValueError(f'{name} must be a non-negative integer')
+    return int(result)
+
+
 def comment_share_value(value: object, name: str) -> list[int]:
     if not isinstance(value, list) or len(value) != 2:
         raise ValueError(f'{name} must be [comment bytes, non-whitespace bytes]')

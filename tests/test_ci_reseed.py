@@ -688,9 +688,10 @@ def test_the_seed_writes_the_family_onto_an_emptied_document(tmp_path):
     # The landing half of the sequence, on the exact document the
     # marker made legal.
     data = _document(suite_cost=False)
-    seeded = suite_ratchet.seed(data, _counts())
+    seeded = suite_ratchet.seed(data, _counts(), 40000, _counts(), 41000)
     assert seeded[thresholds.SUITE_COST_FAMILY]["run"] == {
-        "measured": Decimal("339.6"), "floor": Decimal("341.1")}
+        "measured": Decimal("339.6"), "floor": Decimal("341.1"), "per_line": 0}
+    assert all("per_line" in record for record in thresholds.suite_cost(seeded).values())
     assert thresholds.normalise(seeded, False)[
         thresholds.SUITE_COST_FAMILY] == seeded[
             thresholds.SUITE_COST_FAMILY]

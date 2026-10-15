@@ -17,6 +17,8 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from tests import git_meta
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
@@ -558,3 +560,67 @@ def test_suite_cost_identity_removed_from_established_family_fails(tmp_path):
     base = _document(suite=_with_identity(SUITE_COST, 40000))
     head = _document()
     assert _guard_result(tmp_path, base, head) == 1
+
+
+@pytest.mark.parametrize("phase", ("collection", "run", "residual"))
+@pytest.mark.parametrize("before,after", ((None, 0), (100, 101),
+                                          (100, 99), (0, None)))
+def test_suite_cost_per_line_change_fails(tmp_path, capsys, phase, before, after):
+    base = _document()
+    head = _document()
+    if before is not None:
+        base["suite_cost"][phase]["per_line"] = before
+    if after is not None:
+        head["suite_cost"][phase]["per_line"] = after
+    assert _guard_result(tmp_path, base, head) == 1
+    assert f"suite_cost.{phase}.per_line" in capsys.readouterr().err
+
+
+def test_suite_cost_old_shape_base_refuses_added_per_line(tmp_path, capsys):
+    # Exercise _load_base on committed bytes with the legacy family
+    # restored: optional per_line must not break strict base loading.
+    base = json.loads(THRESHOLDS_PATH.read_text(encoding="utf-8"))
+    base["suite_cost"] = _with_identity(SUITE_COST, 40000)
+    head = copy.deepcopy(base)
+    for phase in ("collection", "run", "residual"):
+        head["suite_cost"][phase]["per_line"] = 100
+    base_path = tmp_path / "base.json"
+    base_path.write_text(json.dumps(base), encoding="utf-8")
+    head_path = _written(tmp_path, head, "head.json")
+    guard = _guard()
+    loaded, established = guard._load_base(base_path)  # pylint: disable=protected-access
+    assert "suite_cost" in established
+    assert loaded["suite_cost"]["tests_tree_lines"] == 40000
+    assert guard.main(["--base", str(base_path), "--head", str(head_path)]) == 1
+    assert "suite_cost.run.per_line" in capsys.readouterr().err
+
+
+def test_suite_cost_new_family_can_seed_per_line(tmp_path):
+    base = _document()
+    base.pop("suite_cost")
+    head = _document(suite=_with_identity(SUITE_COST, 40000))
+    for phase in ("collection", "run", "residual"):
+        head["suite_cost"][phase]["per_line"] = 100
+    base_path = tmp_path / "base.json"
+    base_path.write_text(json.dumps(base), encoding="utf-8")
+    head_path = _written(tmp_path, head, "head.json")
+    assert _guard().main(["--base", str(base_path), "--head", str(head_path)]) == 0
+
+
+def test_suite_cost_family_absent_head_skips_comparison():
+    guard = _guard()
+    base = _document()
+    head = _document()
+    head.pop("suite_cost")
+    assert guard._suite_cost_moves(base, head, {"suite_cost"}) == []  # pylint: disable=protected-access
+
+
+def test_suite_cost_identity_move_with_downward_fields_still_fails(tmp_path, capsys):
+    base = _document(suite=_with_identity(SUITE_COST, 40000))
+    head = copy.deepcopy(base)
+    head["suite_cost"]["tests_tree_lines"] = 41000
+    for phase in ("collection", "run", "residual"):
+        head["suite_cost"][phase]["measured"] -= 2.0
+        head["suite_cost"][phase]["floor"] -= 2.0
+    assert _guard_result(tmp_path, base, head) == 1
+    assert "suite_cost.tests_tree_lines" in capsys.readouterr().err
