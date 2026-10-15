@@ -211,7 +211,8 @@ def command_options(args: list[str], modes: dict[str, int]
             if not word.startswith("-") or word == "-":
                 operands.append(word)
                 continue
-            if word.startswith("--"):
+            flag = word.partition("=")[0]
+            if word.startswith("--") or (len(flag) > 2 and flag in modes):
                 flag, sep, _ = word.partition("=")
                 if sep and modes[flag] == 0:
                     raise ValueError("flag does not take a value")
