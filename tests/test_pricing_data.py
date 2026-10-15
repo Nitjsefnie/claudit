@@ -21,7 +21,7 @@ import pytest
 from backend.pricing_rows import encode_pricing_doc
 
 from backend import pricing
-from backend.pricing_document import expand_pricing_doc
+from backend.pricing_document import expand_pricing_doc, serialize_pricing_doc
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -45,8 +45,15 @@ def _pricing_json() -> Path:
 
 
 def _doc() -> dict:
-    return expand_pricing_doc(
+    doc = expand_pricing_doc(
         json.loads(_pricing_json().read_text(encoding="utf-8")))
+    for hosts in doc["providers"].values():
+        for host, history in hosts.items():
+            points = [{**entry, "from": stamp} for entry in history
+                      for stamp in (entry["from"] if isinstance(entry["from"], list)
+                                    else [entry["from"]])]
+            hosts[host] = sorted(points, key=lambda entry: entry["from"] or "")
+    return doc
 
 
 def _at(stamp: str) -> datetime:
@@ -311,11 +318,9 @@ def test_both_sides_derive_the_same_tables_in_the_same_order():
 
 
 def test_the_file_is_in_canonical_layout():
-    """Sorted keys, two-space indent, one field per line: the layout
-    json.dumps(doc, indent=2, sort_keys=True) writes, so an automated
-    refresh rewrites the file byte-for-byte except for what moved."""
+    """Every writer reproduces the compact-row layout byte-for-byte."""
     text = _pricing_json().read_text(encoding="utf-8")
-    assert text == json.dumps(json.loads(text), indent=2, sort_keys=True) + "\n"
+    assert text == serialize_pricing_doc(json.loads(text))
 
 
 def test_tracked_vendor_model_keys_use_bare_forms_only():
