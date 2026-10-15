@@ -2,9 +2,7 @@
 
 OpenRouter records carry the host that served them as message.provider,
 and one model costs different amounts on different hosts. Every other
-lane carries no provider, and a record without one must price exactly as
-it did before the provider table existed — the z.ai subscription's GLM
-usage in particular must not be repriced by an OpenRouter host's rate.
+lane carries no provider and must price by the model alone.
 """
 from __future__ import annotations
 
@@ -18,8 +16,7 @@ import pytest
 
 from backend import pricing
 from backend.pricing_document import expand_pricing_doc
-from backend.api_common import (_row_is_banded, fold_per_model,
-                                fold_per_model_provider)
+from backend.api_common import fold_per_model, fold_per_model_provider
 from tests.refresh_fixture_builders import seed_doc
 
 UTC = timezone.utc
@@ -66,8 +63,7 @@ def test_a_record_with_a_provider_is_priced_from_the_provider_table():
 
 
 def test_two_providers_of_one_model_price_differently(monkeypatch):
-    """Over synthetic rows: #640 collapsed every oscillating row into a band,
-    so a live row's price is a mean the refresh can still move (SV-TEST-DATA)."""
+    """Synthetic provider rows have independent rates (SV-TEST-DATA)."""
     cheap = {"fresh": 0.075, "create_5m": 0.075, "create_1h": 0.075,
              "read": 0.00375, "output": 0.3}
     monkeypatch.setattr(pricing, "PROVIDER_RATES", {
@@ -77,89 +73,12 @@ def test_two_providers_of_one_model_price_differently(monkeypatch):
     assert host_a != pricing.rate_for("acme/v9", SEEDED, provider="HostB")
 
 
-# Issue #666: a banded provider entry's rates are the time-weighted mean of
-# a range the host oscillates inside, not a listed price.
-_BAND_RATES = {"fresh": 0.25, "create_5m": 0.25, "create_1h": 0.25,
-               "read": 0.015, "output": 0.75}
-_BAND = {"fresh": [0.05, 0.9], "create_5m": [0.05, 0.9],
-         "create_1h": [0.05, 0.9], "read": [0.005, 0.09],
-         "output": [0.25, 2.9]}
-
-
-def _banded(model, ts, provider=None):
-    """The band flag the fold computes for a record (issue #666)."""
-    return _row_is_banded(pricing.resolve(model, ts, provider), ts, provider)
-
-
-def _band_pair(monkeypatch, pair, windows=(), banded=True):
-    """Install a provider pair (banded unless asked otherwise); return it."""
-    monkeypatch.setattr(pricing, "PROVIDER_RATES",
-                        {**pricing.PROVIDER_RATES, pair: _BAND_RATES})
-    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
-                        {**pricing.PROVIDER_DATED_RATES, pair: list(windows)})
-    if banded:
-        monkeypatch.setattr(pricing, "PROVIDER_BANDS",
-                            {**pricing.PROVIDER_BANDS, pair: {0: _BAND}})
-    return pair
-
-
-def test_banded_and_unbanded_provider_rows(monkeypatch):
-    """A banded pair flags True (the list price included); an unbanded pair
-    and a models-table resolve flag False."""
-    banded = _band_pair(monkeypatch, ("acme/banded-9", "HostA"))
-    assert _banded(banded[0], SEEDED, banded[1]) is True
-    assert _banded(banded[0], None, banded[1]) is True
-    plain = _band_pair(monkeypatch, ("acme/unbanded-9", "HostA"), banded=False)
-    assert _banded(plain[0], SEEDED, plain[1]) is False
-    monkeypatch.setattr(pricing, "MODEL_RATES",
-                        {**pricing.MODEL_RATES, "synthetic-table-9": _BAND_RATES})
-    monkeypatch.setattr(pricing, "_MATCH_KEY_CACHE", {})
-    assert _banded("synthetic-table-9", SEEDED) is False
-
-
-def _two_entry_row(monkeypatch):
-    """A provider history whose OLDER entry (index 0) carries a band and
-    whose NEWER entry (index 1) does not — a band appended later."""
-    model, host = "acme/two-entry-9", "HostA"
-    cut = datetime(2031, 1, 1, tzinfo=UTC)
-    old = {**_BAND_RATES, "fresh": 0.05, "create_5m": 0.05, "create_1h": 0.05,
-           "read": 0.005, "output": 0.25}
-    new = {**_BAND_RATES, "fresh": 0.9, "create_5m": 0.9, "create_1h": 0.9,
-           "read": 0.09, "output": 2.9}
-    _band_pair(monkeypatch, (model, host), windows=[(cut, old)])
-    monkeypatch.setattr(pricing, "PROVIDER_RATES",
-                        {**pricing.PROVIDER_RATES, (model, host): new})
-    return model, host, cut
-
-
-def test_the_banded_entry_is_picked_by_index_and_naive_ts(monkeypatch):
-    """The band's ENTRY-INDEX selection: a band on an OLDER entry must not
-    flag a record priced through a NEWER, unbanded one; a naive ts lands the
-    same entry — and flag — as its aware twin."""
-    model, host, cut = _two_entry_row(monkeypatch)
-    before = cut - timedelta(seconds=1)
-    assert _banded(model, before, host) is True
-    assert _banded(model, cut, host) is False
-    assert _banded(model, None, host) is False
-    for aware in (before, cut):
-        assert _banded(model, aware.replace(tzinfo=None), host) == \
-            _banded(model, aware, host)
-
-
-def test_a_banded_vendor_bare_form_flags(monkeypatch):
-    """The vendor bare-form path prices through a provider row too, so a
-    banded vendor row's mean is surfaced there as well."""
-    bare, tracked, host = "acme-vendor-bare-9", "acme/tracked-9", "HostA"
-    monkeypatch.setattr(pricing, "VENDOR_BARE",
-                        {**pricing.VENDOR_BARE, bare: tracked})
-    monkeypatch.setattr(pricing, "VENDOR_HOSTS",
-                        {**pricing.VENDOR_HOSTS, tracked: host})
-    _band_pair(monkeypatch, (tracked, host))
-    monkeypatch.setattr(pricing, "_VENDOR_MATCH_CACHE", {})
-    monkeypatch.setattr(pricing, "_MATCH_KEY_CACHE", {})
-    res = pricing.resolve(bare, SEEDED)
-    assert (res.kind, res.key) == ("exact", tracked)
-    assert _row_is_banded(res, SEEDED, None) is True
+def test_fold_exposes_only_estimate_status():
+    row = _row("synthetic/model-9", None, 0, 1000, cost=0.01)
+    for folded in (fold_per_model([row], pair_bounds={}),
+                   fold_per_model_provider([row], pair_bounds={})):
+        assert "estimated_rate" in folded[0]
+        assert "banded_rate" not in folded[0]
 
 
 def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():

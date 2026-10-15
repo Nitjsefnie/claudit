@@ -38,8 +38,7 @@ def _rates(run: Run, model: str, host: str) -> dict:
 
 def _move(run: Run, model: str, host: str) -> dict:
     """Move one host's output, so a run appends an entry whose note is
-    readable. Returns the five rate fields — a row's newest entry may also
-    carry a band (issue #640), which an appended entry never copies."""
+    readable. Returns the five token rate fields."""
     current = _rates(run, model, host)
     moved = {**current, "output": current["output"] * 2}
     pricing = run.endpoint(model, host)["pricing"]
@@ -238,7 +237,7 @@ def test_simultaneous_token_and_search_move_keeps_loadable_history():
     assert at_detection[0]["web_search"] == 0.0137
 
 
-def test_band_formation_and_search_move_share_detection_timestamp():
+def test_oscillating_states_keep_separate_search_detection_timestamp():
     hosts = {"SearchHost": [{
         "from": None, **RATES_A, "web_search": 0.002,
     }]}
@@ -254,14 +253,16 @@ def test_band_formation_and_search_move_share_detection_timestamp():
     _history(history, "acme/search-9 via SearchHost", may_begin=True)
     at_detection = [entry for entry in history if entry.get("from") == STAMP]
     assert len(at_detection) == 1
-    assert "band" in at_detection[0]
+    assert "band" not in at_detection[0]
+    assert history[1:5] == [
+        {**entry, "web_search": 0.002} for entry in entries]
     assert at_detection[0]["web_search"] == 0.0137
     move_report = _render_move(move)
-    assert "with a band" in move_report
+    assert "4 log entries" in move_report
     assert "web_search 0.002 → 0.0137, sampled at detection" in move_report
 
 
-def test_search_only_epoch_cannot_turn_a_token_step_into_a_band():
+def test_search_only_epoch_preserves_the_token_step():
     token_a = {**RATES_A, "output": 4.0}
     token_b = {**token_a, "output": 5.0}
     search_stamp = _days_before_detection(2)
@@ -291,19 +292,16 @@ def test_search_only_epoch_cannot_turn_a_token_step_into_a_band():
     assert searched_history[1]["web_search"] == 0.0137
 
 
-def test_search_only_repeated_level_does_not_reform_a_band():
+def test_token_change_after_search_only_epoch_appends():
     token_a = {**RATES_A, "output": 4.0}
     token_b = {**token_a, "output": 5.0}
     token_c = {**token_a, "output": 6.0}
-    band = {field: [min(token_a[field], token_b[field]),
-                    max(token_a[field], token_b[field])]
-            for field in RATE_FIELDS}
     hosts = {"SearchHost": [
         {"from": None, **token_a, "web_search": 0.002},
         {"from": _days_before_detection(3), **token_a,
          "web_search": 0.0137},
         {"from": _days_before_detection(2), **token_b,
-         "web_search": 0.0137, "band": band},
+         "web_search": 0.0137},
     ]}
     entries = [{"from": _days_before_detection(1), **token_c}]
 
@@ -336,11 +334,9 @@ def test_mixed_log_search_move_report_identifies_both_changes():
     assert "2 log entries" not in rendered
 
 
-def test_search_only_move_preserves_token_band():
-    band = {field: [value / 2, value * 2]
-            for field, value in RATES_B.items()}
+def test_search_only_move_preserves_token_rates():
     hosts = {"SearchHost": [{
-        "from": None, **RATES_B, "web_search": 0.002, "band": band,
+        "from": None, **RATES_B, "web_search": 0.002,
     }]}
 
     _append_search(hosts, RATES_B, [])
@@ -348,7 +344,7 @@ def test_search_only_move_preserves_token_band():
     history = hosts["SearchHost"]
     _history(history, "acme/search-9 via SearchHost", may_begin=True)
     assert history[-1]["web_search"] == 0.0137
-    assert history[-1]["band"] == band
+    assert {field: history[-1][field] for field in RATE_FIELDS} == RATES_B
 
 
 def test_search_change_defers_when_detection_epoch_is_already_committed():
@@ -433,23 +429,7 @@ def test_refresh_reports_deferred_search_change_without_rewriting_history(
     assert run.doc()["providers"][GLM]["OpenInference"] == previous
 
 
-def test_prior_search_epochs_do_not_disable_band_reform():
-    band = {field: [value / 2, value * 2]
-            for field, value in RATES_B.items()}
-    hosts = {"SearchHost": [
-        {"from": None, **RATES_B, "web_search": 0.002},
-        {"from": _days_before_detection(6), **RATES_B,
-         "web_search": 0.003, "band": band},
-    ]}
-    entries = [{"from": _days_before_detection(5), **RATES_A}]
-
-    move = _append_search(hosts, RATES_A, entries, search=0.003)
-
-    assert move is None
-    assert len(hosts["SearchHost"]) == 2
-
-
-def test_prior_search_epochs_do_not_disable_band_formation():
+def test_prior_search_epochs_preserve_every_logged_state():
     hosts = {"SearchHost": [
         {"from": None, **RATES_A, "web_search": 0.002},
         {"from": _days_before_detection(8), **RATES_A,
@@ -463,11 +443,8 @@ def test_prior_search_epochs_do_not_disable_band_formation():
 
     _append_search(hosts, RATES_A, entries, search=0.003)
 
-    formed = [entry for entry in hosts["SearchHost"]
-              if entry.get("from") == STAMP]
-    assert len(formed) == 1
-    assert "band" in formed[0]
-    assert formed[0]["web_search"] == 0.003
+    assert hosts["SearchHost"][2:] == [
+        {**entry, "web_search": 0.003} for entry in entries]
 
 
 # --- a listed 1h cache write is the create_1h rate --------------------------

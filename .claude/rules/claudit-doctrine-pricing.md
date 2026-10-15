@@ -16,8 +16,6 @@ paths:
   - "**/backend/long_context.py"
   - "**/scripts/ci/refresh_*.py"
   - "**/scripts/ci/backfill_provider_rates.py"
-  - "**/scripts/ci/collapse_oscillating_rates.py"
-  - "**/scripts/ci/price_band.py"
 ---
 
 # claudit Doctrine — pricing and rates
@@ -138,7 +136,7 @@ a non-empty list of positional rows: `[T, F, O, R]`, `[T, F, O, R, N]`,
 optional note N is a number only when rendering it as `n% off` restores
 the identical string in both loaders; otherwise it is the original
 string. The optional rest object carries other entry fields:
-`create_5m`, `create_1h`, `web_search`, `schedule`, and transitional `band`.
+`create_5m`, `create_1h`, `web_search`, and `schedule`.
 It cannot override `from`, `fresh`, `output`, `read`, or `note`.
 
 T is mandatory: null means the undated leading entry, an integer means
@@ -171,8 +169,8 @@ expand defaults, then validate; no boundary decodes twice.
 For lookup tables, flatten all grouped instants into chronological order.
 The state owning instant j applies until instant j+1; the state owning
 the latest instant is the list price, even when its stored row precedes
-another row. Schedules and bands follow each occurrence of their owning
-state. Every instant is bounded by `provider_rates_fetched`. The host's
+another row. Schedules follow each occurrence of their owning state. Every
+instant is bounded by `provider_rates_fetched`. The host's
 start and its fallback before that start keep their existing meaning;
 a null-first state covers all earlier time. Complete log histories stay
 stored; timestamp lists carry oscillation without substituting schedules.
@@ -183,19 +181,10 @@ five finite non-negative token rates (`fresh`, `create_5m`, `create_1h`,
 `read`, `output`). `fresh`, `read`, and `output` are always present;
 `create_5m` and `create_1h` are present only when each differs from
 `fresh`, and each absent cache-write rate defaults to `fresh`. An entry
-also carries an optional string `note`, an optional `schedule`, and — on
-a provider entry only — an optional `band`. Every schedule window has the
-same five effective rates and the same absent-means-`fresh` rule. A band
-maps a subset of the five rate fields to `[min, max]` pairs of finite
-non-negative numbers with `min <= max`; either cache-write pair may be
-omitted when it equals the band's `fresh` pair, and then defaults to that
-pair. A `band` is a record of what the host moved inside, never a price:
-the five effective rate fields beside it stay the priced rates, and both
-loaders check and fold its shape without using it for pricing
-(SV-RATE-REFRESH). Nothing writes a
-`band` beside a `schedule`, and the loaders do not refuse one if it
-appears: the band is read for its shape only, and the schedule still
-decides which hours price what. The leading model entry's `from` defaults
+also carries an optional string `note` and, on a provider entry only,
+an optional `schedule`. Every schedule window has the same five effective
+rates and the same absent-means-`fresh` rule. Both loaders refuse a `band`
+key, naming the row. The leading model entry's `from` defaults
 to `null` when absent. A model row therefore covers all time. A provider
 row's first may name its start instant; before it, that host's records
 price by the model alone, and the start joins `RATE_EPOCHS`. Every later
@@ -375,13 +364,12 @@ same rules:
     A `null` `input` or `output` is not a price: the host is sampled.
   - **Hourly append.** For a log-backed host with a row, every entry
     whose `from` is after the row's newest `from` and whose rates
-    differ from its predecessor is appended, oldest first, so a flip
-    between runs is recorded as its two moves. After those states are
+    differ from its predecessor is appended, oldest first. Every logged
+    state appends at its change point, including every oscillation, so a
+    flip between runs is recorded as its two moves. After those states are
     accounted for, the resulting row's token rates at fetch time must
-    match its selected endpoint's listed price, or that price must lie
-    inside the row's band. Otherwise the listed state enters the same
-    log-path append machinery at detection time, under the existing
-    band-formation and escape rules; the changed host is named with the
+    match its selected endpoint's listed price. Otherwise the listed state
+    appends at detection time; the changed host is named with the
     reason that its row was out of step with its endpoint's listed price.
     Its `web_search` follows the separate sampling rule. An in-step row
     with no token or search move stays silent and writes nothing. A first-seen host
@@ -439,56 +427,6 @@ same rules:
   entry, and appends and bumps nothing. A first move away never
   matches; the flip back does. A genuine return to an older price is
   hand-appended, and the next run compares against it.
-- **An oscillating host is recorded once, as a BAND (issues #640, #664).**
-  A provider entry carries an optional `band`: each rate field it names
-  maps to a `[min, max]` pair of FINITE non-negative numbers with
-  `min <= max`, the range the host actually moved inside; a field it does
-  not name is unconstrained, and a bound that is not finite is refused,
-  because `x <= inf` is true of everything and the row would go
-  permanently silent. The five rate fields beside a band stay the PRICED
-  rates — the time-weighted mean over the window that formed the band, the
-  classifier's trailing `days`: the level in force at its open — the last
-  entry dated before it, or the row's leading undated entry when nothing
-  dated precedes the window, which is the classifier's baseline too (issue
-  #836) — plus every entry in it, the mean weighting
-  that window so a level predating it weighs only from the window's open
-  (issues #663, #665) — so no rate
-  math reads the band; the
-  loaders accept and check it (`pricing_load.check_band`, mirrored by
-  parser.js) and ignore it. Nothing writes a `band` beside a `schedule`,
-  and the loaders do not refuse one if it appears: the band is read for
-  its shape only, and the schedule still decides which hours price what.
-  The hourly run forms a row's band itself, on the log path (issue #664):
-  an unbanded row whose window classifies TOGGLE or BAND appends its new
-  states plus ONE band entry dated at the detection instant — every
-  earlier level stays an actual entry, so a record priced before the
-  detection instant prices at the level that held there. A banded row the
-  run later SAMPLES falls back to appending every move: the alternation
-  rule and the band are independent, and only the log path carries the
-  band. `collapse_oscillating_rates.py` remains the one-time,
-  human-reviewed whole-history pass: it collapses each row
-  `price_band.classify` calls TOGGLE or BAND to the ONE band entry its
-  window leaves, leaves STEP and STABLE rows byte-identical, and reports
-  the distinct host names it collapsed so the reviewer can run the
-  records query over exactly those before merging (a mean is only safe
-  while no record has been priced through that host).
-- **An escape re-forms the band or follows the step (issue #665).** On the
-  LOG path, a row whose newest entry carries a band is appended to at
-  most once per run: every new state inside the band makes NO Move at all
-  (a Move with no entries in it would still bump the version, write both
-  files and commit), and the states outside it append ONE entry. The run
-  classifies the window with the new states folded in. Still oscillating,
-  the entry RE-FORMS the band — the range the window's levels span,
-  priced by their time-weighted mean, dated at the last escape's change
-  point, carrying the banded entry's note and schedule. The window no
-  longer oscillating (STEP or STABLE), the entry appends the state now in
-  force instead, dated at its own change point, so the row follows the
-  price.
-  The mean's window ends at the detection instant, where the level in
-  force holds until it, so a re-formed row tracks the price it names.
-  The entry is APPENDED, so an undated banded entry keeps its
-  `from: None` and the row keeps covering every record: only a row whose
-  FIRST entry names an instant stops existing before it.
 - **Unmodelled pricing refuses the host:** an override kind the script
   does not model, or any other pricing key at a nonzero price. `web_search`
   is a PRICED rate, validated as finite non-negative USD per search and

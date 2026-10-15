@@ -1,5 +1,4 @@
-"""Issue #666: /api/cache flags a model priced through a banded provider row
-on its per_model entry and the session total."""
+"""Cache responses expose estimate status without obsolete band flags."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -13,9 +12,6 @@ __all__ = ["_app_with_fresh_data_fixture"]
 
 _RATES = {"fresh": 0.25, "create_5m": 0.25, "create_1h": 0.25,
           "read": 0.015, "output": 0.75}
-_BAND = {"fresh": [0.05, 0.9], "create_5m": [0.05, 0.9],
-         "create_1h": [0.05, 0.9], "read": [0.005, 0.09],
-         "output": [0.25, 2.9]}
 
 
 def _seed(model, host, nth=1):
@@ -53,21 +49,13 @@ def _seed(model, host, nth=1):
         conn.commit()
 
 
-def test_cache_flags_a_banded_provider_row(app_with_fresh_data, monkeypatch):
-    """A banded pair's per_model entry and the session total carry
-    banded_rate True; an unbanded pair's entry is False."""
-    banded = ("synthetic/banded-9", "BandHost")
-    plain = ("synthetic/plain-9", "PlainHost")
-    monkeypatch.setattr(pricing, "PROVIDER_RATES",
-                        {**pricing.PROVIDER_RATES, banded: _RATES,
-                         plain: _RATES})
-    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
-                        {**pricing.PROVIDER_DATED_RATES, banded: [], plain: []})
-    monkeypatch.setattr(pricing, "PROVIDER_BANDS",
-                        {**pricing.PROVIDER_BANDS, banded: {0: _BAND}})
-    _seed(*banded)
-    _seed(*plain, nth=2)
+def test_cache_has_no_band_flag(app_with_fresh_data, monkeypatch):
+    pair = ("synthetic/priced-9", "PriceHost")
+    monkeypatch.setitem(pricing.PROVIDER_RATES, pair, _RATES)
+    monkeypatch.setitem(pricing.PROVIDER_DATED_RATES, pair, [])
+    _seed(*pair)
     body = app_with_fresh_data.get("/api/cache?range=3650d").json()
-    flags = {r["model"]: r["banded_rate"] for r in body["per_model"]}
-    assert flags[banded[0]] is True and flags[plain[0]] is False
-    assert body["session_total"]["banded_rate"] is True
+    assert body["per_model"] and body["per_model_provider"]
+    for entry in [*body["per_model"], *body["per_model_provider"], body["session_total"]]:
+        assert "estimated_rate" in entry
+        assert "banded_rate" not in entry

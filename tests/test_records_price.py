@@ -1,11 +1,7 @@
 """The records_price sidecar (issue #959, ruling R4).
 
 The reprice pass rewrites its six columns on every PRICING_VERSION bump.
-Tuple versions are whole-row, so an in-row UPDATE rewrites the whole
-`records` tuple — which is why #350 had to store `records` at
-fillfactor 50 (measured 57.6s / 2.66 GB WAL per full-table restamp at
-100, 12.2s / 499 MB at 50, stable across consecutive bump cycles).
-Ruling R4 splits the reprice-written columns onto a narrow
+Ruling R4 puts the reprice-written columns on a narrow
 (file_id, line_num) sidecar at fillfactor 50; `records` returns to 100
 and stops reserving half of every page.
 
@@ -544,21 +540,21 @@ def test_cache_response_is_byte_identical(cost_client):
             "fresh": 301042, "cache_create": 507, "cache_read": 2013,
             "output": 159, "eph5": 100, "eph1h": 200,
             "cost_total": total, "estimated_rate": False,
-            "banded_rate": False, "hit_rate_pct": 0.7,
+            "hit_rate_pct": 0.7,
         }],
         "per_model_provider": [{
             "model": SEED_MODEL, "turns": 3,
             "fresh": 301042, "cache_create": 507, "cache_read": 2013,
             "output": 159, "eph5": 100, "eph1h": 200,
             "cost_total": total, "estimated_rate": False,
-            "banded_rate": False, "provider": None, "hit_rate_pct": 0.7,
+            "provider": None, "hit_rate_pct": 0.7,
         }],
         "session_total": {
             "turns": 3, "fresh": 301042, "cache_create": 507,
             "cache_read": 2013, "output": 159, "eph5": 100, "eph1h": 200,
             "cost_total": total,
             "cost_buckets": buckets,
-            "estimated_rate": False, "banded_rate": False,
+            "estimated_rate": False,
             "hit_rate_pct": 0.7,
         },
         "top_output": [

@@ -1,11 +1,9 @@
 """The pricing.json loader (SV-RATE-DATA): every rate table, checked.
 
-Every rate lives in ``src/pricing.json``; this module reads it once at
-import and refuses a rule-breaking file, naming the row. The backend's
-resolution logic lives in ``backend/pricing.py``, which re-exports the
-loaded tables; the browser mirror is ``src/parser.js``'s own loader.
-``load_tables`` is the one entry point the refresh script and the rate
-tests call on synthetic documents.
+Read ``src/pricing.json`` once at import, refusing invalid rows by name.
+``backend/pricing.py`` re-exports the tables and resolves rates; the browser
+mirror is ``src/pricing-loader.js``. ``load_tables`` also accepts synthetic
+documents from the refresh script and tests.
 """
 from __future__ import annotations
 
@@ -44,7 +42,6 @@ class RateTables(TypedDict):
     PROVIDER_DATED_RATES: dict[tuple[str, str], Windows]
     PROVIDER_STARTS: dict[tuple[str, str], datetime]
     PROVIDER_SCHEDULES: dict[tuple[str, str], dict[int, list[ScheduleWindow]]]
-    PROVIDER_BANDS: dict[tuple[str, str], dict[int, dict]]
     PROVIDER_RATES_FETCHED: datetime
     RATE_EPOCHS: list[datetime]
     # The vendor tables (SV-RATE-DATA): the bare first-party form each
@@ -148,45 +145,16 @@ def _schedule(schedule: object, at: str) -> list[ScheduleWindow]:
     return out
 
 
-def check_band(band: object, at: str) -> dict:
-    """An entry's oscillating price range, checked (SV-RATE-DATA).
-
-    A band maps named rate fields to finite non-negative ``[min, max]`` pairs
-    with ``min <= max``. When ``fresh`` is present, omitted ``create_5m`` and
-    ``create_1h`` pairs default to its pair; other unnamed fields are
-    unconstrained. Checked bands are returned with the provider rate tables.
-    Mirrored by parser.js's _checkBand, and shared with
-    scripts/ci/price_band.py so the refresh and this loader spell one shape.
-    """
-    if not isinstance(band, dict):
-        raise ValueError(f"{at}: band is not a mapping of rate fields to [min, max]")
-    out: dict[str, list[float]] = {}
-    for field, span in band.items():
-        where = f"{at}.band[{field}]"
-        if field not in RATE_FIELDS:
-            raise ValueError(f"{where}: not one of {list(RATE_FIELDS)}")
-        if (not isinstance(span, list) or len(span) != 2
-                or not all(_is_rate(value) for value in span)
-                or span[0] > span[1]):
-            raise ValueError(f"{where}: not a [min, max] pair of finite "
-                             "non-negative numbers with min <= max")
-        out[field] = [span[0], span[1]]
-    if "fresh" in out:
-        for field in ("create_5m", "create_1h"):
-            out.setdefault(field, list(out["fresh"]))
-    return out
-
-
-def _check_entry_fields(entry: dict, at: str, may_band: bool = False) -> None:
+def _check_entry_fields(entry: dict, at: str, provider: bool = False) -> None:
     """An entry's field set and rate values, checked."""
-    fields = set(entry) - {"from", "note", "schedule", "band"}
+    fields = set(entry) - {"from", "note", "schedule"}
     has_search_rate = "web_search" in fields
     if has_search_rate:
         fields.remove("web_search")
     rate_fields = fields - ({"web_search"} if has_search_rate else set())
     required = set(RATE_FIELDS) - {"create_5m", "create_1h"}
     if (not required <= rate_fields or rate_fields - set(RATE_FIELDS)
-            or (has_search_rate and not may_band)):
+            or (has_search_rate and not provider)):
         raise ValueError(f"{at}: fields {sorted(entry)}")
     bad = [f for f, value in effective_rates(entry).items()
            if not _is_rate(value)]
@@ -194,17 +162,6 @@ def _check_entry_fields(entry: dict, at: str, may_band: bool = False) -> None:
         bad.append("web_search")
     if bad:
         raise ValueError(f"{at}: {bad} not a finite non-negative number")
-    if "band" in entry:
-        if not may_band:
-            raise ValueError(f"{at}: only a provider row carries a band")
-        folded = check_band(entry["band"], at)
-        # the band contains the entry's effective rates (#931).
-        effective = effective_rates(entry)
-        for field, span in folded.items():
-            if not span[0] <= effective[field] <= span[1]:
-                raise ValueError(
-                    f"{at}: band[{field}] [{span[0]}, {span[1]}] does "
-                    f"not contain the entry's {effective[field]}")
 
 
 def _history(entries: list[dict], where: str, may_begin: bool = False,
@@ -386,19 +343,6 @@ def _provider_tables(doc: dict, fetched: datetime) -> tuple[dict, dict, dict, di
             provider_schedules)
 
 
-def _provider_bands(doc: dict) -> dict[tuple[str, str], dict[int, dict]]:
-    """Checked provider bands with omitted cache pairs folded to fresh."""
-    out: dict[tuple[str, str], dict[int, dict]] = {}
-    for model, hosts in doc["providers"].items():
-        for host, entries in hosts.items():
-            entries, _ = flatten_provider_history(entries, f"{model} via {host}", _instant)
-            bands = {i: check_band(entry["band"], f"{model} via {host}[{i}]")
-                     for i, entry in enumerate(entries) if "band" in entry}
-            if bands:
-                out[model, host] = bands
-    return out
-
-
 def _stored_document(raw: dict) -> dict:
     """Decode once, check storage, then expand before shared validation."""
     decoded = decode_pricing_doc(raw)
@@ -424,7 +368,6 @@ def load_tables(doc: dict) -> RateTables:
             dated_rates[key] = windows
     (provider_rates, provider_dated, provider_starts,
      provider_schedules) = _provider_tables(doc, fetched)
-    provider_bands = _provider_bands(doc)
     vendor_bare, vendor_hosts = _vendor_tables(doc, model_rates)
     long_context_meters = _long_context_meters(doc)
     return {
@@ -434,7 +377,6 @@ def load_tables(doc: dict) -> RateTables:
         "PROVIDER_DATED_RATES": provider_dated,
         "PROVIDER_STARTS": provider_starts,
         "PROVIDER_SCHEDULES": provider_schedules,
-        "PROVIDER_BANDS": provider_bands,
         "PROVIDER_RATES_FETCHED": fetched,
         # Sorted boundaries where any rate changes. Read-time aggregation
         # that re-derives rates from summed tokens must group by these, or
@@ -478,7 +420,6 @@ PROVIDER_STARTS = _TABLES["PROVIDER_STARTS"]
 # that carries one. A schedule's windows are not rate epochs: see
 # SV-RATE-DATA for how the read-time fold treats a scheduled row.
 PROVIDER_SCHEDULES = _TABLES["PROVIDER_SCHEDULES"]
-PROVIDER_BANDS = _TABLES["PROVIDER_BANDS"]
 PROVIDER_RATES_FETCHED = _TABLES["PROVIDER_RATES_FETCHED"]
 RATE_EPOCHS = _TABLES["RATE_EPOCHS"]
 # The Codex long-context meter's membership: dashed names of models-table

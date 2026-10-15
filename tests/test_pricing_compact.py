@@ -24,16 +24,12 @@ CONVERTER = ROOT / "scripts" / "ci" / "convert_pricing_doc.py"
 
 
 def _synthetic_doc() -> dict:
-    """An old-spelling document with rates, a fee, schedule, band, and meter."""
+    """An old-spelling document with rates, a fee, schedule, and meter."""
     doc = _doc()
     row = doc["providers"][ROW_KEY][HOST][0]
     rates = {"fresh": 2.0, "create_5m": 2.0, "create_1h": 2.0,
              "read": 0.2, "output": 6.0}
     row.update({"from": None, **rates, "web_search": 0.015})
-    row["band"] = {
-        **dict.fromkeys(("fresh", "create_5m", "create_1h"), [1.0, 3.0]),
-        "read": [0.1, 0.3], "output": [4.0, 8.0],
-    }
     row["schedule"] = [
         {"days": ["monday"], "rates": dict(rates)},
         {"days": ["tuesday"], "rates": {
@@ -65,11 +61,6 @@ def _sparse_doc(old: dict) -> dict:
             _omit_equal_tiers(entry)
             for window in entry.get("schedule", []):
                 _omit_equal_tiers(window["rates"])
-            band = entry.get("band")
-            if band and "fresh" in band:
-                for field in ("create_5m", "create_1h"):
-                    if band.get(field) == band["fresh"]:
-                        band.pop(field)
     return doc
 
 
@@ -110,7 +101,7 @@ def _js_tables(tmp_path: Path, doc: dict) -> dict:
     return json.loads(proc.stdout)
 
 
-def test_python_loader_folds_sparse_rates_bands_and_leading_from():
+def test_python_loader_folds_sparse_rates_and_leading_from():
     old, sparse = _synthetic_doc(), _sparse_doc(_synthetic_doc())
 
     old_tables = load_tables(old)
@@ -121,8 +112,6 @@ def test_python_loader_folds_sparse_rates_bands_and_leading_from():
     end, window_rates = sparse_tables["PROVIDER_DATED_RATES"][ROW_KEY, HOST][0]
     assert end.isoformat() == "2027-01-01T00:00:00+00:00"
     assert window_rates["create_1h"] == 2.0
-    band = sparse_tables["PROVIDER_BANDS"][ROW_KEY, HOST][0]
-    assert band["fresh"] == [1.0, 3.0]
     schedule = sparse_tables["PROVIDER_SCHEDULES"][ROW_KEY, HOST][0]
     assert schedule[1][3]["create_5m"] == 2.5
     assert sparse_tables["LONG_CONTEXT_METERS"] == {
@@ -131,7 +120,7 @@ def test_python_loader_folds_sparse_rates_bands_and_leading_from():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_browser_loader_folds_sparse_rates_bands_and_leading_from(tmp_path):
+def test_browser_loader_folds_sparse_rates_and_leading_from(tmp_path):
     old, sparse = _synthetic_doc(), _sparse_doc(_synthetic_doc())
 
     old_tables = _js_tables(tmp_path / "old", old)
@@ -142,8 +131,6 @@ def test_browser_loader_folds_sparse_rates_bands_and_leading_from(tmp_path):
     assert sparse_tables["providerStarts"] == {}
     dated_rates = sparse_tables["providerDatedRates"][ROW_KEY][HOST][0]["rates"]
     assert dated_rates["c1h"] == 2.0
-    bands = sparse_tables["providerBands"][ROW_KEY][HOST]["0"]
-    assert bands["fresh"] == [1.0, 3.0]
     schedules = sparse_tables["providerSchedules"][ROW_KEY][HOST]["0"]
     assert schedules[1]["rates"]["c5"] == 2.5
     assert sparse_tables["longContextMeters"] == {

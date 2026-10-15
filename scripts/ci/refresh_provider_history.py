@@ -24,9 +24,6 @@ class Move:
     new: Listing
     entries_appended: int = 1
     source: str = "sampled"
-    # The `fresh` rate of the entry the run appended, when it is not the
-    # listing's — a band entry prices the window mean, not the listing.
-    entry_fresh: float | None = None
     reason: str | None = None
 
 
@@ -95,11 +92,6 @@ def _new_log_states(model: str, host: str, entries: list[dict],
                     newest: dict) -> list[dict]:
     """The log states after the stored row's newest entry, each one a change
     from the level before it.
-
-    The comparison starts at the newest entry's own rates. On a banded row
-    those are the band's time-weighted mean, which no listed state equals, so
-    the first candidate is never mistaken for the level already in force —
-    and a state that did equal it lies inside the band anyway.
     """
     where = f"{model} via {host}"
     newest_from = newest["from"]
