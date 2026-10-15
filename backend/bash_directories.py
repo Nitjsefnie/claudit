@@ -1,9 +1,8 @@
 """Directory targets: what mkdir and mktemp put on disk.
 
-The writer family behind issue #655: a seat's worktrees, clones and
-scratch directories are usually the largest things it leaves behind, and
-only file writes were recorded. Each command here maps to the operands
-it CREATES, resolved against the command's cwd by the caller.
+Each mkdir operand names a directory to create; mktemp contributes only
+an explicit template. The caller resolves these targets against the
+command's cwd.
 
 `command_options` refuses any flag the command's modes dict does not
 list, so an unparsable command names nothing rather than a guessed path.

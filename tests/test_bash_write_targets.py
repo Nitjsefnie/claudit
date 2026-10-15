@@ -23,7 +23,7 @@ FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
     ("unzip", ["/work/extracted"]),
     ("curl_output", ["/work/downloaded"]),
     ("wget", ["/work/file.txt"]),
-    ("curl_file_url", ["/work/data.txt"]),
+    ("curl_file_url", ["/work/data.txt"]),  # file:///source/data.txt uses its basename in cwd.
     ("python_venv", ["/work/.venv"]),
     ("git_worktree", ["/work/checkout"]),
     ("git_checkout", ["/work/first.txt", "/work/second.txt"]),
@@ -272,7 +272,7 @@ def test_unzip_comment_only_is_not_a_write():
     ("rustfmt --emit stdout first.rs", []), ("rustfmt --edition 2021", []),
     ("rustfmt", []),
 ])
-def test_bash_corpus_write_targets(command, expected):
+def test_bash_named_command_write_targets_and_churn(command, expected):
     assert scan(command, "/work")[2] == expected
     assert bash_churn(command) == ((1, 0) if expected else (0, 0))
 
@@ -283,7 +283,7 @@ def test_bash_corpus_write_targets(command, expected):
     "git clone url {path}", "git init {path}",
     "perl -0pi -e 's/old/new/' {path}", "rustfmt {path}",
 ])
-def test_bash_corpus_write_targets_resolve_cwd_and_assignments(command):
+def test_bash_write_targets_resolve_cwd_and_assignments(command):
     assert scan("D=out; cd project && " + command.format(path="$D"), "/work")[2] == ["/work/project/out"]
     assert scan(command.format(path="'literal*.txt'"), "/work")[2] == ["/work/literal*.txt"]
 
@@ -293,7 +293,7 @@ def test_bash_corpus_write_targets_resolve_cwd_and_assignments(command):
     "git clone {path} out", "perl -pi -e 's/old/new/' first {path}", "rustfmt first {path}",
 ])
 @pytest.mark.parametrize("path", ["$UNKNOWN", '"$UNKNOWN/path"', "$(unknown)", "`unknown`", "*.txt"])
-def test_bash_corpus_runtime_operands_refuse_all_targets(command, path):
+def test_bash_unresolved_operands_refuse_all_write_targets(command, path):
     assert not scan(command.format(path=path), "/work")[2]
 
 
