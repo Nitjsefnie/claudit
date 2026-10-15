@@ -7,6 +7,7 @@ import shutil
 from datetime import timedelta
 
 import pytest
+from backend.pricing_rows import encode_pricing_doc
 from tests.refresh_fixture_builders import DEFAULT_ROW, seed_doc
 from tests.test_pricing_data import (
     CUT, HHMM_JS, LOADER_JS, RATE_FIELDS,
@@ -78,10 +79,11 @@ def _damaged(damage) -> dict:
 
 def _node_load(tmp_path, doc: dict) -> str | None:
     """Require the real pricing-loader.js beside `doc`; the load error."""
-    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
+    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
     return _node_raw(f"""
       global.window = {{}};
       let error = null;
@@ -310,6 +312,6 @@ def _variant_row_doc() -> dict:
 
 
 def _variant_node(tmp_path, doc: dict, body: str):
-    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     _copy_browser(tmp_path)
     return _node(tmp_path / "parser.js", body)

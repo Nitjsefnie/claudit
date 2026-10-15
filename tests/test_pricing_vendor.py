@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from backend.pricing_rows import encode_pricing_doc
 from tests.refresh_fixture_builders import DEFAULT_ROW
 
 
@@ -143,10 +144,11 @@ def _node_raw(script: str):
 def _loader_error(tmp_path: Path, doc: dict) -> str | None:
     """The pricing-loader's load error for `doc`, from a tmp sandbox: null
     when the document loads."""
-    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
+    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
     proc = subprocess.run(
         ["node", "-e",
          "global.window={};let e=null;try{require('./pricing-loader.js')}"
@@ -157,11 +159,9 @@ def _loader_error(tmp_path: Path, doc: dict) -> str | None:
 
 
 def _copy_browser(tmp_path):
-    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
-    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
-    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
-    shutil.copy(RATES_JS, tmp_path / "rates.js")
-    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    for source in (LOADER_JS, VENDOR_TABLES_JS, HHMM_JS,
+                   HHMM_JS.with_name("pricing-rows.js"), RATES_JS, PARSER_JS):
+        shutil.copy(source, tmp_path / source.name)
 
 
 def _js_rates(js: dict) -> dict:
@@ -199,7 +199,7 @@ def test_a_bare_only_vendor_shape_loads_and_exports_fold_data():
 
 @needs_node
 def test_the_browser_builds_the_same_vendor_tables(tmp_path):
-    (tmp_path / "pricing.json").write_text(json.dumps(_doc()), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(_doc())), encoding="utf-8")
     _copy_browser(tmp_path)
     got = _node_raw(f"""
       global.window = {{}};
@@ -214,7 +214,7 @@ def test_the_browser_builds_the_same_vendor_tables(tmp_path):
 @needs_node
 def test_the_browser_loads_bare_only_vendor_data_and_exposes_fold_data(tmp_path):
     (tmp_path / "pricing.json").write_text(
-        json.dumps(_bare_id_doc()), encoding="utf-8")
+        json.dumps(encode_pricing_doc(_bare_id_doc())), encoding="utf-8")
     _copy_browser(tmp_path)
     got = _node_raw(f"""
       global.window = {{}};
@@ -261,7 +261,7 @@ def test_malformed_prefixes_refuse_naming_the_key():
 @pytest.mark.parametrize("bad", [["Anthropic"], [""], "anthropic", []])
 def test_malformed_prefixes_refuse_in_the_browser(tmp_path, bad):
     (tmp_path / "pricing.json").write_text(
-        json.dumps(_doc(prefixes=bad)), encoding="utf-8")
+        json.dumps(encode_pricing_doc(_doc(prefixes=bad))), encoding="utf-8")
     _copy_browser(tmp_path)
     error = _node_raw(f"""
       global.window = {{}};
@@ -306,7 +306,7 @@ def test_a_bare_form_colliding_with_a_models_key_refuses():
 def test_a_bare_form_collision_refuses_in_the_browser(tmp_path):
     doc = _doc(models={"other-9": [_entry(R_THIRD)]})
     doc["openrouter"]["models"]["acme/other-9"]["vendor_host"] = HOST
-    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     _copy_browser(tmp_path)
     error = _node_raw(f"""
       global.window = {{}};
@@ -429,7 +429,7 @@ def test_default_rates_read_the_tracked_claude_row():
 @needs_node
 def test_the_browser_resolves_the_bare_path_identically(tmp_path):
     doc = _doc(web_search=True, schedules=True)
-    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     _copy_browser(tmp_path)
     before = (CUT - timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
     got = _node_raw(f"""
@@ -481,7 +481,7 @@ def test_the_browser_resolves_the_bare_path_identically(tmp_path):
 def test_the_browser_prefixed_id_uses_the_bare_provider_and_vendor_rows(
         tmp_path):
     (tmp_path / "pricing.json").write_text(
-        json.dumps(_bare_id_doc()), encoding="utf-8")
+        json.dumps(encode_pricing_doc(_bare_id_doc())), encoding="utf-8")
     _copy_browser(tmp_path)
     got = _node_raw(f"""
       global.window = {{}};
@@ -684,7 +684,7 @@ def test_real_family_fallbacks_feed_from_the_tracked_table(probe, family):
 
 @needs_node
 def test_the_browser_falls_back_from_the_tracked_tables_too(tmp_path):
-    (tmp_path / "pricing.json").write_text(json.dumps(_doc()), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(_doc())), encoding="utf-8")
     _copy_browser(tmp_path)
     got = _node_raw(f"""
       global.window = {{}};

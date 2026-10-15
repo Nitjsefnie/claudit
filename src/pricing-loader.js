@@ -12,17 +12,7 @@
 // Exposes the derived token and web-search rate tables, dated boundaries,
 // provider schedules, and the weekly schedule lookup used by src/rates.js.
 
-// Read synchronously, so window.rateForModel works the moment this script
-// has run — the app prices during render with no hook to await a load.
-// Node (the test suite) reads the file beside this module. The browser
-// fetches the URL the page names on this script tag (data-pricing, which
-// the backend cache-busts like every /src asset), else the file beside this
-// script, and revalidates either way.
-//
-// Any failure throws naming pricing.json: with no valid rates there is no
-// honest price, so the resolver is never defined over nothing.
 const _pricingError = (detail) => new Error(`pricing.json: ${detail}`);
-
 
 // The schedule spelling scanner lives in src/hhmm-spelling.js — the
 // browser loads it ahead of this script (index.html's tag order) and node
@@ -34,10 +24,16 @@ const _checkHhmmSpelling =
     : window.checkHhmmSpelling;
 /* eslint-enable no-undef */
 
+/* eslint-disable no-undef */
+const _pricingRows = typeof module !== 'undefined' && typeof module.exports !== 'undefined'
+  ? require('./pricing-rows.js') : window;
+/* eslint-enable no-undef */
+
 // The STORED document's shape (SV-RATE-DATA, #931): a cache-write rate is
 // stored only when it differs from fresh; called only at raw-ingest so the
 // shared validation below stays shape-agnostic for expanded documents.
-function checkCompactShape(doc) {
+function checkCompactShape(raw, decoded = null) {
+  const doc = decoded || _pricingRows.decodePricingDoc(raw);
   const rows = [];
   for (const [key, entries] of Object.entries((doc || {}).models || {})) {
     rows.push([key, entries]);
@@ -109,7 +105,6 @@ function _readPricing() {
   } catch (e) {
     throw _pricingError(`not JSON (${e.message})`);
   }
-  checkCompactShape(doc);
   return doc;
 }
 
@@ -242,13 +237,13 @@ function _checkBand(band, at) {
   return out;
 }
 
-function _checkHistory(entries, where, mayBegin, fetchedMs) {
+function _checkHistory(entries, where, mayBegin, fetchedMs, owners) {
   if (!entries.length) throw _pricingError(`${where}: empty history`);
   let previous = null;
   const schedules = {};
   const bands = {};
   entries.forEach((entry, i) => {
-    const at = `${where}[${i}]`;
+    const at = `${where}[${owners[i]}]`;
     const fields = Object.keys(entry).filter((k) => !['from', 'note', 'schedule', 'band'].includes(k));
     const hasSearchRate = fields.includes('web_search');
     const tokenFields = fields.filter((k) => k !== 'web_search');
@@ -304,7 +299,7 @@ function _checkHistory(entries, where, mayBegin, fetchedMs) {
         + `provider_rates_fetched ${JSON.stringify(new Date(fetchedMs).toISOString())}`);
     }
     previous = start;
-    if (i > 0 && _stable(_withoutFrom(entry))
+    if (i > 0 && owners[i] !== owners[i - 1] && _stable(_withoutFrom(entry))
         === _stable(_withoutFrom(entries[i - 1]))) {
       throw _pricingError(`${at}: equal to the previous entry except 'from'`);
     }
@@ -317,7 +312,10 @@ function _checkHistory(entries, where, mayBegin, fetchedMs) {
 // A provider row may begin at a time (start); before it, it does not exist.
 // Mirrors pricing._history.
 function _history(entries, where, mayBegin = false, fetchedMs = NaN) {
-  const { schedules, bands } = _checkHistory(entries, where, mayBegin, fetchedMs);
+  const flat = mayBegin ? _pricingRows.flattenPricingHistory(entries, where, _instantMs)
+    : { entries, owners: entries.map((_, i) => i) };
+  entries = flat.entries;
+  const { schedules, bands } = _checkHistory(entries, where, mayBegin, fetchedMs, flat.owners);
   return {
     schedules,
     bands,
@@ -330,7 +328,9 @@ function _history(entries, where, mayBegin = false, fetchedMs = NaN) {
   };
 }
 
-const _PRICING = _readPricing();
+const _RAW_PRICING = _readPricing();
+const _PRICING = _pricingRows.decodePricingDoc(_RAW_PRICING);
+if (typeof document !== 'undefined') checkCompactShape(_RAW_PRICING, _PRICING);
 // Parsed before the histories: no dated entry postdates the fetch (#931).
 const _fetchedMs = _instantMs(_PRICING.provider_rates_fetched);
 if (Number.isNaN(_fetchedMs)) {
@@ -495,6 +495,6 @@ window.longContextModels = Object.keys(window.longContextMeters);
 
 /* eslint-disable no-undef */
 if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
-  module.exports = { checkCompactShape };
+  module.exports = { checkCompactShape, decodePricingDoc: _pricingRows.decodePricingDoc };
 }
 /* eslint-enable no-undef */

@@ -38,7 +38,7 @@ def _entry_violation() -> dict:
 def _window_violation() -> dict:
     doc = _raw()
     rates = (doc["providers"]["deepseek/deepseek-v4-1-flash"]["Alibaba"][0]
-             ["schedule"][0]["rates"])
+             [-1]["schedule"][0]["rates"])
     rates["create_1h"] = rates["fresh"]
     return doc
 

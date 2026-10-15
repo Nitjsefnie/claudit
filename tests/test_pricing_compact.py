@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from backend.pricing_rows import encode_pricing_doc, decode_pricing_doc
 from scripts.ci import perturb_test_data
 
 from backend import pricing, rate_fingerprint
@@ -95,8 +96,8 @@ def _js_tables(tmp_path: Path, doc: dict) -> dict:
     where = tmp_path / "node"
     where.mkdir(parents=True)
     (where / "pricing.json").write_text(
-        json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    for name in ("pricing-loader.js", "vendor-tables.js", "hhmm-spelling.js"):
+        json.dumps(encode_pricing_doc(doc), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    for name in ("pricing-loader.js", "vendor-tables.js", "hhmm-spelling.js", "pricing-rows.js"):
         shutil.copy(ROOT / "src" / name, where / name)
     script = f"""
       global.window = {{}};
@@ -187,7 +188,9 @@ def test_conversion_is_idempotent_and_keeps_canonical_layout(tmp_path):
     text = converted.decode("utf-8")
     doc = json.loads(text)
     assert text == json.dumps(doc, indent=2, sort_keys=True) + "\n"
-    assert doc == _sparse_doc(_synthetic_doc())
+    expected = _sparse_doc(_synthetic_doc())
+    expected["providers"][ROW_KEY][HOST][0]["from"] = None
+    assert decode_pricing_doc(doc) == expected
 
 
 def test_conversion_refuses_malformed_document_without_overwriting_it(tmp_path):
@@ -212,7 +215,7 @@ def test_perturber_writes_compact_entries_accepted_by_both_loaders(tmp_path):
 
     perturb_test_data.perturb_pricing(path, seed=42)
 
-    perturbed = json.loads(path.read_text(encoding="utf-8"))
+    perturbed = decode_pricing_doc(json.loads(path.read_text(encoding="utf-8")))
     entries = perturbed["providers"][ROW_KEY][HOST]
     doubled = entries[-5]
     assert doubled["fresh"] == 6.0
@@ -264,7 +267,7 @@ def test_a_written_move_omits_cache_rates_equal_to_fresh(tmp_path, capsys):
     rc, _out, err = run(capsys)
 
     assert rc == 0, err
-    entry = json.loads(run.pricing.read_text(encoding="utf-8"))[
+    entry = decode_pricing_doc(json.loads(run.pricing.read_text(encoding="utf-8")))[
         "providers"]["glm-5-3-flash"]["OpenInference"][-1]
     assert "create_5m" not in entry
     assert "create_1h" not in entry
