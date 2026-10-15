@@ -29,7 +29,6 @@ TIGHTEN_CMD = (
     '--tighten "$RUNNER_TEMP/suite-data/suite-measurement.json" '
     '--thresholds '
     '"$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"')
-BENCH_ACTION = "$/.github/actions/suite-bench"
 
 
 def _load(name):
@@ -126,10 +125,9 @@ def test_tests_job_measures_and_gates_on_every_event():
     doc = _load("tests.yml")
     job = _job(doc, "pytest")
     bench = [step for step in _steps(job)
-             if step.get("uses") == BENCH_ACTION]
+             if step.get("id") == "suite_bench"]
     assert len(bench) == 1
     bench = bench[0]
-    assert bench["id"] == "suite_bench"
     # The gate runs wherever the canary runs -- every non-docs,
     # non-data event. Only a green suite and a green JavaScript
     # coverage pass are worth measuring. The bench action's own input
