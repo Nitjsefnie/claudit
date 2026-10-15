@@ -63,8 +63,10 @@ import contextlib
 import importlib
 import os
 import platform
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from decimal import Decimal
 from pathlib import Path
@@ -206,22 +208,27 @@ def measure(fixture: list[Path], repo_root: Path) -> Measurement:
     counting = counter.available
     sink = suite_phases.ProcessTimeSink()
     plugin = suite_phases.SuitePhasePlugin(counter, sink)
-    args = [
-        *[str(path) for path in fixture],
-        '-q', '--no-header', '--tb=no', '-p', 'no:cacheprovider',
-    ]
-    cpu_start = time.process_time()
-    with contextlib.ExitStack() as stack:
-        if counting:
-            # Registered BEFORE the window: ExitStack unwinds in reverse
-            # entry order, so the window closes first (events off) and
-            # close() then frees the tool id -- an in-process caller is
-            # not left paying the INSTRUCTION tax for the rest of its
-            # life, and close() never touches a freed tool.
-            stack.callback(counter.close)
-            stack.enter_context(counter.window('total'))
-        code = pytest.main(args, plugins=[plugin])
-    cpu_total = time.process_time() - cpu_start
+    basetemp = tempfile.mkdtemp(prefix='claudit-suite-bench-basetemp-')
+    try:
+        args = [
+            *[str(path) for path in fixture],
+            '-q', '--no-header', '--tb=no', '-p', 'no:cacheprovider',
+            '--basetemp', basetemp,
+        ]
+        cpu_start = time.process_time()
+        with contextlib.ExitStack() as stack:
+            if counting:
+                # Registered BEFORE the window: ExitStack unwinds in reverse
+                # entry order, so the window closes first (events off) and
+                # close() then frees the tool id -- an in-process caller is
+                # not left paying the INSTRUCTION tax for the rest of its
+                # life, and close() never touches a freed tool.
+                stack.callback(counter.close)
+                stack.enter_context(counter.window('total'))
+            code = pytest.main(args, plugins=[plugin])
+        cpu_total = time.process_time() - cpu_start
+    finally:
+        shutil.rmtree(basetemp, ignore_errors=True)
     if code not in _USABLE:
         raise ValueError(
             f'the pinned fixture did not produce a usable run '
