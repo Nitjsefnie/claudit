@@ -51,13 +51,13 @@ them: bump `PRICING_VERSION` in `constants.py` for that.
   alone cannot refill them: `files.parser_version` would still match,
   so the bump is what forces the reparse that restores the dropped
   facts.
-- **111** — issue #1023 task 1: Bash write targets now include link names,
+- **111** — issue #1023: Bash write targets now include link names,
   touch operands, local rsync destinations, explicit extraction directories,
   curl/wget output files and Python venv directories. Reparse stored calls
   to populate their previously empty write-target arrays. Downloads,
   extraction, rsync and venv creation use the per-call unknown-size churn
   fallback; touch and ln add zero content lines.
-- **112** — issue #1023 task 2: Bash write targets and unknown-size churn
+- **112** — issue #1023: Bash write targets and unknown-size churn
   include worktree add, explicit checkout pathspecs, worktree restore,
   compiler outputs, pdftotext outputs, initdb data directories, clone
   directories, git init, Perl in-place edits and rustfmt files. Bare clones
