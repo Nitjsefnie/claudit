@@ -105,12 +105,54 @@ def _merge_history(history: list[dict]) -> list[dict]:
     return merged
 
 
+def _instant(stamp: str | None) -> datetime:
+    return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) if stamp is not None
+            else datetime.min.replace(tzinfo=timezone.utc))
+
+
+def _search_changes(history: list[dict], as_of: str) -> list[dict]:
+    """Read old sampled search moves strictly before the rewrite cutoff."""
+    changes: list[dict] = []
+    previous = 0
+    for entry in _flatten(history):
+        if _instant(entry.get("from")) >= _instant(as_of):
+            break
+        search = entry.get("web_search", 0)
+        if search != previous:
+            changes.append({"from": entry.get("from"), "web_search": search})
+            previous = search
+    return changes
+
+
+def _overlay_search(entries: list[dict], changes: list[dict]) -> list[dict]:
+    """Carry sampled search rates across token states, splitting at search moves."""
+    if not changes:
+        return entries
+    events = [(_instant(entry.get("from")), kind, entry)
+              for kind, history in enumerate((entries, changes)) for entry in history]
+    events.sort(key=lambda event: (event[0], event[1]))
+    overlaid: list[dict] = []
+    search = 0
+    for instant, is_search, entry in events:
+        if is_search:
+            search = entry["web_search"]
+            if _instant(overlaid[-1].get("from")) != instant:
+                overlaid.append({**overlaid[-1], "from": entry["from"]})
+        else:
+            overlaid.append(entry)
+        if search:
+            overlaid[-1]["web_search"] = search
+        else:
+            overlaid[-1].pop("web_search", None)
+    return overlaid
+
+
 def _rewrite(history: list[dict], entries: list[dict], as_of: str) -> list[dict] | None:
     kept = [copy.deepcopy(entry) for entry in entries if entry["from"] <= as_of]
     if not kept:
         return None
     kept[0]["from"] = _earlier_start(_flatten(history)[0].get("from"), kept[0]["from"])
-    return _merge_history(kept)
+    return _merge_history(_overlay_search(kept, _search_changes(history, as_of)))
 
 
 def _hosts_from_listing(payload: object) -> set[str]:
@@ -217,6 +259,8 @@ def _rewrite_host(host: str, history: list[dict] | None, listing: ModelListing,
                 if any("band" in entry for entry in history):
                     lines.append(f"  replaced band for {host}: complete log history "
                                  "(human-reviewed correction)")
+                if _search_changes(history, as_of):
+                    lines.append(f"  overlaid sampled web_search history for {host}")
                 lines.append(f"  rewritten {host}: {len(history)} → {len(rewritten)} entries")
                 return True, lines
     if history is None:
