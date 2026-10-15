@@ -2,8 +2,8 @@
 """Rewrite log-backed OpenRouter provider histories through a reviewed instant.
 
 The backfill shares canonical-slug lookup, log validation and endpoint joining
-with the hourly refresh. Repeated states retain every instant in from-lists;
-residual bands are corrected from a unique historical series or removed.
+with the hourly refresh. Repeated states retain every instant in from-lists.
+The source must load before any history is rewritten.
 """
 from __future__ import annotations
 
@@ -257,9 +257,6 @@ def _rewrite_host(host: str, history: list[dict] | None, listing: ModelListing,
                     lines.append(f"  newest log state through {as_of} differs from "
                                  f"the old row for {host}; the log replaces it")
                 providers[host] = rewritten
-                if any("band" in entry for entry in history):
-                    lines.append(f"  replaced band for {host}: complete log history "
-                                 "(human-reviewed correction)")
                 if _search_changes(history, as_of):
                     lines.append(f"  overlaid sampled web_search history for {host}")
                 lines.append(f"  rewritten {host}: {len(history)} → {len(rewritten)} entries")
@@ -306,91 +303,6 @@ def _backfill_models(context: BackfillContext,
     return reports, rewrote
 
 
-def _historical_entries(log: refresh_pricelog.LogRead | None, host: str,
-                        now: datetime) -> tuple[list[dict] | None, str]:
-    """A residual band needs one historical endpoint, not a current price join."""
-    if log is None or log.series is None:
-        return None, log.reason if log and log.reason else "no model log series"
-    series = [item for item in log.series if item.provider_name == host]
-    if len(series) != 1:
-        return None, f"no unique host endpoint series ({len(series)} found)"
-    chosen = series[0]
-    if chosen.scheduled:
-        return None, "historical endpoint series has a schedule"
-    chosen = refresh_pricelog._series_in_force(chosen, now)  # pylint: disable=protected-access
-    entries = refresh_pricelog.entries_for_series(chosen)
-    if not entries:
-        return None, "historical endpoint series has no complete rate states"
-    issue = refresh_pricelog._generated_history_issue(chosen, entries, host)  # pylint: disable=protected-access
-    return (None, issue) if issue else (entries, "")
-
-
-def _band_span(entry: dict, end: str | None, entries: list[dict],
-               as_of: str) -> list[dict]:
-    start = entry.get("from")
-    through = [point for point in entries if point["from"] <= as_of]
-    if not through:
-        return []
-    before = [point for point in through if start is not None and point["from"] <= start]
-    first = before[-1] if before else through[0]
-    if end is not None and first["from"] >= end:
-        return []
-    points = [{**first, "from": start},
-              *[copy.deepcopy(point) for point in through
-                if point["from"] > first["from"]
-                and (end is None or point["from"] < end)]]
-    if "web_search" in entry:
-        for point in points:
-            point["web_search"] = entry["web_search"]
-    return points
-
-
-def _replace_bands(history: list[dict], entries: list[dict] | None,
-                   as_of: str, reason: str) -> tuple[list[dict], list[tuple[str, str]]]:
-    flat = _flatten(history)
-    corrected: list[dict] = []
-    outcomes: list[tuple[str, str]] = []
-    for i, entry in enumerate(flat):
-        if "band" not in entry:
-            candidates = [entry]
-        else:
-            end = flat[i + 1].get("from") if i + 1 < len(flat) else None
-            candidates = _band_span(entry, end, entries, as_of) if entries else []
-            if candidates:
-                outcomes.append(("replaced band", f"span {entry.get('from')} to {end}; "
-                                 "unique historical endpoint series (human-reviewed correction)"))
-            else:
-                outcomes.append(("removed band", reason or "no log state covers the band span"))
-        for candidate in candidates:
-            candidate = {**candidate, **effective_rates(candidate)}
-            # Removing a band can join two equal surrounding states.
-            if corrected and ({k: v for k, v in corrected[-1].items() if k != "from"}
-                              == {k: v for k, v in candidate.items() if k != "from"}):
-                continue
-            corrected.append(candidate)
-    return _merge_history(corrected), outcomes
-
-
-def _residual_bands(context: BackfillContext, reports: dict[str, list[str]]) -> bool:
-    changed = False
-    for model, hosts in context.result["providers"].items():
-        for host, history in list(hosts.items()):
-            if not any("band" in entry for entry in history):
-                continue
-            cutoff = min(context.now, datetime.fromisoformat(context.as_of.replace("Z", "+00:00")))
-            entries, reason = _historical_entries(context.logs.get(model), host, cutoff)
-            rewritten, outcomes = _replace_bands(history, entries, context.as_of, reason)
-            if rewritten:
-                hosts[host] = rewritten
-            else:
-                del hosts[host]
-            for action, detail in outcomes:
-                reports.setdefault(model, []).append(
-                    f"  {action} for {host}: {len(history)} → {len(rewritten)} entries ({detail})")
-            changed = True
-    return changed
-
-
 def backfill(doc: dict, fetch: FetchEndpoints, as_of: str,
              fetch_models: FetchModels, fetch_log: FetchLog,
              now: datetime | None = None) -> tuple[dict, dict[str, list[str]], bool]:
@@ -399,7 +311,10 @@ def backfill(doc: dict, fetch: FetchEndpoints, as_of: str,
     `now` is the instant the listing and log describe; it defaults to the
     wall clock and bounds how far a series is read, exactly as in the
     hourly refresh."""
-    pricing.load_tables(doc)
+    try:
+        pricing.load_tables(doc)
+    except ValueError as exc:
+        raise hourly.RefreshError(f"the source file would not load: {exc}") from exc
     source_doc = expand_pricing_doc(doc)
     tracked, region = hourly._sources(source_doc)  # pylint: disable=protected-access
     result = copy.deepcopy(source_doc)
@@ -407,7 +322,6 @@ def backfill(doc: dict, fetch: FetchEndpoints, as_of: str,
     context = BackfillContext(source_doc, result, region, fetch, logs, as_of,
                               now or datetime.now(timezone.utc))
     reports, rewrote = _backfill_models(context, tracked)
-    rewrote = _residual_bands(context, reports) or rewrote
     if rewrote:
         result["provider_rates_fetched"] = as_of
     pricing.load_tables(result)
