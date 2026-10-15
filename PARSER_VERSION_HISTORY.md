@@ -59,7 +59,7 @@ them: bump `PRICING_VERSION` in `constants.py` for that.
   fallback; touch and ln add zero content lines.
 - **112** — issue #1023 task 2: Bash write targets and unknown-size churn
   include worktree add, explicit checkout pathspecs, worktree restore,
-  compiler outputs, pdftotext outputs, initdb data directories, explicit
-  clone directories, git init, Perl in-place edits and rustfmt files.
-  Bare clones no longer derive a directory from the URL. Reparse stored
-  calls to populate their literal targets and per-call churn estimates.
+  compiler outputs, pdftotext outputs, initdb data directories, clone
+  directories, git init, Perl in-place edits and rustfmt files. Bare clones
+  preserve the existing name derivation; initdb show-only modes write
+  nothing. Reparse stored calls for their targets and per-call churn.

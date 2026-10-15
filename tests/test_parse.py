@@ -554,13 +554,13 @@ def test_bash_heredoc_call_yields_added_counts():
 
 
 def test_bash_mkdir_checkout_yields_directory_write_targets():
-    """mkdir and worktree add name explicit directories against the cwd;
-    a bare clone's derived directory stays unknown."""
+    """mkdir, git worktree add and a bare git clone name what they put
+    on disk, resolved against the command's cwd."""
     out = parse.parse_file(
         "k/sess-mkc/sess-mkc.jsonl", _read("bash_mkdir_checkout.jsonl"))
     assert [tu["write_targets"] for tu in out["tool_uses"]] == [
         ["/tmp/wt", "/tmp/wt/issue200"],
-        [],
+        ["/work/y"],
     ]
 
 
