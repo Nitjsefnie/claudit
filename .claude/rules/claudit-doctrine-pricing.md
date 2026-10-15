@@ -402,13 +402,29 @@ same rules:
     run's report with the reason, not its notices.
 - **The one-time backfill.**
   `scripts/ci/backfill_provider_rates.py --as-of <instant>` replaces
-  every log-backed row's history with the log's entries up to
+  every log-backed row's history with the log's COMPLETE entries through
   `--as-of`, keeping the row's start: when the old first `from` (`null`
   included) precedes the log's first change point, the new first entry
-  takes it. Unbacked rows are left untouched and listed. It is an
+  takes it. The backfill merges identical dated states into one entry
+  whose `from` lists ALL their instants; rows without repeated states
+  stay list-free. Flattening those lists reconstructs every change point
+  and its rates losslessly. Different notes or other state fields remain
+  separate, and a null start stays scalar (it cannot share a timestamp
+  list). This merge belongs only to the backfill; the hourly refresh
+  appends per-move entries. The shared codec writes the stored row format.
+  Unbacked rows are left untouched and listed EXCEPT for residual bands:
+  every band entry is replaced or removed, so the backfill writes no bands.
+  A host's unique, usable, unscheduled historical endpoint series may back
+  its old band even when today's listing does not join: replace only that
+  band's span with true logged states, retaining the surrounding sampled
+  states and the span's separately sampled web-search rate. Without a
+  usable unique series through the cutoff, remove the band entry and
+  report the row and reason; the surrounding states then price that span
+  (an empty host row is removed, falling back to model pricing). Every
+  residual-band row is named in the report, including historical-series
+  replacements as human-reviewed corrections. The backfill is an
   SV-RATE-DATA correction, landing only in a human-reviewed commit that
-  bumps `PRICING_VERSION` and names the invocation and each row's added
-  entries.
+  bumps `PRICING_VERSION` and names the invocation and each row's rewrite.
 - **Alternating prices are reported, not appended — sampled rows
   only.** On a sampled row, when neither the listing nor the newest
   entry has a schedule and the listed rates equal a non-newest entry
