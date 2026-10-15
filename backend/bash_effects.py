@@ -16,6 +16,7 @@ from backend.bash_literals import (MAX_LITERAL_CHARS, ShellWord, _file_sink,
                                    _fold_fd, command_options, literal_path,
                                    shell_tokens)
 from backend.target_paths import copy_source_name, directory_spelling, join_child
+from backend.bash_write_targets import WRITE_TARGET_COMMANDS, write_targets
 
 
 def sed_parts(args: list[str]) -> tuple[list[str], list[str], bool]:
@@ -308,7 +309,8 @@ def _other_stage_payload(args: list[ShellWord], pending: str | None) -> tuple[st
         except ValueError:
             files = []
         return pending, any(_file_sink(f) for f in files), ""
-    return None, False, ""
+    unknown_writer = name in WRITE_TARGET_COMMANDS and name not in ("ln", "touch")
+    return None, unknown_writer and bool(write_targets(name, list(args[1:]), literal_only=False)), ""
 
 
 def _stage_payload(args: list[ShellWord], pending: str | None) -> tuple[str | None, bool, str]:

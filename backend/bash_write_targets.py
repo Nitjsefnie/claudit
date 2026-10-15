@@ -10,7 +10,7 @@ from collections.abc import Callable
 import re
 from urllib.parse import urlsplit
 
-from backend.bash_literals import ShellWord, command_options, literal_path
+from backend.bash_literals import ShellWord, _file_sink, command_options, literal_path
 from backend.target_paths import windows_absolute
 
 
@@ -100,7 +100,7 @@ def _unzip_targets(args: list[str]) -> list[str]:
 def _url_name(url: str) -> list[str]:
     """The final URL path segment, without query/fragment or authority."""
     parsed = urlsplit(url)
-    if not parsed.scheme or not parsed.netloc:
+    if not parsed.scheme or not (parsed.netloc or (parsed.scheme == "file" and parsed.path.startswith("/"))):
         return []
     name = parsed.path.rsplit("/", 1)[-1]
     return [ShellWord(name)] if name and name not in (".", "..") else []
@@ -137,11 +137,16 @@ _TARGETS: dict[str, Callable[[list[str]], list[str]]] = {
 WRITE_TARGET_COMMANDS = frozenset(_TARGETS) | {"curl", "wget"}
 
 
-def write_targets(name: str, operands: list[str]) -> list[str]:
-    """Named destinations after bash_reads has expanded literal assignments."""
+def write_targets(name: str, operands: list[str], *, literal_only: bool = True) -> list[str]:
+    """Named destinations, or sink operands for churn when literal_only=False.
+
+    Only the churn caller may use unresolved sink operands as write intent;
+    stored targets always require literal paths after assignment expansion.
+    """
     if name not in WRITE_TARGET_COMMANDS:
         return []
-    if any(not getattr(arg, "literal", False) or getattr(arg, "operator", False) for arg in operands):
+    if any(getattr(arg, "operator", False) or (literal_only and not getattr(arg, "literal", False))
+           for arg in operands):
         return []
     try:
         if name in ("curl", "wget"):
@@ -152,4 +157,5 @@ def write_targets(name: str, operands: list[str]) -> list[str]:
             return []
     except ValueError:
         return []
-    return [path for path in targets if literal_path(path)]
+    is_target = literal_path if literal_only else _file_sink
+    return [path for path in targets if is_target(path)]
