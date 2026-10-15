@@ -468,13 +468,14 @@ same rules:
   row out of step with its selected endpoint's listed price is also
   REFUSED when detection is not after its newest `from`. At an equal
   instant, the host is refused by name, its row stays untouched and other
-  hosts' moves can proceed. A retained newest `from` after detection has
-  a pre-existing limitation: if another provider move advances
-  `provider_rates_fetched` to detection, final validation rejects the
-  retained future entry. The whole run then exits nonzero and writes
-  nothing, before rendering the normal named-refusal report. An ordinary
-  move blocked by timing keeps the existing untouched-with-notice
-  behaviour, subject to the same final validation.
+  hosts' moves can proceed. A retained newest `from` after detection
+  never moves `provider_rates_fetched` below that retained entry: a run
+  that appends keeps the later of the stored stamp and detection instant.
+  An out-of-step log-backed host is refused by name and stays untouched;
+  other hosts' moves publish, then the run exits nonzero after writing.
+  An ordinary sampled move blocked by timing keeps the existing
+  untouched-with-notice behaviour. The refreshed document still passes
+  final validation before writing.
 
 - Automatic rules resolve the mechanical multi-price shapes with no
   human decision, beneath an explicit resolution (which keeps precedence,
