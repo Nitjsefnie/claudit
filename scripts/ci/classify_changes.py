@@ -32,7 +32,8 @@ full suite against the new rates BEFORE pushing (refresh-pricing.yml's
 refresh job), so re-running the whole matrix on the bot's push
 re-verifies nothing. Constants must replace just one numeric
 PRICING_VERSION assignment; other edits, unreadable blobs and paths
-outside either signature run the full gate.
+outside either signature run the full gate. Only a push whose tip author
+is the refresh bot qualifies; pull requests always test their data.
 
 A THIRD class narrows a change that cannot move behaviour at all. When
 EVERY changed path is a source file (.py/.js/.jsx), the set fits
@@ -69,6 +70,7 @@ import tempfile
 import tokenize
 
 sources = importlib.import_module('classify_sources' if __name__ == '__main__' else 'scripts.ci.classify_sources')
+bot = importlib.import_module('classify_bot' if __name__ == '__main__' else 'scripts.ci.classify_bot')
 
 # The paths-ignore deny-lists the gate workflows carried on master, now
 # re-homed as classifier patterns. `.github/ci-thresholds.json` is
@@ -442,7 +444,8 @@ def classify(event, run):
         return (False, False, False,
                 f'documentation paths touch measured sources or pinned setup '
                 f'docs ({"; ".join(setup or paths)}); running the full gate set')
-    if data_only(paths) and sources.pricing_change(event, run, _refs, _blob):
+    if (data_only(paths) and bot.is_bot_push(event, run)
+            and sources.pricing_change(event, run, _refs, _blob)):
         return (False, True, False,
                 f'bot-data-only change: {len(paths)} paths')
     if comment_only(paths, event, run):
