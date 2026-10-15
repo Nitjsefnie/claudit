@@ -176,11 +176,9 @@ FETCH = ROOT / "src" / "dashboard-fetch.js"
 CACHE_VIEW = ROOT / "src" / "views" / "cache-view.jsx"
 
 
-def test_cache_view_marks_a_banded_rate():
-    """Issue #666: a banded cost is a time-weighted mean, not a listed price."""
+def test_cache_view_has_no_band_marker():
     src = _strip_line_comments(CACHE_VIEW.read_text(encoding="utf-8"))
-    assert "banded_rate" in src and "function BandedRateMark(" in src
-    assert "<BandedRateMark banded={r.banded_rate}" in src
+    assert "banded_rate" not in src and "BandedRateMark" not in src
 
 
 # Every token/churn panel in the main dash-grid, and the guard that must

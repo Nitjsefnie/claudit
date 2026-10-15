@@ -104,9 +104,7 @@ def notice_lines(notices: list[str]) -> list[str]:
 
 
 def vanished_state(vanished: list[tuple[str, str]]) -> dict[str, list[str]]:
-    """The vanished hosts per model, both levels in order (issue #933):
-    the standing set the commit body no longer re-prints, recorded so a
-    change to it is a diff of the state file."""
+    """Sort vanished hosts by model for the notice-state file."""
     state: dict[str, list[str]] = {}
     for model, host in vanished:
         state.setdefault(model, []).append(host)
@@ -149,8 +147,6 @@ def _move_text(move: Move) -> str:
     search = _search_change(move)
     if move.source == "search":
         return _search_move_text(move, off)
-    if move.source == "band":
-        return _band_move_text(move, new, old_rates, search, off)
     if move.source == "log" and (move.entries_appended > 1 or search):
         return _logged_move_text(move, new, old_rates, search, off)
     if move.old is None:
@@ -168,19 +164,6 @@ def _search_move_text(move: Move, off: str) -> str:
     return (f"  {verb:<9} {move.host}: web_search {old_search!r} → "
             f"{move.new.rates.get('web_search', 0.0)!r}, sampled at detection"
             f"{history}{off}")
-
-
-def _band_move_text(move: Move, new, old_rates: dict | None,
-                    search: str | None, off: str) -> str:
-    """Format a history move that carries an oscillation band."""
-    verb = "changed" if move.old is not None else "new"
-    old = f"{old_rates['fresh']!r} → " if old_rates is not None else ""
-    fresh = move.entry_fresh if move.entry_fresh is not None \
-        else new.rates["fresh"]
-    search_text = f"; {search}" if search else ""
-    return (f"  {verb:<9} {move.host}: {move.entries_appended} entries "
-            f"with a band, newest prices fresh {old}{fresh!r}"
-            f"{search_text}{off}")
 
 
 def _logged_move_text(move: Move, new, old_rates: dict | None,

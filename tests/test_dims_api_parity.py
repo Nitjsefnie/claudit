@@ -13,8 +13,7 @@ so a real ORDER BY regression on an ordered endpoint reddens this test.
 Rate-derived leaves are QUANTISED, not compared (see _RATE_DERIVED_
 KEYS): the golden's money was captured under the src/pricing.json rates
 of capture day, so the next rate-refresh commit would redden this test
-for an unrelated reason — and re-capturing under the new rates would
-trade the pre/post proof for a self-referential pin. Their KEY must
+for an unrelated reason. Their KEY must
 still be present on both sides (a dropped field is a shape change and
 is caught); everything else — tokens, counts, ids, models, file_keys,
 guest strips — keeps full value parity.
@@ -53,7 +52,6 @@ _MODEL = "claude"
 _RATE_DERIVED_KEYS = frozenset({
     "cost", "cost_usd", "cost_total", "cost_buckets", "cum_share",
     "share", "total_cost", "total_cost_usd", "estimated_rate",
-    "banded_rate",
 })
 _RATE_SENTINEL = "<<rate-derived>>"
 
@@ -255,16 +253,16 @@ def test_canon_neutralizes_rate_derived_values_but_keeps_shape_and_content():
     token/count/id/model/file_key content keeps full value parity.
     """
     a = _canon({"cost_usd": 1.25, "cost_buckets": {"read": 0.1},
-                "share": 0.5, "banded_rate": True,
+                "share": 0.5,
                 "model": "m", "n": 7, "fresh": 100})
     b = _canon({"cost_usd": 9.99, "cost_buckets": {"read": 5.0},
-                "share": 0.9, "banded_rate": False,
+                "share": 0.9,
                 "model": "m", "n": 7, "fresh": 100})
     # rate-derived VALUES do not compare (rate drift is not a regression) ...
     assert a == b
     assert isinstance(a, dict)
     # ... their keys must still be present (a dropped field IS caught) ...
-    for key in ("cost_usd", "cost_buckets", "share", "banded_rate"):
+    for key in ("cost_usd", "cost_buckets", "share"):
         assert key in a
     # ... and non-rate content keeps full value parity ...
     assert _canon({"model": "m"}) != _canon({"model": "other"})

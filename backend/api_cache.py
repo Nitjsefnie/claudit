@@ -1,9 +1,9 @@
 """GET /api/cache — per-model and per-session prompt-cache totals.
 
-Split out of api.py (issue #8 module split). The endpoint body is broken
+The endpoint body is broken
 into _cache_canon_source (shared WHERE fragment), _cache_queries (the
 four queries) and _session_total (the cross-model fold) so no single
-function trips the locals gate. Behaviour is unchanged.
+function trips the locals gate.
 """
 from __future__ import annotations
 
@@ -213,7 +213,6 @@ def _session_total(per_model: list) -> dict:
                       "web_search")
         },
         "estimated_rate": any(m["estimated_rate"] for m in per_model),
-        "banded_rate": any(m["banded_rate"] for m in per_model),
     }
     total_in = (
         session_total["fresh"]

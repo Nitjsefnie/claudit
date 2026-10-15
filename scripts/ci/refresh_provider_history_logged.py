@@ -5,7 +5,6 @@ import copy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-import price_band
 from refresh_common import detection_stamp
 from refresh_prices import RefreshError
 from refresh_provider_history import (
@@ -29,9 +28,8 @@ class _LogChange:
     move: Move | None = None
 
 
-def _append_token_states(change: _LogChange, additions: list[dict],
-                         at: datetime) -> None:
-    """Append the new token states, reforming or forming a band as needed."""
+def _append_token_states(change: _LogChange, additions: list[dict]) -> None:
+    """Append every new logged token state at its change point."""
     if not additions:
         return
     if change.old_search:
@@ -39,44 +37,13 @@ def _append_token_states(change: _LogChange, additions: list[dict],
             entry["web_search"] = change.old_search
     original = change.original
     assert original is not None
-    if price_band.entry_band(original) is not None:
-        reformed = price_band.reform(
-            change.history, original, additions, at, price_band.WINDOW_DAYS)
-        if reformed is None:
-            return
-        if change.old_search:
-            reformed["web_search"] = change.old_search
-        change.history.append(reformed)
-        source = "band" if "band" in reformed else "log"
-        change.move = Move(
-            change.model, change.host, original, change.listing, 1, source,
-            reformed.get("fresh") if source == "band" else None)
-        return
     change.history.extend(additions)
     change.move = Move(change.model, change.host, original, change.listing,
                        len(additions), "log")
 
 
-def _form_band(change: _LogChange, at: datetime) -> None:
-    """Append the newly formed band after an unbanded log change."""
-    move = change.move
-    if move is None or move.source == "band":
-        return
-    formed = price_band.formation(
-        change.history, at, price_band.WINDOW_DAYS)
-    if formed is None:
-        return
-    if change.old_search:
-        formed["web_search"] = change.old_search
-    change.history.append(formed)
-    change.move = Move(
-        change.model, change.host, change.original, change.listing,
-        move.entries_appended + 1, "band", formed["fresh"])
-
-
 def _prepare_log_change(model: str, hosts: dict, host: str,
-                        listing: Listing, entries: list[dict],
-                        at: datetime) -> _LogChange:
+                        listing: Listing, entries: list[dict]) -> _LogChange:
     """Build the history state after appending any new logged token states."""
     history = hosts.get(host)
     prior_length = len(history) if history is not None else 0
@@ -92,8 +59,7 @@ def _prepare_log_change(model: str, hosts: dict, host: str,
     else:
         assert original is not None
         additions = _new_log_states(model, host, entries, original)
-        _append_token_states(change, additions, at)
-    _form_band(change, at)
+        _append_token_states(change, additions)
     return change
 
 
@@ -102,8 +68,8 @@ def _append_endpoint_state(change: _LogChange, at: datetime) -> None:
     newest = change.history[-1]
     rates = effective_rates(newest)
     listed = change.listing.rates
-    if (all(round(float(rates[field]), 10) == round(float(listed[field]), 10)
-            for field in rates) or price_band.in_band(newest, listed)):
+    if all(round(float(rates[field]), 10) == round(float(listed[field]), 10)
+           for field in rates):
         return
     stamp = detection_stamp(at)
     where = f"{change.model} via {change.host}"
@@ -113,8 +79,7 @@ def _append_endpoint_state(change: _LogChange, at: datetime) -> None:
         raise RefreshError(
             f"{where}: {reason}; the stored newest entry is dated {newest_from}, "
             "not before the detection instant; the host was refused")
-    _append_token_states(change, [_entry(stamp, change.listing)], at)
-    _form_band(change, at)
+    _append_token_states(change, [_entry(stamp, change.listing)])
     assert change.move is not None
     change.move.reason = reason
 
@@ -198,8 +163,6 @@ def _insert_search_entry(change: _LogChange, insert_at: int, stamp: str,
     previous = change.history[insert_at - 1]
     search_entry = _entry(stamp, change.listing)
     search_entry.update(effective_rates(previous))
-    if "band" in previous:
-        search_entry["band"] = copy.deepcopy(previous["band"])
     _set_search_rate(search_entry, new_search)
     change.history.insert(insert_at, search_entry)
     for entry in change.history[insert_at + 1:]:
@@ -244,17 +207,12 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
                    deferred_notices: list[str] | None = None) -> Move | None:
     """Append every new log state after the stored row without rewriting it.
 
-    A row whose newest entry carries a band is appended to at most once per
-    run: a state inside the band is no news, and states outside it append the
-    one entry returned by price_band.reform. An unbanded row whose window
-    classifies as oscillating gets its new states plus the one band entry
-    price_band.formation returns. A row still out of step with the listing
-    appends its listed state through those rules at detection, or refuses
-    when that instant cannot follow its newest entry. Search changes share
-    an entry newly created at that instant; a collision with committed
-    history is deferred to the next actual append (issues #663, #664, #665;
-    SV-RATE-REFRESH).
+    A row still out of step with the listing appends its listed state at
+    detection, or refuses when that instant cannot follow its newest entry.
+    Search changes share an entry newly created at that instant; a collision
+    with committed history is deferred to the next actual append
+    (SV-RATE-REFRESH).
     """
-    change = _prepare_log_change(model, hosts, host, listing, entries, at)
+    change = _prepare_log_change(model, hosts, host, listing, entries)
     _append_endpoint_state(change, at)
     return _append_search_change(change, at, deferred_notices)

@@ -4,7 +4,6 @@
    "body": {
     "per_model": [
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 2000000,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -18,7 +17,6 @@
       "turns": 2
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -32,7 +30,6 @@
       "turns": 1
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -46,7 +43,6 @@
       "turns": 2
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 30208,
       "cost_total": "<<rate-derived>>",
@@ -60,7 +56,6 @@
       "turns": 2
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -76,7 +71,6 @@
     ],
     "per_model_provider": [
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 2000000,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -91,7 +85,6 @@
       "turns": 2
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -106,7 +99,6 @@
       "turns": 1
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -121,7 +113,6 @@
       "turns": 2
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 30208,
       "cost_total": "<<rate-derived>>",
@@ -136,7 +127,6 @@
       "turns": 2
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -154,7 +144,6 @@
     "project": null,
     "range": "all",
     "session_total": {
-     "banded_rate": "<<rate-derived>>",
      "cache_create": 2000000,
      "cache_read": 30208,
      "cost_buckets": "<<rate-derived>>",
@@ -861,7 +850,6 @@
    "body": {
     "per_model": [
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 2000000,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -875,7 +863,6 @@
       "turns": 2
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -889,7 +876,6 @@
       "turns": 1
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -903,7 +889,6 @@
       "turns": 2
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 30208,
       "cost_total": "<<rate-derived>>",
@@ -917,7 +902,6 @@
       "turns": 2
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -933,7 +917,6 @@
     ],
     "per_model_provider": [
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 2000000,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -948,7 +931,6 @@
       "turns": 2
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -963,7 +945,6 @@
       "turns": 1
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -978,7 +959,6 @@
       "turns": 2
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 30208,
       "cost_total": "<<rate-derived>>",
@@ -993,7 +973,6 @@
       "turns": 2
      },
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 0,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -1011,7 +990,6 @@
     "project": null,
     "range": "all",
     "session_total": {
-     "banded_rate": "<<rate-derived>>",
      "cache_create": 2000000,
      "cache_read": 30208,
      "cost_buckets": "<<rate-derived>>",
@@ -1181,7 +1159,6 @@
    "body": {
     "per_model": [
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 2000000,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -1197,7 +1174,6 @@
     ],
     "per_model_provider": [
      {
-      "banded_rate": "<<rate-derived>>",
       "cache_create": 2000000,
       "cache_read": 0,
       "cost_total": "<<rate-derived>>",
@@ -1215,7 +1191,6 @@
     "project": "projA",
     "range": "all",
     "session_total": {
-     "banded_rate": "<<rate-derived>>",
      "cache_create": 2000000,
      "cache_read": 0,
      "cost_buckets": "<<rate-derived>>",

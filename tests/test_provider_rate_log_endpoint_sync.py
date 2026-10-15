@@ -1,7 +1,6 @@
 """Log-backed rows follow their selected endpoint even without a new log point."""
 from __future__ import annotations
 
-import copy
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,17 +21,15 @@ ROW_AT = "2031-01-05T00:00:00Z"
 LOG_AT = "2031-01-03T00:00:00Z"
 LISTED = {"fresh": 3.0, "create_5m": 3.0, "create_1h": 3.0,
           "read": 0.4, "output": 8.0}
-BAND = {"fresh": [0.1, 0.5], "read": [0.005, 0.05], "output": [0.5, 1.0]}
 
 
 class SyncRun:
     """A synthetic selected endpoint and its stale, independently dated row."""
-    def __init__(self, tmp_path: Path, shape: str, *, banded: bool = False,
+    def __init__(self, tmp_path: Path, shape: str, *,
                  row_rates: dict | None = None, listed: dict | None = None,
                  row_at: str = ROW_AT) -> None:
         self.listed = dict(LISTED if listed is None else listed)
-        self.history = [_entry(row_at, RATE_A if row_rates is None else row_rates,
-                               **({"band": copy.deepcopy(BAND)} if banded else {}))]
+        self.history = [_entry(row_at, RATE_A if row_rates is None else row_rates)]
         source: dict = {"id": MODEL_ID}
         endpoints = [_endpoint(HOST, self.listed, tag="wafer/fp8")]
         series = [_series([(LOG_AT, self.listed)])]
@@ -73,19 +70,16 @@ class SyncRun:
 
 
 @pytest.mark.parametrize("shape", ["repinned", "resolution_removed"])
-@pytest.mark.parametrize("banded", [False, True], ids=["unbanded", "band_escape"])
 def test_stale_selected_endpoint_appends_at_detection(tmp_path, capsys, monkeypatch,
-                                                      shape, banded):
-    run = SyncRun(tmp_path, shape, banded=banded)
+                                                      shape):
+    run = SyncRun(tmp_path, shape)
 
     rc, out, err = run.run(capsys)
 
     assert rc == 0 and not err
     saved = run.saved()
     assert saved["providers"][MODEL][HOST] == [
-        {"from": ROW_AT, **RATE_A, **({"band": {
-            **BAND, "create_5m": BAND["fresh"], "create_1h": BAND["fresh"]}}
-            if banded else {})}, {"from": STAMP, **LISTED}]
+        {"from": ROW_AT, **RATE_A}, {"from": STAMP, **LISTED}]
     assert saved["provider_rates_fetched"] == STAMP
     assert 'PRICING_VERSION = "14"' in run.constants.read_text(encoding="utf-8")
     assert f"changed   {HOST}" in out and f"sampled   {HOST}" not in out
@@ -100,7 +94,7 @@ def test_stale_selected_endpoint_appends_at_detection(tmp_path, capsys, monkeypa
 
 @pytest.mark.parametrize("shape", ["repinned", "resolution_removed"])
 def test_sampling_also_appends_stale_selected_endpoint(tmp_path, capsys, shape):
-    run = SyncRun(tmp_path, shape, banded=True)
+    run = SyncRun(tmp_path, shape)
 
     rc, out, err = run.run(capsys, sampled=True)
 
@@ -109,10 +103,9 @@ def test_sampling_also_appends_stale_selected_endpoint(tmp_path, capsys, shape):
     assert f"sampled   {HOST}" in out and f"changed   {HOST}" in out
 
 
-@pytest.mark.parametrize("banded", [False, True], ids=["equal", "inside_band"])
-def test_selected_endpoint_already_in_step_writes_nothing(tmp_path, capsys, banded):
-    run = SyncRun(tmp_path, "repinned", banded=banded,
-                  listed=RATE_B, row_rates=RATE_A if banded else RATE_B)
+def test_selected_endpoint_already_in_step_writes_nothing(tmp_path, capsys):
+    run = SyncRun(tmp_path, "repinned",
+                  listed=RATE_B, row_rates=RATE_B)
 
     rc, out, err = run.run(capsys)
 
@@ -123,10 +116,9 @@ def test_selected_endpoint_already_in_step_writes_nothing(tmp_path, capsys, band
 
 
 @pytest.mark.parametrize("row_at", [STAMP, "2031-01-09T00:00:00Z"])
-@pytest.mark.parametrize("banded", [False, True], ids=["unbanded", "band_escape"])
 def test_out_of_step_endpoint_refuses_when_detection_cannot_append(
-        tmp_path, capsys, row_at, banded):
-    run = SyncRun(tmp_path, "repinned", banded=banded, row_at=row_at)
+        tmp_path, capsys, row_at):
+    run = SyncRun(tmp_path, "repinned", row_at=row_at)
 
     rc, out, err = run.run(capsys)
 
@@ -138,10 +130,9 @@ def test_out_of_step_endpoint_refuses_when_detection_cannot_append(
 
 
 @pytest.mark.parametrize("row_at", [STAMP, "2031-01-09T00:00:00Z"])
-@pytest.mark.parametrize("banded", [False, True], ids=["equal", "inside_band"])
-def test_in_step_endpoint_with_same_timing_stays_quiet(tmp_path, capsys, row_at, banded):
-    run = SyncRun(tmp_path, "resolution_removed", row_at=row_at, banded=banded,
-                  listed=RATE_B, row_rates=RATE_A if banded else RATE_B)
+def test_in_step_endpoint_with_same_timing_stays_quiet(tmp_path, capsys, row_at):
+    run = SyncRun(tmp_path, "resolution_removed", row_at=row_at,
+                  listed=RATE_B, row_rates=RATE_B)
 
     rc, out, err = run.run(capsys)
 
@@ -150,28 +141,23 @@ def test_in_step_endpoint_with_same_timing_stays_quiet(tmp_path, capsys, row_at,
     assert "no rate moved" in out and HOST not in out
 
 
-def test_detected_escape_reforms_a_still_oscillating_band(tmp_path, capsys):
-    run = SyncRun(tmp_path, "repinned", banded=True)
-    run.doc["providers"][MODEL][HOST] = [
-        _entry("2031-01-02T00:00:00Z", RATE_A),
-        _entry("2031-01-03T00:00:00Z", RATE_B),
-        _entry("2031-01-04T00:00:00Z", RATE_A), *run.history]
-    run.path.write_text(json.dumps(run.doc) + "\n", encoding="utf-8")
+def test_oscillating_logged_states_all_append_at_their_change_points(tmp_path, capsys):
+    run = SyncRun(tmp_path, "resolution_removed", row_at="2031-01-02T00:00:00Z",
+                  listed=RATE_B)
+    states = [("2031-01-02T00:00:00Z", RATE_A),
+              ("2031-01-03T00:00:00Z", RATE_B),
+              ("2031-01-04T00:00:00Z", RATE_A),
+              ("2031-01-05T00:00:00Z", RATE_B),
+              ("2031-01-06T00:00:00Z", RATE_A),
+              ("2031-01-07T00:00:00Z", RATE_B)]
+    run.fetches.log_payload["data"]["series"] = [_series(states)]
 
     rc, out, err = run.run(capsys)
 
     assert rc == 0 and not err
-    history = run.saved()["providers"][MODEL][HOST]
-    assert len(history) == 5
-    assert history[-1] == {
-        "from": STAMP, "fresh": 0.2833333333,
-        "create_5m": 0.2833333333, "create_1h": 0.2833333333,
-        "read": 0.0116666667, "output": 0.7833333333,
-        "band": {"fresh": [0.2, 3.0], "create_5m": [0.2, 3.0],
-                 "create_1h": [0.2, 3.0], "read": [0.01, 0.4], "output": [0.7, 8.0]},
-    }
-    assert "1 entries with a band" in out
-    assert "out of step with its endpoint's listed price" in out
+    assert run.saved()["providers"][MODEL][HOST] == [
+        {"from": stamp, **rates} for stamp, rates in states]
+    assert "5 log entries" in out
 
 
 @pytest.mark.parametrize("old_search", [0.0, 0.02])

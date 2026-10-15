@@ -53,10 +53,6 @@ def expand_pricing_doc(doc: dict) -> dict:
             entry.update(effective_rates(entry))
             if "schedule" in entry:
                 entry["schedule"] = effective_schedule(entry["schedule"])
-            band = entry.get("band")
-            if isinstance(band, dict) and "fresh" in band:
-                for field in CACHE_WRITE_FIELDS:
-                    band.setdefault(field, list(band["fresh"]))
     return out
 
 
@@ -75,11 +71,6 @@ def compact_pricing_doc(doc: dict) -> dict:
                 compacted_rates = omit_default_rates(window["rates"])
                 window["rates"].clear()
                 window["rates"].update(compacted_rates)
-            band = entry.get("band")
-            if isinstance(band, dict) and "fresh" in band:
-                for field in CACHE_WRITE_FIELDS:
-                    if band.get(field) == band["fresh"]:
-                        band.pop(field, None)
     return out
 
 

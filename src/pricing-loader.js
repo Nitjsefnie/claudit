@@ -205,46 +205,13 @@ function _scheduledRates(schedule, t) {
   return null;
 }
 
-// An entry's oscillating price range, checked and read as {[field]: [min, max]}.
-// A band maps each rate field it constrains to a [min, max] pair of finite
-// non-negative numbers with min <= max; a field it does not name is
-// unconstrained. The five rate fields beside it stay the priced rates — the
-// loader reads a band only to refuse a rule-breaking one. Mirrors
-// pricing.check_band.
-function _checkBand(band, at) {
-  if (band === null || typeof band !== 'object' || Array.isArray(band)) {
-    throw _pricingError(`${at}: band is not a mapping of rate fields to [min, max]`);
-  }
-  const out = {};
-  for (const [field, span] of Object.entries(band)) {
-    const w = `${at}.band[${field}]`;
-    if (!Object.values(_RATE_FIELDS).includes(field)) {
-      throw _pricingError(`${w}: not one of ${Object.values(_RATE_FIELDS).join(', ')}`);
-    }
-    if (!Array.isArray(span) || span.length !== 2
-        || !span.every((v) => _isRate(v)) || span[0] > span[1]) {
-      throw _pricingError(`${w}: not a [min, max] pair of finite non-negative numbers with min <= max`);
-    }
-    out[field] = [span[0], span[1]];
-  }
-  if (Object.prototype.hasOwnProperty.call(out, 'fresh')) {
-    for (const field of ['create_5m', 'create_1h']) {
-      if (!Object.prototype.hasOwnProperty.call(out, field)) {
-        out[field] = [...out.fresh];
-      }
-    }
-  }
-  return out;
-}
-
 function _checkHistory(entries, where, mayBegin, fetchedMs, owners) {
   if (!entries.length) throw _pricingError(`${where}: empty history`);
   let previous = null;
   const schedules = {};
-  const bands = {};
   entries.forEach((entry, i) => {
     const at = `${where}[${owners[i]}]`;
-    const fields = Object.keys(entry).filter((k) => !['from', 'note', 'schedule', 'band'].includes(k));
+    const fields = Object.keys(entry).filter((k) => !['from', 'note', 'schedule'].includes(k));
     const hasSearchRate = fields.includes('web_search');
     const tokenFields = fields.filter((k) => k !== 'web_search');
     const required = Object.values(_RATE_FIELDS)
@@ -257,20 +224,6 @@ function _checkHistory(entries, where, mayBegin, fetchedMs, owners) {
     if ('schedule' in entry) {
       if (!mayBegin) throw _pricingError(`${at}: only a provider row carries a schedule`);
       schedules[i] = _checkSchedule(entry.schedule, at);
-    }
-    if ('band' in entry) {
-      if (!mayBegin) throw _pricingError(`${at}: only a provider row carries a band`);
-      bands[i] = _checkBand(entry.band, at);
-      // the band contains the entry's effective rates (#931).
-      const eff = Object.fromEntries(
-        Object.entries(_ratesOf(entry)).map(([js, v]) => [_RATE_FIELDS[js], v]));
-      for (const [field, [lo, hi]] of Object.entries(bands[i])) {
-        if (eff[field] < lo || eff[field] > hi) {
-          throw _pricingError(
-            `${at}: band[${field}] [${lo}, ${hi}] does not contain `
-            + `the entry's ${eff[field]}`);
-        }
-      }
     }
     const bad = Object.entries(_ratesOf(entry))
       .filter(([, value]) => !_isRate(value)).map(([js]) => js);
@@ -304,7 +257,7 @@ function _checkHistory(entries, where, mayBegin, fetchedMs, owners) {
       throw _pricingError(`${at}: equal to the previous entry except 'from'`);
     }
   });
-  return { schedules, bands };
+  return { schedules };
 }
 
 // A row's append-only history, oldest first: the newest entry is the list
@@ -315,10 +268,9 @@ function _history(entries, where, mayBegin = false, fetchedMs = NaN) {
   const flat = mayBegin ? _pricingRows.flattenPricingHistory(entries, where, _instantMs)
     : { entries, owners: entries.map((_, i) => i) };
   entries = flat.entries;
-  const { schedules, bands } = _checkHistory(entries, where, mayBegin, fetchedMs, flat.owners);
+  const { schedules } = _checkHistory(entries, where, mayBegin, fetchedMs, flat.owners);
   return {
     schedules,
-    bands,
     list: _ratesOf(entries[entries.length - 1], mayBegin),
     windows: entries.slice(0, -1).map((entry, i) => (
       { endExclusive: _instantMs(entries[i + 1].from),
@@ -353,16 +305,12 @@ window.providerRates = {};
 window.providerDatedRates = {};
 window.providerStarts = {};
 window.providerSchedules = {};
-window.providerBands = {};
 for (const [model, hosts] of Object.entries(_PRICING.providers)) {
   for (const [host, entries] of Object.entries(hosts)) {
-    const { list, windows, start, schedules, bands } = _history(
+    const { list, windows, start, schedules } = _history(
       entries, `${model} via ${host}`, true, _fetchedMs);
     if (Object.keys(schedules).length) {
       (window.providerSchedules[model] = window.providerSchedules[model] || {})[host] = schedules;
-    }
-    if (Object.keys(bands).length) {
-      (window.providerBands[model] = window.providerBands[model] || {})[host] = bands;
     }
     (window.providerRates[model] = window.providerRates[model] || {})[host] = list;
     if (windows.length) {
