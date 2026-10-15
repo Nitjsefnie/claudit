@@ -88,10 +88,6 @@ def _empty_model_entry(model: str) -> dict:
         # OR of every folded row's resolution, so an entry is an estimate
         # when any of its rows priced at a guessed rate.
         "estimated_rate": False,
-        # OR of every folded row's band flag, so an entry whose rows priced
-        # through a banded provider row (a time-weighted mean, not a listed
-        # price) is surfaced (SV-RATE-REFRESH).
-        "banded_rate": False,
         "_buckets": {
             "fresh": 0.0, "create_5m": 0.0, "create_1h": 0.0,
             "read": 0.0, "output": 0.0, "web_search": 0.0,
@@ -148,7 +144,6 @@ def _accumulate_model_row(
     priced = _model_row_pricing(row, pair_bounds)
     entry = _model_entry(acc, priced.model, priced.provider, by_provider)
     entry["estimated_rate"] = entry["estimated_rate"] or priced.res.estimated
-    entry["banded_rate"] = entry["banded_rate"] or priced.banded
     entry["turns"] += int(row[4] or 0)
     for field, value in priced.tokens.items():
         entry[field] += value
@@ -194,43 +189,12 @@ def _row_bucket_details(
     return search_requests, stored, long_context, factors
 
 
-def _row_is_banded(res: pricing.Resolution, ts: datetime | None,
-                   provider: str | None) -> bool:
-    """Whether the provider row `res` priced through carries a band on the
-    history entry in force at `ts` (SV-RATE-REFRESH): its rates are then the
-    band's time-weighted mean, not a listed price (issue #666). Computed
-    here, not in resolve(), so the parse path pays nothing for a flag only
-    the fold reads."""
-    if res.key is None:
-        return False
-    if provider is not None and (res.key, provider) in pricing.PROVIDER_RATES:
-        row = (res.key, provider)
-    elif res.key not in pricing.MODEL_RATES and res.key in pricing.VENDOR_HOSTS:
-        row = (res.key, pricing.VENDOR_HOSTS[res.key])
-    else:
-        return False
-    if ts is not None and ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    # Mirror _provider_key's start guard: a record before its provider row's
-    # start is priced by the MODELS TABLE, so the row's band does not apply.
-    start = pricing.PROVIDER_STARTS.get(row)
-    if start is not None and ts is not None and ts < start:
-        return False
-    if ts is None:
-        entry = len(pricing.PROVIDER_DATED_RATES.get(row) or [])
-    else:
-        entry = sum(1 for end, _ in pricing.PROVIDER_DATED_RATES.get(row) or []
-                    if end <= ts)
-    return entry in pricing.PROVIDER_BANDS.get(row, {})
-
-
 class _PricedRow(NamedTuple):
-    """One folded row's resolution and the band flag the fold surfaces."""
+    """One folded row's model, tokens, and rate resolution."""
     model: str
     provider: str | None
     tokens: dict
     res: pricing.Resolution
-    banded: bool
 
 
 def _model_row_pricing(
@@ -247,8 +211,7 @@ def _model_row_pricing(
     representative = _pair_epoch_ts(int(row[2] or 0), model, provider,
                                     pair_bounds)
     res = pricing.resolve(model, representative, provider)
-    return _PricedRow(model, provider, tokens, res,
-                      _row_is_banded(res, representative, provider))
+    return _PricedRow(model, provider, tokens, res)
 
 
 def _accumulate_row_buckets(entry: dict, res: pricing.Resolution, tokens: dict,

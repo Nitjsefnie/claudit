@@ -36,8 +36,7 @@ These refuse the host or model they concern, which appends nothing:
   override infers representable input/output factors from its listed prices;
   those factors need not match the currently stored meter. The band contributes no
   window or membership here — the vendor pass owns the meter entry — and
-  its rates never enter the row. A band never enters a provider entry's
-  `band` field: that field is the oscillation band, a different shape;
+  its rates never enter the row;
 - a host seen for the first time while the fetch falls inside one of its
   schedule's windows, unless its schedule covers the whole week: then no
   record is priced by the entry default and it starts as the listed top-level

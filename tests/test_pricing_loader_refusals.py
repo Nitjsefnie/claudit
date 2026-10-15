@@ -1,8 +1,6 @@
 """Both loaders refuse a rule-breaking pricing document, naming the row
-(issues #930, #931): a history entry that repeats its predecessor, a band
-that excludes the entry's own rates, a `from` after the fetch instant, and
-a dual-pin tag disagreement between openrouter.vendor.resolve and the
-tracked entry's own resolve.
+including repeated states, removed band keys, post-fetch timestamps, and
+dual-pin tag disagreements.
 
 Backend and browser sides each get the refusing case plus the boundary
 the refusal must NOT cross, driven through the shared harnesses in
@@ -93,29 +91,20 @@ def test_an_append_that_changes_only_the_schedule_loads_in_the_browser(
     assert _node_load(tmp_path, _schedule_only_append()) is None
 
 
-# --- issue #931.1: the band contains the entry's own rates -------------------
+# --- removed bands are refused regardless of their shape --------------------
 
-def _excluded_band() -> dict:
-    doc = _doc()
-    doc["providers"][_GLM_MODEL][_GLM_HOST][-1]["band"] = {"fresh": [5.0,
-                                                                     9.0]}
-    return doc
-
-
-def test_a_band_that_excludes_the_entry_rates_is_refused():
-    with pytest.raises(ValueError,
-                       match=r"glm-5-3-flash via Z\.AI\[\d+\]: "
-                             r"band\[fresh\].*does not contain"):
-        pricing.load_tables(_excluded_band())
-
-
+@pytest.mark.parametrize("band", [{}, {"fresh": [0, 100]}, None, "obsolete"])
 @needs_node
-def test_a_band_that_excludes_the_entry_rates_is_refused_in_the_browser(
-        tmp_path):
-    error = _node_load(tmp_path, _excluded_band())
-    assert error, "the browser must refuse the excluding band"
-    assert "glm-5-3-flash via Z.AI" in error, error
-    assert "band[fresh]" in error and "does not contain" in error, error
+def test_any_band_key_is_refused_by_both_loaders_naming_the_same_row(tmp_path, band):
+    doc = _doc()
+    history = doc["providers"][_GLM_MODEL][_GLM_HOST]
+    history[-1]["band"] = band
+    where = f"{_GLM_MODEL} via {_GLM_HOST}[{len(history) - 1}]"
+    error = _node_load(tmp_path, doc)
+    assert error and where in error and "band" in error, error
+    with pytest.raises(ValueError) as caught:
+        pricing.load_tables(doc)
+    assert where in str(caught.value) and "band" in str(caught.value)
 
 
 # --- issue #931.2: no `from` postdates provider_rates_fetched ----------------

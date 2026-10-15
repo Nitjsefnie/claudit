@@ -41,9 +41,7 @@ timestamp of the request being priced, not the time of rendering.
 A record that names its serving provider (OpenRouter's
 ``message.provider``) is priced from PROVIDER_RATES, keyed by
 (normalised model, provider), when that pair has a row; otherwise, and
-always when the provider is absent, by the model alone as above. A record
-with no provider therefore prices exactly as it did before the provider
-table existed.
+always when the provider is absent, by the model alone as above.
 """
 from __future__ import annotations
 
@@ -68,7 +66,6 @@ from backend.pricing_load import (
     DEFAULT_RATES,
     MODEL_RATES,
     PROVIDER_DATED_RATES,
-    PROVIDER_BANDS,
     PROVIDER_RATES,
     PROVIDER_RATES_FETCHED,
     PROVIDER_SCHEDULES,
@@ -99,7 +96,7 @@ __all__ = [  # re-exports the rate tables and their loader (SV-RATE-DATA)
     "DATED_RATES", "DEFAULT_RATES", "LONG_CONTEXT_MODELS",
     "LONG_CONTEXT_METERS",
     "MODEL_RATES", "PROVIDER_DATED_RATES",
-    "PROVIDER_BANDS", "PROVIDER_RATES", "PROVIDER_RATES_FETCHED",
+    "PROVIDER_RATES", "PROVIDER_RATES_FETCHED",
     "PROVIDER_SCHEDULES",
     "PROVIDER_STARTS", "PRICING_JSON", "RATE_EPOCHS", "RATE_FIELDS",
     "VENDOR_BARE", "VENDOR_PREFIXES", "VENDOR_HOSTS",

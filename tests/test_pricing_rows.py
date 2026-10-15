@@ -48,7 +48,6 @@ def _fixture():
         {'from': '2026-01-02T00:00:00Z', 'fresh': 3, 'output': 4,
          'read': 0.0, 'note': '20.0% off', 'create_5m': 4.5,
          'create_1h': 6, 'web_search': 0.012,
-         'band': {'fresh': [2, 4.0], 'create_5m': [2, 5], 'create_1h': [2, 6]},
          'schedule': [{'start': 0, 'end': 100, 'rates': {
              'fresh': 1, 'output': 2, 'read': 0}}]},
         {'from': '2026-01-04T00:00:00Z', 'fresh': 4, 'output': 5,
@@ -135,9 +134,7 @@ def test_browser_decodes_like_python_and_flattens_all_instants(tmp_path, browser
     assert [end.day for end, _ in windows] == [1, 2, 3, 4]
     assert [w['rates']['fresh'] for w in got['tables']['providerDatedRates'][ROW_KEY][HOST]] == [1, 2, 3, 2]
     assert tables['PROVIDER_SCHEDULES'][ROW_KEY, HOST].keys() == {2}
-    assert tables['PROVIDER_BANDS'][ROW_KEY, HOST].keys() == {2}
     assert got['tables']['providerSchedules'][ROW_KEY][HOST].keys() == {'2'}
-    assert got['tables']['providerBands'][ROW_KEY][HOST].keys() == {'2'}
 
 
 BAD_ROWS = [
@@ -417,3 +414,16 @@ def test_perturbation_scales_the_latest_occurrence_and_keeps_timestamp_groups(tm
     assert history[-5]['from'] > '2026-01-05T00:00:00Z'
     assert (history[-5]['fresh'], history[-5]['output'], history[-5]['read'],
             history[-5]['web_search']) == (4.0, 6.0, 1.0, 1.0)
+
+
+@pytest.mark.skipif(shutil.which('node') is None, reason='node not available')
+@pytest.mark.parametrize('browser', [False, True])
+def test_band_key_in_stored_grouped_state_refuses_the_owning_row(tmp_path, browser):
+    from backend.pricing_load import load_tables  # pylint: disable=import-outside-toplevel
+    doc = _fixture()
+    doc['providers'][ROW_KEY][HOST][1]['band'] = {'fresh': [0, 100]}
+    stored = _codec().encode_pricing_doc(doc)
+    with pytest.raises(ValueError, match=r'via OpenInference\[1\]:.*band'):
+        load_tables(stored)
+    error = _node(tmp_path, stored, browser=browser)['error']
+    assert error and f'{ROW_KEY} via {HOST}[1]' in error and 'band' in error
