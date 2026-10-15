@@ -6,13 +6,16 @@ import importlib.util
 import json
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 from tests.refresh_fixture_builders import (
     RATE_C, _endpoint as fixture_endpoint, seed_doc,
 )
-from backend.pricing_document import expand_pricing_doc
+from backend.pricing_document import expand_pricing_doc, serialize_pricing_doc
+from backend.pricing_rows import decode_pricing_doc, encode_pricing_doc
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
@@ -49,7 +52,7 @@ RATE_B = {"fresh": 0.2, "create_5m": 0.2, "create_1h": 0.2,
           "read": 0.02, "output": 0.7}
 
 
-def _entry(at: str | None, rates: dict) -> dict:
+def _entry(at: str | list[str] | None, rates: dict) -> dict:
     return {"from": at, **rates}
 
 
@@ -129,7 +132,7 @@ def _run_case(tmp_path: Path, capsys, case: BackfillCase):
     doc = _doc(case.hosts)
     pricing_path = tmp_path / "pricing.json"
     constants_path = tmp_path / "constants.py"
-    original = json.dumps(doc, indent=2, sort_keys=True) + "\n"
+    original = serialize_pricing_doc(doc)
     pricing_path.write_text(original, encoding="utf-8")
     constants_path.write_text('PRICING_VERSION = "31"\n', encoding="utf-8")
     endpoints, log = _request_payloads(case.hosts, case.states, case.new_hosts)
@@ -237,3 +240,166 @@ def test_backfill_leaves_a_row_backed_only_by_a_future_point_untouched(tmp_path,
     assert "untouched Wafer" in out
     assert "no in-force log state matches the listing" in out
     assert pricing_path.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.parametrize("days", [4, 5, 30, 31])
+def test_backfill_daily_alternation_merges_losslessly(tmp_path, capsys, days):
+    start = datetime(2030, 11, 1, tzinfo=timezone.utc)
+    states = [((start + timedelta(days=i)).isoformat().replace("+00:00", "Z"),
+               RATE_A if i % 2 == 0 else RATE_B) for i in range(days)]
+    old = [_entry(states[0][0], RATE_C)]
+
+    rc, _, err, path, _, _ = _run(tmp_path, capsys, {"Wafer": old}, states)
+
+    assert rc == 0 and not err
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    history = expand_pricing_doc(stored)["providers"][MODEL]["Wafer"]
+    assert len(history) == 2
+    assert all(isinstance(entry["from"], list) for entry in history)
+    flattened = sorted((stamp, {k: v for k, v in entry.items() if k != "from"})
+                       for entry in history for stamp in entry["from"])
+    assert flattened == states
+    assert stored == encode_pricing_doc(decode_pricing_doc(stored))
+
+
+def _band(at: str | None) -> dict:
+    return {**_entry(at, RATE_C),
+            "band": {"fresh": [0.1, 0.5], "read": [0, 0.1], "output": [0.5, 1]}}
+
+
+def _backfill_shape(model: str, host: str, history: list[dict],
+                    states: list[tuple[str, dict]] | None):
+    doc = seed_doc(providers={model: {host: history}},
+                   tracked={model: {"id": MODEL_ID}}, fetched=AS_OF)
+    # RATE_C deliberately differs from the newest logged price: the host is
+    # sampled today, while its unique historical endpoint still backs a band.
+    endpoints = [fixture_endpoint(host, RATE_C, tag=f"{host.lower()}/fp8")]
+    series = [_series(host, host.lower(), states)] if states else []
+    fetches = BackfillFetches(endpoints, {"data": {"series": series}})
+    result, reports, changed = backfill.backfill(
+        doc, fetches.fetch_endpoints, AS_OF, fetches.fetch_models, fetches.fetch_log, NOW)
+    return result, reports[model], changed
+
+
+def test_backfill_phala_replaces_only_historical_band_span():
+    model, host = "deepseek/deepseek-v4-flash-0731", "Phala"
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:06:00Z", RATE_B),
+              ("2031-01-01T00:12:00Z", RATE_A)]
+    history = [_entry(None, RATE_B), _band("2031-01-01T00:05:00Z"),
+               _entry("2031-01-01T00:10:00Z", RATE_C)]
+
+    result, lines, changed = _backfill_shape(model, host, history, states)
+
+    assert changed
+    assert result["providers"][model][host] == [
+        _entry(None, RATE_B), _entry("2031-01-01T00:05:00Z", RATE_A),
+        _entry("2031-01-01T00:06:00Z", RATE_B),
+        _entry("2031-01-01T00:10:00Z", RATE_C)]
+    assert any("replaced band" in line and host in line and "correction" in line
+               for line in lines)
+
+
+def test_backfill_streamlake_removes_unbacked_band_entry():
+    model, host = "glm-5-2", "StreamLake"
+    history = [_entry(None, RATE_A), _band("2031-01-01T00:05:00Z"),
+               _entry("2031-01-01T00:10:00Z", RATE_B)]
+
+    result, lines, changed = _backfill_shape(model, host, history, None)
+
+    assert changed
+    assert result["providers"][model][host] == [history[0], history[2]]
+    assert any("removed band" in line and host in line and "no" in line
+               for line in lines)
+
+
+def test_backfill_accepts_grouped_input_and_compares_the_chronological_newest(tmp_path, capsys):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:06:00Z", RATE_B),
+              ("2031-01-01T00:12:00Z", RATE_A)]
+    history = [_entry([states[0][0], states[2][0]], RATE_A),
+               _entry(states[1][0], RATE_B)]
+
+    rc, out, err, path, _, _ = _run(tmp_path, capsys, {"Wafer": history}, states)
+
+    assert rc == 0 and not err
+    assert _saved_doc(path)["providers"][MODEL]["Wafer"] == history
+    assert "newest log state through" not in out
+
+
+def test_backfill_null_start_stays_scalar_when_its_rate_returns(tmp_path, capsys):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:06:00Z", RATE_B),
+              ("2031-01-01T00:12:00Z", RATE_A)]
+
+    rc, _, err, path, _, _ = _run(
+        tmp_path, capsys, {"Wafer": [_entry(None, RATE_A)]}, states)
+
+    assert rc == 0 and not err
+    assert _saved_doc(path)["providers"][MODEL]["Wafer"] == [
+        _entry(None, RATE_A), _entry(states[1][0], RATE_B), _entry(states[2][0], RATE_A)]
+
+
+def test_backfill_removes_unbacked_only_band_row():
+    result, lines, changed = _backfill_shape("synthetic-model", "Unbacked", [_band(None)], None)
+
+    assert changed
+    assert "Unbacked" not in result["providers"]["synthetic-model"]
+    assert any("removed band" in line and "Unbacked" in line for line in lines)
+
+
+def test_backfill_unavailable_log_removes_band_and_reports_failure():
+    doc = _doc({"Wafer": [_entry(None, RATE_A), _band("2031-01-01T00:05:00Z")]})
+    fetches = BackfillFetches([], {"data": {"series": []}})
+
+    def unavailable(slug):
+        raise OSError("synthetic unavailable log")
+
+    result, reports, changed = backfill.backfill(
+        doc, fetches.fetch_endpoints, AS_OF, fetches.fetch_models, unavailable, NOW)
+
+    assert changed
+    assert result["providers"][MODEL]["Wafer"] == [_entry(None, RATE_A)]
+    assert any("removed band" in line and "synthetic unavailable log" in line
+               for line in reports[MODEL])
+
+
+def test_backfill_historical_band_preserves_search_rate_and_as_of():
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:06:00Z", RATE_B),
+              ("2031-01-01T00:20:00Z", RATE_A)]
+    history = [_entry(None, RATE_B),
+               {**_band("2031-01-01T00:05:00Z"), "web_search": 0.03}]
+
+    result, _, changed = _backfill_shape("synthetic-model", "Phala", history, states)
+
+    assert changed
+    assert result["providers"]["synthetic-model"]["Phala"] == [
+        _entry(None, RATE_B),
+        {**_entry("2031-01-01T00:05:00Z", RATE_A), "web_search": 0.03},
+        {**_entry("2031-01-01T00:06:00Z", RATE_B), "web_search": 0.03}]
+
+
+def test_backfill_complete_log_replaces_and_reports_a_band(tmp_path, capsys):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:06:00Z", RATE_B)]
+    history = [_entry(None, RATE_A), _band("2031-01-01T00:05:00Z")]
+    rc, out, err, path, _, _ = _run(
+        tmp_path, capsys, {"Wafer": history}, states)
+
+    assert rc == 0 and not err
+    assert _saved_doc(path)["providers"][MODEL]["Wafer"] == [
+        _entry(None, RATE_A), _entry(states[1][0], RATE_B)]
+    assert "replaced band for Wafer" in out
+
+
+def test_backfill_reports_removal_when_series_begins_after_band_span():
+    history = [_entry(None, RATE_A), _band("2031-01-01T00:05:00Z"),
+               _entry("2031-01-01T00:10:00Z", RATE_B)]
+    states = [("2031-01-01T00:12:00Z", RATE_A)]
+
+    result, lines, changed = _backfill_shape("synthetic-model", "Phala", history, states)
+
+    assert changed
+    assert result["providers"]["synthetic-model"]["Phala"] == [history[0], history[2]]
+    assert any("removed band" in line and "span" in line for line in lines)
