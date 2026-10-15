@@ -492,3 +492,13 @@ def test_bot_blob_transport_preserves_assignment_line_terminators(tmp_path, term
     outputs = _parse_step_outputs(run.written)
     assert outputs['data_only'] == ('true' if terminator == '\n' else 'false')
     assert _gating_legs(outputs) == ({'lint', 'smoke'} if terminator == '\n' else set(_legs(_ci_gate())))
+
+
+def test_a_thresholds_only_push_runs_only_tests_end_to_end(tmp_path):
+    run = _run_classifier(tmp_path, paths=['.github/ci-thresholds.json'])
+    _only_modelled_reads(run)
+    _over_the_verified_base(run)
+    outputs = _parse_step_outputs(run.written)
+    assert outputs.get('thresholds_only') == 'true', outputs
+    assert _published(outputs).get('thresholds_only') == 'true', outputs
+    assert _gating_legs(outputs) == {'tests'}
