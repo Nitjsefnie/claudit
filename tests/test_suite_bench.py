@@ -195,6 +195,63 @@ def test_total_equals_the_phase_sum(mini_suite):
     assert total == phases
 
 
+@pytest.mark.parametrize("collection_error", [False, True])
+def test_measure_uses_a_fresh_private_basetemp(mini_suite, collection_error):
+    # Removing --basetemp would rejoin pytest's shared numbered tree;
+    # omitting cleanup would leave the observed directory behind.
+    probe = '''\
+import json
+from pathlib import Path
+
+
+def pytest_sessionstart(session):
+    config = session.config
+    if config.option.collectonly:
+        return
+    raw = config.option.basetemp
+    base = Path(raw) if raw is not None else None
+    exists = base is not None and base.is_dir()
+    observation = {
+        "base": str(base) if base is not None else None,
+        "exists": exists,
+        "entries": sorted(p.name for p in base.iterdir()) if exists else None,
+        "root": str(config._tmp_path_factory.getbasetemp()),
+    }
+    with (Path(__file__).parent / "temp-roots.jsonl").open(
+            "a", encoding="utf-8") as stream:
+        stream.write(json.dumps(observation) + "\\n")
+'''
+    (mini_suite / "conftest.py").write_text(
+        MINI_CONFTEST + probe, encoding="utf-8")
+    if collection_error:
+        (mini_suite / "mini_test_a.py").write_text(
+            "def invalid syntax\n", encoding="utf-8")
+    roots = []
+    for _ in range(2):
+        result = _run_bench(
+            ["--write", "m.json", "--repo-root", str(mini_suite),
+             "--fixture", str(mini_suite / "bench_files.txt")],
+            cwd=mini_suite)
+        if collection_error:
+            assert result.returncode == 1, result.stderr
+            assert "did not produce a usable run" in result.stderr
+        else:
+            assert result.returncode == 0, result.stderr
+        observations = (mini_suite / "temp-roots.jsonl").read_text(
+            encoding="utf-8").splitlines()
+        observed = json.loads(observations[-1])
+        assert observed["base"] is not None, observed
+        assert observed["exists"], observed
+        assert observed["entries"] == [], observed
+        base = Path(observed["base"])
+        assert Path(observed["root"]) == base
+        assert not any(p.name.startswith("pytest-of-") for p in base.parents)
+        assert not base.is_relative_to(REPO_ROOT)
+        assert not base.exists()
+        roots.append(base)
+    assert roots[0] != roots[1]
+
+
 def test_two_runs_identical_counts_across_hash_seeds(mini_suite):
     # One subprocess per run, with DIFFERENT outer hash seeds: the
     # bench's PYTHONHASHSEED=0 re-exec makes both runs' counts equal,
