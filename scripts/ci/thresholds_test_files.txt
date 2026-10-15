@@ -1,0 +1,21 @@
+# Derived from tests/test_*.py ASTs: files with an exact string constant
+# naming the thresholds loader, or an import of the thresholds module,
+# AND an attribute call to load, write, normalise or in_flight.
+# This covers the loader, re-seed protocol, document guards and ratchets,
+# including bench tests that construct thresholds through that loader.
+# Pinned by tests/test_ci_gate_thresholds.py; comments/blank lines are skipped.
+tests/test_ci_comment_baseline.py
+tests/test_ci_ratchets.py
+tests/test_ci_reseed.py
+tests/test_ci_reseed_reparse.py
+tests/test_ci_reseed_walk_depth.py
+tests/test_ci_size_baseline.py
+tests/test_ci_suppression_baseline.py
+tests/test_ci_thresholds.py
+tests/test_ci_thresholds_cache.py
+tests/test_ci_thresholds_guard.py
+tests/test_ci_thresholds_reparse.py
+tests/test_reparse_gate.py
+tests/test_reparse_seed.py
+tests/test_suite_bench.py
+tests/test_suite_ratchet.py

@@ -135,7 +135,9 @@ def test_comment_only_runs_check_with_dependencies():
     steps = job['steps']
     check = next(step for step in steps if step.get('name') == 'Comment share baseline')
     assert check['run'] == 'python3 scripts/ci/comment_baseline.py'
-    assert check['if'] == "${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}"
+    assert check['if'] == (
+        "${{ !cancelled() && steps.pytest.conclusion != 'skipped' "
+        "&& inputs.thresholds_only != 'true' }}")
     install = next(step for step in steps if step.get('run') == 'npm ci --no-audit --no-fund')
     assert install['if'] == check['if']
     assert steps.index(install) < steps.index(check)

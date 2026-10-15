@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Classify a ci-gate run: docs-only, bot-data-only, comment-only, or full.
+"""Classify docs-only, bot-data-only, comment-only or thresholds-only runs.
 
 The gate workflows used to narrow documentation-only runs at the
 trigger, with `paths-ignore` on their push and pull_request events. A
@@ -7,8 +7,8 @@ trigger filter cannot report: a docs-only change started no run at all,
 so those check names never appeared, and a required-check
 ruleset could never go green on such a pull request. ci-gate.yml starts
 on every push and pull request and narrows INSIDE the workflow instead:
-this script reads the run's changed paths and emits two outputs,
-`docs_only` and `data_only`, which condition the legs while the
+this script reads the run's changed paths and emits the four class
+outputs, which condition the legs while the
 aggregate job still reports.
 
 Documentation excludes measured sources from the old deny-list paths,
@@ -71,6 +71,7 @@ import tokenize
 
 sources = importlib.import_module('classify_sources' if __name__ == '__main__' else 'scripts.ci.classify_sources')
 bot = importlib.import_module('classify_bot' if __name__ == '__main__' else 'scripts.ci.classify_bot')
+thresholds = importlib.import_module('classify_thresholds' if __name__ == '__main__' else 'scripts.ci.classify_thresholds')
 
 # The paths-ignore deny-lists the gate workflows carried on master, now
 # re-homed as classifier patterns. `.github/ci-thresholds.json` is
@@ -428,31 +429,29 @@ def comment_only(paths, event, run):
 
 
 def classify(event, run):
-    """Return (docs_only, data_only, comment_only, reason)."""
+    """Return (docs_only, data_only, comment_only, thresholds_only, reason)."""
     paths = changed_paths(event, run)
-    if paths is None:
-        return (False, False, False,
-                'could not read the changed paths; running the '
-                'full gate set')
+    if paths is None or thresholds.thresholds_only(paths):
+        return thresholds.unreadable_or_thresholds(paths)
     if documentation_only(paths):
-        return (True, False, False,
+        return (True, False, False, False,
                 f'documentation-only change: {len(paths)} paths')
     if all(is_documentation(path) for path in paths) and (
             touches_setup_docs(paths) or sources.measured(paths)):
         setup = sorted({path for path in paths
                         if path in SETUP_DOC_PATTERNS})
-        return (False, False, False,
+        return (False, False, False, False,
                 f'documentation paths touch measured sources or pinned setup '
                 f'docs ({"; ".join(setup or paths)}); running the full gate set')
     if (data_only(paths) and bot.is_bot_push(event, run)
             and sources.pricing_change(event, run, _refs, _blob)):
-        return (False, True, False,
+        return (False, True, False, False,
                 f'bot-data-only change: {len(paths)} paths')
     if comment_only(paths, event, run):
-        return (False, False, True,
+        return (False, False, True, False,
                 f'comment-only change: {len(paths)} source files')
     outside = sum(1 for path in paths if not is_documentation(path))
-    return (False, False, False, f'{len(paths)} paths changed, {outside} '
+    return (False, False, False, False, f'{len(paths)} paths changed, {outside} '
             'outside documentation')
 
 
@@ -467,15 +466,7 @@ def event_from_environment(environ):
     }
 
 
-def write_outputs(path, documentation, data, comment, reason):
-    """Append the step outputs to the file `path` names."""
-    if not path:
-        return
-    with open(path, 'a', encoding='utf-8') as handle:
-        handle.write(f"docs_only={'true' if documentation else 'false'}\n")
-        handle.write(f"data_only={'true' if data else 'false'}\n")
-        handle.write(f"comment_only={'true' if comment else 'false'}\n")
-        handle.write(f'reason={reason}\n')
+write_outputs = thresholds.write_outputs
 
 
 def main():
@@ -486,9 +477,9 @@ def main():
         return sources.decode_output(command, subprocess.run(
             command, capture_output=True, check=True, timeout=60).stdout)
 
-    documentation, data, comment, reason = classify(event, run)
+    documentation, data, comment, threshold, reason = classify(event, run)
     write_outputs(os.environ.get('GITHUB_OUTPUT'), documentation, data,
-                  comment, reason)
+                  comment, threshold, reason)
     print(reason)
     return 0
 

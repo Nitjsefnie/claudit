@@ -219,20 +219,21 @@ def test_js_comment_only_and_real_change_via_canned_tokens():
 def test_classify_reports_the_comment_only_class():
     contents = {("m.py", BASE): BELOW_WINDOW_BASE,
                 ("m.py", HEAD): BELOW_WINDOW_HEAD}
-    docs, data, comment, reason = classify.classify(
+    docs, data, comment, _thresholds, reason = classify.classify(
         EVENT, _run(contents, paths=["m.py"]))
     assert (docs, data, comment) == (False, False, True)
     assert reason.startswith("comment-only change")
 
 
-def test_write_outputs_emits_the_four_lines(tmp_path):
+def test_write_outputs_emits_all_classifications(tmp_path):
     out = tmp_path / "o.txt"
-    classify.write_outputs(str(out), False, False, True,
+    classify.write_outputs(str(out), False, False, True, False,
                            "comment-only change: 2 source files")
     assert out.read_text(encoding="utf-8") == (
         "docs_only=false\n"
         "data_only=false\n"
         "comment_only=true\n"
+        "thresholds_only=false\n"
         "reason=comment-only change: 2 source files\n"
     )
 
@@ -369,7 +370,8 @@ def test_the_tests_leg_forwards_the_comment_only_output():
 
 def test_the_portable_matrix_reads_the_comment_only_input():
     portable = _tests_workflow()["jobs"]["pytest-portable"]
-    assert portable["if"] == "inputs.comment_only != 'true'"
+    assert portable["if"] == ("inputs.comment_only != 'true' "
+                              "&& inputs.thresholds_only != 'true'")
 
 
 def test_the_espree_dir_env_name_matches_the_workflow():

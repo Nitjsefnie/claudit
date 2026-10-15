@@ -116,7 +116,8 @@ BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 BASE = "a" * 40
 HEAD = "b" * 40
 PUSH = {"name": "push", "repository": "o/r", "before": "c" * 40, "sha": HEAD}
-BOT_PATHS = ["src/pricing.json", "backend/constants.py"]
+# Classifier paths only; the stub below supplies synthetic file contents.
+BOT_PATHS = ["src/pricing.json", "backend/constants.py"]  # sv-test-data: allow
 
 
 def _pricing_run(paths, author=BOT_EMAIL, after='PRICING_VERSION = "8"\n'):
@@ -180,7 +181,7 @@ def test_bot_push_still_requires_only_a_same_width_pricing_version_edit(after):
 
 def test_classify_mixed_pricing_json_and_code_runs_everything():
     # The class is the SET of changed paths, never individual files.
-    docs_only, data_only, _comment, reason = classify.classify(
+    docs_only, data_only, _comment, _thresholds, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
         lambda argv: "src/pricing.json\nbackend/app.py\n",
     )
@@ -189,7 +190,7 @@ def test_classify_mixed_pricing_json_and_code_runs_everything():
 
 
 def test_classify_pricing_json_beside_docs_runs_everything():
-    docs_only, data_only, _comment, reason = classify.classify(
+    docs_only, data_only, _comment, _thresholds, reason = classify.classify(
         {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
         lambda argv: "src/pricing.json\nREADME.md\n",
     )
@@ -199,11 +200,12 @@ def test_classify_pricing_json_beside_docs_runs_everything():
 
 def test_write_outputs_records_the_data_only_narrowing(tmp_path):
     out = tmp_path / "output.txt"
-    classify.write_outputs(str(out), False, True, False,
+    classify.write_outputs(str(out), False, True, False, False,
                            "bot-data-only change: 1 paths")
     assert out.read_text(encoding="utf-8") == (
         "docs_only=false\n"
         "data_only=true\n" "comment_only=false\n"
+        "thresholds_only=false\n"
         "reason=bot-data-only change: 1 paths\n"
     )
 

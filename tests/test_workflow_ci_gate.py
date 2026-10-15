@@ -156,17 +156,14 @@ def test_legs_are_conditioned_on_the_narrowing_outputs():
     doc = _ci_gate()
     for leg in LEG_IDS:
         gate = doc["jobs"][leg].get("if") or ""
-        if leg in cheap:
-            assert gate == (
-                "needs.classify.outputs.docs_only != 'true'"), leg
-        else:
-            expected = (
-                "needs.classify.outputs.docs_only != 'true' "
-                "&& needs.classify.outputs.data_only != 'true'")
-            if leg in comment_skipped:
-                expected += (
-                    " && needs.classify.outputs.comment_only != 'true'")
-            assert gate == expected, leg
+        expected = "needs.classify.outputs.docs_only != 'true'"
+        if leg not in cheap:
+            expected += " && needs.classify.outputs.data_only != 'true'"
+        if leg in comment_skipped:
+            expected += " && needs.classify.outputs.comment_only != 'true'"
+        if leg != 'tests':
+            expected += " && needs.classify.outputs.thresholds_only != 'true'"
+        assert gate == expected, leg
 
 
 def test_aggregate_module_names_the_same_cheap_legs_the_workflow_runs():
