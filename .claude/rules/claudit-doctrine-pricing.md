@@ -260,8 +260,10 @@ adds a separate `web_search` bucket, so the token TTL split stays intact
 and the bucket sum reconciles with stored `cost_usd`. A lane without a
 transcript search count stores NULL and bills no search.
 
-The file keeps the `json.dumps(doc, indent=2, sort_keys=True)` layout,
-so any writer reproduces it and a one-rate change is a one-line diff.
+Provider history rows render as one compact JSON line each. Outside
+`providers`, the file retains sorted keys and two-space indentation.
+Every writer uses the shared `serialize_pricing_doc`, keeping the file
+valid JSON and byte-stable across writers.
 File order never decides key matching — the LONGEST matching key wins;
 order only breaks a family-fallback tie between equal versions (first
 key wins).
