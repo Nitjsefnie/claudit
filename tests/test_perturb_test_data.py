@@ -24,13 +24,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from tests.refresh_fixture_builders import (
-    DEFAULT_ROW, RATES_A, RATES_B, seed_doc as build_seed_doc,
-)
 
 from backend import pricing
 from backend.pricing_document import serialize_pricing_doc
 from tests.pricing_row_helpers import decoded_pricing_doc
+from tests.refresh_fixture_builders import (
+    DEFAULT_ROW, RATES_A, RATES_B, seed_doc as build_seed_doc,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "perturb_test_data.py"

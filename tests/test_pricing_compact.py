@@ -9,12 +9,12 @@ import sys
 from pathlib import Path
 
 import pytest
-from backend.pricing_rows import encode_pricing_doc, decode_pricing_doc
-from scripts.ci import perturb_test_data
 
 from backend import pricing, rate_fingerprint
 from backend.pricing_document import omit_default_rates
 from backend.pricing_load import load_tables
+from backend.pricing_rows import encode_pricing_doc, decode_pricing_doc
+from scripts.ci import perturb_test_data
 from tests.test_parser_js_pricing_loader import HOST, ROW_KEY, _doc
 from tests.test_perturb_test_data import _run as _perturb_run
 from tests.test_provider_rate_refresh import Run, _move_openinference
