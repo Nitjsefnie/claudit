@@ -15,6 +15,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
@@ -75,7 +76,7 @@ def _earlier_start(old_start: str | None, log_start: str) -> str | None:
 def _flatten(history: list[dict]) -> list[dict]:
     entries, _ = flatten_provider_history(
         history, "backfill provider history",
-        lambda stamp, _: datetime.fromisoformat(stamp.replace("Z", "+00:00")))
+        lambda stamp, _: datetime.fromisoformat(cast(str, stamp).replace("Z", "+00:00")))
     return entries
 
 
