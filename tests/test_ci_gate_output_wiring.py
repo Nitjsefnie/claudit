@@ -94,6 +94,10 @@ if "/runs?" in url:
     print("{head} completed success 4242")
 elif "/jobs?" in url:
     print("tests success")
+elif url == "repos/Nitjsefnie/claudit/commits/{tip}":
+    if sys.argv[-2:] != ["--jq", ".commit.author.email"]:
+        sys.exit("stub gh: unexpected author query")
+    print("41898282+github-actions[bot]@users.noreply.github.com")
 elif "/contents/" in url:
     # A raw blob read for the comment-only class: the path's text at the
     # ref the classifier asked for (the verified base or the head).
@@ -139,7 +143,7 @@ def _stub_gh(directory, paths, base_contents=None, head_contents=None):
     if head_contents is None:
         head_contents = {"backend/constants.py": 'PRICING_VERSION = "8"\n'}
     script.write_text(STUB_GH.format(
-        head=BEFORE, paths=list(paths), base=BEFORE,
+        head=BEFORE, tip=HEAD, paths=list(paths), base=BEFORE,
         base_contents=base_contents or {}, head_contents=head_contents or {}),
         encoding="utf-8")
     script.chmod(0o755)
@@ -198,7 +202,7 @@ def _run_classifier(tmp_path, paths=None, writes=True, base_contents=None,
 # it would arrive as the same fail-closed over-run the narrowing decision
 # makes, and every assertion below would pass on an answer the harness
 # never gave.
-MODELLED_READS = ("/runs?", "/jobs?", "/compare/", "/contents/")
+MODELLED_READS = ("/runs?", "/jobs?", "/compare/", "/contents/", "/commits/")
 
 
 def _only_modelled_reads(run):

@@ -16,6 +16,8 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -110,19 +112,70 @@ def test_data_only_refuses_either_half_alone():
         ["backend/constants.py", "src/pricing_notices.json"])
 
 
-def test_classify_the_bots_signature_gets_the_cheap_class():
+BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
+BASE = "a" * 40
+HEAD = "b" * 40
+PUSH = {"name": "push", "repository": "o/r", "before": "c" * 40, "sha": HEAD}
+BOT_PATHS = ["src/pricing.json", "backend/constants.py"]
+
+
+def _pricing_run(paths, author=BOT_EMAIL, after='PRICING_VERSION = "8"\n'):
+    """Answer only the classifier's expected API reads, with synthetic blobs."""
+    replies = {
+        'repos/o/r/actions/workflows/ci-gate.yml/runs?branch=master&per_page=100':
+            f'{BASE} completed success 42',
+        'repos/o/r/actions/runs/42/jobs?per_page=100': 'tests success',
+        f'repos/o/r/compare/{BASE}...{HEAD}': '\n'.join(paths),
+        'repos/o/r/pulls/17/files': '\n'.join(paths),
+        'repos/o/r/pulls/17': f'{BASE} {HEAD}',
+        f'repos/o/r/contents/backend/constants.py?ref={BASE}': 'PRICING_VERSION = "7"\n',
+        f'repos/o/r/contents/backend/constants.py?ref={HEAD}': after,
+    }
+
     def run(argv):
-        if argv[-1] == '.base.sha + " " + .head.sha':
-            return 'a' * 40 + ' ' + 'b' * 40
-        if 'contents/backend/constants.py?ref=' in argv[-1]:
-            version = '7' if argv[-1].endswith('a' * 40) else '8'
-            return f'PRICING_VERSION = "{version}"\n'
-        return "src/pricing.json\nbackend/constants.py\n"
-    docs_only, data_only, _comment, reason = classify.classify(
-        {"name": "pull_request", "repository": "o/r", "pull_request": "17"}, run,
+        url = next(arg for arg in argv if arg.startswith('repos/'))
+        if url == f'repos/o/r/commits/{HEAD}':
+            assert argv[-2:] == ['--jq', '.commit.author.email']
+            if isinstance(author, Exception):
+                raise author
+            return author
+        assert url in replies, f'unexpected read: {argv}'
+        return replies[url]
+    return run
+
+
+@pytest.mark.parametrize('notices', [False, True])
+def test_pr_with_bot_paths_and_valid_pricing_diff_runs_everything(notices):
+    paths = BOT_PATHS + (['src/pricing_notices.json'] if notices else [])
+    result = classify.classify(
+        {"name": "pull_request", "repository": "o/r", "pull_request": "17", "sha": HEAD},
+        _pricing_run(paths),
     )
-    assert (docs_only, data_only) == (False, True)
-    assert "data-only" in reason
+    assert result[:3] == (False, False, False)
+
+
+@pytest.mark.parametrize('notices', [False, True])
+@pytest.mark.parametrize('author,expected', [
+    (BOT_EMAIL, True),
+    ('human@example.com', False),
+    (RuntimeError('author read failed'), False),
+    ('', False),
+    ('null', False),
+    (None, False),
+])
+def test_push_data_only_requires_the_tip_bot_author(notices, author, expected):
+    paths = BOT_PATHS + (['src/pricing_notices.json'] if notices else [])
+    result = classify.classify(PUSH, _pricing_run(paths, author))
+    assert result[:3] == (False, expected, False)
+
+
+@pytest.mark.parametrize('after', [
+    'PRICING_VERSION = "8"\nOTHER = 1\n',
+    'PRICING_VERSION = "10"\n',
+])
+def test_bot_push_still_requires_only_a_same_width_pricing_version_edit(after):
+    result = classify.classify(PUSH, _pricing_run(BOT_PATHS, after=after))
+    assert result[:3] == (False, False, False)
 
 
 def test_classify_mixed_pricing_json_and_code_runs_everything():
