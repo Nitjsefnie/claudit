@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import posixpath
 import re
-
 from typing import cast
 
 from backend.bash_churn import _NULL_SINKS, BashCommand, MAX_COMMAND_CHARS
@@ -46,6 +45,7 @@ from backend.bash_literals import ShellWord, literal_path
 from backend.bash_operand import _looks_like_path, _operand_paths
 from backend.bash_effects import destination_paths, perl_paths, sed_parts
 from backend.bash_directories import directory_targets
+from backend.bash_write_targets import WRITE_TARGET_COMMANDS, write_targets
 from backend.target_paths import resolve_target as _resolve, windows_absolute
 
 # Commands that put file CONTENT into the transcript, split by whether
@@ -353,7 +353,7 @@ class _Scan:
     def command_effects(self, name: str, operands: list[str],
                         redirected: list[str], inputs: list[str]) -> None:
         """Classify a command after redirection syntax has been separated."""
-        if name in ("sed", "cp", "install", "mv", "mkdir", "mktemp", "git"):
+        if name in ("sed", "cp", "install", "mv", "mkdir", "mktemp", "git") or name in WRITE_TARGET_COMMANDS:
             # Preserve positions and unknown words; dropping an unresolved
             # option value would shift the following file into its place.
             operands = [ShellWord(value, operator=getattr(arg, "operator", False))
@@ -362,7 +362,7 @@ class _Scan:
         for path in redirected:
             if literal_path(path) or _looks_like_path(path):
                 self.add(self.writes, path)
-        if name in ("sed", "cp", "install", "mv", "mkdir", "mktemp", "git") and any(
+        if (name in ("sed", "cp", "install", "mv", "mkdir", "mktemp", "git") or name in WRITE_TARGET_COMMANDS) and any(
                 getattr(arg, "unquoted_expansion", False) for arg in operands):
             # One unresolved/splittable operand can shift every option position.
             return
@@ -375,7 +375,7 @@ class _Scan:
             for path in paths:
                 self.add(self.writes, path)
             return
-        if targets := directory_targets(name, operands):
+        if targets := directory_targets(name, operands) or write_targets(name, operands):
             # A command that CREATES reports what it puts on disk: the
             # directories `mkdir` makes, the checkout `git worktree add`
             # materialises, the clone's directory (or the one the URL
