@@ -243,12 +243,13 @@ def test_unzip_comment_only_is_not_a_write():
     ("initdb -D data", ["/work/data"]),
     ("initdb --pgdata=data", ["/work/data"]),
     ("initdb data", ["/work/data"]),
+    ("initdb -s -D data", []), ("initdb --show -D data", []),
     ("initdb -Upostgres -Atrust -E UTF8 --auth-local=trust --auth-host scram-sha-256 "
      "--locale C --locale-provider=libc data", ["/work/data"]),
     ("initdb -U postgres", []), ("initdb", []),
     ("git clone --depth 1 --branch main url out", ["/work/out"]),
     ("git clone --bare url out", ["/work/out"]),
-    ("git clone https://example.test/repo.git", []),
+    ("git clone https://example.test/repo.git", ["/work/repo"]),
     ("git init", ["/work"]), ("git init .", ["/work"]),
     ("git init -b main out", ["/work/out"]),
     ("git init --bare -Bmain out", ["/work/out"]),
@@ -294,3 +295,13 @@ def test_bash_corpus_write_targets_resolve_cwd_and_assignments(command):
 @pytest.mark.parametrize("path", ["$UNKNOWN", '"$UNKNOWN/path"', "$(unknown)", "`unknown`", "*.txt"])
 def test_bash_corpus_runtime_operands_refuse_all_targets(command, path):
     assert not scan(command.format(path=path), "/work")[2]
+
+
+@pytest.mark.parametrize("source", [
+    "https://example.test/repo.git", "https://example.test/repo/",
+    "git@example.test:project/repo.git", "repo",
+])
+def test_bash_clone_directory_derivation(source):
+    command = f"cd project && git clone {source}"
+    assert scan(command, "/work")[2] == ["/work/project/repo"]
+    assert bash_churn(command) == (1, 0)

@@ -85,7 +85,7 @@ _PDF_VALUES = ("opw", "oupw", "upw", "enc", "eol", "r", "x", "y", "W", "H")
 _PDF_MODES = _modes("", tuple("-" + flag for flag in _PDF_FLAGS),
                     ("-f", "-l") + tuple("-" + flag for flag in _PDF_VALUES))
 _INITDB_MODES = _modes(
-    "dknsW", ("--debug", "--no-clean", "--no-sync", "--data-checksums", "--no-locale"),
+    "dknsW", ("--debug", "--no-clean", "--no-sync", "--data-checksums", "--no-locale", "--show"),
     ("-D", "--pgdata", "-U", "--username", "-A", "--auth", "--auth-local", "--auth-host",
      "-E", "--encoding", "--locale", "--locale-provider", "--icu-locale", "--icu-rules",
      "--builtin-locale", "--lc-collate", "--lc-ctype", "--lc-messages", "--lc-monetary",
@@ -188,6 +188,16 @@ def _restore_targets(args: list[str]) -> list[str]:
     return paths
 
 
+def _clone_targets(args: list[str]) -> list[str]:
+    paths = command_options(args, _CLONE_MODES)[1]
+    if len(paths) >= 2:
+        return paths[1:2]
+    if not paths or not getattr(paths[0], "literal", True):
+        return []
+    name = paths[0].rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+    return [ShellWord(name)] if name and not any(char in name for char in "*?[") else []
+
+
 def _git_targets(args: list[str]) -> list[str]:
     if args[:2] == ["worktree", "add"]:
         return command_options(args[2:], _WORKTREE_MODES)[1][:1]
@@ -198,8 +208,7 @@ def _git_targets(args: list[str]) -> list[str]:
         handler = _checkout_targets if name == "checkout" else _restore_targets
         return handler(operands)
     if name == "clone":
-        paths = command_options(operands, _CLONE_MODES)[1]
-        return paths[1:2] if len(paths) >= 2 else []
+        return _clone_targets(operands)
     if name == "init":
         paths = command_options(operands, _INIT_MODES)[1]
         return paths if len(paths) == 1 else ([ShellWord(".")] if not paths else [])
@@ -220,6 +229,8 @@ def _pdftotext_targets(args: list[str]) -> list[str]:
 
 def _initdb_targets(args: list[str]) -> list[str]:
     options, paths = command_options(args, _INITDB_MODES)
+    if any(flag in ("-s", "--show") for flag, _ in options):
+        return []
     directories = [value for flag, value in options if flag in ("-D", "--pgdata") and value is not None]
     return (directories or paths) if len(directories) + len(paths) == 1 else []
 
