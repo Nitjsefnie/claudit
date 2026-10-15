@@ -403,3 +403,72 @@ def test_backfill_reports_removal_when_series_begins_after_band_span():
     assert changed
     assert result["providers"]["synthetic-model"]["Phala"] == [history[0], history[2]]
     assert any("removed band" in line and "span" in line for line in lines)
+
+
+@pytest.mark.parametrize("start", [None, "2030-12-31T22:00:00Z"])
+def test_backfill_full_rewrite_overlays_sampled_search_history(tmp_path, capsys, start):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:06:00Z", RATE_B),
+              ("2031-01-01T00:10:00Z", RATE_C)]
+    history = [
+        {**_entry(start, RATE_C), "web_search": 0.01},
+        {**_entry("2031-01-01T00:04:00Z", RATE_B), "web_search": 0.01},
+        {**_entry("2031-01-01T00:05:00Z", RATE_B), "web_search": 0.02},
+        {**_entry("2031-01-01T00:06:00Z", RATE_C), "web_search": 0.03},
+        _entry("2031-01-01T00:08:00Z", RATE_C),
+        {**_entry("2031-01-01T00:10:00Z", RATE_C), "web_search": 0.04},
+        {**_entry("2031-01-01T00:12:00Z", RATE_C), "web_search": 0.05},
+    ]
+
+    rc, out, err, path, _, _ = _run(
+        tmp_path, capsys, {"Wafer": history}, states, as_of="2031-01-01T00:10:00Z")
+
+    assert rc == 0 and not err
+    assert _saved_doc(path)["providers"][MODEL]["Wafer"] == [
+        {**_entry(start, RATE_A), "web_search": 0.01},
+        {**_entry("2031-01-01T00:05:00Z", RATE_A), "web_search": 0.02},
+        {**_entry("2031-01-01T00:06:00Z", RATE_B), "web_search": 0.03},
+        _entry("2031-01-01T00:08:00Z", RATE_B),
+        _entry("2031-01-01T00:10:00Z", RATE_C),
+    ]
+    assert any("Wafer" in line and "overlaid" in line and "web_search" in line
+               for line in out.splitlines())
+
+
+def test_backfill_full_rewrite_search_history_flattens_old_groups(tmp_path, capsys):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:06:00Z", RATE_B),
+              ("2031-01-01T00:10:00Z", RATE_A)]
+    history = [
+        _entry(None, RATE_C),
+        {**_entry(["2031-01-01T00:05:00Z", "2031-01-01T00:12:00Z"], RATE_C),
+         "web_search": 0.02},
+        {**_entry("2031-01-01T00:09:00Z", RATE_C), "web_search": 0.03},
+    ]
+
+    rc, _, err, path, _, _ = _run(tmp_path, capsys, {"Wafer": history}, states)
+
+    assert rc == 0 and not err
+    assert _saved_doc(path)["providers"][MODEL]["Wafer"] == [
+        _entry(None, RATE_A),
+        {**_entry(["2031-01-01T00:05:00Z", "2031-01-01T00:12:00Z"], RATE_A),
+         "web_search": 0.02},
+        {**_entry("2031-01-01T00:06:00Z", RATE_B), "web_search": 0.02},
+        {**_entry("2031-01-01T00:09:00Z", RATE_B), "web_search": 0.03},
+        {**_entry("2031-01-01T00:10:00Z", RATE_A), "web_search": 0.03},
+    ]
+
+
+def test_backfill_full_rewrite_search_starts_at_old_first_instant(tmp_path, capsys):
+    states = [("2030-12-31T23:00:00Z", RATE_A),
+              ("2031-01-01T00:06:00Z", RATE_B)]
+    history = [{**_entry("2030-12-31T23:30:00Z", RATE_C), "web_search": 0.02}]
+
+    rc, _, err, path, _, _ = _run(tmp_path, capsys, {"Wafer": history}, states)
+
+    assert rc == 0 and not err
+    assert _saved_doc(path)["providers"][MODEL]["Wafer"] == [
+        _entry("2030-12-31T23:00:00Z", RATE_A),
+        {**_entry("2030-12-31T23:30:00Z", RATE_A), "web_search": 0.02},
+        {**_entry("2031-01-01T00:06:00Z", RATE_B), "web_search": 0.02},
+    ]

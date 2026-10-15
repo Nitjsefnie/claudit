@@ -408,9 +408,13 @@ same rules:
   takes it. The backfill merges identical dated states into one entry
   whose `from` lists ALL their instants; rows without repeated states
   stay list-free. Flattening those lists reconstructs every change point
-  and its rates losslessly. Different notes or other state fields remain
+  and its rates losslessly. Entries merge only when their full state
+  except `from` matches: different notes or other state fields remain
   separate, and a null start stays scalar (it cannot share a timestamp
-  list). This merge belongs only to the backfill; the hourly refresh
+  list). A full-history rewrite overlays the row's sampled search-rate
+  history at its sampled instants strictly before `--as-of`, carrying its
+  leading rate forward, because the token log carries no search rate.
+  This merge belongs only to the backfill; the hourly refresh
   appends per-move entries. The shared codec writes the stored row format.
   Unbacked rows are left untouched and listed EXCEPT for residual bands:
   every band entry is replaced or removed, so the backfill writes no bands.
