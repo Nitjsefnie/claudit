@@ -29,7 +29,6 @@
     "claude-sonnet-5-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
     "deepseek/deepseek-v4-1-flash via Fireworks: rule-resolved (data region): the global data region leaves 'fireworks'; dropped 'fireworks/us'",
     "deepseek/deepseek-v4-flash-0731 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
-    "deepseek/deepseek-v4-flash-0731 via BaseTen: rule-resolved (data region): the global data region leaves 'baseten/fp8'; dropped 'baseten/fp8/us'",
     "deepseek/deepseek-v4-flash-0731 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
     "deepseek/deepseek-v4-pro via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba/fp8'; dropped 'alibaba/fp8/us-east-1'",
     "deepseek/deepseek-v4-pro-0813 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
@@ -141,7 +140,7 @@
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
     "tag 'parasail/fast' names neither a known region nor a quantization: glm-5-3-flash via Parasail, kimi-k3 via Parasail",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek/deepseek-v4-flash-0731 via Wafer",
-    "the listing lags the listed-pricing log for deepseek/deepseek-v4-1-flash via OpenInference; the host was sampled",
+    "the listing lags the listed-pricing log for deepseek/deepseek-v4-1-flash via Relace; the host was sampled",
     "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, openai/gpt-3.5-turbo-0613, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-chat, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
   ],
   "sampled": {
@@ -249,11 +248,11 @@
       "BaseTen": "cheapest resolution",
       "DeepInfra": "cheapest resolution",
       "DeepSeek": "endpoint schedule",
-      "OpenInference": "listing lags log"
+      "Relace": "listing lags log"
     },
     "deepseek/deepseek-v4-flash-0731": {
       "Alibaba": "endpoint schedule",
-      "BaseTen": "2 endpoints at one current price"
+      "BaseTen": "2 endpoints selected"
     },
     "deepseek/deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
@@ -393,7 +392,8 @@
     ],
     "glm-5-3": [
       "Nebius",
-      "OpenInference"
+      "OpenInference",
+      "Tenstorrent"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
