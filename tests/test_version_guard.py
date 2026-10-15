@@ -21,7 +21,7 @@ from scripts.ci.version_guard import (
 
 BOT = BOT_EMAIL
 HUMAN = "dev@example.com"
-BOTH_FILES = ["src/pricing.json", "backend/constants.py"]
+BOTH_FILES = ["src/pricing.json", "backend/constants.py"]  # sv-test-data: allow — path strings test file-set logic; the committed document is never read
 NOTICE_FILES = BOTH_FILES + ["src/pricing_notices.json"]
 
 
