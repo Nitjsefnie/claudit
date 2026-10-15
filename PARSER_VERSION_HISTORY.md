@@ -51,3 +51,7 @@ them: bump `PRICING_VERSION` in `constants.py` for that.
   alone cannot refill them: `files.parser_version` would still match,
   so the bump is what forces the reparse that restores the dropped
   facts.
+- **111** — issue #1023 task 1: Bash write targets now include link names,
+  touch operands, local rsync destinations, explicit extraction directories,
+  curl/wget output files and Python venv directories. Reparse stored calls
+  to populate their previously empty write-target arrays.
