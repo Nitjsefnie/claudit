@@ -406,17 +406,9 @@ same rules:
   leading rate forward, because the token log carries no search rate.
   This merge belongs only to the backfill; the hourly refresh
   appends per-move entries. The shared codec writes the stored row format.
-  Unbacked rows are left untouched and listed EXCEPT for residual bands:
-  every band entry is replaced or removed, so the backfill writes no bands.
-  A host's unique, usable, unscheduled historical endpoint series may back
-  its old band even when today's listing does not join: replace only that
-  band's span with true logged states, retaining the surrounding sampled
-  states and the span's separately sampled web-search rate. Without a
-  usable unique series through the cutoff, remove the band entry and
-  report the row and reason; the surrounding states then price that span
-  (an empty host row is removed, falling back to model pricing). Every
-  residual-band row is named in the report, including historical-series
-  replacements as human-reviewed corrections. The backfill is an
+  Unbacked rows are left untouched and listed. The backfill requires a
+  band-free source document: the loaders refuse a `band` key, naming the
+  row, before any fetch or write. The backfill is an
   SV-RATE-DATA correction, landing only in a human-reviewed commit that
   bumps `PRICING_VERSION` and names the invocation and each row's rewrite.
 - **Alternating prices are reported, not appended — sampled rows
