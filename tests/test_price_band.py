@@ -548,3 +548,39 @@ def test_an_overflowed_band_bound_is_refused_naming_the_row_in_the_browser(tmp_p
     text = json.dumps(encode_pricing_doc(_banded_doc({"fresh": [0.1, "1e999"]})))
     error = _node_load(tmp_path, text.replace('"1e999"', "1e999"))
     assert error and "synthetic/model via HostCo[0].band[fresh]" in error, error
+
+
+def test_collapse_accepts_the_codec_grouped_fixture_without_expanding_storage():
+    from tests.test_pricing_rows import _fixture, ROW_KEY, HOST as ROW_HOST  # pylint: disable=import-outside-toplevel
+    raw = encode_pricing_doc(_fixture())
+    before = json.dumps(raw, sort_keys=True)
+    assert len(pricing.load_tables(raw)['PROVIDER_DATED_RATES'][ROW_KEY, ROW_HOST]) == 4
+
+    result, reports, hosts, moved = collapse.collapse(raw, 7.0, raw['provider_rates_fetched'])
+
+    assert not moved and not reports and not hosts
+    assert result['providers'][ROW_KEY][ROW_HOST][1]['from'] == [
+        '2026-01-01T00:00:00Z', '2026-01-03T00:00:00Z']
+    assert json.dumps(raw, sort_keys=True) == before
+
+
+def test_collapse_weighs_grouped_occurrences_and_preserves_untouched_groups():
+    from backend.pricing_document import serialize_pricing_doc  # pylint: disable=import-outside-toplevel
+    doc = seed_doc(providers={MODEL: {
+        'BandCo': [{**_entry(_day(8), RATE_A), 'from': [_day(8), _day(0)]}, _entry(_day(4), RATE_B)],
+        'StableCo': [{**_entry(_day(8), RATE_A), 'from': [_day(8), _day(4)]}],
+    }}, fetched=STAMP)
+    raw = json.loads(serialize_pricing_doc(doc))
+
+    result, reports, hosts, moved = collapse.collapse(raw, DAYS, STAMP)
+
+    assert moved and hosts == {'BandCo'}
+    assert any('BandCo: 3 → 1 entries' in report for report in reports)
+    (entry,) = result['providers'][MODEL]['BandCo']
+    assert entry['from'] == _day(8)
+    assert entry['band'] == _band_of(RATE_A, RATE_B)
+    expected = _mean_of((RATE_A, 3 * 86400), (RATE_B, 4 * 86400))
+    assert {field: entry[field] for field in FIELDS} == expected
+    saved = json.loads(serialize_pricing_doc(result))
+    assert saved['providers'][MODEL]['StableCo'] == raw['providers'][MODEL]['StableCo']
+    assert pricing.load_tables(saved)['PROVIDER_RATES'][MODEL, 'BandCo'] == expected
