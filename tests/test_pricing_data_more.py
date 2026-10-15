@@ -7,13 +7,12 @@ import shutil
 from datetime import datetime, timedelta
 
 import pytest
-from backend.pricing_rows import encode_pricing_doc
-
 from fastapi.testclient import TestClient
 
 from backend import app as app_mod
 from backend import pricing
 from backend import session as session_mod
+from backend.pricing_rows import encode_pricing_doc
 
 from tests.refresh_fixture_builders import DEFAULT_ROW, seed_doc
 from tests.test_pricing_data import (
