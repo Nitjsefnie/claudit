@@ -1,12 +1,16 @@
 """Named Bash file and directory writes (backend/bash_reads.py)."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from backend import parse
 from backend.bash_reads import scan
+from backend.bash_churn import bash_churn
+from backend.flags import CollectionPolicy
+from backend.flag_registry import COLLECTION_SPECS
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
 
@@ -19,6 +23,7 @@ FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
     ("unzip", ["/work/extracted"]),
     ("curl_output", ["/work/downloaded"]),
     ("wget", ["/work/file.txt"]),
+    ("curl_file_url", ["/work/data.txt"]),
     ("python_venv", ["/work/.venv"]),
 ])
 def test_bash_family_write_targets(family, expected):
@@ -118,3 +123,53 @@ def test_bash_runtime_write_targets_are_not_invented(command, path):
 ])
 def test_bash_write_targets_resolve_literal_assignments(command, expected):
     assert scan(command, "/work")[2] == expected
+
+
+@pytest.mark.parametrize("family,added", [
+    ("curl_output", 1), ("wget", 1), ("tar_extract", 1), ("unzip", 1),
+    ("rsync", 1), ("python_venv", 1), ("touch", 0), ("ln", 0),
+])
+def test_bash_family_churn_estimate(family, added):
+    blob = (FIX / f"bash_{family}_write_targets.jsonl").read_bytes()
+    tool = parse.parse_file("k/sess-write/sess-write.jsonl", blob)["tool_uses"][0]
+    assert (tool["lines_added"], tool["lines_deleted"]) == (added, 0)
+
+
+@pytest.mark.parametrize("command", [
+    "curl -o out https://example.test/data.txt",
+    "wget -O out https://example.test/data.txt",
+    "tar -xf archive.tar -C out", "unzip archive.zip -d out",
+    "rsync source out", "python3 -m venv out",
+])
+def test_bash_unknown_write_fallback_is_once_per_call(command):
+    assert bash_churn(command + "; " + command) == (1, 0)
+    assert bash_churn(command + r"; printf 'a\nb\n' > known.txt") == (2, 0)
+    assert bash_churn("D=out; " + command.replace("out", "$D")) == (1, 0)
+
+
+@pytest.mark.parametrize("family", ["curl_output", "wget", "tar_extract", "unzip", "rsync", "python_venv"])
+@pytest.mark.parametrize("result", [
+    "Exit code 1\ncommand failed",
+    "The user doesn't want to proceed with this tool use",
+    "PreToolUse hook error: denied",
+])
+def test_bash_unknown_write_failure_gets_no_fallback(family, result):
+    blob = (FIX / f"bash_{family}_write_targets.jsonl").read_bytes()
+    outcome = {"type": "user", "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "t1", "is_error": True, "content": result}]}}
+    tool = parse.parse_file("k/sess-write/sess-write.jsonl", blob + json.dumps(outcome).encode() + b"\n")["tool_uses"][0]
+    assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
+
+
+@pytest.mark.parametrize("family", ["curl_output", "wget", "tar_extract", "unzip", "rsync", "python_venv"])
+def test_bash_unknown_write_churn_survives_disabled_intake(family):
+    blob = (FIX / f"bash_{family}_write_targets.jsonl").read_bytes()
+    policy = CollectionPolicy(frozenset({"context_intake"}), COLLECTION_SPECS)
+    tool = parse.parse_file(
+        "k/sess-write/sess-write.jsonl", blob, collection=policy)["tool_uses"][0]
+    assert tool["write_targets"] is None
+    assert (tool["lines_added"], tool["lines_deleted"]) == (1, 0)
+
+
+def test_unzip_comment_only_is_not_a_write():
+    assert not scan("unzip -z archive.zip -d out", "/work")[2]
