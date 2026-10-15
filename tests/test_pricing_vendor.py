@@ -23,11 +23,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from backend.pricing_rows import encode_pricing_doc
-from tests.refresh_fixture_builders import DEFAULT_ROW
-
 
 from backend import long_context, pricing, pricing_document
+from backend.pricing_rows import encode_pricing_doc
+from tests.refresh_fixture_builders import DEFAULT_ROW
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"

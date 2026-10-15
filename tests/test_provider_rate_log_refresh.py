@@ -16,11 +16,11 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
-from tests.pricing_row_helpers import decoded_pricing_doc
 
 # The production scripts use sibling imports when run directly.
 # pylint: disable=wrong-import-position,wrong-import-order
 from backend import pricing
+from tests.pricing_row_helpers import decoded_pricing_doc
 from tests.refresh_fixture_builders import (
     RATE_C, _endpoint as fixture_endpoint, seed_doc,
 )
