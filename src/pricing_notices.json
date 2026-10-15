@@ -123,6 +123,8 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Google; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for deepseek/deepseek-v4-flash-0731 via Inceptron; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for deepseek/deepseek-v4-flash-0731 via OpenInference; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for glm-5-3-flash via Inceptron; the host was sampled",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba",
     "tag 'alibaba/prime' names neither a known region nor a quantization: glm-5-3 via Alibaba",
     "tag 'anthropic/fast' names neither a known region nor a quantization: claude-opus-4-8 via Anthropic, claude-opus-5 via Anthropic, claude-opus-5-5 via Anthropic",
@@ -141,7 +143,7 @@
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
     "tag 'parasail/fast' names neither a known region nor a quantization: glm-5-3-flash via Parasail, kimi-k3 via Parasail",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek/deepseek-v4-flash-0731 via Wafer",
-    "the listing lags the listed-pricing log for deepseek/deepseek-v4-flash-0731 via Relace; the host was sampled",
+    "the listing lags the listed-pricing log for deepseek/deepseek-v4-pro via Baidu; the host was sampled",
     "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, openai/gpt-3.5-turbo-0613, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-chat, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
   ],
   "sampled": {
@@ -254,7 +256,10 @@
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints selected",
       "Inceptron": "no matching log state",
-      "Relace": "listing lags log"
+      "OpenInference": "no matching log state"
+    },
+    "deepseek/deepseek-v4-pro": {
+      "Baidu": "listing lags log"
     },
     "deepseek/deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
@@ -273,6 +278,7 @@
     },
     "glm-5-3-flash": {
       "BaseTen": "2 endpoints at one current price",
+      "Inceptron": "no matching log state",
       "Sail Research": "2 endpoints at one current price"
     },
     "gpt-5-3-codex": {
@@ -394,8 +400,7 @@
     ],
     "glm-5-3": [
       "Nebius",
-      "OpenInference",
-      "Tenstorrent"
+      "OpenInference"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
