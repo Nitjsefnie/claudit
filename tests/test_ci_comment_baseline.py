@@ -133,14 +133,18 @@ def test_comment_only_runs_check_with_dependencies():
     job = workflow('tests.yml')['jobs']['pytest']
     assert 'if' not in job
     steps = job['steps']
-    check = next(step for step in steps if step.get('name') == 'Comment share baseline')
+    checks = [step for step in steps if step.get('name') == 'Comment share baseline']
+    assert len(checks) == 1
+    check = checks[0]
     assert check['run'] == 'python3 scripts/ci/comment_baseline.py'
     assert check['if'] == (
         "${{ !cancelled() && steps.pytest.conclusion != 'skipped' "
         "&& inputs.thresholds_only != 'true' }}")
-    install = next(step for step in steps if step.get('run') == 'npm ci --no-audit --no-fund')
+    installs = [step for step in steps if step.get('run') == 'npm ci --no-audit --no-fund']
+    assert len(installs) == 1
+    install = installs[0]
     assert install['if'] == check['if']
-    assert steps.index(install) < steps.index(check)
+    assert steps.index(install) + 1 == steps.index(check)
     assert any('-r requirements-test.txt' in step.get('run', '')
                for step in steps[:steps.index(check)])
     ratchet = next(step for step in steps if step.get('id') == 'ratchet')
