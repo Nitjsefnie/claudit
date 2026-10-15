@@ -742,7 +742,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-15T08:54:13Z",
+  "provider_rates_fetched": "2026-10-15T09:54:30Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -17784,6 +17784,12 @@
           "from": "2026-10-15T08:40:47Z",
           "output": 7.7846626686,
           "read": 0.082252667
+        },
+        {
+          "fresh": 0.019,
+          "from": "2026-10-15T09:54:30Z",
+          "output": 4.0,
+          "read": 0.019
         }
       ],
       "SiliconFlow": [
@@ -24591,6 +24597,26 @@
           "from": "2026-10-13T11:45:32Z",
           "output": 0.5,
           "read": 0.012
+        }
+      ],
+      "NextBit": [
+        {
+          "fresh": 0.18,
+          "from": "2026-09-17T14:45:54Z",
+          "output": 0.6,
+          "read": 0.036
+        },
+        {
+          "fresh": 0.165,
+          "from": "2026-09-23T07:41:07Z",
+          "output": 0.55,
+          "read": 0.033
+        },
+        {
+          "fresh": 0.19,
+          "from": "2026-10-15T09:44:32Z",
+          "output": 0.6,
+          "read": 0.05
         }
       ],
       "Novita": [
