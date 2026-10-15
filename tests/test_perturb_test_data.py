@@ -481,7 +481,7 @@ def test_the_perturbed_doc_passes_the_loaders_validation(tmp_path):
 
 def test_the_file_stays_in_the_canonical_layout(tmp_path):
     _doc, _perturbed, text, _path = _run(tmp_path)
-    assert text == json.dumps(json.loads(text), indent=2, sort_keys=True) + "\n"
+    assert text == serialize_pricing_doc(json.loads(text))
 
 
 def test_the_constants_file_bumps_exactly_plus_one(tmp_path):
@@ -534,8 +534,8 @@ def _rows_of(doc: dict) -> list[tuple[str, list]]:
 
 def _newest_real_stamp(entries: list) -> datetime | None:
     """The newest non-null `from` in one row, or None when it has none."""
-    stamps = [datetime.fromisoformat(entry["from"].replace("Z", "+00:00"))
-              for entry in entries if entry.get("from") is not None]
+    stamps = [datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+              for entry in entries for stamp in (entry["from"] if isinstance(entry.get("from"), list) else [entry.get("from")]) if stamp is not None]
     return max(stamps) if stamps else None
 
 
