@@ -194,6 +194,70 @@ def test_serializer_stores_rows_and_expand_restores_editable_entries():
         '2026-01-01T00:00:00Z', '2026-01-03T00:00:00Z']
 
 
+def test_serializer_keeps_each_provider_row_on_one_compact_line():
+    doc = _fixture()
+    doc['providers'][ROW_KEY][HOST][0]['note'] = 'café "rows"\nnext'
+    doc['zz_layout'] = {'list': ['first', 'second']}
+    serialized = pricing_document.serialize_pricing_doc(doc)
+    stored = json.loads(serialized)
+    row_lines = [line.strip().removesuffix(',') for line in serialized.splitlines()
+                 if line.startswith('        [')]
+    assert row_lines[0] == r'[null,1,2.0,0.1,"café \"rows\"\nnext"]'
+    assert row_lines[1] == '[[1767225600,172800],2.0,3,0,20]'
+    assert [json.loads(line) for line in row_lines] == stored['providers'][ROW_KEY][HOST]
+    standard = json.dumps(stored, indent=2, sort_keys=True, allow_nan=False) + '\n'
+    assert len(serialized.encode()) < len(standard.encode())
+    assert serialized.split('  "providers": ', 1)[0] == standard.split('  "providers": ', 1)[0]
+    assert serialized.split('  "zz_layout": ', 1)[1] == standard.split('  "zz_layout": ', 1)[1]
+
+
+def test_serializer_is_idempotent_and_loads_the_same_tables():
+    from backend.pricing_load import load_tables  # pylint: disable=import-outside-toplevel
+    doc = _fixture()
+    before = copy.deepcopy(doc)
+    serialized = pricing_document.serialize_pricing_doc(doc)
+    stored = json.loads(serialized)
+    decoded = _codec().decode_pricing_doc(stored)
+    assert pricing_document.serialize_pricing_doc(decoded) == serialized
+    assert pricing_document.serialize_pricing_doc(stored) == serialized
+    assert load_tables(stored) == load_tables(doc)
+    assert _typed(doc) == _typed(before)
+
+
+@pytest.mark.skipif(shutil.which('node') is None, reason='node not available')
+def test_node_loader_reads_the_serialized_row_layout(tmp_path):
+    from backend.pricing_load import load_tables  # pylint: disable=import-outside-toplevel
+    serialized = pricing_document.serialize_pricing_doc(_fixture())
+    (tmp_path / 'pricing.json').write_text(serialized, encoding='utf-8')
+    for name in ('pricing-loader.js', 'hhmm-spelling.js', 'vendor-tables.js', 'pricing-rows.js'):
+        shutil.copy(ROOT / 'src' / name, tmp_path / name)
+    script = """
+      global.window = {};
+      const fs = require('fs');
+      const loader = require('./pricing-loader.js');
+      console.log(JSON.stringify({
+        decoded: loader.decodePricingDoc(JSON.parse(fs.readFileSync('pricing.json', 'utf8'))),
+        rates: window.providerRates,
+        windows: window.providerDatedRates
+      }));
+    """
+    result = subprocess.run(['node', '-e', script], cwd=tmp_path, capture_output=True,
+                            text=True, check=False, timeout=60)
+    assert result.returncode == 0, result.stderr
+    got = json.loads(result.stdout)
+    stored = json.loads(serialized)
+    assert got['decoded'] == _codec().decode_pricing_doc(stored)
+    tables = load_tables(stored)
+    fields = [('fresh', 'fresh'), ('c5', 'create_5m'), ('c1h', 'create_1h'),
+              ('read', 'read'), ('out', 'output'), ('search', 'web_search')]
+    browser_rates = [got['rates'][ROW_KEY][HOST],
+                     *[w['rates'] for w in got['windows'][ROW_KEY][HOST]]]
+    python_rates = [tables['PROVIDER_RATES'][ROW_KEY, HOST],
+                    *[rates for _, rates in tables['PROVIDER_DATED_RATES'][ROW_KEY, HOST]]]
+    assert [[rates.get(js, 0) for js, _ in fields] for rates in browser_rates] == [
+        [rates.get(py, 0) for _, py in fields] for rates in python_rates]
+
+
 @pytest.mark.parametrize('instants', [
     ['2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z'],
     ['2026-01-01T00:00:00Z', '2026-12-01T00:00:00Z'],

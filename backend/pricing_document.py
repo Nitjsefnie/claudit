@@ -83,11 +83,32 @@ def compact_pricing_doc(doc: dict) -> dict:
     return out
 
 
+def _serialize_provider_map(providers: dict, indent: int = 2) -> str:
+    """Indent model/host maps, keeping each complete storage row on one line."""
+    fields = []
+    for key, value in sorted(providers.items()):
+        if isinstance(value, dict):
+            rendered = _serialize_provider_map(value, indent + 2)
+        else:
+            rows = [" " * (indent + 4) + json.dumps(
+                row, separators=(",", ":"), ensure_ascii=False,
+                sort_keys=True, allow_nan=False) for row in value]
+            rendered = "[\n" + ",\n".join(rows) + "\n" + " " * (indent + 2) + "]"
+        fields.append(" " * (indent + 2) + json.dumps(key) + ": " + rendered)
+    return ("{\n" + ",\n".join(fields) + "\n" + " " * indent + "}"
+            if fields else "{}")
+
+
 def serialize_pricing_doc(doc: dict) -> str:
-    """Serialize the canonical compact document used by every writer."""
-    return json.dumps(encode_pricing_doc(compact_pricing_doc(doc)),
-                      indent=2, sort_keys=True,
-                      allow_nan=False) + "\n"
+    """Serialize storage rows compactly within the sorted, indented document."""
+    stored = encode_pricing_doc(compact_pricing_doc(doc))
+    fields = []
+    for key, value in sorted(stored.items()):
+        rendered = (_serialize_provider_map(value) if key == "providers"
+                    else json.dumps(value, indent=2, sort_keys=True,
+                                    allow_nan=False).replace("\n", "\n  "))
+        fields.append("  " + json.dumps(key) + ": " + rendered)
+    return "{\n" + ",\n".join(fields) + "\n}\n"
 
 
 def check_compact_shape(doc: dict, decoded: dict | None = None) -> None:
