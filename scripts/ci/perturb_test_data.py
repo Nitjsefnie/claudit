@@ -55,13 +55,14 @@ import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import cast
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 # pylint: disable=wrong-import-position
 from backend import pricing  # noqa: E402
 from backend.pricing_document import effective_rates, serialize_pricing_doc  # noqa: E402
-from backend.pricing_rows import decode_pricing_doc  # noqa: E402
+from backend.pricing_rows import decode_pricing_doc, flatten_provider_history  # noqa: E402
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
@@ -140,7 +141,9 @@ def _append_rows(doc: dict, all_rows: list[tuple[str, list, bool]],
     counter = base + timedelta(seconds=1)
     last_appended = None
     for row_key, entries, may_search in _shuffled(all_rows, seed):
-        newest = entries[-1]
+        history, _ = flatten_provider_history(
+            entries, row_key, lambda stamp, _: _parse_stamp(cast(str, stamp)))
+        newest = history[-1]
         previous_from = newest.get("from")
         for note, rates in _appended_specs(seed, row_key, newest, may_search):
             entry_from = _stamp_after(previous_from, candidate=counter)
@@ -170,9 +173,10 @@ def _bump_fetch_stamp(doc: dict, last_appended: str | None) -> None:
 def _newest_stamp(rows: list[tuple[str, list, bool]]) -> datetime | None:
     """The document's newest real `from`, parsed, over every entry of
     every row; None when no entry carries one."""
-    stamps = [_parse_stamp(entry["from"])
+    stamps = [_parse_stamp(stamp)
               for _key, entries, _search in rows for entry in entries
-              if entry.get("from") is not None]
+              for stamp in (entry["from"] if isinstance(entry.get("from"), list)
+                            else [entry.get("from")]) if stamp is not None]
     return max(stamps) if stamps else None
 
 
