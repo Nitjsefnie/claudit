@@ -51,6 +51,7 @@ from refresh_common import bump_pricing_version  # noqa: E402
 from backend import pricing  # noqa: E402
 from backend.pricing_document import (  # noqa: E402
     expand_pricing_doc, serialize_pricing_doc)
+from backend.pricing_rows import flatten_provider_history  # noqa: E402
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
@@ -104,6 +105,8 @@ def collapse(doc: dict, days: float, as_of: str) -> tuple[dict, list[str], set[s
     hosts: set[str] = set()
     for model, provider_hosts in source_doc["providers"].items():
         for host, history in provider_hosts.items():
+            history, _ = flatten_provider_history(
+                history, f"{model} via {host}", pricing._instant)  # pylint: disable=protected-access
             shape = price_band.classify(history, at, days)["shape"]
             if shape not in price_band.OSCILLATING:
                 continue
