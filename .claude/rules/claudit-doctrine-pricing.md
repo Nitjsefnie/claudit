@@ -5,6 +5,11 @@ paths:
   - "**/src/rates.js"
   - "**/backend/pricing.py"
   - "**/backend/pricing_load.py"
+  - "**/backend/pricing_document.py"
+  - "**/backend/pricing_rows.py"
+  - "**/src/pricing-loader.js"
+  - "**/src/pricing-rows.js"
+  - "**/src/hhmm-spelling.js"
   - "**/backend/rate_fingerprint.py"
   - "**/backend/rate_boundaries.py"
   - "**/backend/ingest_reprice.py"
@@ -125,7 +130,55 @@ list to `key -> {threshold, input_mult?, output_mult?}` and membership is
 exactly the map's keys. The complete entries ride the reprice pass's
 rate_fingerprint; the browser exposes them as `window.longContextMeters`.
 
-Each row's history is append-only, oldest first. Its effective vector is
+The stored document carries `_format: "pricing-rows/3"`. `models`
+histories retain object entries. Each `providers[model][host]` series is
+a non-empty list of positional rows: `[T, F, O, R]`, `[T, F, O, R, N]`,
+`[T, F, O, R, {rest}]`, or `[T, F, O, R, N, {rest}]`. F/O/R are the
+`fresh`/`output`/`read` rates, preserving their JSON int/float types. The
+optional note N is a number only when rendering it as `n% off` restores
+the identical string in both loaders; otherwise it is the original
+string. The optional rest object carries other entry fields:
+`create_5m`, `create_1h`, `web_search`, `schedule`, and transitional `band`.
+It cannot override `from`, `fresh`, `output`, `read`, or `note`.
+
+T is mandatory: null means the undated leading entry, an integer means
+one instant, and a non-empty integer list means that state's several
+instants. The first dated row's first instant is absolute Unix seconds
+UTC; every subsequent row's first instant is a delta from the previous
+row's FIRST instant, not its last occurrence. Within a T-list, subsequent
+numbers are deltas from the preceding element. Rows ascend by first
+instant and lists ascend strictly; instants across the series are
+distinct. Both loaders refuse negative, non-integer, duplicate, or
+out-of-range deltas, malformed slots and rest objects, misplaced nulls,
+missing/wrong format markers, and object-shaped stored provider entries,
+naming the provider row where applicable. A fractional or exponent
+spelling of a timestamp number is refused before JavaScript loses its
+numeric spelling.
+
+`backend/pricing_rows.py` and `src/pricing-rows.js` decode to object
+entries. T-lists become `from` lists of canonical whole-second UTC
+`YYYY-MM-DDTHH:MM:SSZ` strings; a scalar remains scalar. An undated
+leading decoded entry explicitly carries `from: null`. Encoding and
+`migrate_pricing_doc` accept either absent or null leading `from` and
+store T=null. The losslessness bar is exact typed equality on this
+explicit-null, canonical UTC decoded shape:
+`decode(encode(doc)) == doc`, including int/float distinctions. Migration
+converts legacy object histories after a rebase as well as at initial
+conversion. Expanding/compacting an editable document preserves grouped
+instants. At raw boundaries the order is decode, check stored shape,
+expand defaults, then validate; no boundary decodes twice.
+
+For lookup tables, flatten all grouped instants into chronological order.
+The state owning instant j applies until instant j+1; the state owning
+the latest instant is the list price, even when its stored row precedes
+another row. Schedules and bands follow each occurrence of their owning
+state. Every instant is bounded by `provider_rates_fetched`. The host's
+start and its fallback before that start keep their existing meaning;
+a null-first state covers all earlier time. Complete log histories stay
+stored; timestamp lists carry oscillation without substituting schedules.
+Schedules from `pricing.overrides` retain their weekly UTC behavior.
+
+Each decoded row's history is append-only. Its effective vector is
 five finite non-negative token rates (`fresh`, `create_5m`, `create_1h`,
 `read`, `output`). `fresh`, `read`, and `output` are always present;
 `create_5m` and `create_1h` are present only when each differs from
@@ -142,17 +195,19 @@ loaders check and fold its shape without using it for pricing
 (SV-RATE-REFRESH). Nothing writes a
 `band` beside a `schedule`, and the loaders do not refuse one if it
 appears: the band is read for its shape only, and the schedule still
-decides which hours price what. The leading entry's `from` defaults to
-`null` when absent. A model row therefore covers all time. A provider
+decides which hours price what. The leading model entry's `from` defaults
+to `null` when absent. A model row therefore covers all time. A provider
 row's first may name its start instant; before it, that host's records
 price by the model alone, and the start joins `RATE_EPOCHS`. Every later
-`from` is exactly
+model-history `from` is exactly
 `YYYY-MM-DDTHH:MM:SS` plus `Z` or `±HH:MM`, every field in range (a
 real calendar day, hour 0-23, minute/second 0-59, offset under 24:00),
-strictly after its predecessor. The newest entry is the list price;
-each earlier one applies until its successor's `from` (SV-DATED-RATES).
+strictly after its predecessor. A model history's newest entry is its
+list price; each earlier one applies until its successor's `from`
+(SV-DATED-RATES). Provider histories use the flattened order above.
 
-A price change APPENDS `{"from": T, ...}`. An entry is never edited or
+A price change APPENDS an editable `{"from": T, ...}` entry, then the
+shared serializer encodes provider storage rows. An entry is never edited or
 removed, except to correct a misstated price or instant (a wrong seeded
 price; sampled entries dated at detection where OpenRouter's log has
 the real change points — the SV-RATE-REFRESH backfill), and only in a

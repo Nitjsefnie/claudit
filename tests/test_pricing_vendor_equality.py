@@ -10,6 +10,7 @@ import shutil
 import subprocess
 from datetime import datetime, timedelta
 import pytest
+from backend.pricing_rows import encode_pricing_doc
 
 from backend import pricing
 
@@ -170,10 +171,11 @@ def test_migration_prices_every_record_identically_in_the_browser(tmp_path):
     for name, doc in (("old", _old_doc()), ("new", _new_doc())):
         d = tmp_path / name
         d.mkdir()
-        (d / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+        (d / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
         shutil.copy(LOADER_JS, d / "pricing-loader.js")
         shutil.copy(VENDOR_TABLES_JS, d / "vendor-tables.js")
         shutil.copy(HHMM_JS, d / "hhmm-spelling.js")
+        shutil.copy(HHMM_JS.with_name("pricing-rows.js"), d / "pricing-rows.js")
         shutil.copy(RATES_JS, d / "rates.js")
         shutil.copy(PARSER_USAGE_JS, d / "parser-usage.js")
         shutil.copy(PARSER_JS, d / "parser.js")
@@ -281,10 +283,11 @@ def test_the_browser_tier_fallback_skips_a_rowless_tracked_key(tmp_path):
     doc["openrouter"]["models"]["claude-opus-9"] = {
         "id": "acme/claude-opus.9", "vendor_host": HOST}
     doc["models"]["claude-opus-4-7"] = [_entry(R_THIRD)]
-    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
+    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     proc = subprocess.run(
         ["node", "-e", """

@@ -53,6 +53,7 @@ KIMI_LEGACY_PROBE_FIXTURE = (
 # The seams later scripts and the panels consume; all must survive the
 # full classic-script load.
 _SEAMS = (
+    "decodePricingDoc",
     "parseLaneCodex",
     "parseLaneKimiCode",
     "parseLaneLegacy",

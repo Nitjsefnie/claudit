@@ -18,7 +18,9 @@ from typing import TypedDict
 
 from backend.meter_tables import _long_context_meters
 from backend.pricing_document import (RATE_FIELDS, check_compact_shape,
-                                      check_dual_pin_tags, effective_rates)
+                                      check_dual_pin_tags, effective_rates,
+                                      expand_pricing_doc)
+from backend.pricing_rows import decode_pricing_doc, flatten_provider_history
 
 # Every rate lives in src/pricing.json (SV-RATE-DATA); this module holds
 # resolution logic only. The file sits under src/ because the browser's
@@ -224,11 +226,13 @@ def _history(entries: list[dict], where: str, may_begin: bool = False,
     dated entry; a predecessor-equal entry is refused (#931, #930).
     Mirrored by _checkHistory.
     """
+    entries, owners = (flatten_provider_history(entries, where, _instant) if may_begin
+                       else (entries, list(range(len(entries)))))
     rates: list[dict] = []
     starts: list[datetime] = []
     schedules: dict[int, list[ScheduleWindow]] = {}
     for i, entry in enumerate(entries):
-        at = f"{where}[{i}]"
+        at = f"{where}[{owners[i]}]"
         _check_entry_fields(entry, at, may_begin)
         if "schedule" in entry:
             if not may_begin:
@@ -250,7 +254,8 @@ def _history(entries: list[dict], where: str, may_begin: bool = False,
                     f"{at}: 'from' {stamp!r} is after provider_rates_fetched "
                     f"{fetched.isoformat().replace('+00:00', 'Z')!r}")
             starts.append(start)
-        if i > 0 and ({k: v for k, v in entry.items() if k != "from"}
+        if i > 0 and owners[i] != owners[i - 1] and (
+                {k: v for k, v in entry.items() if k != "from"}
                       == {k: v for k, v in entries[i - 1].items()
                           if k != "from"}):
             raise ValueError(f"{at}: equal to the previous entry except 'from'")
@@ -386,6 +391,7 @@ def _provider_bands(doc: dict) -> dict[tuple[str, str], dict[int, dict]]:
     out: dict[tuple[str, str], dict[int, dict]] = {}
     for model, hosts in doc["providers"].items():
         for host, entries in hosts.items():
+            entries, _ = flatten_provider_history(entries, f"{model} via {host}", _instant)
             bands = {i: check_band(entry["band"], f"{model} via {host}[{i}]")
                      for i, entry in enumerate(entries) if "band" in entry}
             if bands:
@@ -393,8 +399,17 @@ def _provider_bands(doc: dict) -> dict[tuple[str, str], dict[int, dict]]:
     return out
 
 
+def _stored_document(raw: dict) -> dict:
+    """Decode once, check storage, then expand before shared validation."""
+    decoded = decode_pricing_doc(raw)
+    check_compact_shape(raw, decoded)
+    return expand_pricing_doc(decoded)
+
+
 def load_tables(doc: dict) -> RateTables:
     """Every rate table, derived from the parsed pricing.json, in file order."""
+    if "_format" in doc:
+        return load_tables(_stored_document(doc))
     fetched = _instant(doc["provider_rates_fetched"],
                        "provider_rates_fetched")
     model_rates: dict[str, dict] = {}
@@ -442,8 +457,7 @@ def load_tables(doc: dict) -> RateTables:
 # The raw file at import is the storage boundary, checked for stored shape
 # first; load_tables stays shape-agnostic for every other caller.
 _RAW = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
-check_compact_shape(_RAW)
-_TABLES = load_tables(_RAW)
+_TABLES = load_tables(_stored_document(_RAW))
 MODEL_RATES = _TABLES["MODEL_RATES"]
 # Dated overrides per exact key: (end_exclusive_utc, rates), oldest first.
 # Applied only when a timestamp is supplied and only on an EXACT key match —

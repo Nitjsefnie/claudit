@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from backend.pricing_rows import encode_pricing_doc
 
 
 from backend import pricing
@@ -515,6 +516,7 @@ def _node_load(tmp_path: Path, text: str) -> str | None:
                 tmp_path / "hhmm-spelling.js")
     shutil.copy(ROOT / "src" / "vendor-tables.js",
                 tmp_path / "vendor-tables.js")
+    shutil.copy(ROOT / "src" / "pricing-rows.js", tmp_path / "pricing-rows.js")
     program = (f"global.window={{}};let e=null;try{{require({str(loader)!r})}}"
                "catch(x){e=x.message}console.log(JSON.stringify(e))")
     proc = subprocess.run(["node", "-e", program], capture_output=True, text=True,
@@ -543,6 +545,6 @@ def test_a_malformed_band_is_refused_naming_the_row(band):
 
 @needs_node
 def test_an_overflowed_band_bound_is_refused_naming_the_row_in_the_browser(tmp_path):
-    text = json.dumps(_banded_doc({"fresh": [0.1, "1e999"]}))
+    text = json.dumps(encode_pricing_doc(_banded_doc({"fresh": [0.1, "1e999"]})))
     error = _node_load(tmp_path, text.replace('"1e999"', "1e999"))
     assert error and "synthetic/model via HostCo[0].band[fresh]" in error, error

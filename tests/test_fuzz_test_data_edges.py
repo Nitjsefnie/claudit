@@ -341,6 +341,8 @@ def _build_runnable_repo(repo: Path) -> None:
     backend = repo / "backend"
     backend.mkdir()
     (backend / "__init__.py").write_text("", encoding="utf-8")
+    for name in ("pricing_rows.py", "pricing_document.py"):
+        shutil.copyfile(ROOT / "backend" / name, backend / name)
     # RATE_FIELDS is the real constant's value at run time.
     (backend / "pricing.py").write_text(
         f"RATE_FIELDS = {pricing.RATE_FIELDS!r}\n\n\n"
@@ -494,3 +496,18 @@ def test_help_names_the_flags(capsys):
     assert "--iterations" in out
     assert "--seed" in out
     assert "--jobs" in out
+
+
+def test_fuzzer_preserves_provider_row_storage(monkeypatch, tmp_path):
+    from backend.pricing_document import serialize_pricing_doc  # pylint: disable=import-outside-toplevel
+    from backend.pricing_rows import decode_pricing_doc  # pylint: disable=import-outside-toplevel
+    repo, pricing_path, original = _prepare_fuzz_tree(monkeypatch, tmp_path)
+    pristine = serialize_pricing_doc(original)
+    monkeypatch.setattr(fuzz_module, 'restore_baseline',
+                        lambda _root: pricing_path.write_text(pristine, encoding='utf-8'))
+    result = fuzz_module.fuzz_iteration(repo, 1, 263, tmp_path)
+    raw = json.loads(pricing_path.read_text(encoding='utf-8'))
+    assert result['ok']
+    assert raw['_format'] == 'pricing-rows/3'
+    assert pricing.load_tables(raw)['PROVIDER_RATES']
+    assert decode_pricing_doc(raw)['providers']

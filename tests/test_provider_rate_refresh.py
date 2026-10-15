@@ -414,7 +414,7 @@ def _browser_pricing_script(run: Run, where: Path, body: str) -> str:
     """Prepare the run's real browser pricing modules and one readout."""
     where.mkdir(exist_ok=True)
     shutil.copy(run.pricing, where / "pricing.json")
-    for source in (LOADER_JS, VENDOR_TABLES_JS, HHMM_JS, RATES_JS, PARSER_USAGE_JS, PARSER_JS):
+    for source in (LOADER_JS, VENDOR_TABLES_JS, HHMM_JS, HHMM_JS.with_name("pricing-rows.js"), RATES_JS, PARSER_USAGE_JS, PARSER_JS):
         shutil.copy(source, where / source.name)
     return f"""
       global.window = {{}};

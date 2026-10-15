@@ -9,10 +9,7 @@ scoped by structure (a start/end that is a member of an object that is a
 direct element of a "schedule" array), not by key name alone — a future
 openrouter.start or a rates object's start parses untouched.
 
-Driven through node like test_parser_js_mirror.py and
-test_provider_rate_refresh.py: a copy of pricing-loader.js beside a
-stand-alone copy of pricing.json in a tmp dir — never the repo's real
-file.
+Runs a copy of pricing-loader.js beside synthetic pricing.json in a tmp dir.
 """
 import json
 import shutil
@@ -20,7 +17,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from backend.pricing_document import compact_pricing_doc
+from backend.pricing_document import serialize_pricing_doc
 from backend.pricing_load import load_tables
 from tests.refresh_fixture_builders import DEFAULT_ROW
 
@@ -86,7 +83,7 @@ def _render(doc: dict, spelling: str | None = None) -> str:
     ingest check enforces, issue #931), with the SENTINEL placeholder
     replaced by a raw number token (`spelling`) where a test controls
     the spelling."""
-    text = json.dumps(compact_pricing_doc(doc), indent=2, sort_keys=True) + "\n"
+    text = serialize_pricing_doc(doc)
     if spelling is not None:
         assert str(SENTINEL) in text, "no placeholder to spell"
         text = text.replace(str(SENTINEL), spelling, 1)
@@ -110,6 +107,7 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
     shutil.copy(LOADER_JS, where / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, where / "vendor-tables.js")
     shutil.copy(HHMM_JS, where / "hhmm-spelling.js")
+    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), where / "pricing-rows.js")
     shutil.copy(ROOT / "src" / "rates.js", where / "rates.js")
     shutil.copy(ROOT / "src" / "parser-usage.js", where / "parser-usage.js")
     shutil.copy(ROOT / "src" / "parser.js", where / "parser.js")
@@ -314,7 +312,7 @@ def _grouped_doc(groups):
 
 
 def _loaded_long_context(tmp_path, doc):
-    out = _run(tmp_path, json.dumps(doc, indent=2, sort_keys=True))
+    out = _run(tmp_path, _render(doc))
     assert out["error"] is None, out
     script = (
         "global.window = {};\n"
@@ -361,7 +359,7 @@ def test_backend_and_browser_agree_on_grouped_meter_keys(
     doc = _grouped_doc([{"threshold": 100_000, "models": [key]}])
     if tracked_entry is not None:
         doc["openrouter"]["models"][key] = tracked_entry
-    rendered = json.dumps(doc, indent=2, sort_keys=True)
+    rendered = _render(doc)
 
     backend_error = None
     try:
@@ -378,7 +376,7 @@ def test_backend_and_browser_agree_on_grouped_meter_keys(
 def test_backend_and_browser_refuse_array_shaped_tracked_models(tmp_path):
     doc = _grouped_doc([{"threshold": 100_000, "models": ["0"]}])
     doc["openrouter"]["models"] = [{"id": "acme/other.9"}]
-    rendered = json.dumps(doc, indent=2, sort_keys=True)
+    rendered = _render(doc)
 
     backend_error = None
     try:
@@ -430,7 +428,7 @@ def test_backend_and_browser_refuse_array_shaped_tracked_models(tmp_path):
     ({"claude-opus-4-8": {"threshold": 200_000}}, "list of groups"),
 ])
 def test_the_browser_load_refuses_invalid_grouped_meters(tmp_path, groups, reason):
-    out = _run(tmp_path, json.dumps(_grouped_doc(groups), indent=2, sort_keys=True))
+    out = _run(tmp_path, _render(_grouped_doc(groups)))
     assert out["error"] and reason in out["error"], out
 
 
@@ -438,7 +436,7 @@ def test_the_browser_load_refuses_invalid_grouped_meters(tmp_path, groups, reaso
 def test_the_browser_load_refuses_the_removed_membership_field(tmp_path):
     doc = _grouped_doc([])
     doc["long_context_models"] = []
-    out = _run(tmp_path, json.dumps(doc, indent=2, sort_keys=True))
+    out = _run(tmp_path, _render(doc))
     assert out["error"] and "long_context_models" in out["error"], out
 
 
@@ -446,7 +444,7 @@ def test_the_browser_load_refuses_the_removed_membership_field(tmp_path):
 def test_the_browser_load_refuses_a_non_finite_meter_factor(tmp_path):
     doc = _grouped_doc([{"threshold": 200_000, "models": [
         {"claude-opus-4-8": {"input_mult": 5.0}}]}])
-    text = json.dumps(doc, indent=2, sort_keys=True).replace(
+    text = _render(doc).replace(
         '"input_mult": 5.0', '"input_mult": 1e309')
     out = _run(tmp_path, text)
     assert out["error"] and "long_context_meters" in out["error"], out

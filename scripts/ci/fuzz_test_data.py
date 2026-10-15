@@ -53,6 +53,8 @@ from fuzz_sharding import (  # noqa: E402  (re-exported for the tests)
     install_interrupt_handlers,
 )
 from backend import pricing  # noqa: E402
+from backend.pricing_rows import decode_pricing_doc  # noqa: E402
+from backend.pricing_document import serialize_pricing_doc  # noqa: E402
 
 PRICING_REL = Path("src") / "pricing.json"
 STAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
@@ -83,6 +85,9 @@ def fuzz_iteration(repo_root: Path, iteration: int, base_seed: int,
     restore_baseline(repo_root)
     pricing_path = repo_root / PRICING_REL
     doc = json.loads(pricing_path.read_text(encoding="utf-8"))
+    stored = "_format" in doc
+    if stored:
+        doc = decode_pricing_doc(doc)
     rng = iteration_rng(base_seed, iteration)
     rows = _rows(doc)
     if not rows:
@@ -90,13 +95,13 @@ def fuzz_iteration(repo_root: Path, iteration: int, base_seed: int,
                          "models/providers; fuzzing nothing proves nothing")
     doc_max = _max_real_stamp(rows)
     touched = _choose_rows(rows, rng)
-    for _key, entries in touched:
-        entries.append(_appended_entry(entries, doc_max, rng))
+    for row in touched:
+        row[1].append(_appended_entry(row[1], doc_max, rng))
     new_row_key = _maybe_add_new_row(doc, doc_max, rng, base_seed, iteration)
     _bump_fetch_stamp(doc)
     pricing.load_tables(doc)
     pricing_path.write_text(
-        json.dumps(doc, indent=2, sort_keys=True) + "\n",
+        serialize_pricing_doc(doc) if stored else json.dumps(doc, indent=2, sort_keys=True) + "\n",
         encoding="utf-8", newline="\n")
     suite = run_suite(repo_root)
     result: dict = {"iteration": iteration, "seed": base_seed,

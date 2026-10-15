@@ -32,6 +32,8 @@ from pathlib import Path
 
 import pytest
 
+from backend.pricing_document import expand_pricing_doc, serialize_pricing_doc
+
 ROOT = Path(__file__).resolve().parents[1]
 # The bench's complete import closure, copied beside each copy's own
 # bench so the executed bench's ROOT is the copy: the injection then
@@ -115,9 +117,9 @@ def bench_copies_fixture(tmp_path):
     plain = _build_copy(tmp_path / "plain")
     grown = _build_copy(tmp_path / "grown")
     doc_path = grown / DOC_RELATIVE
-    doc = json.loads(doc_path.read_text(encoding="utf-8"))
+    doc = expand_pricing_doc(json.loads(doc_path.read_text(encoding="utf-8")))
     doc_path.write_text(
-        json.dumps(_appended_document(doc), indent=2, sort_keys=True) + "\n",
+        serialize_pricing_doc(_appended_document(doc)),
         encoding="utf-8")
     (plain / "bench_files.txt").write_text("tests/test_synth_probe.py\n",
                                            encoding="utf-8")

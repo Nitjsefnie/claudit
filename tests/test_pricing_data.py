@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from backend.pricing_rows import encode_pricing_doc
 
 from backend import pricing
 from backend.pricing_document import expand_pricing_doc
@@ -158,6 +159,7 @@ def _copy_browser(tmp_path):
     shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
+    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
     shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
     shutil.copy(PARSER_JS, tmp_path / "parser.js")
@@ -259,7 +261,7 @@ def test_the_backend_prices_every_row_as_the_file_says(monkeypatch, factory):
 def test_both_sides_resolve_every_row_the_file_defines_identically(
         monkeypatch, tmp_path, factory):
     doc = _install(monkeypatch, factory)
-    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     _copy_browser(tmp_path)
     cases = _cases(doc)
     got_all = _node(tmp_path / "parser.js", f"""
@@ -415,7 +417,7 @@ def test_an_appended_entry_prices_from_its_cutover_on_in_the_backend(
 def test_an_appended_entry_prices_from_its_cutover_on_in_the_browser(
         tmp_path, path, model, host):
     doc, before, after = _appended(path)
-    (tmp_path / "pricing.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     _copy_browser(tmp_path)
     cut = _at(doc["provider_rates_fetched"])
     stamps = [_stamp(cut - timedelta(seconds=1)),

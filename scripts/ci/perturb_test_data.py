@@ -61,6 +61,7 @@ sys.path.insert(0, str(REPO_ROOT))
 # pylint: disable=wrong-import-position
 from backend import pricing  # noqa: E402
 from backend.pricing_document import effective_rates, serialize_pricing_doc  # noqa: E402
+from backend.pricing_rows import decode_pricing_doc  # noqa: E402
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 CONSTANTS_PY = REPO_ROOT / "backend" / "constants.py"
@@ -109,6 +110,8 @@ def perturb_pricing(path: Path,
     Returns (row count, seed, stamp base) for the run report.
     """
     doc = json.loads(path.read_text(encoding="utf-8"))
+    if "_format" in doc:
+        doc = decode_pricing_doc(doc)
     if seed is None:
         seed = int(datetime.now(timezone.utc).timestamp())
     all_rows = _rows(doc)

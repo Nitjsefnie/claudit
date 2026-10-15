@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
+from tests.pricing_row_helpers import decoded_pricing_doc
 
 # The production scripts use sibling imports when run directly.
 # pylint: disable=wrong-import-position,wrong-import-order
@@ -85,8 +86,6 @@ def _doc(hosts: dict[str, list[dict]], resolve: dict | None = None) -> dict:
 def _entry(at: str | None, rates: dict, **extra) -> dict:
     """Provider history row in the pricing document's compact spelling."""
     entry = {"from": at, **rates, **extra}
-    if at is None:
-        entry.pop("from")
     for field in ("create_5m", "create_1h"):
         if entry.get(field, entry["fresh"]) == entry["fresh"]:
             entry.pop(field, None)
@@ -190,7 +189,7 @@ def test_log_backed_history_appends_every_move_at_its_own_time_through_a_flip(
         tmp_path, capsys, history=states, version=71)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     history = saved["providers"][MODEL][HOST]
     # Issue #836: the undated first entry is the level in force before the
     # window, so the flip returns to it and the row is a TOGGLE — the run
@@ -256,7 +255,7 @@ def test_log_changes_at_or_before_the_newest_entry_are_ignored(tmp_path, capsys)
     rc, _, err, pricing_path, _ = _run(tmp_path, capsys, history=states, hosts={HOST: row})
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     # Issue #836: the undated baseline makes the return to it a TOGGLE, so
     # the run appends the new state and forms the band; the states at or
     # before the newest entry are still ignored. Window: the undated A
@@ -312,7 +311,10 @@ def test_log_append_compares_offset_timestamps_as_instants(
         endpoint_rates=endpoint_rates)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
+    expected = [{**entry, "from": datetime.fromisoformat(entry["from"]).astimezone(
+        timezone.utc).isoformat().replace("+00:00", "Z")} if entry["from"] else entry
+                for entry in expected]
     assert saved["providers"][MODEL][HOST] == expected
 
 
@@ -343,7 +345,7 @@ def test_invalid_generated_log_entry_samples_only_its_host(tmp_path, capsys):
     out, err = capsys.readouterr()
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     assert saved["providers"][MODEL][HOST] == [
         _entry(None, RATE_A), _entry(wafer_states[1][0], RATE_B)]
     assert saved["providers"][MODEL]["Ancient"] == [_entry(STAMP, RATE_C)]
@@ -358,7 +360,7 @@ def test_a_new_host_gets_its_whole_log_history(tmp_path, capsys):
     rc, _, err, pricing_path, _ = _run(tmp_path, capsys, history=states, hosts={})
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     assert saved["providers"][MODEL][HOST] == [_entry(at, rates) for at, rates in states]
 
 
@@ -376,7 +378,7 @@ def test_first_seen_import_begins_at_the_history_floor(tmp_path, capsys):
     rc, _, err, pricing_path, _ = _run(tmp_path, capsys, history=states, hosts={})
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     assert saved["providers"][MODEL][HOST] == [
         # The state in force at the floor begins the row, so records at
         # and after the floor price through it; the superseded level
@@ -393,7 +395,7 @@ def test_disagreement_samples_the_host_at_detection_time_with_a_notice(tmp_path,
         tmp_path, capsys, history=states, endpoint_rates=RATE_C)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     assert saved["providers"][MODEL][HOST][-1] == _entry(STAMP, RATE_C)
     assert f"{HOST}" in out and \
         "no in-force state of the listed-pricing log matches the listing" in out
@@ -408,7 +410,7 @@ def test_a_listing_lagging_the_log_samples_with_the_lag_notice(tmp_path, capsys)
         tmp_path, capsys, history=states, endpoint_rates=RATE_A)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     assert saved["providers"][MODEL][HOST] == [_entry(None, RATE_A)]
     assert "the listing lags the listed-pricing log" in out
     assert f"sampled   {HOST}" in out
@@ -434,7 +436,7 @@ def test_log_fetch_failure_samples_moved_price_without_refusing_the_run(
     assert rc == 0 and not err
     assert f"listed-pricing log unavailable for {MODEL}" in out
     assert f"sampled   {HOST}" in out
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     assert saved["providers"][MODEL][HOST] == [
         _entry(None, RATE_A), _entry(STAMP, RATE_C)]
     assert f'PRICING_VERSION = "{version + 1}"' in constants_path.read_text(
@@ -515,6 +517,7 @@ def test_log_append_writes_a_file_accepted_by_both_rate_loaders(tmp_path, capsys
                     browser_dir / "hhmm-spelling.js")
         shutil.copy(ROOT / "src" / "vendor-tables.js",
                     browser_dir / "vendor-tables.js")
+        shutil.copy(ROOT / "src" / "pricing-rows.js", browser_dir / "pricing-rows.js")
         shutil.copy(ROOT / "src" / "rates.js", browser_dir / "rates.js")
         shutil.copy(ROOT / "src" / "parser-usage.js",
                     browser_dir / "parser-usage.js")
@@ -539,7 +542,7 @@ def test_a_future_log_point_is_sampled_not_committed_as_the_newest_entry(
         tmp_path, capsys, history=states, endpoint_rates=RATE_B)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     assert saved["providers"][MODEL][HOST] == [
         _entry(None, RATE_A), _entry(STAMP, RATE_B)]
     assert "no in-force state of the listed-pricing log matches the listing" in out
@@ -574,7 +577,7 @@ def test_a_row_carrying_a_future_entry_is_skipped_without_blocking_the_run(
     out, err = capsys.readouterr()
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     assert saved["providers"][MODEL][HOST] == row
     assert "not before the detection instant" in out
     assert "listed-pricing log unavailable for synthetic/model" in out
@@ -589,7 +592,7 @@ def test_a_consistent_future_change_stays_log_backed_and_waits_for_its_instant(
         tmp_path, capsys, history=states, endpoint_rates=RATE_A)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     assert saved["providers"][MODEL][HOST] == [_entry(None, RATE_A)]
     assert saved["provider_rates_fetched"] == STAMP
 
@@ -598,6 +601,6 @@ def test_a_consistent_future_change_stays_log_backed_and_waits_for_its_instant(
         tmp_path, capsys, history=states, endpoint_rates=RATE_C, now=later)
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text(encoding="utf-8"))
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     assert saved["providers"][MODEL][HOST] == [
         _entry(None, RATE_A), _entry(states[1][0], RATE_C)]
