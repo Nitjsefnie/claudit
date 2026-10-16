@@ -1,4 +1,4 @@
-"""Pinned setup sections shared by the documentation guard and CI classifier."""
+"""One definition of setup-doc pins for guard and classifier."""
 from __future__ import annotations
 
 import re
@@ -13,7 +13,7 @@ GUEST_LOGIN_ENV_LITERAL = 'CLAUDIT_GUEST_LOGIN'
 
 
 def section(text: str, heading: str) -> str | None:
-    """Keep the heading and its section, including any level-three headings."""
+    """## section to next ^## (not ###); None if absent."""
     head = re.search(rf'^## {re.escape(heading)}[^\S\n]*$', text, re.M)
     if head is None:
         return None
@@ -23,12 +23,7 @@ def section(text: str, heading: str) -> str | None:
 
 
 def setup_block(text: str, heading: str) -> str | None:
-    """Return the server-start fence's body verbatim, or None if unreadable.
-
-    An unterminated fence anywhere in the section invalidates extraction,
-    matching the setup guard's boundary check. Preserve whitespace and line
-    endings so the classifier compares bytes without normalizing commands.
-    """
+    """Verbatim server-start fence body; None if missing or any section fence is unclosed."""
     selected = section(text, heading)
     if selected is None:
         return None
@@ -49,11 +44,7 @@ def setup_block(text: str, heading: str) -> str | None:
 
 
 def pin_facts(text: str, path: str, heading: str) -> tuple[str | bool, ...] | None:
-    """The guard's complete section and any file-wide presence facts.
-
-    Unreadable setup sections or fences retain the full-gate fallback.
-    README's guest-setting presence is pinned beyond its setup section.
-    """
+    """Section + README guest-setting presence; None on extraction failure."""
     selected = section(text, heading)
     if selected is None or setup_block(text, heading) is None:
         return None
@@ -61,11 +52,7 @@ def pin_facts(text: str, path: str, heading: str) -> tuple[str | bool, ...] | No
 
 
 def classify(paths, event, run, refs, blob):
-    """Classify a documentation-shaped set after checking its pinned facts.
-
-    Every changed setup doc must extract on both sides, even after an earlier
-    doc changed. Read and extraction failures always run the full gate set.
-    """
+    """Both refs, all docs; failed reads/extraction run the full gate."""
     selected = [(path, heading) for path, heading in SECTIONS if path in paths]
     changed = []
     if selected:

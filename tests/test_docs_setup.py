@@ -1,12 +1,10 @@
 """Pin the three docs' application-database setup blocks together.
 
-The setup is written out three times -- README "Quick start",
-CONTRIBUTING "Getting it running" and AGENTS "Build and test commands"
--- and nothing failed when they drifted: CONTRIBUTING once shipped
-without the CLAUDIT_DATABASE_URL_AUTH env-edit mention (issue #464). Like
-test_panel_wiring.py, these are source-level pins: nothing here runs
-the commands or touches a database, and nothing else in the suite reads
-these docs, so a diverging edit passes every other test.
+The setup appears in README "Quick start", CONTRIBUTING "Getting it
+running" and AGENTS "Build and test commands". CONTRIBUTING once omitted
+CLAUDIT_DATABASE_URL_AUTH unnoticed (issue #464). Like test_panel_wiring.py,
+these source-level pins run no commands or database work; no other test
+reads these docs, so drift passes elsewhere.
 
 Three guards:
 
