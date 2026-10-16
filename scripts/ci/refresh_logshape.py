@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Validate OpenRouter's listed-pricing log response shape.
+"""Validate OpenRouter's listed-pricing log response.
 
-The listed-pricing log is used only when its response parses as complete,
-strictly-ordered, finite per-field point series. Only discount points may
-be negative; anything else raises PriceLogError, which the callers turn
-into a sampled host with a reason.
+Logs require complete, strictly ordered, finite field series; only discount
+points may be negative. Otherwise PriceLogError makes callers sample the host
+and report why.
 """
 from __future__ import annotations
 
