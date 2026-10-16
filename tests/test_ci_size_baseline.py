@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from functools import cache
 from pathlib import Path
+
+import pytest
 
 from tests import git_meta
 
@@ -37,16 +40,35 @@ def _load(name):
     return module
 
 
+@cache
+def _ci_modules():
+    """Load once at first use, with the same thresholds dependency."""
+    thresholds = _load("thresholds")
+    size_baseline = _load("size_baseline")
+    return thresholds, size_baseline
+
+
 def _thresholds():
-    return _load("thresholds")
+    return _ci_modules()[0]
 
 
 def _size_baseline():
-    return _load("size_baseline")
+    return _ci_modules()[1]
+
+
+@pytest.fixture(scope="module")
+def git_metadata():
+    git_meta.require_own_git_metadata(REPO_ROOT)
+
+
+@pytest.fixture(scope="module")
+def real_tracked_sizes(git_metadata):
+    # The main tests' function-scoped patches are restored before this runs.
+    return _size_baseline().tracked_sizes()
 
 
 def _document(baseline=None):
-    schema = _load("thresholds")
+    schema = _thresholds()
     return {
         "schema_version": 1,
         "coverage": {
@@ -198,10 +220,8 @@ def test_main_tighten_noop_explains(tmp_path, capsys, monkeypatch):
     assert "no module shrank" in capsys.readouterr().out
 
 
-def test_tracked_sizes_scope_and_counts():
-    git_meta.require_own_git_metadata(REPO_ROOT)
-    size_baseline = _size_baseline()
-    sizes = size_baseline.tracked_sizes()
+def test_tracked_sizes_scope_and_counts(real_tracked_sizes):
+    sizes = real_tracked_sizes
     assert sizes, "tracked_sizes found no modules"
     for rel in sizes:
         assert rel.startswith(
@@ -212,13 +232,11 @@ def test_tracked_sizes_scope_and_counts():
         known.read_text(encoding="utf-8").splitlines())
 
 
-def test_tracked_sizes_cover_src_javascript():
+def test_tracked_sizes_cover_src_javascript(real_tracked_sizes):
     # The shipped JS/JSX front end is in the size ratchet's scope: every
     # tracked src/**/*.js(x) file is counted, priced against the
     # production ceiling, and src/pricing.json is not (it is data).
-    git_meta.require_own_git_metadata(REPO_ROOT)
-    size_baseline = _size_baseline()
-    sizes = size_baseline.tracked_sizes()
+    sizes = real_tracked_sizes
     for rel in ("src/parser.js", "src/parser-lanes.js",
                 "src/dashboard-charts-extra.jsx", "src/app.jsx",
                 "src/views/cache-view.jsx"):
@@ -229,13 +247,12 @@ def test_tracked_sizes_cover_src_javascript():
     assert "src/pricing.json" not in sizes
 
 
-def test_committed_document_matches_tree():
-    git_meta.require_own_git_metadata(REPO_ROOT)
+def test_committed_document_matches_tree(real_tracked_sizes):
     thresholds = _thresholds()
     size_baseline = _size_baseline()
     doc = thresholds.load(THRESHOLDS_PATH)
     baseline = doc["module_size_baseline"]
-    sizes = size_baseline.tracked_sizes()
+    sizes = real_tracked_sizes
     for rel, recorded in baseline.items():
         assert sizes[rel] == recorded, f"stale entry for {rel}"
     found = size_baseline.violations(sizes, baseline)
@@ -253,15 +270,13 @@ def test_committed_baseline_seeds_only_over_ceiling_files():
         assert recorded > size_baseline.ceiling_for(rel)
 
 
-def test_tracked_sizes_cover_sql_css_and_workflow_yaml():
+def test_tracked_sizes_cover_sql_css_and_workflow_yaml(real_tracked_sizes):
     # The three families the audit found growing unmeasured (#393): the
     # shipped schema, the stylesheet and the workflow YAML join the
     # ratchet, priced against the production ceiling like any other
     # production source. The thresholds document itself is data, not
     # source, and stays outside.
-    git_meta.require_own_git_metadata(REPO_ROOT)
-    size_baseline = _size_baseline()
-    sizes = size_baseline.tracked_sizes()
+    sizes = real_tracked_sizes
     for rel in ("backend/schema.sql", "public/app.css",
                 ".github/workflows/tests.yml"):
         assert rel in sizes, f"{rel} is outside the size ratchet"
@@ -271,17 +286,16 @@ def test_tracked_sizes_cover_sql_css_and_workflow_yaml():
     assert ".github/ci-thresholds.json" not in sizes
 
 
-def test_committed_family_seeds_match_tree_and_only_over_ceiling():
+def test_committed_family_seeds_match_tree_and_only_over_ceiling(real_tracked_sizes):
     # Each seeded family entry equals the file's real line count, and a
     # family seed exists only where the ceiling alone cannot gate (the
     # file is over ceiling); under-ceiling files in a new family need no
     # entry. Pairs with test_committed_baseline_seeds_only_over_ceiling.
-    git_meta.require_own_git_metadata(REPO_ROOT)
     thresholds = _thresholds()
     size_baseline = _size_baseline()
     doc = thresholds.load(THRESHOLDS_PATH)
     baseline = doc["module_size_baseline"]
-    sizes = size_baseline.tracked_sizes()
+    sizes = real_tracked_sizes
     for rel in ("backend/schema.sql", "public/app.css"):
         assert sizes[rel] == baseline[rel]
         assert baseline[rel] > size_baseline.ceiling_for(rel)
