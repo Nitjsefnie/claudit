@@ -1,11 +1,6 @@
-"""#877: the mechanical multi-price host shapes resolve by rule.
+"""#877: endpoint-selection rules beneath explicit pins.
 
-Automatic rules, beneath an explicit resolve entry (which keeps precedence):
-a bare namespace endpoint beside service tiers; a unique quantization
-beside throughput tiers; the configured data region; and the cheapest of
-one quantization's price twins; an identity-matching tier base; and unique
-stored-price continuity. Each branch and its negative space is
-driven through listed_rows, and the live Alibaba shape end to end.
+Synthetic listings cover namespace, quantization, region and price continuity.
 """
 from __future__ import annotations
 
@@ -386,13 +381,10 @@ def test_the_alibaba_stopgap_pins_are_gone_from_the_document():
 
 
 def test_the_alibaba_shape_resolves_without_its_stopgap_pins(tmp_path, capsys):
-    """The live shape that redded four hourly refreshes: two alibaba/fp8
-    endpoints at two prices, beside an alibaba/fast tier. With the pins
-    gone, the same-quantization rule takes the cheaper fp8 endpoint and the
-    run is green with the rule-resolved line in its report. The live hosts
-    are deepseek/deepseek-v4-pro and glm-5-2; the fixture world carries the
-    former, glm-5-2 being a vendor-tracked key it drops. Seed the subjects
-    explicitly: vendor-tracked snapshots are also omitted by Run's seed."""
+    """#893: take the cheaper fp8 twin beside an alibaba/fast tier.
+
+    Vendor-tracked snapshots need explicit synthetic seed rows.
+    """
     run = Run(tmp_path)
     tracked = _openrouter_template()["models"]
     keys = [next(key for key, entry in tracked.items() if entry["id"] == model_id)
