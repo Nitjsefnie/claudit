@@ -16,7 +16,8 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from itertools import pairwise
+from io import BytesIO
+from itertools import pairwise, repeat
 from typing import TYPE_CHECKING
 
 from backend import pricing
@@ -40,6 +41,9 @@ def iter_lines(blob: bytes) -> Iterator[bytes]:
     the same lines without the list: CRLF is one separator, a lone CR is
     a separator, and the trailing fragment yields only when non-empty.
     """
+    if b"\r" not in blob or blob.count(b"\r") == blob.count(b"\r\n"):
+        yield from map(bytes.rstrip, BytesIO(blob), repeat(b"\r\n"))
+        return
     start = 0
     nl = blob.find(b"\n")
     cr = blob.find(b"\r")
@@ -120,7 +124,7 @@ class _ParseState:
 
     def __post_init__(self) -> None:
         self.collect = parse_collection(self.collection)
-        if self.collection.enabled("generation_speed"):
+        if self.collection is ALL_COLLECTIONS_ON or self.collection.enabled("generation_speed"):
             from backend.lane_generation import LaneGeneration  # pylint: disable=import-outside-toplevel
             self.lane_generation = LaneGeneration()
 
