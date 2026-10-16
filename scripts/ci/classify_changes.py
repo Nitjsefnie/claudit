@@ -32,8 +32,8 @@ full suite against the new rates BEFORE pushing (refresh-pricing.yml's
 refresh job), so re-running the whole matrix on the bot's push
 re-verifies nothing. Constants must replace just one numeric
 PRICING_VERSION assignment; other edits, unreadable blobs and paths
-outside either signature run the full gate. Only a push whose tip author
-is the refresh bot qualifies; pull requests always test their data.
+outside either signature run the full gate. Only bot-authored pushes
+qualify; PRs test the data.
 
 A THIRD class narrows a change that cannot move behaviour at all. When
 EVERY changed path is a source file (.py/.js/.jsx), the set fits
