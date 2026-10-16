@@ -107,7 +107,7 @@ def test_exempt_beats_every_other_part_of_the_set():
     for name in ("src/pricing.json", "src/pricing_notices.json",
                  "backend/constants.py", "backend/parser_version.py",
                  "VERSION",
-                 "backend", "tests", "fixtures", "compose",
+                 "backend", "tests", "tests/test_docs_setup.py", "fixtures", "compose",
                  "compose.yaml", "Dockerfile"):
         assert name in gts.EXEMPT, name
         assert not gts.is_triggered(name)

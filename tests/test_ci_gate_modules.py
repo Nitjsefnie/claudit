@@ -15,6 +15,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -449,7 +451,7 @@ def test_main_writes_full_run_over_an_unhandled_event(tmp_path, monkeypatch):
 
 LEGS = ("classify", "tests", "test-data", "lint", "types", "eslint",
         "panel-layout", "smoke", "docker-smoke", "audit", "actionlint",
-        "codeql")
+        "codeql", "setup-docs")
 
 
 def _needs(**overrides):
@@ -487,7 +489,56 @@ def test_aggregate_all_green_passes():
     # results are the table's job, not the message's.
     verdict, message = aggregate.decide(_needs())
     assert verdict == aggregate.PASSED
-    assert message == f"all {len(LEGS)} legs succeeded"
+    assert message == f"all {len(LEGS)} legs passed"
+
+
+@pytest.mark.parametrize('classification,matrix,guard,expected', [
+    ('docs_only', 'skipped', 'skipped', 'passed'),
+    ('setup_only', 'skipped', 'success', 'passed'),
+    ('setup_only', 'skipped', 'skipped', 'failed'),
+    ('setup_only', 'skipped', 'failure', 'failed'),
+    ('setup_only', 'skipped', 'cancelled', 'failed'),
+    ('setup_only', 'skipped', None, 'failed'),
+    ('full', 'success', 'skipped', 'passed'),
+    ('full', 'skipped', 'skipped', 'failed'),
+    ('data_only', 'success', 'skipped', 'passed'),
+    ('comment_only', 'success', 'skipped', 'passed'),
+    ('thresholds_only', 'success', 'skipped', 'passed'),
+    ('empty', 'skipped', 'skipped', 'failed'),
+])
+def test_setup_guard_skip_legality(classification, matrix, guard, expected):
+    doc = _needs()
+    doc['classify']['outputs'] = {} if classification == 'empty' else {
+        flag: str(flag == classification).lower() for flag in
+        ('docs_only', 'data_only', 'comment_only', 'thresholds_only', 'setup_only')}
+    for leg in LEGS[1:-1]:
+        doc[leg] = {'result': matrix}
+    if guard is None:
+        del doc['setup-docs']
+    else:
+        doc['setup-docs'] = {'result': guard}
+    verdict, message = aggregate.decide(doc)
+    assert verdict == expected, message
+
+
+@pytest.mark.parametrize('outputs', [None, {}, {'setup_only': ''}])
+def test_classifier_crash_stays_red_with_the_guard_skipped(outputs):
+    doc = _needs(classify__result='failure', **{'setup-docs__result': 'skipped'})
+    if outputs is None:
+        del doc['classify']['outputs']
+    else:
+        doc['classify']['outputs'] = outputs
+    verdict, message = aggregate.decide(doc)
+    assert verdict == aggregate.FAILED
+    assert 'classify=failure' in message
+
+
+def test_setup_narrowing_never_hides_a_classifier_failure():
+    doc = _needs(classify__result='failure')
+    doc['classify']['outputs']['setup_only'] = 'true'
+    for leg in LEGS[1:-1]:
+        doc[leg] = {'result': 'skipped'}
+    assert aggregate.decide(doc)[0] == aggregate.FAILED
 
 
 def test_aggregate_one_failed_fails_and_names_it():

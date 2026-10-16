@@ -11,27 +11,17 @@ needs document the workflow passes in as JSON:
   `data_only` skips every leg outside CHEAP_LEGS, `comment_only` skips
   exactly COMMENT_ONLY_SKIPPED (the legs a comment cannot affect) — so
   narrowing runs still report without any check ever going missing;
+  `setup_only` requires setup-docs alone, which otherwise skips because
+  the ordinary tests leg covers its guard;
 - any other result (`failure`, `cancelled`, anything unrecognised)
   fails the aggregate and is named in the verdict;
 - a leg the document lacks at all fails it too, so the fold and the
   workflow cannot silently disagree about what a complete run covers.
 
-SUPERSESSION IS NOT THIS MODULE'S DECISION. ci-gate's concurrency group
-is one per pull request, or per pushed commit SHA on a push (issue
-#358), so a newer push starts its own run and the group itself never
-cancels the older one — the ordinary two-push supersession cancel
-cannot leave a stale aggregate behind. The long leg (test-data) is
-per-SHA on a push too (issues #366, #409); a residual
-lives one level down in the remaining per-ref legs, whose groups hold
-at most one PENDING run, so a third concurrent master push cancels a
-merely-queued short leg, and that middle run's aggregate folds red
-here (the window is that leg's own duration; fails closed; the next
-push re-verifies it — see the workflow's SUPERSESSION block). Beyond
-that residual, a run-level cancel is
-always DELIBERATE: it leaves that run's aggregate cancelled, which a
-required-check ruleset treats as never-green, exactly as a failure
-does. So this module treats a cancelled leg as a failure without
-querying for a newer run.
+SUPERSESSION IS NOT THIS MODULE'S DECISION. ci-gate groups requests by
+number and pushes by SHA; test-data is per-SHA too. Per-ref legs can cancel
+a queued middle run when a third arrives. All cancellations fail here,
+deliberate or otherwise, without querying for a newer run.
 
 The verdict and a per-leg table go to the step summary; the exit code
 is the gate.
@@ -42,12 +32,11 @@ import json
 import os
 import sys
 
-# Every leg the workflow must report through, classifier included.
-# tests/test_workflow_ci_gate.py pins this tuple against the workflow's
-# needs list, so the two cannot drift apart.
+# Every workflow leg, classifier included; kept in sync with its needs
+# list by tests/test_workflow_ci_gate.py.
 EXPECTED_LEGS = ('classify', 'tests', 'test-data', 'lint', 'types', 'eslint',
                  'panel-layout', 'smoke', 'docker-smoke', 'audit',
-                 'actionlint', 'codeql')
+                 'actionlint', 'codeql', 'setup-docs')
 
 PASSED = 'passed'
 FAILED = 'failed'
@@ -107,7 +96,11 @@ def _narrowed(name, needs):
     comment-only run skips exactly the legs a comment cannot affect.
     A thresholds-only run requires tests and skips the other gate legs.
     """
+    if name == 'setup-docs':
+        return not _classify_output(needs, 'setup_only')
     if docs_only(needs):
+        return True
+    if _classify_output(needs, 'setup_only') and name in EXPECTED_LEGS[1:]:
         return True
     if data_only(needs) and name not in CHEAP_LEGS:
         return True
@@ -174,7 +167,7 @@ def decide(needs):
                 f'affect were skipped ({legs})')
         # One sentence, naming no legs: the per-leg results are the
         # table's job (issue #517) -- the enumeration read twice.
-        return PASSED, f'all {len(entries)} legs succeeded'
+        return PASSED, f'all {len(entries)} legs passed'
     parts = []
     if failures:
         parts.append('failing legs: ' + ', '.join(sorted(failures)))
@@ -198,6 +191,8 @@ def render(needs, verdict, message):
         f'{"true" if _classify_output(needs, "comment_only") else "false"}',
         f'thresholds-only narrowing: '
         f'{"true" if thresholds_only(needs) else "false"}',
+        f'setup-only narrowing: '
+        f'{"true" if _classify_output(needs, "setup_only") else "false"}',
     ]
     classify = needs.get('classify')
     reason = ((classify or {}).get('outputs') or {}).get('reason')

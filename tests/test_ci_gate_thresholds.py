@@ -63,7 +63,7 @@ def test_thresholds_only_accepts_other_skips_and_reports_narrowed_tests():
     verdict, message = aggregate_gate.decide(needs)
     assert verdict == aggregate_gate.PASSED
     assert 'thresholds-only' in message
-    assert '10 gate legs skipped by classification' in message
+    assert '11 gate legs skipped by classification' in message
     assert 'tests ran narrowed' in message
     rendered = aggregate_gate.render(needs, verdict, message)
     assert 'thresholds-only narrowing: true' in rendered
@@ -114,10 +114,13 @@ def test_every_non_tests_leg_skips_thresholds_only():
     jobs = _workflow('ci-gate.yml')['jobs']
     for name in aggregate_gate.EXPECTED_LEGS[1:]:
         condition = jobs[name]['if']
-        if name == 'tests':
+        if name == 'setup-docs':
+            assert condition == "needs.classify.outputs.setup_only == 'true'"
+        elif name == 'tests':
             assert condition == (
                 "needs.classify.outputs.docs_only != 'true' "
-                "&& needs.classify.outputs.data_only != 'true'")
+                "&& needs.classify.outputs.data_only != 'true' "
+                "&& needs.classify.outputs.setup_only != 'true'")
         else:
             assert "&& needs.classify.outputs.thresholds_only != 'true'" in condition
 
