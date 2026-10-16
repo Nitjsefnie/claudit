@@ -59,12 +59,13 @@ MAX_VISITS = reseed._MAX_VISITS  # pylint: disable=protected-access
 # derivation issue #502 needed after a shallow checkout shipped red.
 BENCH_ACTION = "$/.github/actions/suite-bench"
 
-# The loader jobs the explicit table pins (issue #582's fix set): every
-# job in the three other suite-running workflows plus tests.yml's
+# The loader jobs the explicit table pins (issue #582): setup-docs,
+# jobs in the three other suite-running workflows, and tests.yml's
 # portable cells. tests.yml's primary pytest cell and ratchet-push are
 # caught by the generic sweep below — a rename fails loudly as a
 # KeyError here instead of silently leaving a loader job shallow.
 LOADER_JOBS = {
+    "ci-gate.yml": ("setup-docs",),
     "tests.yml": ("pytest-portable",),
     "test-data.yml": ("perturbed-suite",),
     "test-data-explore.yml": ("perturbed-suite-explore",),
