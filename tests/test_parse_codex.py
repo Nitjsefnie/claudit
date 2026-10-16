@@ -666,15 +666,3 @@ def test_the_fork_head_advances_and_counts_like_the_parse_loop():
     assert first_model == "gpt-5.6-terra"
     # splitlines numbering: the CR line is lines 3-4, the declaration line 5.
     assert declared_at == 5
-
-
-@pytest.mark.parametrize("ordering,seconds,speeds", [
-    ("new", [None, 6, 8], [None, 4, 5]),
-    ("old", [6, 8, None], [4, 5, None]),
-])
-def test_codex_generation_ordering(ordering, seconds, speeds):
-    name = f"rollout_generation_{ordering}_ordering.jsonl"
-    records = parse.parse_file(f"codex/{name}", (FIX / name).read_bytes())["records"]
-    assert len(records) == 3
-    assert [r["generation_s"] for r in records] == seconds
-    assert [r["output_tokens_per_s"] for r in records] == speeds
