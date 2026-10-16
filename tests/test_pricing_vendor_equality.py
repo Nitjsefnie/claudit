@@ -1,7 +1,4 @@
-"""The migration's cost-equality pin (backend and browser) and the
-default-row/empty-bare-form refusals, split from test_pricing_vendor.py
-to keep that module under its size ceiling — relocation only, no
-assertion changed."""
+"""Migration cost parity and default/empty-bare-form loader refusals."""
 from __future__ import annotations
 
 import json
@@ -51,21 +48,14 @@ from tests.test_pricing_vendor import (
     needs_node,
 )
 
-# --- the migration's cost-equality pin ----------------------------------------
-# The committed proof: pricing synthetic records through the OLD tables
-# (the pre-migration location of the moved rows, hand-built here) and the
-# NEW tables (the same rows relocated) must price every record identically.
-# The old rows are frozen literals; the live-file binding below pins the
-# migrated rows to them at a fixed instant before every cutover, so a later
-# refresh append cannot rot either half.
+# Synthetic old/new tables must price the same records across migration.
 
 
 def _old_doc() -> dict:
-    """The pre-migration shapes of the moved rows (frozen literals).
-    claude-old-window-9 carries a real dated window: the equality claim
-    covers pricing ACROSS a cutover, not only windowless list prices.
-    The router row is namespaced before acme joins the vendor fold, so
-    its tracked key cannot collide with the old bare models-table row."""
+    """Old models rows and a namespaced router row before acme tracking.
+
+    A dated window tests cutovers; the prefix avoids bare-key collisions.
+    """
     return {
         "long_context_meters": [],
         "models": {
@@ -163,10 +153,7 @@ def test_migration_prices_every_record_identically():
 
 @needs_node
 def test_migration_prices_every_record_identically_in_the_browser(tmp_path):
-    """The committed browser half of the equality pin: the same hand-built
-    old and migrated documents through window.resolveModelRate and
-    computeSessionStats under node — kind, key, rates and cost equal
-    for every probe record, dated windows included."""
+    """Compare kind, key, rates and cost for both documents under node."""
     cases = _probe_records()
     tokens = cases[0][3]
     payloads = []
