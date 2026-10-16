@@ -109,8 +109,8 @@
       5422
     ],
     ".github/workflows/tests.yml": [
-      6750,
-      17588
+      6746,
+      17616
     ],
     ".github/workflows/types.yml": [
       1200,
@@ -717,8 +717,8 @@
       9498
     ],
     "scripts/ci/reseed.py": [
-      6348,
-      8189
+      6666,
+      8731
     ],
     "scripts/ci/size_baseline.py": [
       1614,
@@ -753,8 +753,8 @@
       17833
     ],
     "scripts/ci/thresholds_guard.py": [
-      4913,
-      10398
+      5198,
+      11553
     ],
     "scripts/ci/thresholds_validate.py": [
       4254,
@@ -1077,8 +1077,8 @@
       7954
     ],
     "tests/test_bash_churn.py": [
-      5231,
-      22066
+      3029,
+      19474
     ],
     "tests/test_bash_churn_loops.py": [
       1134,
@@ -1145,8 +1145,8 @@
       11078
     ],
     "tests/test_ci_gate_botdata.py": [
-      2383,
-      9346
+      2064,
+      8976
     ],
     "tests/test_ci_gate_modules.py": [
       4558,
@@ -1157,8 +1157,8 @@
       18408
     ],
     "tests/test_ci_ratchets.py": [
-      1985,
-      12093
+      1750,
+      11415
     ],
     "tests/test_ci_reseed.py": [
       8480,
@@ -1169,16 +1169,16 @@
       19314
     ],
     "tests/test_ci_reseed_walk_depth.py": [
-      3679,
-      9767
+      4614,
+      16311
     ],
     "tests/test_ci_thresholds.py": [
-      3447,
-      18559
+      3344,
+      18138
     ],
     "tests/test_ci_thresholds_guard.py": [
-      6230,
-      18913
+      5958,
+      21649
     ],
     "tests/test_ci_thresholds_reparse.py": [
       2056,
