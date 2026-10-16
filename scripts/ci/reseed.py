@@ -62,8 +62,9 @@ delete before the seed):
 - Each parent lineage of a merge HEAD gets its own _MAX_VISITS budget
   of ten commits; HEAD and sibling lineages cannot spend it. On linear
   history the ten visits include HEAD. Exhausting a lineage without
-  finding a marker contributes nothing, fail-closed; commits already
-  seen on another lineage are not read again.
+  finding a marker contributes nothing, fail-closed. A shared commit's
+  verdict and parents are read once, then applied on every lineage
+  reaching it; a cached plain commit still leads to its first parent.
 - Every commit read fails closed individually: a missing git, an
   unreadable revision (a shallow CI checkout's boundary among them) and
   a message without the marker all read the same way — that commit
@@ -185,28 +186,31 @@ def _declares(root: Path, marker: str, family: str) -> bool:
     """Read HEAD, then bounded first-parent lineages, last HEAD parent first.
 
     Each merge-HEAD parent gets _MAX_VISITS of its own; a linear HEAD
-    counts toward its lineage's budget. Family presence, an unreadable
-    commit or a previously seen commit ends only that lineage. A marker
-    declares only where its family is absent, the state it authorises.
+    counts toward its lineage's budget. Family presence or an unreadable
+    commit ends only that lineage. Cached verdicts deduplicate reads,
+    never visits: a shared plain commit still leads to its first parent.
+    A marker declares only where its family is absent.
     """
-    seen: set[str] = set()
+    @functools.cache
+    def read(revision: str) -> tuple[bool | None, list[str]]:
+        """Commit verdict (declares/plain/closed) and parents, independent of path."""
+        message = _revision_message(root, revision)
+        if message is None or _family_present(root, revision, family):
+            return None, []
+        if marker in message:
+            return True, []
+        return False, _parents(root, revision)
+
     lineages: list[tuple[str, int]] = [('HEAD', 0)]
     while lineages:
         revision, visits = lineages.pop()
         while visits < _MAX_VISITS:
-            if revision in seen:
-                break
-            seen.add(revision)
             visits += 1
-            message = _revision_message(root, revision)
-            if message is None:
+            verdict, parents = read(revision)
+            if verdict is None:
                 break
-            # Presence closes this lineage before its marker is judged.
-            if _family_present(root, revision, family):
-                break
-            if marker in message:
+            if verdict:
                 return True
-            parents = _parents(root, revision)
             if revision == 'HEAD' and len(parents) > 1:
                 lineages.extend((parent, 0) for parent in parents)
                 break
