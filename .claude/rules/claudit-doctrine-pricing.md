@@ -641,7 +641,7 @@ pass moved.
   deletes any group it empties.
 - **An unmodelled vendor shape refuses the run.** The vendor pass refuses
   a first-party listing it cannot represent, leaving that model untouched.
-  This includes weekly schedules, unknown override kinds or nonzero pricing
+  This includes scheduled meter bands, unknown override kinds or nonzero pricing
   keys, invalid web-search rates, multiple bands, bands that do not restate input
   and output, invalid thresholds, cache components that one input factor
   cannot represent, and bands mixed with UTC fields. The two
@@ -656,10 +656,12 @@ pass moved.
   `create_5m`, `create_1h`, `read`, and `output`. Either cache-write field
   is omitted when it equals `fresh`, and an absent field defaults to
   `fresh` (SV-RATE-DATA). Discount notes stay on provider entries.
-- **A weekly schedule refuses the vendor pass:** the price the pass
-  compared is a window price at fetch time, the same reason the provider
-  pass refuses a first-seen scheduled host inside one; the model is not
-  tracked until the pass can select an actual default.
+- **A weekly schedule is ordinary listing state.** The vendor pass selects
+  the first-party endpoint by its usual tags and pins; the provider pass
+  stores its schedule losslessly in provider history and appends schedule
+  changes as moves. A schedule combined with a `min_prompt_tokens` band
+  refuses: a window price cannot establish the meter's factors. A band
+  mixed with UTC fields on one override also refuses.
 - **The loaders run on the would-be file** before anything is written; a
   failure writes nothing.
 

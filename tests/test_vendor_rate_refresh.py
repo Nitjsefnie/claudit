@@ -407,15 +407,15 @@ def test_band_with_utc_fields_refuses():
 # --- unmodelled vendor shapes refuse (run red) --------------------------------
 
 
-def test_weekly_schedule_refuses():
+def test_weekly_schedule_adds_the_vendor_host():
     doc, out = _run(_doc(), _catalog(GLM_ID), {GLM_ID: _payload(_endpoint(
         "z-ai", _price(0.2, 1.0, overrides=[{"utc_days": ["monday"], "utc_start": 0,
                                              "utc_end": 100,
                                              "prompt": _per_token(0.1),
                                              "completion": _per_token(0.5)}])))})
-    assert len(out.refusals) == 1 and not out.notices
-    assert "weekly schedule" in out.refusals[0]
-    assert GLM_KEY not in doc["openrouter"]["models"]
+    assert not out.refusals and not out.notices
+    assert doc["openrouter"]["models"][GLM_KEY] == {
+        "id": GLM_ID, "vendor_host": "Vendor"}
 
 
 def test_unmodelled_override_kind_refuses():
