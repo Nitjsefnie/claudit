@@ -538,13 +538,9 @@ def _refused(run: Run, capsys, *names: str) -> None:
 
 def test_a_host_at_two_global_prices_is_refused_naming_the_tags(tmp_path, capsys):
     """Two endpoints outside any region — quantization variants, say — at
-    different prices: nothing in the data says which the account gets."""
+    different prices, neither stored: nothing says which the account gets."""
     run = Run(tmp_path)
-    run.endpoint(GLM, "Novita")["tag"] = "novita/fp8"
-    twin = copy.deepcopy(run.endpoint(GLM, "Novita"))
-    twin["tag"] = "novita/fp4"
-    twin["pricing"]["input_cache_read"] = "0.00000005"
-    run.endpoints(GLM).append(twin)
+    _two_global_novitas(run)
     _refused(run, capsys, GLM, "Novita", "novita/fp8", "novita/fp4")
 
 
@@ -552,9 +548,7 @@ def test_every_refusal_in_a_run_is_named(tmp_path, capsys):
     """One red run names every model a human must look at, not just the
     first one fetched."""
     run = Run(tmp_path)
-    twin = copy.deepcopy(run.endpoint(GLM, "Novita"))
-    twin["pricing"]["input_cache_read"] = "0.00000005"
-    run.endpoints(GLM).append(twin)
+    _two_global_novitas(run)
     run.endpoints(V41).clear()
     _refused(run, capsys, f"{GLM} via Novita", V41)
 
@@ -672,6 +666,10 @@ def test_the_region_a_tag_names(tag, region):
 
 
 def _two_global_novitas(run: Run) -> None:
+    """Different quantizations with no structural fit or stored-price match."""
+    stored = run.doc()["providers"][GLM]["Novita"][-1]
+    run.endpoint(GLM, "Novita")["pricing"]["prompt"] = _per_token(
+        stored["fresh"] * 2 or 0.01)
     run.endpoint(GLM, "Novita")["tag"] = "novita/fp8"
     twin = copy.deepcopy(run.endpoint(GLM, "Novita"))
     twin["tag"] = "novita/fp4"

@@ -16,7 +16,7 @@ weekly time-of-day prices (pricing.overrides) become its entry's schedule;
 its top-level price is the entry's default only when the fetch falls
 outside every window, since inside one it is that window's price.
 Endpoint selection — the resolution shapes (a tag, "cheapest", their
-combination, a recorded ignore) and the four automatic rules over the
+combination, a recorded ignore) and the automatic rules over the
 mechanical multi-price shapes — lives in refresh_selection.py and
 refresh_selection_rules.py. Tag/region normalisation and whole-week
 schedule coverage live in refresh_prices.py and are imported here.
@@ -26,8 +26,11 @@ These refuse the host or model they concern, which appends nothing:
   their combination with a recorded "ignore" of listing-artifact fields),
   where no automatic rule fits the shape — a bare namespace endpoint
   beside its service tiers, one quantization endpoint beside throughput
-  tiers, the configured data region, and one quantization's price twins
-  each resolve themselves and are reported as rule-resolved;
+  tiers, a base tag beside arbitrary suffix variants of identical
+  quantization and limits, the configured data region, one quantization's
+  price twins, and finally a unique price group matching the stored five
+  token rates (at ten decimals, ignoring search fees and schedules) each
+  resolve themselves and are reported as rule-resolved;
 - a resolution that no longer applies;
 - a price or override kind this script does not model, or a response
   shape it does not recognise. Web-search rates are sampled separately
