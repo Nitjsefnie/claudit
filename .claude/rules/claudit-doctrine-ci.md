@@ -267,8 +267,8 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   an unmeasured path. Suite-cost and reparse budget raises require a
   subject starting with `feat:` or `feat(scope):` in the judged commits:
   merge-base..HEAD on a PR, the pushed range on a push. Missing,
-  unreadable or empty ranges prove no feature and refuse raises. A
-  feature's measured cost is shown on its PR. Non-feature breaches are
+  unreadable or empty ranges prove no feature and refuse raises.
+  Non-feature breaches are
   answered by trimming their own tests: dropping redundant cases,
   merging parametrisations, deleting tests that repeat another test's
   assertions; growth, refactors and fixes do not remove, reshape or
