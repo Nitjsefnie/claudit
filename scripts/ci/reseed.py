@@ -5,12 +5,14 @@ Each cost family whose recorded numbers are a measured workload has the
 same sanctioned re-seed: ``suite_cost`` (its pinned bench fixture, its
 interpreter pin) and ``reparse`` (a parse-semantics change that
 legitimately spends the headroom, issue #698). SV-CI-RATCHETS forbids
-raising a recorded budget by hand, and the direction guard refuses an
-upward move whenever the base document already carries the family, so a
-re-seed whose counts are HIGHER than the recorded ones cannot land as
-one change; the delete-then-seed sequence needs an intermediate commit
-whose document carries no budget at all, and the loader refuses such a
-document.
+hand-derived raises. The direction guard (thresholds_guard.py) refuses
+an upward move of an established budget except a measured suite_cost
+or reparse raise when the judged commits carry a ``feat:`` or
+``feat(<scope>):`` subject (issue #1041); every other upward move stays
+forbidden. Changes that cannot use this admission, and suite_cost
+workload-identity changes (seed-only), take the re-seed path. Its
+delete-then-seed sequence needs an intermediate commit whose document
+carries no budget at all, and the loader refuses such a document.
 
 This module is the one sanctioned way across that intermediate step: a
 commit whose MESSAGE carries a family's marker
