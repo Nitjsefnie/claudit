@@ -107,8 +107,9 @@ def _latest_document_stamp(doc: dict) -> datetime:
     return max(stamps, default=datetime.min.replace(tzinfo=timezone.utc))
 
 
-def _in_force(model: str, history: list[dict], stamp: str | None) -> dict:
-    """Rates in force at `stamp`; a free-shaped id prices by shape."""
+def _in_force(model: str, history: list[dict], stamp: str | None,
+              provider: str | None = None) -> dict:
+    """Rates at `stamp`; only a request through a host takes its schedule."""
     if pricing._is_free(model, pricing._normalise(model)):  # pylint: disable=protected-access
         return dict(pricing.FREE_RATES)
     when = _when(stamp)
@@ -116,7 +117,7 @@ def _in_force(model: str, history: list[dict], stamp: str | None) -> dict:
     for entry in history[1:]:
         if when is None or _at(entry["from"]) <= when:
             current = entry
-    if when is not None:
+    if provider is not None and when is not None:
         utc = when.astimezone(timezone.utc)
         day, hhmm = utc.strftime("%A").lower(), utc.hour * 100 + utc.minute
         for window in current.get("schedule", []):
@@ -132,6 +133,41 @@ def _in_force(model: str, history: list[dict], stamp: str | None) -> dict:
     if "web_search" in current:
         rates["web_search"] = current["web_search"]
     return rates
+
+
+@pytest.mark.parametrize("stamp, provider, expected", [
+    ("2031-01-06T22:00:00Z", "Fixture", "window"),
+    ("2031-01-06T23:30:00Z", "Fixture", "window"),
+    ("2031-01-06T01:30:00Z", "Fixture", "window"),
+    ("2031-01-07T01:30:00Z", "Fixture", "base"),
+    ("2031-01-06T02:00:00Z", "Fixture", "base"),
+    ("2031-01-06T21:59:00Z", "Fixture", "base"),
+    ("2031-01-07T00:30:00+02:00", "Fixture", "window"),
+    ("2031-01-06T23:30:00Z", None, "base"),
+    ("2031-01-13T23:30:00Z", "Fixture", "latest"),
+    (None, "Fixture", "latest"),
+    (None, None, "latest"),
+])
+def test_the_in_force_oracle_applies_only_the_serving_hosts_current_window(
+        stamp, provider, expected):
+    """Wrapped days belong to the UTC record day; first match wins.
+
+    Bare vendor requests and null timestamps use the entry's own rates.
+    A later entry without a schedule also clears the earlier windows.
+    """
+    base = dict(NEWCOMER)
+    window = {field: rate * 2 for field, rate in base.items()}
+    overlapping = {field: rate * 3 for field, rate in base.items()}
+    latest = {field: rate * 4 for field, rate in base.items()}
+    history = [{"from": None, **base, "web_search": 0.04, "schedule": [
+        {"days": ["monday"], "start": 2200, "end": 200, "rates": window},
+        {"days": ["monday"], "start": 2200, "end": 200,
+         "rates": overlapping}]},
+        {"from": "2031-01-13T00:00:00Z", **latest, "web_search": 0.08}]
+    rates = {"base": base, "window": window, "latest": latest}[expected]
+    search = 0.08 if expected == "latest" else 0.04
+    assert _in_force("fixture/scheduled-oracle", history, stamp, provider) == {
+        **rates, "web_search": search}
 
 
 def _around(cutovers) -> list[str]:
@@ -260,7 +296,7 @@ def test_the_backend_prices_every_row_as_the_file_says(monkeypatch, factory):
             assert got == pricing.resolve(model, _when(stamp)), label
             continue
         assert got.kind == "exact", label
-        assert got.rates == _in_force(model, histories[model, host], stamp), label
+        assert got.rates == _in_force(model, histories[model, host], stamp, host), label
 
 
 @needs_node
