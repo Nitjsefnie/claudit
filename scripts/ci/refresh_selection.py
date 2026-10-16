@@ -1,28 +1,25 @@
 #!/usr/bin/env python3
 """Endpoint selection for the OpenRouter provider-rate refresh (SV-RATE-REFRESH).
 
-One host's listed endpoints become its one row: the data-region filter, the
-per-host resolution recorded in openrouter.models.<model>.resolve, and the
-automatic rules of refresh_selection_rules.py. These refuse the host they
-concern, which appends nothing: a stale pin; twins that differ beyond a
-recorded ignore; a tied or flipped price order; a resolution keyed on a
-price; a multi-price shape no rule fits. The hourly append machinery lives
-in refresh_provider_rates.py.
+Each host becomes one row via the data-region filter, its explicit
+openrouter.models.<model>.resolve pin, or refresh_selection_rules.py's rules.
+Refuse stale pins, twins differing beyond a recorded ignore, tied/flipped
+price orders, price-keyed resolutions, and multi-price shapes no rule fits.
+A refused host appends nothing; refresh_provider_rates.py owns appending.
 
-    A resolution: {"tag": ...} takes that tag's endpoints, whatever their
-    region; if that tag leaves multiple prices with the same quantization,
-    the same-quantization rule takes the cheapest within the tag.
-    {"select": "cheapest"} takes the cheaper of endpoints identical in tag,
-    quantization and limits, comparing cache read, then input, then output;
-    the two combine, the tag narrowing first. "ignore": [fields]
-    refines a 'cheapest': the named identity fields are a recorded human
-    decision that the endpoints are one offering listed with a listing
-    artifact, so 'cheapest' compares the rest. With no resolution at all the
-    automatic rules of refresh_selection_rules.py resolve the mechanical
-    multi-price shapes: namespace and quantization bases, matching-identity
-    tier extensions with arbitrary suffixes, quantization price twins, and
-    finally a unique group at the stored token rates. The region filter
-    applies first. The run reports each automatic choice as rule-resolved.
+    {"tag": ...} takes that tag's endpoints regardless of region. Multiple
+    prices of one quantization invoke same-quantization's cheapest choice
+    within the tag. {"select": "cheapest"} requires identical tag,
+    quantization and limits; order by cache read, input, then output.
+    Combined pins narrow by tag first. "ignore": [fields] records a human
+    decision that identity differences are listing artifacts of one offering;
+    'cheapest' compares the remaining fields.
+
+    Explicit pins take precedence. Otherwise region filtering precedes the
+    automatic rules: namespace/quantization bases, matching-identity tier
+    extensions with arbitrary suffixes, quantization price twins, and finally
+    a unique group at the stored token rates. Every automatic choice reports
+    its rule as rule-resolved.
 """
 from __future__ import annotations
 
@@ -67,9 +64,8 @@ class Listing:
 
 def _listing(endpoint: object, where: str, at: datetime,
              kept: dict | None) -> Listing:
-    """One listed endpoint at the fetch instant `at`. The listed price
-    already has any promotional discount applied; the discount is kept only
-    as the note beside it.
+    """Endpoint at fetch instant `at`; prices include promotional discounts,
+    which are kept only as notes.
 
     A scheduled host's top-level price is the window active at `at`, not a
     stable default. So inside a window the row's own default, `kept`, stays
