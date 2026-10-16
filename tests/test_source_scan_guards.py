@@ -443,7 +443,7 @@ def test_lane_guard_keeps_both_branches_chunks_and_enumeration(
 @pytest.mark.parametrize("body, offends", [
     pytest.param("if False:\n    DOC = '''\n    {}\n    '''\n", True,
                  id="multiline-dead-branch"),
-    pytest.param("if False:\n    DOC = '{}'\n", False,
+    pytest.param("if False:\n    DOC = '{}'\n", True,
                  id="single-line-dead-branch"),
     pytest.param("DOC = '''\n    {}\n    '''\n", False, id="multiline-live"),
 ])
@@ -453,9 +453,12 @@ def test_scan_property_keeps_its_multiline_and_folded_branches(
     _plant(tmp_path, {"tests/test_dead.py": body.format(
         "pr" + "icing.json")}, [])
     message = _tree_guards(tmp_path, monkeypatch)[0]()
-    if offends:
+    if offends and "'''" in body:
         assert message is not None and message.startswith(
             "test_dead.py: gate misses 'pr' 'icing.json' inside a "
             "multiline constant")
+    elif offends:
+        assert message is not None and message.startswith(
+            "test_dead.py: gate misses the string constant 'pricing.json'")
     else:
         assert message is None
