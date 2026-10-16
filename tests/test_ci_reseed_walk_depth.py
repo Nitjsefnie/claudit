@@ -241,14 +241,78 @@ def test_family_presence_closes_only_its_merge_lineage(
 
 
 @pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("budget, expected", [(1, False), (2, True)])
 def test_both_marked_lineages_declare_in_either_parent_order(
-        tmp_path: Path, reverse: bool) -> None:
-    """Last-parent-first priority cannot change the verdict for two markers."""
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        reverse: bool, budget: int, expected: bool) -> None:
+    """Both parent orders honor the boundary, visiting the last parent first."""
     base = [(False, f"base delete {reseed.MARKER}"), (False, "base noise")]
     pr = [(False, f"PR delete {reseed.MARKER}"), (False, "PR noise")]
     repo = _lineage_repo(tmp_path / "repo", base, pr)
     _merge_head(repo, reverse)
-    assert reseed.in_flight(repo) is True
+    last_parent = _git(repo, "rev-parse", "HEAD^2").strip()
+    reads: list[str] = []
+    revision_message = reseed._revision_message  # pylint: disable=protected-access
+
+    def record_message(root: Path, revision: str) -> str | None:
+        reads.append(revision)
+        return revision_message(root, revision)
+
+    monkeypatch.setattr(reseed, "_revision_message", record_message)
+    monkeypatch.setattr(reseed, "_MAX_VISITS", budget)
+    assert reseed.in_flight(repo) is expected
+    assert reads[1] == last_parent
+
+
+@pytest.mark.parametrize("marker_side", ["base", "pr"])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("budget, expected", [(2, False), (3, True)])
+def test_converging_lineages_keep_their_own_remaining_budget(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        marker_side: str, reverse: bool, budget: int, expected: bool) -> None:
+    """A shared plain commit cannot spend the shorter lineage's next visit."""
+    shared = [(False, f"delete {reseed.MARKER}"), (False, "fork point")]
+    repo = _lineage_repo(tmp_path / "repo", shared, [])
+    # Both branches share the marker and fork point. One reaches the
+    # marker at visit three; the other exhausts three visits at the fork.
+    _git(repo, "merge", "-q", "--ff-only", "master")
+    fork = _git(repo, "rev-parse", "HEAD").strip()
+    pr_count, base_count = (1, 2) if marker_side == "pr" else (2, 1)
+    _lineage_commits(repo, [(False, f"PR noise {i}") for i in range(pr_count)])
+    _git(repo, "checkout", "-q", "master")
+    _lineage_commits(repo, [(False, f"base noise {i}") for i in range(base_count)])
+    _merge_head(repo, reverse)
+    calls: list[tuple[str, ...]] = []
+    run = reseed._run  # pylint: disable=protected-access
+
+    def record_read(root: Path, *args: str) -> subprocess.CompletedProcess | None:
+        calls.append(args)
+        return run(root, *args)
+
+    monkeypatch.setattr(reseed, "_run", record_read)
+    monkeypatch.setattr(reseed, "_MAX_VISITS", budget)
+    assert reseed.in_flight(repo) is expected
+    # The verdict and parents are reused, while the per-lineage visits
+    # above still decide whether the marker is within reach.
+    assert calls.count(('log', '-1', '--format=%B', fork)) == 1
+    assert calls.count(('show', f'{fork}:.github/ci-thresholds.json')) == 1
+    assert calls.count(('show', '-s', '--format=%P', fork)) == 1
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_shared_family_present_verdict_closes_both_lineages(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reverse: bool) -> None:
+    """A cached family-present commit still blocks its own and older markers."""
+    shared = [(False, f"old delete {reseed.MARKER}"),
+              (True, f"seed {reseed.MARKER}")]
+    repo = _lineage_repo(tmp_path / "repo", shared, [])
+    _git(repo, "merge", "-q", "--ff-only", "master")
+    _lineage_commits(repo, [(False, "PR deletion"), (False, "PR noise")])
+    _git(repo, "checkout", "-q", "master")
+    _lineage_commits(repo, [(False, "base deletion")])
+    _merge_head(repo, reverse)
+    monkeypatch.setattr(reseed, "_MAX_VISITS", 3)
+    assert reseed.in_flight(repo) is False
 
 
 @pytest.mark.parametrize("budget, expected", [(2, False), (3, True)])
