@@ -165,45 +165,39 @@ def test_missing_reparse_cpu_member_refused(tmp_path):
         thresholds.load(target, False)
 
 
-def test_missing_reparse_phase_refused(tmp_path):
+@pytest.mark.parametrize("mutate,match", [
+    pytest.param(lambda doc: doc["reparse"].pop("residual"),
+                 "missing reparse CPU phase: residual", id="missing-phase"),
+    pytest.param(lambda doc: doc["reparse"].update(
+        persist={"measured": 1.0, "floor": 2.5}),
+        "unknown reparse CPU phase: persist", id="unknown-phase"),
+    pytest.param(lambda doc: doc["reparse"]["sniff"]["share"].pop("floor"),
+                 "missing reparse CPU sniff.share: floor", id="missing-floor"),
+    pytest.param(lambda doc: doc["reparse"]["sniff"].update(unit="percent"),
+                 "unknown reparse CPU sniff: unit", id="unknown-field"),
+    pytest.param(lambda doc: doc["reparse"]["sniff"].update(
+        share={"measured": 6.4, "floor": 8.4}),
+        "gap must be 1.5", id="wrong-gap"),
+    pytest.param(lambda doc: doc["reparse"]["sniff"].update(
+        share={"measured": 6.4, "floor": 5.9}),
+        r"reparse\.sniff\.share\.floor must be above", id="floor-below-measured"),
+])
+def test_missing_reparse_phase_refused(tmp_path, mutate, match):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
-    del payload["reparse"]["residual"]
+    mutate(payload)
     target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError,
-                       match="missing reparse CPU phase: residual"):
+    with pytest.raises(ValueError, match=match):
         thresholds.load(target)
 
 
-def test_unknown_reparse_phase_refused(tmp_path):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["reparse"]["persist"] = {"measured": 1.0, "floor": 2.5}
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="unknown reparse CPU phase: persist"):
-        thresholds.load(target)
-
-
-def test_missing_reparse_phase_field_refused(tmp_path):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    del payload["reparse"]["sniff"]["share"]["floor"]
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="missing reparse CPU sniff.share: floor"):
-        thresholds.load(target)
-
-
-def test_unknown_reparse_phase_field_refused(tmp_path):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["reparse"]["sniff"]["unit"] = "percent"
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="unknown reparse CPU sniff: unit"):
-        thresholds.load(target)
-
-
-@pytest.mark.parametrize("value", ["100.1", "-0.1"])
-def test_reparse_share_must_be_a_percentage(tmp_path, value):
+@pytest.mark.parametrize("value,match", [
+    pytest.param("100.1", "between 0.0 and 100.0", id="above-percentage"),
+    pytest.param("-0.1", "between 0.0 and 100.0", id="negative-percentage"),
+    pytest.param("6", "exactly one decimal place", id="integer"),
+    pytest.param("6.45", "exactly one decimal place", id="two-decimals"),
+])
+def test_reparse_share_must_be_a_percentage(tmp_path, value, match):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
     payload["reparse"]["sniff"]["share"] = {
@@ -211,7 +205,7 @@ def test_reparse_share_must_be_a_percentage(tmp_path, value):
         "floor": json.loads(value) + 1.5,
     }
     target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="between 0.0 and 100.0"):
+    with pytest.raises(ValueError, match=match):
         thresholds.load(target)
 
 
@@ -224,41 +218,6 @@ def test_reparse_zero_share_is_a_real_reading(tmp_path):
     doc = thresholds.load(target)
     assert doc["reparse"]["sidecar"]["share"]["measured"] == Decimal("0.0")
     assert doc["reparse"]["sidecar"]["bytecodes"]["measured"] == Decimal("0.0")
-
-
-@pytest.mark.parametrize("value", ["6", "6.45"])
-def test_reparse_share_needs_exactly_one_decimal_place(tmp_path, value):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["reparse"]["sniff"]["share"] = {
-        "measured": json.loads(value),
-        "floor": json.loads(value) + 1.5,
-    }
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="exactly one decimal place"):
-        thresholds.load(target)
-
-
-def test_reparse_wrong_calibration_gap_refused(tmp_path):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["reparse"]["sniff"]["share"] = {"measured": 6.4, "floor": 8.4}
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="gap must be 1.5"):
-        thresholds.load(target)
-
-
-def test_reparse_floor_below_measured_refused(tmp_path):
-    # The floor is a CEILING on a cost, so it sits above the measured
-    # value: a record the other way round would gate every future run
-    # below a number it cannot influence.
-    target = _written_document(tmp_path, reparse=_reparse())
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["reparse"]["sniff"]["share"] = {"measured": 6.4, "floor": 5.9}
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError,
-                       match=r"reparse\.sniff\.share\.floor must be above"):
-        thresholds.load(target)
 
 
 @pytest.mark.parametrize("metric", ["share", "bytecodes"])

@@ -141,32 +141,23 @@ def test_violations_clean_tree_has_no_entries():
     assert not any(size_baseline.violations(sizes, {}).values())
 
 
-def test_tightened_lowers_shrunk_entry():
+@pytest.mark.parametrize("baseline,sizes,expected", [
+    pytest.param({"backend/grown.py": 900}, {"backend/grown.py": 750},
+                 {"backend/grown.py": 750}, id="shrunk"),
+    pytest.param({"tests/graduated.py": 900}, {"tests/graduated.py": 400},
+                 {}, id="graduated"),
+    pytest.param({"backend/grown.py": 500}, {"backend/grown.py": 550},
+                 None, id="growth"),
+    pytest.param({"backend/same.py": 900}, {"backend/same.py": 900},
+                 None, id="unchanged"),
+])
+def test_tightened_lowers_shrunk_entry(baseline, sizes, expected):
     size_baseline = _size_baseline()
-    updated = size_baseline.tightened(
-        {"backend/grown.py": 900}, {"backend/grown.py": 750})
-    assert updated == {"backend/grown.py": 750}
-
-
-def test_tightened_drops_graduated_entry():
-    size_baseline = _size_baseline()
-    updated = size_baseline.tightened(
-        {"tests/graduated.py": 900}, {"tests/graduated.py": 400})
-    assert updated == {}
-
-
-def test_tightened_keeps_growth_untouched():
-    size_baseline = _size_baseline()
-    updated = size_baseline.tightened(
-        {"backend/grown.py": 500}, {"backend/grown.py": 550})
-    assert updated is None
-
-
-def test_tightened_noop_is_none():
-    size_baseline = _size_baseline()
-    updated = size_baseline.tightened(
-        {"backend/same.py": 900}, {"backend/same.py": 900})
-    assert updated is None
+    updated = size_baseline.tightened(baseline, sizes)
+    if expected is None:
+        assert updated is None
+    else:
+        assert updated == expected
 
 
 def test_main_check_clean(tmp_path, capsys, monkeypatch):

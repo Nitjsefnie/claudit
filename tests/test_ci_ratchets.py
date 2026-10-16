@@ -109,37 +109,30 @@ def test_no_raise_within_hysteresis():
         assert ratchet.update(copy.deepcopy(doc), Decimal(measured), **options) is None
 
 
-def test_raise_beyond_hysteresis():
+@pytest.mark.parametrize(
+    "options,language,measured,floor,other_language,other_measured,other_floor", [
+        pytest.param({}, "python", "94.2", "92.7", "javascript", "50.0", "48.5",
+                     id="default-python"),
+        pytest.param({"language": "javascript"}, "javascript", "52.0", "50.5",
+                     "python", "92.6", "91.1", id="javascript"),
+    ])
+def test_raise_beyond_hysteresis(
+        options, language, measured, floor, other_language, other_measured,
+        other_floor):
     ratchet = _ratchet()
     doc = _document()
-    updated = ratchet.update(doc, Decimal("94.2"))
+    updated = ratchet.update(doc, Decimal(measured), **options)
     assert updated is not None
-    record = updated["coverage"]["python"]
-    assert record["measured"] == Decimal("94.2")
-    assert record["floor"] == Decimal("92.7")
+    record = updated["coverage"][language]
+    assert record["measured"] == Decimal(measured)
+    assert record["floor"] == Decimal(floor)
     # Nothing outside the raised calibration moved.
     assert updated["schema_version"] == 1
     assert updated["module_size_baseline"] == {}
-    assert updated["coverage"]["javascript"] == {
-        "measured": Decimal("50.0"),
-        "floor": Decimal("48.5"),
+    assert updated["coverage"][other_language] == {
+        "measured": Decimal(other_measured),
+        "floor": Decimal(other_floor),
     }
-
-
-def test_raise_beyond_hysteresis_javascript():
-    ratchet = _ratchet()
-    doc = _document()
-    updated = ratchet.update(doc, Decimal("52.0"), language="javascript")
-    assert updated is not None
-    record = updated["coverage"]["javascript"]
-    assert record["measured"] == Decimal("52.0")
-    assert record["floor"] == Decimal("50.5")
-    # Only the raised calibration moved.
-    assert updated["coverage"]["python"] == {
-        "measured": Decimal("92.6"),
-        "floor": Decimal("91.1"),
-    }
-    assert updated["module_size_baseline"] == {}
 
 
 def test_measured_with_two_decimals_rejected():
@@ -163,36 +156,28 @@ def test_main_no_raise_leaves_file_untouched(tmp_path, capsys):
     assert "justifies no raise" in capsys.readouterr().out
 
 
-def test_main_raise_rewrites_the_file(tmp_path, capsys):
+@pytest.mark.parametrize("options,language,measured,floor,transition", [
+    pytest.param([], "python", "95.0", "93.5", "91.1 -> 93.5",
+                 id="default-python"),
+    pytest.param(["--language", "javascript"], "javascript", "52.0", "50.5",
+                 "48.5 -> 50.5", id="javascript"),
+])
+def test_main_raise_rewrites_the_file(
+        tmp_path, capsys, options, language, measured, floor, transition):
     thresholds = _thresholds()
     ratchet = _ratchet()
     target = _written(tmp_path)
     assert ratchet.main(
-        ["--measured", "95.0", "--thresholds", str(target)]) == 0
+        [*options, "--measured", measured, "--thresholds", str(target)]) == 0
     doc = thresholds.load(target)
-    assert doc["coverage"]["python"]["measured"] == Decimal("95.0")
-    assert doc["coverage"]["python"]["floor"] == Decimal("93.5")
+    assert doc["coverage"][language]["measured"] == Decimal(measured)
+    assert doc["coverage"][language]["floor"] == Decimal(floor)
+    if language == "javascript":
+        assert doc["coverage"]["python"]["measured"] == Decimal("92.6")
+        assert doc["coverage"]["python"]["floor"] == Decimal("91.1")
     out = capsys.readouterr().out
     assert "raised" in out
-    assert "91.1 -> 93.5" in out
-
-
-def test_main_raise_javascript_rewrites_the_file(tmp_path, capsys):
-    thresholds = _thresholds()
-    ratchet = _ratchet()
-    target = _written(tmp_path)
-    assert ratchet.main(
-        ["--language", "javascript", "--measured", "52.0",
-         "--thresholds", str(target)]) == 0
-    doc = thresholds.load(target)
-    assert doc["coverage"]["javascript"]["measured"] == Decimal("52.0")
-    assert doc["coverage"]["javascript"]["floor"] == Decimal("50.5")
-    # The python calibration is untouched by a javascript raise.
-    assert doc["coverage"]["python"]["measured"] == Decimal("92.6")
-    assert doc["coverage"]["python"]["floor"] == Decimal("91.1")
-    out = capsys.readouterr().out
-    assert "raised" in out
-    assert "48.5 -> 50.5" in out
+    assert transition in out
 
 
 def test_main_invalid_measurement_fails(tmp_path, capsys):

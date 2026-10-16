@@ -29,6 +29,8 @@ import sys
 import tokenize
 from pathlib import Path
 
+import pytest
+
 from backend import pricing
 from tests import scan_gate, version_literal_guard
 from tests.source_scan_cache import for_source, source as cached_source
@@ -171,72 +173,46 @@ def _problem(site: Site) -> str:
             "or derive the value from the current constant")
 
 
-def test_setattr_positional_literal_is_flagged():
-    result = detect("monkeypatch.setattr(constants, 'PARSER_VERSION', '2')\n")
-    assert [site.name for site in result] == ["PARSER_VERSION"]
-    assert result[0].line == 1
-    assert result[0].value == "2"
-    assert result[0].shape == "setattr"
+@pytest.mark.parametrize("source,name,shape,value,line", [
+    pytest.param("monkeypatch.setattr(constants, 'PARSER_VERSION', '2')\n",
+                 "PARSER_VERSION", "setattr", "2", 1, id="positional-setattr"),
+    pytest.param("monkeypatch.setattr(constants, 'PRICING_VERSION', value='9')\n",
+                 "PRICING_VERSION", "setattr", "9", 1, id="keyword-setattr"),
+    pytest.param("setattr(constants, 'MARKER_READER_VERSION', '2')\n",
+                 "MARKER_READER_VERSION", "setattr", "2", 1, id="bare-setattr"),
+    pytest.param("constants.PARSER_VERSION = '82'\n",
+                 "PARSER_VERSION", "assign", "82", 1, id="assignment"),
+    pytest.param("monkeypatch.setenv('PARSER_VERSION', '999')\n",
+                 "PARSER_VERSION", "setenv", "999", 1, id="version-env"),
+])
+def test_setattr_positional_literal_is_flagged(source, name, shape, value, line):
+    result = detect(source)
+    assert [(site.name, site.shape, site.value, site.line) for site in result] == [
+        (name, shape, value, line)]
 
 
-def test_setattr_keyword_value_literal_is_flagged():
-    result = detect(
-        "monkeypatch.setattr(constants, 'PRICING_VERSION', value='9')\n")
-    assert [(site.name, site.value) for site in result] == [
-        ("PRICING_VERSION", "9")]
-
-
-def test_bare_setattr_literal_is_flagged():
-    result = detect("setattr(constants, 'MARKER_READER_VERSION', '2')\n")
-    assert [(site.name, site.value) for site in result] == [
-        ("MARKER_READER_VERSION", "2")]
-
-
-def test_direct_constant_assignment_is_flagged():
-    result = detect("constants.PARSER_VERSION = '82'\n")
-    assert [(site.name, site.shape) for site in result] == [
-        ("PARSER_VERSION", "assign")]
-
-
-def test_setenv_with_a_version_name_is_flagged():
-    result = detect("monkeypatch.setenv('PARSER_VERSION', '999')\n")
-    assert [(site.name, site.shape, site.value) for site in result] == [
-        ("PARSER_VERSION", "setenv", "999")]
-
-
-def test_setenv_with_an_unrelated_name_is_not_flagged():
-    assert detect("monkeypatch.setenv('CLAUDIT_R2_BUCKET', 'claude')\n") == []
-
-
-def test_setenv_with_a_derived_value_is_not_flagged():
-    assert detect(
-        "monkeypatch.setenv('PARSER_VERSION', str(int(n) + 1))\n") == []
-
-
-def test_derived_value_is_never_flagged():
-    source = ("monkeypatch.setattr(constants, 'PRICING_VERSION',\n"
-              "    str(int(constants.PRICING_VERSION) + 1))\n")
+@pytest.mark.parametrize("source", [
+    pytest.param("monkeypatch.setenv('CLAUDIT_R2_BUCKET', 'claude')\n",
+                 id="unrelated-env"),
+    pytest.param("monkeypatch.setenv('PARSER_VERSION', str(int(n) + 1))\n",
+                 id="derived-env"),
+    pytest.param("monkeypatch.setattr(constants, 'PRICING_VERSION',\n"
+                 "    str(int(constants.PRICING_VERSION) + 1))\n",
+                 id="derived-setattr"),
+    pytest.param("monkeypatch.setattr(constants, '__file__', 'x')\n",
+                 id="file-attribute"),
+    pytest.param("constants.OTHER_VERSION = '1'\n", id="other-version"),
+    pytest.param("monkeypatch.setattr(constants, 'VERSION', 'x')\n",
+                 id="untracked-version"),
+    pytest.param("monkeypatch.setattr(constants, 'PARSER_VERSION', 81)\n",
+                 id="integer-value"),
+    pytest.param("monkeypatch.setattr(constants, 'PARSER_VERSION', name)\n",
+                 id="name-value"),
+    pytest.param("_seed(c, key, 1, pricing_version='abc')\n",
+                 id="stored-version-row"),
+])
+def test_setenv_with_an_unrelated_name_is_not_flagged(source):
     assert detect(source) == []
-
-
-def test_non_version_constant_names_are_not_flagged():
-    assert detect("monkeypatch.setattr(constants, '__file__', 'x')\n") == []
-    assert detect("constants.OTHER_VERSION = '1'\n") == []
-    assert detect(
-        "monkeypatch.setattr(constants, 'VERSION', 'x')\n") == []
-
-
-def test_non_literal_values_are_not_flagged():
-    assert detect(
-        "monkeypatch.setattr(constants, 'PARSER_VERSION', 81)\n") == []
-    assert detect(
-        "monkeypatch.setattr(constants, 'PARSER_VERSION', name)\n") == []
-
-
-def test_stored_version_row_values_are_not_flagged():
-    """A stored-version row's value is data, not a constant assignment."""
-    assert detect(
-        "_seed(c, key, 1, pricing_version='abc')\n") == []
 
 
 def test_marker_on_the_site_line_excuses_it():
@@ -303,46 +279,26 @@ WANTED_MODELS = frozenset({"acme/acme-9", "claude-sonnet-5"})
 WANTED_HOSTS = frozenset({"HostCo"})
 
 
-def test_rate_call_with_a_wanted_model_literal_is_flagged():
-    result = detect("rate_for('acme/acme-9')\n",
+@pytest.mark.parametrize("source,name,shape,value", [
+    pytest.param("rate_for('acme/acme-9')\n", "rate_for", "live-call",
+                 "acme/acme-9", id="model-literal"),
+    pytest.param("rate_for('acme/acme.9')\n", "rate_for", "live-call",
+                 "acme/acme.9", id="normalised-model"),
+    pytest.param("rate_for('claude-sonnet-5[1m]')\n", "rate_for", "live-call",
+                 "claude-sonnet-5[1m]", id="suffixed-model"),
+    pytest.param("pricing.resolve('acme/acme-9', ts)\n", "resolve", "live-call",
+                 "acme/acme-9", id="resolve-model"),
+    pytest.param("pricing.resolve(model, provider='HostCo')\n", "resolve",
+                 "live-call", "HostCo", id="host-keyword"),
+    pytest.param("compute_cost('HostCo', tokens)\n", "compute_cost", "live-call",
+                 "HostCo", id="other-rate-call"),
+])
+def test_rate_call_with_a_wanted_model_literal_is_flagged(
+        source, name, shape, value):
+    result = detect(source,
                     wanted_models=WANTED_MODELS, wanted_hosts=WANTED_HOSTS)
     assert [(site.name, site.shape, site.value) for site in result] == [
-        ("rate_for", "live-call", "acme/acme-9")]
-
-
-def test_rate_call_normalises_the_model_literal():
-    result = detect("rate_for('acme/acme.9')\n",
-                    wanted_models=WANTED_MODELS, wanted_hosts=WANTED_HOSTS)
-    assert [(site.name, site.value) for site in result] == [
-        ("rate_for", "acme/acme.9")]
-
-
-def test_rate_call_folds_suffixed_model_spellings():
-    result = detect("rate_for('claude-sonnet-5[1m]')\n",
-                    wanted_models=WANTED_MODELS, wanted_hosts=WANTED_HOSTS)
-    assert [(site.name, site.value) for site in result] == [
-        ("rate_for", "claude-sonnet-5[1m]")]
-
-
-def test_resolve_call_with_a_wanted_model_is_flagged():
-    result = detect("pricing.resolve('acme/acme-9', ts)\n",
-                    wanted_models=WANTED_MODELS, wanted_hosts=WANTED_HOSTS)
-    assert [(site.name, site.value) for site in result] == [
-        ("resolve", "acme/acme-9")]
-
-
-def test_rate_call_with_a_wanted_host_keyword_is_flagged():
-    result = detect("pricing.resolve(model, provider='HostCo')\n",
-                    wanted_models=WANTED_MODELS, wanted_hosts=WANTED_HOSTS)
-    assert [(site.name, site.value) for site in result] == [
-        ("resolve", "HostCo")]
-
-
-def test_host_literal_in_another_rate_call_is_flagged():
-    result = detect("compute_cost('HostCo', tokens)\n",
-                    wanted_models=WANTED_MODELS, wanted_hosts=WANTED_HOSTS)
-    assert [(site.name, site.value) for site in result] == [
-        ("compute_cost", "HostCo")]
+        (name, shape, value)]
 
 
 def test_rate_call_with_a_variable_argument_is_not_flagged():
