@@ -17,7 +17,6 @@ from tests.test_provider_rate_log_refresh import _series as _log_series
 from tests.test_provider_rate_refresh import (
     GLM,
     NOW,
-    _openrouter_template,
     _browser_pricing_script,
     Run,
     STAMP,
@@ -232,10 +231,7 @@ def _fast_log_series(states: list[tuple[str, dict]]) -> dict:
     return series
 
 
-def test_a_fast_pair_does_not_extend_to_the_log_selection() -> None:
-    """SV-RATE-REFRESH's log boundary: no automatic rule extends to the
-    price log's own endpoint selection — a {p, p/fast} host the log
-    would otherwise back stays sampled unless the base endpoint is pinned."""
+def test_a_fast_pair_selects_the_same_log_history_with_or_without_a_pin() -> None:
     payload = {"data": {"endpoints": [
         _endpoint("Fireworks", BASE_RATES, tag="fireworks"),
         _endpoint("Fireworks", FAST_RATES, tag="fireworks/fast"),
@@ -246,12 +242,13 @@ def test_a_fast_pair_does_not_extend_to_the_log_selection() -> None:
     ]}})
     unpinned = refresh.refresh_pricelog.join_listed_pricing(
         payload, series, None, {}, NOW)["Fireworks"]
-    assert unpinned.entries is None
-    assert unpinned.reason == "endpoint selection found 2 endpoints"
+    assert unpinned.entries is not None
+    assert unpinned.reason is None
     pinned = refresh.refresh_pricelog.join_listed_pricing(
         payload, series, None,
         {"Fireworks": {"tag": "fireworks", "why": "fixture"}}, NOW)["Fireworks"]
     assert pinned.entries is not None
+    assert unpinned.entries == pinned.entries
 
 
 def test_a_new_fast_pair_host_gets_a_row_for_its_base(tmp_path, capsys) -> None:
@@ -369,13 +366,11 @@ def test_a_resolution_keyed_on_a_rate_is_refused(tmp_path, capsys, pin):
     _refused(run, capsys, "Novita", "keyed on 'tag'")
 
 
-def test_baseten_is_resolved_by_price_order_as_data():
-    doc = _openrouter_template()
-    pin = doc["models"][V41]["resolve"]["BaseTen"]
-    assert pin["select"] == "cheapest" and pin["why"]
-    assert set(pin) == {"tag", "select", "ignore", "why"}
-    assert pin["tag"] == "baseten/fp8"
-    assert pin["ignore"] == ["max_completion_tokens"]
+def _pin_baseten(run: Run) -> None:
+    run.edit(lambda doc: doc["openrouter"]["models"][V41].update(
+        resolve={"BaseTen": {"tag": "baseten/fp8", "select": "cheapest",
+                             "ignore": ["max_completion_tokens"],
+                             "why": "synthetic one-token listing artifact"}}))
 
 
 def test_identical_twins_without_an_override_resolve_to_the_cheaper(tmp_path, capsys):
@@ -384,7 +379,7 @@ def test_identical_twins_without_an_override_resolve_to_the_cheaper(tmp_path, ca
     The recorded pin's own `ignore` machinery still governs a pinned host
     (the tests below), and a genuinely ambiguous shape still refuses."""
     run = Run(tmp_path)
-    run.edit(lambda doc: doc["openrouter"]["models"][V41].pop("resolve"))
+    run.edit(lambda doc: doc["openrouter"]["models"][V41].pop("resolve", None))
     cheaper, _ = _baseten_twins(run)
     before = run.snapshot()
     rc, out, _ = run(capsys)
@@ -513,6 +508,7 @@ def test_a_tag_with_cheapest_and_a_recorded_ignore_resolves_a_sibling_tier(
     tier under its own tag. The recorded resolution narrows by tag, takes the
     cheaper twin, and the sibling's price never lands."""
     run = Run(tmp_path)
+    _pin_baseten(run)
     cheaper, _ = _baseten_twins(run)
     fast = _endpoint("BaseTen", {"fresh": 0.6, "read": 0.001, "output": 2.4},
                      tag="baseten/fast")
@@ -537,6 +533,7 @@ def test_a_recorded_ignore_ignores_only_its_named_fields(
     """The live resolution ignores max_completion_tokens alone: any other
     identity field differing still refuses under it."""
     run = Run(tmp_path)
+    _pin_baseten(run)
     _, dearer = _baseten_twins(run)
     dearer[field] = value
     _refused(run, capsys, f"{V41} via BaseTen", "identical")
