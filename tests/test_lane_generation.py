@@ -37,8 +37,8 @@ def test_codex_generation_search_only_duplicate_preserves_window():
             (FIX / "rollout_generation_new_ordering.jsonl").read_bytes().splitlines()]
     output_index = next(i for i, row in enumerate(rows)
                         if row["payload"].get("type") == "custom_tool_call_output")
-    rows.insert(output_index + 1, {
-        "timestamp": "2026-06-14T12:00:08Z", "type": "response_item",
+    rows.insert(output_index, {
+        "timestamp": "2026-06-14T12:00:06Z", "type": "response_item",
         "payload": {"type": "web_search_call"},
     })
     blob = b"\n".join(json.dumps(row).encode() for row in rows)
@@ -77,6 +77,8 @@ def _codex_generation_blob(response_type, payload, end):
     ("response_item", {"type": "reasoning"}),
     ("response_item", {"type": "custom_tool_call"}),
     ("response_item", {"type": "function_call"}),
+    ("response_item", {"type": "web_search_call"}),
+    ("response_item", {"type": "local_shell_call"}),
     ("event_msg", {"type": "agent_message"}),
     ("event_msg", {"type": "agent_reasoning"}),
     ("event_msg", {"type": "item_completed", "item": {"type": "AgentMessage"}}),
@@ -84,6 +86,10 @@ def _codex_generation_blob(response_type, payload, end):
 ])
 def test_codex_generation_response_shapes(rtype, payload):
     blob = _codex_generation_blob(rtype, payload, "2026-06-14T12:00:05Z")
+    rows = [json.loads(line) for line in blob.splitlines()]
+    rows.insert(2, {"timestamp": "2026-06-14T12:00:01Z", "type": "response_item",
+                    "payload": {"type": "reasoning"}})
+    blob = b"\n".join(json.dumps(row).encode() for row in rows)
     record, = parse.parse_file("codex/synthetic.jsonl", blob)["records"]
     assert (record["generation_s"], record["output_tokens_per_s"]) == (5, 4)
 
