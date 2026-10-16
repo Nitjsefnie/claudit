@@ -164,9 +164,6 @@ def test_an_empty_family_is_present_and_refuses_the_seed(tmp_path):
 
 
 def test_seed_writes_canonical_bytes(tmp_path):
-    # The seeded bytes are the loader writer's canonical bytes: the
-    # round trip through normalise is lossless, so the committed
-    # document always stays byte-identical to what write() publishes.
     thresholds = _thresholds()
     ratchet = _ratchet()
     target = _written(tmp_path, _seeded_document())
@@ -189,6 +186,9 @@ def test_tighten_moves_both_fields_past_the_hysteresis(tmp_path):
         for phase in ("collection", "run", "residual")}
     target = _written(tmp_path, seeded)
     cheaper = dict(COUNTS)
+    # run: exactly the hysteresis cheaper -- no move. collection: more
+    # than the hysteresis cheaper -- both fields move down. residual:
+    # unchanged.
     cheaper["run"] = COUNTS["run"] - Decimal("1.5")
     cheaper["collection"] = COUNTS["collection"] - Decimal("1.6")
     assert ratchet.main(
