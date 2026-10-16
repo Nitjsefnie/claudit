@@ -42,6 +42,7 @@ def _load(name):
 
 @cache
 def _ci_modules():
+    """Load once at first use, with the same thresholds dependency."""
     thresholds = _load("thresholds")
     size_baseline = _load("size_baseline")
     return thresholds, size_baseline
@@ -62,6 +63,7 @@ def _git_metadata():
 
 @pytest.fixture(scope="module", name="real_tracked_sizes")
 def _real_tracked_sizes(git_metadata):
+    # The main tests' function-scoped patches are restored before this runs.
     return _size_baseline().tracked_sizes()
 
 
@@ -295,7 +297,4 @@ def test_committed_family_seeds_match_tree_and_only_over_ceiling(real_tracked_si
     for rel in ("backend/schema.sql", "public/app.css"):
         assert sizes[rel] == baseline[rel]
         assert baseline[rel] > size_baseline.ceiling_for(rel)
-    # .github/workflows/tests.yml was seeded here at the #393 seed and
-    # left the list the legal way: the ratchet-push split (issue #479)
-    # took it under the production ceiling, so --tighten dropped its
-    # entry — under-ceiling files need no seed (the pin above).
+    # --tighten graduated tests.yml; under-ceiling files need no seed.
