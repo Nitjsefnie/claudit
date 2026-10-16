@@ -38,9 +38,7 @@ classify = _load("classify_changes")
 aggregate = _load("aggregate_gate")
 
 
-# ---------------------------------------------------------------------------
 # classify_changes: the pattern set
-# ---------------------------------------------------------------------------
 
 
 def test_pattern_set_is_the_re_homed_deny_list():
@@ -188,9 +186,7 @@ def test_a_mixed_code_and_docs_diff_touching_a_setup_doc_is_unchanged():
     assert "outside documentation" in reason
 
 
-# ---------------------------------------------------------------------------
 # classify_changes: reading the changed paths
-# ---------------------------------------------------------------------------
 
 
 def test_pr_event_reads_the_pull_request_files_api():

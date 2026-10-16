@@ -52,7 +52,6 @@ def _assert_provider_resolution_returns_loaded_row(
         pricing.PROVIDER_RATES[(normalized_model, host)]
 
 
-# --- provider rows price the record -----------------------------------------
 
 
 def test_a_record_with_a_provider_is_priced_from_the_provider_table():
@@ -351,7 +350,6 @@ def test_stealth_stays_free_with_or_without_a_provider():
                  fresh=10**9, output=10**9) == 0
 
 
-# --- the dated permaslug ------------------------------------------------------
 
 
 def test_the_dated_permaslug_resolves_to_the_same_row_as_the_slug(
@@ -453,7 +451,6 @@ def test_fold_reconciles_across_a_provider_cutover(synthetic_provider_window):
             m["cost_total"], abs=3e-4)
 
 
-# --- the split fold -------------------------------------------------------------
 # The fold tests price SYNTHETIC provider rows (issue #191): the rates are
 # unlike any real price and the keys sit in no other rate table, so a
 # legitimate refresh appending entries or first-seeing a host cannot move an
