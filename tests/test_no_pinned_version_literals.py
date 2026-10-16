@@ -42,7 +42,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 MARKER = re.compile(r"#\s*sv-test-data:\s*allow\b")
 
-# The live-row Site.shape values, and the problem text each carries.
 _LIVE_ROW_SHAPES = ("pricing-json", "path-bind", "live-call")
 _LIVE_ROW_TEXT = {
     "pricing-json":
@@ -122,12 +121,12 @@ def _scan_admits(source: str, *, wanted_models: frozenset[str] = frozenset(),
     # no live-call site, so with the defaults the rate clause admits
     # nothing — default-set behavior this clause introduced; the old
     # clause admitted on the call's name alone.
-    return (any(v in consts or v in names for v in VERSION_NAMES)
+    return ("PRICING_JSON" in names
+            or any(v in consts or v in names for v in VERSION_NAMES)
+            or any("pricing.json" in c for c in consts)
             or (any(r in names for r in RATE_CALL_NAMES)
                 and any(_names_wanted_row(c, wanted_models, wanted_hosts)
-                        for c in consts))
-            or any("pricing.json" in c for c in consts)
-            or "PRICING_JSON" in names)
+                        for c in consts)))
 
 
 def check(source: str, *, wanted_models: frozenset[str] = frozenset(),
@@ -577,8 +576,6 @@ def test_a_rate_call_admits_only_with_a_wanted_const():
                      wanted_hosts=WANTED_HOSTS)) == 1
 
 
-# --- issue #829: the wanted-row fold is rows-independent ---
-
 def _synthetic_wanted(count: int) -> frozenset[str]:
     """A synthetic wanted set exercising every fold shape (SV-TEST-DATA:
     no live row is named). ``acme-model`` prefixes the whole family, so
@@ -634,3 +631,14 @@ def test_names_wanted_row_never_pays_the_scan(monkeypatch):
     assert _names_wanted_row("acme-model-2-20250514", wanted, hosts)
     assert not _names_wanted_row("acme-ghost", wanted, hosts)
     assert _names_wanted_row("HostCo", frozenset(), hosts)
+
+
+@pytest.mark.parametrize("literal,models,hosts", [
+    ("cache-model-9@x", frozenset({"cache-model-9"}), frozenset()),
+    ("HostCache", frozenset(), frozenset({"HostCache"})),
+])
+def test_wanted_row_memo_keeps_both_wanted_sets(literal, models, hosts):
+    empty = frozenset()
+    assert [_names_wanted_row(literal, wm, wh) for wm, wh in
+            ((empty, empty), (models, hosts), (empty, empty))] == [
+                False, True, False]
