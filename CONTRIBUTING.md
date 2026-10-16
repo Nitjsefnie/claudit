@@ -492,7 +492,7 @@ Small and single-purpose beats large and comprehensive. In the
 description, include:
 
 - what changed and why,
-- the actual output of the tests you ran,
+- the gates run and their outcomes, in the template's Testing checklist,
 - for a performance change, a before and after measurement rather than an
   assertion that it should be faster.
 
