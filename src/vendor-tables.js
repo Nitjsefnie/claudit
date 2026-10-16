@@ -1,9 +1,7 @@
-// The vendor tables (SV-RATE-DATA): the bare first-party form each
-// vendor_host-carrying tracked entry prices, and its host. A tracked
-// entry without vendor_host carries no first-party pricing and takes no
-// part. A bare form two entries share, or one that is also a
-// models-table key, is an ambiguity that would silently pick one price:
-// refuse naming both rows. Mirrors pricing_load._vendor_tables.
+// Derivable bare forms map to tracked keys independently of vendor_host.
+// Only vendor_host-carrying entries join the first-party host table.
+// Duplicate bare forms and models-table collisions refuse by name.
+// Mirrors pricing_load._vendor_tables.
 //
 // Loaded ahead of src/pricing-loader.js by index.html's script tags (it
 // installs the builder on window) and required by the loader under node;
@@ -68,8 +66,7 @@
           + `the model's resolve tags [${[...modelTags]}]`);
       }
       const host = entry.vendor_host;
-      if (host === undefined || host === null) continue;
-      if (typeof host !== 'string' || !host) {
+      if (host != null && (typeof host !== 'string' || !host)) {
         throw _pricingError(`${where}: vendor_host is not a non-empty string`);
       }
       let form = key;
@@ -79,6 +76,8 @@
           break;
         }
       }
+      if (host != null) vendorHosts[key] = host;
+      if (form.includes('/')) continue;
       if (form === '') {
         throw _pricingError(`${where}: bare form is empty; a tracked key `
           + 'may not be exactly its namespace prefix');
@@ -93,7 +92,6 @@
           + 'also a models-table key; a transcript id would resolve two ways');
       }
       vendorBare[form] = key;
-      vendorHosts[key] = host;
     }
     _modelRates = modelRates;
     _vendorBare = vendorBare;

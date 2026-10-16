@@ -44,9 +44,9 @@ class RateTables(TypedDict):
     PROVIDER_SCHEDULES: dict[tuple[str, str], dict[int, list[ScheduleWindow]]]
     PROVIDER_RATES_FETCHED: datetime
     RATE_EPOCHS: list[datetime]
-    # The vendor tables (SV-RATE-DATA): the bare first-party form each
-    # vendor_host-carrying tracked entry prices, and its host. The rates
-    # themselves stay provider rows, keyed (tracked key, host).
+    # The vendor tables: derivable bare forms map to tracked keys; only
+    # vendor_host-carrying entries name first-party hosts. Rates stay
+    # provider rows, keyed (tracked key, host).
     VENDOR_BARE: dict[str, str]
     VENDOR_PREFIXES: list[str]
     VENDOR_HOSTS: dict[str, str]
@@ -244,12 +244,9 @@ def _bare_form(key: str, prefixes: list[str]) -> str:
 
 
 def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[str, str]]:
-    """The bare-id vendor tables (SV-RATE-DATA), checked: for each tracked
-    entry carrying `vendor_host`, the (bare form → tracked key) match table
-    and the (tracked key → host) host table. A tracked entry without
-    vendor_host carries no first-party pricing and takes no part. A bare
-    form two entries share, or one that is also a models-table key, is an
-    ambiguity that would silently pick one price: refuse naming both rows.
+    """Derivable bare forms map to tracked keys, independently of hosts.
+    Only vendor_host-carrying entries join the first-party host table.
+    Duplicate bare forms and models-table collisions refuse by name.
     """
     openrouter = doc.get("openrouter")
     if not isinstance(openrouter, dict):
@@ -277,12 +274,14 @@ def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[s
         if not isinstance(entry.get("id"), str) or not entry["id"]:
             raise ValueError(f"pricing.json: {where} carries no 'id'")
         host = entry.get("vendor_host")
-        if host is None:
-            continue
-        if not isinstance(host, str) or not host:
+        if host is not None and (not isinstance(host, str) or not host):
             raise ValueError(
                 f"pricing.json: {where}: vendor_host is not a non-empty string")
         form = _bare_form(key, prefixes)
+        if host is not None:
+            hosts[key] = host
+        if "/" in form:
+            continue
         if not form:
             raise ValueError(
                 f"pricing.json: {where}: bare form is empty; a tracked key "
@@ -296,7 +295,6 @@ def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[s
                 f"pricing.json: {where}: bare form {form!r} is also a "
                 "models-table key; a transcript id would resolve two ways")
         bare[form] = key
-        hosts[key] = host
     return bare, hosts
 
 
@@ -311,7 +309,7 @@ def _default_rates(model_rates: dict, vendor_bare: dict[str, str],
     rates = model_rates.get("claude-opus-4-7")
     if rates is None:
         tracked = vendor_bare.get("claude-opus-4-7")
-        if tracked is not None:
+        if tracked in vendor_hosts:
             row = (tracked, vendor_hosts[tracked])
             rates = provider_rates.get(row)
     if rates is None:

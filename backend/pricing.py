@@ -117,7 +117,7 @@ def _vendor_row(key: str) -> tuple[str, str] | None:
     table before its first provider row: the bare path falls through the
     same way)."""
     tracked = VENDOR_BARE.get(key)
-    if tracked is None:
+    if tracked not in VENDOR_HOSTS:
         return None
     row = (tracked, VENDOR_HOSTS[tracked])
     return row if row in PROVIDER_RATES else None
@@ -363,7 +363,7 @@ def resolve(model: str | None, ts: datetime | None = None,
     if key is not None:
         return Resolution(_dated(key, ts), "exact", key)
     vkey = _vendor_match(norm)
-    if vkey is not None:
+    if vkey in VENDOR_HOSTS:
         row = (vkey, VENDOR_HOSTS[vkey])
         if row in PROVIDER_RATES:
             start = PROVIDER_STARTS.get(row)

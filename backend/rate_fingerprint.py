@@ -176,7 +176,7 @@ def _vendor_doc(norm: str) -> dict:
     and that row's list price, dated windows and start — the inputs the
     bare path consults (the provider-specific schedule is not applied)."""
     tracked = pricing._vendor_match(norm)  # pylint: disable=protected-access
-    if tracked is None:
+    if tracked not in pricing.VENDOR_HOSTS:
         return {"key": None, "list": None, "windows": [], "start": None}
     row = (tracked, pricing.VENDOR_HOSTS[tracked])
     return {
