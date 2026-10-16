@@ -59,11 +59,6 @@ def test_receiving_stdin_redirect_severs_exit_marker(command, expected):
     assert bash_churn(command) == expected
 
 
-def test_receiving_heredoc_replaces_exit_marker():
-    command = 'echo "EXIT=$?" | tee out.txt <<\'EOF\'\na\nb\nEOF'
-    assert bash_churn(command) == (2, 0)
-
-
 @pytest.mark.parametrize("command,expected", [
     ("printf '%s' {text} > out.txt", (1, 0)),
     ("printf '%s\\n' a{b,c} > out.txt", (0, 0)),
@@ -157,6 +152,172 @@ def test_loop_carried_path_bindings_do_not_multiply_churn():
     ("sed -i '2a\\\none\\\ntwo' README", (2, 0)),
     ("cp src.txt dst.txt; mv dst.txt final.txt", (1, 0)),
     (r"perl -pi -e 's/(a)/$1$1/g' file.ts", (1, 0)),
+    pytest.param('echo "EXIT=$?" | tee out.txt <<\'EOF\'\na\nb\nEOF', (2, 0),
+                 id='test_receiving_heredoc_replaces_exit_marker'),
+    pytest.param("cat > /tmp/f.txt <<'EOF'\nalpha\nbeta\nEOF\n", (2, 0),
+                 id='test_cat_heredoc_into_file_counts_body_lines'),
+    pytest.param("cat >> notes.md <<'EOF'\na\nb\nc\nEOF\n", (3, 0),
+                 id='test_cat_append_heredoc_counts_body_lines'),
+    pytest.param("cat > existing.py <<'EOF'\nnew\nEOF\n", (1, 0),
+                 id='test_overwrite_heredoc_reports_zero_deletions'),
+    pytest.param("tee -a /etc/hosts <<'EOF'\n1.2.3.4 host\nEOF\n", (1, 0),
+                 id='test_tee_heredoc_counts_body_lines'),
+    pytest.param("cat <<'EOF' > out.txt\nx\ny\nEOF\n", (2, 0),
+                 id='test_redirect_written_after_the_opener_still_counts'),
+    pytest.param("cat > f <<'EOF'\nEOF\n", (0, 0),
+                 id='test_empty_heredoc_body_counts_zero'),
+    pytest.param("cat > f <<EOF\none\ntwo\nEOF\n", (2, 0),
+                 id='test_unquoted_heredoc_tag_is_recognised'),
+    pytest.param("cat > f <<-'EOF'\n\ta\n\tb\n\tEOF\n", (2, 0),
+                 id='test_dash_suppressed_heredoc_terminator_is_recognised'),
+    pytest.param("cat > a <<'A'\n1\n2\nA\n"
+                 "cat >> b <<'B'\n3\nB\n", (3, 0),
+                 id='test_multiple_file_heredocs_in_one_command_sum'),
+    pytest.param("git add x && git commit -q -F - <<'EOF'\n"
+                 "fix: a thing\n\nbody line\nEOF\n", (0, 0),
+                 id='test_commit_message_heredoc_is_not_churn'),
+    pytest.param("git commit -m \"$(cat <<'EOF'\nsubject\n\nbody\nEOF\n)\"\n", (0, 0),
+                 id='test_commit_message_via_command_substitution_is_not_churn'),
+    pytest.param("psql -d db <<'SQL'\nSELECT 1;\nSQL\n", (0, 0),
+                 id='test_psql_heredoc_is_not_churn'),
+    pytest.param("python3 -m pytest tests/ -q > /tmp/out.txt", (1, 0),
+                 id='test_output_capture_redirect_uses_write_estimate'),
+    pytest.param("ls -la /root && git status --porcelain", (0, 0),
+                 id='test_plain_command_yields_zero'),
+    pytest.param("", (0, 0),
+                 id='test_empty_command_yields_zero'),
+    pytest.param("git apply <<'PATCH'\n"
+                 "--- a/x.py\n"
+                 "+++ b/x.py\n"
+                 "@@ -1,3 +1,4 @@\n"
+                 " ctx\n"
+                 "-old one\n"
+                 "-old two\n"
+                 "+new one\n"
+                 "+new two\n"
+                 "+new three\n"
+                 "PATCH\n", (3, 2),
+                 id='test_inline_git_apply_counts_hunk_lines'),
+    pytest.param("patch -p1 <<'DIFF'\n"
+                 "--- a/y\n"
+                 "+++ b/y\n"
+                 "@@ -1 +1 @@\n"
+                 "-a\n"
+                 "+b\n"
+                 "DIFF\n", (1, 1),
+                 id='test_inline_patch_command_counts_hunk_lines'),
+    pytest.param("python3 - <<'PY'\n"
+                 "import pathlib\n"
+                 "p = pathlib.Path('backend/db.py')\n"
+                 "s = p.read_text()\n"
+                 "s = s.replace('a\\nb', 'x\\ny\\nz')\n"
+                 "p.write_text(s)\n"
+                 "PY\n", (3, 2),
+                 id='test_python_heredoc_literal_replace_counts_both_sides'),
+    pytest.param("python3 - <<'PY'\n"
+                 "import re, pathlib\n"
+                 "p = pathlib.Path('f')\n"
+                 "p.write_text(re.sub('old', 'new\\nnew2', p.read_text()))\n"
+                 "PY\n", (2, 1),
+                 id='test_python_heredoc_re_sub_literals_counted'),
+    pytest.param("python3 - <<'PY'\n"
+                 "s = open('f').read()\n"
+                 "print(s.replace('a', 'b\\nc'))\n"
+                 "PY\n", (0, 0),
+                 id='test_python_heredoc_that_never_writes_is_not_churn'),
+    pytest.param("python3 - <<'PY'\n"
+                 "import pathlib, sys\n"
+                 "old, new = sys.argv[1], sys.argv[2]\n"
+                 "p = pathlib.Path('f')\n"
+                 "p.write_text(p.read_text().replace(old, new))\n"
+                 "PY\n", (1, 0),
+                 id='test_python_replace_with_non_literal_arguments_uses_write_estimate'),
+    pytest.param("python3 - <<'PY'\n"
+                 "import pathlib\n"
+                 "pathlib.Path('f').write_text('one\\ntwo\\nthree\\n')\n"
+                 "PY\n", (3, 0),
+                 id='test_python_write_text_of_a_string_literal_counts_as_added'),
+    pytest.param("python3 -c 'import pathlib\np=pathlib.Path(\"f\")\n"
+                 "p.write_text(p.read_text().replace(\"a\", \"b\\nc\"))'", (2, 1),
+                 id='test_python_dash_c_literal_replace_is_counted'),
+    pytest.param("python3 - <<'PY'\n"
+                 "def broken(:\n"
+                 "PY\n", (0, 0),
+                 id='test_syntactically_invalid_python_yields_zero'),
+    pytest.param("node - <<'JS'\n"
+                 "require('fs').writeFileSync('f', 'a\\nb')\n"
+                 "JS\n", (0, 0),
+                 id='test_non_python_interpreter_heredoc_yields_zero'),
+    pytest.param("python3 - <<'PY'\n"
+                 "import pathlib\n"
+                 "p = pathlib.Path('enroll.go')\n"
+                 "old = 'a\\nb\\n'\n"
+                 "new = 'x\\n'\n"
+                 "s = p.read_text()\n"
+                 "assert s.count(old) == 1\n"
+                 "p.write_text(s.replace(old, new))\n"
+                 "PY\n", (1, 2),
+                 id='test_python_replace_through_single_assignment_literals_is_counted'),
+    pytest.param("python3 - <<'PY'\n"
+                 "import pathlib\n"
+                 "p = pathlib.Path('f')\n"
+                 "new = 'one'\n"
+                 "new = new + open('other').read()\n"
+                 "p.write_text(p.read_text().replace('old', new))\n"
+                 "PY\n", (1, 0),
+                 id='test_python_replace_through_a_rebound_name_uses_write_estimate'),
+    pytest.param("python3 - <<'PY'\n"
+                 "import pathlib\n"
+                 "p = pathlib.Path('f')\n"
+                 "s = p.read_text()\n"
+                 "for new in ('a', 'b'):\n"
+                 "    s = s.replace('old', new)\n"
+                 "p.write_text(s)\n"
+                 "PY\n", (1, 0),
+                 id='test_python_replace_through_a_loop_variable_uses_write_estimate'),
+    pytest.param("python3 - <<'PY'\n"
+                 "p = 'a.md'; t = open(p).read()\n"
+                 "old = 'x\\ny'\n"
+                 "new = 'z'\n"
+                 "open(p, 'w').write(t.replace(old, new))\n"
+                 "p = 'b.md'; t = open(p).read()\n"
+                 "old = 'q'\n"
+                 "new = 'r\\ns\\nt'\n"
+                 "open(p, 'w').write(t.replace(old, new))\n"
+                 "PY\n", (4, 3),
+                 id='test_python_replace_through_sequentially_rebound_names_is_counted'),
+    pytest.param("python3 - <<'PY'\n"
+                 "import re\n"
+                 "def sub(path, old, new):\n"
+                 "    t = open(path, encoding='utf-8').read()\n"
+                 "    assert old in t, (path, old)\n"
+                 "    open(path, 'w', encoding='utf-8').write(t.replace(old, new))\n"
+                 "sub('a.md', 'one\\ntwo', 'three')\n"
+                 "sub('b.md', 'four', 'five\\nsix')\n"
+                 "PY\n", (3, 3),
+                 id='test_python_replace_through_a_local_helper_is_counted'),
+    pytest.param("python3 - <<'PY'\n"
+                 "import sys\n"
+                 "def sub(path, old, new):\n"
+                 "    open(path, 'w').write(open(path).read().replace(old, new))\n"
+                 "sub('a.md', sys.argv[1], sys.argv[2])\n"
+                 "PY\n", (1, 0),
+                 id='test_python_helper_called_with_variable_strings_uses_write_estimate'),
+    pytest.param("python3 - <<'PY'\n"
+                 "def sub(path, old, new):\n"
+                 "    open(path, 'w').write(open(path).read().replace(old, new))\n"
+                 "PY\n", (0, 0),
+                 id='test_python_helper_body_is_not_counted_on_its_own'),
+    pytest.param("grep x f.py 2>| g.txt", (1, 0),
+                 id='test_stream_redirect_into_a_pipe_target_counts_the_churn_line'),
+    pytest.param("echo hi >& both.txt", (1, 0),
+                 id='test_echo_into_fd_dup_filename_books_its_payload'),
+    pytest.param("cat <<EOF 1>&2\nline1\nline2\nline3\nEOF\n", (0, 0),
+                 id='test_heredoc_cat_through_an_fd_dup_books_no_churn_case'),
+    pytest.param("cat <<EOF f1> out.txt\nl1\nl2\nl3\nEOF\n", (1, 0),
+                 id='test_word_adjacent_digit_is_a_word_not_an_fd_prefix'),
+    pytest.param("cat <<EOF 0> f.txt\nline1\nline2\nline3\nEOF\n", (0, 0),
+                 id='test_heredoc_sink_line_stays_off_for_a_bare_fd_zero'),
 ])
 def test_literal_shell_payloads(command, expected):
     assert bash_churn(command) == expected
@@ -188,224 +349,6 @@ def test_python_concatenation_depth_is_bounded():
     assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (1, 0)
 
 
-# --- heredoc bodies redirected into a file --------------------------------
-
-def test_cat_heredoc_into_file_counts_body_lines():
-    assert bash_churn("cat > /tmp/f.txt <<'EOF'\nalpha\nbeta\nEOF\n") == (2, 0)
-
-
-def test_cat_append_heredoc_counts_body_lines():
-    """An append adds lines and deletes none — the same shape as Write."""
-    assert bash_churn("cat >> notes.md <<'EOF'\na\nb\nc\nEOF\n") == (3, 0)
-
-
-def test_overwrite_heredoc_reports_zero_deletions():
-    """`cat > F` on an existing file destroys its old content, but the
-    call does not carry it — the same limitation Write has, counted the
-    same way (0 deletions) rather than guessed."""
-    assert bash_churn("cat > existing.py <<'EOF'\nnew\nEOF\n") == (1, 0)
-
-
-def test_tee_heredoc_counts_body_lines():
-    assert bash_churn("tee -a /etc/hosts <<'EOF'\n1.2.3.4 host\nEOF\n") == (1, 0)
-
-
-def test_redirect_written_after_the_opener_still_counts():
-    assert bash_churn("cat <<'EOF' > out.txt\nx\ny\nEOF\n") == (2, 0)
-
-
-def test_empty_heredoc_body_counts_zero():
-    assert bash_churn("cat > f <<'EOF'\nEOF\n") == (0, 0)
-
-
-def test_unquoted_heredoc_tag_is_recognised():
-    assert bash_churn("cat > f <<EOF\none\ntwo\nEOF\n") == (2, 0)
-
-
-def test_dash_suppressed_heredoc_terminator_is_recognised():
-    """<<- allows a tab-indented terminator; the body still counts."""
-    assert bash_churn("cat > f <<-'EOF'\n\ta\n\tb\n\tEOF\n") == (2, 0)
-
-
-def test_multiple_file_heredocs_in_one_command_sum():
-    cmd = ("cat > a <<'A'\n1\n2\nA\n"
-           "cat >> b <<'B'\n3\nB\n")
-    assert bash_churn(cmd) == (3, 0)
-
-
-# --- heredocs that are NOT file content ------------------------------------
-
-def test_commit_message_heredoc_is_not_churn():
-    cmd = ("git add x && git commit -q -F - <<'EOF'\n"
-           "fix: a thing\n\nbody line\nEOF\n")
-    assert bash_churn(cmd) == (0, 0)
-
-
-def test_commit_message_via_command_substitution_is_not_churn():
-    cmd = "git commit -m \"$(cat <<'EOF'\nsubject\n\nbody\nEOF\n)\"\n"
-    assert bash_churn(cmd) == (0, 0)
-
-
-def test_psql_heredoc_is_not_churn():
-    assert bash_churn("psql -d db <<'SQL'\nSELECT 1;\nSQL\n") == (0, 0)
-
-
-def test_output_capture_redirect_uses_write_estimate():
-    """Redirecting a command's OUTPUT to a file is not enumerable churn:
-    the fallback estimates one addition without executing it."""
-    assert bash_churn("python3 -m pytest tests/ -q > /tmp/out.txt") == (1, 0)
-
-
-def test_plain_command_yields_zero():
-    assert bash_churn("ls -la /root && git status --porcelain") == (0, 0)
-
-
-def test_empty_command_yields_zero():
-    assert bash_churn("") == (0, 0)
-
-
-# --- inline patches ---------------------------------------------------------
-
-def test_inline_git_apply_counts_hunk_lines():
-    """+/- hunk lines are exact churn; the +++/--- file headers are not."""
-    cmd = ("git apply <<'PATCH'\n"
-           "--- a/x.py\n"
-           "+++ b/x.py\n"
-           "@@ -1,3 +1,4 @@\n"
-           " ctx\n"
-           "-old one\n"
-           "-old two\n"
-           "+new one\n"
-           "+new two\n"
-           "+new three\n"
-           "PATCH\n")
-    assert bash_churn(cmd) == (3, 2)
-
-
-def test_inline_patch_command_counts_hunk_lines():
-    cmd = ("patch -p1 <<'DIFF'\n"
-           "--- a/y\n"
-           "+++ b/y\n"
-           "@@ -1 +1 @@\n"
-           "-a\n"
-           "+b\n"
-           "DIFF\n")
-    assert bash_churn(cmd) == (1, 1)
-
-
-# --- python bodies ----------------------------------------------------------
-
-def test_python_heredoc_literal_replace_counts_both_sides():
-    cmd = ("python3 - <<'PY'\n"
-           "import pathlib\n"
-           "p = pathlib.Path('backend/db.py')\n"
-           "s = p.read_text()\n"
-           "s = s.replace('a\\nb', 'x\\ny\\nz')\n"
-           "p.write_text(s)\n"
-           "PY\n")
-    assert bash_churn(cmd) == (3, 2)
-
-
-def test_python_heredoc_re_sub_literals_counted():
-    cmd = ("python3 - <<'PY'\n"
-           "import re, pathlib\n"
-           "p = pathlib.Path('f')\n"
-           "p.write_text(re.sub('old', 'new\\nnew2', p.read_text()))\n"
-           "PY\n")
-    assert bash_churn(cmd) == (2, 1)
-
-
-def test_python_heredoc_that_never_writes_is_not_churn():
-    """A read-and-print script mutates nothing on disk, however many
-    replace() calls it makes on the way to stdout."""
-    cmd = ("python3 - <<'PY'\n"
-           "s = open('f').read()\n"
-           "print(s.replace('a', 'b\\nc'))\n"
-           "PY\n")
-    assert bash_churn(cmd) == (0, 0)
-
-
-def test_python_replace_with_non_literal_arguments_uses_write_estimate():
-    """Unknown replacement sizes receive the per-call write estimate."""
-    cmd = ("python3 - <<'PY'\n"
-           "import pathlib, sys\n"
-           "old, new = sys.argv[1], sys.argv[2]\n"
-           "p = pathlib.Path('f')\n"
-           "p.write_text(p.read_text().replace(old, new))\n"
-           "PY\n")
-    assert bash_churn(cmd) == (1, 0)
-
-
-def test_python_write_text_of_a_string_literal_counts_as_added():
-    cmd = ("python3 - <<'PY'\n"
-           "import pathlib\n"
-           "pathlib.Path('f').write_text('one\\ntwo\\nthree\\n')\n"
-           "PY\n")
-    assert bash_churn(cmd) == (3, 0)
-
-
-def test_python_dash_c_literal_replace_is_counted():
-    cmd = ("python3 -c 'import pathlib\np=pathlib.Path(\"f\")\n"
-           "p.write_text(p.read_text().replace(\"a\", \"b\\nc\"))'")
-    assert bash_churn(cmd) == (2, 1)
-
-
-def test_syntactically_invalid_python_yields_zero():
-    cmd = ("python3 - <<'PY'\n"
-           "def broken(:\n"
-           "PY\n")
-    assert bash_churn(cmd) == (0, 0)
-
-
-def test_non_python_interpreter_heredoc_yields_zero():
-    cmd = ("node - <<'JS'\n"
-           "require('fs').writeFileSync('f', 'a\\nb')\n"
-           "JS\n")
-    assert bash_churn(cmd) == (0, 0)
-
-
-def test_python_replace_through_single_assignment_literals_is_counted():
-    """The shape most edits actually take: bind old/new to literals,
-    assert the match is unique, then write back. The literals are right
-    there in the script — binding them to a name does not make them
-    unknowable."""
-    cmd = ("python3 - <<'PY'\n"
-           "import pathlib\n"
-           "p = pathlib.Path('enroll.go')\n"
-           "old = 'a\\nb\\n'\n"
-           "new = 'x\\n'\n"
-           "s = p.read_text()\n"
-           "assert s.count(old) == 1\n"
-           "p.write_text(s.replace(old, new))\n"
-           "PY\n")
-    assert bash_churn(cmd) == (1, 2)
-
-
-def test_python_replace_through_a_rebound_name_uses_write_estimate():
-    """A name assigned more than once holds whichever value the run
-    produced — not enumerable from the text."""
-    cmd = ("python3 - <<'PY'\n"
-           "import pathlib\n"
-           "p = pathlib.Path('f')\n"
-           "new = 'one'\n"
-           "new = new + open('other').read()\n"
-           "p.write_text(p.read_text().replace('old', new))\n"
-           "PY\n")
-    assert bash_churn(cmd) == (1, 0)
-
-
-def test_python_replace_through_a_loop_variable_uses_write_estimate():
-    cmd = ("python3 - <<'PY'\n"
-           "import pathlib\n"
-           "p = pathlib.Path('f')\n"
-           "s = p.read_text()\n"
-           "for new in ('a', 'b'):\n"
-           "    s = s.replace('old', new)\n"
-           "p.write_text(s)\n"
-           "PY\n")
-    assert bash_churn(cmd) == (1, 0)
-
-
 def test_parsing_a_body_with_a_bad_escape_emits_no_warning():
     """Transcript scripts are arbitrary third-party text — `\\$` in a
     shell-ish literal is legal enough to run and warned about by the
@@ -419,58 +362,6 @@ def test_parsing_a_body_with_a_bad_escape_emits_no_warning():
         warnings.simplefilter("always")
         bash_churn(cmd)
     assert [str(w.message) for w in caught] == []
-
-
-def test_python_replace_through_sequentially_rebound_names_is_counted():
-    """Two edits in one script, each rebinding `old`/`new` before its
-    own replace: at every replace the names hold a literal, so both
-    are enumerable — the binding in force is the one just above."""
-    cmd = ("python3 - <<'PY'\n"
-           "p = 'a.md'; t = open(p).read()\n"
-           "old = 'x\\ny'\n"
-           "new = 'z'\n"
-           "open(p, 'w').write(t.replace(old, new))\n"
-           "p = 'b.md'; t = open(p).read()\n"
-           "old = 'q'\n"
-           "new = 'r\\ns\\nt'\n"
-           "open(p, 'w').write(t.replace(old, new))\n"
-           "PY\n")
-    assert bash_churn(cmd) == (4, 3)
-
-
-def test_python_replace_through_a_local_helper_is_counted():
-    """`sub(path, old, new)` defined in the same script and called with
-    literals is the literal replace with one indirection."""
-    cmd = ("python3 - <<'PY'\n"
-           "import re\n"
-           "def sub(path, old, new):\n"
-           "    t = open(path, encoding='utf-8').read()\n"
-           "    assert old in t, (path, old)\n"
-           "    open(path, 'w', encoding='utf-8').write(t.replace(old, new))\n"
-           "sub('a.md', 'one\\ntwo', 'three')\n"
-           "sub('b.md', 'four', 'five\\nsix')\n"
-           "PY\n")
-    assert bash_churn(cmd) == (3, 3)
-
-
-def test_python_helper_called_with_variable_strings_uses_write_estimate():
-    cmd = ("python3 - <<'PY'\n"
-           "import sys\n"
-           "def sub(path, old, new):\n"
-           "    open(path, 'w').write(open(path).read().replace(old, new))\n"
-           "sub('a.md', sys.argv[1], sys.argv[2])\n"
-           "PY\n")
-    assert bash_churn(cmd) == (1, 0)
-
-
-def test_python_helper_body_is_not_counted_on_its_own():
-    """The replace inside the helper runs once PER CALL; with no call
-    it never runs."""
-    cmd = ("python3 - <<'PY'\n"
-           "def sub(path, old, new):\n"
-           "    open(path, 'w').write(open(path).read().replace(old, new))\n"
-           "PY\n")
-    assert bash_churn(cmd) == (0, 0)
 
 
 # --- does an errored result mean the write did not happen? ------------
@@ -541,19 +432,6 @@ def test_heredoc_cat_through_an_fd_dup_books_no_churn(redirect):
     assert bash_churn(command) == (0, 0)
 
 
-def test_stream_redirect_into_a_pipe_target_counts_the_churn_line():
-    """`2>| g.txt` clobbers g.txt exactly like `2>`: SV-BASH-CHURN
-    counts one added line per call for a recognized write of unknown
-    addition size, whatever the spelling (#805)."""
-    assert bash_churn("grep x f.py 2>| g.txt") == (1, 0)
-
-
-def test_echo_into_fd_dup_filename_books_its_payload():
-    """`>& file` is a real stdout sink, so echo's payload books like it
-    does behind `&>` (#802)."""
-    assert bash_churn("echo hi >& both.txt") == (1, 0)
-
-
 def test_fd_dup_target_is_not_an_error_line_path():
     """A bare digit `>&` target is filtered as a descriptor, so an error
     line naming a digit-leading path (`2.py`) cannot match it and zero
@@ -583,13 +461,6 @@ def test_heredoc_cat_books_churn_through_fd_one_stdout_spellings(redirect):
     assert bash_churn(command) == (3, 0)
 
 
-def test_heredoc_cat_through_an_fd_dup_books_no_churn_case():
-    """`1>&2` duplicates stdout into stderr: no file at all, no churn
-    (#819)."""
-    command = "cat <<EOF 1>&2\nline1\nline2\nline3\nEOF\n"
-    assert bash_churn(command) == (0, 0)
-
-
 @pytest.mark.parametrize("redirect", ["2>", "21>"])
 def test_heredoc_cat_with_a_higher_fd_redirect_keeps_the_sink_line(redirect):
     """A higher fd's redirect (`2>`, `21>`) points another descriptor at
@@ -612,15 +483,6 @@ def test_tee_arm_books_no_operator_tokens(context, expected):
     in looking like a path: `>&2` is not a file, and the operator shape
     is filtered while real targets book (#820)."""
     assert _verbatim_targets(context) == expected
-
-
-def test_word_adjacent_digit_is_a_word_not_an_fd_prefix():
-    """`f1>` is the word `f1` plus a plain stdout redirect in bash — the
-    digit only reads as an fd when it STARTS the token — so the heredoc
-    body lands nowhere the fd-1 branch may claim and master's
-    unknown-size line stands (#819)."""
-    command = "cat <<EOF f1> out.txt\nl1\nl2\nl3\nEOF\n"
-    assert bash_churn(command) == (1, 0)
 
 
 @pytest.mark.parametrize("fd", ["11>", "10>", "100>"])
@@ -647,15 +509,6 @@ def test_tee_arm_books_no_stdin_redirect_target(context, expected):
     targets book. An fd-prefixed `<` (`2<f.txt`) is the same input
     redirect and filters too (#855, #856)."""
     assert _verbatim_targets(context) == expected
-
-
-def test_heredoc_sink_line_stays_off_for_a_bare_fd_zero():
-    """The sink line's fd exclusion is deliberate at both ends: `0>`
-    opens f.txt for writing yet books nothing here — shipped semantics,
-    pinned so the lead cannot quietly widen to `[0-9]+` (#854 review
-    N1; whether fd 0's creation should count is #854-class follow-up)."""
-    command = "cat <<EOF 0> f.txt\nline1\nline2\nline3\nEOF\n"
-    assert bash_churn(command) == (0, 0)
 
 
 def test_echo_pipeline_reads_fd_prefix_by_value():

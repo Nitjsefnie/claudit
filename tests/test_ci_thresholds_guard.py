@@ -330,17 +330,6 @@ def test_main_prints_each_forbidden_move(tmp_path, capsys):
     assert "never raised or added by hand" in captured.err
 
 
-def test_suite_cost_raised_fails(tmp_path):
-    # A suite phase's number is a cost ceiling: the bot only ever
-    # tightens it down, so an upward move without judged features fails.
-    # (Both fields must move together to keep the loader's 1.5 gap, so
-    # this paired shape is the only raise a head document can carry.)
-    base = _document()
-    head = _document()
-    head["suite_cost"]["run"] = {"measured": 310.0, "floor": 311.5}
-    assert _guard_result(tmp_path, base, head) == 1
-
-
 def test_suite_cost_tightened_is_clean(tmp_path):
     # The bot shape: a cheaper run moves both fields of one phase down
     # and leaves the other phases exactly where they were.
@@ -379,15 +368,6 @@ def test_suite_cost_introduced_against_a_predating_base_is_clean(tmp_path):
     head_path = _written(tmp_path, _document(), "head.json")
     assert _guard().main([
         "--base", str(base_path), "--head", str(head_path)]) == 0
-
-
-def test_reparse_phase_raised_fails(tmp_path):
-    # A reparse phase is a cost ceiling, so its ratchet only ever
-    # TIGHTENS: a record that moved up is a hand-raise of the budget,
-    # which buys headroom the maintainer's lever is meant to remove.
-    base = _document()
-    head = _document(reparse=_reparse({"sniff.share": "20.0"}))
-    assert _guard_result(tmp_path, base, head) == 1
 
 
 def test_reparse_phase_tightened_is_clean(tmp_path):

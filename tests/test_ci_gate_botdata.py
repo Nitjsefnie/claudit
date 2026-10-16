@@ -1,13 +1,7 @@
 """The ci-gate bot-data class: classifier and fold pins (issues #455, #488).
 
-The bot-data classification (the refresh bot's exact push signature ->
-the cheap class) and the aggregate fold's data-only branch are the
-issue-455/-488 additions to the ci-gate classifier and aggregate fold,
-so their pins live in their own module rather than growing
-test_ci_gate_modules.py past the test size ceiling. Loader shape
-matches that file: scripts/ci is not a package and deliberately has no
-__init__.py — it holds standalone CI entry points, so both modules load
-by path here too.
+The classifier accepts the refresh bot's exact push signature; the aggregate
+fold permits its expensive legs to skip.
 """
 from __future__ import annotations
 
@@ -120,7 +114,7 @@ PUSH = {"name": "push", "repository": "o/r", "before": "c" * 40, "sha": HEAD}
 BOT_PATHS = ["src/pricing.json", "backend/constants.py"]  # sv-test-data: allow
 
 
-def _pricing_run(paths, author=BOT_EMAIL, after='PRICING_VERSION = "8"\n'):
+def _pricing_run(paths, author: str | Exception | None = BOT_EMAIL, after='PRICING_VERSION = "8"\n'):
     """Answer only the classifier's expected API reads, with synthetic blobs."""
     replies = {
         'repos/o/r/actions/workflows/ci-gate.yml/runs?branch=master&per_page=100':
@@ -155,19 +149,15 @@ def test_pr_with_bot_paths_and_valid_pricing_diff_runs_everything(notices):
     assert result[:3] == (False, False, False)
 
 
-@pytest.mark.parametrize('notices', [False, True])
-@pytest.mark.parametrize('author,expected', [
-    (BOT_EMAIL, True),
-    ('human@example.com', False),
-    (RuntimeError('author read failed'), False),
-    ('', False),
-    ('null', False),
-    (None, False),
-])
-def test_push_data_only_requires_the_tip_bot_author(notices, author, expected):
-    paths = BOT_PATHS + (['src/pricing_notices.json'] if notices else [])
-    result = classify.classify(PUSH, _pricing_run(paths, author))
-    assert result[:3] == (False, expected, False)
+def test_push_data_only_requires_the_tip_bot_author():
+    for author, expected in (
+            (BOT_EMAIL, True), ('human@example.com', False),
+            (RuntimeError('author read failed'), False),
+            ('', False), ('null', False), (None, False)):
+        for notices in (False, True):
+            paths = BOT_PATHS + (['src/pricing_notices.json'] if notices else [])
+            result = classify.classify(PUSH, _pricing_run(paths, author))
+            assert result[:3] == (False, expected, False)
 
 
 @pytest.mark.parametrize('after', [
