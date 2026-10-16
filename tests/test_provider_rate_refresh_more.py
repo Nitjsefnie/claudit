@@ -1,4 +1,4 @@
-"""Tests moved from test_provider_rate_refresh.py to keep test modules under 700 lines."""
+"""Tests moved from test_provider_rate_refresh.py to keep modules under 700 lines."""
 from __future__ import annotations
 
 import copy
