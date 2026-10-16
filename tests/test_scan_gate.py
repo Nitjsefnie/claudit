@@ -7,7 +7,8 @@ Two layers:
   container) is visible to ``module_vocab`` — the fail-closed claim the
   gates lean on;
 - the tree property: every string constant in every module under
-  tests/ is visible to the gate. This is the pin that makes the
+  tests/ is visible to the gate, except operands a fresh compile proves
+  swallowed in folded chains or template-rewritten formats. This makes the
   fail-closed claim hold against the REAL tree: an interpreter change
   to constant folding fails here, loudly, instead of silently narrowing
   the gate.
@@ -21,7 +22,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterable
 from pathlib import Path
-import re
+from types import CodeType
 
 import pytest
 
@@ -31,58 +32,44 @@ from tests.source_scan_cache import for_source, source as cached_source
 TESTS_DIR = Path(__file__).resolve().parent
 
 
-def _rewrites_percent_format(node: ast.BinOp) -> bool:
-    if not (isinstance(node.op, ast.Mod)
-            and isinstance(node.left, ast.Constant)
-            and isinstance(node.left.value, str)
-            and isinstance(node.right, ast.Tuple)):
-        return False
-    if any(isinstance(elt, ast.Starred) for elt in node.right.elts):
-        return False
-    field = re.compile(r"%%|%[-+ #0]*[0-9]{0,2}(?:\.[0-9]{0,2})?[sra]")
-    fmt = node.left.value
-    if ("%" in field.sub("", fmt)
-            or sum(token != "%%" for token in field.findall(fmt))
-            != len(node.right.elts)):
-        return False
-    # Optimize a fresh RHS copy only: constant tuples bypass format rewriting.
-    rhs = ast.parse(ast.unparse(node.right), mode="eval", optimize=1).body
-    return not isinstance(rhs, ast.Constant)
-
-
 def _fold_operands(nodes: Iterable[ast.AST]) -> set[ast.Constant]:
-    """String operand nodes the compiler swallows or rewrites, hidden in co_consts.
+    """Exempt only operand nodes a fresh compile proves the compiler swallows.
 
-    Exempt constant Add/Mult/Mod chains by node identity. An interpreter
-    that desugars template-convertible %-formats shatters the fmt literal
-    into per-slot fragments. A split/escaped intact value reaches neither
-    co_consts nor plain text: deliberately uncovered, same residual class
-    as the gate's dead-branch clause. The exemption encodes the probed
-    rewrite eligibility; a future interpreter change fails the real-tree
-    property loudly.
+    Folded chains and template-rewritten formats alike must lose every
+    operand value from the probe's recursive co_consts. Dead-branch
+    occurrences of these swallowable shapes are equally invisible and
+    deliberately uncovered; interpreter changes fail the real-tree
+    property loudly. Exemptions belong to nodes, never same-valued twins.
     """
     found: set[ast.Constant] = set()
 
-    def strings_if_folds(node: ast.AST) -> set[ast.Constant] | None:
-        """String operands if this subtree contains only constants and allowed ops."""
+    def string_operands(node: ast.AST) -> set[ast.Constant]:
         if isinstance(node, ast.Constant):
             return {node} if isinstance(node.value, str) else set()
-        if (isinstance(node, ast.BinOp)
-                and isinstance(node.op, (ast.Add, ast.Mult, ast.Mod))):
-            left = strings_if_folds(node.left)
-            right = strings_if_folds(node.right)
-            if left is not None and right is not None:
-                return left | right
-        return None
+        if isinstance(node, ast.BinOp):
+            return string_operands(node.left) | string_operands(node.right)
+        if isinstance(node, ast.Tuple):
+            return {operand for elt in node.elts
+                    for operand in string_operands(elt)}
+        return set()
+
+    def constant_strings(value: object) -> set[str]:
+        if isinstance(value, str):
+            return {value}
+        if isinstance(value, CodeType):
+            return constant_strings(value.co_consts)
+        if isinstance(value, (tuple, frozenset)):
+            return {string for item in value for string in constant_strings(item)}
+        return set()
 
     for node in nodes:
         if not isinstance(node, ast.BinOp):
             continue
-        if isinstance(node.left, ast.Constant) and _rewrites_percent_format(node):
-            found.add(node.left)
-        folded = strings_if_folds(node)
-        if folded is not None:
-            found |= folded
+        operands = string_operands(node)
+        probe = compile("x = " + ast.unparse(node), "<fold-probe>", "exec")
+        consts = constant_strings(probe)
+        if operands and all(operand.value not in consts for operand in operands):
+            found |= operands
     return found
 
 
@@ -177,8 +164,9 @@ def test_fold_operands_exempts_percent_format_literals(
 @pytest.mark.parametrize("statement", [
     "x = '%s!' % name", "x = '%d!' % (name,)",
     "x = '%s:%s' % (name,)", "x = '%s:%s' % ('a', 'b')",
+    "x = '%s!' % 'x'", "x = 'lit' * 10000", "x = 'lit' + 1",
 ])
-def test_tree_property_rejects_an_intact_format_in_dead_code(
+def test_tree_property_rejects_intact_operands_in_dead_code(
         tmp_path: Path, statement: str) -> None:
     source = f"if False:\n    {statement}\n"
     assert not scan_gate.module_vocab(source)[0]
@@ -202,10 +190,14 @@ def test_tree_property_accepts_a_rewritten_format(tmp_path: Path) -> None:
     _assert_gate_sees_string_constants(tmp_path)
 
 
-def test_fold_operands_exempts_constant_mod_operands() -> None:
+def test_fold_operands_keeps_intact_constant_mod_operands(
+        tmp_path: Path) -> None:
     source = "x = '%s!' % 'x'"
     exempted = _fold_operands(ast.walk(ast.parse(source)))
-    assert {node.value for node in exempted} == {'%s!', 'x'}
+    assert not exempted
+    assert {'%s!', 'x'} <= scan_gate.module_vocab(source)[0]
+    (tmp_path / "constant_mod.py").write_text(source, encoding="utf-8")
+    _assert_gate_sees_string_constants(tmp_path)
 
 
 def test_tree_property_rejects_a_missed_call_argument(tmp_path: Path) -> None:
