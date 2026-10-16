@@ -209,7 +209,6 @@ def _measurement_file(path: Path, counts=None, instrument="instruction_count",
     return path
 
 
-
 def test_the_marker_is_the_documented_spelling():
     # A spelling change is a doctrine change: the marker is documented
     # as this token, and every commit that depends on it spells it so.
@@ -558,7 +557,6 @@ def test_the_coverage_ratchet_would_raise_on_a_re_seed_tip(tmp_path,
     assert ratchet.main(["--measured", "99.9", "--thresholds",
                          str(target)]) == 0
     assert "99.9" in target.read_text(encoding="utf-8")
-
 
 
 def test_the_guard_passes_the_sanctioned_delete(tmp_path):

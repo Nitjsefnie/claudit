@@ -52,8 +52,6 @@ def _assert_provider_resolution_returns_loaded_row(
         pricing.PROVIDER_RATES[(normalized_model, host)]
 
 
-
-
 def test_a_record_with_a_provider_is_priced_from_the_provider_table():
     # OpenRouter's Novita endpoint for deepseek-v4.1-flash, 2026-09-24:
     # $0.285 in / $1.14 out / $0.0057 cache read per 1M.
@@ -348,8 +346,6 @@ def test_stealth_stays_free_with_or_without_a_provider():
         assert all(v == 0 for v in r.rates.values())
     assert _cost("stealth/space-bunny-alpha", "Stealth",
                  fresh=10**9, output=10**9) == 0
-
-
 
 
 def test_the_dated_permaslug_resolves_to_the_same_row_as_the_slug(
