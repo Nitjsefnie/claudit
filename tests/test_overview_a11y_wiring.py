@@ -381,8 +381,6 @@ def test_panel_toolbars_wrap_below_320():
         assert _has_flexwrap(body), (
             f"{panel} carries no flexWrap: 'wrap' anywhere -- one of its "
             f"rows refuses to wrap and overflows 320 px")
-        # Both halves of the header: the flex row holding title+toolbar,
-        # and the toolbar itself.
         header_m = re.search(
             r"borderBottom: `1px solid \$\{TH_X\.border\}`, display: 'flex'"
             r", alignItems: 'center', gap: 16[^}]*", body)
@@ -391,8 +389,6 @@ def test_panel_toolbars_wrap_below_320():
         assert _has_flexwrap(header_m.group(0)), (
             f"{panel}'s header row does not wrap -- the toolbar cannot "
             f"drop below the title and overflows 320 px")
-        # The panel's model-select toolbar: the inline-flex row holding
-        # the toggle buttons and the filter.
         tool_m = re.search(
             r"display: 'inline-flex'[^{}]*gap: 6,[^{}]*", body)
         assert tool_m, (
@@ -400,8 +396,6 @@ def test_panel_toolbars_wrap_below_320():
         assert "flexWrap: 'wrap'" in tool_m.group(0), (
             f"{panel}'s toolbar does not wrap -- its buttons plus model "
             f"select overflow 320 px")
-    # Token Breakdown's model filter sits in a justify-end flex row in
-    # app.jsx with the same defect.
     app = _strip_line_comments((APP.parent / "dashboard-view.jsx").read_text(encoding="utf-8"))
     body = _panel_src("TokenBreakdownPanel", app)
     row_m = re.search(
