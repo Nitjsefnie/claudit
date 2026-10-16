@@ -404,7 +404,7 @@ def test_band_with_utc_fields_refuses():
     assert "not modelled" in out.refusals[0]
 
 
-# --- unmodelled vendor shapes refuse (run red) --------------------------------
+# --- scheduled listings and unmodelled vendor shapes -------------------------
 
 
 def test_weekly_schedule_adds_the_vendor_host():
