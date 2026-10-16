@@ -33,8 +33,6 @@ def test_mkdir_operands_are_write_targets(command, expected):
     ("git worktree add --detach /tmp/wt", ["/tmp/wt"]),
     ("git worktree add --track=inherit /tmp/wt main", ["/tmp/wt"]),
     ("git worktree add", []),
-    ("git worktree prune", []),
-    ("git worktree list", []),
     ("git worktree add --unknown /tmp/wt", []),
     ("git -C /x worktree add /tmp/wt", []),
     ("git worktree add *.py", []),

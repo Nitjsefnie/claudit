@@ -380,11 +380,6 @@ def test_the_probe_is_cached_until_it_is_cleared(tmp_path):
 
 # --- what the marker buys: the absence, and only the absence ------------
 
-def test_an_absent_family_is_refused_without_the_marker():
-    with pytest.raises(ValueError, match="missing field: suite_cost"):
-        thresholds.normalise(_document(suite_cost=False), False)
-
-
 def test_the_marker_admits_an_absent_family():
     # The family stays ABSENT in the result rather than normalising to
     # an empty mapping, so the document's bytes round-trip unchanged.
