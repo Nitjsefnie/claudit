@@ -50,28 +50,19 @@ def test_require_returns_silently_when_probe_true(monkeypatch):
     assert git_meta.require_own_git_metadata(REPO_ROOT) is None
 
 
-def test_probe_accepts_matching_toplevel(monkeypatch, tmp_path):
+@pytest.mark.parametrize("returncode,toplevel,expected", [
+    pytest.param(0, "matching", True, id="matching-toplevel"),
+    pytest.param(0, "foreign", False, id="foreign-toplevel"),
+    pytest.param(128, None, False, id="git-failure"),
+])
+def test_probe_accepts_matching_toplevel(
+        monkeypatch, tmp_path, returncode, toplevel, expected):
+    stdout = (b"" if toplevel is None else
+              f"{tmp_path if toplevel == 'matching' else tmp_path / 'outer'}\n".encode())
     monkeypatch.setattr(
         git_meta.subprocess, "run",
-        _fake_run(0, f"{tmp_path}\n".encode(), expected_cwd=tmp_path))
-    assert git_meta.has_own_git_metadata(tmp_path)
-
-
-def test_probe_rejects_foreign_toplevel(monkeypatch, tmp_path):
-    # An enclosing repository's toplevel is not this tree's metadata.
-    monkeypatch.setattr(
-        git_meta.subprocess, "run",
-        _fake_run(0, f"{tmp_path / 'outer'}\n".encode(),
-                  expected_cwd=tmp_path))
-    assert not git_meta.has_own_git_metadata(tmp_path)
-
-
-def test_probe_rejects_git_failure(monkeypatch, tmp_path):
-    # Outside any repository git exits 128 ("not a git repository").
-    monkeypatch.setattr(
-        git_meta.subprocess, "run",
-        _fake_run(128, b"", expected_cwd=tmp_path))
-    assert not git_meta.has_own_git_metadata(tmp_path)
+        _fake_run(returncode, stdout, expected_cwd=tmp_path))
+    assert git_meta.has_own_git_metadata(tmp_path) is expected
 
 
 def test_probe_tolerates_missing_git(monkeypatch, tmp_path):

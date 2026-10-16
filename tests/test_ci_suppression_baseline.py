@@ -115,12 +115,6 @@ def test_non_complexity_disables_not_counted():
         "# pylint: disable=too-few-public-methods\n") == 0
 
 
-def test_too_few_is_not_too_many():
-    suppression = _suppression_baseline()
-    assert suppression.suppression_lines(
-        "# pylint: disable=too-few-public-methods\n") == 0
-
-
 def test_plain_text_is_not_a_suppression():
     suppression = _suppression_baseline()
     assert suppression.suppression_lines(

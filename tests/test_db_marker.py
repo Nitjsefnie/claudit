@@ -440,20 +440,17 @@ def _marked_db(fn: _AnyFn) -> bool:
                for dec in fn.decorator_list)
 
 
-def test_a_test_requesting_a_db_fixture_is_marked():
-    assert _mark_applied(["fresh_db"]) is True
-
-
-def test_a_test_requesting_no_db_fixture_is_not_marked():
-    assert _mark_applied(["monkeypatch", "tmp_path"]) is False
-
-
-def test_an_imported_db_fixture_marks_through_the_closure():
+@pytest.mark.parametrize("fixturenames,expected", [
+    pytest.param(["fresh_db"], True, id="db-fixture"),
+    pytest.param(["monkeypatch", "tmp_path"], False, id="no-db-fixture"),
+    pytest.param(["app_with_data"], True, id="imported-db-fixture"),
+])
+def test_a_test_requesting_a_db_fixture_is_marked(fixturenames, expected):
     # app_with_data is defined in test_api and re-exported by
     # test_schema_autoapply / test_api_token_types; the requesting test
     # lives in the importing module. item.fixturenames carries it all
     # the same.
-    assert _mark_applied(["app_with_data"]) is True
+    assert _mark_applied(fixturenames) is expected
 
 
 def test_the_mark_is_added_once_even_with_several_db_fixtures():
@@ -575,24 +572,19 @@ def test_every_server_touching_test_requests_a_db_fixture_or_carries_the_mark():
 SERVER = 'viz_' 'conn'
 
 
-def test_a_seeded_server_call_is_flagged_without_the_mark(tmp_path):
+@pytest.mark.parametrize("fixture_source,expected", [
+    pytest.param("", ["test_planted.py:test_reaches_the_server"],
+                 id="without-db-fixture"),
+    pytest.param("fresh_db", [], id="with-db-fixture"),
+])
+def test_a_seeded_server_call_is_flagged_without_the_mark(
+        tmp_path, fixture_source, expected):
     # Mutation proof for the gate: a fresh file whose only server
     # reach is spelled inside it must still be flagged.
     (tmp_path / "test_planted.py").write_text(
-        "def test_reaches_the_server():\n"
+        f"def test_reaches_the_server({fixture_source}):\n"
         f"    return {SERVER}()\n", encoding="utf-8")
-    assert _marking_offenders(tmp_path) == [
-        "test_planted.py:test_reaches_the_server"]
-
-
-def test_a_seeded_server_call_with_a_db_fixture_is_clean(tmp_path):
-    # The complement: the same reach with a registered DB fixture in
-    # the parameter list is not an offender — the guard flags the
-    # missing registration, not the reach.
-    (tmp_path / "test_planted.py").write_text(
-        "def test_reaches_the_server(fresh_db):\n"
-        f"    return {SERVER}()\n", encoding="utf-8")
-    assert not _marking_offenders(tmp_path)
+    assert _marking_offenders(tmp_path) == expected
 
 
 def test_a_seeded_rooted_fixture_arrives_in_the_derived_registry(tmp_path):
