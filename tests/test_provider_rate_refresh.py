@@ -1,12 +1,10 @@
 """SV-RATE-REFRESH: scripts/ci/refresh_provider_rates.py, driven by fixture
 endpoint payloads — never the network.
 
-Every run starts from the SEEDED view of src/pricing.json: each provider row
-as it was seeded, before any refresh appended to it. The refresh only ever
-appends dated entries, so that view, and every price these tests move away
-from, is the same whatever the scheduled job has committed since. The
-payloads reproduce it, so "nothing moved" is exact, and each test moves one
-thing.
+Runs start from src/pricing.json's SEEDED provider entries. Append-only
+refreshes leave this view and its starting prices independent of later
+scheduled commits. Payloads reproduce it, so "nothing moved" is exact;
+each test moves one thing.
 """
 from __future__ import annotations
 
@@ -545,8 +543,7 @@ def test_a_host_at_two_global_prices_is_refused_naming_the_tags(tmp_path, capsys
 
 
 def test_every_refusal_in_a_run_is_named(tmp_path, capsys):
-    """One red run names every model a human must look at, not just the
-    first one fetched."""
+    """A red run names every refused model, not only the first fetched."""
     run = Run(tmp_path)
     _two_global_novitas(run)
     run.endpoints(V41).clear()

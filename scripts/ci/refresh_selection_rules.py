@@ -1,37 +1,30 @@
 #!/usr/bin/env python3
 """Resolution-free endpoint selection for one host's listed prices (#877).
 
-Beneath an explicit resolve entry — which always keeps precedence — a
-host's several listed prices resolve mechanically by offering shape or
-by continuity with the stored token rates:
+Explicit resolve entries keep precedence. Otherwise multiple prices resolve
+by offering shape or continuity with stored token rates:
 
     - a bare namespace endpoint beside its service tiers takes the bare one;
     - the one quantization endpoint beside throughput tiers takes that one;
-    - a base tag beside only its suffix extensions takes the base, for any
-      suffixes, when quantization and every non-tag identity field agree;
-    - the configured data region takes its own endpoint: the region filter,
-      and under `global` the namespace's global endpoint (an explicit
-      `<ns>/global`, else the bare `<ns>`) over an unrecognised regional
-      spelling;
-    - one quantization's price twins take the cheaper, ordered by cache
-      read, then input, then output, with the twin-switch report the
-      recorded `cheapest` pins use; only quantization and region suffixes
-      belong to the quantization family, never nested service tiers;
-    - last, exactly one price group at the stored five token rates takes
-      that group, comparing at ten decimals and ignoring search fees and
-      schedules. Without a stored row this rule never fires.
+    - a base tag beside only its suffix extensions takes the base for any
+      suffixes, if quantization and all non-tag identity fields agree;
+    - the data-region filter takes its region; under `global`, prefer
+      `<ns>/global`, else bare `<ns>`, over unrecognised regional spellings;
+    - one quantization's twins take the cheaper by cache read, input, then
+      output, with the recorded `cheapest` pins' twin-switch report. Only
+      quantization/region suffixes belong to this family, never nested tiers;
+    - last, take the sole group matching the stored five token rates at ten
+      decimals, ignoring search fees/schedules. Requires a stored row.
 
-Everything else refuses, naming the tags: unrelated offerings without a
-unique stored-price match, including a first-seen multi-price host with no
-structural fit. Identity mismatches disqualify the tier-base rule; twin
-ties and flips still refuse before continuity is attempted. The run reports
-each rule that fired as rule-resolved, so an automatic choice is never silent.
+Otherwise refuse, naming tags: unrelated offerings without a unique stored
+match, including first-seen multi-price hosts with no structural fit.
+Identity mismatches disqualify tier-base; twin ties/flips refuse before
+continuity. Every automatic choice reports its rule as rule-resolved.
 
-A region spelling is a tag with one suffix the vocabulary does not carry —
-neither a recognized data region, nor a quantization, nor a service tier
-(`azure/swedencentral`). Nothing is read as a region unless the namespace
-also lists a global endpoint to prefer over it, so an offering the
-refresh does not recognise never silently disappears from a row.
+An unrecognised region spelling has one suffix naming neither a known
+region, quantization nor tier (`azure/swedencentral`). Only a namespace
+with a global endpoint can treat it as regional: unknown offerings must
+not silently disappear.
 """
 from __future__ import annotations
 
@@ -71,8 +64,7 @@ def tag_suffixes(tag: str) -> list[str]:
 
 
 def price_groups(listed: list[Listing]) -> list[list[Listing]]:
-    """The listings grouped by exact listed price, in listed order: one
-    group per price, its members interchangeable tags at that price."""
+    """Group exact listed prices in listed order; equal-price tags interchange."""
     grouped: dict[str, list[Listing]] = {}
     for endpoint in listed:
         grouped.setdefault(endpoint.price, []).append(endpoint)
@@ -81,15 +73,11 @@ def price_groups(listed: list[Listing]) -> list[list[Listing]]:
 
 def select_region(where: str, listed: list[Listing], region: str | None,
                   pin: object) -> RegionSelection:
-    """The configured region's listings, and the rule-resolved choice when
-    the region alone leaves one price.
+    """Filter to the account's region, reporting a choice if it leaves one price.
 
-    The filter drops every endpoint naming another data region. Under the
-    global region an endpoint naming no region survives it, so the
-    namespace's global endpoint is preferred over its unrecognised regional
-    spellings here; a named region needs no such preference, its own tag
-    being the one the filter keeps. An explicit resolution suppresses both,
-    and decides for itself."""
+    Regionless tags survive the global filter, so prefer the namespace's
+    global endpoint over unrecognised regional spellings. Named regions
+    need only filtering. Explicit resolutions suppress automatic choices."""
     kept = [endpoint for endpoint in listed if _account_region(endpoint.tag) == region]
     if pin is None:
         if region is None:
@@ -268,19 +256,13 @@ def tier_variant_base(where: str, groups: list[list[Listing]]
 
 def same_quantization(where: str, groups: list[list[Listing]], stored: dict | None
                       ) -> tuple[Listing, str] | None:
-    """Take the cheapest of one quantization's price twins.
+    """Assume one offering priced per region; take the account's cheapest twin.
 
-    Endpoints listed under one quantization at several prices are one
-    offering priced per region, so the cheapest is the one the account
-    reaches; the price-order rules that guard the recorded `cheapest` pins
-    guard this too (a tie refuses, a flip refuses, a rise is reported). The
-    premise is taken, not checked: the rule compares prices, never the
-    identity fields a recorded `cheapest` pin compares, so a host whose
-    same-quantization endpoints differ in a limit is resolved here rather
-    than held for a human — that is the pin's job, and such a host keeps
-    its pin. A service tier at one of those prices rides in its group and
-    is interchangeable with the quantization tag beside it, while any other
-    offering — a second quantization, a region spelling — keeps refusing."""
+    As with `cheapest` pins, ties/flips refuse and rises report. Unlike
+    pins, this rule compares no identity fields: differing limits resolve
+    here unless a retained pin requires human review. A same-price service
+    tier rides in its group as an interchangeable tag. Other offerings
+    (a second quantization or an unrecognised region spelling) refuse."""
     candidates: list[list[Listing]] = []
     tiers: list[list[Listing]] = []
     quantizations: set[str] = set()
@@ -334,15 +316,12 @@ def stored_price_continuity(where: str, groups: list[list[Listing]], stored: dic
 
 def price_order(where: str, prices: list[Listing],
                 stored: dict | None) -> tuple[Listing, str | None]:
-    """The cheaper of several prices, ordered by cache read, then input,
-    then output, with the twin-switch report a rise earns.
+    """Cheapest by cache read, input, then output; report possible twin switches.
 
-    The price is the only identity such twins have, so a tie in the order
-    and a flip away from the row's own price both refuse: a human must look
-    at which endpoint the account reaches. A rise is reported, not refused:
-    the tracked twin moving above the other is indistinguishable from the
-    other becoming the row's price, and always shows as the row's price
-    rising (unless the other fell at the same time)."""
+    Price alone identifies twins, so ties/flips refuse for human review.
+    Rises only report: the tracked twin rising above the other looks like
+    the other becoming the row's price. Either raises the row's price,
+    unless the other simultaneously fell."""
     ranked = sorted(prices, key=lambda endpoint: [endpoint.rates[f] for f in _ORDER])
     chosen, other = ranked[0], ranked[1]
     if [chosen.rates[f] for f in _ORDER] == [other.rates[f] for f in _ORDER]:
