@@ -283,11 +283,11 @@ def test_comment_only_on_a_pull_request():
     assert classify.comment_only(["m.py"], event, run) is True
 
 
-# --- aggregate: the comment-only fold's negative space -----------------------
+# --- aggregate: comment-only fold, including setup-docs (issue #1054) --------
 
 LEGS = ("classify", "tests", "test-data", "lint", "types", "eslint",
         "panel-layout", "smoke", "docker-smoke", "audit", "actionlint",
-        "codeql")
+        "codeql", "setup-docs")
 
 
 def _needs(comment_only: str | None = "true", **results):
