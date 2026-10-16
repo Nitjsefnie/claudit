@@ -17,6 +17,7 @@ import pytest
 
 from backend import pricing
 from tests.pricing_data_loader_helpers import _node_load
+from tests.refresh_fixture_builders import seed_doc
 from tests.test_pricing_data import (
     _GLM_HOST,
     _GLM_MODEL,
@@ -152,38 +153,56 @@ def test_a_from_after_provider_rates_fetched_is_refused_in_the_browser(
 
 # --- issue #931.4: a dual pin agrees on its tag ------------------------------
 
+_PIN_MODEL = "acme/synthetic-9"
+
+
+def _dual_pin_doc() -> dict:
+    return seed_doc(
+        prefixes=["acme"],
+        providers={_PIN_MODEL: {"Fixture": [{"fresh": 1.0, "read": 0.1, "output": 2.0}]}},
+        tracked={_PIN_MODEL: {
+            "id": _PIN_MODEL, "vendor_host": "Fixture",
+            "resolve": {"Fixture": {"tag": "fixture/base", "why": "synthetic host pin"}},
+        }},
+        resolve={_PIN_MODEL: {"tag": "fixture/base", "why": "synthetic vendor pin"}},
+    )
+
+
 def _disagreeing_dual_pin() -> dict:
-    doc = _doc()
-    doc["openrouter"]["vendor"]["resolve"]["kimi-k2-7-code"]["tag"] = \
-        "moonshotai/highspeed"
+    doc = _dual_pin_doc()
+    doc["openrouter"]["vendor"]["resolve"][_PIN_MODEL]["tag"] = "fixture/fast"
     return doc
 
 
 def test_dual_pin_tags_that_differ_are_refused():
+    assert pricing.load_tables(_dual_pin_doc())["VENDOR_HOSTS"][_PIN_MODEL] == "Fixture"
     with pytest.raises(ValueError,
-                       match=r"openrouter\.models\['kimi-k2-7-code'\]"):
+                       match=r"openrouter\.models\['acme/synthetic-9'\].*vendor resolve tags"):
         pricing.load_tables(_disagreeing_dual_pin())
 
 
 def test_a_pin_without_a_tag_on_one_side_is_not_compared():
-    doc = _doc()
-    del doc["openrouter"]["models"]["kimi-k2-7-code"]["resolve"]
+    doc = _dual_pin_doc()
+    doc["openrouter"]["models"][_PIN_MODEL]["resolve"]["Fixture"] = {
+        "select": "cheapest", "why": "synthetic tagless pin"}
     tables = pricing.load_tables(doc)
     assert "MODEL_RATES" in tables
 
 
 @needs_node
 def test_dual_pin_tags_that_differ_are_refused_in_the_browser(tmp_path):
+    assert _node_load(tmp_path, _dual_pin_doc()) is None
     error = _node_load(tmp_path, _disagreeing_dual_pin())
     assert error, "the browser must refuse the disagreeing dual pin"
-    assert "kimi-k2-7-code" in error, error
+    assert _PIN_MODEL in error, error
     assert "vendor resolve tags" in error, error
 
 
 @needs_node
 def test_a_pin_without_a_tag_on_one_side_loads_in_the_browser(tmp_path):
-    doc = _doc()
-    del doc["openrouter"]["models"]["kimi-k2-7-code"]["resolve"]
+    doc = _dual_pin_doc()
+    doc["openrouter"]["models"][_PIN_MODEL]["resolve"]["Fixture"] = {
+        "select": "cheapest", "why": "synthetic tagless pin"}
     assert _node_load(tmp_path, doc) is None
 
 
