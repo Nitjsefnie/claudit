@@ -118,13 +118,13 @@ class BackfillContext:
 
 def _join_model_log(payload: object, log: refresh_pricelog.LogRead,
                     region: str | None, resolutions: dict,
-                    now: datetime) -> tuple[dict, str]:
+                    now: datetime, stored: dict[str, dict]) -> tuple[dict, str]:
     if log.series is None:
         reason = log.reason or "listed-pricing log unavailable"
         return {}, f"listed-pricing log unavailable: {reason}"
     try:
         return (refresh_pricelog.join_listed_pricing(
-            payload, log.series, region, resolutions, now), "")
+            payload, log.series, region, resolutions, now, stored), "")
     except refresh_pricelog.PriceLogError as exc:
         return {}, f"listed-pricing log unavailable: {exc}"
 
@@ -140,7 +140,8 @@ def _listed_model(model: str, source: dict, old_hosts: dict, region: str | None,
         model, payload, region, source.get("resolve", {}),
         {host: _entry_rates(history[-1]) for host, history in old_hosts.items()}, now)
     matched, unavailable = _join_model_log(
-        payload, log, region, source.get("resolve", {}), now)
+        payload, log, region, source.get("resolve", {}), now,
+        {host: _entry_rates(history[-1]) for host, history in old_hosts.items()})
     return ModelListing(payload, rows, refused, matched, unavailable), None
 
 

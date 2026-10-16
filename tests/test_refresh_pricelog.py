@@ -321,6 +321,21 @@ def test_two_endpoints_at_the_same_price_are_sampled_as_ambiguous():
     assert match["Wafer"].reason
 
 
+def test_stored_price_rule_selects_one_endpoint_for_log_backed_history():
+    rates, other = _rates(0.3, 0.8), _rates(0.4, 0.9)
+    endpoints = [_endpoint("Wafer", "wafer/primary", rates),
+                 _endpoint("Wafer", "wafer/secondary", other)]
+    series = logshape.read_log_payload(_payload(_series(rates=rates), _series(rates=other)))
+
+    match = pricelog.join_listed_pricing(
+        {"data": {"endpoints": endpoints}}, series, None, {}, _FETCH_AT,
+        {"Wafer": rates})["Wafer"]
+
+    assert match.reason is None
+    assert match.entries == [{"from": "2026-09-01T00:00:00Z", "fresh": 0.3,
+                              "read": 0.0, "output": 0.8}]
+
+
 def test_a_series_without_a_matching_listed_endpoint_is_sampled():
     listed, unlisted = _rates(0.3, 0.8), _rates(0.9, 1.1)
     match = _joined([_endpoint("Wafer", "wafer/fp8", listed)],

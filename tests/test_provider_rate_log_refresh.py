@@ -209,6 +209,42 @@ def test_log_backed_history_appends_every_move_at_its_own_time_through_a_flip(
             f"fresh {RATE_A['fresh']!r} → {mean['fresh']!r}") in out
 
 
+@pytest.mark.parametrize("equal_price_alias", [False, True])
+def test_rule_selected_endpoint_imports_log_points_only_when_unique(
+        tmp_path, capsys, equal_price_alias):
+    moved_at = "2031-01-01T00:10:00Z"
+    endpoints = [fixture_endpoint(HOST, RATE_B, tag="wafer"),
+                 fixture_endpoint(HOST, RATE_C, tag="wafer/fast")]
+    series = [_series([("2030-12-31T23:00:00Z", RATE_A), (moved_at, RATE_B)]),
+              _series([("2030-12-31T23:00:00Z", RATE_C)])]
+    if equal_price_alias:
+        endpoints.append(fixture_endpoint(HOST, RATE_B, tag="wafer/flex"))
+        series.append(_series([("2030-12-31T23:00:00Z", RATE_B)]))
+    for index, item in enumerate(series):
+        item["endpointId"] = f"synthetic-endpoint-{index}"
+    fetches = RefreshFetches(
+        {"data": {"endpoints": endpoints}}, {"data": {"series": series}}, None, None)
+    pricing_path, constants_path = tmp_path / "pricing.json", tmp_path / "constants.py"
+    pricing_path.write_text(json.dumps(_doc({HOST: [_entry(None, RATE_A)]})))
+    constants_path.write_text('PRICING_VERSION = "13"\n')
+
+    rc = refresh.main(
+        [], fetch=fetches.fetch_endpoints, fetch_models=fetches.fetch_models,
+        fetch_log=fetches.fetch_log, now=NOW, pricing_path=pricing_path,
+        constants_path=constants_path, vendor=None)
+    out, err = capsys.readouterr()
+
+    assert rc == 0 and not err
+    saved = json.loads(pricing_path.read_text())
+    assert saved["providers"][MODEL][HOST] == [
+        _entry(None, RATE_A), _entry(STAMP if equal_price_alias else moved_at, RATE_B)]
+    assert "rule-resolved (bare namespace)" in out
+    if equal_price_alias:
+        assert f"sampled   {HOST} (2 endpoints selected)" in out
+    else:
+        assert "sampled" not in out
+
+
 def test_log_changes_at_or_before_the_newest_entry_are_ignored(tmp_path, capsys):
     row = [_entry(None, RATE_A), _entry("2031-01-01T00:10:00Z", RATE_B)]
     states = [

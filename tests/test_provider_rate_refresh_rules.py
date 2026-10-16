@@ -494,6 +494,21 @@ def test_stored_price_continuity_takes_first_of_equal_price_tags():
     assert "interchangeable" in notice and "second/twin" in notice
 
 
+def test_continuity_follows_sibling_at_stored_price_when_tracked_endpoint_reprices():
+    selected, refused, _, _ = _select([
+        ("fixture/tracked", RATES_A)], stored=RATES_A)
+    assert refused == {} and selected[HOST].tag == "fixture/tracked"
+
+    selected, refused, notices, _ = _select([
+        ("fixture/tracked", RATES_B), ("second/new-sibling", RATES_A)], stored=RATES_A)
+    assert refused == {}
+    assert selected[HOST].tag == "second/new-sibling"
+    assert selected[HOST].rates == RATES_A
+    notice = _rules(notices, "stored price continuity")[0]
+    assert "kept the endpoint 'second/new-sibling' at the row's price" in notice
+    assert "assumes the tracked endpoint did not reprice this hour" in notice
+
+
 @pytest.mark.parametrize("field", list(RATES_A))
 def test_continuity_compares_all_five_token_rates_at_ten_decimals(field):
     listed = {**RATES_B, field: RATES_B[field] + 0.000000000001, "web_search": 0.7}

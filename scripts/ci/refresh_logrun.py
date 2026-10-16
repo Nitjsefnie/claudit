@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 import refresh_pricelog
 from refresh_prices import RefreshError
+from backend.pricing_document import effective_rates
 
 
 @dataclass
@@ -82,7 +83,8 @@ def classify_log_rows(
             model, rows, read.reason or "listed-pricing log is unavailable")
     try:
         joined = refresh_pricelog.join_listed_pricing(
-            payload, read.series, region, resolutions, at)
+            payload, read.series, region, resolutions, at,
+            {host: effective_rates(history[-1]) for host, history in hosts.items()})
     except refresh_pricelog.PriceLogError as exc:
         return _unavailable_log_rows(model, rows, str(exc))
     return _append_joined_rows(

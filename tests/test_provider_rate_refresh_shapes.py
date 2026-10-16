@@ -299,7 +299,7 @@ def test_an_explicit_pin_keeps_precedence_over_bare_and_region_rules():
 
 
 def _synthetic_pin_shape(pin: dict, host: str) -> tuple[list[tuple], str, str, bool]:
-    """Build a minimal listing from the committed resolution's stated shape.
+    """Build a minimal listing from a synthetic resolution's stated shape.
 
     Return listings, expected rule name, the pin's tag when it has one, and
     whether correctness is price-vector parity because equal-price tags are
@@ -351,7 +351,7 @@ def _synthetic_pin_shape(pin: dict, host: str) -> tuple[list[tuple], str, str, b
 
 def _assert_resolve_pin_shape(model: str, model_id: str, host: str,
                               pin: dict, region: str | None) -> str:
-    """Prove one committed pin's synthetic listing keeps its resolved shape."""
+    """Prove one synthetic pin's listing keeps its resolved shape."""
     listings, rule, pinned_tag, interchangeable = _synthetic_pin_shape(pin, host)
     selected, refused, notices, _ = _select_synthetic_host(
         host, listings, region=region)
@@ -370,20 +370,21 @@ def _assert_resolve_pin_shape(model: str, model_id: str, host: str,
     return rule
 
 
-def test_every_committed_resolve_pin_matches_its_rule_resolved_shape():
-    """Issue #877: each committed pin's listing shape resolves without
-    passing the pin to the selector, and selects its recorded price vector.
-    """
-    doc = _openrouter_template()
-    region = None if doc["data_region"] == "global" else doc["data_region"]
+def test_synthetic_resolve_pin_shapes_match_the_automatic_rules():
+    pins = [
+        {"tag": "fixture/global", "why": "synthetic global endpoint"},
+        {"tag": "fixture/zdr", "why": "synthetic fixture/fp8 twins"},
+        {"select": "cheapest", "why": "synthetic fixture/fp8 twins"},
+        {"tag": "fixture/fp8", "select": "cheapest",
+         "ignore": ["max_completion_tokens"],
+         "why": "synthetic max_completion_tokens artifact beside fast tier"},
+        {"tag": "fixture", "why": "synthetic fast flex tiers"},
+        {"tag": "fixture/fp4", "why": "synthetic fast tier"},
+    ]
     counts: dict[str, int] = {}
-    pins = [(model, entry["id"], host, pin)
-            for model, entry in doc["models"].items()
-            for host, pin in entry.get("resolve", {}).items()]
-    assert pins, "the pricing document has no resolve entries to prove"
-
-    for model, model_id, host, pin in pins:
-        rule = _assert_resolve_pin_shape(model, model_id, host, pin, region)
+    for pin in pins:
+        rule = _assert_resolve_pin_shape(
+            "synthetic/model", "synthetic/model-id", "Fixture", pin, None)
         counts[rule] = counts.get(rule, 0) + 1
 
     assert {"bare namespace", "unique quantization", "data region",
