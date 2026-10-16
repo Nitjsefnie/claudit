@@ -134,22 +134,14 @@ def test_non_string_stored_credential_material_is_rejected(
     assert auth.stored_verification_iterations(config) == 0
 
 
-def test_legacy_non_hex_salt_rejected_before_pbkdf2(monkeypatch):
+@pytest.mark.parametrize("stored_hash,salt", [
+    pytest.param("ab" * 32, "not-hex", id="non-hex-salt"),
+    pytest.param("not-hex", "ff" * 16, id="non-hex-hash"),
+])
+def test_legacy_non_hex_salt_rejected_before_pbkdf2(monkeypatch, stored_hash, salt):
     config = {
-        auth.WEB_PASSWORD_HASH_KEY: "ab" * 32,
-        auth.WEB_PASSWORD_SALT_KEY: "not-hex",
-    }
-    monkeypatch.setattr(
-        auth, "pbkdf2", lambda *args: pytest.fail("PBKDF2 must not run")
-    )
-
-    assert not auth.verify_web_password(config, "anything")
-
-
-def test_legacy_non_hex_hash_rejected_before_pbkdf2(monkeypatch):
-    config = {
-        auth.WEB_PASSWORD_HASH_KEY: "not-hex",
-        auth.WEB_PASSWORD_SALT_KEY: "ff" * 16,
+        auth.WEB_PASSWORD_HASH_KEY: stored_hash,
+        auth.WEB_PASSWORD_SALT_KEY: salt,
     }
     monkeypatch.setattr(
         auth, "pbkdf2", lambda *args: pytest.fail("PBKDF2 must not run")

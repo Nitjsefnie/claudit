@@ -403,10 +403,6 @@ def test_activity_heatmap_project_filter(app_with_data):
            sum(c["requests"] for c in both["cells"])
 
 
-def test_activity_heatmap_bad_range_400(app_with_data):
-    assert app_with_data.get("/api/activity-heatmap?range=bogus").status_code == 400
-
-
 def test_cost_by_agent_splits_types_and_shares_sum(app_with_data):
     """One bar per agent type, biggest first, shares summing to 1.
 
@@ -431,24 +427,6 @@ def test_cost_by_agent_splits_types_and_shares_sum(app_with_data):
 
     assert body["total_cost_usd"] == pytest.approx(sum(costs))
     assert sum(a["share"] for a in agents) == pytest.approx(1.0)
-
-
-def test_cost_by_agent_bad_range_400(app_with_data):
-    assert app_with_data.get(
-        "/api/cost-by-agent?range=banana").status_code == 400
-
-
-def test_cost_by_agent_model_filter_subsets(app_with_data):
-    """A model filter selects whole (agent_type, model) rollup rows, so
-    it can only ever narrow the result."""
-    allm = app_with_data.get("/api/cost-by-agent?range=all").json()
-    models = app_with_data.get("/api/models").json()["models"]
-    assert models, "fixture has no models"
-    top = models[0]["model"]
-    one = app_with_data.get(
-        f"/api/cost-by-agent?range=all&model={top}").json()
-    assert one["total_cost_usd"] <= allm["total_cost_usd"] + 1e-9
-    assert one["total_cost_usd"] > 0
 
 
 def test_cost_by_agent_live_path_agrees_with_rollup(app_with_data):

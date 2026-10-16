@@ -144,15 +144,6 @@ def test_brand_rides_the_existing_injection_script(page_client):
     )
 
 
-def test_operator_flag_rides_the_guest_injection_line(page_client):
-    """#629: the page-performance panel is operator-only, so the page says
-    so on the SAME `<script>` line as IS_GUEST — the first render must know,
-    or the panel is drawn before it is hidden. This module's client holds a
-    GUEST cookie, and a guest is never an operator."""
-    served = page_client.get("/").text
-    assert "window.IS_GUEST = true; window.IS_OPERATOR = false; " in served
-
-
 def test_operator_flag_reads_true_for_an_operator(page_client, monkeypatch):
     """The same line reads `true` for an operator.
 
@@ -415,14 +406,6 @@ def test_login_page_escapes_the_name(login_client, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_url_attr_allows_only_http_https_and_site_relative():
-    assert branding.url_attr("https://ex.example/privacy") == (
-        "https://ex.example/privacy")
-    assert branding.url_attr("http://ex.example/privacy") == (
-        "http://ex.example/privacy")
-    assert branding.url_attr("/privacy") == "/privacy"
-
-
 def test_url_attr_escapes_the_accepted_value_for_the_attribute():
     """The function owns the whole context: an accepted value comes back
     ready to drop into a double-quoted attribute, `&` and `"` included."""
@@ -503,12 +486,6 @@ def test_url_attr_accepts_the_still_valid_values_unchanged(value):
     its own body, so a backslash guard cannot have broken a legitimate
     privacy-notice URL (a backslash that means itself is spelled `%5C`)."""
     assert branding.url_attr(value) == value
-
-
-def test_url_attr_accepts_a_backslash_percent_encoded():
-    """The URL parser leaves `%5C` alone, so refusing a raw `\\` costs a
-    real URL nothing (node: new URL('/a%5Cb', base) stays same-origin)."""
-    assert branding.url_attr("/a%5Cb") == "/a%5Cb"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")

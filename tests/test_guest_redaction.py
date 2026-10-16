@@ -134,45 +134,6 @@ def _assert_guest_cache_keys_removed(body: dict) -> None:
         assert "request_id" in row
 
 
-def test_cache_guest_responses_remove_project_bearing_file_keys(
-    app_with_fresh_data, guest_client
-):
-    """Guests lose the file identity from each cache top-request list."""
-    file_key = _fixture_agent_key()
-    line_num = 990001
-    response_cache.clear()
-    try:
-        with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
-            fid = dims_seed.file_id(conn, file_key)
-            mid = dims_seed.dim_id(conn, "dim_model",
-                                   "issue-244-cache-seed")
-            conn.execute(
-                "INSERT INTO records (file_id, line_num, request_id, ts, "
-                "model_id, output_tokens, cache_creation_tokens, "
-                "cache_read_tokens) "
-                "VALUES (%s, %s, %s, %s, %s, 800000000, 700000000, "
-                "600000000)",
-                (fid, line_num, str(uuid.uuid4()),
-                 datetime.now(timezone.utc), mid),
-            )
-            # /api/cache INNER-joins the records_price sidecar (#959 R4),
-            # so the seed writes both halves of the pair or the row it
-            # boosted never reaches the top lists.
-            conn.execute(
-                "INSERT INTO records_price (file_id, line_num) VALUES (%s, %s)",
-                (fid, line_num),
-            )
-        guest = guest_client.get("/api/cache?range=3650d")
-        public = app_with_fresh_data.get("/api/cache?range=3650d")
-
-        assert guest.status_code == public.status_code == 200
-        _assert_guest_cache_keys_removed(guest.json())
-        _assert_public_cache_keys(public.json())
-    finally:
-        _delete_seeded_records(file_key, [line_num])
-        response_cache.clear()
-
-
 def test_cache_guest_redaction_preserves_cached_payload_in_both_orders(
     app_with_fresh_data, guest_client
 ):

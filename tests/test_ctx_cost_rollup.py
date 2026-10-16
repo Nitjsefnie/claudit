@@ -24,6 +24,8 @@ def test_bucket_edges_are_uniform_and_cover_the_observed_range():
 
 
 @pytest.mark.parametrize("ctx,expected", [
+    # Defensive: a negative bucket would render off the panel's left edge.
+    pytest.param(-1, 0, id="negative-clamped-to-zero"),
     (0, 0),
     (1, 0),
     (49_999, 0),
@@ -40,10 +42,3 @@ def test_bucket_edges_are_uniform_and_cover_the_observed_range():
 ])
 def test_ctx_bucket_assignment(ctx, expected):
     assert constants.ctx_bucket(ctx) == expected
-
-
-def test_negative_context_cannot_produce_a_negative_bucket():
-    """Defensive: token columns are NOT NULL DEFAULT 0 so this should be
-    unreachable, but a negative bucket would sort before 0 and render
-    off the left edge of the panel rather than erroring."""
-    assert constants.ctx_bucket(-1) == 0

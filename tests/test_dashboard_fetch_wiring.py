@@ -22,6 +22,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "src" / "app.jsx"
 
@@ -131,62 +133,27 @@ def test_each_effect_run_owns_its_request():
             "change kills the superseded request")
 
 
-def test_a_stale_response_never_applies():
-    """(a) The dashboard success path may apply its response only while
-    its run is still the current request: the guard reads the run's
-    isCurrent and returns before setBackendDash.
-    """
-    then = _then_block(_dashboard_effect())
+@pytest.mark.parametrize("effect_helper,setter", [
+    pytest.param(_dashboard_effect, "setBackendDash(b)", id="dashboard"),
+    pytest.param(_projects_effect, "setProjects(", id="projects"),
+])
+def test_a_stale_response_never_applies(effect_helper, setter):
+    """A superseded response must return before applying its payload."""
+    then = _then_block(effect_helper())
     m = re.search(r"if \(!run\.isCurrent\(\)\) return;", then)
-    assert m, (
-        "the .then must return early once its run is superseded -- a "
-        "response that arrives after the run was replaced must not call "
-        "setBackendDash")
-    apply_idx = then.index("setBackendDash(b)")
-    assert m.start() < apply_idx, (
-        "the superseded guard must sit BEFORE setBackendDash(b)")
+    assert m, "the .then must return early once its run is superseded"
+    assert m.start() < then.index(setter), (
+        f"the superseded guard must sit BEFORE {setter}")
 
 
-def test_an_aborted_request_is_not_a_failure():
-    """(b) The dashboard catch must tell an abort from a real failure:
-    it returns once its run is superseded BEFORE touching the pending
-    line, which by then belongs to the run that replaced this one.
-    Clearing it here would kill the announcement the newer run owes.
-    """
-    body = _catch_body(_dashboard_effect())
+@pytest.mark.parametrize("effect_helper,side_effect", [
+    pytest.param(_dashboard_effect, "refreshRef.current = null", id="dashboard"),
+    pytest.param(_projects_effect, "console.error(", id="projects"),
+])
+def test_an_aborted_request_is_not_a_failure(effect_helper, side_effect):
+    """A superseded catch must return before clearing state or logging."""
+    body = _catch_body(effect_helper())
     m = re.search(r"if \(!run\.isCurrent\(\)\) return;", body)
-    assert m, (
-        "the catch must return early on a superseded run -- abort is "
-        "cancellation, not failure")
-    clear = body.index("refreshRef.current = null")
-    assert m.start() < clear, (
-        "the superseded early-return must sit BEFORE refreshRef.current "
-        "= null, or a superseded request's rejection drops the newer "
-        "run's pending announcement")
-
-
-def test_projects_stale_response_never_applies():
-    """(a) Same guard as the dashboard effect (issue #182): a
-    superseded /api/projects response must not setProjects over a
-    fresher project list.
-    """
-    then = _then_block(_projects_effect())
-    m = re.search(r"if \(!run\.isCurrent\(\)\) return;", then)
-    assert m, (
-        "the projects .then must return early once its run is superseded")
-    assert m.start() < then.index("setProjects("), (
-        "the superseded guard must sit BEFORE setProjects")
-
-
-def test_projects_aborted_request_is_not_a_failure():
-    """(b) A superseded projects run logs nothing: its catch returns
-    before console.error, matching the dashboard's abort-vs-failure
-    split.
-    """
-    body = _catch_body(_projects_effect())
-    m = re.search(r"if \(!run\.isCurrent\(\)\) return;", body)
-    assert m, "the projects catch must return early on a superseded run"
-    log = body.index("console.error(")
-    assert m.start() < log, (
-        "the superseded early-return must sit BEFORE console.error, so "
-        "an aborted request logs nothing")
+    assert m, "the catch must return early on a superseded run"
+    assert m.start() < body.index(side_effect), (
+        f"the superseded early-return must sit BEFORE {side_effect}")

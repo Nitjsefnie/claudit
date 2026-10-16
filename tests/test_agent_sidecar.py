@@ -166,56 +166,34 @@ def test_in_band_kimi_code_profile_wins_over_the_sidecar():
     assert out["agent_type"] == "implementer"
 
 
-def test_claude_subagent_without_attribution_takes_the_sidecar_agent_type():
-    out = agent_sidecar.apply_agent_sidecar(
-        _parsed("cross_file_agent.jsonl", _CLAUDE_KEY),
-        b'{"agentType":"code-reviewer","description":"d","spawnDepth":1}',
-        _CLAUDE_KEY)
-    assert out["agent_type"] == "code-reviewer"
-
-
-def test_a_claude_sidecar_role_takes_its_canonical_name():
-    """One role, one name (issue #650): a Claude-tree sidecar folds a
-    plugin namespace and a cross-lane spelling too."""
-    out = agent_sidecar.apply_agent_sidecar(
-        _parsed("cross_file_agent.jsonl", _CLAUDE_KEY),
-        b'{"agentType":"superpowers:code-reviewer"}', _CLAUDE_KEY)
-    assert out["agent_type"] == "code-reviewer"
-    out = agent_sidecar.apply_agent_sidecar(
-        _parsed("cross_file_agent.jsonl", _CLAUDE_KEY),
-        b'{"agentType":"explorer"}', _CLAUDE_KEY)
-    assert out["agent_type"] == "Explore"
-
-
 _WORKFLOW_KEY = ("-root-x/s/data/subagents/workflows/wf_x/"
                  "agent-a1.jsonl")
 
 
-def test_the_workflow_container_marker_stands_without_a_role():
-    """The workflows subtree's sidecar agentType names the CONTAINER, not
-    a role (issue #650): it stands when nothing more specific was
-    recorded, so the file stays attributable to the Workflow tool's
-    subagent tree."""
+@pytest.mark.parametrize("fixture,key,sidecar,expected", [
+    pytest.param("cross_file_agent.jsonl", _CLAUDE_KEY,
+                 {"agentType": "code-reviewer", "description": "d", "spawnDepth": 1},
+                 "code-reviewer", id="sidecar-role"),
+    pytest.param("cross_file_agent.jsonl", _CLAUDE_KEY,
+                 {"agentType": "superpowers:code-reviewer"}, "code-reviewer",
+                 id="plugin-role"),
+    pytest.param("cross_file_agent.jsonl", _CLAUDE_KEY,
+                 {"agentType": "explorer"}, "Explore", id="canonical-role"),
+    pytest.param("cross_file_agent.jsonl", _WORKFLOW_KEY,
+                 {"agentType": "workflow-subagent"}, "workflow-subagent",
+                 id="workflow-container"),
+    pytest.param("agent_attribution.jsonl", _WORKFLOW_KEY,
+                 {"agentType": "workflow-subagent"}, "implementer",
+                 id="in-band-over-container"),
+    pytest.param("agent_attribution.jsonl", _CLAUDE_KEY,
+                 {"agentType": "code-reviewer"}, "implementer",
+                 id="in-band-over-sidecar"),
+])
+def test_claude_subagent_without_attribution_takes_the_sidecar_agent_type(
+        fixture, key, sidecar, expected):
     out = agent_sidecar.apply_agent_sidecar(
-        _parsed("cross_file_agent.jsonl", _WORKFLOW_KEY),
-        b'{"agentType":"workflow-subagent"}', _WORKFLOW_KEY)
-    assert out["agent_type"] == "workflow-subagent"
-
-
-def test_an_in_band_role_outranks_the_workflow_container_marker():
-    """A workflow subagent that recorded a role in-band ran AS that role:
-    the container marker must not mask it."""
-    out = agent_sidecar.apply_agent_sidecar(
-        _parsed("agent_attribution.jsonl", _WORKFLOW_KEY),
-        b'{"agentType":"workflow-subagent"}', _WORKFLOW_KEY)
-    assert out["agent_type"] == "implementer"
-
-
-def test_in_band_attribution_agent_wins_over_the_sidecar():
-    out = agent_sidecar.apply_agent_sidecar(
-        _parsed("agent_attribution.jsonl", _CLAUDE_KEY),
-        b'{"agentType":"code-reviewer"}', _CLAUDE_KEY)
-    assert out["agent_type"] == "implementer"
+        _parsed(fixture, key), json.dumps(sidecar).encode(), key)
+    assert out["agent_type"] == expected
 
 
 @pytest.mark.parametrize("sidecar", [

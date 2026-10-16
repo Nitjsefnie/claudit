@@ -6,6 +6,8 @@ is declared, summed and suppressed by the same rules wherever it appears
 — except `thinking_tokens`, which is a SUBSET of output_tokens and must
 never be added to a total or priced.
 """
+import pytest
+
 from test_api import (  # pylint: disable=unused-import
     _app_with_data_fixture,
     _app_with_fresh_data_fixture,
@@ -48,10 +50,14 @@ def test_cost_by_agent_carries_total_tokens(app_with_data):
     )
 
 
-def test_cost_by_agent_total_tokens_matches_the_records_sum(app_with_data):
-    """agent_rollup's new column is a pure sum, so it must equal the
+@pytest.mark.parametrize("endpoint", [
+    pytest.param("/api/cost-by-agent?range=all", id="agent"),
+    pytest.param("/api/cost-by-context?range=all", id="context"),
+])
+def test_cost_by_agent_total_tokens_matches_the_records_sum(app_with_data, endpoint):
+    """Each rollup's total_tokens column is a pure sum, so it must equal the
     equivalent aggregate over `records` (SV-ROLLUP keeps that true)."""
-    body = app_with_data.get("/api/cost-by-agent?range=all").json()
+    body = app_with_data.get(endpoint).json()
     with db.viz_conn() as c:
         expected = c.execute(
             "SELECT COALESCE(SUM(fresh_tokens + cache_creation_tokens "
@@ -79,20 +85,6 @@ def test_cost_by_context_carries_total_tokens(app_with_data):
     shares = [b["cum_token_share"] for b in body["buckets"]]
     assert shares == sorted(shares), "a cumulative share cannot decrease"
     assert abs(shares[-1] - 1.0) < 1e-9
-
-
-def test_cost_by_context_total_tokens_matches_the_records_sum(app_with_data):
-    """ctx_cost_rollup's new column is a pure sum, so it must equal the
-    equivalent aggregate over `records` (SV-ROLLUP keeps that true)."""
-    body = app_with_data.get("/api/cost-by-context?range=all").json()
-    with db.viz_conn() as c:
-        expected = c.execute(
-            "SELECT COALESCE(SUM(fresh_tokens + cache_creation_tokens "
-            "+ cache_read_tokens + output_tokens), 0) FROM records "
-            "WHERE is_canonical AND ts IS NOT NULL"
-        ).fetchone()
-    assert expected is not None
-    assert body["total_tokens"] == int(expected[0])
 
 
 def test_dashboard_reports_thinking_tokens_as_a_non_additive_type(app_with_data):
