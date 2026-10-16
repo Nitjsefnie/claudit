@@ -78,11 +78,11 @@ def test_malformed_versioned_hash_is_rejected():
     salt_hex = "cd" * 16
     hash_hex = "ab" * 32
     malformed = [
-        "pbkdf2_sha256$600000",                      # too few parts
+        "pbkdf2_sha256$600000",
         "pbkdf2_sha256$600000$" + salt_hex,          # missing hash part
         f"pbkdf2_sha256$abc${salt_hex}${hash_hex}",  # count not an int
         f"pbkdf2_sha256$0${salt_hex}${hash_hex}",    # non-positive count
-        f"pbkdf2_sha256$-1${salt_hex}${hash_hex}",   # negative count
+        f"pbkdf2_sha256$-1${salt_hex}${hash_hex}",
         f"pbkdf2_sha256$600000$zz${hash_hex}",       # salt not hex
         f"pbkdf2_sha256$600000${salt_hex}$zz",       # hash not hex
         f"pbkdf2_sha256$600000${salt_hex}$",         # empty hash

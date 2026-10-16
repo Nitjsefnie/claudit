@@ -6,11 +6,6 @@ module's name (backend.parse_kimi), the fixture file names (kimi_ prefixes
 where claudit already ships a fixture of the same name in the claude
 format), and pricing.compute_cost's keyword shape.
 
-Each parse_file call returns:
-  - records: one entry per StatusUpdate with token_usage.
-  - ctx_turns: per-turn (idx, ts, line, input, output, delta) array.
-  - tool_uses: matched against ToolResult.is_error.
-
 Cross-file uuid dedup is a query-time concern, not here.
 Cost is precomputed per record using pricing.MODEL_RATES.
 """
@@ -32,7 +27,6 @@ def _read(name):
 
 
 def _status_update_at(epoch: float) -> bytes:
-    """One classic-wire StatusUpdate line stamped at `epoch` (UTC)."""
     ts = datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat().replace(
         "+00:00", "Z"
     )
@@ -380,7 +374,7 @@ def test_turn_begin_drives_turn_boundaries():
     out = parse.parse_file("sessions/projX/sess-X/wire.jsonl", blob)
     assert len(out["records"]) == 3
     assert len(out["ctx_turns"]) == 2
-    assert out["ctx_turns"][0]["input"] == 100   # a2 wins turn 1
+    assert out["ctx_turns"][0]["input"] == 100
     assert out["ctx_turns"][0]["output"] == 2
     assert out["ctx_turns"][1]["input"] == 200   # a3 wins turn 2
     assert out["ctx_turns"][1]["delta"] == 100   # 200 - 100
@@ -535,7 +529,6 @@ _LEGACY_CHURN_BLOB = b"".join(json.dumps({
 
 
 def _churn_by_tool(out):
-    """tool_name -> (lines_added, lines_deleted), one entry per tool_uses row."""
     return [
         (tu["tool_name"], tu["is_error"], tu["lines_added"], tu["lines_deleted"])
         for tu in out["tool_uses"]

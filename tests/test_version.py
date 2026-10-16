@@ -28,7 +28,7 @@ VERSION_PATH = REPO_ROOT / "VERSION"
 # Semver with an optional prerelease suffix, no leading `v`: release.yml
 # prefixes the tag itself, so a `v` here would produce `vv0.1.0`. Between
 # releases the tree carries the `-dev` form (e.g. `0.4.0-dev`); a release
-# is the suffix being dropped (issue #131).
+# is the suffix being dropped.
 SEMVER = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
 
 
@@ -83,8 +83,6 @@ def test_missing_version_file_degrades_to_unknown(monkeypatch, tmp_path, version
 
 
 class _FakeCursor:
-    """Enough of a psycopg cursor for /health's single ingest_runs query."""
-
     @staticmethod
     def fetchone():
         return None

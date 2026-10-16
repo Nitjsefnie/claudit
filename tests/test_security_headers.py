@@ -123,9 +123,6 @@ def test_html_error_page_gets_framing_headers():
 
 
 def test_existing_headers_are_not_clobbered():
-    """A response that sets its own header keeps it; the middleware only
-    fills what is missing (the PNG export's Content-Disposition and any
-    deliberate security header stay untouched)."""
     sent = _drive(status=200,
                   raw_headers=[(b"content-type", b"text/html"),
                                (b"x-frame-options", b"SAMEORIGIN")],
@@ -135,8 +132,6 @@ def test_existing_headers_are_not_clobbered():
         sent, "content-security-policy")[0]
     assert _header_values(sent, "x-content-type-options") == ["nosniff"]
 
-
-# --- full script-src policy (issue #384) ------------------------------------
 
 # Every directive the app needs, pinned one by one. The evidence for each
 # lives in the PR for #384; the short form: the unpkg scripts are admitted by
@@ -189,8 +184,6 @@ def test_login_csp_pins_every_directive(request, client_fixture, path):
         "script-src", "style-src"}
     for name, expected in _EXPECTED_CSP_DIRECTIVES.items():
         assert directives[name] == expected, name
-    # Both nonce-shaped directives carry the response's one token, and
-    # no 'unsafe-inline' snuck back into the policy.
     nonce = directives["style-src"].split("'nonce-")[1][:-1]
     assert directives["style-src"] == (
         f"'self' https://fonts.googleapis.com 'nonce-{nonce}'")
@@ -268,9 +261,6 @@ def test_middleware_nonce_reaches_the_scope_state():
 
     asyncio.run(_SecurityHeaders(downstream)(scope, receive, send))
     policy = _header_values(sent, "content-security-policy")[0]
-    # The header carries exactly the template instantiated with the
-    # nonce the HTML producers find in scope.state — the same one the
-    # downstream app echoed.
     echoed = _header_values(sent, "x-probe-nonce")[0]
     assert policy == _CSP_TEMPLATE.format(nonce=echoed)
     assert echoed == scope["state"]["csp_nonce"]

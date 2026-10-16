@@ -19,7 +19,6 @@ import pytest
 from backend import db
 from tests import scratch_db
 
-# The fact and rollup tables the retired columns lived on.
 _LEAKY = ("records", "tool_uses", "usage_rollup")
 
 
@@ -64,7 +63,6 @@ def _apply_twice(monkeypatch, name: str) -> dict[str, int]:
 
 @pytest.mark.db
 def test_fresh_and_migrated_end_states_carry_the_same_catalog(monkeypatch):
-    """Fresh, migrated and re-applied converge on one catalog."""
     fresh = scratch_db.create_database("attnat_fresh")
     migrated = scratch_db.create_database("attnat_migrate",
                                           schema=scratch_db.OLD_SCHEMA)

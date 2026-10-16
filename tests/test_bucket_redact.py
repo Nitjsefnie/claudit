@@ -5,8 +5,6 @@ SV-FILES-RECORDS), and bucket names are infrastructure: a deploy may
 read buckets the client must not learn about. With CLAUDIT_R2_BUCKET naming two
 buckets and data in BOTH, no endpoint response body may contain either
 bucket name as a path prefix, while the object-key part stays present.
-
-Fixture pattern reused from tests/test_multi_bucket.py.
 """
 from __future__ import annotations
 

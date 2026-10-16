@@ -152,8 +152,6 @@ def _call_log(log):
 
 
 class TestSharedHelper:
-    """One definition, written by the job's first step, sourced by all."""
-
     def test_the_helper_step_is_the_jobs_first_step(self):
         assert _steps()[0].get("name") == HELPER_STEP
 

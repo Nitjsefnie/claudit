@@ -311,7 +311,7 @@ def test_a_multi_model_fork_attributes_its_replayed_prefix():
     ("gpt-6.1-sol", "gpt-6.1-sol"),
     ("gpt-6-astra", "gpt-6-astra"),
     ("GPT-6-Astra", "gpt-6-astra"),
-    ("gpt-7-unreleased", "gpt-7-unreleased"),  # unpriced id stays itself
+    ("gpt-7-unreleased", "gpt-7-unreleased"),
     (None, None),
     ("", None),
     ("  ", None),
@@ -568,11 +568,6 @@ def test_cache_writes_come_out_of_fresh_input_not_on_top_of_it():
 
 # --------------------------------------------------------------------------
 # Tool calls and line churn
-# --------------------------------------------------------------------------
-
-
-# --------------------------------------------------------------------------
-# The item_completed rewrap (Codex >= 2026-08-18)
 # --------------------------------------------------------------------------
 
 
