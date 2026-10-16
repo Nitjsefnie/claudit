@@ -89,9 +89,7 @@ def _step_run(step_name: str) -> str:
 
 
 def _step_env_keys(step_name: str) -> set[str]:
-    """The env var NAMES the named step declares, read out of the workflow.
-
-    The step's own env is part of its shape, so the harness supplies a
+    """The step's own env is part of its shape, so the harness supplies a
     value for a name the step declares and for no other: a test that
     injected the values itself would keep a step green after its env line
     is deleted, because the variable is still set in the process.
@@ -545,6 +543,7 @@ def test_wait_times_out_when_only_its_own_job_exists(tmp_path):
 
 
 def test_the_wait_step_delegates_selection_to_the_selector():
+    # Selection lives in release_gate.py so projection and exclusion can be tested directly.
     body = _step_run(WAIT_STEP)
     assert "scripts/ci/release_gate.py" in body
     assert "--jq" not in body
@@ -584,7 +583,6 @@ def test_the_selector_projection_carries_the_app_slug():
 
 @ubuntu_step_body
 def test_refusal_proceeds_when_both_probes_answer_404(tmp_path):
-    # The one shape that may proceed: both probes proved absent.
     proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
                      _refusal_env(1, TAG_404, 1, RELEASE_404, tmp_path))
     assert proc.returncode == 0, proc.stderr
