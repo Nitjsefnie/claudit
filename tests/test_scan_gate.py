@@ -22,6 +22,8 @@ import ast
 from collections.abc import Iterable
 from pathlib import Path
 
+import pytest
+
 from tests import scan_gate
 from tests.source_scan_cache import for_source, source as cached_source
 
@@ -29,19 +31,18 @@ TESTS_DIR = Path(__file__).resolve().parent
 
 
 def _fold_operands(nodes: Iterable[ast.AST]) -> set[str]:
-    """Values the compiler swallows into a folded RESULT constant.
+    """String operands the compiler swallows or rewrites, hidden in co_consts.
 
-    ``'a' + 'b'`` and ``'cd' * 16`` fold, and the fold is CHAINED: the
-    whole of ``x + y * 30 + z`` becomes one constant, swallowing every
-    string operand inside the foldable chain. They are excluded from
-    the property because they are invisible to the scanners too — a
-    flagged shape reads a DIRECT ``ast.Constant`` argument, and a
-    value inside a folded chain is not one.
+    Exempt constant Add/Mult/Mod chains and %-formatting's literal.
+    Python 3.13.x rewrites template-convertible % formats: multi-slot
+    %s tuples use BUILD_STRING, widths use FORMAT_WITH_SPEC. Intact
+    formats pass via consts, so coarse Mod-left exemptions do not
+    change the property for those shapes.
     """
     found: set[str] = set()
 
-    def strings_if_folds(node) -> set[str] | None:
-        """The string operands if this subtree folds to one constant."""
+    def strings_if_folds(node: ast.AST) -> set[str] | None:
+        """String operands if this subtree contains only constants and allowed ops."""
         if isinstance(node, ast.Constant):
             return {node.value} if isinstance(node.value, str) else set()
         if (isinstance(node, ast.BinOp)
@@ -53,14 +54,20 @@ def _fold_operands(nodes: Iterable[ast.AST]) -> set[str]:
         return None
 
     for node in nodes:
+        if not isinstance(node, ast.BinOp):
+            continue
+        if (isinstance(node.op, ast.Mod)
+                and isinstance(node.left, ast.Constant)
+                and isinstance(node.left.value, str)):
+            found.add(node.left.value)
         folded = strings_if_folds(node)
         if folded is not None:
             found |= folded
     return found
 
 
-def test_the_gate_sees_every_string_constant_in_the_tree():
-    for path in sorted(TESTS_DIR.glob("*.py")):
+def _assert_gate_sees_string_constants(directory: Path) -> None:
+    for path in sorted(directory.glob("*.py")):
         source = cached_source(path)
         consts, _ = scan_gate.module_vocab(source)
         artifacts = for_source(source)
@@ -88,6 +95,61 @@ def test_the_gate_sees_every_string_constant_in_the_tree():
                     f"{value[:80]!r} — the fail-closed claim is "
                     "broken; extend module_vocab before narrowing any "
                     "gate clause")
+
+
+def test_the_gate_sees_every_string_constant_in_the_tree() -> None:
+    _assert_gate_sees_string_constants(TESTS_DIR)
+
+
+@pytest.mark.parametrize(("source", "expected"), [
+    ("x = f('never_seen_by_any_gate')", set()),
+    ("x = 'a' + 'b'", {'a', 'b'}),
+    ("x = 'cd' * 16", {'cd'}),
+    ("x = 'a' + 'b' + name", {'a', 'b'}),
+    ("x = 'a' + 'b' + f('never_folded')", {'a', 'b'}),
+])
+def test_fold_operands_only_exempts_folded_chains(
+        source: str, expected: set[str]) -> None:
+    assert _fold_operands(ast.walk(ast.parse(source))) == expected
+
+
+@pytest.mark.parametrize(("format_literal", "rhs"), [
+    ('"type":"%s","input":[{"type":"text","text":"%s"}]', '(typ, text)'),
+    ('%s!', 'name'),
+    ('%s!', '(name,)'),
+    ('%s:%s', "('a', 'b')"),
+    ('%d!', '(name,)'),
+    ('%10s!', '(name,)'),
+    ('%s:%s', '(name,)'),
+])
+def test_fold_operands_exempts_percent_format_literals(
+        format_literal: str, rhs: str) -> None:
+    # Intact formats pass via consts in the property too.
+    source = f"x = {format_literal!r} % {rhs}"
+    assert _fold_operands(ast.walk(ast.parse(source))) == {format_literal}
+
+
+def test_fold_operands_exempts_constant_mod_operands() -> None:
+    source = "x = '%s!' % 'x'"
+    assert _fold_operands(ast.walk(ast.parse(source))) == {'%s!', 'x'}
+
+
+def test_tree_property_rejects_a_missed_call_argument(tmp_path: Path) -> None:
+    source = "if False:\n    x = f('never_seen_by_any_gate')\n"
+    consts, _ = scan_gate.module_vocab(source)
+    assert 'never_seen_by_any_gate' not in consts
+    (tmp_path / "missed.py").write_text(source, encoding="utf-8")
+    with pytest.raises(AssertionError, match="gate misses the string constant"):
+        _assert_gate_sees_string_constants(tmp_path)
+
+
+def test_tree_property_accepts_operands_of_a_folded_chain(tmp_path: Path) -> None:
+    source = "x = 'a' + 'b'\n"
+    consts, _ = scan_gate.module_vocab(source)
+    assert {'a', 'b'}.isdisjoint(consts)
+    assert 'ab' in consts
+    (tmp_path / "folded.py").write_text(source, encoding="utf-8")
+    _assert_gate_sees_string_constants(tmp_path)
 
 
 def test_constants_survive_implicit_concat():
