@@ -368,8 +368,8 @@ def _relevant_sources(
     return tuple(out)
 
 
-@pytest.fixture(scope="module")
-def real_tree_sources() -> tuple[tuple[str, str], ...]:
+@pytest.fixture(scope="module", name="real_tree_sources")
+def _real_tree_sources() -> tuple[tuple[str, str], ...]:
     return _relevant_sources(TESTS_DIR)
 
 
