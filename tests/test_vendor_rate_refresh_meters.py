@@ -10,6 +10,7 @@ from tests.test_vendor_rate_refresh import (
     _band, _catalog, _doc, _endpoint, _load, _main_doc, _meter_for,
     _move_meter, _per_token, _run, _payload, _price, vendor,
 )
+from tests.pricing_row_helpers import decoded_pricing_doc
 from tests.vendor_rate_refresh_helpers import STAMP
 
 
@@ -70,7 +71,7 @@ def test_main_reprices_provider_row_when_its_band_factors_change(
     rc, _out, err = run(capsys)
 
     assert rc == 0, err
-    updated = json.loads(run.pricing_path.read_text(encoding="utf-8"))
+    updated = decoded_pricing_doc(json.loads(run.pricing_path.read_text(encoding="utf-8")))
     history = updated["providers"][GPT_KEY]["Vendor"]
     assert len(history) == 2
     assert history[-1]["from"] == STAMP

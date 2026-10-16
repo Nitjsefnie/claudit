@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from backend import long_context, pricing, pricing_load
+from backend.pricing_document import serialize_pricing_doc
 from tests.vendor_rate_refresh_helpers import (
     GLM_ID, GLM_KEY, GPT_ID, GPT_KEY, NOW, RATE_FIELDS, RATES, ROOT,
     TRACKED, _band, _catalog, _doc, _endpoint, _load, _meter_for, _meter_map,
@@ -529,7 +530,7 @@ class MainRun:
         self.constants_path = tmp_path / "constants.py"
         self.commit_msg = tmp_path / "commit-msg.txt"
         self.pricing_path.write_text(
-            json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            serialize_pricing_doc(doc), encoding="utf-8")
         self.constants_path.write_text('PRICING_VERSION = "100"\n', encoding="utf-8")
         self.catalog = catalog
         self.endpoints = endpoints

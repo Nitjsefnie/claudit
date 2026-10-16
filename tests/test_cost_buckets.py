@@ -10,12 +10,14 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from backend import pricing
+from backend.pricing_rows import migrate_pricing_doc
 from backend.api_cache import _cache_canon_source
 from backend.api_common import (
     epoch_ts, fold_per_model, fold_per_model_provider, rate_epoch_sql,
 )
 from backend.db import sql_text
 from tests import scratch_db
+from tests.pricing_row_helpers import decoded_pricing_doc
 from tests.refresh_fixture_builders import RATES_B
 
 UTC = timezone.utc
@@ -450,11 +452,11 @@ def _install_scheduled_row(monkeypatch, schedule):
     synthetic row makes the verdict independent of which rates the file
     holds; schedules live on provider rows, so the synthetic row is one.
     """
-    doc = json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8"))  # sv-test-data: allow (loads the live document only to inject the synthetic provider row; no live value reaches a verdict)
+    doc = decoded_pricing_doc(json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8")))  # sv-test-data: allow (loads the live document only to inject the synthetic provider row; no live value reaches a verdict)
     doc["providers"][_SYNTHETIC_MODEL] = {_SYNTHETIC_HOST: [
         {"from": None, **LIST_RATES, "schedule": schedule},
     ]}
-    for name, value in pricing.load_tables(doc).items():
+    for name, value in pricing.load_tables(migrate_pricing_doc(doc)).items():
         monkeypatch.setattr(pricing, name, value)
 
 
