@@ -33,6 +33,8 @@ import functools
 from pathlib import Path
 from typing import Any, NamedTuple
 
+import pytest
+
 from tests import db_marker, scan_gate
 from tests.source_scan_cache import for_source, source as cached_source
 
@@ -102,19 +104,18 @@ def _modules(
     """(module name, AST, source) for every relevant Python file in
     `directory`.
 
-    Defaults to tests/ itself. Listings are fresh on every call; source
-    artifacts share reads and ASTs across both scanners. Modules the
-    vocabulary gate excludes cannot move either scanner's verdict.
+    Defaults to tests/ itself. The source inventory is fresh unless a
+    test supplies the real-tree snapshot; source artifacts share reads
+    and ASTs across both scanners. Modules the vocabulary gate excludes
+    cannot move either scanner's verdict.
     """
     root = TESTS_DIR if directory is None else directory
     modules = []
-    for path in sorted(root.glob("*.py")):
-        source = cached_source(path)
-        if not _scan_relevant(source):
-            continue
+    for name, source in _relevant_sources(directory):
+        path = root / f"{name}.py"
         tree = for_source(source).tree(filename=str(path))
         assert isinstance(tree, ast.Module)
-        modules.append((path.stem, tree, source))
+        modules.append((name, tree, source))
     return tuple(modules)
 
 
@@ -367,6 +368,25 @@ def _relevant_sources(
     return tuple(out)
 
 
+@pytest.fixture(scope="module")
+def real_tree_sources() -> tuple[tuple[str, str], ...]:
+    return _relevant_sources(TESTS_DIR)
+
+
+@pytest.fixture
+def use_real_tree_sources(real_tree_sources: tuple[tuple[str, str], ...],
+                          monkeypatch: pytest.MonkeyPatch) -> None:
+    """Share only the default real root during these three tests."""
+    fresh_sources = _relevant_sources
+
+    def sources(directory: Path | None = None) -> tuple[tuple[str, str], ...]:
+        if directory is None:
+            return real_tree_sources
+        return fresh_sources(directory)
+
+    monkeypatch.setitem(globals(), "_relevant_sources", sources)
+
+
 def _derive_narrow(directory: Path | None = None) -> set[str]:
     """The DB-rooted fixture names, from the tree on demand (issue #715).
 
@@ -448,6 +468,7 @@ def _mark_applied(fixturenames: list[str]) -> bool:
     return item.marks == ["db"]
 
 
+@pytest.mark.usefixtures("use_real_tree_sources")
 def test_the_registry_equals_what_the_source_derives():
     derived = _derive_narrow()
     unregistered = derived - db_marker.DB_FIXTURES
@@ -463,6 +484,7 @@ def test_the_registry_equals_what_the_source_derives():
         "as DB-rooted; the split has silently gone empty.")
 
 
+@pytest.mark.usefixtures("use_real_tree_sources")
 def test_scanning_another_directory_cannot_displace_the_real_tree(tmp_path):
     (tmp_path / "test_seeded_scan.py").write_text(
         "import pytest\n\n\n@pytest.fixture\ndef seeded():\n"
@@ -533,6 +555,7 @@ def _marking_offenders(directory: Path | None = None) -> list[str]:
     return offenders
 
 
+@pytest.mark.usefixtures("use_real_tree_sources")
 def test_every_server_touching_test_requests_a_db_fixture_or_carries_the_mark():
     assert not _marking_offenders(), (
         "tests that reach a PostgreSQL server through a scratch_db call "
