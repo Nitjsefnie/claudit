@@ -8,17 +8,13 @@ string someone already installed — and nothing outside the repo can tell
 which one a deployment runs. The version-guard workflow checks that on
 every master push and PR.
 
-THE BOT CARVE-OUT. The hourly pricing bot commits as
-`github-actions[bot]` and stages `src/pricing.json`, `backend/constants.py`
-(the PRICING_VERSION bump), and `src/pricing_notices.json` (the notice
-baseline). Git records only files that differ: an exempt commit touches
-exactly the pricing/constants pair or that pair plus the notices baseline.
+THE BOT CARVE-OUT. `github-actions[bot]` may change exactly
+`src/pricing.json` and `backend/constants.py` (PRICING_VERSION),
+optionally `src/pricing_notices.json` (notice baseline).
+Git records only changed files, so the baseline may be absent.
 Those commits don't change released behaviour, so they must pass even when
 the tree version is stale — a version move is a human commit's job.
-The carve-out is keyed on author AND file shape, never on paths alone:
-paths-only would need a
-maintained shipped/non-shipped path list whose every omission silently
-guts the guarantee.
+Require author AND file shape: paths alone let human commits bypass the guard.
 
 Pure logic plus a thin CLI; the workflow gathers the facts with `gh` and
 calls this. Usable by hand:
