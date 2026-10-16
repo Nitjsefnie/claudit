@@ -30,13 +30,8 @@ blocks AFTER it are out of scope (CONTRIBUTING's file:// R2 fallback,
 AGENTS's admin-ingest curl). Today no section has a command block
 before the setup block.
 
-Known CI blind spot, closed for this pin by issue #477: a docs-only
-push used to skip every ci-gate leg (the tests leg included), so the
-drift push itself stayed green and the pin fired on the next
-code-touching run. `classify_changes.py` now carves README.md,
-CONTRIBUTING.md and AGENTS.md out of the docs-only class, so a change to
-any of them runs every leg whatever else it touches and this pin fails
-on the same push.
+CI compares these shared setup blocks before narrowing doc changes:
+changed blocks run this guard; unreadable sections run the full gate.
 
 Normalization boundary: each command's trailing ` # ...` inline
 comment is stripped, so a quoted or escaped ` #` literal inside a
@@ -52,53 +47,9 @@ from pathlib import Path
 import yaml
 
 from backend.guest_login import GUEST_LOGIN_ENV
+from scripts.ci.setup_docs import SECTIONS, SERVER_START, section, setup_block
 
 ROOT = Path(__file__).resolve().parents[1]
-
-# (doc name, path, exact heading as merged by PR #462/#465).
-_DOCS: list[tuple[str, Path, str]] = [
-    ("README.md", ROOT / "README.md", "Quick start"),
-    ("CONTRIBUTING.md", ROOT / "CONTRIBUTING.md", "Getting it running"),
-    ("AGENTS.md", ROOT / "AGENTS.md", "Build and test commands"),
-]
-
-# The server-start line: the setup sequence's last step. The setup block
-# is the fenced block containing it; blocks after it are follow-on
-# hints, not setup steps.
-SERVER_START = "python3 -m uvicorn"
-
-
-def _section(path: Path, heading: str) -> str:
-    """The doc's text from `## <heading>` to the next same-level heading.
-
-    `^## ` does not match a `###` subheading, so subsections stay inside
-    their parent section.
-    """
-    text = path.read_text(encoding="utf-8")
-    head = re.search(rf"^## {re.escape(heading)}\s*$", text, re.M)
-    assert head, (
-        f"{path.name}: no `## {heading}` heading -- the section moved or "
-        f"was renamed; relocate this pin with it")
-    start = head.end()
-    nxt = re.search(r"^## ", text[start:], re.M)
-    return text[start:start + nxt.start()] if nxt else text[start:]
-
-
-def _fenced_blocks(section: str) -> list[str]:
-    """The section's fenced code blocks, in document order."""
-    blocks: list[str] = []
-    body: list[str] | None = None
-    for line in section.splitlines():
-        if line.lstrip().startswith("```"):
-            if body is not None:
-                blocks.append("\n".join(body))
-                body = None
-            else:
-                body = []
-        elif body is not None:
-            body.append(line)
-    assert body is None, "the section ends inside an unterminated code fence"
-    return blocks
 
 
 def _normalize(block: str) -> list[str]:
@@ -130,20 +81,19 @@ def _normalize(block: str) -> list[str]:
 def _setup_steps(path: Path, heading: str) -> list[str]:
     """The doc's normalized setup steps (see SERVER_START for the block
     boundary)."""
-    for block in _fenced_blocks(_section(path, heading)):
-        if SERVER_START in block:
-            return _normalize(block)
-    raise AssertionError(
-        f"{path.name}: no fenced block containing {SERVER_START!r} under "
-        f"`## {heading}` -- the setup block moved or was rewritten; "
-        f"relocate this pin with it")
+    block = setup_block(path.read_text(encoding="utf-8"), heading)
+    assert block is not None, (
+        f"{path.name}: no readable fenced block containing {SERVER_START!r} "
+        f"under `## {heading}` -- relocate this pin with it")
+    return _normalize(block)
 
 
 def test_each_doc_carries_the_auth_db_steps():
     """Inventory floor, per doc independently: without these two steps a
     fresh `users` table never exists and startup's schema_check aborts,
     however well the three docs agree with each other."""
-    for name, path, heading in _DOCS:
+    for name, heading in SECTIONS:
+        path = ROOT / name
         steps = _setup_steps(path, heading)
         # Spelled split mid-word: test_scratch_db.py's whole-tree guard
         # flags DDL-shaped literals in tests/ source, so the command is
@@ -163,10 +113,12 @@ def test_each_doc_names_both_env_vars_in_its_setup_section():
     line tells the reader which env values to edit; a doc whose section
     stopped naming one of them is the exact drift this issue closed.
     Guest-login config also names the same toggle the code reads."""
-    for name, path, heading in _DOCS:
-        section = _section(path, heading)
+    for name, heading in SECTIONS:
+        path = ROOT / name
+        selected = section(path.read_text(encoding="utf-8"), heading)
+        assert selected is not None, f"{name}: missing setup section {heading}"
         for var in ("CLAUDIT_DATABASE_URL_VIZ", "CLAUDIT_DATABASE_URL_AUTH"):
-            assert var in section, (
+            assert var in selected, (
                 f"{name}: the setup section no longer mentions {var} -- "
                 f"the historical drift (issue #464) was exactly this "
                 f"omission in CONTRIBUTING")
@@ -186,8 +138,8 @@ def test_the_three_docs_setup_steps_are_identical():
     """Cross-doc equality as ORDERED lists: catches an omission,
     addition or reorder in any direction. The message prints every
     doc's step list, naming each doc."""
-    per_doc = [(name, _setup_steps(path, heading))
-               for name, path, heading in _DOCS]
+    per_doc = [(name, _setup_steps(ROOT / name, heading))
+               for name, heading in SECTIONS]
     reference_name, reference = per_doc[0]
     assert reference, (
         f"parsed zero setup steps from {reference_name} - the guard "
