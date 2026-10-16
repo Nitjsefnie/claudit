@@ -37,8 +37,8 @@
       6722
     ],
     ".github/workflows/ci-gate.yml": [
-      7579,
-      11357
+      7556,
+      11932
     ],
     ".github/workflows/claim.yml": [
       3530,
@@ -109,8 +109,8 @@
       5422
     ],
     ".github/workflows/tests.yml": [
-      6670,
-      16798
+      6750,
+      17588
     ],
     ".github/workflows/types.yml": [
       1200,
@@ -573,12 +573,12 @@
       4663
     ],
     "scripts/ci/aggregate_gate.py": [
-      3402,
-      7205
+      3518,
+      7856
     ],
     "scripts/ci/classify_changes.py": [
-      8883,
-      16849
+      8882,
+      16852
     ],
     "scripts/ci/collapse_oscillating_rates.py": [
       1922,
@@ -662,7 +662,7 @@
     ],
     "scripts/ci/refresh_pricelog.py": [
       3519,
-      16405
+      16462
     ],
     "scripts/ci/refresh_prices.py": [
       3483,
@@ -673,20 +673,20 @@
       4505
     ],
     "scripts/ci/refresh_provider_rates.py": [
-      6956,
-      15159
+      6801,
+      15004
     ],
     "scripts/ci/refresh_report.py": [
       1970,
       12007
     ],
     "scripts/ci/refresh_selection.py": [
-      4537,
-      11791
+      4520,
+      12485
     ],
     "scripts/ci/refresh_selection_rules.py": [
-      4910,
-      13314
+      4723,
+      14496
     ],
     "scripts/ci/refresh_vendor_rates.py": [
       5912,
@@ -738,7 +738,7 @@
     ],
     "scripts/ci/suite_bench.py": [
       7888,
-      13607
+      13774
     ],
     "scripts/ci/suite_phases.py": [
       4729,
@@ -769,8 +769,8 @@
       9971
     ],
     "scripts/ci/version_guard.py": [
-      2358,
-      4550
+      2353,
+      4662
     ],
     "scripts/format.sh": [
       317,
@@ -1158,23 +1158,23 @@
     ],
     "tests/test_ci_classify_comment_only.py": [
       3833,
-      13843
+      13927
     ],
     "tests/test_ci_classify_verified_base.py": [
       3698,
-      10994
+      11078
     ],
     "tests/test_ci_gate_botdata.py": [
-      2234,
-      7568
+      2383,
+      9346
     ],
     "tests/test_ci_gate_modules.py": [
       4862,
-      19684
+      19811
     ],
     "tests/test_ci_gate_output_wiring.py": [
       8159,
-      17805
+      18408
     ],
     "tests/test_ci_ratchets.py": [
       1985,
@@ -1626,7 +1626,7 @@
     ],
     "tests/test_pricing_loader_refusals.py": [
       1131,
-      5414
+      6090
     ],
     "tests/test_pricing_more.py": [
       1247,
@@ -1653,12 +1653,12 @@
       3590
     ],
     "tests/test_provider_pricing.py": [
-      7365,
-      27021
+      7008,
+      26578
     ],
     "tests/test_provider_rate_refresh.py": [
-      5763,
-      22927
+      5713,
+      22736
     ],
     "tests/test_provider_rate_refresh_alternation.py": [
       970,
@@ -1666,11 +1666,11 @@
     ],
     "tests/test_provider_rate_refresh_hosts.py": [
       3034,
-      16846
+      17045
     ],
     "tests/test_provider_rate_refresh_more.py": [
-      3588,
-      22733
+      3412,
+      22539
     ],
     "tests/test_provider_rate_refresh_notices.py": [
       2574,
@@ -1681,8 +1681,8 @@
       1501
     ],
     "tests/test_provider_rate_refresh_rules.py": [
-      3181,
-      13297
+      3384,
+      20321
     ],
     "tests/test_provider_rate_refresh_state.py": [
       1129,
@@ -1765,8 +1765,8 @@
       4610
     ],
     "tests/test_scan_gate.py": [
-      1356,
-      3693
+      1644,
+      10192
     ],
     "tests/test_schema_attnums.py": [
       1160,
@@ -1825,12 +1825,12 @@
       11261
     ],
     "tests/test_suite_bench.py": [
-      5404,
-      17951
+      5620,
+      19913
     ],
     "tests/test_suite_ci_wiring.py": [
       4714,
-      11474
+      11565
     ],
     "tests/test_suite_cost_pricing_growth.py": [
       2802,
@@ -1905,8 +1905,8 @@
       5894
     ],
     "tests/test_version_guard.py": [
-      1013,
-      3954
+      1045,
+      4581
     ],
     "tests/test_version_literal_splits.py": [
       774,
@@ -1922,7 +1922,7 @@
     ],
     "tests/test_workflow_ci_gate.py": [
       8782,
-      22482
+      22501
     ],
     "tests/test_workflow_concurrency.py": [
       1694,
