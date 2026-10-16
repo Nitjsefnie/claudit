@@ -50,9 +50,12 @@ is computed only by the backend parser; the browser parser does not mirror
 it. The Reply Latency panel reads `reply_latency_s` through its endpoint;
 `generation_s` and `output_tokens_per_s` are stored only, with no reader.
 `CLAUDIT_COLLECT_GENERATION_SPEED` uses the registry startup grammar and
-explicit per-file policy: OFF skips the Claude generation clock and stores
-both fields as NULL. Codex and both Kimi lanes always store NULL; no speed
-rollup exists. Reply latency remains collected independently.
+explicit per-file policy: all four formats map `generation_s` and
+`output_tokens_per_s` from their own wires under this switch. OFF skips
+the generation clock and stores both fields as NULL. The backend parser
+computes these fields only; browser parsers do not mirror request timing.
+No speed rollup exists, and nothing displays these fields. Reply latency
+remains collected independently.
 
 **Lane parsers are a second lockstep pair.** `parse_file()` sniffs the
 format and dispatches Codex rollouts and both Kimi wire formats to
