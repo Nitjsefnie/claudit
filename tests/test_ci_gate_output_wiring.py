@@ -48,9 +48,9 @@ CI_GATE = REPO_ROOT / ".github" / "workflows" / "ci-gate.yml"
 # BOT_SIGNATURE is the refresh bot's push, and the file's rates are never
 # read, priced or asserted on here (sv-test-data: allow).
 BOT_PATHS = ["backend/constants.py", "src/pricing.json"]  # sv-test-data: allow
-# Neither is one of the pinned setup docs: the classifier carves those
-# three out of the docs-only class (issue #477), and this file's subject
-# is which legs a narrowing OUTPUT skips.
+# Generic docs avoid the three pinned setup docs, whose `setup_only`
+# path has its own tests. Any docs-only change exercises which legs a
+# narrowing OUTPUT skips here.
 DOC_PATHS = ["docs/guide.md", "NOTICE"]
 CODE_PATHS = ["backend/app.py", "src/pricing.json"]  # sv-test-data: allow
 
