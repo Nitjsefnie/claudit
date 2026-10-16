@@ -8,7 +8,7 @@ from backend import parse
 from backend.flag_registry import COLLECTION_SPECS
 from backend.flags import CollectionPolicy
 
-FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
+FIX = Path(__file__).parents[1] / "fixtures" / "parser"
 KEY = "sessions/p/s/wire.jsonl"
 
 
@@ -30,43 +30,51 @@ def _wire(rows: list[dict]) -> bytes:
     return b"\n".join(json.dumps(row).encode() for row in rows)
 
 
-def _kc(sec: int, typ: str, **fields) -> dict:
-    return {"time": 1_783_000_000_000 + sec * 1000, "type": typ, **fields}
-
-
-def _kc_event(sec: int, typ: str, **fields) -> dict:
-    return _kc(sec, "context.append_loop_event", event={"type": typ, **fields})
-
-
-def _kc_usage(sec: int) -> dict:
-    return _kc(sec, "usage.record", usage={"inputOther": 10, "output": 12})
-
-
 def test_kimi_code_generation_cycles():
-    steer = [{"type": "text", "text": "next"}]
-    rows = [_kc(1, "turn.prompt", input=[]),
-            _kc_event(3, "content.part", part={"type": "text", "text": "a"}),
-            _kc(4, "turn.steer", input=steer),
-            _kc(5, "context.append_message", message={"role": "user", "content": []}),
-            _kc_event(7, "content.part", part={"type": "text", "text": "b"}), _kc_usage(8),
-            _kc(10, "context.append_message", message={"role": "user", "content": steer}),
-            _kc_event(13, "content.part", part={"type": "think", "think": "hm"}),
-            _kc_usage(15), _kc_usage(16),
-            _kc_event(20, "tool.result", toolCallId="c", result={"output": "ok"}),
-            _kc(23, "context.append_message", message={"role": "assistant", "content": []}), _kc_usage(24),
-            _kc(30, "context.append_message", message={"role": "tool", "toolCallId": "c"}),
-            _kc_event(34, "tool.call", toolCallId="c", name="Read", args={}), _kc_usage(35)]
-    start = 40
-    for kind in ("quota_exhausted", "rate_limit", "other"):
-        for after_response in (False, True):
-            response = _kc_event(start + 3, "content.part", part={"type": "text", "text": "hi"})
-            failure = _kc(start + (4 if after_response else 2), "llm.error", kind=kind, message="request failed")
-            rows.extend([_kc(start + 1, "turn.prompt", input=[]),
-                         *([response, failure] if after_response else [failure, response]), _kc_usage(start + 5)])
-            start += 10
-    rows.extend([_kc(start + 1, "turn.prompt", input=[]),
-                 _kc_event(start + 2, "content.part", part={"type": "text", "text": "ok"}), _kc_usage(start + 3)])
-    out = parse.parse_file(KEY, _wire(rows))
+    blob = b"""{"time": 1783000001000, "type": "turn.prompt", "input": []}
+{"time": 1783000003000, "type": "context.append_loop_event", "event": {"type": "content.part", "part": {"type": "text", "text": "a"}}}
+{"time": 1783000004000, "type": "turn.steer", "input": [{"type": "text", "text": "next"}]}
+{"time": 1783000005000, "type": "context.append_message", "message": {"role": "user", "content": []}}
+{"time": 1783000007000, "type": "context.append_loop_event", "event": {"type": "content.part", "part": {"type": "text", "text": "b"}}}
+{"time": 1783000008000, "type": "usage.record", "usage": {"inputOther": 10, "output": 12}}
+{"time": 1783000010000, "type": "context.append_message", "message": {"role": "user", "content": [{"type": "text", "text": "next"}]}}
+{"time": 1783000013000, "type": "context.append_loop_event", "event": {"type": "content.part", "part": {"type": "think", "think": "hm"}}}
+{"time": 1783000015000, "type": "usage.record", "usage": {"inputOther": 10, "output": 12}}
+{"time": 1783000016000, "type": "usage.record", "usage": {"inputOther": 10, "output": 12}}
+{"time": 1783000020000, "type": "context.append_loop_event", "event": {"type": "tool.result", "toolCallId": "c", "result": {"output": "ok"}}}
+{"time": 1783000023000, "type": "context.append_message", "message": {"role": "assistant", "content": []}}
+{"time": 1783000024000, "type": "usage.record", "usage": {"inputOther": 10, "output": 12}}
+{"time": 1783000030000, "type": "context.append_message", "message": {"role": "tool", "toolCallId": "c"}}
+{"time": 1783000034000, "type": "context.append_loop_event", "event": {"type": "tool.call", "toolCallId": "c", "name": "Read", "args": {}}}
+{"time": 1783000035000, "type": "usage.record", "usage": {"inputOther": 10, "output": 12}}
+{"time": 1783000041000, "type": "turn.prompt", "input": []}
+{"time": 1783000042000, "type": "llm.error", "kind": "quota_exhausted", "message": "request failed"}
+{"time": 1783000043000, "type": "context.append_loop_event", "event": {"type": "content.part", "part": {"type": "text", "text": "hi"}}}
+{"time": 1783000045000, "type": "usage.record", "usage": {"inputOther": 10, "output": 12}}
+{"time": 1783000051000, "type": "turn.prompt", "input": []}
+{"time": 1783000053000, "type": "context.append_loop_event", "event": {"type": "content.part", "part": {"type": "text", "text": "hi"}}}
+{"time": 1783000054000, "type": "llm.error", "kind": "quota_exhausted", "message": "request failed"}
+{"time": 1783000055000, "type": "usage.record", "usage": {"inputOther": 10, "output": 12}}
+{"time": 1783000061000, "type": "turn.prompt", "input": []}
+{"time": 1783000062000, "type": "llm.error", "kind": "rate_limit", "message": "request failed"}
+{"time": 1783000063000, "type": "context.append_loop_event", "event": {"type": "content.part", "part": {"type": "text", "text": "hi"}}}
+{"time": 1783000065000, "type": "usage.record", "usage": {"inputOther": 10, "output": 12}}
+{"time": 1783000071000, "type": "turn.prompt", "input": []}
+{"time": 1783000073000, "type": "context.append_loop_event", "event": {"type": "content.part", "part": {"type": "text", "text": "hi"}}}
+{"time": 1783000074000, "type": "llm.error", "kind": "rate_limit", "message": "request failed"}
+{"time": 1783000075000, "type": "usage.record", "usage": {"inputOther": 10, "output": 12}}
+{"time": 1783000081000, "type": "turn.prompt", "input": []}
+{"time": 1783000082000, "type": "llm.error", "kind": "other", "message": "request failed"}
+{"time": 1783000083000, "type": "context.append_loop_event", "event": {"type": "content.part", "part": {"type": "text", "text": "hi"}}}
+{"time": 1783000085000, "type": "usage.record", "usage": {"inputOther": 10, "output": 12}}
+{"time": 1783000091000, "type": "turn.prompt", "input": []}
+{"time": 1783000093000, "type": "context.append_loop_event", "event": {"type": "content.part", "part": {"type": "text", "text": "hi"}}}
+{"time": 1783000094000, "type": "llm.error", "kind": "other", "message": "request failed"}
+{"time": 1783000095000, "type": "usage.record", "usage": {"inputOther": 10, "output": 12}}
+{"time": 1783000101000, "type": "turn.prompt", "input": []}
+{"time": 1783000102000, "type": "context.append_loop_event", "event": {"type": "content.part", "part": {"type": "text", "text": "ok"}}}
+{"time": 1783000103000, "type": "usage.record", "usage": {"inputOther": 10, "output": 12}}"""
+    out = parse.parse_file(KEY, blob)
     assert [(r["generation_s"], r["output_tokens_per_s"]) for r in out["records"]] == (
         [(6, 2), (3, 4), (None, None), (3, 4), (4, 3)]
         + [(None, None)] * 6 + [(1, 12)])

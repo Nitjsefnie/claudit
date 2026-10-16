@@ -3,14 +3,18 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from backend.bash_churn import bash_churn
 from backend.json_shape import as_dict
-from backend.parse_common import (_ParseState, _append_tool_use,
+from backend.parse_common import (_append_tool_use,
                                   _dispatch_prompt_shape, _line_count,
                                   _mark_assistant_event, _nonempty_str,
                                   _settle_lane_tool_result)
 from backend.parse_collection import ALL_PARSE_COLLECTION, ParseCollection
+
+if TYPE_CHECKING:
+    from backend.lane_state import _ParseState
 
 _KIMI_DISPATCH_TOOLS = ("Agent",)
 
