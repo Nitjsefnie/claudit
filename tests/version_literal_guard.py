@@ -13,7 +13,8 @@ from __future__ import annotations
 import ast
 import re
 from collections.abc import Iterator
-from typing import NamedTuple
+from functools import cache
+from typing import NamedTuple, get_args
 
 from backend import pricing
 from tests.source_scan_cache import for_source
@@ -66,7 +67,7 @@ def detect(source: str, *, wanted_models: frozenset[str] = frozenset(),
     tree = artifacts.tree()
     assert isinstance(tree, ast.Module)
     sites: list[Site] = []
-    for node in artifacts.nodes():
+    for node in _site_nodes(tree):
         if isinstance(node, ast.Call):
             sites += _call_sites(node, wanted)
             sites += _live_call_sites(node, wanted_models, wanted_hosts)
@@ -84,6 +85,47 @@ def detect(source: str, *, wanted_models: frozenset[str] = frozenset(),
         if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
             sites += _doc_path_bind_sites(stmt)
     return sorted(sites)
+
+
+_LEAF_BASES = (ast.expr_context, ast.operator, ast.unaryop, ast.boolop,
+               ast.cmpop)
+_SITE_TYPES = (ast.Call, ast.Attribute, ast.Assign)
+
+
+def _has_child_nodes(annotation: object) -> bool:
+    if isinstance(annotation, type):
+        return (issubclass(annotation, ast.AST)
+                and not issubclass(annotation, _LEAF_BASES))
+    return any(_has_child_nodes(arg) for arg in get_args(annotation))
+
+
+@cache
+def _child_fields(kind: type[ast.AST]) -> tuple[str, ...]:
+    return tuple(name for name, annotation in kind._field_types.items()
+                 if _has_child_nodes(annotation))
+
+
+def _site_nodes(tree: ast.AST) -> Iterator[ast.AST]:
+    """Walk AST-valued fields; yield only detector-relevant node types.
+
+    Unlike ast.walk, this skips scalar fields and terminal operators/contexts
+    using the parser's field schema. That saves per-node Python field/type
+    checks. DFS replaces breadth-first order safely because detect sorts sites.
+    Dict unpack keys and absent keyword defaults contribute None list entries.
+    """
+    stack: list[ast.AST | None] = [tree]
+    while stack:
+        node = stack.pop()
+        if node is None:
+            continue
+        if isinstance(node, _SITE_TYPES):
+            yield node
+        for name in _child_fields(type(node)):
+            value = getattr(node, name)
+            if isinstance(value, list):
+                stack.extend(value)
+            elif value is not None:
+                stack.append(value)
 
 
 def _live_call_sites(node: ast.Call, wanted_models: frozenset[str],
@@ -113,6 +155,7 @@ def _live_call_sites(node: ast.Call, wanted_models: frozenset[str],
     return sites
 
 
+@cache
 def _names_wanted_row(literal: str, wanted_models: frozenset[str],
                       wanted_hosts: frozenset[str]) -> bool:
     """Whether the literal names a wanted live model or host.
