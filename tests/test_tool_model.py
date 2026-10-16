@@ -12,6 +12,8 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -32,25 +34,18 @@ def _parse(path: Path, key: str = "sessions/p/s/wire.jsonl") -> dict:
     return parse.parse_file(key, path.read_bytes())
 
 
-def test_claude_tool_use_on_a_later_line_carries_its_model():
+@pytest.mark.parametrize("fixture, expected_model", [
+    (LATER_LINE, HAIKU),
+    (FIX / "parser" / "message_id_merge.jsonl", "glm-5.3-flash"),
+], ids=["request-id-merge", "message-id-merge"])
+def test_claude_tool_use_on_a_later_line_carries_its_model(fixture, expected_model):
     """The tool_use sits on line 3; the merged record lives on line 2, so a
     (file_key, line_num) join finds nothing for it."""
-    out = _parse(LATER_LINE, "p/s/s.jsonl")
+    out = _parse(fixture, "p/s/s.jsonl")
     assert [r["line_num"] for r in out["records"]] == [2]
     [tu] = out["tool_uses"]
     assert tu["line_num"] == 3
-    assert tu["model"] == HAIKU
-
-
-def test_claude_tool_use_in_a_message_id_merged_group_carries_its_model():
-    """A Z.ai-served line has no requestId, so its lines merge on
-    message.id: the record lives on line 2 and the tool_use on line 3,
-    where a (file_key, line_num) join finds no record."""
-    out = _parse(FIX / "parser" / "message_id_merge.jsonl", "p/s/s.jsonl")
-    assert [r["line_num"] for r in out["records"]] == [2]
-    [tu] = out["tool_uses"]
-    assert tu["line_num"] == 3
-    assert tu["model"] == "glm-5.3-flash"
+    assert tu["model"] == expected_model
 
 
 def test_codex_tool_call_keeps_the_model_in_force():

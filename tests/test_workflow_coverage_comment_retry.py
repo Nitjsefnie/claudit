@@ -233,26 +233,16 @@ echo "final output"
         calls = _call_log(log)
         return proc, calls, sleeps
 
-    def test_first_try_success_no_retries(self, tmp_path):
-        proc, calls, sleeps = self._probe(tmp_path, fail_times=0)
-        assert proc.returncode == 0
-        assert proc.stdout == "final output\n"
-        assert len(calls) == 1
-        assert sleeps == []
-
-    def test_one_failure_retried_once_spaced(self, tmp_path):
-        proc, calls, sleeps = self._probe(tmp_path, fail_times=1)
-        assert proc.returncode == 0
-        assert proc.stdout == "final output\n"
-        assert len(calls) == 2
-        assert sleeps == ["5"]
-
-    def test_two_failures_two_spaced_retries(self, tmp_path):
-        proc, calls, sleeps = self._probe(tmp_path, fail_times=2)
+    @pytest.mark.parametrize("fail_times, expected_calls, expected_sleeps", [
+        (0, 1, []), (1, 2, ["5"]), (2, 3, ["5", "10"]),
+    ], ids=["first-try", "one-failure", "two-failures"])
+    def test_first_try_success_no_retries(
+            self, tmp_path, fail_times, expected_calls, expected_sleeps):
+        proc, calls, sleeps = self._probe(tmp_path, fail_times=fail_times)
         assert proc.returncode == 0, proc.stderr
         assert proc.stdout == "final output\n"
-        assert len(calls) == 3
-        assert sleeps == ["5", "10"]
+        assert len(calls) == expected_calls
+        assert sleeps == expected_sleeps
 
     def test_exhaustion_is_bounded_and_discards_partial_output(
             self, tmp_path):

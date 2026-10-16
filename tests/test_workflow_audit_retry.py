@@ -109,18 +109,6 @@ def _output(result: subprocess.CompletedProcess) -> str:
     return result.stdout + result.stderr
 
 
-def test_pypi_503_service_error_retries_and_succeeds(tmp_path: Path):
-    failure = (
-        "requests.exceptions.HTTPError: 503 Server Error: Backend is "
-        "unhealthy for url: https://pypi.org/pypi/boto3/1.43.99/json\n"
-        "pip_audit._service.interface.ServiceError: request failed\n"
-    )
-    result, calls = _run_audit_step(tmp_path, _pass_after_one_failure((failure, 1)))
-
-    assert result.returncode == 0, _output(result)
-    assert calls == 4
-
-
 def test_repeated_pypi_503_service_errors_exhaust_retries_as_failure(
         tmp_path: Path):
     failure = (
@@ -150,63 +138,29 @@ def test_vulnerability_finding_fails_without_retry(tmp_path: Path):
     assert "pip-audit reported findings:" in _output(result)
 
 
-def test_existing_connection_reset_error_still_retries(tmp_path: Path):
-    result, calls = _run_audit_step(
-        tmp_path,
-        _pass_after_one_failure(("Connection reset by peer\n", 1)))
-
-    assert result.returncode == 0, _output(result)
-    assert calls == 4
-
-
 @pytest.mark.parametrize(
     "message",
     [
+        "requests.exceptions.HTTPError: 503 Server Error: Backend is "
+        "unhealthy for url: https://pypi.org/pypi/boto3/1.43.99/json\n"
+        "pip_audit._service.interface.ServiceError: request failed\n",
+        "Connection reset by peer\n",
         "ConnectionError: Could not connect to PyPI's vulnerability feed\n",
         "ConnectionError: Could not connect to OSV's vulnerability feed\n",
+        "requests.exceptions.SSLError: certificate verify failed\n",
+        "502 Bad Gateway\n", "503 Service Unavailable\n",
+        "504 Gateway Timeout\n",
+        "429 Client Error: Too Many Requests for url: "
+        "https://pypi.org/pypi/demo/json\n",
     ],
-    ids=("pypi-connect-timeout", "osv-connect-timeout"),
+    ids=("pypi-503-service-error", "connection-reset",
+         "pypi-connect-timeout", "osv-connect-timeout", "ssl-error",
+         "502-bad-gateway", "503-service-unavailable", "504-gateway-timeout",
+         "http-429"),
 )
 def test_pip_audit_feed_connection_errors_retry(tmp_path: Path, message: str):
     result, calls = _run_audit_step(
         tmp_path, _pass_after_one_failure((message, 1)))
-
-    assert result.returncode == 0, _output(result)
-    assert calls == 4
-
-
-def test_ssl_error_retries(tmp_path: Path):
-    result, calls = _run_audit_step(
-        tmp_path,
-        _pass_after_one_failure(
-            ("requests.exceptions.SSLError: certificate verify failed\n", 1)),
-    )
-
-    assert result.returncode == 0, _output(result)
-    assert calls == 4
-
-
-@pytest.mark.parametrize(
-    "message",
-    ["502 Bad Gateway\n", "503 Service Unavailable\n",
-     "504 Gateway Timeout\n"],
-    ids=("502-bad-gateway", "503-service-unavailable", "504-gateway-timeout"),
-)
-def test_bare_gateway_errors_retry(tmp_path: Path, message: str):
-    result, calls = _run_audit_step(
-        tmp_path, _pass_after_one_failure((message, 1)))
-
-    assert result.returncode == 0, _output(result)
-    assert calls == 4
-
-
-def test_http_429_retries_then_succeeds(tmp_path: Path):
-    rate_limit = (
-        "429 Client Error: Too Many Requests for url: "
-        "https://pypi.org/pypi/demo/json\n"
-    )
-    result, calls = _run_audit_step(
-        tmp_path, _pass_after_one_failure((rate_limit, 1)))
 
     assert result.returncode == 0, _output(result)
     assert calls == 4

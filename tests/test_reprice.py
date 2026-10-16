@@ -67,67 +67,6 @@ def _pair(c, sql: str, params=None) -> tuple[int, int]:
     return row[0], row[1]
 
 
-def test_ingest_stamps_pricing_version(fresh_db, mini_r2_env):
-    """run_ingest over the mini mirror stamps every record with the
-    current PRICING_VERSION — the value the reprice pass compares
-    against."""
-    result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
-
-    with db.viz_conn() as c:
-        total, stamped = _pair(
-            c,
-            "SELECT COUNT(*), COUNT(*) FILTER ("
-            "WHERE pv.value = %s) FROM records r "
-            "JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num "
-            "JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id",
-            (constants.PRICING_VERSION,),
-        )
-    assert total > 0, "the mirror must produce records, or this proves nothing"
-    assert stamped == total, (
-        f"{total - stamped} of {total} records were not stamped "
-        f"with pricing_version {constants.PRICING_VERSION!r}")
-
-
-def test_pricing_version_dim_is_nullable_migration(fresh_db, mini_r2_env):
-    """Since #959 the version rides a nullable dim FK instead of a TEXT
-    column: the catalog admits NULL, apply_schema leaves stored rows
-    alone, and a row written without a version reads NULL — the shape
-    the reprice pass treats as stale."""
-    result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
-
-    with db.viz_conn() as c:
-        before = c.execute("SELECT COUNT(*) FROM records").fetchone()
-    assert before is not None and before[0] > 0, (
-        "the mirror must produce records, or this proves nothing")
-
-    # Issue #387: apply_schema skips the DDL while the content stamp
-    # matches, so out-of-band schema damage needs the stamp cleared to
-    # force the re-apply under test.
-    with db.viz_conn() as c:
-        c.execute("DELETE FROM schema_stamp")
-        c.commit()
-
-    db.apply_schema()
-
-    with db.viz_conn() as c:
-        row = c.execute(
-            "SELECT is_nullable FROM information_schema.columns "
-            "WHERE table_schema = 'public' AND table_name = 'records_price' "
-            "AND column_name = 'pricing_version_id'").fetchone()
-        assert row is not None and row[0] == "YES", (
-            "records_price.pricing_version_id must be a nullable dim FK")
-        _seed(c, _FILE_KEY, 99, SeedRecord(pricing_version=None))
-        after = c.execute(
-            "SELECT COUNT(*) FROM records").fetchone() or (0,)
-        nulls = c.execute(
-            "SELECT COUNT(*) FROM records_price WHERE pricing_version_id IS NULL"
-        ).fetchone() or (0,)
-    assert after[0] == before[0] + 1, "the pass must not disturb stored rows"
-    assert nulls[0] >= 1, "a row written without a version reads NULL id"
-
-
 def _seed_meter_row(c, line_num: int, *, model: str, fresh_tokens: int,
                     provider: str | None = None,
                     long_context: bool | None = None) -> None:
@@ -271,12 +210,14 @@ def _rows(c) -> list:
     ).fetchall()
 
 
-def test_reprice_selects_null_version(fresh_db):
-    """NULL pricing_version is stale: the row is repriced from its own
+@pytest.mark.parametrize("pricing_version", [None, "abc"],
+                         ids=["null", "non-integer"])
+def test_reprice_selects_null_version(fresh_db, pricing_version):
+    """NULL or non-integer pricing_version is stale: the row is repriced from its own
     stored columns to exactly what compute_cost prices the tally at,
     and re-stamped with the current version."""
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1)
+        _seed(c, _FILE_KEY, 1, SeedRecord(pricing_version=pricing_version))
         c.commit()
 
     assert ingest_reprice.reprice_stale() == 1
@@ -337,28 +278,6 @@ def test_reprice_skips_rows_priced_by_a_newer_version(fresh_db, caplog):
         constants.PRICING_VERSION, constants.PRICING_VERSION, newer]
     assert float(rows[2][1]) == 0.5, "the newer row keeps its sentinel"
     assert "skipped 1 record" in caplog.text
-
-
-def test_reprice_reprices_a_non_integer_version(fresh_db):
-    """A stored pricing_version that does not parse as an int cannot be
-    shown NEWER, so the guard's ordinary-staleness branch applies: the
-    row is repriced from its stored columns and stamped with the current
-    version, exactly like a NULL."""
-    with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, SeedRecord(pricing_version="abc"))
-        c.commit()
-
-    assert ingest_reprice.reprice_stale() == 1
-
-    with db.viz_conn() as c:
-        cost, version = _pair(
-            c, "SELECT rp.cost_usd, pv.value "
-               "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
-               "LEFT JOIN dim_pricing_version pv "
-               "  ON pv.id = rp.pricing_version_id "
-               "WHERE f.file_key = %s AND r.line_num = 1", (_FILE_KEY,))
-    assert float(cost) == _seeded_cost()
-    assert version == constants.PRICING_VERSION
 
 
 def test_reprice_is_idempotent(fresh_db):

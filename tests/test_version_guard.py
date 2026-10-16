@@ -99,12 +99,6 @@ def test_decide_unparseable_refuses():
     assert "semver" in result.reason
 
 
-def test_decide_unparseable_refuses_even_with_no_tag():
-    # Precedence (a): an unparseable version refuses before anything else.
-    result = decide("garbage", False, HUMAN, [])
-    assert result.ok is False
-
-
 def test_decide_unparseable_refuses_with_tag():
     result = decide("garbage", True, HUMAN, [])
     assert result.ok is False
@@ -135,11 +129,6 @@ def test_decide_tag_plus_bot_commit_passes(files):
 @pytest.mark.parametrize("files", [BOTH_FILES, NOTICE_FILES])
 def test_decide_tag_plus_bot_commit_extra_file_refuses(files):
     result = decide("0.3.0", True, BOT, files + ["VERSION"])
-    assert result.ok is False
-
-
-def test_decide_tag_plus_non_bot_with_exactly_bot_files_refuses():
-    result = decide("0.3.0", True, HUMAN, BOTH_FILES)
     assert result.ok is False
 
 

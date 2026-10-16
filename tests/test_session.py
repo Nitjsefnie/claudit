@@ -33,19 +33,12 @@ def _clear_user_config_cache():
     session._USER_CONFIG_CACHE.clear()  # pylint: disable=protected-access
 
 
-def test_token_roundtrip():
+@pytest.mark.parametrize("user_id", [99, 123456789012345678],
+                         ids=["ordinary-id", "18-digit-id"])
+def test_token_roundtrip(user_id):
     secret = "super-secret-32-bytes" * 2
-    tok = session.make_session_token(99, secret)
-    assert session.verify_session_token(tok, secret) == 99
-
-
-def test_token_roundtrip_survives_an_18_digit_user_id():
-    """The token payload carries the user id as a decimal string and the
-    signature covers it whole — an id above 2^31 must round-trip with no
-    32-bit clamp anywhere on the token path (issue #185)."""
-    secret = "super-secret-32-bytes" * 2
-    tok = session.make_session_token(123456789012345678, secret)
-    assert session.verify_session_token(tok, secret) == 123456789012345678
+    tok = session.make_session_token(user_id, secret)
+    assert session.verify_session_token(tok, secret) == user_id
 
 
 def test_token_roundtrip_carries_generation():
@@ -185,22 +178,20 @@ def test_credential_fingerprint_hashes_hash_and_salt_with_a_separator():
     }) != _TEST_CREDENTIAL_FP
 
 
-def test_session_row_first_call_inserts(fresh_db):
+@pytest.mark.parametrize("user_id", [12345, 123456789012345678],
+                         ids=["ordinary-id", "18-digit-id"])
+def test_session_row_first_call_inserts(fresh_db, user_id):
     secret, generation = session.get_or_create_session_row(
-        12345, _TEST_CREDENTIAL_FP
+        user_id, _TEST_CREDENTIAL_FP
     )
     assert generation == 0
     assert secret
-    assert session.load_session_row(12345) == (
+    assert session.load_session_row(user_id) == (
         secret, 0, _TEST_CREDENTIAL_FP
     )
-
-
-def test_session_row_second_call_returns_same_row(fresh_db):
-    first = session.get_or_create_session_row(12345, _TEST_CREDENTIAL_FP)
-    assert session.get_or_create_session_row(
-        12345, _TEST_CREDENTIAL_FP
-    ) == first
+    assert session.get_or_create_session_row(user_id, _TEST_CREDENTIAL_FP) == (
+        secret, generation
+    )
 
 
 def test_session_row_conflict_with_null_fingerprint_rotates_secret(
@@ -246,19 +237,6 @@ def test_session_row_changed_fingerprint_rotates_secret_and_generation(
 
     assert session.get_or_create_session_row(77, "new-fingerprint") == (
         changed_secret, changed_generation
-    )
-
-
-def test_session_row_accepts_an_18_digit_user_id(fresh_db):
-    """Issue #185: the auth DB's user ids are bigint (18 digits), so the
-    user_session row must hold one — an id above 2^31 must insert, load
-    and round-trip instead of failing with integer-out-of-range."""
-    secret, generation = session.get_or_create_session_row(
-        123456789012345678, _TEST_CREDENTIAL_FP)
-    assert generation == 0
-    assert secret
-    assert session.load_session_row(123456789012345678) == (
-        secret, 0, _TEST_CREDENTIAL_FP
     )
 
 
@@ -479,24 +457,15 @@ def test_check_origin_rejects_missing_host_header():
     assert not session.check_origin(req)
 
 
-def test_check_origin_rejects_malformed_ipv6_origin():
+@pytest.mark.parametrize("header, value", [
+    (b"origin", b"http://[::1"), (b"referer", b"http://[ typo/x"),
+], ids=["origin", "referer"])
+def test_check_origin_rejects_malformed_ipv6_origin(header, value):
     scope = {
         "type": "http", "method": "POST",
         "headers": [
             (b"host", b"viz.example.com"),
-            (b"origin", b"http://[::1"),
-        ],
-        "path": "/login",
-    }
-    assert not session.check_origin(Request(scope))
-
-
-def test_check_origin_rejects_malformed_ipv6_referer():
-    scope = {
-        "type": "http", "method": "POST",
-        "headers": [
-            (b"host", b"viz.example.com"),
-            (b"referer", b"http://[ typo/x"),
+            (header, value),
         ],
         "path": "/login",
     }

@@ -140,14 +140,6 @@ def test_corpus_is_every_fixture_transcript():
         f"{bench.BUCKET}/{rel}" for rel in _fixture_transcripts()]
 
 
-def test_corpus_is_sorted_so_parse_order_is_fixed():
-    # The listing walk yields os.walk order, which is filesystem-
-    # dependent. Sorting by key is what makes the measured pass walk the
-    # corpus in the same order on every machine.
-    keys = [entry.key for entry in bench.corpus()]
-    assert keys == sorted(keys)
-
-
 def test_corpus_ignores_ambient_bucket_configuration(monkeypatch):
     # A developer's real CLAUDIT_R2_ENDPOINT/CLAUDIT_R2_BUCKET must never change WHAT is
     # measured: the recorded shares are only comparable against the

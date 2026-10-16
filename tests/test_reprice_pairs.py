@@ -23,6 +23,8 @@ import re
 import time
 from datetime import datetime, timezone
 
+import pytest
+
 # The fixtures register on import; pylint only sees names nobody calls.
 from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture,
@@ -145,10 +147,14 @@ def test_ingest_stamps_rate_fingerprint(fresh_db, mini_r2_env):
         assert version == constants.PRICING_VERSION
 
 
-def test_rate_fingerprint_dim_is_nullable_migration(fresh_db, mini_r2_env):
-    """Since #959 the fingerprint rides a nullable dim FK: the catalog
+@pytest.mark.parametrize("column, seed", [
+    ("pricing_version_id", SeedRecord(pricing_version=None)),
+    ("rate_fingerprint_id", SeedRecord(rate_fingerprint=None, pricing_version=None)),
+], ids=["pricing-version", "rate-fingerprint"])
+def test_rate_fingerprint_dim_is_nullable_migration(fresh_db, mini_r2_env, column, seed):
+    """Since #959 each pricing stamp rides a nullable dim FK: the catalog
     admits NULL, apply_schema leaves stored rows alone, and a row seeded
-    without a fingerprint reads a NULL id (the conservative stale shape)."""
+    without a stamp reads a NULL id (the conservative stale shape)."""
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
 
@@ -170,17 +176,21 @@ def test_rate_fingerprint_dim_is_nullable_migration(fresh_db, mini_r2_env):
         row = c.execute(
             "SELECT is_nullable FROM information_schema.columns "
             "WHERE table_schema = 'public' AND table_name = 'records_price' "
-            "AND column_name = 'rate_fingerprint_id'").fetchone()
+            "AND column_name = %s", (column,)).fetchone()
         assert row is not None and row[0] == "YES", (
-            "records_price.rate_fingerprint_id must be a nullable dim FK")
-        _seed(c, _FILE_KEY, 99,
-              SeedRecord(rate_fingerprint=None, pricing_version=None))
+            f"records_price.{column} must be a nullable dim FK")
+        _seed(c, _FILE_KEY, 99, seed)
         after = c.execute("SELECT COUNT(*) FROM records").fetchone() or (0,)
         nulls = c.execute(
-            "SELECT COUNT(*) FROM records_price WHERE rate_fingerprint_id IS NULL"
+            {
+                "pricing_version_id":
+                    "SELECT COUNT(*) FROM records_price WHERE pricing_version_id IS NULL",
+                "rate_fingerprint_id":
+                    "SELECT COUNT(*) FROM records_price WHERE rate_fingerprint_id IS NULL",
+            }[column]
         ).fetchone() or (0,)
     assert after[0] == before[0] + 1, "the pass must not disturb stored rows"
-    assert nulls[0] >= 1, "a row written without a fingerprint reads NULL id"
+    assert nulls[0] >= 1, "a row written without a stamp reads NULL id"
 
 
 def test_clean_bump_restamps_set_based_without_reading_rows(
