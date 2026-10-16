@@ -87,14 +87,14 @@ def test_a_malformed_history_is_refused_in_the_browser(tmp_path, request, damage
 
 
 def test_a_string_provider_rate_is_refused_naming_the_row():
-    with pytest.raises(ValueError, match="deepseek/deepseek-v4-flash via Azure"):
+    with pytest.raises(ValueError, match="fixture/provider via Fixture"):
         pricing.load_tables(_provider_string_rate())
 
 
 @needs_node
 def test_a_string_provider_rate_is_refused_naming_the_row_in_the_browser(tmp_path):
     error = _node_load(tmp_path, _provider_string_rate())
-    assert error and "deepseek/deepseek-v4-flash via Azure" in error, error
+    assert error and "fixture/provider via Fixture" in error, error
 
 
 def test_an_empty_models_key_is_refused_naming_the_row():
@@ -567,14 +567,23 @@ def test_grouped_long_context_meter_rules_are_refused(groups, reason):
         pricing.load_tables(_grouped_meter_doc(groups))
 
 
-def _extending_ids() -> list[tuple[str, str]]:
-    """(model id, priced key) for ids matching overlapping keys.
+def _extending_ids() -> list[tuple[str, str | None]]:
+    """(model id, priced key or None) for ids matching overlapping keys.
     The merged view includes models-table and tracked vendor bare keys.
     Syntactic matching alone does not supply a first-party price: id-only
     entries resolve provider histories through their tracked key and have
-    no vendor_host fallback."""
+    no vendor_host fallback. Unpriced ids name no resolved key."""
     keys = [*pricing.MODEL_RATES, *pricing.VENDOR_BARE]
-    return [(longer + "202508", longer)
+    # SV-RATE-ESTIMATES: "EXACT allows only a dated-snapshot (`-20250514`)
+    # or bracket (`[1m]`) suffix after a key." The undashed six-digit
+    # extension below exercises syntactic matching without promising a
+    # first-party rate for an id-only key with no vendor_host fallback.
+    priced = {*pricing.MODEL_RATES,
+              *(bare for bare, tracked in pricing.VENDOR_BARE.items()
+                if tracked in pricing.VENDOR_HOSTS
+                and (tracked, pricing.VENDOR_HOSTS[tracked])
+                in pricing.PROVIDER_RATES)}
+    return [(longer + "202508", longer if longer in priced else None)
             for shorter in keys for longer in keys
             if longer != shorter and longer.startswith(shorter)]
 

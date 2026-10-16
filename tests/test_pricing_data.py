@@ -324,10 +324,12 @@ def test_the_file_is_in_canonical_layout():
 
 
 def test_tracked_vendor_model_keys_use_bare_forms_only():
+    """First-party vendor keys are bare; id-only provider handles may be prefixed."""
     doc = _doc()
     prefixes = doc["openrouter"]["vendor"]["prefixes"]
-    prefixed = [key for key in doc["openrouter"]["models"]
-                if any(key.startswith(f"{prefix}/") for prefix in prefixes)]
+    prefixed = [key for key, entry in doc["openrouter"]["models"].items()
+                if entry.get("vendor_host")
+                and any(key.startswith(f"{prefix}/") for prefix in prefixes)]
     assert prefixed == []
 
 
@@ -364,11 +366,13 @@ CUT = _stamp(max(
     [_at(entry["from"]) for entry in _GLM_HISTORY if entry["from"]]
     + [_at(_doc()["provider_rates_fetched"])]
     + [datetime.min.replace(tzinfo=timezone.utc)]) + timedelta(seconds=1))
+_PROVIDER_KEY, _PROVIDER_HOSTS = next(iter(_doc()["providers"].items()))
+_PROVIDER_HOST = next(iter(_PROVIDER_HOSTS))
 APPEND_ROWS = [
     pytest.param(("providers", "glm-5-3-flash", "Z.AI"), "glm-5.3-flash",
                  None, id="bare-vendor"),
-    pytest.param(("providers", "deepseek/deepseek-v4-1-flash", "Novita"),
-                 "deepseek/deepseek-v4.1-flash", "Novita", id="provider"),
+    pytest.param(("providers", _PROVIDER_KEY, _PROVIDER_HOST),
+                 _PROVIDER_KEY, _PROVIDER_HOST, id="provider"),
 ]
 
 
