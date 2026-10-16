@@ -8,7 +8,7 @@ from datetime import timedelta
 
 import pytest
 from backend.pricing_rows import encode_pricing_doc
-from tests.refresh_fixture_builders import DEFAULT_ROW, seed_doc
+from tests.refresh_fixture_builders import DEFAULT_ROW, seed_doc, seed_provider_doc
 from tests.test_pricing_data import (
     CUT, HHMM_JS, LOADER_JS, RATE_FIELDS,
     VENDOR_TABLES_JS, _GLM_MODEL, _at, _copy_browser, _doc,
@@ -94,8 +94,9 @@ def _node_load(tmp_path, doc: dict) -> str | None:
 
 
 def _provider_string_rate() -> dict:
-    doc = copy.deepcopy(_doc())
-    doc["providers"]["deepseek/deepseek-v4-flash"]["Azure"][-1]["read"] = "0.031"
+    doc = seed_provider_doc()
+    hosts = next(iter(doc["providers"].values()))
+    next(iter(hosts.values()))[-1]["read"] = "0.031"
     return doc
 
 

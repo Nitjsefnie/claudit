@@ -41,7 +41,6 @@ UTC = timezone.utc
 NOW = datetime(2031, 1, 1, tzinfo=UTC)
 STAMP = "2031-01-01T00:00:00Z"
 GLM = "glm-5-3-flash"
-V41 = "deepseek/deepseek-v4-1-flash"
 NEWCOMER = {"fresh": 0.2, "create_5m": 0.2, "create_1h": 0.2,
             "read": 0.05, "output": 0.9}
 
@@ -53,6 +52,10 @@ needs_node = pytest.mark.skipif(
 def _openrouter_template() -> dict:
     """Read the committed catalog configuration for synthetic endpoint shapes."""
     return json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8"))["openrouter"]  # sv-test-data: allow (catalog configuration only; endpoint prices are synthetic)
+
+
+V41 = next(key for key, entry in _openrouter_template()["models"].items()
+           if entry["id"] == "deepseek/deepseek-v4.1-flash")
 
 
 def _load():
@@ -98,7 +101,10 @@ def _seeded(doc: dict) -> dict:
     vendor_keys = {model for model, entry in
                    doc["openrouter"]["models"].items()
                    if entry.get("vendor_host")
-                   and model not in {"claude-opus-5-5", GLM}}
+                   and model not in {"claude-opus-5-5", GLM, V41}}
+    vendor_keys.update(model for model, hosts in doc["providers"].items()
+                       if model != GLM and all(history[0]["from"] is not None
+                                               for history in hosts.values()))
     doc["openrouter"]["models"] = {model: entry
                                    for model, entry in
                                    doc["openrouter"]["models"].items()
@@ -256,7 +262,9 @@ def test_every_provider_table_model_names_its_openrouter_id():
     snapshot_keys = {"claude-3-5-haiku-", "claude-3-5-sonnet-",
                      "claude-3-7-sonnet-", "claude-3-haiku-", "claude-3-opus-"}
     for key, entry in doc["openrouter"]["models"].items():
-        if entry.get("vendor_host"):
+        namespace = entry["id"].partition("/")[0]
+        if (entry.get("vendor_host") or "/" not in key
+                and namespace in doc["openrouter"]["vendor"]["prefixes"]):
             slug = entry["id"].partition("/")[2]
             normalised = pricing._normalise(slug)  # pylint: disable=protected-access
             assert normalised == key or (

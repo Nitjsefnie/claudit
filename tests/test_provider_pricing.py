@@ -24,6 +24,9 @@ UTC = timezone.utc
 ROOT = Path(__file__).resolve().parents[1]
 
 V41 = "deepseek/deepseek-v4.1-flash"
+V41_KEY = next(key for key, entry in json.loads(
+    pricing.PRICING_JSON.read_text(encoding="utf-8"))["openrouter"]["models"].items()
+               if entry["id"] == V41)
 FUZZ_RESERVED_NAMESPACE = "zz-fuzz-local/"
 # The instant the provider table was seeded. The scheduled refresh appends
 # entries effective from later instants only, so the prices these tests
@@ -153,7 +156,7 @@ def test_baseten_resolution_returns_its_loaded_provider_row():
     Synthetic global-versus-region endpoint selection is covered by the
     refresh tests, where both controlled tags and rate vectors are visible.
     """
-    normalized_model = V41.replace(".", "-")
+    normalized_model = V41_KEY
     host = next(host for model, host in pricing.PROVIDER_RATES
                 if model == normalized_model and host.casefold() == "baseten")
     _assert_provider_resolution_returns_loaded_row(
@@ -180,7 +183,7 @@ def test_provider_resolution_assertions_survive_later_dated_appends(
     """A later rate entry moves today's provider row into a dated window."""
     document = expand_pricing_doc(json.loads(
         (ROOT / "src" / "pricing.json").read_text(encoding="utf-8")))
-    base_model = V41.replace(".", "-")
+    base_model = V41_KEY
     base_host = next(host for host in document["providers"][base_model]
                      if host.casefold() == "baseten")
     modal_model = "glm-5-3-flash"
@@ -215,20 +218,19 @@ def test_provider_resolution_assertions_survive_later_dated_appends(
 # --- NULL provider: exactly today's pricing ---------------------------------
 
 
-def test_the_same_model_with_no_provider_prices_exactly_as_before():
-    # Deepseek-v4.1-flash has no MODEL_RATES row, so it falls to the
-    # DEFAULT row and is flagged estimated. The default row's values are
-    # whatever the table says today; the pin is the lane's behaviour.
-    r = pricing.resolve(V41)
+def test_a_model_without_first_party_tracking_uses_the_default():
+    """Default fallback is independent of the maintained vendor-tracked set."""
+    model = "acme/untracked-v9"
+    r = pricing.resolve(model)
     assert r.kind == "default"
     assert r.rates is pricing.DEFAULT_RATES
     default = pricing.DEFAULT_RATES
     want = default["fresh"] + default["output"]
-    # rel=1e-12: the same rates on both sides; the per-million scaling
+    # rel=1e-12: the same rates on both sides; per-million scaling
     # can cost each term a last-bit rounding, never a real difference.
-    assert _cost(V41, fresh=1_000_000, output=1_000_000) == \
+    assert _cost(model, fresh=1_000_000, output=1_000_000) == \
         pytest.approx(want, rel=1e-12)
-    assert _cost(V41, None, fresh=1_000_000, output=1_000_000) == \
+    assert _cost(model, None, fresh=1_000_000, output=1_000_000) == \
         pytest.approx(want, rel=1e-12)
 
 
@@ -322,7 +324,7 @@ def _synthetic_provider_window_fixture(monkeypatch):
     lookup would price `past` at the window's rates instead of the list
     price the assertion names (issue #191)."""
     cutover = datetime(2026, 9, 20, tzinfo=UTC)
-    key = ("deepseek/deepseek-v4-1-flash", "Novita")
+    key = (V41_KEY, "Novita")
     before = {"fresh": 7.0, "create_5m": 7.0, "create_1h": 7.0,
               "read": 0.7, "output": 70.0}
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {key: [(cutover, before)]})

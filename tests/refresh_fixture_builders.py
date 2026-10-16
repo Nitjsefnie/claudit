@@ -138,3 +138,11 @@ def seed_doc(*, members=None, meters=None, models=None, tracked=None,
         "provider_rates_fetched": fetched,
         "providers": copy.deepcopy(providers) if providers else {},
     }
+
+
+def seed_provider_doc() -> dict:
+    """One synthetic provider row for malformed-rate and schedule tests."""
+    return seed_doc(
+        tracked={"fixture/provider": {"id": "fixture/provider"}},
+        providers={"fixture/provider": {"Fixture": [
+            {"from": None, **RATES_A}]}})
