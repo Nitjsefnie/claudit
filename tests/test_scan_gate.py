@@ -32,6 +32,16 @@ from tests.source_scan_cache import for_source, source as cached_source
 TESTS_DIR = Path(__file__).resolve().parent
 
 
+def _constant_strings(value: object) -> set[str]:
+    if isinstance(value, str):
+        return {value}
+    if isinstance(value, CodeType):
+        return _constant_strings(value.co_consts)
+    if isinstance(value, (tuple, frozenset)):
+        return {string for item in value for string in _constant_strings(item)}
+    return set()
+
+
 def _fold_operands(nodes: Iterable[ast.AST]) -> set[ast.Constant]:
     """Exempt only operand nodes a fresh compile proves the compiler swallows.
 
@@ -40,6 +50,8 @@ def _fold_operands(nodes: Iterable[ast.AST]) -> set[ast.Constant]:
     occurrences of these swallowable shapes are equally invisible and
     deliberately uncovered; interpreter changes fail the real-tree
     property loudly. Exemptions belong to nodes, never same-valued twins.
+    A leading None binding reserves co_consts[0], which some interpreters
+    retain even when that slot's original operand was folded away.
     """
     found: set[ast.Constant] = set()
 
@@ -53,21 +65,13 @@ def _fold_operands(nodes: Iterable[ast.AST]) -> set[ast.Constant]:
                     for operand in string_operands(elt)}
         return set()
 
-    def constant_strings(value: object) -> set[str]:
-        if isinstance(value, str):
-            return {value}
-        if isinstance(value, CodeType):
-            return constant_strings(value.co_consts)
-        if isinstance(value, (tuple, frozenset)):
-            return {string for item in value for string in constant_strings(item)}
-        return set()
-
     for node in nodes:
         if not isinstance(node, ast.BinOp):
             continue
         operands = string_operands(node)
-        probe = compile("x = " + ast.unparse(node), "<fold-probe>", "exec")
-        consts = constant_strings(probe)
+        probe = compile("_unused = None\nx = " + ast.unparse(node),
+                        "<fold-probe>", "exec")
+        consts = _constant_strings(probe)
         if operands and all(operand.value not in consts for operand in operands):
             found |= operands
     return found
@@ -108,57 +112,65 @@ def test_the_gate_sees_every_string_constant_in_the_tree() -> None:
     _assert_gate_sees_string_constants(TESTS_DIR)
 
 
-@pytest.mark.parametrize(("source", "expected"), [
-    ("x = f('never_seen_by_any_gate')", set()),
-    ("x = 'a' + 'b'", {'a', 'b'}),
-    ("x = 'cd' * 16", {'cd'}),
-    ("x = 'a' + 'b' + name", {'a', 'b'}),
-    ("x = 'a' + 'b' + f('never_folded')", {'a', 'b'}),
+@pytest.mark.parametrize(("source", "probe_source", "operands"), [
+    ("x = f('never_seen_by_any_gate')", "x = f('never_seen_by_any_gate')",
+     {'never_seen_by_any_gate'}),
+    ("x = 'a' + 'b'", "x = 'a' + 'b'", {'a', 'b'}),
+    ("x = 'cd' * 16", "x = 'cd' * 16", {'cd'}),
+    ("x = 'a' + 'b' + name", "x = 'a' + 'b'", {'a', 'b'}),
+    ("x = 'a' + 'b' + f('never_folded')", "x = 'a' + 'b'", {'a', 'b'}),
+    ("salt_hex = '11' * 16", "salt_hex = '11' * 16", {'11'}),
 ])
 def test_fold_operands_only_exempts_folded_chains(
-        source: str, expected: set[str]) -> None:
+        source: str, probe_source: str, operands: set[str]) -> None:
+    probe = compile("_unused = None\n" + probe_source, "<expected>", "exec")
+    expected = operands if operands.isdisjoint(_constant_strings(probe)) else set()
     exempted = _fold_operands(ast.walk(ast.parse(source)))
     assert {node.value for node in exempted} == expected
 
 
-@pytest.mark.parametrize(("format_literal", "rhs", "rewritten"), [
-    ('"type":"%s","input":[{"type":"text","text":"%s"}]', '(typ, text)', True),
-    ('%s!', 'name', False),
-    ('%s!', '(name,)', True),
-    ('%s:%s', "('a', 'b')", False),
-    ('%d!', '(name,)', False),
-    ('%10s!', '(name,)', True),
-    ('%s:%s', '(name,)', False),
-    ('%r!', '(name,)', True),
-    ('%a!', '(name,)', True),
-    ('%s:%r:%a', '(a, b, c)', True),
-    ('%%:%s:%%', '(name,)', True),
-    ('%.3s!', '(name,)', True),
-    ('%.3r!', '(name,)', True),
-    ('%.3a!', '(name,)', True),
-    ('%-+ #010.3s!', '(name,)', True),
-    ('%99s!', '(name,)', True),
-    ('%100s!', '(name,)', False),
-    ('%.99s!', '(name,)', True),
-    ('%.100s!', '(name,)', False),
-    ('%.001s!', '(name,)', False),
-    ('%10.s!', '(name,)', True),
-    ('%*s!', '(width, name)', False),
-    ('%.*s!', '(precision, name)', False),
-    ('%(key)s!', '(name,)', False),
-    ('%s!', '(*names,)', False),
-    ('%s:%s!', '(a, b, c)', False),
-    ('%s:%d!', '(a, b)', False),
-    ('%s:%', '(name,)', False),
-    ('%s:%q', '(a, b)', False),
-    ('lit', '(a, b)', False),
+@pytest.mark.parametrize(("format_literal", "rhs"), [
+    ('"type":"%s","input":[{"type":"text","text":"%s"}]', '(typ, text)'),
+    ('%s!', 'name'),
+    ('%s!', '(name,)'),
+    ('%s:%s', "('a', 'b')"),
+    ('%d!', '(name,)'),
+    ('%10s!', '(name,)'),
+    ('%s:%s', '(name,)'),
+    ('%r!', '(name,)'),
+    ('%a!', '(name,)'),
+    ('%s:%r:%a', '(a, b, c)'),
+    ('%%:%s:%%', '(name,)'),
+    ('%.3s!', '(name,)'),
+    ('%.3r!', '(name,)'),
+    ('%.3a!', '(name,)'),
+    ('%-+ #010.3s!', '(name,)'),
+    ('%99s!', '(name,)'),
+    ('%100s!', '(name,)'),
+    ('%.99s!', '(name,)'),
+    ('%.100s!', '(name,)'),
+    ('%.001s!', '(name,)'),
+    ('%10.s!', '(name,)'),
+    ('%*s!', '(width, name)'),
+    ('%.*s!', '(precision, name)'),
+    ('%(key)s!', '(name,)'),
+    ('%s!', '(*names,)'),
+    ('%s:%s!', '(a, b, c)'),
+    ('%s:%d!', '(a, b)'),
+    ('%s:%', '(name,)'),
+    ('%s:%q', '(a, b)'),
+    ('lit', '(a, b)'),
 ])
 def test_fold_operands_exempts_percent_format_literals(
-        format_literal: str, rhs: str, rewritten: bool) -> None:
+        format_literal: str, rhs: str) -> None:
     source = f"x = {format_literal!r} % {rhs}"
+    operands = {format_literal} | {
+        node.value for node in ast.walk(ast.parse(rhs))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    probe = compile("_unused = None\n" + source, "<expected>", "exec")
+    expected = operands if operands.isdisjoint(_constant_strings(probe)) else set()
     exempted = _fold_operands(ast.walk(ast.parse(source)))
-    assert {node.value for node in exempted} == (
-        {format_literal} if rewritten else set())
+    assert {node.value for node in exempted} == expected
 
 
 @pytest.mark.parametrize("statement", [
@@ -178,14 +190,16 @@ def test_tree_property_rejects_intact_operands_in_dead_code(
 def test_tree_property_accepts_an_intact_format_in_live_code(
         tmp_path: Path) -> None:
     source = "x = '%d!' % (name,)\n"
-    assert '%d!' in scan_gate.module_vocab(source)[0]
+    probe = compile(source, "<expected>", "exec")
+    assert scan_gate.module_vocab(source)[0] == _constant_strings(probe)
     (tmp_path / "live_format.py").write_text(source, encoding="utf-8")
     _assert_gate_sees_string_constants(tmp_path)
 
 
 def test_tree_property_accepts_a_rewritten_format(tmp_path: Path) -> None:
     source = "x = '%s-%s' % (a, b)\n"
-    assert '%s-%s' not in scan_gate.module_vocab(source)[0]
+    probe = compile(source, "<expected>", "exec")
+    assert scan_gate.module_vocab(source)[0] == _constant_strings(probe)
     (tmp_path / "rewritten_format.py").write_text(source, encoding="utf-8")
     _assert_gate_sees_string_constants(tmp_path)
 
@@ -193,9 +207,13 @@ def test_tree_property_accepts_a_rewritten_format(tmp_path: Path) -> None:
 def test_fold_operands_keeps_intact_constant_mod_operands(
         tmp_path: Path) -> None:
     source = "x = '%s!' % 'x'"
+    probe = compile("_unused = None\n" + source, "<expected>", "exec")
+    operands = {'%s!', 'x'}
+    expected = operands if operands.isdisjoint(_constant_strings(probe)) else set()
     exempted = _fold_operands(ast.walk(ast.parse(source)))
-    assert not exempted
-    assert {'%s!', 'x'} <= scan_gate.module_vocab(source)[0]
+    assert {node.value for node in exempted} == expected
+    assert scan_gate.module_vocab(source)[0] == _constant_strings(
+        compile(source, "<expected>", "exec"))
     (tmp_path / "constant_mod.py").write_text(source, encoding="utf-8")
     _assert_gate_sees_string_constants(tmp_path)
 
@@ -209,11 +227,14 @@ def test_tree_property_rejects_a_missed_call_argument(tmp_path: Path) -> None:
         _assert_gate_sees_string_constants(tmp_path)
 
 
-def test_tree_property_accepts_operands_of_a_folded_chain(tmp_path: Path) -> None:
-    source = "x = 'a' + 'b'\n"
+@pytest.mark.parametrize("source", [
+    "x = 'a' + 'b'\n",
+    "def folded():\n    'docstring'\n    salt_hex = '11' * 16\n",
+])
+def test_tree_property_accepts_operands_of_a_folded_chain(
+        tmp_path: Path, source: str) -> None:
     consts, _ = scan_gate.module_vocab(source)
-    assert {'a', 'b'}.isdisjoint(consts)
-    assert 'ab' in consts
+    assert consts == _constant_strings(compile(source, "<expected>", "exec"))
     (tmp_path / "folded.py").write_text(source, encoding="utf-8")
     _assert_gate_sees_string_constants(tmp_path)
 
