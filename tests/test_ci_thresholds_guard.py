@@ -15,7 +15,10 @@ import json
 import pickle
 import sys
 from decimal import Decimal
+from functools import cache
 from pathlib import Path
+
+import pytest
 
 from tests import git_meta
 
@@ -48,16 +51,31 @@ def _load(name):
     return module
 
 
+@cache
+def _ci_modules():
+    """Load the sibling modules once, in dependency order at first use."""
+    reseed = _load("reseed")
+    thresholds = _load("thresholds")
+    size_baseline = _load("size_baseline")
+    guard = _load("thresholds_guard")
+    return reseed, thresholds, size_baseline, guard
+
+
 def _reseed():
-    return _load("reseed")
+    return _ci_modules()[0]
 
 
 def _thresholds():
-    return _load("thresholds")
+    return _ci_modules()[1]
 
 
 def _guard():
-    return _load("thresholds_guard")
+    return _ci_modules()[3]
+
+
+@pytest.fixture(scope="module")
+def committed_thresholds():
+    return _thresholds().load(THRESHOLDS_PATH)
 
 
 GAP = Decimal("1.5")
@@ -111,17 +129,18 @@ def _written(tmp_path, doc, name):
 
 def _guard_result(tmp_path, base, head, tracked=None):
     guard = _guard()
-    if tracked is not None:
-        guard.size_baseline.tracked_sizes = lambda: tracked
-    base_path = _written(tmp_path, base, "base.json")
-    head_path = _written(tmp_path, head, "head.json")
-    return guard.main([
-        "--base", str(base_path), "--head", str(head_path)])
+    with pytest.MonkeyPatch.context() as patch:
+        if tracked is not None:
+            patch.setattr(guard.size_baseline, "tracked_sizes", lambda: tracked)
+        base_path = _written(tmp_path, base, "base.json")
+        head_path = _written(tmp_path, head, "head.json")
+        return guard.main([
+            "--base", str(base_path), "--head", str(head_path)])
 
 
-def test_committed_document_against_itself_is_clean(tmp_path):
+def test_committed_document_against_itself_is_clean(tmp_path, committed_thresholds):
     git_meta.require_own_git_metadata(REPO_ROOT)
-    committed = _thresholds().load(THRESHOLDS_PATH)
+    committed = copy.deepcopy(committed_thresholds)
     assert _guard_result(
         tmp_path, committed, pickle.loads(pickle.dumps(committed, protocol=5)),
         tracked={"backend/api.py": 986}) == 0
@@ -224,7 +243,7 @@ def test_suppression_entry_raised_fails(tmp_path):
     assert _guard_result(tmp_path, base, head) == 1
 
 
-def test_bot_shaped_raise_is_clean(tmp_path):
+def test_bot_shaped_raise_is_clean(tmp_path, committed_thresholds):
     # The load-bearing compatibility constraint: a synthetic bot commit —
     # ratchet.py's raise, measured and floor moving up together — must
     # keep passing the guard. The head values derive from the loaded
@@ -232,7 +251,7 @@ def test_bot_shaped_raise_is_clean(tmp_path):
     # calibration past any hardcoded pair is the mechanism working, and
     # this test must stay green as it moves (SV-TEST-DATA — never pin
     # repository-managed data).
-    base = _thresholds().load(THRESHOLDS_PATH)
+    base = copy.deepcopy(committed_thresholds)
     head = pickle.loads(pickle.dumps(base, protocol=5))
     for lang in ("python", "javascript"):
         measured = min(
@@ -250,13 +269,13 @@ def test_bot_shaped_raise_is_clean(tmp_path):
     assert _guard_result(tmp_path, base, head) == 0
 
 
-def test_bot_shaped_tighten_is_clean(tmp_path):
+def test_bot_shaped_tighten_is_clean(tmp_path, committed_thresholds):
     # The other bot shape: --tighten follows shrunk files down and drops
     # a graduated entry; the suppression tighten does the same for counts.
     # The moved entries are picked from the loaded document at run time
     # (SV-TEST-DATA — a hardcoded key or value breaks when the ratchet
     # graduates the file or tightens the count past it).
-    base = _thresholds().load(THRESHOLDS_PATH)
+    base = copy.deepcopy(committed_thresholds)
     head = pickle.loads(pickle.dumps(base, protocol=5))
     sized = sorted(head["module_size_baseline"])
     assert len(sized) >= 2
