@@ -348,6 +348,12 @@ same rules:
     row's token history is that endpoint's series. `web_search` is not
     in the log and does not block this join. Anything else is
     ambiguous, and the host is sampled, never guessed.
+  - **Explicit free writes stay sampled.** A stored history with a zero
+    cache-write rate beside positive fresh input cannot be log-backed:
+    the log normalises zero/absent cache writes to the input rate and
+    cannot express that free-write span. The backfill leaves the row
+    unchanged, and the hourly refresh samples its future moves at
+    detection time, retaining the hand-corrected history.
   - **Separate web-search sampling.** Every log-backed token entry carries
     forward the previous `web_search` rate. If the listing's search rate
     moved, append an entry at detection time with the predecessor's token

@@ -8538,9 +8538,9 @@
         [897,0.12,0.5,0.115]
       ],
       "Z.AI": [
-        [null,0.075,0.25,0.015,50],
-        [[1789007284,13073,12767],0.15,0.5,0.03],
-        [[171,13316],0.075,0.25,0.015,50]
+        [null,0.075,0.25,0.015,"Launch promotion: 50% off list through 2026-09-09 24:00 UTC+8.",{"create_1h":0.0,"create_5m":0.0}],
+        [1788969600,0.15,0.5,0.03,"List. Cache writes are free and reads are 0.2x input, so the Anthropic 1.25x/2x/0.1x relations do not hold.",{"create_1h":0.0,"create_5m":0.0}],
+        [2400149,0.15,0.5,0.03]
       ]
     },
     "glm-5-3-flashx": {

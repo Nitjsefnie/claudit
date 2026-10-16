@@ -36,7 +36,9 @@ def _append_joined_rows(
     for host, listing in rows.items():
         match = joined.get(host)
         reason = match.reason if match else "no series joined to the listed host"
-        if match is not None and match.entries is not None:
+        if history_issue := refresh_pricelog.history_log_issue(hosts.get(host, [])):
+            reason = history_issue
+        elif match is not None and match.entries is not None:
             if not same_rates(match.entries[-1], listing.rates):
                 reason = "latest log state disagrees with the listed price"
             elif (hosts.get(host) and
