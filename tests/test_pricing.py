@@ -576,14 +576,10 @@ def test_fast_variants_are_not_silently_billed_at_standard_rates():
 
 
 # --- GLM-5.3-Flash (Z.ai) ---------------------------------------------------
-# The only non-Anthropic model in the table: cache WRITES are free and
-# reads are 0.2x input, so the 1.25x/2x/0.1x Anthropic relations do not
-# hold. Launch promotion is 50% off list through 2026-09-09 16:00 UTC.
-
-GLM_CUTOVER = datetime(2026, 9, 9, 16, 0, tzinfo=UTC)
-GLM_LIST = {"fresh": 0.15, "create_5m": 0.00, "create_1h": 0.00,
+GLM_CUTOVER = datetime(2026, 9, 10, 2, 28, 4, tzinfo=UTC)
+GLM_LIST = {"fresh": 0.15, "create_5m": 0.15, "create_1h": 0.15,
             "read": 0.03, "output": 0.50}
-GLM_PROMO = {"fresh": 0.075, "create_5m": 0.00, "create_1h": 0.00,
+GLM_PROMO = {"fresh": 0.075, "create_5m": 0.075, "create_1h": 0.075,
              "read": 0.015, "output": 0.25}
 
 
@@ -598,21 +594,24 @@ def test_glm_flash_resolves_exact_despite_dots_and_suffixes(
         assert result.rates is rates
 
 
-def test_glm_flash_promo_window_ends_exclusive_at_utc8_midnight():
-    just_before = GLM_CUTOVER - timedelta(seconds=1)
-    assert pricing.rate_for("glm-5.3-flash", ts=just_before) == GLM_PROMO  # sv-test-data: allow (closed-window pin at the GLM promo boundary)
-    assert pricing.rate_for("glm-5.3-flash", ts=GLM_CUTOVER) == GLM_LIST  # sv-test-data: allow (closed-window pin at the GLM promo boundary)
+@pytest.mark.parametrize("hour,minute,second,before,after", [
+    (2, 28, 4, GLM_PROMO, GLM_LIST), (2, 30, 55, GLM_LIST, GLM_PROMO),
+    (6, 5, 57, GLM_PROMO, GLM_LIST), (6, 12, 51, GLM_LIST, GLM_PROMO),
+    (9, 38, 44, GLM_PROMO, GLM_LIST),
+])
+def test_glm_flash_promo_windows_end_exclusive_at_logged_instants(hour, minute, second, before, after):
+    cutover = datetime(2026, 9, 10, hour, minute, second, tzinfo=UTC)
+    assert pricing.rate_for("glm-5.3-flash", ts=cutover - timedelta(seconds=1)) == before  # sv-test-data: allow (closed-window pin at logged GLM promo boundaries)
+    assert pricing.rate_for("glm-5.3-flash", ts=cutover) == after  # sv-test-data: allow (closed-window pin at logged GLM promo boundaries)
 
 
-def test_glm_flash_cache_writes_cost_nothing():
-    # 1M each of 5m writes, 1h writes and unsplit legacy writes: all free.
-    cost = pricing.compute_cost(
+@pytest.mark.parametrize("offset,want", [(-1, 0.225), (0, 0.45)])
+def test_glm_flash_cache_writes_use_normalized_log_input_rates(offset, want):
+    assert pricing.compute_cost(
         "glm-5.3-flash",  # sv-test-data: allow (closed-window pin at the GLM promo boundary)
-        fresh=0, output=0,
-        eph5=1_000_000, eph1h=1_000_000, unsplit_create=1_000_000, read=0,
-        ts=GLM_CUTOVER - timedelta(seconds=1),
-    )
-    assert cost == 0.0
+        fresh=0, output=0, eph5=1_000_000, eph1h=1_000_000,
+        unsplit_create=1_000_000, read=0, ts=GLM_CUTOVER + timedelta(seconds=offset),
+    ) == pytest.approx(want)
 
 
 def test_glm_flash_compute_cost_promo_known_vector():

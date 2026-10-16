@@ -1,4 +1,4 @@
-"""Explicit free cache-write history cannot be reconstructed from the token log."""
+"""Listed-pricing normalization governs even stored explicit free-write rows."""
 from __future__ import annotations
 
 import json
@@ -14,19 +14,20 @@ from tests.test_provider_rate_backfill import (
 
 
 @pytest.mark.parametrize("field", ["create_5m", "create_1h"])
-def test_backfill_keeps_a_sampled_row_with_explicit_free_writes(tmp_path, capsys, field):
+def test_backfill_replaces_explicit_free_writes_with_normalized_log_states(tmp_path, capsys, field):
     history = [_entry(None, {**RATE_A, field: 0}),
                _entry("2031-01-01T00:10:00Z", RATE_B)]
     states = [("2031-01-01T00:00:00Z", RATE_A),
               ("2031-01-01T00:20:00Z", RATE_B)]
-    rc, out, err, path, _, original = _run(tmp_path, capsys, {"Wafer": history}, states)
+    rc, out, err, path, _, _ = _run(tmp_path, capsys, {"Wafer": history}, states)
     assert rc == 0, err
-    assert path.read_text() == original
-    assert "untouched Wafer" in out and "zero cache-write" in out
+    saved = expand_pricing_doc(json.loads(path.read_text()))
+    assert saved["providers"][MODEL]["Wafer"] == [_entry(None, RATE_A)]
+    assert "rewritten Wafer" in out
 
 
 @pytest.mark.parametrize("field", ["create_5m", "create_1h"])
-def test_hourly_samples_a_row_whose_free_writes_the_log_cannot_express(
+def test_hourly_uses_log_change_points_despite_stored_explicit_free_writes(
         tmp_path, capsys, field):
     history = [_entry(None, {**RATE_A, field: 0}),
                _entry("2031-01-01T00:10:00Z", RATE_B)]
@@ -46,5 +47,5 @@ def test_hourly_samples_a_row_whose_free_writes_the_log_cannot_express(
     assert rc == 0, err
     saved = expand_pricing_doc(json.loads(path.read_text()))
     assert saved["providers"][MODEL]["Wafer"] == [
-        *history, _entry("2031-01-01T00:40:00Z", RATE_C)]
-    assert "sampled" in out and "zero cache-write" in out
+        *history, _entry("2031-01-01T00:20:00Z", RATE_C)]
+    assert "sampled" not in out
