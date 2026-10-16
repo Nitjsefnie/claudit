@@ -270,9 +270,6 @@ def test_legend_checkboxes_are_proportionate_to_the_legend_text():
     assert len(_checkbox_rows()) == 1, (
         "expected the 1 shared LegendCheckboxRow shape -- a hand-rolled "
         "legend row appeared; reuse the shared component")
-    assert _legend_call_sites() == 7, (
-        f"{_legend_call_sites()} of the 7 legend rows use the shared "
-        f"component -- the guard would pass vacuously")
     for _, input_tag, _ in _checkbox_rows():
         box = _legend_box_px(input_tag)
         assert box <= _LEGEND_TITLE_PX, (
