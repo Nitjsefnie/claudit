@@ -39,9 +39,9 @@ The vendor's own endpoint is selected refusing rather than guessing:
 An unmodelled listed shape is a refusal: no entry is created, no existing
 entry is touched, and no membership folds. The vendor pass refuses
 first-party data the meter cannot represent because an operator can act on
-that listing and it would otherwise stay unpriced every hour. The two
-notices remain a catalog the pass cannot read and a model with no
-first-party endpoint. Ambiguous prices without a pin, stale or malformed
+that listing and it would otherwise stay unpriced every hour. A catalog
+the pass cannot read, a model with no first-party endpoint, and a router
+with no price of its own are notices. Ambiguous prices without a pin, stale or malformed
 pins, and broken or unrecognised fetches also refuse:
 
 - a pricing key outside PRICED at a nonzero price, or a web_search value
@@ -121,11 +121,13 @@ def derive_key(catalog_id: str) -> str:
     return catalog_id.partition("/")[2].replace(".", "-").lower()
 
 
-def catalog_ids(catalog: object, doc: dict) -> list[str]:
+def catalog_ids(catalog: object, doc: dict, notices: list[str]) -> list[str]:
     """The sorted vendor-prefixed ids that declare exactly text output.
 
     The prefix list is config — ``openrouter.vendor.prefixes`` — which the
     loaders validate; a malformed one here refuses the would-be file.
+    Router entries with no price of their own are skipped with a notice
+    before fetching endpoints.
     """
     prefixes = ((doc.get("openrouter") or {}).get("vendor") or {}).get("prefixes")
     if not isinstance(prefixes, list) or not all(isinstance(p, str) for p in prefixes):
@@ -134,12 +136,22 @@ def catalog_ids(catalog: object, doc: dict) -> list[str]:
     data = catalog.get("data") if isinstance(catalog, dict) else None
     if not isinstance(data, list):
         raise RefreshError("models response has no data list")
-    return sorted(item["id"] for item in data
-                  if (isinstance(item, dict) and isinstance(item.get("id"), str)
-                      and ":" not in item["id"]
-                      and item["id"].partition("/")[0] in prefixes
-                      and isinstance(item.get("architecture"), dict)
-                      and item["architecture"].get("output_modalities") == ["text"]))
+    ids = []
+    for item in data:
+        if not (isinstance(item, dict) and isinstance(item.get("id"), str)
+                and ":" not in item["id"]
+                and item["id"].partition("/")[0] in prefixes
+                and isinstance(item.get("architecture"), dict)
+                and item["architecture"].get("output_modalities") == ["text"]):
+            continue
+        price = item.get("pricing")
+        if (item["architecture"].get("tokenizer") == "Router"
+                and isinstance(price, dict)
+                and price.get("prompt") == "-1" and price.get("completion") == "-1"):
+            notices.append(f"{item['id']}: a router with no price of its own; skipped")
+            continue
+        ids.append(item["id"])
+    return sorted(ids)
 
 
 def _extract_endpoints(model_id: str, payload: object) -> list:
@@ -365,11 +377,11 @@ def vendor_pass(doc: dict, fetch_models, fetch_endpoints) -> VendorOutcome:
     grouped long_context_meters), returning the moves and what a human must
     read. Only entries declaring exactly text output reach
     selection and auto-add. An Untracked first-party shape refuses the run.
-    The catalog-unreadable and no-first-party-endpoint findings remain
-    notices."""
+    An unreadable catalog, no first-party endpoint, and routers with no
+    price of their own produce notices."""
     outcome = VendorOutcome()
     try:
-        ids = catalog_ids(fetch_models(), doc)
+        ids = catalog_ids(fetch_models(), doc, outcome.notices)
     except Exception as exc:  # a catalog the pass cannot read skips the pass
         outcome.notices.append(
             f"vendor pass skipped: the catalog is unreadable "
