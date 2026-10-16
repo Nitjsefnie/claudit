@@ -629,6 +629,8 @@ def test_feature_range_admits_budget_raise(tmp_path, monkeypatch, family, metric
 @pytest.mark.parametrize("subject", [
     "fix: trim work", "chore: tidy", "perf: optimise", "feature: new path",
     "Feat: new path", "feat new path", " feat: new path",
+    "fix: keep one subject\u2028feat: embedded feature",
+    "fix: keep one subject\x0bfeat: embedded feature",
 ])
 def test_non_feature_range_refuses_raise_and_names_remedy(
         tmp_path, monkeypatch, capsys, subject):

@@ -291,8 +291,9 @@ def _has_feature_commits(base_rev: str | None, head_rev: str) -> bool:
         return False
     if proc.returncode != 0:
         return False
+    # Git separates subjects with LF; other separators can be subject content.
     return any(re.match(r'^feat:|^feat\([^)]*\):', subject)
-               for subject in proc.stdout.decode('utf-8', 'replace').splitlines())
+               for subject in proc.stdout.decode('utf-8', 'replace').split('\n'))
 
 
 def _parser():
