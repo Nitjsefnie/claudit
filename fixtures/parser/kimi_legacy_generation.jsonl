@@ -1,0 +1,9 @@
+{"type":"metadata","protocol_version":"1.10"}
+{"timestamp":1783000001,"message":{"type":"TurnBegin","payload":{"user_input":"go"}}}
+{"timestamp":1783000003,"message":{"type":"ContentPart","payload":{"type":"think","think":"hm"}}}
+{"timestamp":1783000005,"message":{"type":"ToolCall","payload":{"id":"c1","function":{"name":"Read","arguments":"{}"}}}}
+{"timestamp":1783000006,"message":{"type":"StatusUpdate","payload":{"token_usage":{"input_other":10,"output":8}}}}
+{"timestamp":1783000010,"message":{"type":"ToolResult","payload":{"tool_call_id":"c1","return_value":{"output":"ok"}}}}
+{"timestamp":1783000012,"message":{"type":"ContentPart","payload":{"type":"text","text":"ok"}}}
+{"timestamp":1783000013,"message":{"type":"ToolCallPart","payload":{"arguments_part":"{}"}}}
+{"timestamp":1783000015,"message":{"type":"StatusUpdate","payload":{"token_usage":{"input_other":20,"output":9}}}}

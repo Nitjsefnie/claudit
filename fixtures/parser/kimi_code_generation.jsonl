@@ -1,0 +1,11 @@
+{"type":"metadata","created_at":1783000000000}
+{"type":"turn.prompt","input":[],"time":1783000001000}
+{"type":"context.append_loop_event","event":{"type":"step.begin","turnId":"0"},"time":1783000002000}
+{"type":"context.append_loop_event","event":{"type":"content.part","part":{"type":"think","think":"hm"}},"time":1783000005000}
+{"type":"context.append_loop_event","event":{"type":"step.end"},"time":1783000006000}
+{"type":"usage.record","usage":{"inputOther":10,"output":8},"time":1783000007000}
+{"type":"turn.prompt","input":[],"time":1783000010000}
+{"type":"context.append_loop_event","event":{"type":"step.begin","turnId":"1"},"time":1783000011000}
+{"type":"llm.error","kind":"rate_limit","message":"retry","time":1783000012000}
+{"type":"context.append_loop_event","event":{"type":"step.end"},"time":1783000013000}
+{"type":"usage.record","usage":{"inputOther":20,"output":6},"time":1783000014000}

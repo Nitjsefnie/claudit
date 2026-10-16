@@ -688,3 +688,13 @@ def test_legacy_kimi_latency_without_an_assistant_event_ends_at_the_record():
             + _legacy_line(4, "StatusUpdate", _LEGACY_STATUS))
     out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
     assert [r["reply_latency_s"] for r in out["records"]] == [4.0]
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("kimi_code_generation.jsonl", [(4.0, 2.0), (None, None)]),
+    ("kimi_legacy_generation.jsonl", [(4.0, 2.0), (3.0, 3.0)]),
+])
+def test_kimi_generation_fixtures(name, expected):
+    records = _lane(name)["records"]
+    assert [(r["generation_s"], r["output_tokens_per_s"])
+            for r in records] == expected

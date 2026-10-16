@@ -71,3 +71,35 @@ def codex_generation_line(clock: LaneGeneration, rtype: str,
                 or (ptype == "item_completed" and isinstance(item, dict)
                     and item.get("type") in ("AgentMessage", "Reasoning"))):
             clock.response_line(ts)
+
+
+def kimi_code_generation_line(clock: LaneGeneration, typ: object,
+                              obj: dict, ts: datetime | None) -> None:
+    """Map Kimi output and triggers; queued steers anchor at delivery."""
+    if typ == "turn.prompt":
+        clock.anchor_line(ts)
+    elif typ == "llm.error":
+        clock.fail()
+    elif typ == "context.append_message":
+        msg = obj.get("message")
+        role = msg.get("role") if isinstance(msg, dict) else None
+        if role == "tool":
+            clock.anchor_line(ts)
+        elif role == "assistant":
+            clock.response_line(ts)
+    elif typ == "context.append_loop_event":
+        event = obj.get("event")
+        et = event.get("type") if isinstance(event, dict) else None
+        if et == "tool.result":
+            clock.anchor_line(ts)
+        elif et in ("content.part", "tool.call"):
+            clock.response_line(ts)
+
+
+def legacy_generation_line(clock: LaneGeneration, msg_type: str,
+                           ts: datetime | None) -> None:
+    """Map legacy response lines; StatusUpdate alone books the window."""
+    if msg_type in ("TurnBegin", "ToolResult"):
+        clock.anchor_line(ts)
+    elif msg_type in ("ContentPart", "ToolCall", "ToolCallPart"):
+        clock.response_line(ts)

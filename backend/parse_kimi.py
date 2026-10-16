@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from orjson import JSONDecodeError, loads
 
 from backend.flags import ALL_COLLECTIONS_ON, CollectionPolicy
+from backend.lane_generation import kimi_code_generation_line, legacy_generation_line
 from backend.kimi_tool_rows import (  # pylint: disable=unused-import
     _args_to_dict, _edit_churn, _kimi_dispatch_args, _legacy_tool_call, _legacy_tool_result)
 from backend.parse_common import (_append_tool_use, _append_usage_record,
@@ -148,11 +149,14 @@ def _legacy_status_update(st: _ParseState, line_num: int,
     _append_usage_record(
         st, line_num, ts, payload.get("message_id") or None,
         _model_for(None, ts or st.first_event_ts), toks,
+        generation_s=(st.lane_generation.bind() if st.lane_generation is not None else None),
     )
 
 
 def _legacy_dispatch(st: _ParseState, msg_type: str, line_num: int,
                      ts: datetime | None, payload: dict) -> None:
+    if st.lane_generation is not None:
+        legacy_generation_line(st.lane_generation, msg_type, ts)
     if msg_type == "TurnBegin":
         _turn_boundary(st, line_num, ts)
     elif msg_type == "TurnEnd":
@@ -320,6 +324,8 @@ def _kc_deliver_steer(st: _KimiCodeState, ts: datetime | None,
         if content == pending:
             del st.pending_steers[:i + 1]
             _arm_reply_anchor(st, ts)
+            if st.lane_generation is not None:
+                st.lane_generation.anchor_line(ts)
             return
 
 
@@ -377,6 +383,7 @@ def _kc_usage_record(st: _ParseState, line_num: int, ts: datetime | None,
     _append_usage_record(
         st, line_num, ts, f"{st.file_key}:{line_num}",
         _model_for(obj.get("model"), ts or st.first_event_ts), toks,
+        generation_s=(st.lane_generation.bind() if st.lane_generation is not None else None),
     )
 
 
@@ -410,6 +417,8 @@ def _kc_llm_error(st: _ParseState, line_num: int, ts: datetime | None,
 
 def _kc_dispatch(st: _KimiCodeState, typ: object, line_num: int,
                  ts: datetime | None, obj: dict) -> None:
+    if st.lane_generation is not None:
+        kimi_code_generation_line(st.lane_generation, typ, obj, ts)
     # Turn boundaries. A prompt reaches the model at once; a steer may wait
     # behind an in-flight step (see _kc_steer).
     if typ == "turn.prompt":

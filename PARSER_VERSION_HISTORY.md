@@ -69,3 +69,9 @@ them: bump `PRICING_VERSION` in `constants.py` for that.
   and binds the latest completed window only at advancing token counts
   in either journal ordering. Collection OFF stores NULL without creating
   a generation clock. Browser parsers do not mirror request timing.
+- **114** — issue #983: both Kimi formats map request generation windows
+  to `generation_s` and `output_tokens_per_s`. kimi-code `usage.record`
+  follows `step.end` and books the completed cycle; legacy `StatusUpdate`
+  with nonempty `token_usage` books the window whose lines precede it.
+  Kimi-code steers anchor at delivery, and every `llm.error` invalidates
+  its request's span. Collection OFF leaves both fields NULL.
