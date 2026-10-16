@@ -182,17 +182,17 @@ def _load_vendor():
 
 def test_the_loader_builds_the_vendor_tables(monkeypatch):
     doc = _install(monkeypatch, _doc())
-    assert pricing.VENDOR_BARE == {KEY: KEY, BARE: PKEY}
+    assert pricing.VENDOR_BARE == {KEY: KEY, BARE: PKEY, "other-9": "acme/other-9"}
     assert pricing.VENDOR_HOSTS == {KEY: HOST, PKEY: HOST}
-    # A tracked entry without vendor_host is not vendor data.
-    assert "acme/other-9" not in pricing.VENDOR_BARE
+    # Id-only entries join the fold but provide no first-party host.
+    assert "acme/other-9" not in pricing.VENDOR_HOSTS
     assert doc  # the doc was loaded (shape-valid)
 
 
 def test_a_bare_only_vendor_shape_loads_and_exports_fold_data():
     tables = pricing.load_tables(_bare_id_doc())
     assert tables["VENDOR_PREFIXES"] == ["acme"]
-    assert tables["VENDOR_BARE"] == {KEY: KEY, BARE: BARE}
+    assert tables["VENDOR_BARE"] == {KEY: KEY, BARE: BARE, "other-9": "acme/other-9"}
     assert tables["VENDOR_HOSTS"] == {KEY: HOST, BARE: HOST}
 
 
@@ -206,7 +206,7 @@ def test_the_browser_builds_the_same_vendor_tables(tmp_path):
       console.log(JSON.stringify({{
         bare: window.vendorBare, hosts: window.vendorHosts}}));
     """)
-    assert got["bare"] == {KEY: KEY, BARE: PKEY}
+    assert got["bare"] == {KEY: KEY, BARE: PKEY, "other-9": "acme/other-9"}
     assert got["hosts"] == {KEY: HOST, PKEY: HOST}
 
 
@@ -226,8 +226,8 @@ def test_the_browser_loads_bare_only_vendor_data_and_exposes_fold_data(tmp_path)
     """)
     assert got == {
         "prefixes": ["acme"],
-        "bareForms": [KEY, BARE],
-        "bare": {KEY: KEY, BARE: BARE},
+        "bareForms": [KEY, "other-9", BARE],
+        "bare": {KEY: KEY, BARE: BARE, "other-9": "acme/other-9"},
     }
 
 

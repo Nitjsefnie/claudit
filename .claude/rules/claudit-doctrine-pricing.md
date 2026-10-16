@@ -81,12 +81,18 @@ that row's dated windows, including its web-search rate, and without its
 provider-specific schedule. The host's schedule applies only to requests
 THROUGH it. A transcript id
 spelled with a tracked vendor prefix whose remainder is a tracked bare
-form folds to that form and resolves through the bare rows. A normalized
+form folds to that form and resolves through the tracked key's provider
+rows. Every tracked entry with a derivable bare form joins the fold,
+including entries without `vendor_host`: a key under a tracked prefix
+derives its remainder, and an already-bare key derives itself. Other
+namespaced keys stay outside the fold. Only entries carrying `vendor_host`
+join the first-party host table; id-only entries supply no first-party
+fallback when no provider row matches. A normalized
 prefixed id whose remainder is not a tracked bare form stays unchanged and
 follows the existing fallback: a Claude-family match gets its tier rate;
 otherwise it gets the default, and no prefixed vendor row is selected. The
-bare forms are a validated namespace: one bare form per tracked vendor
-entry, and never one that is also a models-table key — a transcript id
+bare forms are a validated namespace: one bare form per fold entry,
+including id-only entries, and never one that is also a models-table key — a transcript id
 would otherwise resolve two ways, so the loaders refuse the file naming
 both rows.
 The grouped `long_context_meters` field is the sole long-context membership
