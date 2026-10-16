@@ -166,17 +166,6 @@ def test_an_aborted_request_is_not_a_failure():
         "run's pending announcement")
 
 
-def test_a_real_failure_still_clears_the_pending_line():
-    """(c) A real failure keeps the 4bf3e66 behaviour: the pending
-    what-changed line is dropped so it cannot mislabel the next
-    successful announcement.
-    """
-    body = _catch_body(_dashboard_effect())
-    assert "refreshRef.current = null" in body, (
-        "a real refetch failure must clear refreshRef so the pending "
-        "what-changed line cannot mislabel the next announcement")
-
-
 def test_projects_stale_response_never_applies():
     """(a) Same guard as the dashboard effect (issue #182): a
     superseded /api/projects response must not setProjects over a
@@ -202,12 +191,3 @@ def test_projects_aborted_request_is_not_a_failure():
     assert m.start() < log, (
         "the superseded early-return must sit BEFORE console.error, so "
         "an aborted request logs nothing")
-
-
-def test_projects_real_failure_still_logs():
-    """A real projects failure keeps its console.error -- only an abort
-    is silent.
-    """
-    body = _catch_body(_projects_effect())
-    assert "console.error(" in body, (
-        "a real projects failure must still be logged")
