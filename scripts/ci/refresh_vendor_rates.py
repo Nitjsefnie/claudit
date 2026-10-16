@@ -46,8 +46,8 @@ pins, and broken or unrecognised fetches also refuse:
 
 - a pricing key outside PRICED at a nonzero price, or a web_search value
   that is not a finite non-negative USD-per-search decimal string;
-- a WEEKLY schedule: the price the pass compared is a window price at
-  fetch time, and the pass cannot select an actual default;
+- a weekly schedule combined with a long-context band: a window price
+  cannot establish the meter's factors;
 - a long-context band with multiple bands, a threshold that is not positive,
   missing input/output prices, an unsupported band kind, or UTC fields.
   A min_prompt_tokens band yields its factors from the listing, folds its
@@ -199,9 +199,9 @@ def _listing(model_id: str, endpoint: object
         raise RefreshError(f"{where}: discount {discount!r} is not a fraction")
     rates = rates_of(price, where)
     bands, weekly = _split_overrides(price, where)
-    if weekly:
-        raise Untracked(f"{where}: a weekly schedule: the pass cannot select "
-                        "a default outside every window")
+    if weekly and bands:
+        raise Untracked(f"{where}: a weekly schedule with a long-context "
+                        "band is not modelled")
     meter = metered_band(price, where, bands)
     return rates, meter, provider
 
