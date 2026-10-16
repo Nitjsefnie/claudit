@@ -182,7 +182,7 @@ def test_conversion_is_idempotent_and_keeps_canonical_layout(tmp_path):
 
 def test_conversion_refuses_malformed_document_without_overwriting_it(tmp_path):
     doc = _synthetic_doc()
-    doc["models"]["claude-opus-4-8"][0]["fresh"] = -1
+    del doc["providers"][ROW_KEY][HOST][0]["fresh"]
     path = tmp_path / "pricing.json"
     original = (json.dumps(doc, indent=2, sort_keys=True) + "\n").encode("utf-8")
     path.write_bytes(original)
@@ -190,7 +190,7 @@ def test_conversion_refuses_malformed_document_without_overwriting_it(tmp_path):
     result = _convert(path)
 
     assert result.returncode != 0
-    assert "claude-opus-4-8" in result.stderr
+    assert f"{ROW_KEY} via {HOST}[0]" in result.stderr
     assert path.read_bytes() == original
 
 
@@ -258,3 +258,34 @@ def test_a_written_move_omits_cache_rates_equal_to_fresh(tmp_path, capsys):
         "providers"]["glm-5-3-flash"]["OpenInference"][-1]
     assert "create_5m" not in entry
     assert "create_1h" not in entry
+
+
+@pytest.mark.parametrize("alternate", [False, True])
+def test_converter_bootstraps_with_a_legacy_canonical_file(tmp_path, alternate):
+    repo = tmp_path / "checkout"
+    (repo / "backend").mkdir(parents=True)
+    (repo / "scripts" / "ci").mkdir(parents=True)
+    (repo / "src").mkdir()
+    for source in (ROOT / "backend").glob("*.py"):
+        shutil.copy(source, repo / "backend" / source.name)
+    script = repo / "scripts" / "ci" / CONVERTER.name
+    shutil.copy(CONVERTER, script)
+    canonical = repo / "src" / "pricing.json"
+    legacy = json.dumps(_synthetic_doc()) + "\n"
+    canonical.write_text(legacy, encoding="utf-8")
+    target = tmp_path / "alternate.json" if alternate else canonical
+    target.write_text(legacy, encoding="utf-8")
+    args = [sys.executable, str(script), *(["--pricing", str(target)] if alternate else [])]
+    first = subprocess.run(args, cwd=repo, capture_output=True, text=True,
+                           check=False, timeout=60)
+    assert first.returncode == 0, first.stderr
+    converted = target.read_bytes()
+    stored = json.loads(converted)
+    assert stored["providers"][ROW_KEY][HOST][0][:4] == [None, 2.0, 6.0, 0.2]
+    assert load_tables(stored) == load_tables(_synthetic_doc())
+    second = subprocess.run(args, cwd=repo, capture_output=True, text=True,
+                            check=False, timeout=60)
+    assert second.returncode == 0, second.stderr
+    assert target.read_bytes() == converted
+    if alternate:
+        assert canonical.read_text(encoding="utf-8") == legacy
