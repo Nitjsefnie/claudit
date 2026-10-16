@@ -104,38 +104,20 @@ def test_only_exact_text_output_models_reach_vendor_selection() -> None:
     missing_architecture_id = "openai/gpt-missing-architecture-test"
     missing_output_id = "openai/gpt-missing-output-test"
     text_id = "openai/gpt-text-test"
-    image_key = "gpt-image-test"
-    text_key = "gpt-text-test"
+    image_key, text_key = "gpt-image-test", "gpt-text-test"
     existing = {"id": image_id, "vendor_host": "Existing OpenAI"}
     doc = _doc(tracked={image_key: existing}, members=[image_key],
                meters={image_key: {"threshold": 200_000}})
-    tracked_before = copy.deepcopy(doc["openrouter"]["models"])
-    catalog = {"data": [
-        {"id": image_id, "architecture": {
-            "output_modalities": ["image", "text"]}},
-        {"id": audio_id, "architecture": {
-            "output_modalities": ["text", "audio"]}},
-        {"id": missing_architecture_id},
-        {"id": missing_output_id, "architecture": {
-            "input_modalities": ["text"]}},
-        {"id": text_id, "architecture": {
-            "output_modalities": ["text"]}},
-    ]}
-    payloads = {
-        image_id: _payload(_endpoint(
-            "openai", _price(1.0, 5.0, image_output="0.00004"))),
-        audio_id: _payload(_endpoint(
-            "openai", _price(1.0, 5.0, audio_output="0.00004"))),
-        missing_architecture_id: _payload(
-            _endpoint("openai", _price(1.0, 5.0))),
-        missing_output_id: _payload(_endpoint("openai", _price(1.0, 5.0))),
-        text_id: _payload(_endpoint("openai", _price(1.0, 5.0))),
-    }
+    catalog = _catalog(image_id, audio_id, missing_architecture_id, missing_output_id, text_id)
+    catalog["data"][0]["architecture"]["output_modalities"] = ["image", "text"]
+    catalog["data"][1]["architecture"]["output_modalities"] = ["text", "audio"]
+    del catalog["data"][2]["architecture"]
+    catalog["data"][3]["architecture"] = {"input_modalities": ["text"]}
     selected: list[str] = []
 
     def fetch_endpoints(model_id: str) -> dict:
         selected.append(model_id)
-        return payloads[model_id]
+        return _payload(_endpoint("openai", _price(1.0, 5.0)))
 
     out = vendor.vendor_pass(doc, lambda: catalog, fetch_endpoints)
 
@@ -143,11 +125,29 @@ def test_only_exact_text_output_models_reach_vendor_selection() -> None:
     assert not out.notices and not out.refusals
     assert out.moves == [vendor.VendorMove(text_id, text_key, added=True)]
     assert doc["openrouter"]["models"] == {
-        **tracked_before,
+        image_key: existing,
         text_key: {"id": text_id, "vendor_host": "Vendor"},
     }
     assert doc["long_context_meters"] == [
         {"threshold": 200_000, "models": [image_key]}]
+
+
+@pytest.mark.parametrize("tokenizer,prompt,completion,skipped", [
+    ("Router", "-1", "-1", True), ("Router", "0.1", "0.2", False),
+    ("Other", "-1", "-1", False), ("Router", "-1", "0.2", False),
+    ("Router", "0.1", "-1", False), ("Router", -1, -1, False)])
+def test_router_catalog_entries_skip_only_when_they_have_no_price(tokenizer, prompt, completion, skipped):
+    model_id = "nvidia/fixture-entry"
+    catalog = _catalog(model_id)
+    catalog["data"][0]["architecture"]["tokenizer"] = tokenizer
+    catalog["data"][0]["pricing"] = {"prompt": prompt, "completion": completion}
+    catalogs, calls, doc = [catalog], [], _doc(prefixes=["nvidia"])
+    out = vendor.vendor_pass(doc, catalogs.pop, lambda mid: calls.append(mid) or _payload())
+    assert not catalogs and not out.moves and doc["openrouter"]["models"] == {}
+    assert calls == ([] if skipped else [model_id])
+    assert out.notices == ([f"{model_id}: a router with no price of its own; skipped"] if skipped else [])
+    assert out.refusals == ([] if skipped else [
+        f"{model_id}: no endpoints listed; read as a broken fetch, never as every host vanishing"])
 
 
 def test_the_prefix_list_is_config():
