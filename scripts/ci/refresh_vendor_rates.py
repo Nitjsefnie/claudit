@@ -196,7 +196,8 @@ def _listing(model_id: str, endpoint: object
             raise Untracked(f"{where}: pricing {key} {value!r} is not modelled")
     discount = price.get("discount", 0)
     if (not isinstance(discount, (int, float)) or isinstance(discount, bool)
-            or not math.isfinite(discount) or discount >= 1):
+            or discount >= 1
+            or (isinstance(discount, float) and not math.isfinite(discount))):
         raise RefreshError(f"{where}: discount {discount!r} is not a fraction")
     rates = rates_of(price, where)
     bands, weekly = _split_overrides(price, where)
