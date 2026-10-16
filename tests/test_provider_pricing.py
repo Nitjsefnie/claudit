@@ -16,6 +16,7 @@ import pytest
 
 from backend import pricing
 from backend.pricing_document import expand_pricing_doc
+from backend.api_cache import _session_total
 from backend.api_common import fold_per_model, fold_per_model_provider
 from tests.refresh_fixture_builders import seed_doc
 
@@ -77,8 +78,9 @@ def test_fold_exposes_only_estimate_status():
     row = _row("synthetic/model-9", None, 0, 1000, cost=0.01)
     for folded in (fold_per_model([row], pair_bounds={}),
                    fold_per_model_provider([row], pair_bounds={})):
-        assert "estimated_rate" in folded[0]
-        assert "banded_rate" not in folded[0]
+        for entry in (folded[0], _session_total(folded)):
+            assert "estimated_rate" in entry
+            assert "banded_rate" not in entry
 
 
 def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():

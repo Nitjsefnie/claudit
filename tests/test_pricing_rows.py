@@ -122,7 +122,7 @@ def _node(tmp_path, doc, browser=False):
 @pytest.mark.parametrize("browser", [False, True])
 def test_browser_decodes_like_python_and_flattens_all_instants(tmp_path, browser):
     codec = _codec()
-    stored = codec.encode_pricing_doc(_fixture())
+    stored = json.loads(pricing_document.serialize_pricing_doc(_fixture()))
     got = _node(tmp_path, stored, browser=browser)
     assert got['error'] is None, got['error']
     assert got['decoded'] == codec.decode_pricing_doc(stored)
@@ -135,6 +135,14 @@ def test_browser_decodes_like_python_and_flattens_all_instants(tmp_path, browser
     assert [w['rates']['fresh'] for w in got['tables']['providerDatedRates'][ROW_KEY][HOST]] == [1, 2, 3, 2]
     assert tables['PROVIDER_SCHEDULES'][ROW_KEY, HOST].keys() == {2}
     assert got['tables']['providerSchedules'][ROW_KEY][HOST].keys() == {'2'}
+    fields = [('fresh', 'fresh'), ('c5', 'create_5m'), ('c1h', 'create_1h'),
+              ('read', 'read'), ('out', 'output'), ('search', 'web_search')]
+    browser_rates = [got['tables']['providerRates'][ROW_KEY][HOST],
+                     *[w['rates'] for w in got['tables']['providerDatedRates'][ROW_KEY][HOST]]]
+    python_rates = [tables['PROVIDER_RATES'][ROW_KEY, HOST],
+                    *[rates for _, rates in windows]]
+    assert [[rates.get(js, 0) for js, _ in fields] for rates in browser_rates] == [
+        [rates.get(py, 0) for _, py in fields] for rates in python_rates]
 
 
 BAD_ROWS = [
@@ -167,30 +175,6 @@ def test_browser_refusal_names_the_same_row(tmp_path, row, browser):
     assert got['error'] and f'{ROW_KEY} via {HOST}[0]' in got['error'], got
 
 
-def test_missing_marker_and_legacy_objects_refused_at_storage_boundary():
-    codec = _codec()
-    doc = codec.encode_pricing_doc(_fixture())
-    doc.pop('_format')
-    with pytest.raises(ValueError, match='_format'):
-        pricing_document.check_compact_shape(doc)
-    doc = _fixture()
-    doc['_format'] = 'pricing-rows/3'
-    with pytest.raises(ValueError, match=r'via OpenInference\[0\]'):
-        pricing_document.check_compact_shape(doc)
-
-
-def test_serializer_stores_rows_and_expand_restores_editable_entries():
-    doc = _fixture()
-    codec = _codec()
-    raw = json.loads(pricing_document.serialize_pricing_doc(doc))
-    pricing_document.check_compact_shape(raw)
-    assert isinstance(raw['providers'][ROW_KEY][HOST][0], list)
-    assert _typed(pricing_document.expand_pricing_doc(raw)) == _typed(
-        pricing_document.expand_pricing_doc(doc))
-    assert codec.decode_pricing_doc(raw)['providers'][ROW_KEY][HOST][1]['from'] == [
-        '2026-01-01T00:00:00Z', '2026-01-03T00:00:00Z']
-
-
 def test_serializer_keeps_each_provider_row_on_one_compact_line():
     doc = _fixture()
     doc['providers'][ROW_KEY][HOST][0]['note'] = 'café "rows"\nnext'
@@ -218,60 +202,9 @@ def test_serializer_is_idempotent_and_loads_the_same_tables():
     assert pricing_document.serialize_pricing_doc(decoded) == serialized
     assert pricing_document.serialize_pricing_doc(stored) == serialized
     assert load_tables(stored) == load_tables(doc)
+    assert _typed(pricing_document.expand_pricing_doc(stored)) == _typed(
+        pricing_document.expand_pricing_doc(doc))
     assert _typed(doc) == _typed(before)
-
-
-@pytest.mark.skipif(shutil.which('node') is None, reason='node not available')
-def test_node_loader_reads_the_serialized_row_layout(tmp_path):
-    from backend.pricing_load import load_tables  # pylint: disable=import-outside-toplevel
-    serialized = pricing_document.serialize_pricing_doc(_fixture())
-    (tmp_path / 'pricing.json').write_text(serialized, encoding='utf-8')
-    for name in ('pricing-loader.js', 'hhmm-spelling.js', 'vendor-tables.js', 'pricing-rows.js'):
-        shutil.copy(ROOT / 'src' / name, tmp_path / name)
-    script = """
-      global.window = {};
-      const fs = require('fs');
-      const loader = require('./pricing-loader.js');
-      console.log(JSON.stringify({
-        decoded: loader.decodePricingDoc(JSON.parse(fs.readFileSync('pricing.json', 'utf8'))),
-        rates: window.providerRates,
-        windows: window.providerDatedRates
-      }));
-    """
-    result = subprocess.run(['node', '-e', script], cwd=tmp_path, capture_output=True,
-                            text=True, check=False, timeout=60)
-    assert result.returncode == 0, result.stderr
-    got = json.loads(result.stdout)
-    stored = json.loads(serialized)
-    assert got['decoded'] == _codec().decode_pricing_doc(stored)
-    tables = load_tables(stored)
-    fields = [('fresh', 'fresh'), ('c5', 'create_5m'), ('c1h', 'create_1h'),
-              ('read', 'read'), ('out', 'output'), ('search', 'web_search')]
-    browser_rates = [got['rates'][ROW_KEY][HOST],
-                     *[w['rates'] for w in got['windows'][ROW_KEY][HOST]]]
-    python_rates = [tables['PROVIDER_RATES'][ROW_KEY, HOST],
-                    *[rates for _, rates in tables['PROVIDER_DATED_RATES'][ROW_KEY, HOST]]]
-    assert [[rates.get(js, 0) for js, _ in fields] for rates in browser_rates] == [
-        [rates.get(py, 0) for _, py in fields] for rates in python_rates]
-
-
-@pytest.mark.parametrize('instants', [
-    ['2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z'],
-    ['2026-01-01T00:00:00Z', '2026-12-01T00:00:00Z'],
-])
-def test_lists_refuse_duplicate_instants_and_every_instant_after_fetch(instants):
-    doc = _fixture()
-    doc['providers'][ROW_KEY][HOST][1]['from'] = instants
-    from backend.pricing_load import load_tables  # pylint: disable=import-outside-toplevel
-    with pytest.raises(ValueError, match=r'via OpenInference\['):
-        load_tables(doc)
-
-
-def test_long_decimal_discount_is_not_rounded_during_encoding():
-    doc = _fixture()
-    doc['providers'][ROW_KEY][HOST][1]['note'] = '12.3456789% off'
-    codec = _codec()
-    assert codec.decode_pricing_doc(codec.encode_pricing_doc(doc)) == doc
 
 
 def test_migration_normalizes_absent_from_without_mutating_the_legacy_doc():
@@ -359,6 +292,8 @@ def test_every_grouped_instant_is_bounded_by_the_fetch_in_both_loaders(tmp_path)
     lambda d: d['providers'][ROW_KEY].update({HOST: {}}),
     lambda d: d['providers'][ROW_KEY].update({HOST: []}),
     lambda d: d['providers'][ROW_KEY][HOST].append([None, 1, 2, 0]),
+    lambda d: d['providers'][ROW_KEY][HOST].__setitem__(
+        0, {'from': None, 'fresh': 1, 'output': 2, 'read': 0}),
 ])
 def test_storage_boundary_refuses_bad_markers_and_containers(damage):
     stored = _codec().encode_pricing_doc(_fixture())
