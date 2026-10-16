@@ -19,6 +19,7 @@ import pytest
 from backend import db
 from tests import scratch_db
 
+# The fact and rollup tables the retired columns lived on.
 _LEAKY = ("records", "tool_uses", "usage_rollup")
 
 
@@ -39,7 +40,6 @@ def _live_columns(conn, table: str) -> set[str]:
 
 
 def _apply_twice(monkeypatch, name: str) -> dict[str, int]:
-    """Two stamped applies of the whole chain; the second's catalog."""
     monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")
     db.reset_viz_pool()
     try:
