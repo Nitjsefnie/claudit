@@ -575,7 +575,7 @@ def test_cheapest_without_a_recorded_ignore_refuses_differing_twins(
     pytest.param(lambda p: p["data"]["endpoints"][0]["pricing"].update(
         {"discount": 1.5}), id="discount-over-one"),
     pytest.param(lambda p: p["data"]["endpoints"][0]["pricing"].update(
-        {"discount": -0.1}), id="negative-discount"),
+        {"discount": None}), id="null-discount"),
     pytest.param(lambda p: p["data"]["endpoints"][0]["pricing"].update(
         {"discount": True}), id="boolean-discount"),
 ])

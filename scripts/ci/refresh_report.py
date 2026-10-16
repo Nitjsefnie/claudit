@@ -215,6 +215,8 @@ def _changed_move_text(move: Move, new, old_rates: dict | None,
 
 
 def _discount_note(discount: Decimal) -> str:
+    if discount < 0:
+        return f"{format((-discount * 100).normalize(), 'f')}% over base"
     return f"{format((discount * 100).normalize(), 'f')}% off"
 
 
