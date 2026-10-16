@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from decimal import Decimal
@@ -272,6 +273,45 @@ def test_reparse_missing_counter_rejected(gate):
         gate.verdict(draws)
 
 
+def test_randomized_suite_measurement_is_refused(gate):
+    draws = [_draw(), _draw(), _draw()]
+    draws[1]['suite']['hash_seed'] = 'randomized'
+    with pytest.raises(ValueError, match='hash.seed'):
+        gate.verdict(draws)
+
+
+def test_failed_draw_diagnostics_reach_json_and_summary(gate, repo, tmp_path, monkeypatch):
+    instrument = tmp_path / 'instruments/scripts/ci'
+    instrument.mkdir(parents=True)
+    (instrument / 'suite_bench.py').write_text(
+        'import sys\n'
+        'print("draw stdout detail" + "x" * 100000)\n'
+        'print("y" * 100000 + "draw stderr cause", file=sys.stderr)\n'
+        'raise SystemExit(1)\n', encoding='utf-8')
+    monkeypatch.setattr(gate, 'ROOT', instrument.parents[1])
+    monkeypatch.chdir(repo)
+    output = tmp_path / 'verdict.json'
+    summary = tmp_path / 'summary.md'
+    assert gate.main(['--base-ref', 'base', '--write', str(output),
+                      '--summary', str(summary)]) == 1
+    for text in (output.read_text(), summary.read_text()):
+        assert 'draw stdout detail' in text
+        assert 'draw stderr cause' in text
+        assert 'suite' in text
+    assert 'not measured' in summary.read_text().lower()
+    assert len(json.loads(output.read_text())['verdict']['failures'][0]) < 40_000
+
+
+def test_instrument_without_scratch_refuses_cleanly(tmp_path):
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), '--instrument', 'suite',
+         '--write', str(tmp_path / 'suite.json')],
+        capture_output=True, text=True, check=False, timeout=30)
+    assert proc.returncode == 2
+    assert '--scratch' in proc.stderr
+    assert 'Traceback' not in proc.stderr
+
+
 def test_scan_deletions_keep_signed_line_delta(gate):
     draws = [_draw(1100, '12.0'), _draw(100, '10.3'), _draw(100, '10.3')]
     assert not gate.verdict(draws)['passed']
@@ -303,18 +343,26 @@ def test_workflow_cost_gate_follows_successful_suite_and_jscov():
     assert "steps.cost_gate.conclusion != 'skipped'" in artifact['if']
 
 
-def test_suite_child_uses_draw_backend_and_private_basetemps(tmp_path):
+def test_suite_child_uses_draw_backend_and_private_basetemps(gate, tmp_path, monkeypatch, capsys):
     root = tmp_path / 'mini'
     (root / 'backend').mkdir(parents=True)
     (root / 'backend/__init__.py').write_text(
-        'MARKER = "draw backend"\n', encoding='utf-8')
+        'MARKER = "draw backend"\n__path__.append('
+        + repr(str(SCRIPT.parents[2] / 'backend')) + ')\n', encoding='utf-8')
     (root / 'tests').mkdir()
     test = root / 'tests/test_mini.py'
     test.write_text(
+        'import os, subprocess, sys\n'
         'from backend import MARKER\n'
         'def test_draw(tmp_path):\n'
         '    assert MARKER == "draw backend"\n'
-        '    assert "pytest-count" in str(tmp_path)\n', encoding='utf-8')
+        '    assert "pytest-count" in str(tmp_path)\n'
+        '    nested = tmp_path / "test_nested.py"\n'
+        '    nested.write_text("def test_ok():\\n    pass\\n")\n'
+        '    proc = subprocess.run([sys.executable, "-m", "pytest", "-q",\n'
+        '        "-p", "no:cacheprovider", str(nested)], cwd=tmp_path,\n'
+        '        env=dict(os.environ), capture_output=True, text=True)\n'
+        '    assert proc.returncode == 0, proc.stderr + proc.stdout\n', encoding='utf-8')
     (root / 'pytest.ini').write_text(
         '[pytest]\nasyncio_default_fixture_loop_scope = function\n',
         encoding='utf-8')
@@ -323,27 +371,21 @@ def test_suite_child_uses_draw_backend_and_private_basetemps(tmp_path):
     output = tmp_path / 'suite.json'
     scratch = tmp_path / 'scratch with spaces'
     scratch.mkdir()
-    # Only bounded-pricing injection is irrelevant to this mini backend.
-    # The warm pass, pytest run, counters, and report are the real instrument.
-    code = (
-        'import sys; from pathlib import Path; '
-        'sys.path.insert(0, sys.argv[1]); '
-        'import gate_base_head as gate; import suite_bench as bench; '
-        'bench.FIXTURE = Path(sys.argv[2]); '
-        'bench._load_bounded_document = lambda: None; '
-        'gate._instrument("suite", Path(sys.argv[3]), '
-        'Path(sys.argv[4]), Path(sys.argv[5]))')
-    proc = subprocess.run(
-        [sys.executable, '-c', code, str(SCRIPT.parent), str(fixture),
-         str(root), str(scratch), str(output)], cwd=root,
-        env={**os.environ, 'PYTHONHASHSEED': '0',
-             'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONPATH': str(root)},
-        capture_output=True, text=True, check=False, timeout=60)
-    assert proc.returncode == 0, proc.stderr + proc.stdout
+    instrument = tmp_path / 'instruments/scripts/ci'
+    instrument.mkdir(parents=True)
+    for name in ('suite_bench.py', 'suite_phases.py', 'suite_report.py',
+                 'suite_pricing_doc.json'):
+        shutil.copyfile(SCRIPT.parent / name, instrument / name)
+    shutil.copyfile(fixture, instrument / 'suite_bench_files.txt')
+    monkeypatch.setattr(gate, 'ROOT', instrument.parents[1])
+    monkeypatch.setenv('PYTHONHASHSEED', '123')
+    assert gate.main(['--instrument', 'suite', '--head-tree', str(root),
+                      '--scratch', str(scratch), '--write', str(output)]) == 0
     data = json.loads(output.read_text())
     assert data['tests'] == 1
-    assert '1 passed' in proc.stdout
-    assert data['tests_tree_lines'] == 4
+    assert data['hash_seed'] == '0'
+    assert '1 passed' in capsys.readouterr().out
+    assert data['tests_tree_lines'] == len(test.read_text().splitlines())
     assert (scratch / 'pytest-count').is_dir()
     assert list((root / 'tests/__pycache__').glob('test_mini.*.pyc'))
 
@@ -366,7 +408,7 @@ def test_reparse_child_pins_corpus_and_imports_draw_backend(tmp_path):
         'bench.measure = lambda entries, **kw: '
         'original(entries, passes=2, warmup=1, **kw); '
         'gate._instrument("reparse", Path(sys.argv[2]), '
-        'Path(sys.argv[3]), Path(sys.argv[3]))')
+        'Path(sys.argv[3]).parent, Path(sys.argv[3]))')
     proc = subprocess.run(
         [sys.executable, '-c', code, str(SCRIPT.parent), str(root), str(output)],
         cwd=root, env={**os.environ, 'PYTHONHASHSEED': '0',

@@ -7,7 +7,6 @@ import contextlib
 import importlib
 import json
 import os
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -30,6 +29,8 @@ NOISE = Decimal('0.2')
 # the lead calibrates against same-tree proof draws, never CPU shares.
 REPARSE_MARGIN_PCT = Decimal('0.02')
 MILLION = Decimal(1_000_000)
+# Keep both ends of each child stream, including the final traceback cause.
+DIAGNOSTIC_LIMIT = 16_000
 
 
 def git(repo: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
@@ -107,6 +108,8 @@ def phase_counts(draw: dict, family: str) -> dict:
     if family == 'suite':
         if data.get('instrument') != 'instruction_count':
             raise ValueError('suite instruction counter unavailable')
+        if data.get('hash_seed') != '0':
+            raise ValueError('suite hash_seed must be 0 for deterministic draws')
         phases, unit = SUITE_PHASES, 'million_instructions'
     else:
         if not (data.get('counts') or {}).get('available'):
@@ -159,8 +162,49 @@ def verdict(draws: list[dict]) -> dict:
             'comparisons': comparisons}
 
 
+def _env(root: Path) -> dict:
+    env = dict(os.environ, PYTHONHASHSEED='0', PYTHONDONTWRITEBYTECODE='1',
+               PYTHONPATH=str(root))
+    # A parent's warm marker cannot vouch for this draw's bytecode caches.
+    env.pop('CLAUDIT_SUITE_BENCH_WARMED', None)
+    return env
+
+
+def _suite_command(root: Path, scratch: Path, output: Path) -> list[str]:
+    return [sys.executable, str(ROOT / 'scripts/ci/suite_bench.py'),
+            '--repo-root', str(root), '--scratch', str(scratch),
+            '--write', str(output)]
+
+
+def _bounded(text: str) -> str:
+    if len(text) <= DIAGNOSTIC_LIMIT:
+        return text
+    half = DIAGNOSTIC_LIMIT // 2
+    return text[:half] + '\n... output truncated ...\n' + text[-half:]
+
+
+def _run_measurement(command: list[str], root: Path, output: Path) -> dict:
+    done = subprocess.run(command, cwd=root, env=_env(root),
+                          capture_output=True, text=True, check=False)
+    stdout, stderr = _bounded(done.stdout), _bounded(done.stderr)
+    try:
+        if done.returncode:
+            raise ValueError(f'exited {done.returncode}')
+        measurement = json.loads(output.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as error:
+        raise ValueError(f'{command[1]} draw at {root}: {error}\n'
+                         f'stdout:\n{stdout}\nstderr:\n{stderr}') from error
+    print(stdout, end='')
+    print(stderr, end='', file=sys.stderr)
+    return measurement
+
+
 def _instrument(kind: str, root: Path, scratch: Path, output: Path) -> None:
-    """Use the head's instruments against this draw's backend and tests."""
+    """Delegate suite setup to its CLI; isolate the reparse backend imports."""
+    scratch.mkdir(parents=True, exist_ok=True)
+    if kind == 'suite':
+        _run_measurement(_suite_command(root, scratch, output), root, output)
+        return
     sys.path.insert(0, str(root))
     importlib.import_module('backend')
     sys.path.insert(0, str(ROOT / 'scripts/ci'))
@@ -168,43 +212,28 @@ def _instrument(kind: str, root: Path, scratch: Path, output: Path) -> None:
     # The instruments add their own tree to sys.path at import. Backend
     # is already bound to the draw; tests and other imports belong there too.
     sys.path.insert(0, str(root))
-    if kind == 'suite':
-        fixture = bench.read_fixture(bench.FIXTURE, root)
-        os.environ['PYTEST_ADDOPTS'] = shlex.join(
-            ['--basetemp', str(scratch / 'pytest-warm')])
-        bench.warm_bytecode_caches(fixture, root)
-        os.environ['PYTEST_ADDOPTS'] = shlex.join(
-            ['--basetemp', str(scratch / 'pytest-count')])
-        bench._load_bounded_document()  # pylint: disable=protected-access
-        measurement = bench.measure(fixture, root)
-        bench.suite_report.write_measurement(output, measurement)
-        print(bench.suite_report.report(measurement))
-    else:
-        entries = bench.corpus()
-        counts = bench.reparse_phases.measure_counts(entries, bench.run_pass)
-        per_file = (bench.reparse_phases.bytecodes_per_file(counts)
-                    if counts.available else None)
-        measurement = bench.measure(
-            entries, instruction_counts=bench.reparse_report.counts_payload(counts),
-            instruction_per_file=per_file, instruction_note=counts.reason)
-        bench.reparse_report.write_measurement(output, measurement)
-        print(bench.reparse_report.report(measurement))
+    entries = bench.corpus()
+    counts = bench.reparse_phases.measure_counts(entries, bench.run_pass)
+    per_file = (bench.reparse_phases.bytecodes_per_file(counts)
+                if counts.available else None)
+    measurement = bench.measure(
+        entries, instruction_counts=bench.reparse_report.counts_payload(counts),
+        instruction_per_file=per_file, instruction_note=counts.reason)
+    bench.reparse_report.write_measurement(output, measurement)
+    print(bench.reparse_report.report(measurement))
 
 
 def measure_draw(root: Path, scratch: Path) -> dict:
     """Fresh deterministic children prevent cross-tree module/cache reuse."""
     scratch.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, PYTHONHASHSEED='0', PYTHONDONTWRITEBYTECODE='1',
-               PYTHONPATH=str(root))
     draw = {}
     for kind in ('suite', 'reparse'):
         output = scratch / f'{kind}.json'
-        subprocess.run(
-            [sys.executable, str(Path(__file__).resolve()),
-             '--instrument', kind, '--head-tree', str(root),
-             '--scratch', str(scratch), '--write', str(output)],
-            cwd=root, env=env, check=True)
-        draw[kind] = json.loads(output.read_text(encoding='utf-8'))
+        command = (_suite_command(root, scratch, output) if kind == 'suite'
+                   else [sys.executable, str(Path(__file__).resolve()),
+                         '--instrument', kind, '--head-tree', str(root),
+                         '--scratch', str(scratch), '--write', str(output)])
+        draw[kind] = _run_measurement(command, root, output)
     return draw
 
 
@@ -216,6 +245,9 @@ def deltas(draws: list[dict]) -> dict:
 
 def summary(payload: dict) -> str:
     lines = ['### Suite and reparse cost base-vs-head', '']
+    if not payload['draws']:
+        return '\n'.join(lines + ['Draws: not measured.',
+                                  *payload['verdict']['failures'], 'FAIL', ''])
     for family in ('suite', 'reparse'):
         lines += [f'{family} phase counts', '',
                   '| phase | ' + ' | '.join(
@@ -251,11 +283,18 @@ def _parser():
 
 
 def main(argv=None):
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
     if args.instrument:
-        _instrument(args.instrument, args.head_tree.resolve(), args.scratch,
-                    args.write)
-        return 0
+        if args.scratch is None:
+            parser.error('--scratch is required with --instrument')
+        try:
+            _instrument(args.instrument, args.head_tree.resolve(), args.scratch,
+                        args.write)
+            return 0
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            print(error, file=sys.stderr)
+            return 1
     payload = {'self_check': args.self_check, 'draws': [],
                'verdict': {'passed': False, 'failures': []}}
     try:
