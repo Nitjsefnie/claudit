@@ -19,7 +19,6 @@ from datetime import datetime, timezone
 from orjson import JSONDecodeError, loads
 
 from backend.flags import ALL_COLLECTIONS_ON, CollectionPolicy
-from backend.lane_generation import kimi_code_generation_line, legacy_generation_line
 from backend.kimi_tool_rows import (  # pylint: disable=unused-import
     _args_to_dict, _edit_churn, _kimi_dispatch_args, _legacy_tool_call, _legacy_tool_result)
 from backend.parse_common import (_append_tool_use, _append_usage_record,
@@ -155,20 +154,29 @@ def _legacy_status_update(st: _ParseState, line_num: int,
 
 def _legacy_dispatch(st: _ParseState, msg_type: str, line_num: int,
                      ts: datetime | None, payload: dict) -> None:
-    if st.lane_generation is not None:
-        legacy_generation_line(st.lane_generation, msg_type, ts)
+    clock = st.lane_generation
     if msg_type == "TurnBegin":
+        if clock is not None:
+            clock.anchor_line(ts)
         _turn_boundary(st, line_num, ts)
     elif msg_type == "TurnEnd":
         _end_turn(st, line_num, ts)
     elif msg_type == "ContentPart":
+        if clock is not None:
+            clock.response_line(ts)
         _legacy_content_part(st, ts, payload)
     elif msg_type == "ToolCall":
+        if clock is not None:
+            clock.response_line(ts)
         _legacy_tool_call(st, line_num, ts, payload)
     elif msg_type == "ToolResult":
+        if clock is not None:
+            clock.anchor_line(ts)
         _legacy_tool_result(st, payload)
     elif msg_type == "StatusUpdate":
         _legacy_status_update(st, line_num, ts, payload)
+    elif msg_type == "ToolCallPart" and clock is not None:
+        clock.response_line(ts)
 
 
 def parse_legacy(file_key: str, blob: bytes, *, collection: CollectionPolicy = ALL_COLLECTIONS_ON) -> dict:
@@ -266,13 +274,15 @@ def _kc_append_message(st: _KimiCodeState, line_num: int,
                        ts: datetime | None, obj: dict) -> None:
     msg = as_dict(obj.get("message"))
     role = msg.get("role")
+    clock = st.lane_generation
     if role == "assistant":
+        if clock is not None:
+            clock.response_line(ts)
         content = as_list(msg.get("content") or [])
         st.text_chars_since_turn += _count_content_text(
             content
         )
-        tool_calls = dict_list(msg.get("toolCalls") or [])
-        for tc in tool_calls:
+        for tc in dict_list(msg.get("toolCalls") or []):
             name, raw_args, tcid = _kc_parse_tool_call(tc)
             args = _args_to_dict(raw_args)
             _append_tool_use(st, line_num, ts, name, tcid,
@@ -280,6 +290,8 @@ def _kc_append_message(st: _KimiCodeState, line_num: int,
                              dispatch=_kimi_dispatch_args(name, args, st.collect))
         _mark_assistant_event(st, ts)
     elif role == "tool":
+        if clock is not None:
+            clock.anchor_line(ts)
         tcid = msg.get("toolCallId", "")
         if tcid:
             is_err = bool(msg.get("isError"))
@@ -341,14 +353,19 @@ def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
                    obj: dict) -> None:
     ev = as_dict(obj.get("event"))
     et = ev.get("type")
+    clock = st.lane_generation
     if et == "step.begin":
         _kc_step_begin(st, line_num, ts, ev.get("turnId"))
     elif et == "content.part":
+        if clock is not None:
+            clock.response_line(ts)
         part = ev.get("part")
         if isinstance(part, dict) and part.get("type") == "text":
             st.text_chars_since_turn += len(str(part.get("text", "")))
         _mark_assistant_event(st, ts)
     elif et == "tool.call":
+        if clock is not None:
+            clock.response_line(ts)
         name = str(ev.get("name", ""))
         args = _args_to_dict(ev.get("args"))
         _append_tool_use(
@@ -357,6 +374,8 @@ def _kc_loop_event(st: _ParseState, line_num: int, ts: datetime | None,
         )
         _mark_assistant_event(st, ts)
     elif et == "tool.result":
+        if clock is not None:
+            clock.anchor_line(ts)
         res = as_dict(ev.get("result"))
         tcid = ev.get("toolCallId", "")
         if tcid:
@@ -406,6 +425,8 @@ def _kc_llm_error(st: _ParseState, line_num: int, ts: datetime | None,
     there: the cap belongs to whatever writes the column, not to a
     journal written by a different program.
     """
+    if st.lane_generation is not None:
+        st.lane_generation.fail()
     if obj.get("kind") != "quota_exhausted":
         return
     st.rate_limit_hits.append({
@@ -417,11 +438,11 @@ def _kc_llm_error(st: _ParseState, line_num: int, ts: datetime | None,
 
 def _kc_dispatch(st: _KimiCodeState, typ: object, line_num: int,
                  ts: datetime | None, obj: dict) -> None:
-    if st.lane_generation is not None:
-        kimi_code_generation_line(st.lane_generation, typ, obj, ts)
     # Turn boundaries. A prompt reaches the model at once; a steer may wait
     # behind an in-flight step (see _kc_steer).
     if typ == "turn.prompt":
+        if st.lane_generation is not None:
+            st.lane_generation.anchor_line(ts)
         _turn_boundary(st, line_num, ts)
     elif typ == "turn.steer":
         _kc_steer(st, line_num, ts, obj)
