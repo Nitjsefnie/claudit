@@ -241,9 +241,11 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   the base side cannot spend the pull request lineage's budget, and the
   base lineage still gets its own ten visits. Linear history counts HEAD
   within its ten visits. A family-present or unreadable commit ends its
-  lineage, and commits already seen are not read again. A lineage that
-  exhausts its budget contributes no marker; if none declares, the walk
-  fails CLOSED and the family-absent document is gated as any other is.
+  lineage. Shared commits are read once and their cached verdicts are
+  applied on each lineage; plain commits still lead to their first
+  parent. A lineage that exhausts its budget contributes no marker; if
+  none declares, the walk fails CLOSED and the family-absent document is
+  gated as any other is.
 
   **Closing a window is not re-opening one.** Two separate facts, and
   the next re-seed needs both: the walk reached a family-present commit
