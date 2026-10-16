@@ -90,7 +90,8 @@ def _listing(endpoint: object, where: str, at: datetime,
             raise RefreshError(f"{where}: pricing {key} {value!r} is not modelled")
     discount = price.get("discount", 0)
     if (not isinstance(discount, (int, float)) or isinstance(discount, bool)
-            or not math.isfinite(discount) or discount >= 1):
+            or discount >= 1
+            or (isinstance(discount, float) and not math.isfinite(discount))):
         raise RefreshError(f"{where}: discount {discount!r} is not a fraction")
     identity = {k: endpoint.get(k) for k in _IDENTITY}
     rates, schedule = rates_of(price, where), entry_schedule(price, where)
