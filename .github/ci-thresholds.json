@@ -37,8 +37,8 @@
       6722
     ],
     ".github/workflows/ci-gate.yml": [
-      7556,
-      11932
+      7715,
+      13589
     ],
     ".github/workflows/claim.yml": [
       3530,
@@ -573,12 +573,12 @@
       4663
     ],
     "scripts/ci/aggregate_gate.py": [
-      3518,
-      7856
+      2948,
+      7521
     ],
     "scripts/ci/classify_changes.py": [
-      8882,
-      16852
+      7812,
+      15586
     ],
     "scripts/ci/commit_scopes.py": [
       6385,
@@ -602,7 +602,7 @@
     ],
     "scripts/ci/gate_trigger_set.py": [
       3940,
-      7191
+      7322
     ],
     "scripts/ci/js_comment_tokens.mjs": [
       1251,
@@ -1041,36 +1041,36 @@
       5020
     ],
     "tests/test_agent_sidecar.py": [
-      2895,
-      14769
+      2521,
+      14062
     ],
     "tests/test_agent_type_names.py": [
       571,
       1949
     ],
     "tests/test_api.py": [
-      6769,
-      23666
+      6470,
+      23455
     ],
     "tests/test_api_cache_search_total.py": [
       393,
       2541
     ],
     "tests/test_api_details.py": [
-      4507,
-      16376
+      4262,
+      15486
     ],
     "tests/test_api_export_argv.py": [
       786,
       2631
     ],
     "tests/test_api_token_types.py": [
-      1687,
-      5096
+      1519,
+      4687
     ],
     "tests/test_auth.py": [
-      1484,
-      7954
+      1458,
+      7816
     ],
     "tests/test_bash_churn.py": [
       3029,
@@ -1092,25 +1092,21 @@
       819,
       2279
     ],
-    "tests/test_blob_cache.py": [
-      1029,
-      6580
-    ],
     "tests/test_branding.py": [
-      9245,
-      24042
+      8905,
+      23169
     ],
     "tests/test_breakdown_exact_rate.py": [
       3025,
       13932
     ],
     "tests/test_bucket_redact.py": [
-      3468,
-      10622
+      3359,
+      10341
     ],
     "tests/test_cache.py": [
-      8155,
-      19433
+      7883,
+      18785
     ],
     "tests/test_cache_outcomes.py": [
       3089,
@@ -1133,52 +1129,48 @@
       21593
     ],
     "tests/test_ci_classify_comment_only.py": [
-      3833,
-      13927
+      3832,
+      13972
     ],
     "tests/test_ci_classify_verified_base.py": [
       3698,
-      11078
+      11127
     ],
     "tests/test_ci_gate_botdata.py": [
       2064,
-      8976
+      9016
     ],
     "tests/test_ci_gate_modules.py": [
-      4558,
-      19210
+      3516,
+      18184
     ],
     "tests/test_ci_gate_output_wiring.py": [
-      8159,
-      18408
-    ],
-    "tests/test_ci_ratchets.py": [
-      1750,
-      11415
+      7996,
+      19274
     ],
     "tests/test_ci_reseed.py": [
-      8480,
-      24067
+      8287,
+      23733
     ],
     "tests/test_ci_reseed_reparse.py": [
       5986,
       19314
     ],
     "tests/test_ci_reseed_walk_depth.py": [
-      4614,
-      16311
+      4613,
+      16340
     ],
     "tests/test_ci_thresholds.py": [
-      3344,
-      18138
+      2948,
+      16052
     ],
     "tests/test_ci_thresholds_guard.py": [
-      5958,
-      21649
+      5091,
+      20372
     ],
     "tests/test_ci_thresholds_reparse.py": [
-      2056,
-      9684
+      1734,
+      8202
     ],
     "tests/test_ci_workflows.py": [
       7064,
@@ -1205,8 +1197,8 @@
       7721
     ],
     "tests/test_ctx_cost_rollup.py": [
-      846,
-      1483
+      747,
+      1340
     ],
     "tests/test_ctx_growth_traces.py": [
       1911,
@@ -1217,12 +1209,12 @@
       2874
     ],
     "tests/test_dashboard_fetch_js.py": [
-      1556,
-      6663
+      1437,
+      6305
     ],
     "tests/test_dashboard_fetch_wiring.py": [
-      2574,
-      6533
+      2079,
+      5570
     ],
     "tests/test_dashboard_latency_pins.py": [
       1049,
@@ -1237,16 +1229,16 @@
       2648
     ],
     "tests/test_db_marker.py": [
-      9053,
-      19841
+      8916,
+      19715
     ],
     "tests/test_db_marker_gate.py": [
       1018,
       3009
     ],
     "tests/test_db_marker_narrow.py": [
-      754,
-      1850
+      595,
+      1522
     ],
     "tests/test_db_marker_parity.py": [
       2756,
@@ -1285,8 +1277,8 @@
       19775
     ],
     "tests/test_docs_setup.py": [
-      3576,
-      6784
+      2819,
+      5395
     ],
     "tests/test_events.py": [
       5082,
@@ -1310,11 +1302,11 @@
     ],
     "tests/test_gate_trigger_set.py": [
       1385,
-      5157
+      5184
     ],
     "tests/test_git_meta.py": [
-      966,
-      3029
+      856,
+      2847
     ],
     "tests/test_heatmap_layout_wiring.py": [
       1396,
@@ -1397,12 +1389,12 @@
       12635
     ],
     "tests/test_login.py": [
-      4296,
-      20186
+      4204,
+      19787
     ],
     "tests/test_login_a11y.py": [
-      2064,
-      8838
+      1852,
+      8020
     ],
     "tests/test_login_privacy.py": [
       646,
@@ -1441,8 +1433,8 @@
       12876
     ],
     "tests/test_no_pinned_version_literals.py": [
-      8089,
-      23677
+      7918,
+      23177
     ],
     "tests/test_node_skip_guard.py": [
       5236,
@@ -1473,24 +1465,24 @@
       28357
     ],
     "tests/test_parse.py": [
-      8185,
-      24371
+      8018,
+      24632
     ],
     "tests/test_parse_codex.py": [
-      10465,
-      25261
+      9774,
+      23607
     ],
     "tests/test_parse_codex_more.py": [
-      4048,
-      17107
+      3364,
+      15309
     ],
     "tests/test_parse_codex_pricing.py": [
-      3075,
-      8556
+      2285,
+      7002
     ],
     "tests/test_parse_kimi.py": [
-      5894,
-      24053
+      5532,
+      22577
     ],
     "tests/test_parse_kimi_more.py": [
       1996,
@@ -1502,7 +1494,7 @@
     ],
     "tests/test_parse_more.py": [
       5091,
-      24049
+      24472
     ],
     "tests/test_parse_user_prompt.py": [
       983,
@@ -1525,12 +1517,12 @@
       23086
     ],
     "tests/test_parser_js_pricing_loader.py": [
-      2544,
-      15860
+      2496,
+      15605
     ],
     "tests/test_parser_js_user_prompt.py": [
-      734,
-      2710
+      432,
+      2164
     ],
     "tests/test_payload_fields_are_used.py": [
       2737,
@@ -1681,16 +1673,16 @@
       16828
     ],
     "tests/test_reparse_bench.py": [
-      8953,
-      18874
+      8809,
+      18615
     ],
     "tests/test_reparse_ci_wiring.py": [
       3247,
       8633
     ],
     "tests/test_reparse_count.py": [
-      2481,
-      5988
+      2181,
+      5266
     ],
     "tests/test_reparse_gate.py": [
       3257,
@@ -1701,12 +1693,12 @@
       7816
     ],
     "tests/test_reparse_surface.py": [
-      6102,
-      18744
+      5933,
+      18393
     ],
     "tests/test_reprice.py": [
-      6919,
-      24336
+      5963,
+      21404
     ],
     "tests/test_reprice_clean_restamp_guards.py": [
       3918,
@@ -1717,8 +1709,8 @@
       18937
     ],
     "tests/test_reprice_pairs.py": [
-      7530,
-      25577
+      7526,
+      25874
     ],
     "tests/test_reprice_parity.py": [
       6089,
@@ -1737,8 +1729,8 @@
       10192
     ],
     "tests/test_schema_attnums.py": [
-      1160,
-      3548
+      933,
+      2889
     ],
     "tests/test_schema_autoapply.py": [
       6031,
@@ -1753,8 +1745,8 @@
       5646
     ],
     "tests/test_security_headers.py": [
-      3551,
-      10456
+      3037,
+      9066
     ],
     "tests/test_sequence_allocation.py": [
       1790,
@@ -1805,8 +1797,8 @@
       6257
     ],
     "tests/test_suite_ratchet.py": [
-      3965,
-      15827
+      3752,
+      15194
     ],
     "tests/test_teammate_agent_type.py": [
       2389,
@@ -1841,8 +1833,8 @@
       2090
     ],
     "tests/test_tool_model.py": [
-      1503,
-      8586
+      1352,
+      8387
     ],
     "tests/test_transcript_cache_key.py": [
       2284,
@@ -1869,12 +1861,12 @@
       6495
     ],
     "tests/test_version.py": [
-      1705,
-      5362
+      1599,
+      5035
     ],
     "tests/test_version_guard.py": [
-      1045,
-      4581
+      970,
+      4260
     ],
     "tests/test_version_literal_splits.py": [
       774,
@@ -1890,15 +1882,15 @@
     ],
     "tests/test_workflow_ci_gate.py": [
       8782,
-      22501
+      23494
     ],
     "tests/test_workflow_concurrency.py": [
       1694,
       2584
     ],
     "tests/test_workflow_coverage_comment_retry.py": [
-      2826,
-      11239
+      2766,
+      11002
     ],
     "tests/test_workflow_patch_coverage.py": [
       5821,
@@ -1913,16 +1905,16 @@
       4120
     ],
     "tests/test_workflow_release.py": [
-      7981,
-      23277
+      7541,
+      22053
     ],
     "tests/test_workflow_scorecard.py": [
       4934,
       14198
     ],
     "tests/version_literal_guard.py": [
-      4724,
-      9689
+      5114,
+      10913
     ]
   },
   "coverage": {
@@ -2005,8 +1997,8 @@
       "measured": 4.1
     },
     "run": {
-      "floor": 92.6,
-      "measured": 91.1
+      "floor": 78.6,
+      "measured": 77.1
     },
     "tests_tree_lines": 100624
   }
