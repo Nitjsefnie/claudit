@@ -27,7 +27,6 @@ LOADER_JS = ROOT / "src" / "pricing-loader.js"
 VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
 HHMM_JS = ROOT / "src" / "hhmm-spelling.js"
 
-# Synthetic tracked vendor id and provider-history key.
 MODEL_ID = "anthropic/synthetic-9"
 ROW_KEY = "anthropic/synthetic-9"
 HOST = "OpenInference"

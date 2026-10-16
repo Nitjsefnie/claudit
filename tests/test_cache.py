@@ -155,7 +155,7 @@ def test_idle_lru_refuses_oversized_entry():
     assert len(lru._items) == 0  # pylint: disable=protected-access
 
     lru.put("k", b"small")
-    lru.put("k", b"x" * 2048)          # oversized put for an existing key
+    lru.put("k", b"x" * 2048)
     assert lru.get("k") == b"small"    # the old entry still stands
     assert lru._size == len(b"small")  # pylint: disable=protected-access
 
@@ -204,16 +204,16 @@ def test_ttl_cache_cap_evicts_expired_then_oldest(monkeypatch):
     clock["t"] = 1070.0
     c.put("g", "G")
     clock["t"] = 1090.0
-    c.put("h", "H")                    # 4 entries > cap 3; only "e" is expired
+    c.put("h", "H")
 
-    assert c.get("e") is None          # the expired entry went first
+    assert c.get("e") is None
     assert c.get("f") == "F"           # fresh beats expired
     assert c.get("g") == "G"
     assert c.get("h") == "H"
     assert len(c._items) == 3  # pylint: disable=protected-access
 
     clock["t"] = 1091.0
-    c.put("i", "I")                    # over cap again; nothing expired now
+    c.put("i", "I")
     assert c.get("f") is None          # the oldest entry went instead
     assert c.get("g") == "G"
     assert c.get("h") == "H"
@@ -245,7 +245,7 @@ def test_ttl_cache_evicts_key_lock_with_entry(monkeypatch):
     c.put("cap2", 2)
     c.lock_for("cap2")
     clock["t"] += 1.0
-    c.put("cap3", 3)                  # over cap: oldest (cap1) is evicted
+    c.put("cap3", 3)
     c.lock_for("cap3")
     assert "cap1" not in c._key_locks  # pylint: disable=protected-access
     assert "cap2" in c._key_locks  # pylint: disable=protected-access

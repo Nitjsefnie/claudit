@@ -44,7 +44,7 @@ def test_parse_version_dated_prerelease():
     "   ",          # whitespace only
     "not a version",
     "v0.3.0",       # release.yml adds the tag prefix itself; a `v` here would tag vv0.3.0
-    "0.3",          # two components
+    "0.3",
     "0.3.0-",       # a lone dash is no suffix
     "0.3.0-dev!x",  # the suffix charset is [0-9A-Za-z.-]
 ])

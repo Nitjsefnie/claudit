@@ -116,8 +116,6 @@ def _post_login(client, user_id, password):
 
 
 class _FormScan(HTMLParser):
-    """Labels (text + for) and inputs (id + name) of one document."""
-
     def __init__(self):
         super().__init__()
         self.labels: list[dict] = []

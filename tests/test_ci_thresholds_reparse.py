@@ -1,10 +1,8 @@
-"""The reparse member's loader contract, pinned beside its bench.
+"""The reparse member's loader contract.
 
-Split out of ``test_ci_thresholds.py`` when the file sat on its size
-ceiling (SV-CI-RATCHETS) and the reparse family's own re-seed window
-(issue #698) needed the committed-document pins branched on presence:
-the pins here are on the DOCUMENT, so each one holds on the delete's
-tip as well as on a budget-carrying one.
+The reparse family's own re-seed window needed the committed-document
+pins branched on presence: the pins here are on the DOCUMENT, so each
+one holds on the delete's tip as well as on a budget-carrying one.
 """
 from __future__ import annotations
 
@@ -45,7 +43,6 @@ GAP = Decimal("1.5")
 
 
 def _reparse(shares=None):
-    """A synthetic reparse family: both metrics for every bench phase."""
     shares = shares or {}
     return {
         phase: {
@@ -111,7 +108,7 @@ def test_committed_document_carries_a_record_for_every_reparse_phase():
     # ungated while the others still look complete.
     #
     # The pin is on the DOCUMENT, not on the commit: the family's own
-    # sanctioned re-seed (issue #698) makes an absent family admissible
+    # sanctioned re-seed makes an absent family admissible
     # for the window, and a pin that demanded a record there would run
     # red on the delete's tip. Present, every phase carries both
     # instruments; absent, the tree must be declaring the window.
