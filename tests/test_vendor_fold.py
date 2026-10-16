@@ -20,6 +20,7 @@ def test_id_only_bare_entry_prices_prefixed_provider_history(
         tmp_path, monkeypatch):
     doc = _bare_id_doc()
     del doc["openrouter"]["models"][BARE]["vendor_host"]
+    doc["providers"][BARE]["undefined"] = [_entry(R_OLD)]
     doc["openrouter"]["models"]["stealth/hidden"] = {"id": "stealth/hidden"}
     _install(monkeypatch, doc)
     assert pricing.VENDOR_BARE[BARE] == BARE
@@ -43,6 +44,8 @@ def test_id_only_bare_entry_prices_prefixed_provider_history(
         bare: window.vendorBare, hosts: window.vendorHosts,
         row: window.resolveModelRate({PREFIXED_BARE!r}, null, {ROUTER_HOST!r}),
         missing: window.resolveModelRate({PREFIXED_BARE!r}, null, 'MissingHost'),
+        noProvider: window.resolveModelRate({PREFIXED_BARE!r}),
+        literal: window.resolveModelRate({PREFIXED_BARE!r}, null, 'undefined'),
       }}));
     """)
     assert got["bare"] == pricing.VENDOR_BARE
@@ -50,6 +53,9 @@ def test_id_only_bare_entry_prices_prefixed_provider_history(
     assert (got["row"]["kind"], got["row"]["key"], got["row"]["rates"]["fresh"]) == (
         "exact", BARE, R_OLD["fresh"])
     assert got["missing"]["kind"] == "default"
+    assert got["noProvider"]["kind"] == "default"
+    assert got["literal"]["kind"] == pricing.resolve(
+        PREFIXED_BARE, provider="undefined").kind == "exact"
 
 
 @pytest.mark.parametrize("collision", ["bare", "prefixed", "models"])
@@ -72,6 +78,7 @@ def test_an_id_only_default_row_refuses_cleanly_on_both_sides(tmp_path):
     doc["models"] = {}
     doc["openrouter"]["models"] = {
         "claude-opus-4-7": {"id": "acme/claude-opus-4.7"}}
+    doc["providers"] = {"claude-opus-4-7": {"undefined": [_entry(R_OLD)]}}
     with pytest.raises(ValueError, match="default estimate"):
         pricing.load_tables(doc)
     assert "default estimate" in (_loader_error(tmp_path, doc) or "")

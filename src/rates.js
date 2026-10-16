@@ -198,7 +198,7 @@ window.resolveModelRate = function resolveModelRate(model, ts, provider) {
   if (vkey) {
     const host = window.vendorHosts[vkey];
     const hosts = window.providerRates[vkey] || {};
-    if (Object.prototype.hasOwnProperty.call(hosts, host)) {
+    if (host !== undefined && Object.prototype.hasOwnProperty.call(hosts, host)) {
       const start = (window.providerStarts[vkey] || {})[host];
       const t = _toMillis(ts);
       if (!(start !== undefined && t != null && t < start)) {
