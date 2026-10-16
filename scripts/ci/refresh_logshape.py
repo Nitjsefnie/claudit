@@ -2,8 +2,9 @@
 """Validate OpenRouter's listed-pricing log response shape.
 
 The listed-pricing log is used only when its response parses as complete,
-strictly-ordered, non-negative per-field point series; anything else raises
-PriceLogError, which the callers turn into a sampled host with a reason.
+strictly-ordered, finite per-field point series. Only discount points may
+be negative; anything else raises PriceLogError, which the callers turn
+into a sampled host with a reason.
 """
 from __future__ import annotations
 
@@ -37,9 +38,10 @@ def _instant(value: object, where: str) -> datetime:
     return parsed
 
 
-def _field_points(value: object, where: str) -> tuple[Point, ...]:
+def _field_points(value: object, where: str, *, allow_negative: bool) -> tuple[Point, ...]:
     if not isinstance(value, list):
         raise PriceLogError(f"{where}: points are not a list")
+    number_kind = "finite number" if allow_negative else "finite non-negative number"
     points: list[Point] = []
     for index, item in enumerate(value):
         point_where = f"{where}[{index}]"
@@ -54,11 +56,11 @@ def _field_points(value: object, where: str) -> tuple[Point, ...]:
                 number = float(raw)
             except (OverflowError, ValueError):
                 number = float("inf")
-            if not math.isfinite(number) or number < 0:
+            if not math.isfinite(number) or (number < 0 and not allow_negative):
                 raise PriceLogError(
-                    f"{point_where}: value is not a finite non-negative number or null")
+                    f"{point_where}: value is not a {number_kind} or null")
         else:
-            raise PriceLogError(f"{point_where}: value is not a finite non-negative number or null")
+            raise PriceLogError(f"{point_where}: value is not a {number_kind} or null")
         if points and at <= points[-1].at:
             raise PriceLogError(f"{point_where}: points are not strictly ordered by at")
         points.append(Point(at, number))
@@ -103,7 +105,8 @@ def read_log_payload(payload: object) -> list[PriceSeries]:
         for field in _POINT_FIELDS:
             if field not in raw and field in _REQUIRED_POINTS:
                 raise PriceLogError(f"{where}.{field} is missing")
-            fields[field] = _field_points(raw.get(field, []), f"{where}.{field}")
+            fields[field] = _field_points(raw.get(field, []), f"{where}.{field}",
+                                          allow_negative=field == "discount")
         schedule = raw.get("schedule", [])
         if not isinstance(schedule, list):
             raise PriceLogError(f"{where}.schedule is not a list")
