@@ -140,7 +140,6 @@ def _run_step(body: str, stub: str, env: dict[str, str],
 
 def _row(status: str, conclusion: str | None, name: str,
          app: str = "github-actions", run_id: str = PUSH_RUN) -> dict:
-    # One check run, as the commit check-runs endpoint returns it.
     return {"name": name, "status": status, "conclusion": conclusion,
             "app": {"slug": app},
             "html_url": (f"https://github.com/Nitjsefnie/claudit/actions/runs/"
@@ -292,8 +291,6 @@ def test_wait_times_out_when_the_aggregate_is_a_foreign_app(tmp_path):
 
 @ubuntu_step_body
 def test_wait_proceeds_once_the_aggregate_reports(tmp_path):
-    # The first read shows the aggregate queued; a later read completes
-    # it with success and the wait proceeds.
     first = _checks(_row("completed", "success", "version-guard",
                          run_id="37138486016"),
                     _row("queued", "-", "aggregate"))
@@ -316,7 +313,6 @@ def test_wait_proceeds_once_the_aggregate_reports(tmp_path):
 @pytest.mark.parametrize("conclusion", ["failure", "cancelled"],
                          ids=["failure", "cancelled"])
 def test_wait_refuses_promptly_when_a_check_failed(tmp_path, conclusion):
-    # A failed or cancelled non-aggregate check refuses on the first read — no wait.
     checks = _checks(_row("completed", conclusion, "tests"),
                      _row("completed", "success", "aggregate"))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
@@ -549,8 +545,6 @@ def test_wait_times_out_when_only_its_own_job_exists(tmp_path):
 
 
 def test_the_wait_step_delegates_selection_to_the_selector():
-    # The projection and its exclusion used to live in an inline --jq,
-    # where no test could reach them (issues #557, #579 both hid there).
     body = _step_run(WAIT_STEP)
     assert "scripts/ci/release_gate.py" in body
     assert "--jq" not in body

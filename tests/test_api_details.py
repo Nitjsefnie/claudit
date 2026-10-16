@@ -1,4 +1,3 @@
-"""Tests moved from test_api.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
 import inspect
@@ -81,7 +80,6 @@ def test_dashboard_returns_prompts_and_turns_totals(app_with_data):
     assert body["total_prompts"] == totals["prompt_count"]
     assert body["total_turns"] == totals["turn_count"]
 
-    # Project filter scopes both counts.
     body_b = app_with_data.get("/api/dashboard?range=3650d&project=projB").json()
     assert body_b["total_prompts"] == 0
     assert body_b["total_turns"] == 3
@@ -247,7 +245,6 @@ def test_a_malformed_hit_ts_does_not_take_down_the_dashboard(app_with_fresh_data
                 {"ts": "", "content": "empty ts"},
                 {"ts": None, "content": "null ts"},
                 {"content": "no ts key at all"},
-                # Timestamp-shaped, but not valid timestamps.
                 {"ts": "2026-13-45T99:99:99Z", "content": "month 13, day 45"},
                 {"ts": "2026-02-30T00:00:00Z", "content": "30th of february"},
                 {"ts": "2026-01-01 25:00:00Z", "content": "hour 25"},
@@ -282,7 +279,7 @@ def test_dashboard_response_is_cached_and_fresh_bypasses(app_with_fresh_data):
     assert cached == first                       # stale-but-cached payload
 
     fresh = app_with_fresh_data.get("/api/dashboard?range=all&fresh=1").json()
-    assert fresh["cost_by_model"] == []          # fresh=1 sees the empty DB
+    assert fresh["cost_by_model"] == []
 
 
 def test_dashboard_range_non_numeric_days_400(app_with_data):

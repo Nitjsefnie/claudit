@@ -1,4 +1,4 @@
-"""Tests for the reparse bench's instruction-count instrument (issue #436).
+"""Tests for the reparse bench's instruction-count instrument.
 
 The share of a phase is scale-free inside one run and catches work
 MOVING between phases; it cannot catch the parse getting slower as a
@@ -6,10 +6,7 @@ whole, because every phase grows together. This instrument does: the
 bytecodes a phase retires per file, counted with ``sys.monitoring``'s
 INSTRUCTION event, which is exact — the same tree retires the same
 number of bytecodes on a loaded machine and an idle one, under any
-``PYTHONHASHSEED``. Nothing here pins a measured number: what the cases
-pin is that the count is exact, that the phases partition it, that it
-counts only what is inside a window, and that an unusable counter says
-so instead of reporting zeros.
+``PYTHONHASHSEED``.
 """
 from __future__ import annotations
 
