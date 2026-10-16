@@ -19,7 +19,8 @@ from decimal import Decimal
 from typing import Callable
 
 from refresh_logshape import PriceLogError, PriceSeries, read_log_payload
-from refresh_prices import (RefreshError, token_rates_of, tag_region)
+from refresh_prices import (RefreshError, token_rates_of)
+from refresh_selection import selected_endpoint_indices
 from backend import pricing as rate_pricing
 from backend.pricing_document import effective_rates, omit_default_rates
 
@@ -260,7 +261,7 @@ def _endpoint_rates(endpoint: dict, where: str) -> dict[str, float]:
 
 
 def _selection_indices(host: str, endpoints: list[dict], region: str | None,
-                       resolutions: dict) -> tuple[list[int], str | None]:
+                       resolutions: dict, at: datetime, stored: dict | None) -> tuple[list[int], str | None]:
     pin = resolutions.get(host)
     if pin is not None and not isinstance(pin, dict):
         return [], "host resolution is not an object"
@@ -270,12 +271,10 @@ def _selection_indices(host: str, endpoints: list[dict], region: str | None,
         tag = pin.get("tag")
         if not isinstance(tag, str):
             return [], "tag resolution is not a string"
-        selected = [i for i, endpoint in enumerate(endpoints) if endpoint.get("tag") == tag]
-    else:
-        configured_region = "global" if region is None else region
-        selected = [i for i, endpoint in enumerate(endpoints)
-                    if isinstance(endpoint.get("tag"), str)
-                    and tag_region(endpoint["tag"]) in {None, configured_region}]
+    try:
+        selected = selected_endpoint_indices(host, endpoints, region, pin, stored, at)
+    except RefreshError as exc:
+        return [], str(exc)
     if len(selected) != 1:
         return [], f"endpoint selection found {len(selected)} endpoints"
     return selected, None
@@ -377,7 +376,8 @@ def _endpoint_overrides_kind(endpoint: dict) -> str | None:
 
 def _prepare_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set[str]],
                   series_by_prefix: dict[str, list[PriceSeries]], region: str | None,
-                  resolutions: dict) -> tuple[HostSelection | None, str | None]:
+                  resolutions: dict, at: datetime,
+                  stored: dict | None) -> tuple[HostSelection | None, str | None]:
     prefixes = {endpoint["tag"].split("/", 1)[0] for endpoint in endpoints}
     reason = None
     prefix = next(iter(prefixes)) if len(prefixes) == 1 else ""
@@ -392,7 +392,7 @@ def _prepare_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set
         reason = ("endpoint has a pricing schedule" if "schedule" in kinds
                   else "endpoint lists a long-context band")
     else:
-        selected, reason = _selection_indices(host, endpoints, region, resolutions)
+        selected, reason = _selection_indices(host, endpoints, region, resolutions, at, stored)
     if reason is None:
         host_series = series_by_prefix.get(prefix, [])
         if any(item.scheduled for item in host_series):
@@ -418,9 +418,9 @@ def _generated_history_issue(series: PriceSeries, entries: list[dict], host: str
 
 def _join_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set[str]],
                series_by_prefix: dict[str, list[PriceSeries]], region: str | None,
-               resolutions: dict) -> HostLog:
+               resolutions: dict, at: datetime, stored: dict | None) -> HostLog:
     selection, reason = _prepare_host(
-        host, endpoints, prefix_owners, series_by_prefix, region, resolutions)
+        host, endpoints, prefix_owners, series_by_prefix, region, resolutions, at, stored)
     if reason or selection is None:
         return HostLog(None, reason or "listed host did not resolve to one endpoint")
     try:
@@ -437,8 +437,8 @@ def _join_host(host: str, endpoints: list[dict], prefix_owners: dict[str, set[st
     entries = _series_entries(chosen)
     if not isinstance(entries, list) or not entries:
         return HostLog(None, "selected endpoint has no usable history")
-    issue = _generated_history_issue(chosen, entries, host)
-    return HostLog(None, issue) if issue else HostLog(entries, None)
+    reason = _generated_history_issue(chosen, entries, host)
+    return HostLog(None, reason) if reason else HostLog(entries, None)
 
 
 def _endpoint_groups(
@@ -478,7 +478,7 @@ def _series_in_force(series: PriceSeries, at: datetime) -> PriceSeries:
 
 def join_listed_pricing(endpoint_payload: object, series: list[PriceSeries],
                         region: str | None, resolutions: dict,
-                        at: datetime) -> dict[str, HostLog]:
+                        at: datetime, stored: dict[str, dict] | None = None) -> dict[str, HostLog]:
     """Join log histories to only the hosts with one provable endpoint.
 
     `at` is the fetch instant: each series is read truncated to it, so a
@@ -496,5 +496,5 @@ def join_listed_pricing(endpoint_payload: object, series: list[PriceSeries],
             matched[host] = HostLog(None, invalid[host])
             continue
         matched[host] = _join_host(host, endpoints, owners, series_by_prefix,
-                                   region, resolutions)
+                                   region, resolutions, at, (stored or {}).get(host))
     return matched

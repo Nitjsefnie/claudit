@@ -207,6 +207,22 @@ def _host_price(where: str, listed: list[Listing], region: str | None, pin: obje
     return _finish_host_price(where, listed, override, pin, stored, chosen, notice)
 
 
+def selected_endpoint_indices(host: str, endpoints: list[dict], region: str | None,
+                              pin: object, stored: dict | None, at: datetime) -> list[int]:
+    """All endpoints at the selected price, retaining interchangeable aliases."""
+    listed = [_listing(endpoint, f"{host} endpoint {i}", at, stored)
+              for i, endpoint in enumerate(endpoints)]
+    chosen, _ = _host_price(host, listed, region, pin, stored)
+    if chosen is None:
+        return []
+    override = _override(host, pin)
+    eligible = (_pinned_listings(host, listed, override["tag"])
+                if override.get("tag") is not None
+                else select_region(host, listed, region, pin).listings)
+    return [i for i, endpoint in enumerate(listed)
+            if endpoint in eligible and endpoint.price == chosen.price]
+
+
 def _finish_host_price(
         where: str, listed: list[Listing], override: dict, pin: object,
         stored: dict | None, chosen: Listing | None,

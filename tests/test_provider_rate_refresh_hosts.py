@@ -446,6 +446,10 @@ def test_a_tag_suffix_neither_region_nor_quantization_is_logged(tmp_path, capsys
 
 def test_twins_differing_in_max_prompt_tokens_are_not_identical(tmp_path, capsys):
     run = Run(tmp_path)
+    run.edit(lambda doc: doc["openrouter"]["models"][V41].update(
+        resolve={"BaseTen": {"tag": "baseten/fp8", "select": "cheapest",
+                             "ignore": ["max_completion_tokens"],
+                             "why": "synthetic one-token listing artifact"}}))
     _, dearer = _baseten_twins(run)
     dearer["max_prompt_tokens"] = 4096
     _refused(run, capsys, f"{V41} via BaseTen", "identical")

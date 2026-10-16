@@ -310,7 +310,7 @@ def stored_price_continuity(where: str, groups: list[list[Listing]], stored: dic
         return None
     group = matching[0]
     chosen = group[0]
-    detail = f"took {chosen.tag!r} at the stored token rates"
+    detail = f"kept the endpoint {chosen.tag!r} at the row's price; assumes the tracked endpoint did not reprice this hour"
     return chosen, rule_notice(where, "stored price continuity", detail, group)
 
 

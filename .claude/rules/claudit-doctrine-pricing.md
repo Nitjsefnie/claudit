@@ -296,7 +296,9 @@ same rules:
     listed price, no two series matching one endpoint; no endpoint or
     series carries a schedule (`pricing.overrides` or a series
     `schedule`); the host has no `cheapest` resolution; and the
-    data-region filter or tag pin selects exactly ONE endpoint. The
+    host's full endpoint selection — an explicit pin or the automatic
+    rules of `refresh_selection_rules` — selects exactly ONE endpoint
+    (an equal-price group with interchangeable tags remains ambiguous). The
     row's token history is that endpoint's series. `web_search` is not
     in the log and does not block this join. Anything else is
     ambiguous, and the host is sampled, never guessed.
