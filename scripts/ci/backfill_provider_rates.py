@@ -242,8 +242,6 @@ def _host_reason(
 def _rewrite_host(host: str, history: list[dict] | None, listing: ModelListing,
                   providers: dict, as_of: str) -> tuple[bool, list[str]]:
     match, reason = _host_reason(host, listing)
-    if history is not None:
-        reason = refresh_pricelog.history_log_issue(history) or reason
     if reason is None and host in listing.rows and match is not None and match.entries:
         if not hourly._same_rates(match.entries[-1], listing.rows[host].rates):  # pylint: disable=protected-access
             reason = "latest log state disagrees with the listed price"

@@ -136,16 +136,6 @@ def _rates(state: dict[str, float | None]) -> dict[str, float] | None:
     }
 
 
-def history_log_issue(history: list[dict]) -> str | None:
-    """The log cannot encode explicit free writes beside positive input."""
-    for entry in history:
-        rates = effective_rates(entry)
-        if rates["fresh"] > 0 and any(
-                rates[field] == 0 for field in ("create_5m", "create_1h")):
-            return "stored zero cache-write history cannot be represented by the price log"
-    return None
-
-
 def _discount_note(value: float | None) -> str | None:
     if value in (None, 0):
         return None
