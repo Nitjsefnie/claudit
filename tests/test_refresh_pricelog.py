@@ -158,14 +158,11 @@ def test_a_series_becomes_change_entries_with_rounding_and_discount_notes(discou
         _point("2026-09-01T00:00:00.500Z", 0.1),
         _point("2026-09-01T00:00:01Z", 0.25),
         _point("2026-09-01T00:00:02Z", 0.5),
+        _point("2026-09-01T00:00:03Z", discount),
+        _point("2026-09-01T00:00:04Z", -0.3),
     ]
 
-    series = logshape.read_log_payload(_payload(item))[0]
-    series.fields["discount"] += tuple(logshape.Point(datetime.fromisoformat(at), value)
-                                       for at, value in [("2026-09-01T00:00:03Z", discount),
-                                                         ("2026-09-01T00:00:04Z", -0.3)])
-    entries = pricelog.entries_for_series(series)
-    assert entries is not None
+    entries = _entries(item)
 
     assert len(entries) == 3
     assert [entry["from"] for entry in entries] == [
@@ -212,6 +209,20 @@ def test_null_input_or_output_makes_a_series_unusable(field: str):
     item[field].append(_point("2026-09-02T00:00:00Z", None))
 
     assert pricelog.entries_for_series(logshape.read_log_payload(_payload(item))[0]) is None
+
+
+@pytest.mark.parametrize("field", ["input", "output", "cacheRead", "cacheWrite", "discount"])
+@pytest.mark.parametrize("value", [-0.2, float("nan"), float("inf"), float("-inf"), True, "half"])
+def test_log_points_validate_values_for_their_field(field, value):
+    item = _series()
+    item[field] = [_point("2026-09-01T00:00:00Z", value)]
+    if field == "discount" and value == -0.2:
+        assert logshape.read_log_payload(_payload(item))[0].fields[field][0].value == value
+    else:
+        qualifier = "" if field == "discount" else "non-negative "
+        with pytest.raises(logshape.PriceLogError,
+                           match=f"value is not a finite {qualifier}number or null"):
+            logshape.read_log_payload(_payload(item))
 
 
 @pytest.mark.parametrize(
