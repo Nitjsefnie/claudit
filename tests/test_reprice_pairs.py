@@ -181,14 +181,14 @@ def test_rate_fingerprint_dim_is_nullable_migration(fresh_db, mini_r2_env, colum
             f"records_price.{column} must be a nullable dim FK")
         _seed(c, _FILE_KEY, 99, seed)
         after = c.execute("SELECT COUNT(*) FROM records").fetchone() or (0,)
-        nulls = c.execute(
-            {
-                "pricing_version_id":
-                    "SELECT COUNT(*) FROM records_price WHERE pricing_version_id IS NULL",
-                "rate_fingerprint_id":
-                    "SELECT COUNT(*) FROM records_price WHERE rate_fingerprint_id IS NULL",
-            }[column]
-        ).fetchone() or (0,)
+        if column == "pricing_version_id":
+            nulls = c.execute(
+                "SELECT COUNT(*) FROM records_price WHERE pricing_version_id IS NULL"
+            ).fetchone() or (0,)
+        else:
+            nulls = c.execute(
+                "SELECT COUNT(*) FROM records_price WHERE rate_fingerprint_id IS NULL"
+            ).fetchone() or (0,)
     assert after[0] == before[0] + 1, "the pass must not disturb stored rows"
     assert nulls[0] >= 1, "a row written without a stamp reads NULL id"
 
