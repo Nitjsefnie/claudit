@@ -402,7 +402,7 @@
     ],
     "backend/kimi_tool_rows.py": [
       1371,
-      3616
+      3688
     ],
     "backend/lane_markers.py": [
       788,
@@ -433,16 +433,16 @@
       4012
     ],
     "backend/model_names.py": [
-      1711,
-      2394
+      1763,
+      2549
     ],
     "backend/parse.py": [
       7312,
       18294
     ],
     "backend/parse_codex.py": [
-      9003,
-      15659
+      7987,
+      15315
     ],
     "backend/parse_codex_churn.py": [
       997,
@@ -453,16 +453,16 @@
       1850
     ],
     "backend/parse_common.py": [
-      8492,
-      15680
+      7706,
+      14317
     ],
     "backend/parse_kimi.py": [
-      6429,
-      14205
+      6280,
+      14903
     ],
     "backend/parse_lanes.py": [
       6628,
-      9858
+      9884
     ],
     "backend/parse_projection.py": [
       461,
@@ -1192,10 +1192,6 @@
       3679,
       9767
     ],
-    "tests/test_ci_size_baseline.py": [
-      1274,
-      8459
-    ],
     "tests/test_ci_thresholds.py": [
       3447,
       18559
@@ -1505,8 +1501,8 @@
       24371
     ],
     "tests/test_parse_codex.py": [
-      11460,
-      26256
+      10465,
+      25261
     ],
     "tests/test_parse_codex_more.py": [
       4048,
@@ -1526,7 +1522,7 @@
     ],
     "tests/test_parse_lanes.py": [
       4769,
-      25719
+      26026
     ],
     "tests/test_parse_more.py": [
       5091,
@@ -2037,8 +2033,8 @@
       "measured": 4.1
     },
     "run": {
-      "floor": 98.0,
-      "measured": 96.5
+      "floor": 92.6,
+      "measured": 91.1
     },
     "tests_tree_lines": 100624
   }
