@@ -129,7 +129,8 @@ def test_comment_only_runs_check_with_dependencies():
 
     caller = workflow('ci-gate.yml')['jobs']['tests']
     assert caller['if'] == ("needs.classify.outputs.docs_only != 'true' "
-                            "&& needs.classify.outputs.data_only != 'true'")
+                            "&& needs.classify.outputs.data_only != 'true' "
+                            "&& needs.classify.outputs.setup_only != 'true'")
     job = workflow('tests.yml')['jobs']['pytest']
     assert 'if' not in job
     steps = job['steps']
