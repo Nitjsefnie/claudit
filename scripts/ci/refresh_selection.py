@@ -18,8 +18,11 @@ in refresh_provider_rates.py.
     refines a 'cheapest': the named identity fields are a recorded human
     decision that the endpoints are one offering listed with a listing
     artifact, so 'cheapest' compares the rest. With no resolution at all the
-    four rules of refresh_selection_rules.py resolve the mechanical
-    multi-price shapes and the run's report records each as rule-resolved.
+    automatic rules of refresh_selection_rules.py resolve the mechanical
+    multi-price shapes: namespace and quantization bases, matching-identity
+    tier extensions with arbitrary suffixes, quantization price twins, and
+    finally a unique group at the stored token rates. The region filter
+    applies first. The run reports each automatic choice as rule-resolved.
 """
 from __future__ import annotations
 
@@ -37,7 +40,8 @@ from refresh_prices import (PRICED, RefreshError, Untracked,  # noqa: E402
                             in_a_window, is_zero, rates_of, unknown_suffixes)
 from refresh_selection_rules import (bare_namespace, price_groups,  # noqa: E402
                                      price_order, same_quantization,
-                                     select_region, unique_quantization)
+                                     select_region, stored_price_continuity,
+                                     tier_variant_base, unique_quantization)
 
 # What tells two of one host's endpoints apart when the price does not.
 _IDENTITY = ("tag", "quantization", "context_length", "max_completion_tokens",
@@ -127,10 +131,10 @@ def listed_rows(model: str, payload: object, region: str | None, resolutions: di
     no recognized region suffix and endpoints naming the configured region
     (`None` represents `global`); other regions are filtered unless the file
     pins that host to a tag. Endpoints at one price are one row; several
-    prices left over need a resolution in the file, or that host is refused
-    rather than guessed. `stored` is each host's current rates, which is how
-    a price-order resolution sees its order, and the default a scheduled
-    host fetched inside a window keeps; `at` is the fetch instant.
+    prices left over need an explicit resolution or an automatic rule;
+    otherwise that host is refused. `stored` is each host's current rates,
+    used for price-order guards, the last-resort continuity rule, and the
+    default a scheduled host fetched inside a window keeps; `at` is the fetch instant.
     """
     rows, refused, notices, untracked = {}, {}, [], {}
     for host, endpoints in _by_host(model, payload).items():
@@ -244,11 +248,15 @@ def _automatic_price_rule(
         where: str, groups: list[list[Listing]], stored: dict | None
         ) -> tuple[Listing, str | None] | None:
     """Apply the target's mechanical rules in their maintained order."""
-    for rule in (bare_namespace, unique_quantization):
+    for rule in (bare_namespace, unique_quantization, tier_variant_base):
         resolved = rule(where, groups)
         if resolved is not None:
             return resolved
-    return same_quantization(where, groups, stored)
+    for stored_rule in (same_quantization, stored_price_continuity):
+        resolved = stored_rule(where, groups, stored)
+        if resolved is not None:
+            return resolved
+    return None
 
 
 def _pinned_listings(where: str, listed: list[Listing], tag: str) -> list[Listing]:
