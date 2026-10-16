@@ -309,7 +309,7 @@ def test_committed_document_bytes_are_canonical(tmp_path):
     pytest.param("--coverage-measured", "measured", id="measured"),
 ])
 def test_coverage_floor_cli_prints_floor(flag, field):
-    # The printed value is whatever the committed document records — the
+    # The value comes from the committed document — the
     # seed moves; the CLI's contract does not.
     recorded = thresholds.load(THRESHOLDS_PATH)["coverage"]["python"]
     result = subprocess.run(
