@@ -7,6 +7,7 @@ The PR Report Contract, rendered as a form.
   optional     dropped entirely when it does not apply
 
 Section order is fixed. No new sections. Delete these comments before posting.
+A PR body uses only the template's ## headings; use a bold lead-in inside a section, never a ### heading.
 -->
 
 ## Summary
@@ -20,13 +21,19 @@ Section order is fixed. No new sections. Delete these comments before posting.
 Fixes #
 
 ## Changes
-<!-- required: bullet list of concrete changes — files, modules, behavior. -->
+<!-- required: bullet list of concrete changes — files, modules, behavior.
+     Each bullet is at most two sentences. Tests added or changed count as
+     changes listed here. -->
 
 -
 
 ## Testing
-<!-- required: what was actually run or checked. If nothing was tested, say so
-     and why. -->
+<!-- required: checkbox list of the gates run and their outcomes, at most one
+     sentence per box. Never enumerate the tests added. Check a box only for a
+     gate actually run; a skipped gate stays unchecked with its reason.
+     If nothing was tested, say so and why. -->
+
+- [ ] <gate>: outcome
 
 ## Bugs Discovered
 <!-- conditional: pointer list of ALREADY-FILED issues — number plus the
