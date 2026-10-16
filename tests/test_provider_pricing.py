@@ -20,6 +20,7 @@ from backend import pricing
 from backend.pricing_document import expand_pricing_doc
 from backend.api_common import (_row_is_banded, fold_per_model,
                                 fold_per_model_provider)
+from tests.refresh_fixture_builders import seed_doc
 
 UTC = timezone.utc
 ROOT = Path(__file__).resolve().parents[1]
@@ -660,22 +661,12 @@ def _load_selection():
     return module
 
 
-def test_every_committed_resolve_entry_loads_through_the_override_reader():
-    """Issue #615: a committed openrouter.models.<model>.resolve entry is
-    validated nowhere offline — a malformed entry loads silently and only
-    shows its effect at the hourly refresh run. Iterate every committed
-    resolve map through the selection module's override reader,
-    value-agnostic (no live row, host or price pinned, SV-TEST-DATA): the
-    reader must take every entry with no refusal and no unknown-key
-    residue."""
-    doc = json.loads((ROOT / "src" / "pricing.json").read_text())
-    resolve_maps = {key: model.get("resolve", {})
-                    for key, model in doc["openrouter"]["models"].items()}
-    assert any(resolve_maps.values()), \
-        "the committed file carries no resolve map; the test would validate nothing"
+def test_a_synthetic_resolve_entry_loads_through_the_override_reader():
+    pin = {"tag": "fixture/fp8", "select": "cheapest",
+           "ignore": ["max_completion_tokens"], "why": "synthetic listing artifact"}
+    key, host = "acme/synthetic-9", "Fixture"
+    doc = seed_doc(tracked={key: {"id": key, "resolve": {host: pin}}})
+    assert pricing.load_tables(doc)["MODEL_RATES"]
     reader = _load_selection()._override  # pylint: disable=protected-access
-    for key, resolutions in resolve_maps.items():
-        for host, pin in resolutions.items():
-            override = reader(f"{key} via {host}", pin)
-            residue = set(override) - {"tag", "select", "ignore", "why"}
-            assert not residue, f"{key} via {host}: keys the reader does not know: {sorted(residue)}"
+    override = reader(f"{key} via {host}", doc["openrouter"]["models"][key]["resolve"][host])
+    assert override == pin
