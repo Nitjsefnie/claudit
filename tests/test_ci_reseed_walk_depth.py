@@ -1,11 +1,12 @@
 """The re-seed walk's reach is covered by every loader checkout's depth.
 
 Two pins, one contract (issue #582). ``scripts/ci/reseed.py`` reads the
-suite-cost re-seed marker over a bounded ancestry walk (at most
-``_MAX_VISITS`` commits from HEAD, the pull request's head lineage
-first). A CI checkout that runs the thresholds loader must carry at
-least that much ancestry, or the walk hits the shallow boundary, reads
-the window as closed, and gates a family-absent document as a
+suite-cost re-seed marker over bounded first-parent lineages (at most
+``_MAX_VISITS`` commits per merge-HEAD parent, last parent first;
+linear history counts HEAD within that budget). A CI checkout that runs
+the thresholds loader must carry at least that much ancestry, or the
+walk hits the shallow boundary, reads the window as closed, and gates
+a family-absent document as a
 violation -- the fail-closed red that marked every pull request during
 the 2026-10 re-seed window.
 
@@ -87,7 +88,7 @@ def _build_history(repo: Path) -> None:
     """A marker-on-base history under a GitHub-style merge commit.
 
     The marker sits TWO bot commits under the base-side tip: three
-    parent-hops from the merge commit (visit 5 in the walk's order), so
+    parent-hops from the merge commit, so
     a depth-2 clone of the merge ref carries neither it nor the
     family-present base, while ``_MAX_VISITS + 1`` hops carry whatever
     the walk can visit.
@@ -154,6 +155,113 @@ def _clone(source: Path, target: Path, depth: int | None) -> Path:
     proc = subprocess.run(args, capture_output=True, check=False, text=True)
     assert proc.returncode == 0, proc.stderr
     return target
+
+
+def _lineage_repo(repo: Path, base: list[tuple[bool, str]],
+                  pr: list[tuple[bool, str]]) -> Path:
+    """Two independent first-parent chains above a family-present root."""
+    if shutil.which("git") is None:
+        pytest.skip("git is required: this check builds a synthetic history")
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "master")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "test")
+    _lineage_commits(repo, [(True, "established budget")])
+    _git(repo, "branch", "pr")
+    _lineage_commits(repo, base)
+    _git(repo, "checkout", "-q", "pr")
+    _lineage_commits(repo, pr)
+    return repo
+
+
+def _lineage_commits(repo: Path, steps: list[tuple[bool, str]]) -> None:
+    """Commit each document state, including noise with unchanged content."""
+    path = repo / ".github" / "ci-thresholds.json"
+    path.parent.mkdir(exist_ok=True)
+    for present, message in steps:
+        path.write_text(json.dumps({"suite_cost": {}} if present else {}),
+                        encoding="utf-8")
+        _git(repo, "add", str(path))
+        _git(repo, "commit", "-q", "--allow-empty", "-m", message)
+
+
+def _merge_head(repo: Path, reverse: bool = False) -> None:
+    """Check out a synthetic merge ref with the family absent at HEAD."""
+    parents = ("pr", "master") if reverse else ("master", "pr")
+    tree = _git(repo, "rev-parse", "pr^{tree}").strip()
+    merge = _git(repo, "commit-tree", tree,
+                 "-p", parents[0], "-p", parents[1],
+                 "-m", "Merge pull request #1").strip()
+    _git(repo, "checkout", "-q", "--detach", merge)
+    reseed.clear_cache()
+
+
+@pytest.mark.parametrize("marker_side", ["pr", "base"])
+def test_merge_lineages_each_get_ten_visits(
+        tmp_path: Path, marker_side: str) -> None:
+    """Neither HEAD nor a long sibling may spend the marker's tenth visit."""
+    marked = [(False, f"delete {reseed.MARKER}")] + [
+        (False, f"follow-up {number}") for number in range(9)]
+    unmarked = [(False, f"base noise {number}") for number in range(12)]
+    base, pr = ((unmarked, marked) if marker_side == "pr"
+                else (marked, unmarked))
+    repo = _lineage_repo(tmp_path / "repo", base, pr)
+    _merge_head(repo)
+    assert reseed.in_flight(repo) is True
+
+
+def test_merge_pr_marker_beyond_ten_visits_fails_closed(tmp_path: Path) -> None:
+    """An independent budget still refuses the PR lineage's eleventh commit."""
+    pr = [(False, f"delete {reseed.MARKER}")] + [
+        (False, f"follow-up {number}") for number in range(10)]
+    repo = _lineage_repo(tmp_path / "repo", [(False, "base noise")], pr)
+    _merge_head(repo)
+    assert reseed.in_flight(repo) is False
+
+
+@pytest.mark.parametrize("closed_side", ["pr", "base"])
+def test_family_presence_closes_only_its_merge_lineage(
+        tmp_path: Path, closed_side: str) -> None:
+    """Ignore markers at/below a seed, but continue down the sibling chain."""
+    closed = [(False, f"old delete {reseed.MARKER}"),
+              (True, f"seed {reseed.MARKER}"), (False, "unmarked deletion")]
+    open_side = [(False, "unmarked window")]
+    base, pr = ((open_side, closed) if closed_side == "pr"
+                else (closed, open_side))
+    repo = _lineage_repo(tmp_path / "repo", base, pr)
+    _merge_head(repo)
+    assert reseed.in_flight(repo) is False
+
+    sibling = "master" if closed_side == "pr" else "pr"
+    _git(repo, "checkout", "-q", sibling)
+    _lineage_commits(repo, [(False, f"new delete {reseed.MARKER}")] + [
+        (False, f"sibling noise {number}") for number in range(9)])
+    _merge_head(repo)
+    assert reseed.in_flight(repo) is True
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_both_marked_lineages_declare_in_either_parent_order(
+        tmp_path: Path, reverse: bool) -> None:
+    """Last-parent-first priority cannot change the verdict for two markers."""
+    base = [(False, f"base delete {reseed.MARKER}"), (False, "base noise")]
+    pr = [(False, f"PR delete {reseed.MARKER}"), (False, "PR noise")]
+    repo = _lineage_repo(tmp_path / "repo", base, pr)
+    _merge_head(repo, reverse)
+    assert reseed.in_flight(repo) is True
+
+
+@pytest.mark.parametrize("budget, expected", [(2, False), (3, True)])
+def test_merge_lineages_read_the_visit_budget(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        budget: int, expected: bool) -> None:
+    """The runtime bound applies to each chain, including its starting parent."""
+    pr = [(False, f"delete {reseed.MARKER}"),
+          (False, "follow-up 1"), (False, "follow-up 2")]
+    repo = _lineage_repo(tmp_path / "repo", [(False, "base noise")], pr)
+    _merge_head(repo)
+    monkeypatch.setattr(reseed, "_MAX_VISITS", budget)
+    assert reseed.in_flight(repo) is expected
 
 
 def test_marker_on_base_reachable_at_max_visits_plus_one(
