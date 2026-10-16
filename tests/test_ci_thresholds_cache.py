@@ -92,9 +92,34 @@ def test_unchanged_bytes_decode_once_with_fresh_results_and_live_validation(tmp_
     target.write_text(json.dumps(payload), encoding='utf-8')
     with pytest.raises(ValueError, match='comment_share_baseline'):
         thresholds.load(target, reseed_in_flight)
-    payload.pop('suite_cost', None)
+    _assert_open_window(target, payload, reseed_in_flight)
+
+
+def _assert_open_window(target, payload, reseed_in_flight):
+    family = 'reparse' if reseed_in_flight and reseed_in_flight.reparse else 'suite_cost'
+    payload.pop(family, None)
     payload['comment_share_baseline'] = {}
     target.write_text(json.dumps(payload), encoding='utf-8')
-    assert 'suite_cost' not in thresholds.load(target, True)
+    assert family not in thresholds.load(target, reseed_in_flight or True)
     with pytest.raises(ValueError):
         thresholds.load(target, False)
+
+
+@pytest.mark.parametrize(('reseed_in_flight', 'missing_family'), [
+    (schema.ReseedVerdict(suite_cost=True, reparse=False), 'suite_cost'),
+    (schema.ReseedVerdict(suite_cost=False, reparse=True), 'reparse'),
+])
+def test_open_window_check_supports_each_family(tmp_path, reseed_in_flight, missing_family):
+    payload = {
+        'schema_version': 1,
+        'coverage': {language: {'measured': 90.0, 'floor': 88.5}
+                     for language in thresholds.COVERAGE_LANGUAGES},
+        **{member: {} for member in thresholds.BASELINE_MEMBERS},
+        'suite_cost': {phase: {'measured': 1.0, 'floor': 2.5}
+                       for phase in thresholds.SUITE_COST_PHASES},
+        'reparse': {phase: {metric: {'measured': 1.0, 'floor': 2.5}
+                            for metric in thresholds.REPARSE_METRICS}
+                    for phase in thresholds.REPARSE_PHASES},
+    }
+    payload.pop(missing_family)
+    _assert_open_window(tmp_path / 'thresholds.json', payload, reseed_in_flight)
