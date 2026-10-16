@@ -1,14 +1,7 @@
 """records.pricing_version and the reprice pass (issue #193).
 
 A rate change must rePRICE stored records — recompute cost_usd from the
-stored token columns — instead of re-parsing every R2 object. Two halves
-are tested here:
-
-- persist-time stamping (backend/ingest_persist.py): every INSERT names
-  the PRICING_VERSION its row was priced under, and a reparse naturally
-  re-stamps it. NULL counts as stale — priced by an older build. The
-  column is additive and nullable (SV-SCHEMA-AUTOAPPLY), so the next
-  startup's apply_schema() adds it without disturbing anything.
+stored token columns — instead of re-parsing every R2 object.
 
 - the reprice pass (backend/ingest_reprice.py, wired as a derived-state
   phase between suppression and the canonical pass): selects rows whose

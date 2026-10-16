@@ -55,8 +55,7 @@ def test_cost_by_agent_carries_total_tokens(app_with_data):
     pytest.param("/api/cost-by-context?range=all", id="context"),
 ])
 def test_cost_by_agent_total_tokens_matches_the_records_sum(app_with_data, endpoint):
-    """Each rollup's total_tokens column is a pure sum, so it must equal the
-    equivalent aggregate over `records` (SV-ROLLUP keeps that true)."""
+    """Rollup total_tokens equals the sum over `records` (SV-ROLLUP)."""
     body = app_with_data.get(endpoint).json()
     with db.viz_conn() as c:
         expected = c.execute(
