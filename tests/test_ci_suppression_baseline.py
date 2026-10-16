@@ -46,7 +46,6 @@ def _suppression_baseline():
 
 
 def _document(baseline=None):
-    schema = _load("thresholds")
     return {
         "schema_version": 1,
         "coverage": {
@@ -59,21 +58,9 @@ def _document(baseline=None):
                 "floor": 48.5,
             },
         },
-        "reparse": {
-            phase: {
-                metric: {"measured": 10.0, "floor": 11.5}
-                for metric in schema.REPARSE_METRICS
-            }
-            for phase in schema.REPARSE_PHASES
-        },
         "module_size_baseline": {},
         "comment_share_baseline": {},
         "pylint_suppression_baseline": baseline or {},
-        "suite_cost": {
-            "collection": {"measured": 25.8, "floor": 27.3},
-            "run": {"measured": 309.8, "floor": 311.3},
-            "residual": {"measured": 6.5, "floor": 8.0},
-        },
     }
 
 

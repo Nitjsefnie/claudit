@@ -34,15 +34,6 @@ _Path = Callable[[str], str]
 _number: _Number = validate.number
 _module_path: _Path = validate.module_path
 coverage_value: _Number = validate.coverage_value
-instruction_value: _Number = validate.instruction_value
-share_value: _Number = validate.share_value
-count_value: _Number = validate.count_value
-_Verdict = Callable[..., 'str | None']
-verdict: _Verdict = validate.verdict
-_Identity = Callable[[object, str], int]
-suite_identity: _Identity = validate.suite_identity
-_ReseedVerdict = validate.ReseedVerdict
-_admitted = validate.admitted
 
 THRESHOLDS = (Path(__file__).resolve().parents[2]
               / '.github' / 'ci-thresholds.json')
@@ -55,128 +46,27 @@ _SCHEMA_VERSION = 1
 # over backend/, javascript from the node-executing tests over the src
 # files they load (src/**/*.js; node parses no JSX).
 COVERAGE_LANGUAGES = ('python', 'javascript')
-# The unit the reparse bench records for a phase share (scripts/ci/
-# reparse_bench.py): the phase's percent of one reparse pass's own CPU
-# work. Telemetry since issue #513 — still measured, still stored, no
-# longer compared against anything (see REPARSE_GATED_METRICS).
-REPARSE_UNIT = 'percent_of_pass_cpu'
-# The gated instrument's unit: hundreds of bytecode instructions per
-# file, counted with sys.monitoring's INSTRUCTION event. Exact, so it
-# needs no amplification and no tolerance — which is also why its gap is
-# sized for interpreter drift rather than for noise.
-REPARSE_COUNT_UNIT = 'bytecode_hundreds_per_file'
-# The reparse bench's calibration: a required member, like a coverage
-# language, because a document without one leaves the bench's gate step
-# with nothing to check the measurement against. Unlike coverage, each
-# of its records is a COST, so its ratchet only ever TIGHTENS (both
-# fields move down) and its gap sits above the measured value; see
-# _reparse, and _suite_cost for the same rule stated for suite_cost.
-REPARSE_FAMILY = 'reparse'
-# The two instruments RECORDED per phase. Both are measured and stored:
-# a share shows where the pass spends its CPU, which is worth having
-# beside the gate's own number.
-REPARSE_METRICS = ('bytecodes', 'share')
-# The instruments the gate and the ratchet act on — bytecodes alone
-# (issue #513). A share is a PROPORTION of a timed run, not a count of
-# work, and it fails as a gate twice over: its runner-to-runner spread
-# measures 1.9-2.7 points against the 1.5-point gap it would be compared
-# against (#500, #506), and it moves when the corpus MIX shifts between
-# formats of different parse cost even with no code path slower and
-# every count under its own ceiling (PR #512). The measurement doctrine's
-# own principle settles it: counters gate, derived proportions do not.
-# The share members STAY in the document, carrying the reading they
-# recorded, and the loader and the direction guard keep treating them as
-# recorded numbers; nothing compares against them, so nothing fails on
-# them and the ratchet no longer tightens them.
-REPARSE_GATED_METRICS = ('bytecodes',)
-# The phases the reparse bench splits a pass into — the same names it
-# instruments (scripts/ci/reparse_bench.py reads them from here, so the
-# document and the measurement cannot disagree about what a phase is).
-REPARSE_PHASES = ('sniff', 'parse_body', 'sidecar', 'residual')
 # Every only-shrinks baseline member: recorded numbers never rise and
 # entries are never hand-added (SV-CI-RATCHETS); the direction guard
 # (thresholds_guard.py) enforces the rule against the base document.
 BASELINE_MEMBERS = ('module_size_baseline', 'pylint_suppression_baseline', 'comment_share_baseline')
-# The suite-cost family: one instruction budget per phase of a pytest run
-# over the pinned bench fixture (scripts/ci/suite_bench.py). A cost
-# ceiling only ever TIGHTENS downward; the direction guard forbids the
-# upward move. The phase names live here, with the loader that validates
-# the document carrying them, so the bench cannot measure under one name
-# and record under another.
-SUITE_COST_FAMILY = 'suite_cost'
-SUITE_COST_PHASES = ('collection', 'run', 'residual')
-# The workload identity the seed binds its budgets to: the total line
-# count of the scanned tree (tests/*.py), which the fixture's
-# tree-scanning tests spend per-line over. A change to that tree moves
-# the counts with no fixture or interpreter change, so a budget without
-# it describes a workload no run can confirm (issue #524).
-SUITE_COST_IDENTITY = 'tests_tree_lines'
-SUITE_COST_UNIT = 'million_instructions'
-_SUITE_COST_FIELDS = ('measured', 'floor')
-# Every family whose ABSENCE a re-seed window may admit, each under its
-# OWN marker (reseed.py): the delete-then-seed sequence needs commits
-# whose documents carry no budget at all, and the declaring commit
-# names the window with the marker. The tolerance spans the whole
-# sequence — the walk (reseed.py) keeps it alive across the commits
-# that land on the delete before the seed, and the bound is the last
-# family-present commit — and it is the only absence the loader
-# tolerates, only for the family whose own marker declared, never a
-# raised budget and never the other family.
-_RESEED_OPTIONAL_FIELDS = (SUITE_COST_FAMILY, REPARSE_FAMILY)
 _TOP_LEVEL_FIELDS = ('schema_version', 'coverage', *BASELINE_MEMBERS)
 _COVERAGE_FIELDS = ('measured', 'floor')
 _FIELD_LABELS = {
     'thresholds': 'field: {field}',
     'coverage': 'coverage language: {field}',
-    SUITE_COST_FAMILY: 'suite cost phase: {field}',
-    **{f'{SUITE_COST_FAMILY}.{phase}': f'suite cost {phase}: {{field}}'
-       for phase in SUITE_COST_PHASES},
-    REPARSE_FAMILY: 'reparse CPU phase: {field}',
-    # A label per phase and per phase-metric, so a refusal inside one
-    # phase's record names the phase (and the metric) rather than a bare
-    # field.
-    **{f'{REPARSE_FAMILY}.{phase}': f'reparse CPU {phase}: {{field}}'
-       for phase in REPARSE_PHASES},
-    **{f'{REPARSE_FAMILY}.{phase}.{metric}':
-       f'reparse CPU {phase} {metric}: {{field}}'
-       for phase in REPARSE_PHASES for metric in REPARSE_METRICS},
 }
 
 
-def _required_fields(value: object, expected: tuple[str, ...], name: str,
-                     optional: tuple[str, ...] = ()) -> None:
+def _required_fields(value: object, expected: tuple[str, ...], name: str) -> None:
     """The moved field check, with this module's family labels."""
     return validate.required_fields(
-        value, expected, name, _FIELD_LABELS, optional)
+        value, expected, name, _FIELD_LABELS)
 
 
-def normalise(data: dict, reseed_in_flight: object) -> dict:
-    """The document in canonical form, or a refusal naming the offender.
-
-    ``reseed_in_flight`` is REQUIRED and is the re-seed markers' verdict
-    (thresholds_validate.ReseedVerdict, from reseed.py), never a mode a
-    caller picks for its own convenience: with it, a family MAY be
-    absent under its own marker's window and stays absent in the
-    result, so the document's bytes round-trip unchanged; the other
-    family is still required, so a marker buys the absence of its own
-    family and nothing else. Everything else — a present family's own
-    validation, the required fields, the unknown-key refusal — is
-    unchanged, so a marker can buy the absence and nothing else. The
-    legacy single-family bool is accepted for the callers predating the
-    second marker: True is the suite-cost window, False strict.
-
-    No default: the caller is the only one who knows whether it is
-    holding a document the loader accepted or one it just built. ``None``
-    is not accepted here either — ask through ``verdict()``, so the tree
-    is consulted in one named place rather than by omission.
-    """
-    admitted = _admitted(reseed_in_flight, _RESEED_OPTIONAL_FIELDS)
-    _required_fields(
-        data,
-        _TOP_LEVEL_FIELDS + tuple(
-            f for f in _RESEED_OPTIONAL_FIELDS if not admitted[f]),
-        'thresholds',
-        tuple(f for f in _RESEED_OPTIONAL_FIELDS if admitted[f]))
+def normalise(data: dict) -> dict:
+    """The document in canonical form, or a refusal naming the offender."""
+    _required_fields(data, _TOP_LEVEL_FIELDS, 'thresholds')
     schema = _number(data['schema_version'], 'schema_version')
     if schema != _SCHEMA_VERSION or schema != schema.to_integral_value():
         raise ValueError(
@@ -205,84 +95,8 @@ def normalise(data: dict, reseed_in_flight: object) -> dict:
         'schema_version': _SCHEMA_VERSION,
         'coverage': normalised_coverage,
     }
-    # PRESENCE, never emptiness, for either family: `"reparse": {}` is a
-    # family that is present and malformed, and validating on emptiness
-    # would normalise it to the same absent family only the marker can
-    # authorise — a hand-deleted budget reaching the no-budget state on
-    # any tree. Present families validate exactly as master did.
-    for family in _RESEED_OPTIONAL_FIELDS:
-        if family in data:
-            normalised[family] = (_suite_cost(data[family])
-                                  if family == SUITE_COST_FAMILY
-                                  else _reparse(data[family]))
     for member in BASELINE_MEMBERS:
         normalised[member] = _baseline(data[member], member)
-    return normalised
-
-
-def _suite_cost(family):
-    """Validate one suite_cost member: three phases, ceilings above.
-
-    Each phase record carries measured and floor, the floor the ceiling
-    a run must stay under and so exactly the calibration gap ABOVE the
-    measured value — the mirror of coverage, whose floor sits below its
-    quality number.
-    """
-    if not isinstance(family, dict):
-        raise ValueError(f'{SUITE_COST_FAMILY} must be an object')
-    _required_fields(family, SUITE_COST_PHASES, SUITE_COST_FAMILY,
-                     optional=(SUITE_COST_IDENTITY,))
-    normalised = {}
-    for phase in SUITE_COST_PHASES:
-        prefix = f'{SUITE_COST_FAMILY}.{phase}'
-        record = family[phase]
-        _required_fields(record, _SUITE_COST_FIELDS, prefix)
-        measured = instruction_value(record['measured'],
-                                     f'{prefix}.measured')
-        floor = instruction_value(record['floor'], f'{prefix}.floor')
-        if floor <= measured:
-            raise ValueError(f'{prefix}.floor must be above measured')
-        if floor - measured != CALIBRATION_GAP:
-            raise ValueError(f'{prefix} calibration gap must be 1.5')
-        normalised[phase] = {'measured': measured, 'floor': floor}
-    identity = family.get(SUITE_COST_IDENTITY)
-    if identity is not None:
-        normalised[SUITE_COST_IDENTITY] = suite_identity(
-            identity, f'{SUITE_COST_FAMILY}.{SUITE_COST_IDENTITY}')
-    return normalised
-
-
-def _reparse(family):
-    """Validate the reparse bench's per-phase calibrations.
-
-    Two records per phase — a percent share of the pass's own CPU, which
-    is telemetry since issue #513, and the bytecode count the gate holds
-    a phase to — each with its gap ABOVE the measured value, because a
-    cost's floor is the ceiling it may be exceeded by. Writing it the
-    coverage way round (floor = measured - gap) would put the ceiling
-    BELOW the measurement that recorded it, and every later run at that
-    measurement would fail a gate no change could satisfy.
-    """
-    _required_fields(family, REPARSE_PHASES, REPARSE_FAMILY)
-    by_metric = {'share': share_value, 'bytecodes': count_value}
-    normalised = {}
-    for phase in REPARSE_PHASES:
-        record = family[phase]
-        prefix = f'{REPARSE_FAMILY}.{phase}'
-        _required_fields(record, REPARSE_METRICS, prefix)
-        normalised[phase] = {}
-        for metric in REPARSE_METRICS:
-            pair = record[metric]
-            label = f'{prefix}.{metric}'
-            _required_fields(pair, _COVERAGE_FIELDS, label)
-            measured = by_metric[metric](pair['measured'], f'{label}.measured')
-            floor = by_metric[metric](pair['floor'], f'{label}.floor')
-            if floor <= measured:
-                raise ValueError(f'{label}.floor must be above measured')
-            if floor - measured != CALIBRATION_GAP:
-                raise ValueError(f'{label} calibration gap must be 1.5')
-            normalised[phase][metric] = {
-                'measured': measured, 'floor': floor}
     return normalised
 
 
@@ -306,79 +120,38 @@ def _baseline(baseline: dict[str, object], member: str) -> dict:
     return dict(sorted(normalised.items()))
 
 
-def load(path: str | Path = THRESHOLDS, reseed_in_flight: object = None) -> dict:
-    """Read and validate a thresholds document.
-
-    ``reseed_in_flight`` defaults to the tree's own verdict
-    (reseed.in_flight), so every reader — the gates, the ratchets, the
-    tests that pin the committed document against the tree — gets the
-    one sanctioned tolerance without having to remember to ask for it,
-    and a caller that means to be strict passes False explicitly. An
-    unreadable tree is not a marker: the probe fails closed, and the
-    document is gated exactly as it is today.
-    """
+def load(path: str | Path = THRESHOLDS) -> dict:
+    """Read and validate a thresholds document."""
     try:
         raw = Path(path).read_bytes()
     except OSError as error:
         raise ValueError(f'cannot read thresholds: {error}') from None
-    return importlib.import_module('thresholds_decode').normalise_bytes(raw, normalise, verdict(reseed_in_flight))
+    return importlib.import_module('thresholds_decode').normalise_bytes(raw, normalise)
 
 
-# The family readers below re-normalise the document they are handed, so
-# each asks the SAME question load() asks, and defaults to the same
-# answer: a reader handed a document read under the re-seed tolerance
-# must not then refuse it, and a caller that means to be strict says so.
-def coverage(data, language, reseed_in_flight=None):
+def coverage(data, language):
     if language not in COVERAGE_LANGUAGES:
         raise ValueError(f'unknown coverage language: {language}')
-    normalised = normalise(data, verdict(reseed_in_flight))
+    normalised = normalise(data)
     record = normalised['coverage'][language]
     return record['measured'], record['floor']
 
 
-def suite_cost(data, reseed_in_flight=None):
-    """The committed suite-cost budgets: {phase: {measured, floor}}.
-
-    Empty inside the re-seed window — while any commit in the walk's
-    span from HEAD back to the last family-present one carries the
-    delete's marker (reseed.py): no budget exists to read. The workload
-    identity (SUITE_COST_IDENTITY) rides beside the budgets, not as one:
-    the accessor returns the phases only (issue #571).
-    """
-    family = normalise(data, verdict(reseed_in_flight))
-    return {phase: dict(family[SUITE_COST_FAMILY][phase])
-            for phase in SUITE_COST_PHASES if SUITE_COST_FAMILY in family}
-
-
-def module_size_baseline(data, reseed_in_flight=None):
-    normalised = normalise(data, verdict(reseed_in_flight))
+def module_size_baseline(data):
+    normalised = normalise(data)
     return dict(normalised['module_size_baseline'])
 
 
-def comment_share_baseline(data, reseed_in_flight=None):
-    return dict(normalise(data, verdict(reseed_in_flight))['comment_share_baseline'])
+def comment_share_baseline(data):
+    return dict(normalise(data)['comment_share_baseline'])
 
 
-def reparse(data, reseed_in_flight=None):
-    """The reparse bench's records: phase -> metric -> measured/floor.
-
-    Empty inside the reparse re-seed window — while any commit in the
-    walk's span from HEAD back to the last family-present one carries
-    the family's marker (reseed.py): no budget exists to read. A
-    budget-carrying tip reads exactly as it always did.
-    """
-    family = normalise(data, verdict(reseed_in_flight)).get(REPARSE_FAMILY)
-    return dict(family) if family else {}
-
-
-def _render(data: dict, reseed_in_flight: object) -> bytes:
-    reseed_in_flight = verdict(reseed_in_flight)
-    normalised = normalise(data, reseed_in_flight)
+def _render(data: dict) -> bytes:
+    normalised = normalise(data)
     text = json.dumps(normalised, ensure_ascii=True, indent=2, sort_keys=True,
                       allow_nan=False, default=float) + '\n'
     encoded = text.encode('utf-8')
-    if normalise(validate.decode(encoded), verdict(
-            reseed_in_flight)) != normalised:
+    if normalise(validate.decode(encoded)) != normalised:
         raise ValueError('serialized thresholds failed validation')
     return encoded
 
@@ -391,15 +164,10 @@ def _remove_temp(path):
         pass
 
 
-def write(path, data, reseed_in_flight=None):
-    """Validate and atomically replace ``path`` with canonical JSON bytes.
-
-    A family-absent document inside the re-seed window round-trips
-    like any other: the absent family is written back absent, and the
-    round-trip check validates under the same verdict the reader will.
-    """
+def write(path, data):
+    """Validate and atomically replace ``path`` with canonical JSON bytes."""
     target = Path(path)
-    payload = _render(data, verdict(reseed_in_flight))
+    payload = _render(data)
     mode = None
     try:
         mode = stat.S_IMODE(target.stat().st_mode)
@@ -433,22 +201,6 @@ def write(path, data, reseed_in_flight=None):
             _remove_temp(temporary_path)
 
 
-def _reparse_pair(data, phase_metric, field, reseed_in_flight=None):
-    """One recorded number for one phase and metric, named in the error
-    it raises: an unknown phase or metric is a caller mistake, and the
-    loader's own messages speak of the document."""
-    phase, metric = phase_metric
-    records = reparse(data, reseed_in_flight)
-    if not records:
-        raise ValueError('no reparse budget — re-seed in flight')
-    if phase not in records:
-        raise ValueError(f'unknown reparse phase: {phase}')
-    if metric not in records[phase]:
-        raise ValueError(
-            f'unknown reparse metric for {phase}: {metric}')
-    return records[phase][metric][field]
-
-
 def _parser():
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group(required=True)
@@ -458,11 +210,6 @@ def _parser():
                        help='print one language floor')
     modes.add_argument('--coverage-measured', choices=COVERAGE_LANGUAGES,
                        help='print one language measured value')
-    modes.add_argument('--reparse-floor', nargs=2, metavar=('PHASE', 'METRIC'),
-                       help='print one reparse phase floor')
-    modes.add_argument('--reparse-measured', nargs=2,
-                       metavar=('PHASE', 'METRIC'),
-                       help='print one reparse phase measured value')
     parser.add_argument('--thresholds', type=Path, default=THRESHOLDS)
     return parser
 
@@ -477,10 +224,6 @@ def main(argv=None):
         elif args.coverage_measured:
             measured, _floor = coverage(data, args.coverage_measured)
             print(f'{measured:.1f}')
-        elif args.reparse_floor:
-            print(f'{_reparse_pair(data, args.reparse_floor, "floor"):.1f}')
-        elif args.reparse_measured:
-            print(f'{_reparse_pair(data, args.reparse_measured, "measured"):.1f}')
         else:
             print('thresholds valid')
     except (OSError, ValueError) as error:

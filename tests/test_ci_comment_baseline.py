@@ -70,17 +70,17 @@ def test_invalid_entry_refused(entry):
     data = thresholds.load()
     data['comment_share_baseline'] = {'x.py': entry}
     with pytest.raises(ValueError):
-        thresholds.normalise(data, False)
+        thresholds.normalise(data)
 
 
 def test_section_required_and_paths_safe():
     data = thresholds.load()
     del data['comment_share_baseline']
     with pytest.raises(ValueError):
-        thresholds.normalise(data, False)
+        thresholds.normalise(data)
     data['comment_share_baseline'] = {'../x.py': [20, 100]}
     with pytest.raises(ValueError):
-        thresholds.normalise(data, False)
+        thresholds.normalise(data)
 
 
 def test_pr_check_accepts_lower_shares_and_master_tightens(tmp_path, monkeypatch):

@@ -46,7 +46,6 @@ def _size_baseline():
 
 
 def _document(baseline=None):
-    schema = _load("thresholds")
     return {
         "schema_version": 1,
         "coverage": {
@@ -59,21 +58,9 @@ def _document(baseline=None):
                 "floor": 48.5,
             },
         },
-        "reparse": {
-            phase: {
-                metric: {"measured": 10.0, "floor": 11.5}
-                for metric in schema.REPARSE_METRICS
-            }
-            for phase in schema.REPARSE_PHASES
-        },
         "module_size_baseline": baseline or {},
         "comment_share_baseline": {},
         "pylint_suppression_baseline": {},
-        "suite_cost": {
-            "collection": {"measured": 25.8, "floor": 27.3},
-            "run": {"measured": 309.8, "floor": 311.3},
-            "residual": {"measured": 6.5, "floor": 8.0},
-        },
     }
 
 
@@ -285,7 +272,4 @@ def test_committed_family_seeds_match_tree_and_only_over_ceiling():
     for rel in ("backend/schema.sql", "public/app.css"):
         assert sizes[rel] == baseline[rel]
         assert baseline[rel] > size_baseline.ceiling_for(rel)
-    # .github/workflows/tests.yml was seeded here at the #393 seed and
-    # left the list the legal way: the ratchet-push split (issue #479)
-    # took it under the production ceiling, so --tighten dropped its
-    # entry — under-ceiling files need no seed (the pin above).
+    # Under-ceiling workflows need no baseline entry.

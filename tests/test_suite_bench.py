@@ -4,9 +4,8 @@ The bench is driven as a SUBPROCESS over a synthetic mini pytest suite in
 tmp_path (its own conftest.py, not the repo's), because the bench
 re-execs itself for PYTHONHASHSEED and measures in-process pytest runs:
 exactly the path CI takes. The cases pin the partition (every phase
-counted, residual never negative), determinism across hash seeds, the
-gate's fail-closed behaviour on a counts-less measurement, and that no
-wall-clock value can reach a gating decision.
+counted, residual never negative), determinism across hash seeds, and
+measurement without wall-clock reads.
 """
 from __future__ import annotations
 
@@ -48,9 +47,7 @@ def test_sum():
 
 
 def test_heavy():
-    # Enough real bytecode work that the run phase's count clears the
-    # 1.5-unit gap and a recorded value one step cheaper can fail the
-    # gate: the gate-failure case needs a budget that can lose.
+    # Retire enough bytecode work for a nonzero rounded run-phase count.
     total = 0
     for _ in range(20000):
         total += sum(range(100))
@@ -104,69 +101,6 @@ def _measure(mini_suite, name="m.json", seed=None):
         cwd=mini_suite, env=env)
     assert result.returncode == 0, result.stderr
     return json.loads((mini_suite / name).read_text(encoding="utf-8"))
-
-
-def _thresholds_for(tmp_path, measurement, lift=Decimal("0.0"),
-                    identity=None):
-    """A thresholds document whose suite budgets sit `lift` against the
-    measurement: lift 0.0 puts every ceiling exactly the gap above the
-    measured value (the seed shape, the gate must accept); lift -1.6
-    puts each ceiling one increment BELOW a phase (the gate must
-    refuse). A recorded value is clamped at 0.0 -- the loader's
-    non-negative bound -- so a phase whose measurement cannot cover the
-    gap passes honestly rather than being forced under. ``identity``
-    writes the workload identity into the family (SV-CI-RATCHETS); None
-    leaves the field out, the pre-feature document shape."""
-    path = SCRIPTS_CI / "thresholds.py"
-    spec = importlib.util.spec_from_file_location("thresholds", path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["thresholds"] = module
-    spec.loader.exec_module(module)
-    suite = {
-        phase: {
-            "measured": max(
-                Decimal(measurement["phases"][phase]
-                        ["million_instructions"]) + lift,
-                Decimal("0.0")).quantize(Decimal("0.1")),
-            "floor": (max(
-                Decimal(measurement["phases"][phase]
-                        ["million_instructions"]) + lift,
-                Decimal("0.0")).quantize(Decimal("0.1"))
-                + module.CALIBRATION_GAP),
-        }
-        for phase in ("collection", "run", "residual")
-    }
-    if identity is not None:
-        suite["tests_tree_lines"] = identity
-    doc = {
-        "schema_version": 1,
-        "coverage": {
-            "python": {"measured": Decimal("92.6"),
-                       "floor": Decimal("91.1")},
-            "javascript": {"measured": 50.0, "floor": 48.5},
-        },
-        "module_size_baseline": {},
-        "comment_share_baseline": {},
-        "pylint_suppression_baseline": {},
-        "suite_cost": suite,
-        # The loader requires EVERY top-level family, so a synthetic
-        # suite_cost document must also carry a valid reparse family.
-        # It is inert here — nothing in this module reads it.
-        "reparse": {
-            phase: {
-                metric: {
-                    "measured": Decimal("10.0"),
-                    "floor": Decimal("10.0") + module.CALIBRATION_GAP,
-                }
-                for metric in module.REPARSE_METRICS
-            }
-            for phase in module.REPARSE_PHASES
-        },
-    }
-    target = tmp_path / "thresholds.json"
-    module.write(target, doc)
-    return target
 
 
 def test_every_phase_is_counted_above_zero(mini_suite):
@@ -259,7 +193,7 @@ def pytest_sessionstart(session):
 def test_two_runs_identical_counts_across_hash_seeds(mini_suite):
     # One subprocess per run, with DIFFERENT outer hash seeds: the
     # bench's PYTHONHASHSEED=0 re-exec makes both runs' counts equal,
-    # which is what lets a seeded budget survive across CI runs.
+    # making repeated measurements comparable across CI runs.
     first = _measure(mini_suite, name="a.json", seed="1")
     second = _measure(mini_suite, name="b.json", seed="2")
     assert {phase: first["phases"][phase]["million_instructions"]
@@ -297,63 +231,9 @@ def test_collection_error_fails_the_run(mini_suite):
     assert "did not produce a usable run" in (result.stderr + result.stdout)
 
 
-def test_check_passes_at_the_recorded_ceiling(mini_suite, tmp_path):
-    measurement = _measure(mini_suite)
-    target = _thresholds_for(tmp_path, measurement)
-    result = _run_bench(
-        ["--check", str(mini_suite / "m.json"), "--thresholds",
-         str(target)], cwd=mini_suite)
-    assert result.returncode == 0, result.stderr
-    assert "within budget" in result.stdout
-
-
-def test_check_fails_one_increment_over_a_phase(mini_suite, tmp_path):
-    measurement = _measure(mini_suite)
-    target = _thresholds_for(tmp_path, measurement, lift=Decimal("-1.6"))
-    result = _run_bench(
-        ["--check", str(mini_suite / "m.json"), "--thresholds",
-         str(target)], cwd=mini_suite)
-    assert result.returncode != 0
-    expected_over = {
-        phase for phase in ("collection", "run", "residual")
-        if (Decimal(measurement["phases"][phase]["million_instructions"])
-            > max(
-                Decimal(measurement["phases"][phase]
-                        ["million_instructions"]) - Decimal("1.6"),
-                Decimal("0.0")) + Decimal("1.5"))}
-    assert expected_over, "no phase went over: the case measures nothing"
-    for phase in expected_over:
-        value = measurement["phases"][phase]["million_instructions"]
-        recorded = max(Decimal(value) - Decimal("1.6"),
-                       Decimal("0.0")).quantize(Decimal("0.1"))
-        ceiling = recorded + Decimal("1.5")
-        over_line = (f"{phase}: {value} million_instructions, "
-                     f"ceiling {ceiling}")
-        assert over_line in result.stderr
-    assert "never raised by hand" in result.stderr
-
-
-def test_check_on_a_counts_less_measurement_fails_closed(mini_suite,
-                                                         tmp_path):
-    # The process_time fallback is telemetry: a measurement that is
-    # ABSENT must never read as a measurement that passed.
-    measurement = _measure(mini_suite)
-    measurement["instrument"] = "process_time"
-    for record in measurement["phases"].values():
-        record["million_instructions"] = None
-    (mini_suite / "m.json").write_text(
-        json.dumps(measurement), encoding="utf-8")
-    target = _thresholds_for(tmp_path, _measure(mini_suite, name="x.json"))
-    result = _run_bench(
-        ["--check", str(mini_suite / "m.json"), "--thresholds",
-         str(target)], cwd=mini_suite)
-    assert result.returncode != 0
-    assert "no instruction count" in result.stderr
-
-
 def test_partition_rejects_a_negative_residual():
-    # sys.path first: the module's sibling import of thresholds must
-    # resolve however this test is invoked (solo, file-wide, or from a
+    # sys.path first: the module's sibling imports must resolve
+    # however this test is invoked (solo, file-wide, or from a
     # mutant runner), never through a sibling test's leftover seeding.
     sys.path.insert(0, str(SCRIPTS_CI))
     phases = SCRIPTS_CI / "suite_phases.py"
@@ -367,19 +247,11 @@ def test_partition_rejects_a_negative_residual():
 
 
 def test_the_gate_modules_touch_no_wall_clock():
-    # The only time-module member any bench module may name is
-    # process_time — the portable fallback, telemetry only. A wall read
-    # in the gate's path would make the verdict machine-speed-dependent
-    # again, which is the regression this family exists to close. The
-    # net is wider than the imports: ANY `<name>.<wall-member>` shape
-    # and ANY bare wall-member call is flagged, imported or not — a
-    # planted `time.perf_counter()` that forgot its own import must
-    # still be caught (mutation M9).
+    # Reject wall-clock references even when their import is absent.
     wall = {"perf_counter", "perf_counter_ns", "monotonic",
             "monotonic_ns", "time", "gmtime", "strftime"}
     seen = {}
-    for name in ("suite_bench.py", "suite_phases.py", "suite_report.py",
-                 "suite_ratchet.py"):
+    for name in ("suite_bench.py", "suite_phases.py", "suite_report.py"):
         tree = ast.parse(
             (SCRIPTS_CI / name).read_text(encoding="utf-8"))
         offenders = set()
@@ -429,24 +301,6 @@ def test_summary_markdown_names_the_phases(mini_suite, tmp_path):
     assert "million_instructions" in text
 
 
-def test_check_refuses_a_non_deterministic_measurement(mini_suite, tmp_path):
-    # The committed budgets are exact counts of a PYTHONHASHSEED=0 run;
-    # a measurement recorded under a randomized seed is not comparable
-    # with them, and the gate refuses it rather than reading the dead
-    # telemetry field as irrelevant.
-    measurement = _measure(mini_suite)
-    measurement["hash_seed"] = "randomized"
-    (mini_suite / "m.json").write_text(
-        json.dumps(measurement), encoding="utf-8")
-    target = _thresholds_for(tmp_path, _measure(mini_suite, name="x.json"))
-    result = _run_bench(
-        ["--check", str(mini_suite / "m.json"), "--thresholds",
-         str(target)], cwd=mini_suite)
-    assert result.returncode != 0
-    assert "hash seed" in result.stderr
-    assert "PYTHONHASHSEED=0" in result.stderr
-
-
 def test_fixture_paths_outside_the_repo_root_are_refused(tmp_path):
     # read_fixture's docstring claims an off-root path is a setup error;
     # the control makes the claim true: both a ../escape and an absolute
@@ -473,21 +327,7 @@ def _purge_bytecode_caches(root):
 
 
 def test_the_bench_compiles_every_pinned_file_before_it_counts(mini_suite):
-    # The count must not depend on the caches the checkout arrived with:
-    # compiling a module costs about as much again as loading it, and
-    # before #499 the two call sites did not agree on whether the
-    # compile had already happened -- the bench leg measured a fresh
-    # checkout, the canary measured after the suite had run.
-    # warm_bytecode_caches draws that split outside the counted window,
-    # and this is the control: from a
-    # tree carrying no bytecode caches at all, one measurement must
-    # leave EVERY pinned file compiled. Without the warm-up the tree
-    # would still be bare, and the gate would read one number while
-    # the tighten bot wrote the other into the budgets (issue #496).
-    #
-    # The per-file assertion is what makes it bite: a warm-up that
-    # collected only part of the fixture would compile a __pycache__ and
-    # still pass a looser "some cache exists" check.
+    # The warm pass must compile every pinned file before counting begins.
     _purge_bytecode_caches(mini_suite)
     assert not list(mini_suite.rglob("__pycache__"))
     _measure(mini_suite, name="warmed.json")
@@ -545,7 +385,7 @@ def test_measure_releases_the_monitoring_tool_id(mini_suite):
 
 
 def test_measurement_records_the_workload_identity(mini_suite):
-    # The seed binds a budget to the workload it measured: the
+    # The measurement describes the scanned workload: the
     # measurement records the total line count of the scanned tree,
     # tests/*.py, which the tree-scanning tests spend per-line over
     # (SV-CI-RATCHETS, issue #524).
@@ -565,38 +405,12 @@ def test_measurement_without_a_tests_tree_records_zero(mini_suite):
     assert measurement["tests_tree_lines"] == 0
 
 
-def test_gate_names_workload_drift_on_a_breach(mini_suite, tmp_path):
-    # A phase over its ceiling under a changed workload is a different
-    # diagnosis from a regression: the gate says which one it is.
-    measurement = _measure(mini_suite)
-    target = _thresholds_for(tmp_path, measurement, lift=Decimal("-1.6"),
-                             identity=40000)
-    result = _run_bench(
-        ["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
-    assert result.returncode == 1
-    assert "workload identity drifted" in result.stderr
-    assert "re-seed" in result.stderr
-
-
-def test_gate_names_workload_drift_within_the_ceiling(mini_suite, tmp_path):
-    # Under the ceiling the drift is a note, not a verdict: the
-    # hysteresis absorbs small tree changes, and the note is the early
-    # warning a re-seed can be scheduled against.
-    measurement = _measure(mini_suite)
-    target = _thresholds_for(tmp_path, measurement, identity=40000)
-    result = _run_bench(
-        ["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
-    assert result.returncode == 0
-    assert "workload identity drifted" in result.stdout
-
-
-def test_gate_without_the_identity_reads_unchanged(mini_suite, tmp_path):
-    # A document (or measurement) predating the field behaves exactly as
-    # before: no identity to compare, no drift to name.
-    measurement = _measure(mini_suite)
-    target = _thresholds_for(tmp_path, measurement)
-    result = _run_bench(
-        ["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
-    assert result.returncode == 0
-    assert "workload identity drifted" not in result.stdout
-    assert "workload identity drifted" not in result.stderr
+@pytest.mark.parametrize('script', ['suite_bench.py', 'reparse_bench.py'])
+def test_stored_budget_check_option_is_refused(script, tmp_path):
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_CI / script), '--write',
+         str(tmp_path / 'new-measurement.json'), '--check',
+         str(tmp_path / 'measurement.json')],
+        capture_output=True, text=True, check=False)
+    assert result.returncode == 2, result.stderr
+    assert 'unrecognized arguments: --check' in result.stderr

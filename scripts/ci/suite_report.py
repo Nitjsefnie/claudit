@@ -1,57 +1,27 @@
 #!/usr/bin/env python3
-"""Read, write, report and gate a suite-bench measurement.
+"""Read, write and report a suite-bench measurement.
 
-The other half of ``suite_bench.py``: that module runs the fixture and
-takes the reading, this one carries it between the process that measured
-it, the CI step that prints it, the gate that holds every phase to its
-recorded budget, and the ratchet that tightens them. Split because one
-module doing both would outgrow the per-file size ratchet, and an
-outgrown file moves code rather than growing a baseline entry
-(SV-CI-RATCHETS).
-
-A measurement is a small JSON document carrying the run's phase
-partition:
-
-- ``instrument`` -- ``instruction_count`` when the phases are counted,
-  ``process_time`` for the portable fallback. A counts-less measurement
-  is NOT gateable: ``--check`` on one fails closed (nonzero, loud), so
-  a measurement that is absent can never read as a measurement that
-  passed.
-- ``phases.<name>.million_instructions`` -- the phase's cost in
-  millions of bytecode instructions. Numbers go through the file as
-  STRINGS, not JSON numbers: they carry exactly one decimal place by
-  contract, and a float would round-trip them to whatever the nearest
-  double spells. The recorded value has to be the value measured.
-- ``total_million_instructions`` -- the phase sum, carried so a
-  partition hole cannot hide behind a missing field: it is checked
-  against the phases on every read.
+Phase counts travel as one-decimal strings to preserve exact readings;
+the total is validated against the phase sum on every read. CPU time
+travels beside the instruction count as telemetry.
 """
 from __future__ import annotations
 
 import importlib
 import json
-import sys
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import NamedTuple
 
 if __package__:
     # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import thresholds
+    from . import suite_phases
 else:
-    thresholds = importlib.import_module('thresholds')
+    suite_phases = importlib.import_module('suite_phases')
 
-UNIT = thresholds.SUITE_COST_UNIT
-PHASES = thresholds.SUITE_COST_PHASES
+UNIT = 'million_instructions'
+PHASES = suite_phases.PHASES
 _COUNTS = 'million_instructions'
-_OVER_BUDGET_REMEDY = (
-    'A suite phase is over its recorded budget: make that phase '
-    'cheaper, or use the doctrine\'s re-seed path when the fixture list '
-    'or the interpreter pin legitimately changed. A recorded budget is '
-    'never raised by hand.')
-# The pass-through's own line, shared by the gate's stdout and by the
-# step summary so the two never disagree about what this run was.
-NO_BUDGET_LINE = 'no suite_cost budget — re-seed in flight'
 
 
 def _spelling(value, label):
@@ -69,7 +39,7 @@ def _spelling(value, label):
 
 
 class Measurement(NamedTuple):
-    """One bench run's reading, as the gate and ratchet see it.
+    """One bench run's reading, with its phase counts and telemetry.
 
     ``counts`` carries ALL THREE phases (residual included) as one-place
     Decimals, or None when the instrument was the fallback. ``cpu_s``
@@ -93,7 +63,7 @@ def measurement_json(measurement: Measurement) -> dict:
         'unit': UNIT,
         'hash_seed': measurement.hash_seed,
         'tests': measurement.tests,
-        thresholds.SUITE_COST_IDENTITY: measurement.tests_tree_lines,
+        'tests_tree_lines': measurement.tests_tree_lines,
         'fixture': measurement.fixture,
         'interpreter': measurement.interpreter,
         'phases': {
@@ -116,7 +86,7 @@ def write_measurement(path, measurement: Measurement) -> None:
 
 
 def measurement_from_file(path) -> Measurement:
-    """Read a written measurement back, as the gate and ratchet see it.
+    """Read a written measurement back, with its phase counts and telemetry.
 
     The total is checked against the phase sum on every read, so a
     partition hole cannot hide behind a missing or stale field.
@@ -166,125 +136,14 @@ def _identity(data: dict) -> int | None:
     """The measurement's workload identity, or None when it predates it.
 
     An integer when present — 0 is an honest reading for a tree with
-    no tests/; positivity is the loader's rule, not this reader's. A
-    bool is not an integer here however Python's type system spells it.
+    no tests/. A bool is not an integer here.
     """
-    identity = data.get(thresholds.SUITE_COST_IDENTITY)
+    identity = data.get('tests_tree_lines')
     if identity is None:
         return None
     if isinstance(identity, bool) or not isinstance(identity, int):
-        raise ValueError(
-            f'{thresholds.SUITE_COST_IDENTITY} must be an integer')
+        raise ValueError('tests_tree_lines must be an integer')
     return identity
-
-
-def _workload_drift_note(measurement: Measurement, budgets: dict) -> str | None:
-    """Why a reading against this budget is not a regression, if it isn't.
-
-    A budget binds to the workload it measured (SV-CI-RATCHETS): when
-    both identities are known and differ, a breach names the workload
-    change instead of reading as slowness, and a pass within the
-    hysteresis still gets the early warning a re-seed can be scheduled
-    against.
-    """
-    committed = budgets.get(thresholds.SUITE_COST_IDENTITY)
-    measured = measurement.tests_tree_lines
-    if committed is None or measured is None or committed == measured:
-        return None
-    return (f'workload identity drifted: this run scanned '
-            f'{measured} tests-tree lines against a seed recorded at '
-            f'{committed} — the budgets describe a different workload '
-            f'than the one they measured; the doctrine\'s re-seed path, '
-            f'taken against a draw of the current tree, is the remedy '
-            f'(issue #524)')
-
-
-def _over_budget(counts: dict, budgets: dict) -> list:
-    """Every phase over its recorded ceiling. Counts only: a wall or
-    CPU reading may never move this verdict."""
-    over = []
-    for phase in PHASES:
-        measured = counts[phase]
-        ceiling = budgets[phase]['floor']
-        if measured > ceiling:
-            over.append(f'{phase}: {measured} {UNIT}, '
-                        f'ceiling {ceiling}')
-    return over
-
-
-def check(path, thresholds_path=None) -> int:
-    """Gate a written measurement against the committed budgets.
-
-    A counts-less measurement (the process_time fallback) fails closed:
-    the absence of an instruction count is not a pass.
-
-    The ONE pass-through is a tip document that carries no budget at
-    all, inside the re-seed window: some commit in the bounded walk's
-    span — from HEAD back to the last family-present commit — carries
-    the marker (reseed.py), so the loader accepts the absence whether
-    or not the tip itself declares. The measurement is still taken,
-    still uploaded and still checked for gateability — there is simply
-    nothing to compare it against until the seed commit restores the
-    family. Every other missing budget, and every over-budget phase,
-    fails exactly as before.
-    """
-    measurement = measurement_from_file(path)
-    if measurement.counts is None:
-        print('the measurement carries no instruction count '
-              f'(instrument {measurement.instrument!r}, '
-              'the portable fallback): not gateable', file=sys.stderr)
-        return 1
-    if measurement.hash_seed != '0':
-        print('the measurement was not taken under PYTHONHASHSEED=0 '
-              f'(hash seed {measurement.hash_seed!r}): its counts are '
-              'not comparable with the committed budgets', file=sys.stderr)
-        return 1
-    budgets = thresholds.load(
-        thresholds_path or thresholds.THRESHOLDS).get(
-            thresholds.SUITE_COST_FAMILY, {})
-    if not budgets:
-        print(NO_BUDGET_LINE)
-        return 0
-    over = _over_budget(measurement.counts, budgets)
-    if over:
-        print('suite cost over its recorded budget:', file=sys.stderr)
-        for line in over:
-            print(f'  {line}', file=sys.stderr)
-        print(_OVER_BUDGET_REMEDY, file=sys.stderr)
-        drift = _workload_drift_note(measurement, budgets)
-        if drift:
-            print(drift, file=sys.stderr)
-        return 1
-    print(summary_line(measurement.counts))
-    drift = _workload_drift_note(measurement, budgets)
-    if drift:
-        print(drift)
-    return 0
-
-
-def gate_verdict(thresholds_path, code: int) -> str:
-    """The step summary's verdict line, in the gate's own words.
-
-    'within budget' would be a false statement inside the re-seed
-    window, where the tip is gated against nothing at all; the summary
-    says so.
-    """
-    if code:
-        return '**OVER BUDGET**'
-    committed = thresholds.load(
-        thresholds_path or thresholds.THRESHOLDS)
-    if not committed.get(thresholds.SUITE_COST_FAMILY):
-        return f'**{NO_BUDGET_LINE}**'
-    return '**within budget**'
-
-
-def summary_line(counts: dict) -> str:
-    """One line naming every phase under its ceiling, for the gate's
-    own voice when it passes."""
-    parts = [f'{name} {counts[name]}' for name in PHASES]
-    return (f'suite cost within budget '
-            f'({", ".join(parts)} {UNIT}, '
-            f'total {sum(counts.values())})')
 
 
 def report(measurement: Measurement) -> str:
@@ -312,8 +171,8 @@ def report(measurement: Measurement) -> str:
     return '\n'.join(lines)
 
 
-def summary_markdown(measurement: Measurement, verdict=None) -> str:
-    """The step-summary markdown: the phase table and the verdict."""
+def summary_markdown(measurement: Measurement) -> str:
+    """The step-summary markdown phase table."""
     lines = ['### Suite cost', '',
              '| phase | ' + UNIT + ' | process_time_s |',
              '| --- | --- | --- |']
@@ -325,6 +184,4 @@ def summary_markdown(measurement: Measurement, verdict=None) -> str:
     total = ('-' if measurement.counts is None
              else str(sum(measurement.counts.values())))
     lines.append(f'| total | {total} | - |')
-    if verdict is not None:
-        lines += ['', verdict]
     return '\n'.join(lines) + '\n'

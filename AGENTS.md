@@ -391,9 +391,7 @@ tell you nothing; only the tip matters.
 **`ci gate / aggregate`**; the per-workflow catalogue lives in
 CONTRIBUTING.md. Documentation-only changes (`*.md`, `PRESENTATION.txt`,
 `examples/`, `.claude/`, licences) skip the expensive legs by
-classification and still pass. Two deliberate shapes, not drift: the
-tests canary runs the suite-cost bench and gates it against committed
-instruction budgets (`scripts/ci/suite_bench.py`), and
+classification and still pass.
 `refresh-pricing.yml` deliberately keeps its dependency installs uncached
 despite the pip-cache rule. Registry images come from the Actions
 cache through one composite, `.github/actions/cached-image/action.yml`:

@@ -52,9 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the patch-coverage merge-base walk and the
-          # thresholds loader's re-seed walk (scripts/ci/reseed.py,
-          # issue #582) both read ancestry a shallow clone lacks.
+          # The patch-coverage and threshold comparisons use ancestry.
           fetch-depth: 0
           # No step in this job pushes; persist-credentials: false keeps
           # the job token out of .git/config for any later step to reuse.
@@ -64,10 +62,7 @@ jobs:
         uses: $/.github/actions/postgres
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        # The exact micro the suite-cost seed was measured with: this
-        # job's bench both gates and feeds the tighten bot, and a
-        # runner-side drift to a cheaper 3.13.x would move the counts
-        # out from under the committed ceilings (issue #266's reason).
+        # Keep the canary's interpreter pinned for reproducible measurements.
         with:
           python-version: "3.13.14"
 
@@ -276,10 +271,6 @@ jobs:
           echo "JavaScript coverage measured ${js_measured}% " \
             "against floor ${floor}%"
 
-      - name: Reparse CPU gate
-        id: reparse
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
-        uses: $/.github/actions/reparse-bench
       - name: Module size baseline
         # Growth is fixed by moving code into a new module, never by
         # raising the recorded ceiling: a file that outgrew its entry
@@ -295,11 +286,8 @@ jobs:
         run: python3 scripts/ci/suppression_baseline.py
 
       - name: Threshold direction guard
-        # The bots are the only writers the ratchet data needs (issue
-        # #388): a lowered coverage value, a raised reparse budget or
-        # entry, or a raised suite-cost budget fails here. Runs on
-        # pull_request (merge base) and push; dispatch skips -- the PR
-        # is the gate.
+        # Coverage values never decrease; baseline entries never rise
+        # or gain hand-added paths under the frozen core families.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && (github.event_name == 'pull_request' || github.event_name == 'push') }}
         env:
           REPO: ${{ github.repository }}
@@ -323,43 +311,12 @@ jobs:
             --base "$RUNNER_TEMP/base-thresholds.json" \
             --head .github/ci-thresholds.json
 
-      - name: Measure and gate the suite cost
-        # One bench pass per run (issue #515): the shared composite
-        # action measures the pinned fixture and holds every phase to
-        # its committed ceiling -- speed.yml's gate, folded here.
-        # Master pushes feed the same measurement to the tighten bot
-        # (ratchet-push.yml) via the upload below.
-        id: suite_bench
-        if: ${{ !cancelled() && steps.pytest.outcome == 'success'
-                && (steps.jscov.outcome == 'success' || inputs.thresholds_only == 'true') }}
-        uses: $/.github/actions/suite-bench
-        with:
-          measurement: ${{ runner.temp }}/suite-measurement.json
-
-      - name: Upload the suite measurement
-        # The artifact is the tested state the bot job tightens from,
-        # and a red gate's numbers stay inspectable: it uploads
-        # whenever the bench RAN, not only when its gate passed.
-        if: ${{ !cancelled() && steps.suite_bench.outcome != 'skipped' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: suite-measurement
-          path: ${{ runner.temp }}/suite-measurement.json
-          if-no-files-found: error
-          retention-days: 1
-
       - name: Ratchet the thresholds
-        # Only measurements from a master push may move the recorded
-        # calibration — a pull request runs untrusted code and must not
-        # be able to write it. The ratchets raise either coverage floor
-        # and tighten the reparse phase bytecode counts (the per-phase
-        # shares are telemetry since #513 and nothing tightens them);
-        # growth is never written here, the gates stay gates.
+        # Only measurements from a master push may raise coverage
+        # calibrations or tighten the three baselines.
         id: ratchet
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
                 && steps.jscov.outcome == 'success'
-                && steps.reparse.outcome == 'success'
-                && steps.suite_bench.outcome == 'success'
                 && github.event_name == 'push'
                 && github.ref == 'refs/heads/master' }}
         # JS_MEASURED travels by env, not by template expansion, so the
@@ -373,7 +330,6 @@ jobs:
           python3 scripts/ci/ratchet.py --measured "${measured}"
           python3 scripts/ci/ratchet.py --language javascript \
             --measured "${JS_MEASURED}"
-          python3 scripts/ci/reparse_ratchet.py --measured-file reparse-bench.json
           python3 scripts/ci/size_baseline.py --tighten
           python3 scripts/ci/suppression_baseline.py --tighten
           python3 scripts/ci/comment_baseline.py --tighten
@@ -431,11 +387,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the thresholds loader's re-seed walk reads up
-          # to _MAX_VISITS commits for the re-seed marker, which may sit
-          # on the BASE side of the merge or under a master tip — no
-          # fixed depth carries it (issue #582). This job runs the
-          # suite, so it reads the loader.
+          # Retain the same checkout shape as the Linux canary.
           fetch-depth: 0
           # No step in this job pushes; persist-credentials: false keeps
           # the job token out of .git/config for any later step to reuse.

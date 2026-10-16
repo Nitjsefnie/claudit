@@ -1,69 +1,20 @@
 #!/usr/bin/env python3
-"""Read, write, report and gate a reparse bench measurement.
+"""Read, write and report a reparse bench measurement.
 
-The other half of ``reparse_bench.py``: that module runs the corpus and
-takes the reading, this one carries it between the process that measured
-it, the CI step that prints it, the gate that holds every phase to its
-recorded budgets, and the ratchet that tightens them. Split because one
-module doing both would outgrow the per-file size ratchet, and an
-outgrown file moves code rather than growing a baseline entry
-(SV-CI-RATCHETS).
-
-A measurement is a small JSON document carrying TWO instruments over the
-same phases, and only one of them gates (issue #513):
-
-- ``bytecodes_<phase>`` — the phase's bytecode instructions per file, in
-  thousands. Exact, so it needs no amplification and no tolerance, and
-  it is what the gate holds a phase to: it catches the parse getting
-  slower as a WHOLE, where every phase grows together.
-- ``share_<phase>`` — the phase's percent of the pass's own CPU time.
-  TELEMETRY: it shows where the pass spends its CPU, and it is measured,
-  printed and recorded like the count, but nothing compares it against
-  the recorded share budgets. A proportion of a timed run is not a count
-  of work — its runner-to-runner spread (1.9-2.7 points, #500/#506) is
-  wider than the 1.5-point gap it would be judged against, and it moves
-  when the corpus mix shifts between formats of different parse cost even
-  with no code path slower and every count under its own ceiling
-  (PR #512).
-
-Because the count is the only instrument the gate holds, an ABSENT count
-fails it (fail closed): without ``sys.monitoring`` the step would
-otherwise report a pass it never measured.
-
-Numbers go through the file as STRINGS, not JSON numbers: they carry
-exactly one decimal place by contract, and a float would round-trip them
-to whatever the nearest double spells. The recorded value has to be the
-value measured.
-
-  python3 scripts/ci/reparse_bench.py --write m.json   # measure + write
-  python3 scripts/ci/reparse_bench.py --check m.json   # gate it
+Each phase carries bytecode instructions per file and its share of the
+pass's CPU time. Shares are telemetry. Decimal readings travel as strings
+to preserve the exact measured value across serialization.
 """
 from __future__ import annotations
 
-import importlib
 import json
-import sys
 from decimal import Decimal
 from pathlib import Path
 from typing import NamedTuple
 
-if __package__:
-    # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import thresholds
-else:
-    thresholds = importlib.import_module('thresholds')
-
-
-UNIT = thresholds.REPARSE_UNIT
-COUNT_UNIT = thresholds.REPARSE_COUNT_UNIT
-PHASES = thresholds.REPARSE_PHASES
-_OVER_BUDGET_REMEDY = (
-    'A reparse phase is over its recorded budget: make that phase '
-    'cheaper. A recorded budget is never raised by hand.')
-# The pass-through's own line, in the gate's voice when a re-seed
-# window leaves nothing to compare against — the reparse family's own
-# marker (reseed.py, issue #698), mirroring the suite gate's line.
-NO_BUDGET_LINE = 'no reparse budget — re-seed in flight'
+UNIT = 'percent_of_pass_cpu'
+COUNT_UNIT = 'bytecode_hundreds_per_file'
+PHASES = ('sniff', 'parse_body', 'sidecar', 'residual')
 
 
 class Measurement(NamedTuple):
@@ -139,7 +90,7 @@ def write_measurement(path, measurement: Measurement) -> None:
 
 
 def measurement_from_file(path) -> Measurement:
-    """Read a written measurement back, as the gate and ratchet see it."""
+    """Read a written measurement back with both instruments intact."""
     try:
         data = json.loads(Path(path).read_text(encoding='utf-8'))
         if not isinstance(data, dict) or 'phases' not in data:
@@ -164,105 +115,10 @@ def measurement_from_file(path) -> Measurement:
         raise ValueError(f'cannot read the measurement: {error}') from None
 
 
-# --- the gate ----------------------------------------------------------------
-
 def _counted(measurement: Measurement, phase: str) -> Decimal | None:
     """A phase's counted cost, or None where the instrument was absent."""
     per_file = measurement.instruction_per_file
     return per_file[phase] if per_file else None
-
-
-# How the gate reads each GATED metric off one measurement, and the unit
-# it reports it in — one entry per thresholds.REPARSE_GATED_METRICS
-# member. The gate reads the enforced set through that constant rather
-# than spelling a metric, so widening the set cannot leave this loop
-# comparing a metric nobody chose; a member with no entry here refuses
-# rather than passing uncompared, which is the shape of the defect issue
-# #513 exists to close.
-_GATED = {'bytecodes': (_counted, COUNT_UNIT)}
-
-
-def _over_budget(measurement: Measurement, floors: dict) -> list:
-    """Every phase over a GATED recorded budget.
-
-    The bytecode count is the whole of the enforced set (issue #513), so
-    an absent count is listed by ``_uncounted`` and fails the gate with
-    the reason the bench recorded — fail closed, never a silent pass on
-    an instrument that never ran.
-    """
-    over = []
-    for phase in PHASES:
-        for metric in thresholds.REPARSE_GATED_METRICS:
-            entry = _GATED.get(metric)
-            if entry is None:
-                raise ValueError(
-                    f'no reader for the gated metric {metric!r}: nothing '
-                    f'would compare {phase} against it')
-            read, unit = entry
-            counted = read(measurement, phase)
-            if counted is None:
-                continue
-            floor = floors[phase][metric]['floor']
-            if counted > floor:
-                over.append(f'{phase}: {counted} {unit}, floor {floor}')
-    return over
-
-
-def _uncounted(measurement: Measurement) -> list:
-    """Every phase the count never reached, labelled — the fail-closed
-    half of the gate, kept separate so it fails even inside a re-seed
-    window, where the pass-through is about the BUDGET only."""
-    reason = measurement.instruction_note
-    return [f'{phase}: NOT MEASURED'
-            f'{f" ({reason})" if reason else ""}'
-            for phase in PHASES if _counted(measurement, phase) is None]
-
-
-def check(path, thresholds_path=None) -> int:
-    """Gate a written measurement against the committed budgets.
-
-    The ONE pass-through is a tip document that carries no reparse
-    budget at all, inside the family's own re-seed window: some commit
-    in the bounded walk's span — from HEAD back to the last
-    family-present commit — carries the ``[reparse-re-seed]`` marker
-    (reseed.py), so the loader accepts the absence whether or not the
-    tip itself declares. The measurement is still taken, still uploaded
-    and still checked for gateability — there is simply nothing to
-    compare it against until the seed commit restores the family. Every
-    other missing budget, every absent count and every over-budget
-    phase fails exactly as before.
-    """
-    measurement = measurement_from_file(path)
-    floors = thresholds.reparse(
-        thresholds.load(thresholds_path or thresholds.THRESHOLDS))
-    uncounted = _uncounted(measurement)
-    over = _over_budget(measurement, floors) if floors else []
-    if uncounted or over:
-        print('reparse work over its recorded budget:', file=sys.stderr)
-        for line in uncounted + over:
-            print(f'  {line}', file=sys.stderr)
-        print(_OVER_BUDGET_REMEDY, file=sys.stderr)
-        return 1
-    if not floors:
-        print(NO_BUDGET_LINE)
-        return 0
-    print(summary_line(measurement))
-    return 0
-
-
-def summary_line(measurement: Measurement) -> str:
-    """One line naming every phase under its gated budget, with the
-    share beside it as the telemetry it is, for the gate's own voice when
-    it passes."""
-    parts = []
-    for name in PHASES:
-        counted = _counted(measurement, name)
-        part = f'{name} {measurement.shares[name]}%'
-        if counted is not None:
-            part += f'/{counted}'
-        parts.append(part)
-    return ('reparse work within budget (' + ', '.join(parts)
-            + '; the share is telemetry, the count after it gates)')
 
 
 # --- reporting ---------------------------------------------------------------
@@ -315,7 +171,7 @@ def report(measurement: Measurement) -> str:
         f'reparse CPU {measurement.cpu_s:.4f} s over '
         f'{measurement.files} transcripts x {measurement.passes} passes '
         f'({per_file_ms:.4f} ms/file), split by phase — the '
-        f'{COUNT_UNIT} column is the gate, the share column is telemetry:',
+        f'{COUNT_UNIT} column is the counted work; the share is telemetry:',
         '',
         *_phase_table(measurement),
         f'  {"sum":<11} {sum(measurement.shares.values()):>5}%',

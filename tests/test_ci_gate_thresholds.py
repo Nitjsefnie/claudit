@@ -139,8 +139,7 @@ def test_canary_skips_only_the_unrelated_gates():
         condition = steps[name]['if']
         assert "&& inputs.thresholds_only != 'true'" in condition, name
         assert "!cancelled() && steps.pytest.conclusion != 'skipped'" in condition
-    for name in ('Reparse CPU gate', 'Threshold direction guard',
-                 'Upload the suite measurement', 'Ratchet the thresholds'):
+    for name in ('Threshold direction guard', 'Ratchet the thresholds'):
         assert 'thresholds_only' not in steps[name]['if'], name
     assert jobs['pytest-portable']['if'] == (
         "inputs.comment_only != 'true' && inputs.thresholds_only != 'true'")

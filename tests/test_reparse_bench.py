@@ -3,8 +3,7 @@
 The bench is the CI-side instrument for the maintainer's reparse lever:
 the CPU work of one parse of one transcript, measured over the committed
 mini fixture mirror through the REAL ingest hot path, split into the
-phases it is made of, and ratcheted down through
-.github/ci-thresholds.json like every other floor. Nothing here pins a
+phases it is made of. Nothing here pins a
 measured number: what a run produces is machine-dependent by nature
 (SV-TEST-DATA), so the cases below pin the bench's SHAPE — the corpus it
 walks, the code path it drives, the partition it reports, the arithmetic
@@ -48,7 +47,6 @@ def _load(name="reparse_bench"):
 bench = _load()
 report_module = _load("reparse_report")
 phases = _load("reparse_phases")
-thresholds = sys.modules["thresholds"]
 
 
 def _fixture_transcripts():
@@ -250,11 +248,11 @@ def test_bench_opens_no_database_connection(monkeypatch):
 
 # --- the decomposition -------------------------------------------------------
 
-def test_phases_come_from_the_loader():
+def test_bench_and_report_share_the_measurement_vocabulary():
     # One source of truth: a phase cannot be measured under one name and
-    # recorded in the document under another.
-    assert bench.PHASES == thresholds.REPARSE_PHASES
-    assert bench.UNIT == thresholds.REPARSE_UNIT
+    # written in the measurement under another.
+    assert bench.PHASES == report_module.PHASES
+    assert bench.UNIT == report_module.UNIT
 
 
 def test_every_phase_is_reported_and_they_account_for_the_pass():
@@ -430,8 +428,7 @@ def test_measurement_budgets_cpu_time_and_stays_inside_it():
 
 def test_shares_carry_exactly_one_decimal_place():
     # The recorded spelling carries one decimal place, the same contract
-    # the coverage family has, so the canonical bytes and the ratchet's
-    # arithmetic both stay exact.
+    # the coverage family has, so serialized readings stay exact.
     for share in _short().shares.values():
         assert share.as_tuple().exponent == -1
 
@@ -444,14 +441,13 @@ def test_non_positive_pass_count_refused(passes):
 
 #: Every module that touches the measurement, not just the one the docstring
 #: is in. The per-phase timing actually happens in reparse_phases.py, so a
-#: scan of reparse_bench.py alone left the phase split — the part the ratchet
-#: reads — unchecked. A claim narrower than the thing it protects.
+#: scan of reparse_bench.py alone would leave the phase split unchecked.
 #:
 #: The first pair MEASURES and must therefore clock with process_time; the
-#: second pair only reads and writes the measurement file, so requiring a
-#: clock of them would be nonsense. A wall clock is barred from all four.
+#: report module only reads and writes the measurement file. All measured
+#: times use the CPU clock.
 BENCH_MEASURES = ("reparse_bench.py", "reparse_phases.py")
-BENCH_HANDLES = ("reparse_ratchet.py", "reparse_report.py")
+BENCH_HANDLES = ("reparse_report.py",)
 
 
 def test_bench_measures_cpu_time_never_wall_clock():

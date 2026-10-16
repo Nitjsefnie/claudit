@@ -269,8 +269,8 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
 
     steps = job["steps"]
-    assert len(steps) == 4
-    listing, download, suite_download, push = steps
+    assert len(steps) == 3
+    listing, download, push = steps
     assert listing["name"] == "List the triggering run's artifacts"
     listing_run = listing.get("run") or ""
     assert listing["env"]["GH_TOKEN"] == "${{ github.token }}"
@@ -278,10 +278,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
         "${{ github.event.workflow_run.id }}")
     assert "actions/runs/$RUN_ID/artifacts" in listing_run
     assert "grep -qx 'ratchet-push'" in listing_run
-    assert "grep -qx 'suite-measurement'" in listing_run
     assert 'echo "ratchet=$ratchet"' in listing_run
-    assert 'echo "suite=$suite"' in listing_run
-    assert 'echo "any=true"' in listing_run
 
     # The artifacts belong to the TRIGGERING run: cross-run downloads
     # name its run id and carry a token, which the job's actions: read
@@ -297,28 +294,11 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert download["with"]["run-id"] == (
         "${{ github.event.workflow_run.id }}")
     assert download["with"]["github-token"] == "${{ secrets.GITHUB_TOKEN }}"
-    assert suite_download["name"] == "Download the suite measurement"
-    assert suite_download["if"] == "steps.list.outputs.suite == 'true'"
-    assert suite_download["uses"].startswith(
-        "actions/download-artifact@"), suite_download
-    assert suite_download["with"]["run-id"] == (
-        "${{ github.event.workflow_run.id }}")
-    assert suite_download["with"]["github-token"] == (
-        "${{ secrets.GITHUB_TOKEN }}")
-    # The two staged artifacts must come from the SAME revision of the
-    # download action: a bump landing on only one step is a half-applied
-    # dependency change. Derived from the workflow itself, quoting no
-    # value (fleet-rules, "Merging and CI").
-    assert download["uses"] == suite_download["uses"]
-
-    # The push step admits only when at least one artifact was staged.
     assert push["name"] == "Push the ratchet commit to master"
-    assert push["if"] == "steps.list.outputs.any == 'true'"
+    assert push["if"] == "steps.list.outputs.ratchet == 'true'"
     assert push["env"]["MASTER_PUSH_DEPLOY_KEY"] == (
         "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
     assert push["env"]["REPO"] == "${{ github.repository }}"
-    assert push["env"]["BASE_FALLBACK"] == (
-        "${{ github.event.workflow_run.head_sha }}")
     assert "GH_TOKEN" not in (push.get("env") or {})
     assert "PUSH_REMOTE" not in push["env"]
 
@@ -333,20 +313,14 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "x-access-token" not in run
     assert "GITHUB_TOKEN" not in run
 
-    # The measured base: a raise staged base.txt; a suite-only run
-    # measured the triggering run's own head (BASE_FALLBACK). Master
-    # must still stand at it, or the data describes a tree master no
-    # longer has.
+    # Master must still match the artifact's measured base.
     assert 'if [ -f "$RUNNER_TEMP/ratchet-data/base.txt" ]; then' in run
     assert 'base="$(cat "$RUNNER_TEMP/ratchet-data/base.txt")"' in run
-    assert ('elif [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]'
-            in run)
-    assert 'base="$BASE_FALLBACK"' in run
-    assert "no ratchet data and no suite measurement to push" in run
+    assert "no ratchet data to push" in run
     assert run.index("remote=") < run.index("git ls-remote")
 
     # The push order and its refusals: the base staleness check, the
-    # artifact-presence guards, the tighten, the no-change guard, the
+    # artifact-presence guards, the no-change guard, the
     # commit, and the rejected-push fallback.
     assert run.index("git ls-remote") < run.index("git init")
     assert ('cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" '
@@ -358,29 +332,10 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "41898282+github-actions[bot]@users.noreply.github.com" in run
     assert ("Ratchet ci-thresholds: raise coverage floor / tighten "
             "baselines (automated)" in run)
-    # The commit names no co-author: a github-actions[bot] commit is
-    # authored by no model, so a trailer on it attributes work to a
-    # model that never ran (issue #491). Pinned by ABSENCE from every
-    # non-comment line of the step, case-folded — so a continuation, a
-    # `-m`, a `--trailer`, either case spelling, or a message assembled
-    # into a variable above the commit all fail, while prose that
-    # merely NAMES the absent trailer (the natural place to record why
-    # it is gone) still passes. Scoping to the `-m` arguments instead
-    # let that last form through; slicing the commit invocation cannot
-    # work either, because a YAML block scalar strips the step's indent
-    # and `if ! git ...` does not begin with `git`, so any boundary
-    # wide enough to catch the commit also catches the comment beside
-    # it. A `#` inside a quoted string would read as a comment here.
+    # A bot commit names no model; inspect all non-comment command lines.
     _code = "\n".join(line for line in run.split("\n")
                       if not line.lstrip().startswith("#"))
     assert "co-authored-by" not in _code.lower()
-    # The suite-cost tighten: a downward-only data operation, then the
-    # no-change guard that lets a no-op tighten end the job quietly.
-    assert "suite_ratchet.py" in run
-    assert ('--tighten "$RUNNER_TEMP/suite-data/suite-measurement.json"'
-            in run)
-    assert run.index("suite_ratchet.py") < run.index(
-        'add .github/ci-thresholds.json')
     assert "status --porcelain .github/ci-thresholds.json" in run
     assert run.index("status --porcelain") < run.index("commit -m")
     assert "nothing to commit" in run

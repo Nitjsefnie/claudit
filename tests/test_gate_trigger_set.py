@@ -88,7 +88,7 @@ def test_hand_held_configs_exist_in_the_tree():
 
 def test_is_triggered_on_each_family_and_explicit_member():
     assert gts.is_triggered(".github/workflows/ci-gate.yml")
-    assert gts.is_triggered(".github/actions/suite-bench/action.yml")
+    assert gts.is_triggered(".github/actions/postgres/action.yml")
     assert gts.is_triggered("scripts/ci/thresholds.py")
     for name in gts.EXPLICIT:
         assert gts.is_triggered(name)
@@ -124,12 +124,12 @@ def test_plain_source_paths_are_not_triggers():
     assert not gts.is_triggered("README.md")
 
 
-# --- extraction -----------------------------------------------------------
+# Extraction.
 
 def test_extraction_finds_named_files_and_local_actions():
     text = "\n".join([
         "run: python3 scripts/ci/foo.py",
-        "uses: ./.github/actions/suite-bench",
+        "uses: ./.github/actions/postgres",
         "run: pip install -r backend/requirements.txt",
         "key: pip-${{ runner.os }}-${{ hashFiles('backend/requirements.txt',"
         " 'requirements-test.txt') }}",
@@ -137,11 +137,11 @@ def test_extraction_finds_named_files_and_local_actions():
     refs = gts.references_from_workflows(
         {"w.yml": text},
         {"scripts/ci/foo.py", "backend/requirements.txt",
-         "requirements-test.txt", ".github/actions/suite-bench/action.yml"},
+         "requirements-test.txt", ".github/actions/postgres/action.yml"},
     )
     assert refs == {
         "scripts/ci/foo.py",
-        ".github/actions/suite-bench",
+        ".github/actions/postgres",
         "backend/requirements.txt",
         "requirements-test.txt",
     }

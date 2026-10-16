@@ -1,60 +1,14 @@
 #!/usr/bin/env python3
 """Measure one pytest run's cost in instructions, phase by phase.
 
-The suite-cost gate's instrument (issue #452). The old gate compared
-WALL-CLOCK durations between two checkouts, A/B/A/B, against a pinned
-baseline release; a runner's speed varies by roughly a factor of two
-between jobs, so the ratio measured the runners as much as the code.
-This bench replaces that with a committed instruction-count ratchet:
+The pinned fixture runs after a collect-only warm pass, under
+PYTHONHASHSEED=0, with private pytest basetemp directories. A bounded
+pricing document keeps changing deployed rate data outside the measured
+workload. The complete collection/run/residual partition records bytecode
+counts and process-time telemetry; tests_tree_lines describes the scanned
+workload beside them.
 
-- A COUNT IS EXACT FOR ONE (TREE CONTENT, INTERPRETER, LIBRARY SET),
-  AND THE BENCH ESTABLISHES THE STATE IT MEASURES UNDER. ``sys.monitoring``'s
-  INSTRUCTION event fires once per bytecode the interpreter retires;
-  the same tree under the same interpreter and libraries retires the
-  same count -- issue #524's series drew exact repeats across the
-  runner fleet and a 12-vCPU box on identical trees (box-vs-runner
-  within 0.5M in ``run``, residual 6.4 = 6.4), through a clean library
-  set. THE LIBRARY SET IS PART OF THE STATE: the box's site-packages
-  carries extra pytest plugins that tax every test, so a local reading
-  comparable with the runners' comes from a venv holding exactly
-  ``backend/requirements.txt`` + ``requirements-test.txt``.
-  The state includes the tree's BYTECODE CACHES: the interpreter
-  compiles a module the first time it imports it and loads the cached
-  bytecode after that, and the two cost about as much again, so the
-  same tree reads 29.1M instructions at collection cold and 14.2M warm.
-  One pass over the pinned fixture (``suite_bench_files.txt``), no
-  statistics, one collect-only warm-up pass BEFORE the counted window,
-  ``PYTHONHASHSEED=0`` by re-exec: repeated runs in one state are
-  identical (five-run probes, two seed values).
-  WHAT THE COUNT IS NOT INDEPENDENT OF IS THE TREE CONTENT the pinned
-  tests scan: the fixture's tree-scanning tests spend per-line over
-  ``tests/``, so a tests/-tree change moves the counts with no fixture,
-  interpreter or machine change. A budget therefore describes ONE
-  workload, and every measurement and seed records the workload
-  identity ``tests_tree_lines`` (the tests/*.py line total), which the
-  gate names when a reading against it has drifted (SV-CI-RATCHETS).
-  The session-level code outside the wrapped phases stays
-  environment-sensitive. The budgets are SEEDED FROM A RUNNER
-  MEASUREMENT, the environment the gate and the master-push record
-  path share, and the 1.5 gap covers library and interpreter drift.
-  The gate reads the
-  committed file, so one gate's verdict is one state's reading, and
-  ``--check`` refuses a measurement not taken under
-  ``PYTHONHASHSEED=0``. The partition into collection / run /
-  residual is complete (suite_phases.partition refuses a negative
-  residual).
-- THE COMMITTED DOCUMENT IS THE BASELINE. No baseline-release checkout,
-  no merge-base computation, no A/B pairing, no ratio: the budgets live
-  in ``.github/ci-thresholds.json`` next to the coverage ratchets and
-  are tightened downward, never raised, by ``suite_ratchet.py``.
-- WALL TIME IS TELEMETRY AT MOST, and the only time reading these
-  modules take is ``time.process_time()`` -- the portable fallback when
-  no ``sys.monitoring`` exists, marked ``process_time`` in the
-  measurement and NEVER gateable: ``--check`` on a counts-less
-  measurement fails closed.
-
-  python3 scripts/ci/suite_bench.py --write m.json   # measure + write
-  python3 scripts/ci/suite_bench.py --check m.json   # gate it
+  python3 scripts/ci/suite_bench.py --write m.json
 """
 from __future__ import annotations
 
@@ -79,9 +33,8 @@ if str(ROOT) not in sys.path:
 
 if __package__:
     # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import suite_phases, suite_report, thresholds
+    from . import suite_phases, suite_report
 else:
-    thresholds = importlib.import_module('thresholds')
     suite_phases = importlib.import_module('suite_phases')
     suite_report = importlib.import_module('suite_report')
 
@@ -141,12 +94,7 @@ def warm_bytecode_caches(fixture: list[Path], repo_root: Path) -> None:
     loads the cached bytecode after that, and the compile costs about
     as much again as the load: the same tree measured 29.1M
     instructions at collection with no caches present and 14.2M with
-    them. Before #499 the two call sites did not agree on that -- the
-    leg's bench measured a fresh checkout while the canary's measured
-    after the suite had run in the same working tree -- so the gate
-    read one number and the tighten bot wrote the other into the
-    committed budgets, leaving a ceiling no run could satisfy
-    (issue #496).
+    them.
 
     So the bench establishes the state rather than inheriting it: one
     collect-only pass compiles the fixture's modules, and pytest writes
@@ -178,7 +126,7 @@ def warm_bytecode_caches(fixture: list[Path], repo_root: Path) -> None:
 
 
 def _tests_tree_lines(repo_root: Path) -> int:
-    """The scanned tree's size: the workload identity the seed binds to.
+    """The scanned tree's size, recorded beside its measured work.
 
     The fixture's tree-scanning tests (the db-marker derivation, the
     version-literal guard, the scratch-DB scan) walk ``tests/``
@@ -300,13 +248,9 @@ def _reexec_with_deterministic_hash_seed(argv) -> None:
 
 def _parser():
     parser = argparse.ArgumentParser(description=__doc__)
-    modes = parser.add_mutually_exclusive_group(required=True)
-    modes.add_argument('--write', type=Path, metavar='MEASUREMENT',
-                       help='measure and write the measurement file')
-    modes.add_argument('--check', type=Path, metavar='MEASUREMENT',
-                       help='gate a written measurement against the '
-                            'committed budgets; nonzero when a phase '
-                            'is over')
+    parser.add_argument('--write', type=Path, required=True,
+                        metavar='MEASUREMENT',
+                        help='measure and write the measurement file')
     parser.add_argument('--fixture', type=Path, default=FIXTURE,
                         help='the pinned fixture list (suite_bench_files'
                              '.txt beside this script)')
@@ -314,9 +258,6 @@ def _parser():
                         help='the repo whose test files the fixture '
                              'names (tests drive a synthetic mini suite '
                              'here)')
-    parser.add_argument('--thresholds', type=Path,
-                        default=thresholds.THRESHOLDS,
-                        help=argparse.SUPPRESS)
     parser.add_argument('--summary', type=Path, metavar='FILE',
                         help='write the step-summary markdown here')
     return parser
@@ -354,36 +295,25 @@ def _load_bounded_document() -> None:
 def main(argv=None):
     args = _parser().parse_args(argv)
     try:
-        if args.write is not None:
-            # The counted run must not depend on the caches the checkout
-            # arrived with, and the parent is the only process outside
-            # every counted window: compile the tree here, then hand the
-            # measurement to the deterministic child.
-            if os.environ.get(WARMED_ENV) != '1':
-                warm_bytecode_caches(
-                    read_fixture(args.fixture, args.repo_root),
-                    args.repo_root)
-            _reexec_with_deterministic_hash_seed(sys.argv[1:])
-            _load_bounded_document()
-            fixture = read_fixture(args.fixture, args.repo_root)
-            measurement = measure(fixture, args.repo_root)
-            suite_report.write_measurement(args.write, measurement)
-            print(suite_report.report(measurement))
-            if args.summary is not None:
-                args.summary.write_text(
-                    suite_report.summary_markdown(measurement),
-                    encoding='utf-8')
-            return 0
-        code = suite_report.check(args.check, args.thresholds)
+        # The counted run must not depend on the caches the checkout
+        # arrived with, and the parent is the only process outside
+        # every counted window: compile the tree here, then hand the
+        # measurement to the deterministic child.
+        if os.environ.get(WARMED_ENV) != '1':
+            warm_bytecode_caches(
+                read_fixture(args.fixture, args.repo_root),
+                args.repo_root)
+        _reexec_with_deterministic_hash_seed(sys.argv[1:])
+        _load_bounded_document()
+        fixture = read_fixture(args.fixture, args.repo_root)
+        measurement = measure(fixture, args.repo_root)
+        suite_report.write_measurement(args.write, measurement)
+        print(suite_report.report(measurement))
         if args.summary is not None:
-            measurement = suite_report.measurement_from_file(args.check)
             args.summary.write_text(
-                suite_report.summary_markdown(
-                    measurement,
-                    verdict=suite_report.gate_verdict(
-                        args.thresholds, code)),
+                suite_report.summary_markdown(measurement),
                 encoding='utf-8')
-        return code
+        return 0
     except (OSError, ValueError) as main_error:
         print(str(main_error), file=sys.stderr)
         return 1

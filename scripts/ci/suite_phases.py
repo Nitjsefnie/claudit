@@ -11,7 +11,7 @@ A run over the pinned fixture is made of three phases -- collection
 ``pytest_runtest_protocol``) and everything else. The "everything else"
 is the ``residual`` phase: pytest's own bootstrap, conftest imports,
 plugin registration, terminal reporting, this bench's plugin. It is
-named, measured and ratcheted rather than rounded away, because an
+named and measured rather than rounded away, because an
 instrument whose parts sum to less than its total has a hole in it and
 a hole reads as completeness. Every output prints the phase sum beside
 the total, so a partition hole cannot hide.
@@ -26,16 +26,12 @@ Two instruments:
   one, and the re-exec with ``PYTHONHASHSEED=0`` holds set-iteration
   order fixed, which is the one input left to hash order (pytest walks
   sets in several places). Across machine families the counts are not
-  portable: within one family the observed wobble is <=0.2M, while
-  ``residual`` reads ~2.4M higher on a GitHub runner than on this
-  benchmark box (the session-level code outside the wrapped phases is
-  environment-sensitive), which is why the budgets are seeded from a
-  runner measurement.
+  portable: the session-level code outside the wrapped phases is
+  environment-sensitive.
 - ``ProcessTimeSink`` accumulates ``time.process_time()`` per phase.
   It is the portable fallback when no ``sys.monitoring`` is available,
   and telemetry-only in every case: a CPU-time reading drifts with the
-  interpreter's dispatch cost, so nothing gates on it -- ``--check`` on
-  a counts-less measurement fails closed.
+  interpreter's dispatch cost.
 """
 from __future__ import annotations
 
@@ -54,17 +50,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-if __package__:
-    # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import thresholds
-else:
-    thresholds = importlib.import_module('thresholds')
-
-# The phases of a run, and the partition they make of its total. The
-# names come from the loader (thresholds.py), which validates the
-# document carrying them, so a phase cannot be measured under one name
-# and recorded under another.
-PHASES = thresholds.SUITE_COST_PHASES
+# The measured partition, shared by the bench and its report.
+PHASES = ('collection', 'run', 'residual')
 # A tool id nobody else holds in a bench process: 0-2 are the debugger's,
 # coverage's and the profiler's, and 3 is reparse_bench's claim (the
 # counting bench of scripts/ci/reparse_bench.py, a different path). 4 is
