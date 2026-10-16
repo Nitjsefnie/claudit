@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Classify docs-only, bot-data-only, comment-only or thresholds-only runs.
+"""Classify docs-only, bot-data-only, comment-only, thresholds-only or setup-only runs.
 
 The gate workflows used to narrow documentation-only runs at the
 trigger, with `paths-ignore` on their push and pull_request events. A
@@ -7,19 +7,14 @@ trigger filter cannot report: a docs-only change started no run at all,
 so those check names never appeared, and a required-check
 ruleset could never go green on such a pull request. ci-gate.yml starts
 on every push and pull request and narrows INSIDE the workflow instead:
-this script reads the run's changed paths and emits the four class
+this script reads the run's changed paths and emits the class
 outputs, which condition the legs while the
 aggregate job still reports.
 
-Documentation excludes measured sources from the old deny-list paths,
-and the three docs whose setup blocks a test
-guard pins (SETUP_DOC_PATTERNS): the guard lives in the tests leg, so a
-docs-only classification of a change to those files would skip the leg
-that fails it (issue #477). Every fallback over-runs: an event this
-script cannot identify, a file list it cannot read, or a list that may
-be truncated all classify as a full change and run every leg. An API
-failure that under-runs would skip gates over code; one that over-runs
-only wastes minutes.
+Documentation excludes measured sources. Setup docs compare their pinned
+blocks through setup_docs: identical blocks permit docs-only, changed blocks
+select setup-only, and unreadable refs, blobs or sections run the full gate.
+Every fallback over-runs, never skips verification over unreadable inputs.
 
 A second class narrows the refresh bot's data: its hourly push stages
 EXACTLY `src/pricing.json`, `backend/constants.py` and
@@ -71,6 +66,7 @@ import tokenize
 
 sources = importlib.import_module('classify_sources' if __name__ == '__main__' else 'scripts.ci.classify_sources')
 bot = importlib.import_module('classify_bot' if __name__ == '__main__' else 'scripts.ci.classify_bot')
+setup_docs = importlib.import_module('setup_docs' if __name__ == '__main__' else 'scripts.ci.setup_docs')
 thresholds = importlib.import_module('classify_thresholds' if __name__ == '__main__' else 'scripts.ci.classify_thresholds')
 
 # The paths-ignore deny-lists the gate workflows carried on master, now
@@ -80,19 +76,6 @@ thresholds = importlib.import_module('classify_thresholds' if __name__ == '__mai
 # data must run the gates rather than read as documentation.
 DOC_PATTERNS = ('**/*.md', 'PRESENTATION.txt', 'examples/**', '.claude/**',
                 'LICENSE', 'NOTICE', '.gitignore')
-
-# The docs carrying the pinned setup blocks: tests/test_docs_setup.py
-# asserts README's "Quick start", CONTRIBUTING's "Getting it running" and
-# AGENTS's "Build and test commands" keep the same step set (issue #464).
-# A change to any of them is documentation by shape and tested by
-# behavior, so the carve-out below is by FILE, not by section: the gate
-# keeps setup docs whole-file classified even though other classes
-# validate measured paths and the pricing diff. The cost is
-# an over-run -- an edit to a badge above the setup block runs the matrix
-# instead of skipping it -- which is this script's declared direction for
-# every uncertainty ("Every fallback over-runs"). The alternative failure
-# is a green push that broke the pin and finds out hours later.
-SETUP_DOC_PATTERNS = ('README.md', 'CONTRIBUTING.md', 'AGENTS.md')
 
 # The refresh bot's push signature: the paths its push stages
 # (`git add` in refresh-pricing.yml). Deliberately NOT a filter set
@@ -165,21 +148,10 @@ def is_documentation(path):
     return any(matches(pattern, path) for pattern in DOC_PATTERNS)
 
 
-def touches_setup_docs(paths):
-    """Whether `paths` names any pinned setup doc (see SETUP_DOC_PATTERNS)."""
-    return any(path in SETUP_DOC_PATTERNS for path in paths)
-
-
 def documentation_only(paths):
-    """Whether `paths` is a nonempty all-documentation set the gate may
-    narrow over.
-
-    A pinned setup doc is excluded however documentation-shaped it is: the
-    pin that reads those files lives in the tests leg, so classifying such
-    a change docs-only skips the very leg that would fail it (issue #477).
-    """
-    return (bool(paths) and not touches_setup_docs(paths)
-            and all(is_documentation(path) for path in paths) and not sources.measured(paths))
+    """Whether paths can narrow as docs, subject to setup-block comparison."""
+    return (bool(paths) and all(is_documentation(path) for path in paths)
+            and not sources.measured(paths))
 
 
 def data_only(paths):
@@ -429,29 +401,24 @@ def comment_only(paths, event, run):
 
 
 def classify(event, run):
-    """Return (docs_only, data_only, comment_only, thresholds_only, reason)."""
+    """Return (docs_only, data_only, comment_only, thresholds_only, setup_only, reason)."""
     paths = changed_paths(event, run)
     if paths is None or thresholds.thresholds_only(paths):
         return thresholds.unreadable_or_thresholds(paths)
     if documentation_only(paths):
-        return (True, False, False, False,
-                f'documentation-only change: {len(paths)} paths')
-    if all(is_documentation(path) for path in paths) and (
-            touches_setup_docs(paths) or sources.measured(paths)):
-        setup = sorted({path for path in paths
-                        if path in SETUP_DOC_PATTERNS})
-        return (False, False, False, False,
-                f'documentation paths touch measured sources or pinned setup '
-                f'docs ({"; ".join(setup or paths)}); running the full gate set')
+        return setup_docs.classify(paths, event, run, _refs, _blob)
+    if all(is_documentation(path) for path in paths) and sources.measured(paths):
+        return (False, False, False, False, False,
+                'documentation paths touch measured sources; running the full gate set')
     if (data_only(paths) and bot.is_bot_push(event, run)
             and sources.pricing_change(event, run, _refs, _blob)):
-        return (False, True, False, False,
+        return (False, True, False, False, False,
                 f'bot-data-only change: {len(paths)} paths')
     if comment_only(paths, event, run):
-        return (False, False, True, False,
+        return (False, False, True, False, False,
                 f'comment-only change: {len(paths)} source files')
     outside = sum(1 for path in paths if not is_documentation(path))
-    return (False, False, False, False, f'{len(paths)} paths changed, {outside} '
+    return (False, False, False, False, False, f'{len(paths)} paths changed, {outside} '
             'outside documentation')
 
 
@@ -477,9 +444,9 @@ def main():
         return sources.decode_output(command, subprocess.run(
             command, capture_output=True, check=True, timeout=60).stdout)
 
-    documentation, data, comment, threshold, reason = classify(event, run)
+    documentation, data, comment, threshold, setup, reason = classify(event, run)
     write_outputs(os.environ.get('GITHUB_OUTPUT'), documentation, data,
-                  comment, threshold, reason)
+                  comment, threshold, setup, reason)
     print(reason)
     return 0
 
