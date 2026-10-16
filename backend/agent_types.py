@@ -17,9 +17,7 @@ showed lane defaults as distinct roles. canonical_agent_type folds them:
   default MAIN profiles (``agent``/``default``) already land in through
   parse_lanes.
 
-One flat fold table: the function runs per named role on every reparse,
-and the reparse CPU gate holds parse_body to a bytecode budget — the
-lookup is the whole cost.
+One flat fold table serves the per-role lookups on every reparse.
 """
 from __future__ import annotations
 

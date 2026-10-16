@@ -43,7 +43,6 @@ def _load(name="reparse_bench"):
 bench = _load()
 phases = _load("reparse_phases")
 report_module = _load("reparse_report")
-thresholds = sys.modules["thresholds"]
 
 
 def _counts(**kwargs):
@@ -58,9 +57,7 @@ def _counts(**kwargs):
 
 
 def test_phase_counts_partition_the_pass_exactly():
-    # The counts, like the times, are a partition: the four phases sum to
-    # the measured total with nothing left over and nothing counted
-    # twice. A sum that does not add up would be a hole in the instrument.
+    # Phase counts partition the total without overlaps or omissions.
     counts = _counts()
     assert set(counts.phase_bytecodes) == set(bench.PHASES)
     assert sum(counts.phase_bytecodes.values()) == counts.total_bytecodes

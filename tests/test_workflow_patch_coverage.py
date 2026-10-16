@@ -320,8 +320,7 @@ class TestPostingSide:
         The consumer addresses the artifact by name within the triggering
         run's artifact LIST. A second publisher of `diff-coverage-comment`
         in the same ci-gate run would make that read ambiguous, so the
-        name is pinned to one upload site repository-wide — the same shape
-        as the suite-measurement pin in tests/test_suite_ci_wiring.py.
+        name is pinned to one upload site repository-wide.
         """
         uploaders = []
         for path in sorted(WORKFLOWS.glob("*.yml")):

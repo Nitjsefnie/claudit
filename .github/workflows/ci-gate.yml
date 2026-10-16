@@ -60,9 +60,8 @@ name: ci gate
 # pr-gate.yml and claim.yml are untouched and outside the aggregate.
 #
 # A FORK'S CODE RUNS IN THE LEGS, exactly as before the move: the legs
-# run on the merge ref with the caller's permissions. The suite-cost
-# bench lives in the tests canary since issue #515 and, like the suite
-# itself, executes pull-request code on the pull_request trust model —
+# run on the merge ref with the caller's permissions. The tests canary
+# executes pull-request code on the pull_request trust model —
 # no secrets, read-only token.
 
 on:
