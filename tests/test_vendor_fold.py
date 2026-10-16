@@ -12,10 +12,11 @@ from backend.pricing_rows import encode_pricing_doc
 from tests.test_pricing_vendor import (
     BARE, CUT, PKEY, PREFIXED_BARE, ROUTER_HOST, R_NEW, R_OLD, STAMP,
     _bare_id_doc, _copy_browser, _doc, _entry, _install, _loader_error,
-    _node_raw,
+    _node_raw, needs_node,
 )
 
 
+@needs_node
 def test_id_only_bare_entry_prices_prefixed_provider_history(
         tmp_path, monkeypatch):
     doc = _bare_id_doc()
@@ -58,6 +59,7 @@ def test_id_only_bare_entry_prices_prefixed_provider_history(
         PREFIXED_BARE, provider="undefined").kind == "exact"
 
 
+@needs_node
 @pytest.mark.parametrize("collision", ["bare", "prefixed", "models"])
 def test_id_only_bare_form_collisions_refuse_on_both_sides(tmp_path, collision):
     doc = _doc()
@@ -73,6 +75,7 @@ def test_id_only_bare_form_collisions_refuse_on_both_sides(tmp_path, collision):
     assert "bare form" in (_loader_error(tmp_path, doc) or "")
 
 
+@needs_node
 def test_an_id_only_default_row_refuses_cleanly_on_both_sides(tmp_path):
     doc = _doc()
     doc["models"] = {}
@@ -84,6 +87,7 @@ def test_an_id_only_default_row_refuses_cleanly_on_both_sides(tmp_path):
     assert "default estimate" in (_loader_error(tmp_path, doc) or "")
 
 
+@needs_node
 def test_id_only_prefixed_key_keeps_its_provider_history(tmp_path, monkeypatch):
     doc = _doc()
     del doc["openrouter"]["models"][PKEY]["vendor_host"]

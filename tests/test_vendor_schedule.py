@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from backend import pricing
 from backend.pricing_rows import decode_pricing_doc, encode_pricing_doc
-from tests.test_pricing_vendor import _copy_browser, _install, _node_raw
+from tests.test_pricing_vendor import _copy_browser, _install, _node_raw, needs_node
 from tests.vendor_rate_refresh_helpers import (
     GLM_ID, GLM_KEY, GPT_ID, NOW, _band, _catalog, _doc, _endpoint, _payload,
     _price, _run,
@@ -22,6 +22,7 @@ def test_a_scheduled_meter_band_still_refuses():
     assert not doc["openrouter"]["models"]
 
 
+@needs_node
 def test_scheduled_vendor_history_prices_each_window_losslessly(
         tmp_path, capsys, monkeypatch):
     listing = _price(2, 8, overrides=[{
