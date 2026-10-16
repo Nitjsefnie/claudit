@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 """Refresh src/pricing.json's OpenRouter provider rates (SV-RATE-REFRESH).
 
-Fetches every tracked model's endpoints and listed-pricing log. A host with
-one provable endpoint history appends logged changes at their change times,
-then any out-of-step listed state at detection; a first row imports its log
-from HISTORY_FLOOR onward; earlier states price no stored record.
-Unjoined hosts sample at detection with the alternation rule.
-No existing entry is rewritten by the hourly refresh. A run that appends
-bumps PRICING_VERSION (a reprice, never a reparse) by one from whatever
-backend/constants.py holds and moves provider_rates_fetched; a quiet run
-writes nothing.
+Fetch each tracked model's endpoints and listed-pricing log. A provable
+endpoint history appends logged changes at their change times, then any
+out-of-step listing at detection. First rows import from HISTORY_FLOOR;
+earlier states price no stored record. Unjoined hosts sample at detection
+with the alternation rule. Entries are never rewritten. Appending bumps
+backend/constants.py's PRICING_VERSION by one (reprice, not reparse) and
+moves provider_rates_fetched; quiet runs write nothing.
 
-Only endpoints in the account's data region count (tag_region). A host's
-weekly time-of-day prices (pricing.overrides) become its entry's schedule;
-its top-level price is the entry's default only when the fetch falls
-outside every window, since inside one it is that window's price.
+Only the account's data-region endpoints count (tag_region). Weekly
+pricing.overrides become the entry's schedule. The top-level price is its
+default only outside every window; inside one it is that window's price.
 Endpoint selection — the resolution shapes (a tag, "cheapest", their
 combination, a recorded ignore) and the automatic rules over the
 mechanical multi-price shapes — lives in refresh_selection.py and
@@ -67,15 +64,11 @@ openrouter.models as {"id", "vendor_host"} — no rates; the provider pass
 carries its (key, vendor_host) row from the next hourly run. One report,
 one PRICING_VERSION bump, one commit.
 
-A notice line the last committing run already carried is not repeated
-(issue #888). That run's full rendered notice set is committed beside the
-pricing document as pricing_notices.json; this run omits a line identical
-to one there, and a line that is new, or that changed, still appears. The
-baseline holds the lines the last run SUPPRESSED as well as the ones it
-showed, so a suppressed notice stays suppressed in the next commit instead
-of alternating back. An absent, unreadable or malformed file suppresses
-nothing, and a run that appends nothing publishes no commit, so it does
-not move the baseline.
+pricing_notices.json beside the pricing document holds the last committing
+run's full rendered notice set (issue #888). Identical lines are omitted;
+new or changed lines appear. The baseline includes suppressed lines to
+prevent alternating reappearance. Missing, unreadable or malformed files
+suppress nothing. Quiet runs publish no commit and leave the baseline.
 
 The vanished-host set and the sampled classifications are standing state
 (issue #933): they never enter the commit body. The run's own stdout
