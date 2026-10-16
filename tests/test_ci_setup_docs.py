@@ -87,11 +87,16 @@ def test_changed_setup_and_another_docs_prose_is_setup_only(tmp_path):
     _assert_flags(outputs, setup=True)
 
 
-def test_reflow_inside_section_outside_block_is_docs_only(tmp_path):
-    before = _doc()
+@pytest.mark.parametrize('path,heading', [
+    ('README.md', 'Quick start'),
+    ('CONTRIBUTING.md', 'Getting it running'),
+    ('AGENTS.md', 'Build and test commands'),
+])
+def test_reflow_inside_pinned_section_is_setup_only(tmp_path, path, heading):
+    before = _doc(heading)
     after = before.replace('Setup prose', 'Reflowed\nsetup prose').replace('follow_on', 'other')
-    outputs = _classify(tmp_path, {'README.md': (before, after)})
-    _assert_flags(outputs, docs=True)
+    outputs = _classify(tmp_path, {path: (before, after)})
+    _assert_flags(outputs, setup=True)
 
 
 @pytest.mark.parametrize('side', [0, 1])
@@ -136,3 +141,22 @@ def test_unreadable_refs_run_full_gate(tmp_path):
     outputs = _classify(tmp_path, {'README.md': (_doc(), _doc())}, fail_url='/pulls/17')
     _assert_flags(outputs)
     assert 'read' in outputs['reason']
+
+
+@pytest.mark.parametrize('replacement', ['REMOVED_GUEST_SETTING', ''])
+@pytest.mark.parametrize('event', [
+    EVENT,
+    {'name': 'push', 'repository': 'o/r', 'before': 'e' * 40, 'sha': HEAD},
+], ids=['pull_request', 'push'])
+def test_readme_guest_setting_outside_section_is_pinned(tmp_path, replacement, event):
+    before = _doc(prose='Guest setting: CLAUDIT_GUEST_LOGIN')
+    after = before.replace('CLAUDIT_GUEST_LOGIN', replacement)
+    outputs = _classify(tmp_path, {'README.md': (before, after)}, event=event)
+    _assert_flags(outputs, setup=True)
+
+
+def test_readme_guest_setting_presence_allows_unrelated_prose_changes(tmp_path):
+    before = _doc(prose='CLAUDIT_GUEST_LOGIN\nCLAUDIT_GUEST_LOGIN')
+    after = _doc(prose='Guest setting: CLAUDIT_GUEST_LOGIN')
+    outputs = _classify(tmp_path, {'README.md': (before, after)})
+    _assert_flags(outputs, docs=True)

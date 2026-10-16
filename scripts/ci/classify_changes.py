@@ -12,7 +12,7 @@ outputs, which condition the legs while the
 aggregate job still reports.
 
 Documentation excludes measured sources. Setup docs compare their pinned
-blocks through setup_docs: identical blocks permit docs-only, changed blocks
+facts through setup_docs: identical facts permit docs-only, changed facts
 select setup-only, and unreadable refs, blobs or sections run the full gate.
 Every fallback over-runs, never skips verification over unreadable inputs.
 
