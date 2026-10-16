@@ -157,20 +157,25 @@ def test_load_carries_the_run_signal_and_credentials():
     assert out.get("creds") == "same-origin"
 
 
+@pytest.mark.parametrize("syntax_error", [
+    pytest.param("Unexpected token < in JSON", id="html-body"),
+    pytest.param("nope", id="invalid-json"),
+])
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_load_raises_naming_the_status_on_a_500_text_body():
+def test_load_raises_naming_the_status_on_a_500_text_body(syntax_error):
     """A 500 is text/plain, so the body cannot be trusted to parse."""
-    out = _node("""
+    out = _node("const syntaxError = " + json.dumps(syntax_error) + ";" + """
       const F = window.dashboardFetch;
       const stub = () => Promise.resolve({
         ok: false, status: 500,
-        json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON')),
+        json: () => Promise.reject(new SyntaxError(syntaxError)),
       });
       F.load('/api/dashboard', {}, stub)
-        .then(() => console.log(JSON.stringify({msg: null})),
-              e => console.log(JSON.stringify({msg: e.message})));
+        .then(b => console.log(JSON.stringify({resolved: b})),
+              e => console.log(JSON.stringify({rejected: e.message})));
     """)
-    assert out["msg"] and "500" in out["msg"], out
+    assert "rejected" in out, f"a 500 resolved instead of rejecting: {out}"
+    assert "500" in out["rejected"], out
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
@@ -188,21 +193,3 @@ def test_load_surfaces_a_json_detail_field():
               e => console.log(JSON.stringify({msg: e.message})));
     """)
     assert out["msg"] == "HTTP 503: database is down", out
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_load_rejects_rather_than_returning_a_failed_response():
-    """An `if (!r.ok)` check that only logs leaves the caller holding a
-    body it cannot use; load must either resolve with the payload or
-    reject."""
-    out = _node("""
-      const F = window.dashboardFetch;
-      const stub = () => Promise.resolve({
-        ok: false, status: 500,
-        json: () => Promise.reject(new SyntaxError('nope')),
-      });
-      F.load('/api/dashboard', {}, stub).then(
-        b => console.log(JSON.stringify({resolved: b})),
-        e => console.log(JSON.stringify({rejected: e.message})));
-    """)
-    assert "rejected" in out, f"a 500 resolved instead of rejecting: {out}"

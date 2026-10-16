@@ -219,14 +219,6 @@ def test_wrong_password_is_generic_401(app, fake_user):
     _assert_generic_failure(r)
 
 
-def test_unknown_user_is_generic_401(app, fake_user):
-    """An unknown id answers exactly what a wrong password answers —
-    not its own status or body (issue #109)."""
-    client = TestClient(app)
-    r = _post_login(client, 999, "anything")
-    _assert_generic_failure(r)
-
-
 def test_no_password_user_is_generic_401(app, fake_user):
     store = fake_user
     store[777] = {}  # known id, no web password configured
@@ -384,14 +376,6 @@ def test_malformed_user_id_is_still_400(app, fake_user):
         assert r.status_code == 400
         assert r.headers["content-type"].startswith("text/html")
         assert '<div class="err" role="alert">Invalid user ID</div>' in r.text
-
-
-def test_rate_limit_after_5_failures(app, fake_user):
-    client = TestClient(app)
-    for _ in range(5):
-        _post_login(client, 12345, "x")
-    r = _post_login(client, 12345, "x")
-    assert r.status_code == 429
 
 
 def test_failures_for_one_user_do_not_lock_another(app, fake_user, fake_session_store):

@@ -15,32 +15,35 @@ from backend.flag_registry import COLLECTION_SPECS
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
 
 
-@pytest.mark.parametrize("family,expected", [
-    ("ln", ["/work/node_modules"]),
-    ("touch", ["/work/first.txt", "/work/second.txt"]),
-    ("rsync", ["/work/mirror"]),
-    ("tar_extract", ["/work/extracted"]),
-    ("unzip", ["/work/extracted"]),
-    ("curl_output", ["/work/downloaded"]),
-    ("wget", ["/work/file.txt"]),
-    ("curl_file_url", ["/work/data.txt"]),  # file:///source/data.txt uses its basename in cwd.
-    ("python_venv", ["/work/.venv"]),
-    ("git_worktree", ["/work/checkout"]),
-    ("git_checkout", ["/work/first.txt", "/work/second.txt"]),
-    ("git_restore", ["/work/first.txt"]),
-    ("compiler", ["/work/program"]),
-    ("pdftotext", ["/work/out.txt"]),
-    ("initdb", ["/work/pgdata"]),
-    ("git_clone", ["/work/checkout"]),
-    ("git_init", ["/work/checkout"]),
-    ("perl_inplace", ["/work/first.txt", "/work/second.txt"]),
-    ("rustfmt", ["/work/first.rs", "/work/second.rs"]),
+@pytest.mark.parametrize("family,expected,added", [
+    pytest.param("ln", ["/work/node_modules"], 0, id="ln"),
+    pytest.param("touch", ["/work/first.txt", "/work/second.txt"], 0, id="touch"),
+    pytest.param("rsync", ["/work/mirror"], 1, id="rsync"),
+    pytest.param("tar_extract", ["/work/extracted"], 1, id="tar_extract"),
+    pytest.param("unzip", ["/work/extracted"], 1, id="unzip"),
+    pytest.param("curl_output", ["/work/downloaded"], 1, id="curl_output"),
+    pytest.param("wget", ["/work/file.txt"], 1, id="wget"),
+    pytest.param("curl_file_url", ["/work/data.txt"], None, id="curl_file_url"),
+    pytest.param("python_venv", ["/work/.venv"], 1, id="python_venv"),
+    pytest.param("git_worktree", ["/work/checkout"], 1, id="git_worktree"),
+    pytest.param("git_checkout", ["/work/first.txt", "/work/second.txt"], 1, id="git_checkout"),
+    pytest.param("git_restore", ["/work/first.txt"], 1, id="git_restore"),
+    pytest.param("compiler", ["/work/program"], 1, id="compiler"),
+    pytest.param("pdftotext", ["/work/out.txt"], 1, id="pdftotext"),
+    pytest.param("initdb", ["/work/pgdata"], 1, id="initdb"),
+    pytest.param("git_clone", ["/work/checkout"], 1, id="git_clone"),
+    pytest.param("git_init", ["/work/checkout"], 1, id="git_init"),
+    pytest.param("perl_inplace", ["/work/first.txt", "/work/second.txt"], 1, id="perl_inplace"),
+    pytest.param("rustfmt", ["/work/first.rs", "/work/second.rs"], 1, id="rustfmt"),
 ])
-def test_bash_family_write_targets(family, expected):
+def test_bash_family_write_targets(family, expected, added):
     out = parse.parse_file(
         "k/sess-write/sess-write.jsonl",
         (FIX / f"bash_{family}_write_targets.jsonl").read_bytes())
-    assert out["tool_uses"][0]["write_targets"] == expected
+    tool = out["tool_uses"][0]
+    assert tool["write_targets"] == expected
+    if added is not None:  # curl_file_url has only a target expectation.
+        assert (tool["lines_added"], tool["lines_deleted"]) == (added, 0)
 
 
 @pytest.mark.parametrize("command,expected", [
@@ -138,19 +141,6 @@ def test_bash_runtime_write_targets_are_not_invented(command, path):
 ])
 def test_bash_write_targets_resolve_literal_assignments(command, expected):
     assert scan(command, "/work")[2] == expected
-
-
-@pytest.mark.parametrize("family,added", [
-    ("curl_output", 1), ("wget", 1), ("tar_extract", 1), ("unzip", 1),
-    ("rsync", 1), ("python_venv", 1), ("touch", 0), ("ln", 0),
-    ("git_worktree", 1), ("git_checkout", 1), ("git_restore", 1),
-    ("compiler", 1), ("pdftotext", 1), ("initdb", 1),
-    ("git_clone", 1), ("git_init", 1), ("perl_inplace", 1), ("rustfmt", 1),
-])
-def test_bash_family_churn_estimate(family, added):
-    blob = (FIX / f"bash_{family}_write_targets.jsonl").read_bytes()
-    tool = parse.parse_file("k/sess-write/sess-write.jsonl", blob)["tool_uses"][0]
-    assert (tool["lines_added"], tool["lines_deleted"]) == (added, 0)
 
 
 @pytest.mark.parametrize("command", [

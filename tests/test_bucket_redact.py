@@ -252,28 +252,19 @@ def test_health_per_object_failure_serves_count_only(
     assert "projS" not in body and "sessS" not in body
 
 
-def test_health_truncates_legacy_failure_summary(redact_app):
+@pytest.mark.parametrize("stored_error", [
+    pytest.param("1 object failed after retries: projS/sessS/sessS.jsonl",
+                 id="single-line"),
+    pytest.param("1 object failed after retries:\nprojS/sessS/sessS.jsonl",
+                 id="multiline"),
+])
+def test_health_truncates_legacy_failure_summary(redact_app, stored_error):
     """The /health net removes keys from rows written by older builds."""
     with db.viz_conn() as c:
         c.execute(
             "UPDATE ingest_runs SET error=%s WHERE id=("
             "SELECT MAX(id) FROM ingest_runs)",
-            ("1 object failed after retries: projS/sessS/sessS.jsonl",),
-        )
-        c.commit()
-
-    body = redact_app.get("/health").text
-    assert "1 object failed after retries" in body
-    assert "projS" not in body and "sessS" not in body
-
-
-def test_health_truncates_multiline_legacy_failure_summary(redact_app):
-    """The /health net consumes key lines after an old count summary."""
-    with db.viz_conn() as c:
-        c.execute(
-            "UPDATE ingest_runs SET error=%s WHERE id=("
-            "SELECT MAX(id) FROM ingest_runs)",
-            ("1 object failed after retries:\nprojS/sessS/sessS.jsonl",),
+            (stored_error,),
         )
         c.commit()
 
