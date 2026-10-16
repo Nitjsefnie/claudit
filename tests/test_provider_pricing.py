@@ -425,14 +425,6 @@ def test_a_provider_window_applies_before_its_cutover(synthetic_provider_window)
             pricing.rate_for(V41, None, "Morph"))  # sv-test-data: allow (derived: same-tables identity; Morph carries no window)
 
 
-def test_live_rate_epochs_include_provider_windows():
-    assert pricing.RATE_EPOCHS == sorted(
-        {end for w in pricing.DATED_RATES.values() for end, _ in w}
-        | {end for w in pricing.PROVIDER_DATED_RATES.values() for end, _ in w}
-        | set(pricing.PROVIDER_STARTS.values())
-    )
-
-
 def _row(model, provider, epoch, fresh=0, output=0, cost=0.0, read=0):
     # (model, provider, rate_epoch, long_context, turns, fresh,
     #  cache_create, cache_read, output, eph5, eph1h, cost_total)

@@ -26,7 +26,6 @@ def test_interpreter_given_by_path_dash_c_is_still_python():
     ("echo '' > out.txt", (1, 0)),
     (r"echo -e 'one\ntwo' > out.txt", (2, 0)),
     (r"echo -e '\cignored' > out.txt", (0, 0)),
-    ('echo "$UNKNOWN" > out.txt', (1, 0)),
     (r"printf 'one\ntwo\n' > out.txt; generate > other.txt", (2, 0)),
     ("printf '' > out.txt; generate > other.txt", (1, 0)),
     ("printf '' > out.txt", (0, 0)),

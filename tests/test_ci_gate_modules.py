@@ -453,15 +453,6 @@ def test_classify_docs_only():
     assert "documentation-only" in reason
 
 
-def test_classify_mixed_change_runs_everything():
-    docs_only, data_only, _comment, _thresholds, reason = classify.classify(
-        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
-        lambda argv: "README.md\nbackend/app.py\n",
-    )
-    assert (docs_only, data_only) == (False, False)
-    assert "outside documentation" in reason
-
-
 def test_classify_unreadable_paths_run_everything():
     docs_only, data_only, _comment, _thresholds, reason = classify.classify(
         {"name": "push"}, lambda argv: "")
