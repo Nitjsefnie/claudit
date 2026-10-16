@@ -227,8 +227,6 @@ def to_claudit(parsed: dict, fmt: str, *, collection: CollectionPolicy = ALL_COL
         # and a fresh turn_flags list for each record.
         r.update({
             "request_id": "",
-            "generation_s": None,
-            "output_tokens_per_s": None,
             "stop_reason": None,
             "effort": None,
             "cli_version": None,
@@ -240,6 +238,8 @@ def to_claudit(parsed: dict, fmt: str, *, collection: CollectionPolicy = ALL_COL
             "cache_write_tokens": 0,
         })
         r.setdefault("web_search_requests", None)
+        r.setdefault("generation_s", None)
+        r.setdefault("output_tokens_per_s", None)
     for tu in parsed["tool_uses"]:
         tc_id = str(tu.pop("tool_call_id", "") or "")
         if fmt == "legacy" and tc_id:

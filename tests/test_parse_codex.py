@@ -1,28 +1,4 @@
-"""parse.py — per-file extraction from Codex rollout JSONL.
-
-Every fixture under fixtures/codex is SYNTHETIC: generated, never
-captured. What each one carries, and the invariants an edit to one has to
-preserve, are in fixtures/codex/README.md.
-
-Generated data is only worth what it still catches, so the fixtures
-reproduce the format's grammar exactly — record types, payload
-discriminators, field names — and keep the numeric relationships that
-make the naive token sum wrong: a cumulative counter opened at an
-inherited 40M, duplicate snapshots that repeat it verbatim, a ~98%
-cache-read rate, and model declarations that sit between the requests
-they govern. Each of the four sections below fails if the parser stops
-honouring one of those, which is the property the corpus exists for.
-
-The four assertions the format demands, each with its own section below:
-
-  1. a forked thread's inherited cumulative total does not inflate the count
-  2. duplicate token_count events do not double-count
-  3. cached tokens are SUBTRACTED from input, never added
-  4. model attribution follows the preceding turn_context
-
-Expected numbers are read off the fixtures' own raw fields and quoted in
-the test that uses them, so a failure says which field moved.
-"""
+"""Codex rollout parsing against synthetic wire fixtures."""
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -690,3 +666,15 @@ def test_the_fork_head_advances_and_counts_like_the_parse_loop():
     assert first_model == "gpt-5.6-terra"
     # splitlines numbering: the CR line is lines 3-4, the declaration line 5.
     assert declared_at == 5
+
+
+@pytest.mark.parametrize("ordering,seconds,speeds", [
+    ("new", [None, 6, 8], [None, 4, 5]),
+    ("old", [6, 8, None], [4, 5, None]),
+])
+def test_codex_generation_ordering(ordering, seconds, speeds):
+    name = f"rollout_generation_{ordering}_ordering.jsonl"
+    records = parse.parse_file(f"codex/{name}", (FIX / name).read_bytes())["records"]
+    assert len(records) == 3
+    assert [r["generation_s"] for r in records] == seconds
+    assert [r["output_tokens_per_s"] for r in records] == speeds
