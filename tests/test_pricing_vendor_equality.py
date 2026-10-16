@@ -63,7 +63,9 @@ from tests.test_pricing_vendor import (
 def _old_doc() -> dict:
     """The pre-migration shapes of the moved rows (frozen literals).
     claude-old-window-9 carries a real dated window: the equality claim
-    covers pricing ACROSS a cutover, not only windowless list prices."""
+    covers pricing ACROSS a cutover, not only windowless list prices.
+    The router row is namespaced before acme joins the vendor fold, so
+    its tracked key cannot collide with the old bare models-table row."""
     return {
         "long_context_meters": [],
         "models": {
@@ -75,11 +77,11 @@ def _old_doc() -> dict:
                 _entry(R_OLD, note="Cache reads at 0.05x base input.")],
         },
         "openrouter": {"data_region": "global",
-                       "models": {"claude-old-fold-9": {"id": "acme/claude-old-fold.9"}},
-                       "vendor": {"prefixes": PREFIXES, "resolve": {}}},
+                       "models": {"acme/claude-old-fold-9": {"id": "acme/claude-old-fold.9"}},
+                       "vendor": {"prefixes": ["legacy"], "resolve": {}}},
         "provider_rates_fetched": "2030-01-01T00:00:00Z",
         "providers": {
-            "claude-old-fold-9": {"OldHost": [_entry(R_OLD)]},
+            "acme/claude-old-fold-9": {"OldHost": [_entry(R_OLD)]},
         },
     }
 
@@ -223,6 +225,12 @@ def test_the_folded_provider_row_keeps_token_prices_equal():
     assert old == new
     assert old[0][-1] == old[1][-1]
 
+    # The router spelling keeps its rates/cost while its tracked key moves.
+    routed = [("acme/claude-old-fold.9", CUT, "OldHost", tokens)]
+    before = _price_all(_old_doc(), routed)[0]
+    after = _price_all(_new_doc(), routed)[0]
+    assert before[3:] == after[3:] == old[0][3:]
+
 
 # The instant every committed history predates: pricing each migrated row's
 # first entry, which an append-only history never rewrites.
@@ -240,12 +248,14 @@ def _rowless_default_doc() -> dict:
 
 
 def test_refusal_leaves_a_tracked_entry_and_member_untouched():
-    """A weekly schedule refuses while keeping the model's state intact."""
+    """A schedule mixed with a context band refuses without changing state."""
     banded = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
                     overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
                                      write_1h=2.0)])
     scheduled = _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
-                       overrides=[{"utc_days": ["monday"], "utc_start": 0,
+                       overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
+                                        write_1h=2.0),
+                                  {"utc_days": ["monday"], "utc_start": 0,
                                    "utc_end": 100, "prompt": _per_token(1.0),
                                    "completion": _per_token(5.0)}])
     before, _ = _run(

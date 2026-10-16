@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 V41 = "deepseek/deepseek-v4.1-flash"
 V41_KEY = next(key for key, entry in json.loads(
-    pricing.PRICING_JSON.read_text(encoding="utf-8"))["openrouter"]["models"].items()
+    pricing.PRICING_JSON.read_text(encoding="utf-8"))["openrouter"]["models"].items()  # sv-test-data: allow (catalog configuration only; tracked key derived from id)
                if entry["id"] == V41)
 FUZZ_RESERVED_NAMESPACE = "zz-fuzz-local/"
 # The instant the provider table was seeded. The scheduled refresh appends
