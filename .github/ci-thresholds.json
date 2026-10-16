@@ -993,8 +993,8 @@
       8243
     ],
     "tests/db_marker.py": [
-      3527,
-      5261
+      2897,
+      4466
     ],
     "tests/dims_seed.py": [
       802,
@@ -1169,8 +1169,8 @@
       9346
     ],
     "tests/test_ci_gate_modules.py": [
-      4862,
-      19811
+      4558,
+      19210
     ],
     "tests/test_ci_gate_output_wiring.py": [
       8159,
@@ -1181,8 +1181,8 @@
       12093
     ],
     "tests/test_ci_reseed.py": [
-      8666,
-      24427
+      8480,
+      24067
     ],
     "tests/test_ci_reseed_reparse.py": [
       5986,
@@ -1249,8 +1249,8 @@
       6663
     ],
     "tests/test_dashboard_fetch_wiring.py": [
-      2829,
-      7172
+      2574,
+      6533
     ],
     "tests/test_dashboard_latency_pins.py": [
       1049,
@@ -1477,8 +1477,8 @@
       20459
     ],
     "tests/test_overview_a11y_wiring.py": [
-      8226,
-      17654
+      7985,
+      17288
     ],
     "tests/test_page_shell_a11y.py": [
       2358,
@@ -1653,8 +1653,8 @@
       3590
     ],
     "tests/test_provider_pricing.py": [
-      7008,
-      26578
+      6785,
+      26120
     ],
     "tests/test_provider_rate_refresh.py": [
       5713,
@@ -1837,8 +1837,8 @@
       6181
     ],
     "tests/test_suite_ratchet.py": [
-      4178,
-      16451
+      4004,
+      15866
     ],
     "tests/test_teammate_agent_type.py": [
       2389,

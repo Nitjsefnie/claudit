@@ -119,7 +119,6 @@ def test_each_effect_run_owns_its_request():
         assert "const run = mintRunSignal();" in effect, (
             "each guarded effect run must mint its own run guard")
         # The two effects issue their request differently since #394: the
-        # dashboard goes through dashboardFetch.load, which checks r.ok,
         # and the projects list still calls fetch directly. Both must hand
         # their run's signal to it, so the guard matches either shape.
         m = re.search(r"(?:fetch|window\.dashboardFetch\.load)"

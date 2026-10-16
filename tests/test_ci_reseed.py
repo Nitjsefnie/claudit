@@ -209,7 +209,6 @@ def _measurement_file(path: Path, counts=None, instrument="instruction_count",
     return path
 
 
-# --- what declares a re-seed --------------------------------------------
 
 def test_the_marker_is_the_documented_spelling():
     # A spelling change is a doctrine change: the marker is documented
@@ -528,7 +527,6 @@ def test_the_master_ratchet_step_runs_on_a_re_seed_tip(tmp_path,
                          str(target)]) == 0
     assert ratchet.main(["--language", "javascript", "--measured", "90.5",
                          "--thresholds", str(target)]) == 0
-    # No raise and no tighten is due: both must leave the file alone.
     assert target.read_text(encoding="utf-8") == before
 
     # The reparse half of the step, only where the family is present:
@@ -562,7 +560,6 @@ def test_the_coverage_ratchet_would_raise_on_a_re_seed_tip(tmp_path,
     assert "99.9" in target.read_text(encoding="utf-8")
 
 
-# --- what the marker must not buy ---------------------------------------
 
 def test_the_guard_passes_the_sanctioned_delete(tmp_path):
     # The intermediate commit REMOVES the family while the base still

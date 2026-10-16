@@ -189,9 +189,6 @@ def test_tighten_moves_both_fields_past_the_hysteresis(tmp_path):
         for phase in ("collection", "run", "residual")}
     target = _written(tmp_path, seeded)
     cheaper = dict(COUNTS)
-    # run: exactly the hysteresis cheaper -- no move. collection: more
-    # than the hysteresis cheaper -- both fields move down. residual:
-    # unchanged.
     cheaper["run"] = COUNTS["run"] - Decimal("1.5")
     cheaper["collection"] = COUNTS["collection"] - Decimal("1.6")
     assert ratchet.main(
@@ -323,7 +320,6 @@ def test_seed_then_tighten_on_the_committed_document_round_trips(
 
 
 def subprocess_committed_bytes():
-    # Local import: only this helper needs the subprocess module.
     # pylint: disable-next=import-outside-toplevel
     import subprocess
     return subprocess.run(

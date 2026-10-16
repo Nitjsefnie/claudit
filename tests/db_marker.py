@@ -30,18 +30,9 @@ import pytest
 # over fixture parameters and helper calls) and fails when it no longer
 # equals this frozenset.
 #
-#   fresh_db             six modules define it — the canonical scratch-DB
-#                        fixture (test_bucket_redact, -ingest,
-#                        -multi_bucket, -parse_lanes, -long_context_fold,
-#                        -project_case_fold)
-#   redact_app           takes fresh_db (test_bucket_redact)
-#   codex_app            takes fresh_db (test_long_context_fold)
-#   sidecar_app          takes fresh_db (test_multi_bucket)
 #   app_with_data        test_api / test_tokens_by_project; the fixture
 #                        body calls a _build_api_client helper that
 #                        creates the scratch DB
-#   app_with_fresh_data  ditto, the function-scoped variant
-#   app_with_rl_data     test_api; creates its own scratch DB in-body
 #   app_with_prompt_range_data  test_prompt_ts; creates its own scratch
 #                        DB in-body (issue #214 fixture)
 #   dashboard_body       test_breakdown_exact_rate; creates its own
@@ -87,11 +78,6 @@ DB_FIXTURES = frozenset({
     "viz",
     "gated_client",
     "lat_client",
-    # cost_client      test_records_price; takes fresh_db, seeds the sidecar
-    #                  seed and serves the api router
-    # parity_clients   test_dims_api_parity; creates its own scratch DB
-    #                  in-body (the branch's golden-decouple commit made
-    #                  the fixture body a server root without registering)
     "cost_client",
     "parity_clients",
 })
