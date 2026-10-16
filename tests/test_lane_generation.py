@@ -32,6 +32,30 @@ def test_codex_generation_collection_off(ordering):
     assert disabled == enabled
 
 
+def test_codex_generation_search_only_duplicate_preserves_window():
+    rows = [json.loads(line) for line in
+            (FIX / "rollout_generation_new_ordering.jsonl").read_bytes().splitlines()]
+    output_index = next(i for i, row in enumerate(rows)
+                        if row["payload"].get("type") == "custom_tool_call_output")
+    rows.insert(output_index + 1, {
+        "timestamp": "2026-06-14T12:00:08Z", "type": "response_item",
+        "payload": {"type": "web_search_call"},
+    })
+    blob = b"\n".join(json.dumps(row).encode() for row in rows)
+    enabled = parse.parse_file("codex/synthetic.jsonl", blob)
+    records = enabled["records"]
+    assert [r["web_search_requests"] for r in records] == [None, 1, None, None]
+    assert [r["output_tokens"] for r in records] == [12, 0, 24, 40]
+    assert [r["generation_s"] for r in records] == [None, None, 6, 8]
+    assert [r["output_tokens_per_s"] for r in records] == [None, None, 4, 5]
+    policy = flags.resolve_config({"CLAUDIT_COLLECT_GENERATION_SPEED": "0"}).collection
+    disabled = parse.parse_file("codex/synthetic.jsonl", blob, collection=policy)
+    for result in (enabled, disabled):
+        for record in result["records"]:
+            del record["generation_s"], record["output_tokens_per_s"]
+    assert enabled == disabled
+
+
 def _codex_generation_blob(response_type, payload, end):
     rows = [
         {"timestamp": "2026-06-14T12:00:00Z", "type": "turn_context",
@@ -72,6 +96,10 @@ def test_codex_generation_response_shapes(rtype, payload):
     ("2026-06-14T13:00:00Z", 3600, 20 / 3600),
 ])
 def test_codex_generation_duration_limits(end, seconds, speed):
+    valid_blob = _codex_generation_blob(
+        "response_item", {"type": "reasoning"}, "2026-06-14T12:00:05Z")
+    valid, = parse.parse_file("codex/synthetic.jsonl", valid_blob)["records"]
+    assert (valid["generation_s"], valid["output_tokens_per_s"]) == (5, 4)
     blob = _codex_generation_blob("response_item", {"type": "reasoning"}, end)
     record, = parse.parse_file("codex/synthetic.jsonl", blob)["records"]
     assert (record["generation_s"], record["output_tokens_per_s"]) == (seconds, speed)
