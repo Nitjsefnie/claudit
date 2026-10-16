@@ -101,6 +101,7 @@ def _has_child_nodes(annotation: object) -> bool:
 
 @cache
 def _child_fields(kind: type[ast.AST]) -> tuple[str, ...]:
+    # pylint: disable-next=protected-access  # Stdlib AST schema; no public accessor.
     return tuple(name for name, annotation in kind._field_types.items()
                  if _has_child_nodes(annotation))
 
