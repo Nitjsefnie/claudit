@@ -146,8 +146,9 @@ def test_pinned_guards_share_one_preprocessing_pass(
     assert _marking_offenders(tmp_path) == [f"{path.name}:test_server"]
     assert len(_tree_problems(tmp_path)) == 1
     assert scratch.offending_files(tmp_path) == [path.name]
+    # #1060: the version guard's single-pass field-schema walk replaced the ast.walk pass; sharing unchanged.
     assert counts == {"read": 1, "parse": 1, "tokens": 1,
-                      "compile": 1, "index": 1, "walk": 1}
+                      "compile": 1, "index": 1}
 
 
 def _facts_state(facts: _Facts) -> object:
