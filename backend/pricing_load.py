@@ -213,8 +213,8 @@ def _history(entries: list[dict], where: str, may_begin: bool = False,
             starts.append(start)
         if i > 0 and owners[i] != owners[i - 1] and (
                 {k: v for k, v in entry.items() if k != "from"}
-                      == {k: v for k, v in entries[i - 1].items()
-                          if k != "from"}):
+                == {k: v for k, v in entries[i - 1].items()
+                    if k != "from"}):
             raise ValueError(f"{at}: equal to the previous entry except 'from'")
         row_rates = effective_rates(entry)
         if may_begin and "web_search" in entry:
