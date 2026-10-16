@@ -37,6 +37,7 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import cast
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
@@ -53,7 +54,7 @@ from fuzz_sharding import (  # noqa: E402  (re-exported for the tests)
     install_interrupt_handlers,
 )
 from backend import pricing  # noqa: E402
-from backend.pricing_rows import decode_pricing_doc  # noqa: E402
+from backend.pricing_rows import decode_pricing_doc, flatten_provider_history  # noqa: E402
 from backend.pricing_document import serialize_pricing_doc  # noqa: E402
 
 PRICING_REL = Path("src") / "pricing.json"
@@ -199,7 +200,8 @@ def _appended_entry(entries: list[dict], doc_max: datetime | None,
     predecessor but for `from`, so the generator can never emit the
     no-op the loaders refuse (issue #930)."""
     instant = _floor_instant(entries, doc_max) + timedelta(seconds=1)
-    predecessor = {k: v for k, v in entries[-1].items() if k != "from"}
+    predecessor = _compact({k: v for k, v in _occurrences(entries)[-1].items()
+                            if k != "from"})
     while True:
         entry = _compact({"from": _spell(instant, rng),
                           **{field: rng.choice(VALUE_POOL)
@@ -244,11 +246,9 @@ def _bump_fetch_stamp(doc: dict) -> None:
     """Move provider_rates_fetched to the document's newest `from`, the
     way a committing refresh run does: no dated entry may postdate the
     fetch stamp that recorded the document (issue #931)."""
-    stamps = [_parse_stamp(e["from"]) for _key, entries in _rows(doc)
-              for e in entries if e.get("from")]
-    if not stamps:
+    newest = _max_real_stamp(_rows(doc))
+    if newest is None:
         return
-    newest = max(stamps)
     stamped = doc.get("provider_rates_fetched")
     if stamped is None or newest > _parse_stamp(stamped):
         doc["provider_rates_fetched"] = newest.astimezone(
@@ -274,7 +274,7 @@ def _floor_instant(entries: list[dict],
     only entry is null-from has nothing older of its own — else the
     wall clock, a document where NOTHING is dated having nothing older
     to protect."""
-    newest = entries[-1].get("from")
+    newest = _occurrences(entries)[-1].get("from")
     if newest is not None:
         return _parse_stamp(newest)
     if doc_max is not None:
@@ -303,11 +303,18 @@ def _parse_stamp(text: str) -> datetime:
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
+def _occurrences(entries: list[dict]) -> list[dict]:
+    """Chronological scalar views of grouped storage states."""
+    return flatten_provider_history(
+        entries, "fuzz pricing history",
+        lambda stamp, _: _parse_stamp(cast(str, stamp)))[0]
+
+
 def _max_real_stamp(rows: list[tuple[str, list]]) -> datetime | None:
     """The document's newest real `from`, over every entry of every
     row; None when no entry carries one."""
     stamps = [_parse_stamp(entry["from"])
-              for _key, entries in rows for entry in entries
+              for _key, entries in rows for entry in _occurrences(entries)
               if entry.get("from") is not None]
     return max(stamps) if stamps else None
 
