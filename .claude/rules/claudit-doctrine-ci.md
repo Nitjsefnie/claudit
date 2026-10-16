@@ -234,16 +234,16 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   When the tree did change, the source is a fresh run of the FINAL tree;
   recorded numbers are never adjusted to fit.
 
-  **The window is bounded.** `reseed._MAX_VISITS` caps the marker walk.
-  On master each commit is one visit, and this repository rebase-merges,
-  so master carries no merge commits and a pull request lands as one
-  commit per commit it carries. A pull request's merge-ref run also
-  visits GitHub's merge commit and every commit of the pull request,
-  interleaved breadth-first with master's, so a multi-commit in-window
-  pull request reaches the cap sooner: in-window pull requests land as
-  one commit each, and the window closes while HEAD is fewer than ten
-  visits from the delete. Past that the walk fails CLOSED: it reads as
-  no marker, and the family-absent document is gated as any other is.
+  **The window is bounded.** `reseed._MAX_VISITS` caps each first-parent
+  lineage at ten visits. HEAD is checked first; at a merge HEAD, each
+  parent starts its own lineage with a full budget, last parent first
+  (the pull request's head on a GitHub merge ref). The merge commit and
+  the base side cannot spend the pull request lineage's budget, and the
+  base lineage still gets its own ten visits. Linear history counts HEAD
+  within its ten visits. A family-present or unreadable commit ends its
+  lineage, and commits already seen are not read again. A lineage that
+  exhausts its budget contributes no marker; if none declares, the walk
+  fails CLOSED and the family-absent document is gated as any other is.
 
   **Closing a window is not re-opening one.** Two separate facts, and
   the next re-seed needs both: the walk reached a family-present commit
