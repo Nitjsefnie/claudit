@@ -271,6 +271,36 @@ jobs:
           echo "JavaScript coverage measured ${js_measured}% " \
             "against floor ${floor}%"
 
+      - name: Gate suite and reparse cost base-vs-head
+        id: cost_gate
+        if: ${{ !cancelled() && steps.pytest.outcome == 'success'
+                && steps.jscov.outcome == 'success'
+                && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+        env:
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          case "$EVENT" in
+            pull_request)
+              git fetch --no-tags "https://github.com/${REPO}.git" "refs/heads/${BASE_REF}"
+              base="$(git merge-base HEAD FETCH_HEAD)" ;;
+            push) base="$(git rev-parse HEAD^)" ;;
+          esac
+          python3 scripts/ci/gate_base_head.py --base-ref "$base" \
+            --head-ref "$(git rev-parse HEAD)" \
+            --write "$RUNNER_TEMP/cost-gate-verdict.json" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the cost gate verdict
+        if: ${{ !cancelled() && steps.cost_gate.conclusion != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cost-gate-verdict
+          path: ${{ runner.temp }}/cost-gate-verdict.json
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Module size baseline
         # Growth is fixed by moving code into a new module, never by
         # raising the recorded ceiling: a file that outgrew its entry
