@@ -1193,7 +1193,7 @@
       9767
     ],
     "tests/test_ci_size_baseline.py": [
-      1385,
+      1274,
       8459
     ],
     "tests/test_ci_thresholds.py": [
@@ -1201,8 +1201,8 @@
       18559
     ],
     "tests/test_ci_thresholds_guard.py": [
-      6170,
-      18396
+      6230,
+      18913
     ],
     "tests/test_ci_thresholds_reparse.py": [
       2056,
@@ -1265,8 +1265,8 @@
       2648
     ],
     "tests/test_db_marker.py": [
-      8961,
-      19138
+      9053,
+      19841
     ],
     "tests/test_db_marker_gate.py": [
       1018,

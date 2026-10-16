@@ -42,7 +42,6 @@ def _load(name):
 
 @cache
 def _ci_modules():
-    """Load once at first use, with the same thresholds dependency."""
     thresholds = _load("thresholds")
     size_baseline = _load("size_baseline")
     return thresholds, size_baseline
@@ -56,14 +55,13 @@ def _size_baseline():
     return _ci_modules()[1]
 
 
-@pytest.fixture(scope="module")
-def git_metadata():
+@pytest.fixture(scope="module", name="git_metadata")
+def _git_metadata():
     git_meta.require_own_git_metadata(REPO_ROOT)
 
 
-@pytest.fixture(scope="module")
-def real_tracked_sizes(git_metadata):
-    # The main tests' function-scoped patches are restored before this runs.
+@pytest.fixture(scope="module", name="real_tracked_sizes")
+def _real_tracked_sizes(git_metadata):
     return _size_baseline().tracked_sizes()
 
 
@@ -233,9 +231,7 @@ def test_tracked_sizes_scope_and_counts(real_tracked_sizes):
 
 
 def test_tracked_sizes_cover_src_javascript(real_tracked_sizes):
-    # The shipped JS/JSX front end is in the size ratchet's scope: every
-    # tracked src/**/*.js(x) file is counted, priced against the
-    # production ceiling, and src/pricing.json is not (it is data).
+    # JS/JSX uses the production ceiling; pricing.json is data.
     sizes = real_tracked_sizes
     for rel in ("src/parser.js", "src/parser-lanes.js",
                 "src/dashboard-charts-extra.jsx", "src/app.jsx",
