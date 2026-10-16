@@ -387,12 +387,8 @@ def test_suite_child_uses_draw_backend_and_private_basetemps(gate, tmp_path, mon
 
     def run(command, **kwargs):
         assert '--basetemp' not in command
-        # The rebased launcher still forwards an unsupported --scratch.
-        # Isolate that reported deviation to exercise the landed bench.
-        if '--scratch' in command:
-            index = command.index('--scratch')
-            command = command[:index] + command[index + 2:]
-        return original_run(command, **kwargs)
+        assert '--scratch' not in command
+        return original_run(command, check=kwargs.pop('check', False), **kwargs)
 
     monkeypatch.setattr(gate.subprocess, 'run', run)
     monkeypatch.setattr(gate, 'ROOT', instrument.parents[1])
@@ -407,6 +403,7 @@ def test_suite_child_uses_draw_backend_and_private_basetemps(gate, tmp_path, mon
     recorded = json.loads(recording.read_text())
     assert recorded['marker'] == 'draw backend'
     assert '--basetemp' not in recorded['argv']
+    assert '--scratch' not in recorded['argv']
     assert recorded['exists']
     assert Path(recorded['basetemp']).name.startswith('claudit-suite-bench-basetemp-')
     assert not Path(recorded['basetemp']).exists()

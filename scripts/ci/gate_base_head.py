@@ -170,10 +170,9 @@ def _env(root: Path) -> dict:
     return env
 
 
-def _suite_command(root: Path, scratch: Path, output: Path) -> list[str]:
+def _suite_command(root: Path, output: Path) -> list[str]:
     return [sys.executable, str(ROOT / 'scripts/ci/suite_bench.py'),
-            '--repo-root', str(root), '--scratch', str(scratch),
-            '--write', str(output)]
+            '--repo-root', str(root), '--write', str(output)]
 
 
 def _bounded(text: str) -> str:
@@ -203,7 +202,7 @@ def _instrument(kind: str, root: Path, scratch: Path, output: Path) -> None:
     """Delegate suite setup to its CLI; isolate the reparse backend imports."""
     scratch.mkdir(parents=True, exist_ok=True)
     if kind == 'suite':
-        _run_measurement(_suite_command(root, scratch, output), root, output)
+        _run_measurement(_suite_command(root, output), root, output)
         return
     sys.path.insert(0, str(root))
     importlib.import_module('backend')
@@ -229,7 +228,7 @@ def measure_draw(root: Path, scratch: Path) -> dict:
     draw = {}
     for kind in ('suite', 'reparse'):
         output = scratch / f'{kind}.json'
-        command = (_suite_command(root, scratch, output) if kind == 'suite'
+        command = (_suite_command(root, output) if kind == 'suite'
                    else [sys.executable, str(Path(__file__).resolve()),
                          '--instrument', kind, '--head-tree', str(root),
                          '--scratch', str(scratch), '--write', str(output)])
