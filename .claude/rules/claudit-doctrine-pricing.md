@@ -474,29 +474,45 @@ same rules:
   move blocked by timing keeps the existing untouched-with-notice
   behaviour, subject to the same final validation.
 
-- Four automatic rules resolve the mechanical multi-price shapes with no
+- Automatic rules resolve the mechanical multi-price shapes with no
   human decision, beneath an explicit resolution (which keeps precedence,
   refusals included): a bare namespace endpoint beside its service tiers
   takes the bare one; the one quantization endpoint beside throughput
   tiers takes that one; the configured data region takes its own endpoint
   (the region filter, and under `global` the namespace's global endpoint —
   an explicit `<ns>/global`, else the bare `<ns>` — over a region spelling
-  the vocabulary does not carry); and one quantization's price twins take
+  the vocabulary does not carry). A base tag beside only its suffix
+  extensions at every other price takes the base when every endpoint
+  agrees in quantization suffixes and all non-tag identity fields
+  (quantization, context_length, max_completion_tokens, max_prompt_tokens).
+  Extensions may use any suffixes, with no tier-name vocabulary. A nested
+  service tier is a distinct offering, never a quantization price twin:
+  only the quantization and recognized region suffixes, including global,
+  belong to that quantization's family. One quantization's price twins take
   the cheaper, ordered by cache read, then input, then output — the twins
   are taken to be one offering priced per region, so the rule compares
   prices and not the identity fields a recorded `cheapest` pin compares
   (that pin's `ignore` exists for a listing artifact, which is why the
   hosts whose twins differ in a limit keep their pin). The rules normally
-  fire where no resolve entry exists. After a tag-only pin narrows to
-  multiple prices of one known quantization, rule 4 instead takes the
+  fire where no resolve entry exists. After the region filter, their order
+  is bare namespace, unique quantization, tier variant base, same
+  quantization, then stored price continuity. That last rule takes the
+  first endpoint of exactly one price group matching the stored five
+  RATE_FIELDS, rounded to ten decimals; search fees and schedules do not
+  affect the match. Without a stored row it never fires. Equal-price tags
+  remain interchangeable and are named in the report. An identity mismatch
+  disqualifies the tier-base rule and falls through to continuity or refusal.
+  After a tag-only pin narrows to
+  multiple prices of one known quantization, the same-quantization rule takes the
   cheapest within that tag, naming the pin and rule in its report. Single
   endpoint pins and other explicit resolutions keep precedence; every
   other ambiguous tag-only pin refuses. Twin-switch rises are reported,
   and ties or flips refuse. The report records every automatic choice as
   rule-resolved. A multi-price
-  shape none of them fits still refuses, as does a shape whose tags name
-  two quantizations, two prices under one tag, or a region spelling with
-  no global endpoint to prefer. The rules live in
+  shape none of them fits still refuses, including a first-seen host with
+  unrelated tags at different prices, or a tracked host with no structural
+  fit and no stored-price match. Twin ties and flips refuse before the
+  continuity rule can run. The rules live in
   `scripts/ci/refresh_selection_rules.py`, and none of them extends to the
   price log's own endpoint selection: a host the log would otherwise back
   needs its base pinned to stay log-backed.
@@ -504,7 +520,7 @@ same rules:
   `openrouter.models.<model>.resolve.<host>`, with a `why`:
   - `{"tag": ...}` narrows to that exact tag, whatever its region. If it
     leaves one endpoint, the pin keeps precedence. If it leaves multiple
-    price groups sharing one known quantization suffix, rule 4 takes the
+    price groups sharing one known quantization suffix, the same-quantization rule takes the
     cheapest within that tag and reports `rule-resolved`, naming the pin
     and rule; possible twin-switch rises are reported, and ties or flips
     still refuse. Every other ambiguous tag-only pin refuses.

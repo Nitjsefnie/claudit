@@ -1,9 +1,10 @@
 """#877: the mechanical multi-price host shapes resolve by rule.
 
-Four rules, beneath an explicit resolve entry (which keeps precedence):
+Automatic rules, beneath an explicit resolve entry (which keeps precedence):
 a bare namespace endpoint beside service tiers; a unique quantization
 beside throughput tiers; the configured data region; and the cheapest of
-one quantization's price twins. Each branch and its negative space is
+one quantization's price twins; an identity-matching tier base; and unique
+stored-price continuity. Each branch and its negative space is
 driven through listed_rows, and the live Alibaba shape end to end.
 """
 from __future__ import annotations
@@ -404,3 +405,174 @@ def test_the_alibaba_shape_resolves_without_its_stopgap_pins(tmp_path, capsys):
     assert "rule-resolved (same quantization)" in out
     for key in keys:
         assert run.doc()["providers"][key]["Alibaba"][-1] == {"from": STAMP, **cheap}
+
+
+# --- tier variants and stored-price continuity (#1029, #1030) -----------------
+
+
+@pytest.mark.parametrize("quantization, suffixes", [
+    ("fp4", ["flex"]),
+    ("fp8", ["flex", "priority"]),
+    ("fp8", ["future/service", "another-new-tier"]),
+])
+@pytest.mark.parametrize("stored", [None, RATES_B])
+def test_tier_variant_base_wins_over_arbitrary_nested_suffixes(
+        quantization, suffixes, stored):
+    base = f"fixture/{quantization}"
+    variants = [(f"{base}/{suffix}", rates)
+                for suffix, rates in zip(suffixes, (RATES_A, RATES_C))]
+    selected, refused, notices, _ = _select(
+        [*variants, (base, RATES_B)], stored=stored)
+    assert refused == {}
+    assert selected[HOST].tag == base
+    assert selected[HOST].rates == RATES_B
+    notice = _rules(notices, "tier variant base")[0]
+    assert all(tag in notice for tag, _ in variants)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("quantization", "fp4"), ("context_length", 262144),
+    ("max_completion_tokens", 8192), ("max_prompt_tokens", 65536),
+])
+@pytest.mark.parametrize("stored", [None, RATES_B])
+def test_tier_identity_mismatch_declines_or_uses_stored_continuity(field, value, stored):
+    base = _endpoint(HOST, RATES_B, tag="fixture/fp8")
+    variant = {**_endpoint(HOST, RATES_A, tag="fixture/fp8/flex"), field: value}
+    selected, refused, notices, _ = refresh.listed_rows(
+        MODEL, {"data": {"endpoints": [base, variant]}}, None, {},
+        {HOST: stored} if stored else {}, NOW)
+    assert not _rules(notices, "tier variant base")
+    if stored is None:
+        assert selected == {} and set(refused) == {HOST}
+    else:
+        assert refused == {}
+        assert selected[HOST].tag == "fixture/fp8"
+        assert _rules(notices, "stored price continuity")
+
+
+def test_tier_base_allows_equal_price_aliases_in_its_group():
+    selected, refused, notices, _ = _select([
+        ("other/fp8", RATES_B), ("fixture/fp8", RATES_B),
+        ("fixture/fp8/new-tier", RATES_A)])
+    assert refused == {}
+    assert selected[HOST].tag == "fixture/fp8"
+    assert "interchangeable" in _rules(notices, "tier variant base")[0]
+
+
+@pytest.mark.parametrize("other", ["fixture/fp8ish/flex", "other/fp8/flex"])
+def test_tier_base_requires_every_other_endpoint_to_extend_its_exact_tag(other):
+    selected, refused, _, _ = _select([
+        ("fixture/fp8", RATES_B), ("fixture/fp8/flex", RATES_A), (other, RATES_A)])
+    assert selected == {} and set(refused) == {HOST}
+
+
+@pytest.mark.parametrize("suffix", ["global", "us", "us-east-1"])
+def test_quantization_region_twins_keep_the_cheapest_rule(suffix):
+    region = None if suffix == "global" else suffix
+    selected, refused, notices, _ = _select([
+        (f"fixture/fp8/{suffix}", RATES_B), (f"fixture/fp8/{suffix}", RATES_A)],
+        region=region)
+    assert refused == {}
+    assert selected[HOST].rates == RATES_A
+    assert _rules(notices, "same quantization")
+
+
+@pytest.mark.parametrize("suffix", ["fast", "flex", "priority", "new-tier"])
+def test_quantization_service_extensions_are_never_price_twins(suffix):
+    tag = f"fixture/fp8/{suffix}"
+    selected, refused, _, _ = _select([(tag, RATES_A), (tag, RATES_B)])
+    assert selected == {} and set(refused) == {HOST}
+
+
+def test_stored_price_continuity_takes_first_of_equal_price_tags():
+    selected, refused, notices, _ = _select([
+        ("fixture/other", RATES_A), ("fixture/primary", RATES_B),
+        ("second/twin", RATES_B), ("third/unrelated", RATES_C)], stored=RATES_B)
+    assert refused == {}
+    assert selected[HOST].tag == "fixture/primary"
+    notice = _rules(notices, "stored price continuity")[0]
+    assert "interchangeable" in notice and "second/twin" in notice
+
+
+@pytest.mark.parametrize("field", list(RATES_A))
+def test_continuity_compares_all_five_token_rates_at_ten_decimals(field):
+    listed = {**RATES_B, field: RATES_B[field] + 0.000000000001, "web_search": 0.7}
+    selected, refused, notices, _ = _select([
+        ("fixture/other", RATES_A), ("fixture/primary", listed)],
+        stored={**RATES_B, "web_search": 0.1})
+    assert refused == {}
+    assert selected[HOST].tag == "fixture/primary"
+    assert _rules(notices, "stored price continuity")
+
+    selected, refused, _, _ = _select([
+        ("fixture/other", RATES_A),
+        ("fixture/primary", {**RATES_B, field: RATES_B[field] + 0.000000001})],
+        stored=RATES_B)
+    assert selected == {} and set(refused) == {HOST}
+
+
+def test_continuity_ignores_a_changed_schedule():
+    endpoint = _endpoint(HOST, RATES_B, tag="fixture/primary")
+    endpoint["pricing"]["overrides"] = [{
+        "utc_start": 100, "utc_end": 200, "prompt": "0.0000005"}]
+    selected, refused, notices, _ = refresh.listed_rows(
+        MODEL, {"data": {"endpoints": [
+            _endpoint(HOST, RATES_A, tag="fixture/other"), endpoint]}},
+        None, {}, {HOST: RATES_B}, NOW)
+    assert refused == {}
+    assert selected[HOST].tag == "fixture/primary"
+    assert selected[HOST].schedule
+    assert _rules(notices, "stored price continuity")
+
+
+def test_continuity_requires_exactly_one_matching_price_group():
+    selected, refused, _, _ = _select([
+        ("fixture/primary", {**RATES_B, "web_search": 0.1}),
+        ("fixture/twin", {**RATES_B, "web_search": 0.2})], stored=RATES_B)
+    assert selected == {} and set(refused) == {HOST}
+
+
+@pytest.mark.parametrize("stored", [None, {**RATES_C, "read": 0.9}])
+def test_unrelated_multi_price_host_without_stored_match_still_refuses(stored):
+    """Deliberate refusal: neither a structural fit nor a stored-price match."""
+    selected, refused, _, _ = _select([
+        ("fixture/first", RATES_A), ("second/another", RATES_B),
+        ("third/unrelated", RATES_C)], stored=stored)
+    assert selected == {} and set(refused) == {HOST}
+
+
+def test_structural_rule_precedes_stored_price_continuity():
+    selected, refused, notices, _ = _select([
+        ("fixture/fp8", RATES_B), ("fixture/fp8/flex", RATES_A)], stored=RATES_A)
+    assert refused == {}
+    assert selected[HOST].tag == "fixture/fp8"
+    assert _rules(notices, "tier variant base")
+
+
+@pytest.mark.parametrize("pin, expected_tag, refusal", [
+    ({"tag": "fixture/fp8/flex", "why": "fixture"}, "fixture/fp8/flex", None),
+    ({"select": "cheapest", "why": "fixture"}, None, "identical"),
+])
+def test_explicit_pin_precedes_tier_base_and_continuity(pin, expected_tag, refusal):
+    selected, refused, notices, _ = _select([
+        ("fixture/fp8", RATES_B), ("fixture/fp8/flex", RATES_A)],
+        resolutions={HOST: pin}, stored=RATES_B)
+    assert not any("rule-resolved" in note for note in notices)
+    if refusal:
+        assert selected == {} and refusal in refused[HOST]
+    else:
+        assert refused == {} and selected[HOST].tag == expected_tag
+
+
+def test_explicit_cheapest_pin_flip_still_refuses_before_continuity():
+    selected, refused, _, _ = _select([
+        ("fixture/fp8", RATES_A), ("fixture/fp8", RATES_B)],
+        resolutions={HOST: {"select": "cheapest", "why": "fixture"}}, stored=RATES_B)
+    assert selected == {} and "flipped" in refused[HOST]
+
+
+def test_tag_only_pin_never_uses_stored_price_continuity():
+    selected, refused, _, _ = _select([
+        ("fixture/unknown", RATES_A), ("fixture/unknown", RATES_B)],
+        resolutions={HOST: {"tag": "fixture/unknown", "why": "fixture"}}, stored=RATES_B)
+    assert selected == {} and set(refused) == {HOST}

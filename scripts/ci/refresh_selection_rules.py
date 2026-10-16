@@ -2,23 +2,30 @@
 """Resolution-free endpoint selection for one host's listed prices (#877).
 
 Beneath an explicit resolve entry — which always keeps precedence — a
-host's several listed prices resolve mechanically when they are variants
-of one offering rather than several offerings:
+host's several listed prices resolve mechanically by offering shape or
+by continuity with the stored token rates:
 
     - a bare namespace endpoint beside its service tiers takes the bare one;
     - the one quantization endpoint beside throughput tiers takes that one;
+    - a base tag beside only its suffix extensions takes the base, for any
+      suffixes, when quantization and every non-tag identity field agree;
     - the configured data region takes its own endpoint: the region filter,
       and under `global` the namespace's global endpoint (an explicit
       `<ns>/global`, else the bare `<ns>`) over an unrecognised regional
       spelling;
     - one quantization's price twins take the cheaper, ordered by cache
       read, then input, then output, with the twin-switch report the
-      recorded `cheapest` pins use.
+      recorded `cheapest` pins use; only quantization and region suffixes
+      belong to the quantization family, never nested service tiers;
+    - last, exactly one price group at the stored five token rates takes
+      that group, comparing at ten decimals and ignoring search fees and
+      schedules. Without a stored row this rule never fires.
 
-Everything else refuses, naming the tags: a quantization beside a bare
-namespace, two quantizations, two prices under one tag, a region spelling
-with no global endpoint to prefer. The run reports each rule that fired as
-rule-resolved, so an automatic choice is never silent.
+Everything else refuses, naming the tags: unrelated offerings without a
+unique stored-price match, including a first-seen multi-price host with no
+structural fit. Identity mismatches disqualify the tier-base rule; twin
+ties and flips still refuse before continuity is attempted. The run reports
+each rule that fired as rule-resolved, so an automatic choice is never silent.
 
 A region spelling is a tag with one suffix the vocabulary does not carry —
 neither a recognized data region, nor a quantization, nor a service tier
@@ -32,6 +39,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from refresh_prices import (QUANTIZATIONS, REGION_RE, RefreshError, tag_region)
+from backend.pricing_document import RATE_FIELDS, effective_rates
 
 if TYPE_CHECKING:
     from refresh_selection import Listing
@@ -229,6 +237,35 @@ def unique_quantization(where: str, groups: list[list[Listing]]
     return chosen, rule_notice(where, "unique quantization", detail, group)
 
 
+def tier_variant_base(where: str, groups: list[list[Listing]]
+                      ) -> tuple[Listing, str] | None:
+    """Take a base tag over arbitrary suffix extensions of the same identity.
+
+    Every endpoint at another price must extend the base's exact tag;
+    quantization suffixes and all non-tag identity fields must agree.
+    Equal-price aliases in the base group remain interchangeable."""
+    if len(groups) < 2:
+        return None
+    listed = [endpoint for group in groups for endpoint in group]
+    for group in groups:
+        others = [endpoint for candidate in groups if candidate is not group
+                  for endpoint in candidate]
+        for base in group:
+            if not base.tag or not all(endpoint.tag.startswith(base.tag + "/")
+                                       for endpoint in others):
+                continue
+            if not all(_tag_quantizations(endpoint.tag) == _tag_quantizations(base.tag)
+                       and all(endpoint.identity.get(key) == value
+                               for key, value in base.identity.items() if key != "tag")
+                       for endpoint in listed):
+                continue
+            over = sorted({endpoint.tag for endpoint in others})
+            detail = (f"took the base endpoint {base.tag!r} over tier variants "
+                      f"{', '.join(repr(tag) for tag in over)}")
+            return base, rule_notice(where, "tier variant base", detail, group)
+    return None
+
+
 def same_quantization(where: str, groups: list[list[Listing]], stored: dict | None
                       ) -> tuple[Listing, str] | None:
     """Take the cheapest of one quantization's price twins.
@@ -273,6 +310,26 @@ def same_quantization(where: str, groups: list[list[Listing]], stored: dict | No
               "cache read, then input, then output")
     rule = rule_notice(where, "same quantization", detail, chosen_group)
     return chosen, "; ".join(part for part in (rule, twin_notice) if part)
+
+
+def stored_price_continuity(where: str, groups: list[list[Listing]], stored: dict | None
+                            ) -> tuple[Listing, str] | None:
+    """Take the sole group matching the stored five token rates at ten decimals.
+
+    Search fees and schedules do not identify the token price; two matching
+    groups remain ambiguous even when those are their only differences."""
+    if stored is None:
+        return None
+    kept = effective_rates(stored)
+    matching = [group for group in groups
+                if all(round(float(group[0].rates[field]), 10) == round(float(kept[field]), 10)
+                       for field in RATE_FIELDS)]
+    if len(matching) != 1:
+        return None
+    group = matching[0]
+    chosen = group[0]
+    detail = f"took {chosen.tag!r} at the stored token rates"
+    return chosen, rule_notice(where, "stored price continuity", detail, group)
 
 
 def price_order(where: str, prices: list[Listing],
@@ -323,10 +380,11 @@ def _group_quantizations(group: list[Listing]) -> set[str]:
 
 
 def _is_quantization_tag(tag: str, namespace: str, quantization: str) -> bool:
-    """A tag naming the namespace's one quantization and nothing unknown."""
+    """A tag naming one quantization with only region suffixes beside it."""
     return (namespace_of(tag) == namespace
             and _tag_quantizations(tag) == {quantization}
-            and all(not _unknown(suffix) for suffix in tag_suffixes(tag)))
+            and all(suffix == quantization or REGION_RE.fullmatch(suffix)
+                    for suffix in tag_suffixes(tag)))
 
 
 def _is_quantization_group(group: list[Listing], namespace: str,
