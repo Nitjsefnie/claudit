@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from refresh_common import detection_stamp
 from refresh_prices import RefreshError
 from refresh_provider_history import (
-    Move, _entry, _floored_log, _new_log_states, _price_instant,
+    Move, _entry, _floored_log, _new_log_states, _occurrences, _price_instant,
     _set_search_rate,
 )
 from refresh_selection import Listing
@@ -45,13 +45,14 @@ def _append_token_states(change: _LogChange, additions: list[dict]) -> None:
 def _prepare_log_change(model: str, hosts: dict, host: str,
                         listing: Listing, entries: list[dict]) -> _LogChange:
     """Build the history state after appending any new logged token states."""
-    history = hosts.get(host)
-    prior_length = len(history) if history is not None else 0
+    stored = hosts.get(host)
+    history = list(_occurrences(stored, f"{model} via {host}")) if stored else []
+    prior_length = len(history)
     original = history[-1] if history else None
     old_search = original.get("web_search", 0.0) if original else 0.0
     change = _LogChange(model, host, listing, history or [], prior_length,
                         original, old_search)
-    if history is None:
+    if stored is None:
         additions = _floored_log(model, host, entries)
         change.history = copy.deepcopy(additions)
         hosts[host] = change.history
@@ -213,6 +214,10 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
     with committed history is deferred to the next actual append
     (SV-RATE-REFRESH).
     """
+    stored = hosts.get(host)
     change = _prepare_log_change(model, hosts, host, listing, entries)
     _append_endpoint_state(change, at)
-    return _append_search_change(change, at, deferred_notices)
+    move = _append_search_change(change, at, deferred_notices)
+    if stored is not None:
+        hosts[host] = [*stored, *change.history[change.prior_length:]]
+    return move

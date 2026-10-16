@@ -11,6 +11,7 @@ import refresh_alternation
 from refresh_selection import Listing
 from backend import pricing
 from backend.pricing_document import effective_rates
+from backend.pricing_rows import flatten_provider_history
 
 RATE_FIELDS = pricing.RATE_FIELDS
 
@@ -58,7 +59,8 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str,
             hosts[host] = [_entry(stamp, listing)]
             moves.append(Move(model, host, None, listing))
             continue
-        newest = history[-1]
+        occurrences = _occurrences(history, f"{model} via {host}")
+        newest = occurrences[-1]
         if (all(effective_rates(newest)[f] == listing.rates[f]
                 for f in RATE_FIELDS)
                 and newest.get("web_search", 0.0)
@@ -73,7 +75,7 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str,
                 "not before the detection instant; the host was left untouched")
             continue
         notice = refresh_alternation.notice(
-            history, listing.rates, listing.schedule, newest, at,
+            occurrences, listing.rates, listing.schedule, newest, at,
             f"{model} via {host}")
         if notice:
             notices.append(notice)
@@ -86,6 +88,11 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str,
 def _price_instant(stamp: object, where: str) -> datetime:
     """Parse an entry timestamp with the pricing loader's rules."""
     return pricing._instant(stamp, where)  # pylint: disable=protected-access
+
+
+def _occurrences(history: list[dict], where: str) -> list[dict]:
+    """Read chronological occurrences without changing stored groups."""
+    return flatten_provider_history(history, where, _price_instant)[0]
 
 
 def _new_log_states(model: str, host: str, entries: list[dict],
