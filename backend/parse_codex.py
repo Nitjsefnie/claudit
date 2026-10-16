@@ -363,10 +363,12 @@ def _codex_response_item(st: _CodexState, ptype: str, line_num: int,
         _codex_tool_call(st, line_num, ts, payload)
         _mark_assistant_event(st, ts)
     elif ptype == "web_search_call":
+        if clock is not None:
+            clock.response_line(ts)
         st.web_search_requests += 1
         _mark_assistant_event(st, ts)
     elif ptype in ("reasoning", "local_shell_call"):
-        if ptype == "reasoning" and clock is not None:
+        if clock is not None:
             clock.response_line(ts)
         # Model output that is not a tool_uses row here: it can still be
         # where the reply began.
@@ -375,13 +377,12 @@ def _codex_response_item(st: _CodexState, ptype: str, line_num: int,
         if clock is not None:
             clock.anchor_line(ts)
         _codex_tool_result(st, payload)
-    elif ptype == "message":
+    elif ptype == "message" and clock is not None:
         role = payload.get("role")
-        if clock is not None:
-            if role == "user":
-                clock.anchor_line(ts)
-            elif role == "assistant":
-                clock.response_line(ts)
+        if role == "user":
+            clock.anchor_line(ts)
+        elif role == "assistant":
+            clock.response_line(ts)
     elif ptype == "agent_message" and clock is not None:
         clock.response_line(ts)
 

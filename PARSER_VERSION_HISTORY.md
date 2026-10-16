@@ -75,3 +75,8 @@ them: bump `PRICING_VERSION` in `constants.py` for that.
   with nonempty `token_usage` books the window whose lines precede it.
   Kimi-code steers anchor at delivery, and every `llm.error` invalidates
   its request's span. Collection OFF leaves both fields NULL.
+- **115** — issue #983: Codex `web_search_call` and `local_shell_call`
+  response items advance generation timing through their own timestamps.
+  Reparse stored records to include these model-issued tool calls in
+  the last-response-line duration and output-token rate. Web-search
+  billing and advancing-token-only timing binding are unchanged.
