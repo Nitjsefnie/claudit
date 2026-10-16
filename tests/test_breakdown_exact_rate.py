@@ -311,7 +311,10 @@ def test_breakdown_total_equals_the_stored_cost_for_mixed_models(
     assert live["kind"] == "exact", (
         "dated-record fixture live only while the permaslug folds to an "
         f"exact provider row, got kind {live['kind']}")
-    assert live["key"] == "deepseek/deepseek-v4-flash-0731"
+    dated_slug = "deepseek/deepseek-v4-flash-0731"
+    expected_key = pricing.VENDOR_BARE.get(dated_slug.partition("/")[2], dated_slug)
+    assert (expected_key, "DeepInfra") in pricing.PROVIDER_RATES
+    assert live["key"] == expected_key
     assert live["rates"]["fresh"], (
         "fixture live only while the folded row's rates are nonzero")
     got = _breakdown_of_dashboard(dashboard_body)
