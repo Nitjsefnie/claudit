@@ -330,12 +330,23 @@ def test_main_prints_each_forbidden_move(tmp_path, capsys):
     assert "never raised or added by hand" in captured.err
 
 
-def test_suite_cost_tightened_is_clean(tmp_path):
+@pytest.mark.parametrize("family,path,measured,floor", [
+    pytest.param("suite_cost", ("run",), 300.0, 301.5, id="suite-run"),
+    pytest.param("reparse", ("sniff", "share"), 4.0, 5.5, id="sniff-share"),
+    pytest.param("reparse", ("parse_body", "bytecodes"), 4.0, 5.5,
+                 id="parse-body-bytecodes"),
+    pytest.param("reparse", ("parse_body", "share"), 4.0, 5.5,
+                 id="parse-body-share"),
+])
+def test_suite_cost_tightened_is_clean(tmp_path, family, path, measured, floor):
     # The bot shape: a cheaper run moves both fields of one phase down
     # and leaves the other phases exactly where they were.
     base = _document()
     head = _document()
-    head["suite_cost"]["run"] = {"measured": 300.0, "floor": 301.5}
+    parent = head[family]
+    for key in path[:-1]:
+        parent = parent[key]
+    parent[path[-1]] = {"measured": measured, "floor": floor}
     assert _guard_result(tmp_path, base, head) == 0
 
 
@@ -370,14 +381,6 @@ def test_suite_cost_introduced_against_a_predating_base_is_clean(tmp_path):
         "--base", str(base_path), "--head", str(head_path)]) == 0
 
 
-def test_reparse_phase_tightened_is_clean(tmp_path):
-    # The bot's own direction for this family: a phase that got cheaper
-    # rewrites both its fields downward, and that move stays green.
-    base = _document()
-    head = _document(reparse=_reparse({"sniff.share": "4.0"}))
-    assert _guard_result(tmp_path, base, head) == 0
-
-
 def test_reparse_instruction_count_raised_fails(tmp_path):
     # The count is the instrument that catches a uniform slowdown, so a
     # count budget raised without judged features would buy away exactly
@@ -387,26 +390,17 @@ def test_reparse_instruction_count_raised_fails(tmp_path):
     assert _guard_result(tmp_path, base, head) == 1
 
 
-def test_reparse_instruction_count_tightened_is_clean(tmp_path):
-    base = _document()
-    head = _document(reparse=_reparse({"parse_body.bytecodes": "4.0"}))
-    assert _guard_result(tmp_path, base, head) == 0
-
-
 def test_reparse_family_unchanged_is_clean(tmp_path):
     base = _document()
     assert _guard_result(tmp_path, base, _document()) == 0
 
 
-def test_reparse_phase_tighten_leaves_the_other_phases_alone(tmp_path):
-    # Phases are independent ceilings: tightening one is the bot's move,
-    # and it must not be able to carry another phase up or down with it.
-    base = _document()
-    head = _document(reparse=_reparse({"parse_body.share": "4.0"}))
-    assert _guard_result(tmp_path, base, head) == 0
-
-
-def test_reparse_family_seed_is_clean(tmp_path):
+@pytest.mark.parametrize("overrides", [
+    pytest.param({}, id="default-seed"),
+    pytest.param({"sniff.share": "60.0", "parse_body.share": "30.0"},
+                 id="arbitrary-seed"),
+])
+def test_reparse_family_seed_is_clean(tmp_path, overrides):
     # The one-time seed: a base that predates the family carries no
     # record, so the change that introduces one is not a move at all.
     # The base's bytes are placed directly — the writer would refuse a
@@ -415,7 +409,8 @@ def test_reparse_family_seed_is_clean(tmp_path):
     base.pop("reparse")
     base_path = tmp_path / "base.json"
     base_path.write_text(json.dumps(base, default=float), encoding="utf-8")
-    head_path = _written(tmp_path, _document(reparse=_reparse()), "head.json")
+    head_path = _written(
+        tmp_path, _document(reparse=_reparse(overrides)), "head.json")
     assert _guard().main([
         "--base", str(base_path), "--head", str(head_path)]) == 0
 
@@ -432,23 +427,6 @@ def test_suite_cost_added_to_established_base_fails(tmp_path):
     head_path.write_text(json.dumps(head, indent=2), encoding="utf-8")
     assert _guard().main([
         "--base", str(base_path), "--head", str(head_path)]) == 1
-
-
-def test_reparse_family_seed_to_arbitrary_values_is_clean(tmp_path):
-    # The seed is the introducing PR's to choose, and this guard pins
-    # DIRECTION, not the truth of a seeded value (the committed-document
-    # tests do that): a seed far above any measurement is still legal
-    # here, exactly as a coverage seed is.
-    base = _document()
-    base.pop("reparse")
-    base_path = tmp_path / "base.json"
-    base_path.write_text(json.dumps(base, default=float), encoding="utf-8")
-    head_path = _written(
-        tmp_path,
-        _document(reparse=_reparse({"sniff.share": "60.0", "parse_body.share": "30.0"})),
-        "head.json")
-    assert _guard().main([
-        "--base", str(base_path), "--head", str(head_path)]) == 0
 
 
 def test_removed_reparse_member_fails(tmp_path):
@@ -510,24 +488,22 @@ def _with_identity(suite, lines):
     return family
 
 
-def test_suite_cost_identity_moved_fails(tmp_path):
+@pytest.mark.parametrize("base_identity,head_identity", [
+    pytest.param(40000, 40250, id="moved"),
+    pytest.param(None, 40000, id="added"),
+    pytest.param(40000, None, id="removed"),
+])
+def test_suite_cost_identity_moved_fails(tmp_path, base_identity, head_identity):
     # The workload identity is the seed's binding to the workload it
     # measured (issue #524): only the sanctioned re-seed writes it, and
     # that path deletes the family first — the marker's commit is the
     # one whose base lacks the family, so the identity always arrives as
     # part of a new family's seed. On an established family, a moved
     # identity is a hand-edit and fails.
-    base = _document(suite=_with_identity(SUITE_COST, 40000))
-    head = _document(suite=_with_identity(SUITE_COST, 40250))
-    assert _guard_result(tmp_path, base, head) == 1
-
-
-def test_suite_cost_identity_added_to_established_family_fails(tmp_path):
-    # Same rule, addition shape: an identity arriving on a family the
-    # base already carries did not come from a seed (a seed's base
-    # predates the family whole), so it is a hand-add and fails.
-    base = _document()
-    head = _document(suite=_with_identity(SUITE_COST, 40000))
+    base = (_document() if base_identity is None else
+            _document(suite=_with_identity(SUITE_COST, base_identity)))
+    head = (_document() if head_identity is None else
+            _document(suite=_with_identity(SUITE_COST, head_identity)))
     assert _guard_result(tmp_path, base, head) == 1
 
 
@@ -546,18 +522,6 @@ def test_new_family_seed_carrying_the_identity_is_clean(tmp_path):
     head_path = _written(tmp_path, head, "head.json")
     assert _guard().main([
         "--base", str(base_path), "--head", str(head_path)]) == 0
-
-
-def test_suite_cost_identity_removed_from_established_family_fails(tmp_path):
-    # The third shape of the identity rule: the family kept, the
-    # identity silently dropped. The changed and added shapes above are
-    # byte-identical in the budgets, and so is this one, so the identity
-    # branch is the only thing that can go red here — the mutant that
-    # exempts removals (`after is not None and after != before`)
-    # survived every other test in the branch.
-    base = _document(suite=_with_identity(SUITE_COST, 40000))
-    head = _document()
-    assert _guard_result(tmp_path, base, head) == 1
 
 
 def _git(root, *args):

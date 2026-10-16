@@ -161,41 +161,37 @@ def test_write_publishes_canonical_bytes(tmp_path):
     assert thresholds.load(target)["suite_cost"] == SUITE_COST
 
 
-def test_unknown_top_level_key_refused(tmp_path):
+@pytest.mark.parametrize("mutate,match,options", [
+    pytest.param(lambda doc: doc.update(surprise={}),
+                 "unknown field: surprise", (), id="unknown-top-level"),
+    pytest.param(lambda doc: doc["coverage"].update(
+        ruby={"measured": 50.0, "floor": 48.5}),
+        "unknown coverage language", (), id="unknown-language"),
+    pytest.param(lambda doc: doc["coverage"].pop("javascript"),
+                 "missing coverage language: javascript", (),
+                 id="missing-javascript"),
+    pytest.param(lambda doc: doc["coverage"]["python"].pop("floor"),
+                 "missing", (), id="missing-floor"),
+    pytest.param(lambda doc: doc.update(schema_version=2),
+                 "unsupported schema_version", (), id="wrong-schema-version"),
+    pytest.param(lambda doc: doc.pop("pylint_suppression_baseline"),
+                 "missing field", (False,), id="missing-suppression"),
+    pytest.param(lambda doc: doc.update(
+        pylint_suppression_baseline={"backend/api.py": 0}),
+        "positive integer", (), id="invalid-suppression-entry"),
+    pytest.param(lambda doc: doc.pop("suite_cost"),
+                 "missing field", (False,), id="missing-suite-cost"),
+    pytest.param(lambda doc: doc["suite_cost"].update(
+        warmup={"measured": 1.0, "floor": 2.5}),
+        "unknown suite cost phase", (), id="unknown-suite-cost-phase"),
+])
+def test_unknown_top_level_key_refused(tmp_path, mutate, match, options):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["surprise"] = {}
+    mutate(payload)
     target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="unknown field: surprise"):
-        thresholds.load(target)
-
-
-def test_unknown_coverage_language_refused(tmp_path):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["coverage"]["ruby"] = {"measured": 50.0, "floor": 48.5}
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="unknown coverage language"):
-        thresholds.load(target)
-
-
-def test_missing_javascript_coverage_language_refused(tmp_path):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    del payload["coverage"]["javascript"]
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError,
-                       match="missing coverage language: javascript"):
-        thresholds.load(target)
-
-
-def test_missing_field_refused(tmp_path):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    del payload["coverage"]["python"]["floor"]
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="missing"):
-        thresholds.load(target)
+    with pytest.raises(ValueError, match=match):
+        thresholds.load(target, *options)
 
 
 def test_floor_at_or_above_measured_refused(tmp_path):
@@ -263,15 +259,6 @@ def test_duplicate_key_refused(tmp_path):
         thresholds.load(target)
 
 
-def test_wrong_schema_version_refused(tmp_path):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["schema_version"] = 2
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="unsupported schema_version"):
-        thresholds.load(target)
-
-
 def test_baseline_value_must_be_positive_int(tmp_path):
     for value in ["0", "-5", "1.5"]:
         target = _written_document(tmp_path)
@@ -317,25 +304,19 @@ def test_committed_document_bytes_are_canonical(tmp_path):
     assert subprocess_committed_bytes() == target.read_bytes()
 
 
-def test_coverage_floor_cli_prints_floor():
-    # The printed floor is whatever the committed document records — the
+@pytest.mark.parametrize("flag,field", [
+    pytest.param("--coverage-floor", "floor", id="floor"),
+    pytest.param("--coverage-measured", "measured", id="measured"),
+])
+def test_coverage_floor_cli_prints_floor(flag, field):
+    # The printed value is whatever the committed document records — the
     # seed moves; the CLI's contract does not.
     recorded = thresholds.load(THRESHOLDS_PATH)["coverage"]["python"]
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
-         "--coverage-floor", "python", "--thresholds", str(THRESHOLDS_PATH)],
+         flag, "python", "--thresholds", str(THRESHOLDS_PATH)],
         capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == f'{recorded["floor"]:.1f}'
-
-
-def test_coverage_measured_cli_prints_measured():
-    recorded = thresholds.load(THRESHOLDS_PATH)["coverage"]["python"]
-    result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
-         "--coverage-measured", "python", "--thresholds",
-         str(THRESHOLDS_PATH)],
-        capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == f'{recorded["measured"]:.1f}'
+    assert result.stdout.strip() == f'{recorded[field]:.1f}'
 
 
 def test_check_cli_accepts_committed_document():
@@ -360,26 +341,6 @@ def test_check_cli_rejects_broken_document(tmp_path):
         capture_output=True, text=True)
     assert result.returncode == 1
     assert "schema_version" in result.stderr
-
-
-def test_missing_suppression_member_refused(tmp_path):
-    # The suppression baseline is a required member: a document that
-    # omits it (or a hand-deleted member) is refused outright.
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    del payload["pylint_suppression_baseline"]
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="missing field"):
-        thresholds.load(target, False)
-
-
-def test_suppression_member_entries_validated_like_size_entries(tmp_path):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["pylint_suppression_baseline"] = {"backend/api.py": 0}
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="positive integer"):
-        thresholds.load(target)
 
 
 def test_committed_suppression_member_loads():
@@ -443,20 +404,6 @@ def test_a_marker_admits_an_absent_family_without_forbidding_a_present_one():
     assert thresholds.normalise(doc, True) == doc
 
 
-def test_missing_suite_cost_member_refused(tmp_path):
-    # A document omitting the member is refused outright, like the
-    # suppression baseline: every consumer can read the family unguarded.
-    # The refusal is asked for explicitly, because load()'s default
-    # answers the TREE (scripts/ci/reseed.py) and this tree's commit may
-    # declare the sanctioned re-seed that makes the absence legal.
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    del payload["suite_cost"]
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="missing field"):
-        thresholds.load(target, False)
-
-
 @pytest.mark.parametrize("phase", thresholds.SUITE_COST_PHASES)
 def test_missing_suite_cost_phase_refused(tmp_path, phase):
     target = _written_document(tmp_path)
@@ -464,15 +411,6 @@ def test_missing_suite_cost_phase_refused(tmp_path, phase):
     del payload["suite_cost"][phase]
     target.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="missing suite cost phase"):
-        thresholds.load(target)
-
-
-def test_unknown_suite_cost_phase_refused(tmp_path):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["suite_cost"]["warmup"] = {"measured": 1.0, "floor": 2.5}
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="unknown suite cost phase"):
         thresholds.load(target)
 
 

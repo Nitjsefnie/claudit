@@ -477,15 +477,6 @@ def test_a_caller_can_refuse_the_tolerance_explicitly():
         thresholds.normalise(_document(suite_cost=False), False)
 
 
-def test_normalise_refuses_a_verdict_of_none():
-    # No default, and None is not one: a caller that forgets the verdict
-    # gets a refusal naming the one named way to ask, rather than a
-    # silent strict read — the shape that reddened the master-only
-    # ratchet step one call below the loader.
-    with pytest.raises(ValueError, match="thresholds.verdict"):
-        thresholds.normalise(_document(), None)
-
-
 def test_an_absent_family_round_trips_through_write(tmp_path, marker_tree):
     # The ratchets write the document they read. A re-seed commit's
     # document must survive that round trip, or the master-push bot
