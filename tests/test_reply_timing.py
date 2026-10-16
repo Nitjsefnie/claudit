@@ -14,22 +14,13 @@ from tests import scratch_db
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
 
 
-def test_injected_message_anchors_latency():
+@pytest.mark.parametrize("fixture", [
+    "injected_message_anchors_latency.jsonl",
+    "injected_list_message_anchors_latency.jsonl",
+], ids=["text", "list-text"])
+def test_injected_message_anchors_latency(fixture):
     out = parse.parse_file(
-        "k/sess/sess.jsonl", (FIX / "injected_message_anchors_latency.jsonl").read_bytes())
-    assert out["records"][0]["reply_latency_s"] == pytest.approx(10.0)
-    assert out["prompt_count"] == 1
-    assert out["prompt_ts"] == ["2026-06-23T10:00:00+00:00"]
-    assert out["turn_count"] == 1
-    assert out["ctx_turns"] == [{
-        "idx": 1, "ts": "2026-06-23T11:00:10+00:00", "line": 3,
-        "input": 100, "output": 10, "delta": 100,
-    }]
-
-
-def test_injected_list_message_anchors_latency():
-    out = parse.parse_file(
-        "k/sess/sess.jsonl", (FIX / "injected_list_message_anchors_latency.jsonl").read_bytes())
+        "k/sess/sess.jsonl", (FIX / fixture).read_bytes())
     assert out["records"][0]["reply_latency_s"] == pytest.approx(10.0)
     assert out["prompt_count"] == 1
     assert out["prompt_ts"] == ["2026-06-23T10:00:00+00:00"]
@@ -203,25 +194,17 @@ def test_generation_speed_lanes_null(name):
         assert record["output_tokens_per_s"] is None
 
 
-@pytest.mark.parametrize("list_text", [False, True])
-def test_replayed_injected_latency(list_text):
-    record, = _parse_fixture("replayed_injected_latency", list_text=list_text)["records"]
-    assert record["reply_latency_s"] == 10
-    assert record["generation_s"] == 10
-
-
-@pytest.mark.parametrize("list_text", [False, True])
-def test_whitespace_injected_latency(list_text):
-    record, = _parse_fixture("whitespace_injected_latency", list_text=list_text)["records"]
-    assert record["reply_latency_s"] == 10
-    assert record["generation_s"] == 2
-
-
-@pytest.mark.parametrize("list_text", [False, True])
-def test_interrupt_injected_latency(list_text):
-    record, = _parse_fixture("interrupt_injected_latency", list_text=list_text)["records"]
-    assert record["reply_latency_s"] is None
-    assert record["generation_s"] == 2
+@pytest.mark.parametrize("stem, reply_latency_s, generation_s", [
+    ("replayed", 10, 10), ("whitespace", 10, 2), ("interrupt", None, 2),
+], ids=["replayed", "whitespace", "interrupt"])
+@pytest.mark.parametrize("list_text", [False, True], ids=["text", "list-text"])
+def test_replayed_injected_latency(list_text, stem, reply_latency_s, generation_s):
+    record, = _parse_fixture(f"{stem}_injected_latency", list_text=list_text)["records"]
+    if reply_latency_s is None:
+        assert record["reply_latency_s"] is None
+    else:
+        assert record["reply_latency_s"] == reply_latency_s
+    assert record["generation_s"] == generation_s
 
 
 @pytest.fixture(name="fresh_db")

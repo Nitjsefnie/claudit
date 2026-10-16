@@ -15,6 +15,8 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from backend import constants
 
 from tests import git_meta
@@ -28,10 +30,6 @@ VERSION_PATH = REPO_ROOT / "VERSION"
 # releases the tree carries the `-dev` form (e.g. `0.4.0-dev`); a release
 # is the suffix being dropped (issue #131).
 SEMVER = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
-
-
-def test_version_file_exists():
-    assert VERSION_PATH.is_file(), "VERSION is the release machinery's input"
 
 
 def test_version_file_is_one_semver_line():
@@ -67,25 +65,19 @@ def test_version_is_not_tracked_as_ignored():
     assert proc.returncode != 0, ".gitignore hides VERSION from git"
 
 
-def test_missing_version_file_degrades_to_unknown(monkeypatch, tmp_path):
+@pytest.mark.parametrize("version_text", [None, "   \n"],
+                         ids=["absent", "whitespace-only"])
+def test_missing_version_file_degrades_to_unknown(monkeypatch, tmp_path, version_text):
     """A deploy without the file reports "unknown" rather than crashing.
 
     /health answering with an unknown version beats /health not answering.
     """
+    if version_text is not None:
+        (tmp_path / "VERSION").write_text(version_text, encoding="utf-8")
     missing = tmp_path / "backend" / "constants.py"
     missing.parent.mkdir(parents=True)
     missing.write_text("", encoding="utf-8")
     monkeypatch.setattr(constants, "__file__", str(missing))
-
-    assert constants._read_version() == "unknown"  # pylint: disable=protected-access
-
-
-def test_blank_version_file_degrades_to_unknown(monkeypatch, tmp_path):
-    (tmp_path / "VERSION").write_text("   \n", encoding="utf-8")
-    fake = tmp_path / "backend" / "constants.py"
-    fake.parent.mkdir(parents=True)
-    fake.write_text("", encoding="utf-8")
-    monkeypatch.setattr(constants, "__file__", str(fake))
 
     assert constants._read_version() == "unknown"  # pylint: disable=protected-access
 

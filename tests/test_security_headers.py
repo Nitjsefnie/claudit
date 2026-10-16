@@ -37,22 +37,6 @@ def _guest_client_fixture():
     return client
 
 
-def test_login_page_sends_framing_protection_and_nosniff():
-    resp = TestClient(app).get("/login")
-    assert resp.status_code == 200
-    assert "frame-ancestors 'none'" in resp.headers["content-security-policy"]
-    assert resp.headers["x-frame-options"] == "DENY"
-    assert resp.headers["x-content-type-options"] == "nosniff"
-
-
-def test_dashboard_sends_framing_protection_and_nosniff(guest_client):
-    resp = guest_client.get("/")
-    assert resp.status_code == 200
-    assert "frame-ancestors 'none'" in resp.headers["content-security-policy"]
-    assert resp.headers["x-frame-options"] == "DENY"
-    assert resp.headers["x-content-type-options"] == "nosniff"
-
-
 def test_auth_middleware_redirect_gets_nosniff():
     """The 302 the auth middleware returns itself for an
     unauthenticated page load is generated above every inner layer;
@@ -192,8 +176,12 @@ def _csp_directives(policy: str) -> dict:
     return out
 
 
-def test_login_csp_pins_every_directive():
-    resp = TestClient(app).get("/login")
+@pytest.mark.parametrize("client_fixture, path", [
+    (None, "/login"), ("guest_client", "/"),
+], ids=["login", "dashboard"])
+def test_login_csp_pins_every_directive(request, client_fixture, path):
+    client = request.getfixturevalue(client_fixture) if client_fixture else TestClient(app)
+    resp = client.get(path)
     assert resp.status_code == 200
     policy = resp.headers["content-security-policy"]
     directives = _csp_directives(policy)
@@ -208,22 +196,8 @@ def test_login_csp_pins_every_directive():
         f"'self' https://fonts.googleapis.com 'nonce-{nonce}'")
     assert directives["script-src"] == f"'self' https://unpkg.com 'nonce-{nonce}'"
     assert "'unsafe-inline'" not in policy
-
-
-def test_dashboard_csp_pins_every_directive(guest_client):
-    resp = guest_client.get("/")
-    assert resp.status_code == 200
-    policy = resp.headers["content-security-policy"]
-    directives = _csp_directives(policy)
-    assert set(directives) == set(_EXPECTED_CSP_DIRECTIVES) | {
-        "script-src", "style-src"}
-    for name, expected in _EXPECTED_CSP_DIRECTIVES.items():
-        assert directives[name] == expected, name
-    nonce = directives["style-src"].split("'nonce-")[1][:-1]
-    assert directives["script-src"] == f"'self' https://unpkg.com 'nonce-{nonce}'"
-    assert directives["style-src"] == (
-        f"'self' https://fonts.googleapis.com 'nonce-{nonce}'")
-    assert "'unsafe-inline'" not in policy
+    assert resp.headers["x-frame-options"] == "DENY"
+    assert resp.headers["x-content-type-options"] == "nosniff"
 
 
 def test_dashboard_script_tags_all_carry_the_header_nonce(guest_client):

@@ -313,23 +313,11 @@ def test_wait_proceeds_once_the_aggregate_reports(tmp_path):
 
 
 @ubuntu_step_body
-def test_wait_refuses_promptly_when_a_check_failed(tmp_path):
-    # A failed non-aggregate check refuses on the first read — no wait.
-    checks = _checks(_row("completed", "failure", "tests"),
-                     _row("completed", "success", "aggregate"))
-    proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
-                     {"STUB_CHECKS": checks, "STUB_RUNS": _runs(_run(PUSH_RUN)),
-                      "RUNNER_TEMP": str(tmp_path)}, timeout=30)
-    assert proc.returncode == 1
-    assert "Refusing to release" in proc.stderr
-    assert PROCEEDING not in proc.stdout
-
-
-@ubuntu_step_body
-def test_wait_refuses_promptly_when_a_check_was_cancelled(tmp_path):
-    # `cancelled` counts as failure: a cancelled run means a newer push
-    # superseded this SHA, which is not a commit to release.
-    checks = _checks(_row("completed", "cancelled", "tests"),
+@pytest.mark.parametrize("conclusion", ["failure", "cancelled"],
+                         ids=["failure", "cancelled"])
+def test_wait_refuses_promptly_when_a_check_failed(tmp_path, conclusion):
+    # A failed or cancelled non-aggregate check refuses on the first read — no wait.
+    checks = _checks(_row("completed", conclusion, "tests"),
                      _row("completed", "success", "aggregate"))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
                      {"STUB_CHECKS": checks, "STUB_RUNS": _runs(_run(PUSH_RUN)),
@@ -627,41 +615,22 @@ def test_refusal_refuses_when_the_release_probe_succeeds(tmp_path):
 
 
 @ubuntu_step_body
-def test_refusal_fails_closed_when_the_tag_probe_answers_403(tmp_path):
+@pytest.mark.parametrize("tag_rc, tag_output, release_rc, release_output, probe", [
+    (1, "gh: HTTP 403: Forbidden", 1, "", "tag"),
+    (1, "gh: HTTP 503: Service Unavailable", 1, "", "tag"),
+    (1, 'gh: Get "https://api.github.com": dial tcp: connection refused',
+     1, "", "tag"),
+    (1, TAG_404, 1, "gh: HTTP 403: Forbidden", "release"),
+], ids=["tag-403", "tag-503", "tag-network", "release-403"])
+def test_refusal_fails_closed_when_the_tag_probe_answers_403(
+        tmp_path, tag_rc, tag_output, release_rc, release_output, probe):
     # A 403 says nothing about the tag's existence; proceeding on it
     # would green-light a version collision the step exists to catch.
     proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
-                     _refusal_env(1, "gh: HTTP 403: Forbidden", 1, "", tmp_path))
-    assert proc.returncode == 1
-    assert "could not verify the tag probe for v9.9.9" in proc.stderr
-
-
-@ubuntu_step_body
-def test_refusal_fails_closed_when_the_tag_probe_answers_503(tmp_path):
-    proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
-                     _refusal_env(1, "gh: HTTP 503: Service Unavailable",
-                                  1, "", tmp_path))
-    assert proc.returncode == 1
-    assert "could not verify the tag probe for v9.9.9" in proc.stderr
-
-
-@ubuntu_step_body
-def test_refusal_fails_closed_when_the_tag_probe_hits_a_network_error(tmp_path):
-    proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
-                     _refusal_env(1, 'gh: Get "https://api.github.com": '
-                                  'dial tcp: connection refused',
-                                  1, "", tmp_path))
-    assert proc.returncode == 1
-    assert "could not verify the tag probe for v9.9.9" in proc.stderr
-
-
-@ubuntu_step_body
-def test_refusal_fails_closed_when_the_release_probe_answers_403(tmp_path):
-    proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
-                     _refusal_env(1, TAG_404, 1, "gh: HTTP 403: Forbidden",
+                     _refusal_env(tag_rc, tag_output, release_rc, release_output,
                                   tmp_path))
     assert proc.returncode == 1
-    assert "could not verify the release probe for v9.9.9" in proc.stderr
+    assert f"could not verify the {probe} probe for v9.9.9" in proc.stderr
 
 
 def test_refusal_probes_go_through_captured_gh_api():

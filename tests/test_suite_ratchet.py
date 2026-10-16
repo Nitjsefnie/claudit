@@ -347,8 +347,11 @@ def test_seed_carries_the_workload_identity(tmp_path, monkeypatch):
     assert doc["suite_cost"]["tests_tree_lines"] == 41234
 
 
+@pytest.mark.parametrize("measured_lines, current_lines", [
+    (41234, 63211), (63211, 41234),
+], ids=["below-current-tree", "above-current-tree"])
 def test_seed_refuses_a_measurement_from_another_tree(
-        tmp_path, capsys, monkeypatch):
+        tmp_path, capsys, monkeypatch, measured_lines, current_lines):
     # The identity check is the seed half of SV-CI-RATCHETS' binding
     # (issue #598): the sanctioned re-seed measures the FINAL tree, so an
     # artifact whose tests_tree_lines names another tree is refused,
@@ -358,35 +361,14 @@ def test_seed_refuses_a_measurement_from_another_tree(
     before = target.read_text(encoding="utf-8")
     measurement = _measurement_file(tmp_path, COUNTS)
     payload = json.loads(measurement.read_text(encoding="utf-8"))
-    payload["tests_tree_lines"] = 41234
+    payload["tests_tree_lines"] = measured_lines
     measurement.write_text(json.dumps(payload), encoding="utf-8")
-    monkeypatch.setattr(ratchet, "_tree_identity", lambda: 63211)
+    monkeypatch.setattr(ratchet, "_tree_identity", lambda: current_lines)
     assert ratchet.main(["--seed", str(measurement),
                          "--thresholds", str(target)]) == 1
     assert target.read_text(encoding="utf-8") == before
     err = capsys.readouterr().err
-    assert "41234" in err and "63211" in err
-
-
-def test_seed_refuses_a_measurement_above_this_tree(
-        tmp_path, capsys, monkeypatch):
-    # The mismatch refuses in BOTH directions: the issue's own motivating
-    # seed (#571's first attempt) was an artifact measuring MORE lines
-    # than the tree it landed on, so the artifact-above-tree side carries
-    # its own kill for a widened-acceptance mutant.
-    ratchet = _ratchet()
-    target = _written(tmp_path, _seeded_document())
-    before = target.read_text(encoding="utf-8")
-    measurement = _measurement_file(tmp_path, COUNTS)
-    payload = json.loads(measurement.read_text(encoding="utf-8"))
-    payload["tests_tree_lines"] = 63211
-    measurement.write_text(json.dumps(payload), encoding="utf-8")
-    monkeypatch.setattr(ratchet, "_tree_identity", lambda: 41234)
-    assert ratchet.main(["--seed", str(measurement),
-                         "--thresholds", str(target)]) == 1
-    assert target.read_text(encoding="utf-8") == before
-    err = capsys.readouterr().err
-    assert "63211" in err and "41234" in err
+    assert str(measured_lines) in err and str(current_lines) in err
 
 
 def test_seed_from_an_identity_less_measurement_omits_the_field(tmp_path):
