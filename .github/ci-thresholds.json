@@ -477,16 +477,16 @@
       7934
     ],
     "backend/pricing.py": [
-      7197,
-      14616
+      7117,
+      14586
     ],
     "backend/pricing_document.py": [
       1444,
       5704
     ],
     "backend/pricing_load.py": [
-      5388,
-      16137
+      5192,
+      15979
     ],
     "backend/project_aliases.py": [
       4726,
@@ -506,7 +506,7 @@
     ],
     "backend/rate_fingerprint.py": [
       4389,
-      7991
+      8010
     ],
     "backend/reply_timing.py": [
       1754,
@@ -681,8 +681,8 @@
       14496
     ],
     "scripts/ci/refresh_vendor_rates.py": [
-      5922,
-      14715
+      5909,
+      14698
     ],
     "scripts/ci/release_gate.py": [
       4680,
@@ -934,15 +934,15 @@
     ],
     "src/pricing-loader.js": [
       3345,
-      17020
+      17069
     ],
     "src/rate-series.js": [
       1018,
       2494
     ],
     "src/rates.js": [
-      3932,
-      8864
+      3804,
+      8874
     ],
     "src/record-dedup.js": [
       4303,
@@ -973,8 +973,8 @@
       15260
     ],
     "src/vendor-tables.js": [
-      1220,
-      4339
+      1092,
+      4228
     ],
     "tests/conftest.py": [
       4619,
@@ -1006,11 +1006,11 @@
     ],
     "tests/pricing_data_loader_helpers.py": [
       2845,
-      10475
+      10505
     ],
     "tests/refresh_fixture_builders.py": [
-      1537,
-      4742
+      1600,
+      4973
     ],
     "tests/reprice_fixture_builders.py": [
       499,
@@ -1106,7 +1106,7 @@
     ],
     "tests/test_breakdown_exact_rate.py": [
       3025,
-      13776
+      13932
     ],
     "tests/test_bucket_redact.py": [
       3468,
@@ -1590,11 +1590,11 @@
     ],
     "tests/test_pricing_compact_shape.py": [
       981,
-      3403
+      3575
     ],
     "tests/test_pricing_data.py": [
-      2310,
-      14207
+      2555,
+      15824
     ],
     "tests/test_pricing_flat_rows.py": [
       572,
@@ -1609,12 +1609,12 @@
       3925
     ],
     "tests/test_pricing_vendor.py": [
-      4345,
-      24483
+      4351,
+      24600
     ],
     "tests/test_pricing_vendor_equality.py": [
-      2766,
-      11643
+      2130,
+      11239
     ],
     "tests/test_project_aliases.py": [
       4218,
@@ -1629,12 +1629,12 @@
       3590
     ],
     "tests/test_provider_pricing.py": [
-      5892,
-      23036
+      5860,
+      23124
     ],
     "tests/test_provider_rate_refresh.py": [
       5713,
-      22777
+      23104
     ],
     "tests/test_provider_rate_refresh_alternation.py": [
       970,
@@ -1646,7 +1646,7 @@
     ],
     "tests/test_provider_rate_refresh_more.py": [
       3412,
-      22539
+      22618
     ],
     "tests/test_provider_rate_refresh_notices.py": [
       2574,
@@ -1655,10 +1655,6 @@
     "tests/test_provider_rate_refresh_pins.py": [
       463,
       1501
-    ],
-    "tests/test_provider_rate_refresh_rules.py": [
-      3384,
-      20321
     ],
     "tests/test_provider_rate_refresh_state.py": [
       1129,
