@@ -176,8 +176,8 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
                          for k in _CODEX_USAGE_KEYS}
     delta = {k: cumulative[k] - st.prev_usage[k] for k in _CODEX_USAGE_KEYS}
     st.prev_usage = cumulative
-    if (all(delta[k] <= 0 for k in _CODEX_USAGE_KEYS)
-            and not st.web_search_requests):
+    advancing = any(delta[k] > 0 for k in _CODEX_USAGE_KEYS)
+    if not advancing and not st.web_search_requests:
         return  # Trap 2: duplicate token_count, or a non-advancing snapshot.
 
     # Trap 3: cached and cache-write inputs are SUBSETS of input_tokens.
@@ -192,7 +192,6 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
     read = max(0, delta["cached_input_tokens"])
     create = max(0, delta["cache_write_input_tokens"])
     fresh = max(0, total_in - read - create)
-    output = max(0, delta["output_tokens"])
     # Subset of output, not an addend — carried, never added to cost.
     reasoning = max(0, delta["reasoning_output_tokens"])
     # Trap 4: the payload names no model; the surrounding turn_context does.
@@ -205,11 +204,12 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
         st, line_num, ts,
         _codex_record_uuid(st, cumulative, line_num),
         _codex_model(st.model),
-        (fresh, create, read, output),
+        (fresh, create, read, max(0, delta["output_tokens"])),
         reasoning=reasoning,
         long_context=(total_in > pricing.long_context_threshold(st.model)),
         web_search_requests=st.web_search_requests or None,
-        generation_s=st.lane_generation.bind() if st.lane_generation is not None else None,
+        generation_s=(st.lane_generation.bind()
+                      if advancing and st.lane_generation is not None else None),
     )
     st.web_search_requests = 0
 
