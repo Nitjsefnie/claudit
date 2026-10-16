@@ -379,8 +379,10 @@ def test_a_pinned_tag_with_two_prices_still_needs_a_human():
 def test_the_alibaba_stopgap_pins_are_gone_from_the_document():
     """#893's two cheapest pins were the stopgap this rule replaces."""
     doc = _openrouter_template()
-    for key in ("deepseek/deepseek-v4-pro", "glm-5-2"):
-        assert "Alibaba" not in doc["models"][key].get("resolve", {})
+    for model_id in ("deepseek/deepseek-v4-pro", "z-ai/glm-5.2"):
+        entry = next(entry for entry in doc["models"].values()
+                     if entry["id"] == model_id)
+        assert "Alibaba" not in entry.get("resolve", {})
 
 
 def test_the_alibaba_shape_resolves_without_its_stopgap_pins(tmp_path, capsys):
@@ -389,17 +391,27 @@ def test_the_alibaba_shape_resolves_without_its_stopgap_pins(tmp_path, capsys):
     gone, the same-quantization rule takes the cheaper fp8 endpoint and the
     run is green with the rule-resolved line in its report. The live hosts
     are deepseek/deepseek-v4-pro and glm-5-2; the fixture world carries the
-    former, glm-5-2 being a vendor-tracked key it drops."""
+    former, glm-5-2 being a vendor-tracked key it drops. Seed the subjects
+    explicitly: vendor-tracked snapshots are also omitted by Run's seed."""
     run = Run(tmp_path)
-    keys = ("deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-pro-0813")
+    tracked = _openrouter_template()["models"]
+    keys = [next(key for key, entry in tracked.items() if entry["id"] == model_id)
+            for model_id in ("deepseek/deepseek-v4-pro",
+                             "deepseek/deepseek-v4-pro-0813")]
     cheap = {**RATES_A, "read": 0.118}
     dear = {**RATES_B, "read": 0.13}
+
+    def seed_subjects(doc):
+        for key in keys:
+            doc["openrouter"]["models"][key] = {"id": tracked[key]["id"]}
+            doc["providers"][key] = {"Alibaba": [{"from": None, **RATES_B}]}
+
+    run.edit(seed_subjects)
     for key in keys:
-        run.endpoints(key)[:] = [
-            e for e in run.endpoints(key) if e["provider_name"] != "Alibaba"] + [
+        run.payloads[tracked[key]["id"]] = {"data": {"endpoints": [
             _endpoint("Alibaba", cheap, tag="alibaba/fp8"),
             _endpoint("Alibaba", dear, tag="alibaba/fp8"),
-            _endpoint("Alibaba", RATES_C, tag="alibaba/fast")]
+            _endpoint("Alibaba", RATES_C, tag="alibaba/fast")]}}
     rc, out, err = run(capsys)
     assert rc == 0, err
     assert "rule-resolved (same quantization)" in out

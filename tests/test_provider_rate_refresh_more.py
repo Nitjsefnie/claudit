@@ -63,7 +63,8 @@ def test_sail_research_takes_its_global_endpoint(tmp_path, capsys):
            "read": 0.016, "output": 0.55}
     us_region = {"fresh": 0.038, "create_5m": 0.038, "create_1h": 0.038,
                  "read": 0.0228, "output": 0.55}
-    model = "deepseek/deepseek-v4-flash-0731"
+    model = next(key for key, entry in run.doc()["openrouter"]["models"].items()
+                 if entry["id"] == "deepseek/deepseek-v4-flash-0731")
     run.endpoints(model)[:] = [
         e for e in run.endpoints(model) if e["provider_name"] != "Sail Research"] + [
         _endpoint("Sail Research", fp4, tag="sail-research/fp4"),
