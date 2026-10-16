@@ -312,10 +312,11 @@ jobs:
               git fetch --no-tags "https://github.com/${REPO}.git" "refs/heads/${BASE_REF}"
               base="$(git merge-base HEAD FETCH_HEAD)" ;;
             push)
-              case "$BEFORE" in
-                *[!0]*) base="$BEFORE" ;;
-                *) base="$(git rev-parse HEAD^)" ;;
-              esac ;;
+              if ! base="$(python3 scripts/ci/threshold_base.py "$BEFORE" .github/ci-thresholds.json)"; then
+                base=
+                echo "Threshold direction guard takes NO verdict on this push: no base exists in this clone."
+                exit 0
+              fi ;;
           esac
           git show "${base}:.github/ci-thresholds.json" \
             > "$RUNNER_TEMP/base-thresholds.json"
