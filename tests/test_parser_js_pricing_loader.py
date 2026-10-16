@@ -191,21 +191,16 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize("keyword,spelling", [
+    pytest.param("start1", "14e2", id="exponent-start"),
+    pytest.param("end1", "30.0", id="fractional-end"),
+])
 def test_an_exponent_spelled_schedule_start_throws_naming_pricing_json(
-        tmp_path):
-    out = _run(tmp_path, _render(_doc(start1=SENTINEL), spelling="14e2"))
-    assert out["error"], "the loader must refuse an exponent spelling"
+        tmp_path, keyword, spelling):
+    out = _run(tmp_path, _render(_doc(**{keyword: SENTINEL}), spelling=spelling))
+    assert out["error"], "the loader must refuse a non-integer spelling"
     assert "pricing.json" in out["error"]
-    assert "14e2" in out["error"], out["error"]
-    assert "offset" in out["error"], out["error"]
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_a_fractional_schedule_end_throws_naming_pricing_json(tmp_path):
-    out = _run(tmp_path, _render(_doc(end1=SENTINEL), spelling="30.0"))
-    assert out["error"], "the loader must refuse a fractional spelling"
-    assert "pricing.json" in out["error"]
-    assert "30.0" in out["error"], out["error"]
+    assert spelling in out["error"], out["error"]
     assert "offset" in out["error"], out["error"]
 
 

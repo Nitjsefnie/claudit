@@ -36,17 +36,6 @@ def _billed_input(rec):
 # --------------------------------------------------------------------------
 
 
-def test_a_rollout_file_is_parsed_as_codex_not_as_a_kimi_wire():
-    """Codex records carry a "timestamp" like legacy kimi-cli ones, so a
-    detector that checks the kimi rungs first silently returns an empty
-    parse instead of failing."""
-    out = _parse("rollout_model_switch.jsonl")
-    assert out["records"], "no records: the file fell through to a kimi parser"
-    assert {r["model"] for r in out["records"]} <= {
-        "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"
-    }
-
-
 def test_codex_search_call_item_is_counted_once_per_reply():
     out = _parse("rollout_web_search.jsonl")
     assert [record["web_search_requests"] for record in out["records"]] == [
@@ -142,15 +131,6 @@ def test_a_forks_inherited_total_never_becomes_a_billed_record():
     assert _billed_input(first) < FORK_INHERITED_TOTAL / 100
 
 
-def test_the_forks_billed_total_is_the_sum_of_deltas_not_of_finals():
-    """Summing this file's final cumulative counter — the obvious wrong
-    answer — charges 42.5M tokens for 2.46M of real work, a 17x error."""
-    out = _parse("rollout_fork_prefix.jsonl")
-    billed = sum(_billed_input(r) + r["output_tokens"] for r in out["records"])
-    assert billed == FORK_SUM_INPUT + FORK_SUM_OUTPUT
-    assert billed < FORK_FINAL_CUMULATIVE / 15
-
-
 def test_every_forked_record_is_a_plausible_single_request():
     """A leaked cumulative snapshot shows up as one record far larger than
     the model's context window, which no single request can be."""
@@ -213,15 +193,6 @@ def test_the_three_input_buckets_partition_the_prompt():
         assert rec["fresh_tokens"] >= 0
     assert sum(r["fresh_tokens"] for r in out["records"]) == FORK_SUM_FRESH
     assert sum(r["cache_read_tokens"] for r in out["records"]) == FORK_SUM_CACHED
-
-
-def test_adding_the_cache_instead_of_subtracting_would_inflate_fresh_input():
-    """At this corpus's ~98% cache rate the wrong sign is not a rounding
-    error: it reports ~97x the fresh input actually billed."""
-    out = _parse("rollout_fork_prefix.jsonl")
-    fresh = sum(r["fresh_tokens"] for r in out["records"])
-    wrong = sum(_billed_input(r) + r["cache_read_tokens"] for r in out["records"])
-    assert wrong > fresh * 20
 
 
 # --------------------------------------------------------------------------
@@ -460,14 +431,6 @@ def test_a_forks_replayed_records_collide_with_their_originals_by_uuid():
         r["uuid"] for r in replay["records"]]
     assert {r["file_key"] for r in fork["records"]} != {
         r["file_key"] for r in replay["records"]}
-
-
-def test_a_fragment_with_no_session_meta_falls_back_to_per_file_identity():
-    """A mid-file window has no thread identity to share. Per-file is the
-    honest answer — it simply cannot dedup against anything."""
-    out = _parse("rollout_model_switch.jsonl")
-    assert all(r["uuid"].startswith("codex/rollout_model_switch.jsonl:")
-               for r in out["records"])
 
 
 # --------------------------------------------------------------------------

@@ -10,6 +10,7 @@ cannot see.
 """
 from __future__ import annotations
 
+import pytest
 
 from tests.test_db_marker import (_derive_from_modules, _derive_narrow,
                                   _modules)
@@ -21,31 +22,27 @@ from tests.test_db_marker import (_derive_from_modules, _derive_narrow,
 _SERVER = 'viz_' 'conn'
 
 
-def test_a_chain_through_a_non_server_module_is_resolved(tmp_path):
-    (tmp_path / "test_a_root.py").write_text(
+@pytest.mark.parametrize("module_name,module_body,expected", [
+    pytest.param(
+        "test_b_chain.py",
         "import pytest\n\n\n@pytest.fixture\n"
-        f"def grown():\n    return {_SERVER}()\n", encoding="utf-8")
-    (tmp_path / "test_b_chain.py").write_text(
-        "import pytest\n\n\n@pytest.fixture\n"
-        "def chained(grown):\n    return None\n", encoding="utf-8")
-    planted = list(_modules(tmp_path))
-    assert _derive_narrow(tmp_path) == _derive_from_modules(planted)
-    assert _derive_narrow(tmp_path) == {"grown", "chained"}
-
-
-def test_a_nested_fixture_def_is_resolved_through_the_index(tmp_path):
-    # The module level's own co_names cannot see a nested def; the
-    # index admits on the all-level union (co_varnames and code-object
-    # names included), so this shape must resolve like any other.
-    (tmp_path / "test_a_root.py").write_text(
-        "import pytest\n\n\n@pytest.fixture\n"
-        f"def grown():\n    return {_SERVER}()\n", encoding="utf-8")
-    (tmp_path / "test_b_nested.py").write_text(
+        "def chained(grown):\n    return None\n",
+        {"grown", "chained"}, id="chain"),
+    pytest.param(
+        "test_b_nested.py",
         "import pytest\n\n\n"
         "def outer():\n"
         "    @pytest.fixture\n"
         "    def nested(grown):\n        return None\n"
-        "    return None\n", encoding="utf-8")
+        "    return None\n",
+        {"grown", "nested"}, id="nested"),
+])
+def test_a_chain_through_a_non_server_module_is_resolved(
+        tmp_path, module_name, module_body, expected):
+    (tmp_path / "test_a_root.py").write_text(
+        "import pytest\n\n\n@pytest.fixture\n"
+        f"def grown():\n    return {_SERVER}()\n", encoding="utf-8")
+    (tmp_path / module_name).write_text(module_body, encoding="utf-8")
     planted = list(_modules(tmp_path))
     assert _derive_narrow(tmp_path) == _derive_from_modules(planted)
-    assert _derive_narrow(tmp_path) == {"grown", "nested"}
+    assert _derive_narrow(tmp_path) == expected

@@ -249,34 +249,23 @@ def test_empty_request_id_distinct_message_ids_stay_separate():
     assert [r["line_num"] for r in out["records"]] == [1, 2]
 
 
-def test_tool_use_matched_to_error_result():
-    """A tool_use with a later tool_result is_error:true on the same
-    tool_use_id → tool_uses entry has is_error=True."""
-    out = parse.parse_file(
-        "k/sess-err/sess-err.jsonl", _read("tool_error.jsonl")
-    )
+@pytest.mark.parametrize("fixture,file_key,is_error,tool_name", [
+    pytest.param("tool_error.jsonl", "k/sess-err/sess-err.jsonl", True, "Bash", id="claude-error"),
+    pytest.param("tool_success.jsonl", "k/sess-ok/sess-ok.jsonl", False, None, id="claude-success"),
+    pytest.param("tool_unmatched.jsonl", "k/sess-pending/sess-pending.jsonl", None, None, id="claude-unmatched"),
+    pytest.param("kimi_tool_error.jsonl", "sessions/projErr/sess-err/wire.jsonl", True, "Bash", id="kimi-error"),
+    pytest.param("kimi_tool_success.jsonl", "sessions/projOk/sess-ok/wire.jsonl", False, None, id="kimi-success"),
+    pytest.param("kimi_tool_unmatched.jsonl", "sessions/projPending/sess-pending/wire.jsonl", None, None, id="kimi-unmatched"),
+    pytest.param("kimi_code.jsonl", "sessions/projKC/sess-kc/wire.jsonl", False, "Bash", id="kimi-code-success"),
+])
+def test_tool_use_matched_to_error_result(fixture, file_key, is_error, tool_name):
+    """Tool results settle their matching call; unmatched calls stay pending."""
+    out = parse.parse_file(file_key, _read(fixture))
     assert len(out["tool_uses"]) == 1
     tu = out["tool_uses"][0]
-    assert tu["tool_name"] == "Bash"
-    assert tu["is_error"] is True
-
-
-def test_tool_use_matched_to_success_result():
-    """A tool_use with a later tool_result is_error:false → is_error=False."""
-    out = parse.parse_file(
-        "k/sess-ok/sess-ok.jsonl", _read("tool_success.jsonl")
-    )
-    assert len(out["tool_uses"]) == 1
-    assert out["tool_uses"][0]["is_error"] is False
-
-
-def test_tool_use_unmatched_stays_null():
-    """A tool_use with NO later tool_result in the file → is_error=None."""
-    out = parse.parse_file(
-        "k/sess-pending/sess-pending.jsonl", _read("tool_unmatched.jsonl")
-    )
-    assert len(out["tool_uses"]) == 1
-    assert out["tool_uses"][0]["is_error"] is None
+    if tool_name is not None:
+        assert tu["tool_name"] == tool_name
+    assert tu["is_error"] is is_error
 
 
 def test_iterations_flattened_to_sum():

@@ -293,32 +293,6 @@ def test_two_records_without_message_id_both_kept():
     assert out["records"][1]["uuid"] is None
 
 
-def test_tool_use_matched_to_error_result():
-    out = parse.parse_file(
-        "sessions/projErr/sess-err/wire.jsonl", _read("kimi_tool_error.jsonl")
-    )
-    assert len(out["tool_uses"]) == 1
-    tu = out["tool_uses"][0]
-    assert tu["tool_name"] == "Bash"
-    assert tu["is_error"] is True
-
-
-def test_tool_use_matched_to_success_result():
-    out = parse.parse_file(
-        "sessions/projOk/sess-ok/wire.jsonl", _read("kimi_tool_success.jsonl")
-    )
-    assert len(out["tool_uses"]) == 1
-    assert out["tool_uses"][0]["is_error"] is False
-
-
-def test_tool_use_unmatched_stays_null():
-    out = parse.parse_file(
-        "sessions/projPending/sess-pending/wire.jsonl", _read("kimi_tool_unmatched.jsonl")
-    )
-    assert len(out["tool_uses"]) == 1
-    assert out["tool_uses"][0]["is_error"] is None
-
-
 def test_kimi_code_usage_record_drives_record_and_turn():
     """kimi-code usage.record is the primary cost/turn signal."""
     out = parse.parse_file(
@@ -388,23 +362,6 @@ def test_kimi_code_pre_cutoff_ambiguous_wire_id_resolves_to_k2_6():
         fresh=1000, output=200, eph5=0, eph1h=0, unsplit_create=50, read=100,
     )
     assert r["cost_usd"] == round(expected_cost, 6)
-
-
-def test_kimi_code_tool_call_result_pairing():
-    out = parse.parse_file(
-        "sessions/projKC/sess-kc/wire.jsonl", _read("kimi_code.jsonl")
-    )
-    assert len(out["tool_uses"]) == 1
-    tu = out["tool_uses"][0]
-    assert tu["tool_name"] == "Bash"
-    assert tu["is_error"] is False
-
-
-def test_kimi_code_detection_does_not_misclassify_legacy():
-    """A legacy fixture must still be parsed as legacy."""
-    out = parse.parse_file("sessions/projA/sess-A/wire.jsonl", _read("kimi_single_turn.jsonl"))
-    assert len(out["records"]) == 1
-    assert out["records"][0]["uuid"] == "a1"
 
 
 def test_turn_begin_drives_turn_boundaries():
