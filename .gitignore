@@ -192,3 +192,8 @@
 # The API-response parity capture (issue #959): golden payloads the
 # pre-migration code produced, compared after the surrogate-id change.
 !/tests/dims_api_golden.json
+# The growth-probe fixture: inert filler modules the runner draws scan
+# per-line (dropped once the draws are taken).
+!/tests/growth_probe/
+/tests/growth_probe/*
+!/tests/growth_probe/*.py
