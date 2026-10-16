@@ -42,14 +42,14 @@ read (issue #511: a tolerance scoped to HEAD/HEAD^2 lasted exactly one
 commit — the #509 incident, where the hourly pricing bot landed on the
 delete before the seed):
 
-- The walk starts at HEAD and reads back over the ancestry — every
-  parent, with the pull-request head's lineage first (a GitHub merge
-  has two parents and the head is the second; an octopus merge queues
-  them all): a pull-request run checks out the MERGE commit, whose own
-  message is GitHub's and carries no marker, and the pull request's
-  head — the lineage that declared the marker — hangs off it as the
-  second parent.
-- The walk ends at the last family-present commit: a commit whose
+- The walk reads HEAD first. At a merge HEAD, each parent starts its
+  own first-parent lineage, last parent first (a GitHub merge's last
+  parent is the pull request's head; an octopus merge visits every
+  parent's lineage). Later merges on those lineages contribute only
+  their first parent. A pull-request run checks out the MERGE commit,
+  whose own message is GitHub's and carries no marker, so the declaring
+  pull-request lineage is read before the base lineage.
+- Each lineage ends at its first family-present commit: a commit whose
   committed document carries the family is one where the window the
   marker opens is closed, whatever the commit's message says — a
   marker is honored only where the family it authorises absence from
@@ -59,16 +59,16 @@ delete before the seed):
   the key only, never its shape: the loader judges a present family's
   shape at the tip, exactly as it does today (an empty family is
   refused, marker or no marker).
-- The whole walk is additionally bounded at _MAX_VISITS commits,
-  fail-closed: a history with no family-present commit within ten
-  visits of HEAD — no thresholds file at all, or a history longer than
-  the cap — reads as no marker, and the tree is gated exactly as it
-  always was.
+- Each parent lineage of a merge HEAD gets its own _MAX_VISITS budget
+  of ten commits; HEAD and sibling lineages cannot spend it. On linear
+  history the ten visits include HEAD. Exhausting a lineage without
+  finding a marker contributes nothing, fail-closed; commits already
+  seen on another lineage are not read again.
 - Every commit read fails closed individually: a missing git, an
   unreadable revision (a shallow CI checkout's boundary among them) and
   a message without the marker all read the same way — that commit
-  contributes nothing, and the walk continues only where git can still
-  answer.
+  contributes nothing. An unreadable commit ends its lineage; a
+  readable message without the marker continues down the first parent.
 
 The walks of the two families are independent and run the same shape:
 one marker's window says nothing about the other family, whose absence
@@ -116,8 +116,8 @@ _TIMEOUT = 10
 # The walk's second bound, after the family-present one: the re-seed
 # series is short by construction — the base, the delete, the commits
 # that land on the delete before the seed (the hourly bot among them),
-# back to the base — and ten visits bound it with room to spare. A
-# longer window than that fails closed and needs the walk widened, not
+# back to the base — and ten visits per lineage bound it with room to
+# spare. A longer window fails closed and needs the walk widened, not
 # silently tolerated.
 _MAX_VISITS = 10
 
@@ -182,30 +182,37 @@ def _family_present(root: Path, revision: str, family: str) -> bool:
 
 
 def _declares(root: Path, marker: str, family: str) -> bool:
-    """Whether any commit the bounded walk reads carries ``marker`` —
-    honored only where ``family`` is absent, the one state it authorises."""
+    """Read HEAD, then bounded first-parent lineages, last HEAD parent first.
+
+    Each merge-HEAD parent gets _MAX_VISITS of its own; a linear HEAD
+    counts toward its lineage's budget. Family presence, an unreadable
+    commit or a previously seen commit ends only that lineage. A marker
+    declares only where its family is absent, the state it authorises.
+    """
     seen: set[str] = set()
-    queue: list[str] = ['HEAD']
-    while queue and len(seen) < _MAX_VISITS:
-        revision = queue.pop(0)
-        if revision in seen:
-            continue
-        seen.add(revision)
-        message = _revision_message(root, revision)
-        if message is None:
-            continue
-        # The bound is evaluated FIRST, so a family-present commit
-        # closes the window whatever its message says — a marker is
-        # honored only where the family it authorises absence from is
-        # actually gone (the sanctioned delete is family-absent).
-        if _family_present(root, revision, family):
-            continue
-        if marker in message:
-            return True
-        # Every parent, reversed: at a pull-request merge the LAST
-        # listed parent is the pull request's head — the lineage that
-        # declares — so it is visited first.
-        queue.extend(reversed(_parents(root, revision)))
+    lineages: list[tuple[str, int]] = [('HEAD', 0)]
+    while lineages:
+        revision, visits = lineages.pop()
+        while visits < _MAX_VISITS:
+            if revision in seen:
+                break
+            seen.add(revision)
+            visits += 1
+            message = _revision_message(root, revision)
+            if message is None:
+                break
+            # Presence closes this lineage before its marker is judged.
+            if _family_present(root, revision, family):
+                break
+            if marker in message:
+                return True
+            parents = _parents(root, revision)
+            if revision == 'HEAD' and len(parents) > 1:
+                lineages.extend((parent, 0) for parent in parents)
+                break
+            if not parents:
+                break
+            revision = parents[0]
     return False
 
 
