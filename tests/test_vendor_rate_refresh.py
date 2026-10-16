@@ -473,13 +473,16 @@ def test_a_discounted_listing_still_auto_adds(discount):
                                                     "vendor_host": "Vendor"}
 
 
-@pytest.mark.parametrize("discount", ["half", None, True, False, float("nan"),
-                                      float("inf"), float("-inf"), 1, 1.5])
-def test_both_listing_validators_refuse_invalid_discounts(discount):
+@pytest.mark.parametrize("discount", ["half", None, True, False, float("nan"), float("inf"), float("-inf"), 1, 1.5, 10**400, -(10**400)])
+@pytest.mark.parametrize("reader", [0, 1])
+def test_both_listing_validators_validate_discounts(discount, reader):
     endpoint = _endpoint("z-ai", _price(1.0, 5.0, discount=discount))
     selection = _load("refresh_selection")
-    for read in (lambda: vendor._listing(GLM_ID, endpoint),  # pylint: disable=protected-access
-                 lambda: selection._listing(endpoint, GLM_ID, NOW, None)):  # pylint: disable=protected-access
+    read = (lambda: vendor._listing(GLM_ID, endpoint),  # pylint: disable=protected-access
+            lambda: selection._listing(endpoint, GLM_ID, NOW, None))[reader]  # pylint: disable=protected-access
+    if discount == -(10**400):
+        assert read()
+    else:
         with pytest.raises(vendor.RefreshError) as exc:
             read()
         assert str(exc.value).endswith(f"discount {discount!r} is not a fraction")
