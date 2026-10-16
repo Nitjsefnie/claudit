@@ -30,8 +30,7 @@ blocks AFTER it are out of scope (CONTRIBUTING's file:// R2 fallback,
 AGENTS's admin-ingest curl). Today no section has a command block
 before the setup block.
 
-CI compares these shared setup blocks before narrowing doc changes:
-changed blocks run this guard; unreadable sections run the full gate.
+CI compares shared doc facts; changed facts run this guard, unreadable sections the full gate.
 
 Normalization boundary: each command's trailing ` # ...` inline
 comment is stripped, so a quoted or escaped ` #` literal inside a
@@ -47,7 +46,7 @@ from pathlib import Path
 import yaml
 
 from backend.guest_login import GUEST_LOGIN_ENV
-from scripts.ci.setup_docs import SECTIONS, SERVER_START, section, setup_block
+from scripts.ci.setup_docs import GUEST_LOGIN_ENV_LITERAL, SECTIONS, SERVER_START, section, setup_block
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -113,6 +112,7 @@ def test_each_doc_names_both_env_vars_in_its_setup_section():
     line tells the reader which env values to edit; a doc whose section
     stopped naming one of them is the exact drift this issue closed.
     Guest-login config also names the same toggle the code reads."""
+    assert GUEST_LOGIN_ENV_LITERAL == GUEST_LOGIN_ENV, "shared setup-doc guest-setting literal drifted"
     for name, heading in SECTIONS:
         path = ROOT / name
         selected = section(path.read_text(encoding="utf-8"), heading)

@@ -9,6 +9,7 @@ SECTIONS = (
     ('AGENTS.md', 'Build and test commands'),
 )
 SERVER_START = 'python3 -m uvicorn'
+GUEST_LOGIN_ENV_LITERAL = 'CLAUDIT_GUEST_LOGIN'
 
 
 def section(text: str, heading: str) -> str | None:
@@ -47,8 +48,20 @@ def setup_block(text: str, heading: str) -> str | None:
     return found if body is None else None
 
 
+def pin_facts(text: str, path: str, heading: str) -> tuple[str | bool, ...] | None:
+    """The guard's complete section and any file-wide presence facts.
+
+    Unreadable setup sections or fences retain the full-gate fallback.
+    README's guest-setting presence is pinned beyond its setup section.
+    """
+    selected = section(text, heading)
+    if selected is None or setup_block(text, heading) is None:
+        return None
+    return (selected, GUEST_LOGIN_ENV_LITERAL in text) if path == 'README.md' else (selected,)
+
+
 def classify(paths, event, run, refs, blob):
-    """Classify a documentation-shaped set after checking its setup blobs.
+    """Classify a documentation-shaped set after checking its pinned facts.
 
     Every changed setup doc must extract on both sides, even after an earlier
     doc changed. Read and extraction failures always run the full gate set.
@@ -61,20 +74,20 @@ def classify(paths, event, run, refs, blob):
             return (False, False, False, False, False,
                     'could not read setup doc refs; running the full gate set')
         for path, heading in selected:
-            blocks = []
+            observed = []
             for side, ref in zip(('base', 'head'), pair):
                 raw = blob(event['repository'], path, ref, run)
                 try:
-                    block = setup_block(raw.decode('utf-8'), heading) if raw is not None else None
+                    facts = pin_facts(raw.decode('utf-8'), path, heading) if raw is not None else None
                 except (UnicodeError, AttributeError):
-                    block = None
-                if block is None:
+                    facts = None
+                if facts is None:
                     return (False, False, False, False, False,
                             f"could not {'read' if raw is None else 'extract'} "
-                            f'{side} setup block in {path}; '
+                            f'{side} setup facts in {path}; '
                             'running the full gate set')
-                blocks.append(block)
-            if blocks[0] != blocks[1]:
+                observed.append(facts)
+            if observed[0] != observed[1]:
                 changed.append(path)
     if changed:
         return (False, False, False, False, True,
