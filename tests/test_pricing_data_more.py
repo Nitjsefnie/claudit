@@ -568,11 +568,11 @@ def test_grouped_long_context_meter_rules_are_refused(groups, reason):
 
 
 def _extending_ids() -> list[tuple[str, str]]:
-    """(model id, the key it names) where the id matches a longer key AND a
-    shorter one: an undashed snapshot suffix is valid after the longer key,
-    and after the shorter one the rest still reads as a snapshot
-    ("claude-opus-4" + "-1202508"). The keys are the merged view's:
-    models-table keys and tracked vendor bare keys alike."""
+    """(model id, priced key) for ids matching overlapping keys.
+    The merged view includes models-table and tracked vendor bare keys.
+    Syntactic matching alone does not supply a first-party price: id-only
+    entries resolve provider histories through their tracked key and have
+    no vendor_host fallback."""
     keys = [*pricing.MODEL_RATES, *pricing.VENDOR_BARE]
     return [(longer + "202508", longer)
             for shorter in keys for longer in keys
