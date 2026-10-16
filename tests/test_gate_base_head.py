@@ -345,18 +345,25 @@ def test_workflow_cost_gate_follows_successful_suite_and_jscov():
 
 def test_suite_child_uses_draw_backend_and_private_basetemps(gate, tmp_path, monkeypatch, capsys):
     root = tmp_path / 'mini'
+    recording = tmp_path / 'draw.json'
     (root / 'backend').mkdir(parents=True)
     (root / 'backend/__init__.py').write_text(
+        'import json, sys\nfrom pathlib import Path\n'
         'MARKER = "draw backend"\n__path__.append('
-        + repr(str(SCRIPT.parents[2] / 'backend')) + ')\n', encoding='utf-8')
+        + repr(str(SCRIPT.parents[2] / 'backend')) + ')\n'
+        'def record(basetemp):\n'
+        '    data = {"marker": MARKER, "argv": sys.argv,\n'
+        '            "basetemp": str(basetemp), "exists": basetemp.is_dir()}\n'
+        f'    Path({str(recording)!r}).write_text(json.dumps(data))\n',
+        encoding='utf-8')
     (root / 'tests').mkdir()
     test = root / 'tests/test_mini.py'
     test.write_text(
         'import os, subprocess, sys\n'
-        'from backend import MARKER\n'
-        'def test_draw(tmp_path):\n'
+        'from backend import MARKER, record\n'
+        'def test_draw(tmp_path, tmp_path_factory):\n'
         '    assert MARKER == "draw backend"\n'
-        '    assert "pytest-count" in str(tmp_path)\n'
+        '    record(tmp_path_factory.getbasetemp())\n'
         '    nested = tmp_path / "test_nested.py"\n'
         '    nested.write_text("def test_ok():\\n    pass\\n")\n'
         '    proc = subprocess.run([sys.executable, "-m", "pytest", "-q",\n'
@@ -366,8 +373,6 @@ def test_suite_child_uses_draw_backend_and_private_basetemps(gate, tmp_path, mon
     (root / 'pytest.ini').write_text(
         '[pytest]\nasyncio_default_fixture_loop_scope = function\n',
         encoding='utf-8')
-    fixture = tmp_path / 'fixture.txt'
-    fixture.write_text('tests/test_mini.py\n', encoding='utf-8')
     output = tmp_path / 'suite.json'
     scratch = tmp_path / 'scratch with spaces'
     scratch.mkdir()
@@ -376,7 +381,20 @@ def test_suite_child_uses_draw_backend_and_private_basetemps(gate, tmp_path, mon
     for name in ('suite_bench.py', 'suite_phases.py', 'suite_report.py',
                  'suite_pricing_doc.json'):
         shutil.copyfile(SCRIPT.parent / name, instrument / name)
-    shutil.copyfile(fixture, instrument / 'suite_bench_files.txt')
+    (instrument / 'suite_bench_files.txt').write_text(
+        'tests/test_mini.py\n', encoding='utf-8')
+    original_run = subprocess.run
+
+    def run(command, **kwargs):
+        assert '--basetemp' not in command
+        # The rebased launcher still forwards an unsupported --scratch.
+        # Isolate that reported deviation to exercise the landed bench.
+        if '--scratch' in command:
+            index = command.index('--scratch')
+            command = command[:index] + command[index + 2:]
+        return original_run(command, **kwargs)
+
+    monkeypatch.setattr(gate.subprocess, 'run', run)
     monkeypatch.setattr(gate, 'ROOT', instrument.parents[1])
     monkeypatch.setenv('PYTHONHASHSEED', '123')
     assert gate.main(['--instrument', 'suite', '--head-tree', str(root),
@@ -386,7 +404,12 @@ def test_suite_child_uses_draw_backend_and_private_basetemps(gate, tmp_path, mon
     assert data['hash_seed'] == '0'
     assert '1 passed' in capsys.readouterr().out
     assert data['tests_tree_lines'] == len(test.read_text().splitlines())
-    assert (scratch / 'pytest-count').is_dir()
+    recorded = json.loads(recording.read_text())
+    assert recorded['marker'] == 'draw backend'
+    assert '--basetemp' not in recorded['argv']
+    assert recorded['exists']
+    assert Path(recorded['basetemp']).name.startswith('claudit-suite-bench-basetemp-')
+    assert not Path(recorded['basetemp']).exists()
     assert list((root / 'tests/__pycache__').glob('test_mini.*.pyc'))
 
 
