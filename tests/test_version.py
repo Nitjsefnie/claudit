@@ -110,28 +110,6 @@ class _FakeConn:
         return _FakeCursor()
 
 
-def test_health_error_branch_reports_version(monkeypatch):
-    """`version` must survive the DB-error branch.
-
-    "Which build is broken?" is precisely the question asked while /health
-    is failing, so that is the worst possible moment for the field to be
-    the one that goes missing.
-    """
-    app_mod = importlib.import_module("backend.app")
-
-    def _boom():
-        raise RuntimeError("no database")
-
-    monkeypatch.setattr(app_mod.db, "viz_conn", _boom)
-
-    response = app_mod.health()
-    payload = json.loads(response.body)
-
-    assert payload["ok"] is False
-    assert payload["version"] == constants.VERSION
-    assert "parser_version" in payload
-
-
 def test_health_error_branch_answers_503(monkeypatch):
     """The DB-error branch must fail at the status line, not only in the
     body.

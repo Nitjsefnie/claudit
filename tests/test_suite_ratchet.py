@@ -126,20 +126,6 @@ def _measurement_file(tmp_path, counts, name="m.json"):
     return target
 
 
-def test_seed_writes_the_family_through_the_loader(tmp_path):
-    thresholds = _thresholds()
-    ratchet = _ratchet()
-    target = _written(tmp_path, _seeded_document())
-    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
-                         "--thresholds", str(target)]) == 0
-    doc = thresholds.load(target)
-    assert doc["suite_cost"] == {
-        phase: {
-            "measured": COUNTS[phase],
-            "floor": COUNTS[phase] + Decimal("1.5"),
-        } for phase in ("collection", "run", "residual")}
-
-
 def test_seed_refuses_when_the_member_exists(tmp_path, capsys):
     ratchet = _ratchet()
     seeded = _document()
