@@ -30,19 +30,9 @@ ENDPOINTS_URL = "https://openrouter.ai/api/v1/models/{}/endpoints"
 _RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
 _UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
-# Bounded retries for the fetches below (issue #760): one transient timeout
-# on the catalog read must not leave it unreadable, which would turn a
-# delisted model's empty endpoints into a refusal. The retry changes only
-# how many tries "unreadable" takes; a fetch failing every attempt still
-# raises into the callers' existing unreadable handling.
+# Retry transient 5xx/429 or broken transfers; other 4xx responses are final.
 FETCH_ATTEMPTS = 3
 FETCH_BACKOFF_S = 2.0
-# Transport failures a retry can plausibly clear. HTTPError is one of these
-# (it subclasses URLError) and is refined by _transient: only a server-side
-# "try again" — 5xx or 429 — is transient; a 4xx is the answer to the
-# request as sent and never gets a second try. An empty or unparseable body
-# is a broken transfer, never a valid listing (the same reasoning
-# _catalog_slugs applies to an empty models list).
 _TRANSIENT = (urllib.error.URLError, http.client.HTTPException,
               TimeoutError, ConnectionError, json.JSONDecodeError)
 
@@ -144,6 +134,16 @@ def _rates(state: dict[str, float | None]) -> dict[str, float] | None:
         "read": _rounded(0 if cache_read is None else cache_read),
         "output": _rounded(output),
     }
+
+
+def history_log_issue(history: list[dict]) -> str | None:
+    """The log cannot encode explicit free writes beside positive input."""
+    for entry in history:
+        rates = effective_rates(entry)
+        if rates["fresh"] > 0 and any(rates[field] == 0
+                                     for field in ("create_5m", "create_1h")):
+            return "stored zero cache-write history cannot be represented by the price log"
+    return None
 
 
 def _discount_note(value: float | None) -> str | None:
