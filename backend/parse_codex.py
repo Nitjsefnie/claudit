@@ -50,12 +50,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from operator import sub
 
 from orjson import JSONDecodeError, loads
 
 from backend import pricing
 from backend.codex_fork import head_scan, mark_replay
-from backend.lane_generation import codex_generation_line
 from backend.parse_common import (_append_usage_record,
                                   _end_turn, _finish_parse,
                                   _mark_assistant_event, _nonempty_str,
@@ -75,6 +75,7 @@ _CODEX_USAGE_KEYS = (
     "input_tokens", "cached_input_tokens", "cache_write_input_tokens",
     "output_tokens", "reasoning_output_tokens", "total_tokens",
 )
+_CODEX_ZERO_USAGE = dict.fromkeys(_CODEX_USAGE_KEYS, 0)
 
 
 # Every top-level record type the format emits; the format's fingerprint.
@@ -172,11 +173,13 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
         # snapshot minus the request that produced it, so the first delta is
         # that request alone and the parent's millions never enter a sum.
         last = as_dict(info.get("last_token_usage"))
-        st.prev_usage = {k: cumulative[k] - int(last.get(k) or 0)
-                         for k in _CODEX_USAGE_KEYS}
-    delta = {k: cumulative[k] - st.prev_usage[k] for k in _CODEX_USAGE_KEYS}
+        st.prev_usage = (_CODEX_ZERO_USAGE if total == last else
+                         {k: cumulative[k] - int(last.get(k) or 0)
+                          for k in _CODEX_USAGE_KEYS})
+    delta = dict(zip(_CODEX_USAGE_KEYS,
+                     map(sub, cumulative.values(), st.prev_usage.values())))
     st.prev_usage = cumulative
-    advancing = any(delta[k] > 0 for k in _CODEX_USAGE_KEYS)
+    advancing = max(delta.values()) > 0
     if not advancing and not st.web_search_requests:
         return  # Trap 2: duplicate token_count, or a non-advancing snapshot.
 
@@ -286,6 +289,9 @@ def _codex_item_completed(st: _CodexState, line_num: int,
     """
     item = as_dict(payload.get("item"))
     itype = item.get("type")
+    clock = st.lane_generation
+    if clock is not None and itype in ("AgentMessage", "Reasoning"):
+        clock.response_line(ts)
     if itype == "FileChange":
         # `status` replaces patch_apply_end's boolean `success`; the only
         # other value observed on an item is "failed".
@@ -323,12 +329,16 @@ def _codex_event_msg(st: _CodexState, ptype: str, line_num: int,
     elif ptype in ("task_complete", "turn_aborted"):
         _end_turn(st, line_num, ts)
     elif ptype == "agent_message":
+        if st.lane_generation is not None:
+            st.lane_generation.response_line(ts)
         # event_msg/agent_message is a SUPERSET of response_item/message with
         # role=assistant (every one of 496 distinct assistant texts sampled
         # appears in both), so only this side is counted.
         st.text_chars_since_turn += len(str(payload.get("message") or ""))
         _mark_assistant_event(st, ts)
     elif ptype == "agent_reasoning":
+        if st.lane_generation is not None:
+            st.lane_generation.response_line(ts)
         # The flat event_msg spelling of reasoning, as older rollouts write
         # it: model output, so it can be where the reply began.
         _mark_assistant_event(st, ts)
@@ -346,24 +356,38 @@ def _codex_event_msg(st: _CodexState, ptype: str, line_num: int,
 
 def _codex_response_item(st: _CodexState, ptype: str, line_num: int,
                          ts: datetime | None, payload: dict) -> None:
+    clock = st.lane_generation
     if ptype in ("custom_tool_call", "function_call"):
+        if clock is not None:
+            clock.response_line(ts)
         _codex_tool_call(st, line_num, ts, payload)
         _mark_assistant_event(st, ts)
     elif ptype == "web_search_call":
         st.web_search_requests += 1
         _mark_assistant_event(st, ts)
     elif ptype in ("reasoning", "local_shell_call"):
+        if ptype == "reasoning" and clock is not None:
+            clock.response_line(ts)
         # Model output that is not a tool_uses row here: it can still be
         # where the reply began.
         _mark_assistant_event(st, ts)
     elif ptype in ("custom_tool_call_output", "function_call_output"):
+        if clock is not None:
+            clock.anchor_line(ts)
         _codex_tool_result(st, payload)
+    elif ptype == "message":
+        role = payload.get("role")
+        if clock is not None:
+            if role == "user":
+                clock.anchor_line(ts)
+            elif role == "assistant":
+                clock.response_line(ts)
+    elif ptype == "agent_message" and clock is not None:
+        clock.response_line(ts)
 
 
 def _codex_dispatch(st: _CodexState, rtype: str, line_num: int,
                     ts: datetime | None, payload: dict) -> None:
-    if st.lane_generation is not None:
-        codex_generation_line(st.lane_generation, rtype, payload, ts)
     if rtype == "event_msg":
         _codex_event_msg(st, str(payload.get("type") or ""),
                          line_num, ts, payload)
