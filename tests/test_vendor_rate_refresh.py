@@ -462,12 +462,27 @@ def test_bad_search_rate_refuses():
     assert GPT_KEY not in doc["openrouter"]["models"]
 
 
-def test_a_discounted_listing_still_auto_adds():
-    doc, out = _run(_doc(), _catalog(GLM_ID), {GLM_ID: _payload(_endpoint(
-        "z-ai", _price(0.2, 1.0, discount=0.25)))})
+@pytest.mark.parametrize("discount", [0.25, -0.2])
+def test_a_discounted_listing_still_auto_adds(discount):
+    endpoint = _endpoint("z-ai", _price(1.0, 5.0, read=0.1, write=1.25,
+                                        write_1h=2.0, discount=discount))
+    assert vendor._listing(GLM_ID, endpoint)[0] == RATES  # pylint: disable=protected-access
+    doc, out = _run(_doc(), _catalog(GLM_ID), {GLM_ID: _payload(endpoint)})
     assert not out.refusals and not out.notices
     assert doc["openrouter"]["models"][GLM_KEY] == {"id": GLM_ID,
                                                     "vendor_host": "Vendor"}
+
+
+@pytest.mark.parametrize("discount", ["half", None, True, False, float("nan"),
+                                      float("inf"), float("-inf"), 1, 1.5])
+def test_both_listing_validators_refuse_invalid_discounts(discount):
+    endpoint = _endpoint("z-ai", _price(1.0, 5.0, discount=discount))
+    selection = _load("refresh_selection")
+    for read in (lambda: vendor._listing(GLM_ID, endpoint),  # pylint: disable=protected-access
+                 lambda: selection._listing(endpoint, GLM_ID, NOW, None)):  # pylint: disable=protected-access
+        with pytest.raises(vendor.RefreshError) as exc:
+            read()
+        assert str(exc.value).endswith(f"discount {discount!r} is not a fraction")
 
 
 def test_an_endpoint_without_a_provider_name_refuses():

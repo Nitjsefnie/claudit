@@ -471,22 +471,27 @@ def test_a_vanished_provider_keeps_its_row_and_is_reported(tmp_path, capsys):
 # --- discount metadata -------------------------------------------------------
 
 
-def test_a_discount_is_recorded_with_the_rate_and_round_trips(tmp_path, capsys):
+@pytest.mark.parametrize("discount,note", [
+    (0.5, "50% off"), (-0.2, "20% over base"), (-0.125, "12.5% over base"), (0, None)])
+def test_a_discount_is_recorded_with_the_rate_and_round_trips(tmp_path, capsys, discount, note):
     run = Run(tmp_path)
-    moved = _move_openinference(run, discount=0.3)
-    assert run(capsys)[0] == 0
+    moved = _move_openinference(run, discount=discount)
+    rc, out, _ = run(capsys)
+    assert rc == 0
+    assert (f"({note})" in out) if note else "% off" not in out and "% over base" not in out
     assert run.doc()["providers"][GLM]["OpenInference"][-1] == {
-        "from": STAMP, **moved, "note": "30% off"}
+        "from": STAMP, **moved, **({"note": note} if note else {})}
     after_first = run.snapshot()
     assert run(capsys, now=NOW + timedelta(hours=1))[0] == 0
     assert run.snapshot() == after_first, "the same payload again moves nothing"
 
 
-def test_a_discount_alone_changing_is_not_a_rate_change(tmp_path, capsys):
+@pytest.mark.parametrize("discount", [0.5, -0.2])
+def test_a_discount_alone_changing_is_not_a_rate_change(tmp_path, capsys, discount):
     """The listed price already has the discount applied; a label moving
     with the price unchanged prices nothing differently."""
     run = Run(tmp_path)
-    run.endpoint(GLM, "Novita")["pricing"]["discount"] = 0.5
+    run.endpoint(GLM, "Novita")["pricing"]["discount"] = discount
     before = run.snapshot()
     assert run(capsys)[0] == 0
     assert run.snapshot() == before
