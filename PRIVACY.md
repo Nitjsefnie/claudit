@@ -91,7 +91,7 @@ transition as complete.
 | `CLAUDIT_COLLECT_FILE_EXTRAS` | `files.models`, `files.prompt_count`, `files.turn_count` | None |
 | `CLAUDIT_COLLECT_TOOL_ERROR_KINDS` | `tool_uses.error_kind` | `tool_error_rollup` |
 | `CLAUDIT_COLLECT_DISPATCH_ANALYTICS` | `tool_uses.agent_model`, `tool_uses.dispatch_prompt_chars`, `tool_uses.dispatch_brief_ref` | `dispatch_rollup`, `dispatch_brief_rollup` |
-| `CLAUDIT_COLLECT_GENERATION_SPEED` | `records.generation_s`, `records.output_tokens_per_s` (Claude only; other lanes always NULL) | None |
+| `CLAUDIT_COLLECT_GENERATION_SPEED` | `records.generation_s`, `records.output_tokens_per_s` (all formats; backend parser only, stored only) | None |
 
 Each group defaults ON independently. Parser callers pass the resolved policy
 explicitly; OFF avoids independent analysis work, while values required for

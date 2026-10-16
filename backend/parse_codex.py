@@ -55,6 +55,7 @@ from orjson import JSONDecodeError, loads
 
 from backend import pricing
 from backend.codex_fork import head_scan, mark_replay
+from backend.lane_generation import codex_generation_line
 from backend.parse_common import (_append_usage_record,
                                   _end_turn, _finish_parse,
                                   _mark_assistant_event, _nonempty_str,
@@ -208,6 +209,7 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
         reasoning=reasoning,
         long_context=(total_in > pricing.long_context_threshold(st.model)),
         web_search_requests=st.web_search_requests or None,
+        generation_s=st.lane_generation.bind() if st.lane_generation is not None else None,
     )
     st.web_search_requests = 0
 
@@ -360,6 +362,8 @@ def _codex_response_item(st: _CodexState, ptype: str, line_num: int,
 
 def _codex_dispatch(st: _CodexState, rtype: str, line_num: int,
                     ts: datetime | None, payload: dict) -> None:
+    if st.lane_generation is not None:
+        codex_generation_line(st.lane_generation, rtype, payload, ts)
     if rtype == "event_msg":
         _codex_event_msg(st, str(payload.get("type") or ""),
                          line_num, ts, payload)

@@ -63,3 +63,9 @@ them: bump `PRICING_VERSION` in `constants.py` for that.
   directories, git init, Perl in-place edits and rustfmt files. Bare clones
   preserve the existing name derivation; initdb show-only modes write
   nothing. Reparse stored calls for their targets and per-call churn.
+- **113** — issue #983: `backend/lane_generation.py` maps lane response
+  windows to generation duration and output tokens per second. Codex
+  anchors on user messages and tool outputs, advances on response lines,
+  and binds the latest completed window only at advancing token counts
+  in either journal ordering. Collection OFF stores NULL without creating
+  a generation clock. Browser parsers do not mirror request timing.

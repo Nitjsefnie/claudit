@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from itertools import pairwise
+from typing import TYPE_CHECKING
 
 from backend import pricing
 from backend.flags import ALL_COLLECTIONS_ON, CollectionPolicy
@@ -24,6 +25,9 @@ from backend.parse_collection import ParseCollection, parse_collection
 from backend.agent_types import canonical_agent_type
 from backend.ctx_turns import _ctx_turns_from_turns
 from backend.tool_errors import ERROR_TEXT_MAX, _pg_text, classify_lane_error
+
+if TYPE_CHECKING:
+    from backend.lane_generation import LaneGeneration
 
 
 def iter_lines(blob: bytes) -> Iterator[bytes]:
@@ -88,6 +92,7 @@ class _ParseState:
     file_key: str
     collection: CollectionPolicy = field(default=ALL_COLLECTIONS_ON, kw_only=True)
     collect: ParseCollection = field(init=False)
+    lane_generation: LaneGeneration | None = field(init=False, default=None)
     records: list[dict] = field(default_factory=list)
     tool_uses: list[dict] = field(default_factory=list)
     rate_limit_hits: list[dict] = field(default_factory=list)
@@ -115,6 +120,9 @@ class _ParseState:
 
     def __post_init__(self) -> None:
         self.collect = parse_collection(self.collection)
+        if self.collection.enabled("generation_speed"):
+            from backend.lane_generation import LaneGeneration  # pylint: disable=import-outside-toplevel
+            self.lane_generation = LaneGeneration()
 
 
 def _close_turn(st: _ParseState, line_num: int, ts: datetime | None) -> None:
@@ -296,7 +304,8 @@ def _append_usage_record(st: _ParseState, line_num: int,
                          model: str | None, toks: tuple[int, int, int, int],
                          *, reasoning: int = 0,
                          long_context: bool = False,
-                         web_search_requests: int | None = None) -> None:
+                         web_search_requests: int | None = None,
+                         generation_s: float | None = None) -> None:
     """Build one billing record from its token counts and append it.
 
     `toks` is the BILLED PARTITION of the request — (fresh, create, read,
@@ -320,7 +329,6 @@ def _append_usage_record(st: _ParseState, line_num: int,
     Codex has such a tier; the Kimi formats never pass it.
     """
     fresh, create, read, output = toks
-    latency = _consume_reply_latency(st, ts)
     # claudit's compute_cost prices a cache write through its TTL split;
     # every lane bills create at ONE rate, which claudit stores as both
     # create_5m and create_1h (Kimi writes at 0, Codex at 1.25x input), so
@@ -360,7 +368,10 @@ def _append_usage_record(st: _ParseState, line_num: int,
         "cost_usd": round(cost, 6),
         "text_chars": st.text_chars_since_turn,
     } | {
-        "reply_latency_s": latency,
+        "reply_latency_s": _consume_reply_latency(st, ts),
+        "generation_s": generation_s,
+        "output_tokens_per_s": (output / generation_s
+                                if generation_s and isinstance(output, (int, float)) else None),
         "ctx_input": fresh + create + read,
     })
     if st.current_turn is not None:
