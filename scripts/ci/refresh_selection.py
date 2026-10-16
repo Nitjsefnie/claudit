@@ -24,6 +24,7 @@ A refused host appends nothing; refresh_provider_rates.py owns appending.
 from __future__ import annotations
 
 import json
+import math
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -89,7 +90,7 @@ def _listing(endpoint: object, where: str, at: datetime,
             raise RefreshError(f"{where}: pricing {key} {value!r} is not modelled")
     discount = price.get("discount", 0)
     if (not isinstance(discount, (int, float)) or isinstance(discount, bool)
-            or not 0 <= discount < 1):
+            or not math.isfinite(discount) or discount >= 1):
         raise RefreshError(f"{where}: discount {discount!r} is not a fraction")
     identity = {k: endpoint.get(k) for k in _IDENTITY}
     rates, schedule = rates_of(price, where), entry_schedule(price, where)

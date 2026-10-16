@@ -139,6 +139,8 @@ def _rates(state: dict[str, float | None]) -> dict[str, float] | None:
 def _discount_note(value: float | None) -> str | None:
     if value in (None, 0):
         return None
+    if value < 0:
+        return f"{format((-Decimal(str(value)) * 100).normalize(), 'f')}% over base"
     return f"{format((Decimal(str(value)) * 100).normalize(), 'f')}% off"
 
 

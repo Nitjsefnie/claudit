@@ -130,7 +130,9 @@ def test_generated_history_omits_cache_tiers_equal_to_fresh():
     assert "create_1h" not in entry
 
 
-def test_a_series_becomes_change_entries_with_rounding_and_discount_notes():
+@pytest.mark.parametrize("discount,note", [
+    (0.5, "50% off"), (-0.2, "20% over base"), (-0.125, "12.5% over base"), (0, None), (None, None)])
+def test_a_series_becomes_change_entries_with_rounding_and_discount_notes(discount, note):
     item = _series()
     item["input"] = [
         _point("2026-09-01T00:00:00.100Z", 0.1),
@@ -158,7 +160,12 @@ def test_a_series_becomes_change_entries_with_rounding_and_discount_notes():
         _point("2026-09-01T00:00:02Z", 0.5),
     ]
 
-    entries: list[dict] = _entries(item)
+    series = logshape.read_log_payload(_payload(item))[0]
+    series.fields["discount"] += tuple(logshape.Point(datetime.fromisoformat(at), value)
+                                       for at, value in [("2026-09-01T00:00:03Z", discount),
+                                                         ("2026-09-01T00:00:04Z", -0.3)])
+    entries = pricelog.entries_for_series(series)
+    assert entries is not None
 
     assert len(entries) == 3
     assert [entry["from"] for entry in entries] == [
@@ -169,7 +176,7 @@ def test_a_series_becomes_change_entries_with_rounding_and_discount_notes():
     assert "create_5m" not in entries[0] and "create_1h" not in entries[0]
     assert entries[0]["note"] == "10% off"
     assert entries[1]["note"] == "25% off"
-    assert entries[2]["note"] == "50% off"
+    assert entries[2].get("note") == note
     assert entries[2]["create_5m"] == 0.05
     assert entries[2]["create_1h"] == 0.05
     assert entries[1]["read"] == 0.01
