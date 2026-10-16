@@ -194,7 +194,9 @@ def test_generation_speed_startup_switch(value, expected):
 
 @pytest.mark.parametrize("name", ["codex_min.jsonl", "kimi_code_min.jsonl", "kimi_legacy_min.jsonl"])
 def test_generation_speed_lanes_null(name):
-    records = parse.parse_file("sessions/p/s/wire.jsonl", (FIX / name).read_bytes())["records"]
+    collection = flags.resolve_config({"CLAUDIT_COLLECT_GENERATION_SPEED": "0"}).collection
+    records = parse.parse_file(
+        "sessions/p/s/wire.jsonl", (FIX / name).read_bytes(), collection=collection)["records"]
     assert records
     for record in records:
         assert record["generation_s"] is None
