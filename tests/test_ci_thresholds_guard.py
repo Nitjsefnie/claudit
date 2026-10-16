@@ -1,11 +1,11 @@
 """Tests for the CI thresholds direction guard (issue #388).
 
-The ratchet data in .github/ci-thresholds.json only ever moves the way
-the bots move it: a coverage floor or measured value never decreases, a
-baseline entry is never raised, and an entry is added only to seed a
-brand-new member or a brand-new measured family. Every case below is a
-move the audit showed passing today; each must go red (or, for the
-allowed moves, stay green).
+For the ratchet data in .github/ci-thresholds.json, a coverage floor or
+measured value never decreases, a baseline entry is never raised,
+and an entry is added only to seed a
+brand-new member or a brand-new measured family. Cost budget raises
+require a feat: or feat(scope): subject in the judged range (#1041).
+The cases cover forbidden moves and the bots' and features' allowed moves.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import copy
 import importlib.util
 import json
 import pickle
+import subprocess
 import sys
 from decimal import Decimal
 from functools import cache
@@ -331,7 +332,7 @@ def test_main_prints_each_forbidden_move(tmp_path, capsys):
 
 def test_suite_cost_raised_fails(tmp_path):
     # A suite phase's number is a cost ceiling: the bot only ever
-    # tightens it down, so an upward move is a hand-raise and fails.
+    # tightens it down, so an upward move without judged features fails.
     # (Both fields must move together to keep the loader's 1.5 gap, so
     # this paired shape is the only raise a head document can carry.)
     base = _document()
@@ -399,8 +400,8 @@ def test_reparse_phase_tightened_is_clean(tmp_path):
 
 def test_reparse_instruction_count_raised_fails(tmp_path):
     # The count is the instrument that catches a uniform slowdown, so a
-    # hand-raised count budget would buy away exactly the regression the
-    # bench exists for.
+    # count budget raised without judged features would buy away exactly
+    # the regression the bench exists for.
     base = _document()
     head = _document(reparse=_reparse({"parse_body.bytecodes": "60.0"}))
     assert _guard_result(tmp_path, base, head) == 1
@@ -577,3 +578,98 @@ def test_suite_cost_identity_removed_from_established_family_fails(tmp_path):
     base = _document(suite=_with_identity(SUITE_COST, 40000))
     head = _document()
     assert _guard_result(tmp_path, base, head) == 1
+
+
+def _git(root, *args):
+    return subprocess.run(
+        ["git", "-C", str(root), *args], capture_output=True,
+        check=True, timeout=10).stdout.decode().strip()
+
+
+def _judged_guard(tmp_path, monkeypatch, base, head, subjects, revs=None):
+    """Use real git history; relocate only the guard's repository anchor."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-q")
+    _git(root, "config", "user.name", "Guard Test")
+    _git(root, "config", "user.email", "guard@example.invalid")
+    _git(root, "commit", "--allow-empty", "-qm", "feat: outside judged range")
+    base_rev = _git(root, "rev-parse", "HEAD")
+    for subject in subjects:
+        _git(root, "commit", "--allow-empty", "--cleanup=verbatim", "-qm", subject)
+    guard = _guard()
+    monkeypatch.setattr(guard, "__file__", str(root / "scripts/ci/thresholds_guard.py"))
+    args = ["--base", str(_written(tmp_path, base, "base.json")),
+            "--head", str(_written(tmp_path, head, "head.json"))]
+    args += ["--base-rev", base_rev] if revs is None else revs
+    return guard.main(args)
+
+
+def _raised_document(family="suite_cost", metric="bytecodes"):
+    head = _document()
+    if family == "suite_cost":
+        head[family]["run"] = {"measured": 310.0, "floor": 311.5}
+    else:
+        head[family]["parse_body"][metric] = {"measured": 20.0, "floor": 21.5}
+    return head
+
+
+@pytest.mark.parametrize("family,metric,subjects", [
+    ("suite_cost", "bytecodes", ["feat: add a panel", "fix: polish"]),
+    ("reparse", "bytecodes", ["fix: prepare", "feat: parse new events"]),
+    ("reparse", "share", ["feat: parse new events"]),
+    ("suite_cost", "bytecodes", ["feat(ci): measure a new path"]),
+])
+def test_feature_range_admits_budget_raise(tmp_path, monkeypatch, family, metric, subjects):
+    assert _judged_guard(
+        tmp_path, monkeypatch, _document(), _raised_document(family, metric),
+        subjects) == 0
+
+
+@pytest.mark.parametrize("subject", [
+    "fix: trim work", "chore: tidy", "perf: optimise", "feature: new path",
+    "Feat: new path", "feat new path", " feat: new path",
+])
+def test_non_feature_range_refuses_raise_and_names_remedy(
+        tmp_path, monkeypatch, capsys, subject):
+    assert _judged_guard(
+        tmp_path, monkeypatch, _document(), _raised_document(), [subject]) == 1
+    err = capsys.readouterr().err
+    assert "trimming its own tests" in err
+    assert "dropping redundant cases" in err
+    assert "merging parametrisations" in err
+    assert "deleting tests that repeat another test's assertions" in err
+
+
+@pytest.mark.parametrize("revs", [
+    [], ["--base-rev", "unknown-revision", "--head-rev", "HEAD"],
+    ["--base-rev", "HEAD", "--head-rev", "HEAD"],
+])
+def test_unproved_feature_range_refuses_raise(tmp_path, monkeypatch, capsys, revs):
+    assert _judged_guard(
+        tmp_path, monkeypatch, _document(), _raised_document(),
+        ["feat: add a panel"], revs) == 1
+    assert "trimming its own tests" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("other_move", ["coverage", "identity", "baseline"])
+def test_feature_raise_keeps_other_refusals(tmp_path, monkeypatch, capsys, other_move):
+    base = _document()
+    head = _raised_document()
+    if other_move == "coverage":
+        head["coverage"]["python"] = {"measured": 90.0, "floor": 88.5}
+        forbidden = "coverage.python.floor"
+    elif other_move == "identity":
+        base["suite_cost"]["tests_tree_lines"] = 40000
+        head["suite_cost"]["tests_tree_lines"] = 40250
+        forbidden = "suite_cost.tests_tree_lines"
+    else:
+        base["module_size_baseline"]["backend/api.py"] = 986
+        head["module_size_baseline"]["backend/api.py"] = 1486
+        forbidden = "module_size_baseline.backend/api.py"
+    assert _judged_guard(
+        tmp_path, monkeypatch, base, head, ["feat: add a panel"],
+        ["--base-rev", "HEAD^", "--head-rev", "HEAD"]) == 1
+    err = capsys.readouterr().err
+    assert f"forbidden move: {forbidden}" in err
+    assert "forbidden move: suite_cost.run." not in err

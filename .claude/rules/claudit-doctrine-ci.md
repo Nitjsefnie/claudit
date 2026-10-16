@@ -254,17 +254,27 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
 - The direction guard (`scripts/ci/thresholds_guard.py`, a step in
   `tests.yml`) makes the never-rules mechanical: on every PR and master
   push it compares the data against the base document and fails on a
-  lowered coverage value, a RAISED reparse budget, a raised entry, or
+  lowered coverage value, a raised entry, or
   an added entry under the frozen core families (the Python and `src/`
   JavaScript scope the size ratchet had when the guard landed) or for
-  an unmeasured path. What stays legal is exactly the bots' move set
+  an unmeasured path. Suite-cost and reparse budget raises require a
+  subject starting with `feat:` or `feat(scope):` in the judged commits:
+  merge-base..HEAD on a PR, the pushed range on a push. Missing,
+  unreadable or empty ranges prove no feature and refuse raises. A
+  feature's measured cost is shown on its PR. Non-feature breaches are
+  answered by trimming their own tests: dropping redundant cases,
+  merging parametrisations, deleting tests that repeat another test's
+  assertions; growth, refactors and fixes do not remove, reshape or
+  re-seed budgets. The feature exception admits numeric budget raises
+  only; workload identity changes remain seed-only and every other
+  refusal stands. What also stays legal is the bots' move set
   — a raise, a tighten, a brand-new member's entries — plus a new
   measured family's one-time seed and a cost family's REMOVAL, the
   latter admitted only on a commit carrying that family's own re-seed
   marker (`[suite-cost-re-seed]` for suite_cost, `[reparse-re-seed]`
-  for reparse). A marker buys the absence, never a raised budget
-  (the upward-move refusal stands). Size and suppression seeds are pinned
-  by committed-tree tests on the same merge ref; comment shares permit
+  for reparse). A marker buys the absence, never a raised budget;
+  only the judged feature subjects admit raises. Size and suppression
+  seeds are pinned by committed-tree tests on the same merge ref; comment shares permit
   reductions until master tightens.
 - Coverage numbers carry exactly one decimal (`92.0`, never `92` or
   `92.00`) — what the ratchet writes, `coverage --precision=1`

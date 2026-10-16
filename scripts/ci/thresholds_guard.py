@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Fail when the CI ratchet data moves backwards by hand.
 
-The bots are the only writers the data needs (issue #388): ratchet.py
-raises a coverage calibration, and the two --tighten passes follow
-shrunk files and counts down. This guard pins the DIRECTION of every
-change a pull request or master push makes to
-``.github/ci-thresholds.json``, so the never-raise/never-lower rule no
-longer depends on review:
+The bots raise coverage calibrations and tighten shrunk files and
+counts. Feature commits may raise measured cost budgets (issue #1041).
+This guard pins the DIRECTION of every change a pull request or master
+push makes to ``.github/ci-thresholds.json``, so the never-raise/never-lower
+rule no longer depends on review:
 
 - a coverage ``floor`` or ``measured`` value never decreases;
-- a reparse ``floor`` or ``measured`` value never INCREASES (that family
-  is a cost ceiling, so its ratchet only ever tightens downward);
+- a suite_cost or reparse ``floor`` or ``measured`` value increases only
+  when the judged base..head range includes a subject starting with
+  ``feat:`` or ``feat(scope):``; missing or unreadable history fails closed;
+- suite_cost's workload identity remains seed-only, even for features;
 - a baseline entry is never raised;
 - an entry is added only when it seeds a brand-new member, or — for a
   member the base already carries — when its path lies OUTSIDE the
@@ -35,13 +36,16 @@ The guard runs from the tree under test, like every other gate step: it
 shares the steps' threat model, closing the accidental and
 quietly-reviewed hand-raise, not a reviewer-subverted change.
 
-  python3 scripts/ci/thresholds_guard.py --base BASE.json --head HEAD.json
+  python3 scripts/ci/thresholds_guard.py --base BASE.json --head HEAD.json \\
+    --base-rev BASE --head-rev HEAD
 """
 from __future__ import annotations
 
 import argparse
 import importlib
 import json
+import re
+import subprocess
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -63,21 +67,22 @@ CORE_PREFIXES = ('backend/', 'scripts/', 'tests/')
 COVERAGE_REMEDY = (
     'A coverage floor or measured value is never lowered by hand: the '
     'ratchet raises them on master when a run justifies it.')
+NON_FEATURE_REMEDY = (
+    'A non-feature change answers a budget breach by trimming its own tests: '
+    'dropping redundant cases, merging parametrisations, deleting tests that '
+    'repeat another test\'s assertions.')
 REPARSE_REMEDY = (
-    'A reparse phase budget is never raised by hand: the ratchet only '
-    'tightens it downward on master when a cheaper run justifies it, so '
-    'buy headroom by making the reparse cheaper, or by the doctrine\'s '
-    'own-marker re-seed path when a parse-semantics change legitimately '
-    'spends it.')
+    'A reparse phase budget is never raised by hand without a feat: or '
+    'feat(scope): commit in the judged range. ' + NON_FEATURE_REMEDY +
+    ' The own-marker re-seed path cannot bypass a breach for test growth, '
+    'refactors or fixes.')
 BASELINE_REMEDY = (
     'Baseline entries are never raised or added by hand: split the '
     'module, reduce the complexity, or seed a new family through the '
     'loader\'s writer in a reviewed gate-definer change.')
 SUITE_COST_REMEDY = (
-    'A suite cost budget is never raised by hand: the ratchet only '
-    'tightens it downward on master when a cheaper run justifies it, so '
-    'buy headroom by making the suite cheaper or by the doctrine\'s '
-    're-seed path when the fixture list or interpreter pin changes.')
+    'A suite cost budget is never raised by hand without a feat: or '
+    'feat(scope): commit in the judged range. ' + NON_FEATURE_REMEDY)
 
 # A stand-in for a member the base predates, so a base missing it still
 # validates: it is never compared against (the family is not in
@@ -162,12 +167,12 @@ def _coverage_moves(base, head):
     return moves
 
 
-def _suite_cost_moves(base, head, established):
-    """A suite cost budget that RISES, or an identity that moved by hand.
+def _suite_cost_moves(base, head, established, feature_present):
+    """A suite cost raise without a feature, or any moved workload identity.
 
     Each phase's number is a cost ceiling, so its ratchet only ever
-    moves down: an upward move is the hand-raise the never-rules forbid,
-    a downward one is the tighten. The workload identity
+    moves down: an upward move requires a feature commit in the judged
+    range, a downward one is the tighten. The workload identity
     (``tests_tree_lines``, issue #524) is the seed's binding to the
     workload it measured: only the sanctioned re-seed writes it, and
     that path deletes the family first -- the marker's commit is the
@@ -187,7 +192,7 @@ def _suite_cost_moves(base, head, established):
         return []
     for phase in thresholds.SUITE_COST_PHASES:
         for field in ('measured', 'floor'):
-            if after[phase][field] > before[phase][field]:
+            if not feature_present and after[phase][field] > before[phase][field]:
                 moves.append(
                     f'{thresholds.SUITE_COST_FAMILY}.{phase}.{field}: '
                     f'{before[phase][field]} -> {after[phase][field]}')
@@ -201,15 +206,15 @@ def _suite_cost_moves(base, head, established):
     return moves
 
 
-def _reparse_moves(base, head, established):
-    """A reparse phase that RISES.
+def _reparse_moves(base, head, established, feature_present):
+    """A reparse phase that RISES without a judged feature commit.
 
     Each phase is a cost ceiling, so its ratchet only ever moves down: an
-    upward move is the hand-raise the never-rules forbid and a downward
-    one is the tighten. A family the base predates carries no record, so
+    upward move requires a feature commit and a downward one is the
+    tighten. A family the base predates carries no record, so
     the change introducing one is its seed and not a move at all.
     """
-    if thresholds.REPARSE_FAMILY not in established:
+    if feature_present or thresholds.REPARSE_FAMILY not in established:
         return []
     moves = []
     before = base[thresholds.REPARSE_FAMILY]
@@ -265,12 +270,29 @@ def _baseline_moves(base, head, established):
     return moves
 
 
-def forbidden_moves(base, head, established):
+def forbidden_moves(base, head, established, feature_present=False):
     """Return the data's forbidden moves from base to head, labelled."""
     return (_coverage_moves(base, head)
-            + _reparse_moves(base, head, established)
-            + _suite_cost_moves(base, head, established)
+            + _reparse_moves(base, head, established, feature_present)
+            + _suite_cost_moves(base, head, established, feature_present)
             + _baseline_moves(base, head, established))
+
+
+def _has_feature_commits(base_rev: str | None, head_rev: str) -> bool:
+    """One bounded git read; only a readable judged range proves a feature."""
+    if not base_rev:
+        return False
+    try:
+        proc = subprocess.run(
+            ['git', '-C', str(Path(__file__).resolve().parents[2]),
+             'log', '--format=%s', f'{base_rev}..{head_rev}'],
+            capture_output=True, check=False, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if proc.returncode != 0:
+        return False
+    return any(re.match(r'^feat:|^feat\([^)]*\):', subject)
+               for subject in proc.stdout.decode('utf-8', 'replace').splitlines())
 
 
 def _parser():
@@ -279,6 +301,9 @@ def _parser():
                         help='the base document (JSON file)')
     parser.add_argument('--head', type=Path, default=thresholds.THRESHOLDS,
                         help='the head document (JSON file)')
+    parser.add_argument('--base-rev', help='exclusive base of the judged commit range')
+    parser.add_argument('--head-rev', default='HEAD',
+                        help='inclusive head of the judged commit range (default HEAD)')
     return parser
 
 
@@ -287,7 +312,9 @@ def main(argv=None):
     try:
         head = thresholds.load(args.head)
         base, established = _load_base(args.base)
-        moves = forbidden_moves(base, head, established)
+        moves = forbidden_moves(
+            base, head, established,
+            feature_present=_has_feature_commits(args.base_rev, args.head_rev))
         if not moves:
             print('no forbidden threshold moves')
             return 0

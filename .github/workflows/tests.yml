@@ -295,9 +295,9 @@ jobs:
         run: python3 scripts/ci/suppression_baseline.py
 
       - name: Threshold direction guard
-        # The bots are the only writers the ratchet data needs (issue
-        # #388): a lowered coverage value, a raised reparse budget or
-        # entry, or a raised suite-cost budget fails here. Runs on
+        # Lowered coverage and raised baseline entries fail here; suite-cost
+        # and reparse raises require a feat: or feat(scope): commit in the
+        # judged range (issue #1041). Runs on
         # pull_request (merge base) and push; dispatch skips -- the PR
         # is the gate.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && (github.event_name == 'pull_request' || github.event_name == 'push') }}
@@ -321,7 +321,8 @@ jobs:
             > "$RUNNER_TEMP/base-thresholds.json"
           python3 scripts/ci/thresholds_guard.py \
             --base "$RUNNER_TEMP/base-thresholds.json" \
-            --head .github/ci-thresholds.json
+            --head .github/ci-thresholds.json \
+            --base-rev "$base" --head-rev HEAD
 
       - name: Measure and gate the suite cost
         # One bench pass per run (issue #515): the shared composite
