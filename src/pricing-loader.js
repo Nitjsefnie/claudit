@@ -355,7 +355,7 @@ window.keyListRates = _vendorTables.keyListRates;
 // throw a raw TypeError at resolve time.
 const _defaultTracked = window.vendorBare['claude-opus-4-7'];
 const _defaultRow = window.modelRates['claude-opus-4-7']
-  ?? (_defaultTracked === undefined
+  ?? (_defaultTracked === undefined || window.vendorHosts[_defaultTracked] === undefined
       ? undefined
       : (window.providerRates[_defaultTracked] || {})[
            window.vendorHosts[_defaultTracked]]);
