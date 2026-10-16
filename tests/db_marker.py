@@ -116,9 +116,6 @@ def mark_db_items(items: Iterable[Any]) -> None:
 # test module so the registry and its allowlist live in one place (issue
 # #715); the guard reads it as tests.db_marker.MARK_ALLOWLIST.
 MARK_ALLOWLIST: dict[str, str] = {
-    "test_version.py:test_health_error_branch_reports_version":
-        "monkeypatches db.viz_conn with a function that raises, so the "
-        "health endpoint's error branch runs with no server at all",
     "test_version.py:test_health_error_branch_answers_503":
         "monkeypatches db.viz_conn with a function that raises, so the "
         "health endpoint's error branch runs with no server at all",
