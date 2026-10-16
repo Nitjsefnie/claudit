@@ -21,6 +21,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterable
 from pathlib import Path
+import re
 
 import pytest
 
@@ -30,14 +31,35 @@ from tests.source_scan_cache import for_source, source as cached_source
 TESTS_DIR = Path(__file__).resolve().parent
 
 
+def _rewrites_percent_format(node: ast.BinOp) -> bool:
+    if not (isinstance(node.op, ast.Mod)
+            and isinstance(node.left, ast.Constant)
+            and isinstance(node.left.value, str)
+            and isinstance(node.right, ast.Tuple)):
+        return False
+    if any(isinstance(elt, ast.Starred) for elt in node.right.elts):
+        return False
+    field = re.compile(r"%%|%[-+ #0]*[0-9]{0,2}(?:\.[0-9]{0,2})?[sra]")
+    fmt = node.left.value
+    if ("%" in field.sub("", fmt)
+            or sum(token != "%%" for token in field.findall(fmt))
+            != len(node.right.elts)):
+        return False
+    # Optimize a fresh RHS copy only: constant tuples bypass format rewriting.
+    rhs = ast.parse(ast.unparse(node.right), mode="eval", optimize=1).body
+    return not isinstance(rhs, ast.Constant)
+
+
 def _fold_operands(nodes: Iterable[ast.AST]) -> set[ast.Constant]:
     """String operand nodes the compiler swallows or rewrites, hidden in co_consts.
 
-    Exempt constant Add/Mult/Mod chains and %-formatting's literal.
-    Python 3.13.x rewrites template-convertible % formats: multi-slot
-    %s tuples use BUILD_STRING, widths use FORMAT_WITH_SPEC. Intact
-    formats pass via consts, so coarse Mod-left exemptions do not
-    change the property for those shapes. Exemptions apply by node identity.
+    Exempt constant Add/Mult/Mod chains by node identity. An interpreter
+    that desugars template-convertible %-formats shatters the fmt literal
+    into per-slot fragments. A split/escaped intact value reaches neither
+    co_consts nor plain text: deliberately uncovered, same residual class
+    as the gate's dead-branch clause. The exemption encodes the probed
+    rewrite eligibility; a future interpreter change fails the real-tree
+    property loudly.
     """
     found: set[ast.Constant] = set()
 
@@ -56,9 +78,7 @@ def _fold_operands(nodes: Iterable[ast.AST]) -> set[ast.Constant]:
     for node in nodes:
         if not isinstance(node, ast.BinOp):
             continue
-        if (isinstance(node.op, ast.Mod)
-                and isinstance(node.left, ast.Constant)
-                and isinstance(node.left.value, str)):
+        if isinstance(node.left, ast.Constant) and _rewrites_percent_format(node):
             found.add(node.left)
         folded = strings_if_folds(node)
         if folded is not None:
@@ -114,21 +134,72 @@ def test_fold_operands_only_exempts_folded_chains(
     assert {node.value for node in exempted} == expected
 
 
-@pytest.mark.parametrize(("format_literal", "rhs"), [
-    ('"type":"%s","input":[{"type":"text","text":"%s"}]', '(typ, text)'),
-    ('%s!', 'name'),
-    ('%s!', '(name,)'),
-    ('%s:%s', "('a', 'b')"),
-    ('%d!', '(name,)'),
-    ('%10s!', '(name,)'),
-    ('%s:%s', '(name,)'),
+@pytest.mark.parametrize(("format_literal", "rhs", "rewritten"), [
+    ('"type":"%s","input":[{"type":"text","text":"%s"}]', '(typ, text)', True),
+    ('%s!', 'name', False),
+    ('%s!', '(name,)', True),
+    ('%s:%s', "('a', 'b')", False),
+    ('%d!', '(name,)', False),
+    ('%10s!', '(name,)', True),
+    ('%s:%s', '(name,)', False),
+    ('%r!', '(name,)', True),
+    ('%a!', '(name,)', True),
+    ('%s:%r:%a', '(a, b, c)', True),
+    ('%%:%s:%%', '(name,)', True),
+    ('%.3s!', '(name,)', True),
+    ('%.3r!', '(name,)', True),
+    ('%.3a!', '(name,)', True),
+    ('%-+ #010.3s!', '(name,)', True),
+    ('%99s!', '(name,)', True),
+    ('%100s!', '(name,)', False),
+    ('%.99s!', '(name,)', True),
+    ('%.100s!', '(name,)', False),
+    ('%.001s!', '(name,)', False),
+    ('%10.s!', '(name,)', True),
+    ('%*s!', '(width, name)', False),
+    ('%.*s!', '(precision, name)', False),
+    ('%(key)s!', '(name,)', False),
+    ('%s!', '(*names,)', False),
+    ('%s:%s!', '(a, b, c)', False),
+    ('%s:%d!', '(a, b)', False),
+    ('%s:%', '(name,)', False),
+    ('%s:%q', '(a, b)', False),
+    ('lit', '(a, b)', False),
 ])
 def test_fold_operands_exempts_percent_format_literals(
-        format_literal: str, rhs: str) -> None:
-    # Intact formats pass via consts in the property too.
+        format_literal: str, rhs: str, rewritten: bool) -> None:
     source = f"x = {format_literal!r} % {rhs}"
     exempted = _fold_operands(ast.walk(ast.parse(source)))
-    assert {node.value for node in exempted} == {format_literal}
+    assert {node.value for node in exempted} == (
+        {format_literal} if rewritten else set())
+
+
+@pytest.mark.parametrize("statement", [
+    "x = '%s!' % name", "x = '%d!' % (name,)",
+    "x = '%s:%s' % (name,)", "x = '%s:%s' % ('a', 'b')",
+])
+def test_tree_property_rejects_an_intact_format_in_dead_code(
+        tmp_path: Path, statement: str) -> None:
+    source = f"if False:\n    {statement}\n"
+    assert not scan_gate.module_vocab(source)[0]
+    (tmp_path / "dead_format.py").write_text(source, encoding="utf-8")
+    with pytest.raises(AssertionError, match="gate misses the string constant"):
+        _assert_gate_sees_string_constants(tmp_path)
+
+
+def test_tree_property_accepts_an_intact_format_in_live_code(
+        tmp_path: Path) -> None:
+    source = "x = '%d!' % (name,)\n"
+    assert '%d!' in scan_gate.module_vocab(source)[0]
+    (tmp_path / "live_format.py").write_text(source, encoding="utf-8")
+    _assert_gate_sees_string_constants(tmp_path)
+
+
+def test_tree_property_accepts_a_rewritten_format(tmp_path: Path) -> None:
+    source = "x = '%s-%s' % (a, b)\n"
+    assert '%s-%s' not in scan_gate.module_vocab(source)[0]
+    (tmp_path / "rewritten_format.py").write_text(source, encoding="utf-8")
+    _assert_gate_sees_string_constants(tmp_path)
 
 
 def test_fold_operands_exempts_constant_mod_operands() -> None:
@@ -156,15 +227,15 @@ def test_tree_property_accepts_operands_of_a_folded_chain(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize("exempting_statement", [
-    "x = 'lit' % name", "x = 'lit' + 'suffix'",
+    "x = 'lit%s' % (name,)", "x = 'lit%s' + 'suffix'",
 ])
 def test_tree_property_rejects_a_shared_value_in_an_unexempted_call(
         tmp_path: Path, exempting_statement: str) -> None:
     # Catches a same-value exemption hiding an unexempted call.
-    source = f"if False:\n    {exempting_statement}\n    y = f('lit')\n"
-    assert 'lit' not in scan_gate.module_vocab(source)[0]
+    source = f"if False:\n    {exempting_statement}\n    y = f('lit%s')\n"
+    assert 'lit%s' not in scan_gate.module_vocab(source)[0]
     (tmp_path / "shared.py").write_text(source, encoding="utf-8")
-    with pytest.raises(AssertionError, match="string constant 'lit'"):
+    with pytest.raises(AssertionError, match="string constant 'lit%s'"):
         _assert_gate_sees_string_constants(tmp_path)
 
 
@@ -179,14 +250,14 @@ def test_tree_property_rejects_the_call_without_an_exempted_twin(
 
 
 @pytest.mark.parametrize("exempting_statement", [
-    "x = 'lit' % name", "x = 'lit' + 'suffix'",
+    "x = 'lit%s' % (name,)", "x = 'lit%s' + 'suffix'",
 ])
 def test_tree_property_accepts_a_shared_value_in_the_vocabulary(
         tmp_path: Path, exempting_statement: str) -> None:
     # Catches rejecting a call literal whose value is visible to the gate.
-    source = ("visible = 'lit'\nif False:\n"
-              f"    {exempting_statement}\n    y = f('lit')\n")
-    assert 'lit' in scan_gate.module_vocab(source)[0]
+    source = ("visible = 'lit%s'\nif False:\n"
+              f"    {exempting_statement}\n    y = f('lit%s')\n")
+    assert 'lit%s' in scan_gate.module_vocab(source)[0]
     (tmp_path / "visible.py").write_text(source, encoding="utf-8")
     _assert_gate_sees_string_constants(tmp_path)
 
