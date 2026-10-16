@@ -7,7 +7,7 @@ from pathlib import Path
 from backend import flags, parse
 
 
-FIX = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
+FIX = Path(__file__).parents[1] / "fixtures" / "codex"
 
 
 def test_codex_generation_orderings():

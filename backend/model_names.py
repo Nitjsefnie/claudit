@@ -9,6 +9,7 @@ the id text — no rate table is read here.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
 # The grammar ``pricing._latest`` matches: the highest-versioned key of a
 # family. ``claude-opus-5-5`` is version (5, 5); legacy ``claude-3-opus-``
@@ -36,7 +37,13 @@ def _normalise(model: str | None) -> str:
     ``anthropic/claude-opus-4.8`` and ``us.anthropic.claude-opus-4-8``
     both denote the same model as ``claude-opus-4-8``.
     """
-    m = (model or "").strip().lower()
+    return _normalise_id((model or "").strip())
+
+
+@lru_cache(maxsize=1024)
+def _normalise_id(m: str) -> str:
+    """Fold case, routing and separators for one stripped id."""
+    m = m.lower()
     if not m:
         return ""
     # Everything before the first "claude" is provider/region routing.

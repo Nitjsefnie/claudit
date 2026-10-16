@@ -48,9 +48,9 @@ which was validated against a 46-file corpus.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 from operator import sub
+from typing import TYPE_CHECKING
 
 from orjson import JSONDecodeError, loads
 
@@ -59,7 +59,7 @@ from backend.codex_fork import head_scan, mark_replay
 from backend.parse_common import (_append_usage_record,
                                   _end_turn, _finish_parse,
                                   _mark_assistant_event, _nonempty_str,
-                                  _note_agent_role, _ParseState,
+                                  _note_agent_role,
                                   _to_dt,
                                   _turn_boundary)
 from backend.json_shape import as_dict, as_list
@@ -67,6 +67,10 @@ from backend.flags import ALL_COLLECTIONS_ON, CollectionPolicy
 from backend.codex_tool_rows import (  # pylint: disable=unused-import
     _codex_model, _codex_output_text, _diff_churn, _change_churn,
     _codex_dispatch_args, _codex_tool_call, _codex_tool_result, _codex_patch)
+
+if TYPE_CHECKING:
+    from backend.lane_state import _CodexState
+
 
 # The cumulative counter's fields. All six are differenced so a duplicate
 # snapshot is recognised by ALL of them failing to advance, not just by the
@@ -83,37 +87,6 @@ RECORD_TYPES = frozenset({
     "session_meta", "turn_context", "event_msg", "response_item",
     "world_state", "compacted", "inter_agent_communication_metadata",
 })
-
-
-@dataclass
-class _CodexState(_ParseState):
-    """_ParseState plus the state only the Codex format needs."""
-    # Previous cumulative token snapshot, for differencing. None until the
-    # file's first token_count seeds the inherited baseline.
-    prev_usage: dict | None = None
-    # response_item/web_search_call items since the previous billing
-    # record. web_search_end is a companion event, not another call.
-    web_search_requests: int = 0
-    # Model in force, from the most recent turn_context / settings record.
-    # parse() opens it as the file's FIRST declared model — the model the
-    # parent had in force where a fork cut, inherited by the replayed
-    # prefix (issue #653) — and each declaration in the body overwrites it.
-    model: str | None = None
-    # (index into tool_uses, turn_id) of the most recent apply_patch call, to
-    # carry a patch_apply_end's churn back onto the call that caused it.
-    patch_target: tuple[int, str | None] | None = None
-    # Last rate-limit condition booked, so a condition spanning hundreds of
-    # token_count events books one hit rather than hundreds.
-    last_rl_kind: str | None = None
-    # This thread's session id, from session_meta. A fork REUSES its
-    # parent's, which is what makes it the right half of a record's
-    # cross-file identity — see _codex_record_uuid.
-    session_id: str | None = None
-    # This rollout's own thread: the FIRST session_meta's `id`, and whether
-    # one has been seen yet. A later session_meta under another id is a
-    # replayed parent's, and its agent_role is the parent's, not ours.
-    thread_id: str | None = None
-    thread_seen: bool = False
 
 
 def _codex_first_declared_model(blob: bytes) -> str | None:
@@ -429,6 +402,7 @@ def _codex_dispatch(st: _CodexState, rtype: str, line_num: int,
 
 def parse(file_key: str, blob: bytes, *, collection: CollectionPolicy = ALL_COLLECTIONS_ON) -> dict:
     """Parse one Codex rollout JSONL. Same return shape as _parse_legacy."""
+    from backend.lane_state import _CodexState  # pylint: disable=import-outside-toplevel
     lines = blob.splitlines()
     st = _CodexState(file_key, collection=collection)
     first_model, is_fork, declared_at = head_scan(blob)
