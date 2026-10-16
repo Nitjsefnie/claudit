@@ -317,11 +317,10 @@ def _provider_key(norm: str, provider: str,
                   ts: datetime | None) -> tuple[str, str] | None:
     """The PROVIDER_RATES key for a record, or None.
 
-    Exact on the normalised id, on its permaslug folded to the slug, or on
-    the id with ONE trailing variant suffix stripped: OpenRouter's variant
-    suffixes (":nitro", ":floor") are service tiers that do not change the
-    price, so a tiered id resolves to the bare model's row and prices at
-    the bare model's rate; only ":free" changes price (zero), and
+    Each normalised spelling maps to its tracked key before lookup:
+    exact id, permaslug slug, then ONE trailing variant suffix stripped.
+    OpenRouter variants (":nitro", ":floor") retain the model's price;
+    only ":free" changes price (zero), and
     resolve() prices it before this lookup — it never folds. The exact id
     is tried first, so a table row spelled with the suffix still wins over
     the fold. Never MODEL_RATES' snapshot-suffix tolerance: that would
@@ -333,6 +332,7 @@ def _provider_key(norm: str, provider: str,
         ts = ts.replace(tzinfo=UTC)
     for model in (norm, _PERMASLUG_DATE.sub(r"-\1", norm),
                   _variant_folded(norm)):
+        model = VENDOR_BARE.get(model, model)
         if (model, provider) in PROVIDER_RATES:
             start = PROVIDER_STARTS.get((model, provider))
             if start is not None and ts is not None and ts < start:

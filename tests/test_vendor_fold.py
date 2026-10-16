@@ -10,7 +10,7 @@ from backend import pricing, rate_fingerprint
 from backend.rate_boundaries import rate_boundaries
 from backend.pricing_rows import encode_pricing_doc
 from tests.test_pricing_vendor import (
-    BARE, CUT, PKEY, PREFIXED_BARE, ROUTER_HOST, R_NEW, R_OLD,
+    BARE, CUT, PKEY, PREFIXED_BARE, ROUTER_HOST, R_NEW, R_OLD, STAMP,
     _bare_id_doc, _copy_browser, _doc, _entry, _install, _loader_error,
     _node_raw,
 )
@@ -82,3 +82,33 @@ def test_an_id_only_default_row_refuses_cleanly_on_both_sides(tmp_path):
     with pytest.raises(ValueError, match="default estimate"):
         pricing.load_tables(doc)
     assert "default estimate" in (_loader_error(tmp_path, doc) or "")
+
+
+def test_id_only_prefixed_key_keeps_its_provider_history(tmp_path, monkeypatch):
+    doc = _doc()
+    del doc["openrouter"]["models"][PKEY]["vendor_host"]
+    start = CUT - timedelta(days=1)
+    doc["providers"][PKEY] = {ROUTER_HOST: [
+        _entry(R_OLD, start.isoformat()), _entry(R_NEW, STAMP)]}
+    _install(monkeypatch, doc)
+    stamps = [start - timedelta(seconds=1), start, CUT]
+    expected = [("default", None), ("exact", PKEY), ("exact", PKEY)]
+    for spelling in (PKEY, BARE):
+        results = [pricing.resolve(spelling, ts, ROUTER_HOST) for ts in stamps]
+        assert [(r.kind, r.key) for r in results] == expected
+        assert [r.rates for r in results[1:]] == [R_OLD, R_NEW]
+        assert rate_boundaries(spelling, ROUTER_HOST) == [start, CUT]
+        assert pricing.resolve(spelling).kind == "default"
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)))
+    _copy_browser(tmp_path)
+    got = _node_raw(f"""
+      global.window = {{}};
+      require({str(tmp_path / 'pricing-loader.js')!r});
+      require({str(tmp_path / 'rates.js')!r});
+      console.log(JSON.stringify({json.dumps([PKEY, BARE])}.map(model =>
+        {json.dumps([ts.isoformat() for ts in stamps])}.map(ts =>
+          window.resolveModelRate(model, ts, {ROUTER_HOST!r})))));
+    """)
+    for results in got:
+        assert [(r["kind"], r["key"]) for r in results] == expected
+        assert [r["rates"]["fresh"] for r in results[1:]] == [3, 4]
