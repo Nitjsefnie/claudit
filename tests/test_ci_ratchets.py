@@ -9,6 +9,7 @@ file-writing behaviour.
 """
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import sys
@@ -102,8 +103,10 @@ def _written(tmp_path, **kwargs):
 def test_no_raise_within_hysteresis():
     ratchet = _ratchet()
     doc = _document()
-    measured = Decimal("94.1")  # recorded 92.6 + hysteresis 1.5, not over
-    assert ratchet.update(doc, measured) is None
+    # Both languages' hysteresis boundary and a reading below calibration.
+    for measured, options in (("94.1", {}), ("51.5", {"language": "javascript"}),
+                              ("50.0", {})):
+        assert ratchet.update(copy.deepcopy(doc), Decimal(measured), **options) is None
 
 
 def test_raise_beyond_hysteresis():
@@ -137,19 +140,6 @@ def test_raise_beyond_hysteresis_javascript():
         "floor": Decimal("91.1"),
     }
     assert updated["module_size_baseline"] == {}
-
-
-def test_no_raise_within_hysteresis_javascript():
-    ratchet = _ratchet()
-    measured = Decimal("51.5")  # recorded 50.0 + hysteresis 1.5, not over
-    assert ratchet.update(
-        _document(), measured, language="javascript") is None
-
-
-def test_measured_below_recorded_never_lowers():
-    ratchet = _ratchet()
-    doc = _document()
-    assert ratchet.update(doc, Decimal("50.0")) is None
 
 
 def test_measured_with_two_decimals_rejected():
@@ -251,8 +241,12 @@ def _readings(value="10.0", **overrides):
 
 def test_no_tighten_within_hysteresis():
     ratchet = _reparse_ratchet()
-    # recorded 10.0 - hysteresis 1.5 = 8.5, not under it
-    assert ratchet.update(_document(), _readings("8.5")) is None
+    doc = _document()
+    # Boundary 10.0 - 1.5; shares alone never tighten; slower never raises.
+    for readings in (_readings("8.5"), _readings(**{"sniff.share": "1.0"}),
+                     _readings(**{"parse_body.share": "0.1"}),
+                     _readings("10.1"), _readings("90.0")):
+        assert ratchet.update(copy.deepcopy(doc), readings) is None
 
 
 def test_tighten_beyond_hysteresis():
@@ -268,26 +262,6 @@ def test_tighten_beyond_hysteresis():
     assert updated["module_size_baseline"] == {}
     assert updated["reparse"]["parse_body"]["bytecodes"] == {
         "measured": Decimal("10.0"), "floor": Decimal("11.5")}
-
-
-def test_a_tighter_share_tightens_nothing():
-    """A share below every recorded value moves no budget (issue #513).
-
-    The ratchet writes the numbers the gate holds phases to, and the
-    gate holds bytecodes. Tightening a share would spend a master's
-    commit on a proportion whose run-to-run spread is wider than the
-    gap it is compared against.
-    """
-    ratchet = _reparse_ratchet()
-    assert ratchet.update(_document(), _readings(**{"sniff.share": "1.0"})) is None
-    assert ratchet.update(
-        _document(), _readings(**{"parse_body.share": "0.1"})) is None
-
-
-def test_slower_measurement_never_raises_the_budget():
-    ratchet = _reparse_ratchet()
-    assert ratchet.update(_document(), _readings("10.1")) is None
-    assert ratchet.update(_document(), _readings("90.0")) is None
 
 
 def test_each_phase_tightens_on_its_own_measurement():

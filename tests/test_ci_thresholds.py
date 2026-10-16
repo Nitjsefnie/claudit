@@ -158,6 +158,7 @@ def test_write_publishes_canonical_bytes(tmp_path):
     assert text == json.dumps(
         json.loads(text), indent=2, sort_keys=True) + "\n"
     assert thresholds.load(target) == thresholds.normalise(doc, False)
+    assert thresholds.load(target)["suite_cost"] == SUITE_COST
 
 
 def test_unknown_top_level_key_refused(tmp_path):
@@ -209,14 +210,14 @@ def test_wrong_calibration_gap_refused(tmp_path):
         thresholds.load(target)
 
 
-@pytest.mark.parametrize("value", ["92.55", "92.555"])
-def test_more_than_one_decimal_place_refused(tmp_path, value):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["coverage"]["python"]["measured"] = json.loads(value)
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="exactly one decimal place"):
-        thresholds.load(target)
+def test_more_than_one_decimal_place_refused(tmp_path):
+    for value in ["92.55", "92.555"]:
+        target = _written_document(tmp_path)
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        payload["coverage"]["python"]["measured"] = json.loads(value)
+        target.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError, match="exactly one decimal place"):
+            thresholds.load(target)
 
 
 def test_coverage_number_without_decimal_place_refused(tmp_path):
@@ -271,25 +272,25 @@ def test_wrong_schema_version_refused(tmp_path):
         thresholds.load(target)
 
 
-@pytest.mark.parametrize("value", ["0", "-5", "1.5"])
-def test_baseline_value_must_be_positive_int(tmp_path, value):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["module_size_baseline"] = {"backend/api.py": json.loads(value)}
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="positive integer"):
-        thresholds.load(target)
+def test_baseline_value_must_be_positive_int(tmp_path):
+    for value in ["0", "-5", "1.5"]:
+        target = _written_document(tmp_path)
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        payload["module_size_baseline"] = {"backend/api.py": json.loads(value)}
+        target.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError, match="positive integer"):
+            thresholds.load(target)
 
 
-@pytest.mark.parametrize("path", ["../evil.py", "/abs.py", "a//b.py",
-                                  "C:\\evil.py"])
-def test_unsafe_baseline_path_refused(tmp_path, path):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["module_size_baseline"] = {path: 100}
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="unsafe module path"):
-        thresholds.load(target)
+def test_unsafe_baseline_path_refused(tmp_path):
+    for path in ["../evil.py", "/abs.py", "a//b.py",
+                 "C:\\evil.py"]:
+        target = _written_document(tmp_path)
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        payload["module_size_baseline"] = {path: 100}
+        target.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError, match="unsafe module path"):
+            thresholds.load(target)
 
 
 def test_coverage_value_bounds():
@@ -475,9 +476,8 @@ def test_unknown_suite_cost_phase_refused(tmp_path):
         thresholds.load(target)
 
 
-@pytest.mark.parametrize(
-    "mutation, match",
-    [
+def test_suite_cost_entry_validator_rejects(tmp_path):
+    for mutation, match in [
         # Vary ONE property per case against the validator's conditions;
         # the nested label names the phase and the field it rejects.
         (lambda record: record.pop("measured"), "missing suite cost"),
@@ -489,20 +489,17 @@ def test_unknown_suite_cost_phase_refused(tmp_path):
         (lambda record: record.update({"measured": 4}), "exactly one"),
         (lambda record: record.update({"measured": 4.25}), "exactly one"),
         (lambda record: record.update({"floor": 14}), "exactly one"),
-    ],
-)
-def test_suite_cost_entry_validator_rejects(tmp_path, mutation, match):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    mutation(payload["suite_cost"]["collection"])
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match=match):
-        thresholds.load(target)
+    ]:
+        target = _written_document(tmp_path)
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        mutation(payload["suite_cost"]["collection"])
+        target.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError, match=match):
+            thresholds.load(target)
 
 
-@pytest.mark.parametrize(
-    "measured, floor, match",
-    [
+def test_suite_cost_gap_shape_refused(tmp_path):
+    for measured, floor, match in [
         # floor == measured: no gap, a ceiling that bars the measurement
         # that recorded it.
         (12.5, 12.5, "floor must be above measured"),
@@ -511,25 +508,14 @@ def test_suite_cost_entry_validator_rejects(tmp_path, mutation, match):
         # A gap that is not the shared yardstick.
         (12.5, 14.5, "gap must be 1.5"),
         (12.5, 13.9, "gap must be 1.5"),
-    ],
-)
-def test_suite_cost_gap_shape_refused(tmp_path, measured, floor, match):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    payload["suite_cost"]["collection"] = {
-        "measured": measured, "floor": floor}
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match=match):
-        thresholds.load(target)
-
-
-def test_suite_cost_values_survive_the_canonical_round_trip(tmp_path):
-    # write() publishes canonical bytes and the loader reads the same
-    # numbers back: the recorded value is the value measured.
-    target = tmp_path / "ci-thresholds.json"
-    doc = _document()
-    thresholds.write(target, doc)
-    assert thresholds.load(target)["suite_cost"] == SUITE_COST
+    ]:
+        target = _written_document(tmp_path)
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        payload["suite_cost"]["collection"] = {
+            "measured": measured, "floor": floor}
+        target.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError, match=match):
+            thresholds.load(target)
 
 
 def test_instruction_value_bounds():
