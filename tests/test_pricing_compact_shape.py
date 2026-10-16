@@ -14,7 +14,9 @@ import pytest
 
 from backend import pricing
 from backend.pricing_document import check_compact_shape
+from backend.pricing_rows import encode_pricing_doc
 from tests.pricing_data_loader_helpers import _browser_load, _node_load
+from tests.refresh_fixture_builders import RATES_B, seed_provider_doc
 from tests.test_pricing_data import (
     LOADER_JS,
     _doc,
@@ -36,11 +38,13 @@ def _entry_violation() -> dict:
 
 
 def _window_violation() -> dict:
-    doc = _raw()
-    rates = (doc["providers"]["deepseek/deepseek-v4-1-flash"]["Alibaba"][0]
-             [-1]["schedule"][0]["rates"])
+    doc = seed_provider_doc()
+    hosts = next(iter(doc["providers"].values()))
+    history = next(iter(hosts.values()))
+    rates = dict(RATES_B)
     rates["create_1h"] = rates["fresh"]
-    return doc
+    history[0]["schedule"] = [{"rates": rates}]
+    return encode_pricing_doc(doc)
 
 
 def _node_compact(doc: dict) -> str | None:
@@ -67,8 +71,8 @@ def test_a_stored_entry_cache_write_equal_to_fresh_is_refused():
 def test_a_stored_window_cache_write_equal_to_fresh_is_refused():
     with pytest.raises(
             ValueError,
-            match=r"deepseek/deepseek-v4-1-flash via "
-                  r"Alibaba\[0\]\.schedule\[0\]: create_1h is present "
+            match=r"fixture/provider via "
+                  r"Fixture\[0\]\.schedule\[0\]: create_1h is present "
                   r"and equals fresh"):
         check_compact_shape(_window_violation())
 
@@ -96,7 +100,7 @@ def test_the_browser_check_refuses_a_stored_entry_pair():
 @needs_node
 def test_the_browser_check_refuses_a_stored_window_pair():
     error = _node_compact(_window_violation())
-    assert error and "Alibaba[0].schedule[0]" in error, error
+    assert error and "Fixture[0].schedule[0]" in error, error
     assert "create_1h is present and equals fresh" in error, error
 
 
