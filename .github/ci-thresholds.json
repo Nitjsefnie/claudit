@@ -197,12 +197,12 @@
       5255
     ],
     "backend/bash_directories.py": [
-      1467,
-      4511
+      402,
+      1579
     ],
     "backend/bash_effects.py": [
-      2332,
-      13058
+      2253,
+      12748
     ],
     "backend/bash_heredocs.py": [
       1063,
@@ -210,7 +210,7 @@
     ],
     "backend/bash_literals.py": [
       1543,
-      6401
+      6457
     ],
     "backend/bash_loops.py": [
       1471,
@@ -221,8 +221,8 @@
       2610
     ],
     "backend/bash_reads.py": [
-      6087,
-      14018
+      6069,
+      14105
     ],
     "backend/bash_segments.py": [
       4227,
