@@ -243,10 +243,14 @@ def pytest_sessionstart(session):
         assert observed["base"] is not None, observed
         assert observed["exists"], observed
         assert observed["entries"] == [], observed
-        base = Path(observed["base"])
-        assert Path(observed["root"]) == base
+        # Canonicalize both spellings: pytest may expand symlinks or
+        # Windows 8.3 names when it resolves the same private directory.
+        base = Path(os.path.normcase(os.path.realpath(observed["base"])))
+        root = Path(os.path.normcase(os.path.realpath(observed["root"])))
+        assert root == base
         assert not any(p.name.startswith("pytest-of-") for p in base.parents)
-        assert not base.is_relative_to(REPO_ROOT)
+        repo_root = Path(os.path.normcase(os.path.realpath(REPO_ROOT)))
+        assert not base.is_relative_to(repo_root)
         assert not base.exists()
         roots.append(base)
     assert roots[0] != roots[1]
