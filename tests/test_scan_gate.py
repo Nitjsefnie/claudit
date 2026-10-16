@@ -30,21 +30,21 @@ from tests.source_scan_cache import for_source, source as cached_source
 TESTS_DIR = Path(__file__).resolve().parent
 
 
-def _fold_operands(nodes: Iterable[ast.AST]) -> set[str]:
-    """String operands the compiler swallows or rewrites, hidden in co_consts.
+def _fold_operands(nodes: Iterable[ast.AST]) -> set[ast.Constant]:
+    """String operand nodes the compiler swallows or rewrites, hidden in co_consts.
 
     Exempt constant Add/Mult/Mod chains and %-formatting's literal.
     Python 3.13.x rewrites template-convertible % formats: multi-slot
     %s tuples use BUILD_STRING, widths use FORMAT_WITH_SPEC. Intact
     formats pass via consts, so coarse Mod-left exemptions do not
-    change the property for those shapes.
+    change the property for those shapes. Exemptions apply by node identity.
     """
-    found: set[str] = set()
+    found: set[ast.Constant] = set()
 
-    def strings_if_folds(node: ast.AST) -> set[str] | None:
+    def strings_if_folds(node: ast.AST) -> set[ast.Constant] | None:
         """String operands if this subtree contains only constants and allowed ops."""
         if isinstance(node, ast.Constant):
-            return {node.value} if isinstance(node.value, str) else set()
+            return {node} if isinstance(node.value, str) else set()
         if (isinstance(node, ast.BinOp)
                 and isinstance(node.op, (ast.Add, ast.Mult, ast.Mod))):
             left = strings_if_folds(node.left)
@@ -59,7 +59,7 @@ def _fold_operands(nodes: Iterable[ast.AST]) -> set[str]:
         if (isinstance(node.op, ast.Mod)
                 and isinstance(node.left, ast.Constant)
                 and isinstance(node.left.value, str)):
-            found.add(node.left.value)
+            found.add(node.left)
         folded = strings_if_folds(node)
         if folded is not None:
             found |= folded
@@ -71,7 +71,7 @@ def _assert_gate_sees_string_constants(directory: Path) -> None:
         source = cached_source(path)
         consts, _ = scan_gate.module_vocab(source)
         artifacts = for_source(source)
-        folded = _fold_operands(artifacts.nodes())
+        exempted = _fold_operands(artifacts.nodes())
         for node in artifacts.nodes():
             if not (isinstance(node, ast.Constant)
                     and isinstance(node.value, str)):
@@ -90,7 +90,7 @@ def _assert_gate_sees_string_constants(directory: Path) -> None:
                         f"{path.name}: gate misses 'pr' 'icing.json' "
                         "inside a multiline constant")
             else:
-                assert (value in consts or value in folded), (
+                assert (value in consts or node in exempted), (
                     f"{path.name}: gate misses the string constant "
                     f"{value[:80]!r} — the fail-closed claim is "
                     "broken; extend module_vocab before narrowing any "
@@ -110,7 +110,8 @@ def test_the_gate_sees_every_string_constant_in_the_tree() -> None:
 ])
 def test_fold_operands_only_exempts_folded_chains(
         source: str, expected: set[str]) -> None:
-    assert _fold_operands(ast.walk(ast.parse(source))) == expected
+    exempted = _fold_operands(ast.walk(ast.parse(source)))
+    assert {node.value for node in exempted} == expected
 
 
 @pytest.mark.parametrize(("format_literal", "rhs"), [
@@ -126,12 +127,14 @@ def test_fold_operands_exempts_percent_format_literals(
         format_literal: str, rhs: str) -> None:
     # Intact formats pass via consts in the property too.
     source = f"x = {format_literal!r} % {rhs}"
-    assert _fold_operands(ast.walk(ast.parse(source))) == {format_literal}
+    exempted = _fold_operands(ast.walk(ast.parse(source)))
+    assert {node.value for node in exempted} == {format_literal}
 
 
 def test_fold_operands_exempts_constant_mod_operands() -> None:
     source = "x = '%s!' % 'x'"
-    assert _fold_operands(ast.walk(ast.parse(source))) == {'%s!', 'x'}
+    exempted = _fold_operands(ast.walk(ast.parse(source)))
+    assert {node.value for node in exempted} == {'%s!', 'x'}
 
 
 def test_tree_property_rejects_a_missed_call_argument(tmp_path: Path) -> None:
@@ -149,6 +152,42 @@ def test_tree_property_accepts_operands_of_a_folded_chain(tmp_path: Path) -> Non
     assert {'a', 'b'}.isdisjoint(consts)
     assert 'ab' in consts
     (tmp_path / "folded.py").write_text(source, encoding="utf-8")
+    _assert_gate_sees_string_constants(tmp_path)
+
+
+@pytest.mark.parametrize("exempting_statement", [
+    "x = 'lit' % name", "x = 'lit' + 'suffix'",
+])
+def test_tree_property_rejects_a_shared_value_in_an_unexempted_call(
+        tmp_path: Path, exempting_statement: str) -> None:
+    # Catches a same-value exemption hiding an unexempted call.
+    source = f"if False:\n    {exempting_statement}\n    y = f('lit')\n"
+    assert 'lit' not in scan_gate.module_vocab(source)[0]
+    (tmp_path / "shared.py").write_text(source, encoding="utf-8")
+    with pytest.raises(AssertionError, match="string constant 'lit'"):
+        _assert_gate_sees_string_constants(tmp_path)
+
+
+def test_tree_property_rejects_the_call_without_an_exempted_twin(
+        tmp_path: Path) -> None:
+    # Catches a missed call literal even without any exemption.
+    source = "if False:\n    y = f('lit')\n"
+    assert 'lit' not in scan_gate.module_vocab(source)[0]
+    (tmp_path / "plain.py").write_text(source, encoding="utf-8")
+    with pytest.raises(AssertionError, match="string constant 'lit'"):
+        _assert_gate_sees_string_constants(tmp_path)
+
+
+@pytest.mark.parametrize("exempting_statement", [
+    "x = 'lit' % name", "x = 'lit' + 'suffix'",
+])
+def test_tree_property_accepts_a_shared_value_in_the_vocabulary(
+        tmp_path: Path, exempting_statement: str) -> None:
+    # Catches rejecting a call literal whose value is visible to the gate.
+    source = ("visible = 'lit'\nif False:\n"
+              f"    {exempting_statement}\n    y = f('lit')\n")
+    assert 'lit' in scan_gate.module_vocab(source)[0]
+    (tmp_path / "visible.py").write_text(source, encoding="utf-8")
     _assert_gate_sees_string_constants(tmp_path)
 
 
