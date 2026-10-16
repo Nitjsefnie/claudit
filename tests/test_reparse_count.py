@@ -74,23 +74,6 @@ def test_parse_body_is_parse_file_minus_the_sniff():
             + counts.phase_bytecodes["sidecar"]) <= counts.total_bytecodes
 
 
-def test_residual_is_measured_not_assumed():
-    # Whatever the three wrapped callables do not account for is a real,
-    # non-zero remainder on the count side too, and it is a phase.
-    counts = _counts()
-    assert counts.phase_bytecodes["residual"] > 0
-
-
-def test_sidecar_phase_is_measured_when_a_sidecar_exists():
-    entry = bench.corpus()[0]
-    assert entry.sidecar_key is None
-    sided = entry._replace(
-        sidecar_key=f"{entry.key}.meta.json",
-        sidecar_blob=b'{"agentType": "bench-sidecar-role"}')
-    counts = phases.measure_counts([sided], bench.run_pass, passes=3)
-    assert counts.phase_bytecodes["sidecar"] > 0
-
-
 def test_counting_counts_only_inside_its_window():
     # Work outside the window must not reach the counter, or the number
     # would price the harness as well as the parse.

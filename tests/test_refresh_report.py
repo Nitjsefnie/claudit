@@ -147,19 +147,24 @@ def test_notice_lines_render_groups_and_pass_through_the_rest():
     assert refresh.notice_lines([]) == []
 
 
-def test_report_omits_a_notice_line_the_baseline_carries():
-    result = _result(notices=[
-        _delisted("alpha (openrouter/alpha)"),
-        f"beta (openrouter/beta): {_TAG_MSG}",
-    ])
-    previous = frozenset({f"{_DELISTED_MSG}: alpha (openrouter/alpha)"})
+@pytest.mark.parametrize("notices, previous, models, absent, present", [
+    ([_delisted("alpha (openrouter/alpha)"),
+      f"beta (openrouter/beta): {_TAG_MSG}"],
+     frozenset({f"{_DELISTED_MSG}: alpha (openrouter/alpha)"}),
+     {"alpha": {"id": "openrouter/alpha"}, "beta": {"id": "openrouter/beta"}},
+     "delisted from OpenRouter's catalog", f"{_TAG_MSG}: beta (openrouter/beta)"),
+    (["rule-resolved: took the bare namespace endpoint",
+      "rule-resolved: the data region leaves 'azure'"],
+     frozenset({"rule-resolved: took the bare namespace endpoint"}), {},
+     "took the bare namespace endpoint", "the data region leaves 'azure'"),
+], ids=["grouped", "passthrough"])
+def test_report_omits_a_notice_line_the_baseline_carries(
+        notices, previous, models, absent, present):
+    output = refresh.report("2031-01-01T00:00:00Z", _result(notices=notices),
+                            models, previous)
 
-    output = refresh.report("2031-01-01T00:00:00Z", result,
-                            {"alpha": {"id": "openrouter/alpha"},
-                             "beta": {"id": "openrouter/beta"}}, previous)
-
-    assert "delisted from OpenRouter's catalog" not in output
-    assert f"{_TAG_MSG}: beta (openrouter/beta)" in output
+    assert absent not in output
+    assert present in output
 
 
 def test_report_omits_the_notices_header_when_every_line_is_unchanged():
@@ -187,21 +192,6 @@ def test_a_changed_notice_line_still_appears():
 
     assert (f"{_DELISTED_MSG}: alpha (openrouter/alpha), "
             f"beta (openrouter/beta)") in output
-
-
-def test_a_passthrough_notice_is_filtered_by_the_baseline():
-    """A notice `_notice_parts` returns None for is appended verbatim, and
-    that arm is filtered too — not only the grouped one."""
-    result = _result(notices=[
-        "rule-resolved: took the bare namespace endpoint",
-        "rule-resolved: the data region leaves 'azure'",
-    ])
-    previous = frozenset({"rule-resolved: took the bare namespace endpoint"})
-
-    output = refresh.report("2031-01-01T00:00:00Z", result, {}, previous)
-
-    assert "took the bare namespace endpoint" not in output
-    assert "the data region leaves 'azure'" in output
 
 
 def test_vendor_report_omits_an_unchanged_notice_line():

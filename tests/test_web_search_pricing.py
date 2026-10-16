@@ -96,16 +96,27 @@ def test_vendor_search_rate_is_loaded_for_the_bare_model(monkeypatch):
     ) == pytest.approx(2 * SEARCH_RATE)
 
 
+@pytest.mark.parametrize("fresh, requests, expected_cost", [
+    (0, 3, 0.0),
+    (1_000_000, None, 2.0),
+], ids=["search-only", "tokens-only"])
 def test_old_web_search_fee_note_does_not_become_a_per_record_charge(
-        monkeypatch):
+        monkeypatch, fresh, requests, expected_cost):
     tables = load_tables(_provider_doc([
         _entry(RATES_B, note=FEE_NOTE),
     ]))
     _install(monkeypatch, tables)
     res = pricing.resolve("acme/acme-9", None, "HostCo")
 
+    assert "web_search" not in res.rates
+    assert not hasattr(res, "request_fee")
     assert res.rates.get("web_search", 0) == 0
-    assert _cost(requests=None, res=res) == pytest.approx(2.0)
+    assert pricing.compute_cost(
+        "acme/acme-9", fresh=fresh, output=0, eph5=0, eph1h=0,
+        unsplit_create=0, read=0,
+        adjustments=pricing.CostAdjustments(web_search_requests=requests),
+        res=res,
+    ) == pytest.approx(expected_cost)
 
 
 def test_search_only_move_adds_a_resolve_epoch_without_changing_tokens(

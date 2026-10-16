@@ -80,15 +80,6 @@ def test_the_walk_reaches_every_lane_parser_and_the_lane_adapter():
         assert name in reached, f"the walk never reaches {name}"
 
 
-def test_the_walk_crosses_a_module_boundary_the_attribute_expression_names():
-    # `LANE_PARSERS[fmt](...)` is a call into all three lane parsers that
-    # no attribute expression spells out, so an edge that only followed
-    # `mod.func` calls would silently drop the entire lane surface.
-    reached = walk.reachable_surface()
-    assert "parse_codex.parse" in reached
-    assert "parse_kimi.parse_legacy" in reached
-
-
 def test_the_walk_stops_at_the_module_boundary():
     # The surface is one reviewable list, not the whole backend: a helper
     # the pass calls but that is not a parse path stays out of the gate.

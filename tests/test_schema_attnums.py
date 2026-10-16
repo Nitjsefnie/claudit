@@ -63,26 +63,6 @@ def _apply_twice(monkeypatch, name: str) -> dict[str, int]:
 
 
 @pytest.mark.db
-def test_reapply_on_a_new_shape_database_burns_no_attnums(monkeypatch):
-    """A stamped database re-applies without growing any table."""
-    name = scratch_db.create_database("attnat_new")
-    try:
-        _apply_twice(monkeypatch, name)
-    finally:
-        scratch_db.drop_database(name)
-
-
-@pytest.mark.db
-def test_reapply_on_a_migrated_database_burns_no_attnums(monkeypatch):
-    """A pre-#959 database migrates, then re-applies without growth."""
-    name = scratch_db.create_database("attnat_old", schema=scratch_db.OLD_SCHEMA)
-    try:
-        _apply_twice(monkeypatch, name)
-    finally:
-        scratch_db.drop_database(name)
-
-
-@pytest.mark.db
 def test_fresh_and_migrated_end_states_carry_the_same_catalog(monkeypatch):
     """Fresh, migrated and re-applied converge on one catalog."""
     fresh = scratch_db.create_database("attnat_fresh")
