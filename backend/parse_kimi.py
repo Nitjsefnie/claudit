@@ -14,8 +14,8 @@ row.
 from __future__ import annotations
 
 from bisect import bisect_right
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from orjson import JSONDecodeError, loads
 
 from backend.flags import ALL_COLLECTIONS_ON, CollectionPolicy
@@ -25,12 +25,16 @@ from backend.parse_common import (_append_tool_use, _append_usage_record,
                                   _arm_reply_anchor, _close_turn,
                                   _end_turn, _finish_parse,
                                   _mark_assistant_event,
-                                  _note_agent_role, _ParseState,
+                                  _note_agent_role,
                                   _settle_lane_tool_result, _start_turn,
                                   _to_dt, _turn_boundary)
 from backend.kimi_content import (_count_content_text, _kc_parse_tool_call)
 from backend.tool_errors import _flatten_result_text
 from backend.json_shape import as_dict, as_list, dict_list
+
+if TYPE_CHECKING:
+    from backend.lane_state import _KimiCodeState, _ParseState
+
 
 # Model attribution, oldest first. Each constant is a frozen UTC epoch, NOT a
 # live expression.
@@ -190,6 +194,7 @@ def parse_legacy(file_key: str, blob: bytes, *, collection: CollectionPolicy = A
     ctx_turns: list of dicts with keys
       idx, ts, line, input, output, delta
     """
+    from backend.lane_state import _ParseState  # pylint: disable=import-outside-toplevel
     st = _ParseState(file_key, collection=collection)
     for line_num, raw in enumerate(blob.splitlines(), 1):
         if not raw:
@@ -240,15 +245,6 @@ def _attribute_tool_models(st: _ParseState) -> None:
 # --------------------------------------------------------------------------
 # kimi-code format
 # --------------------------------------------------------------------------
-
-
-@dataclass
-class _KimiCodeState(_ParseState):
-    """_ParseState plus the state only the kimi-code format needs."""
-    # The `input` of every turn.steer not yet delivered into context, oldest
-    # first. A steer that arrives while a step is in flight waits for that
-    # step to finish, so its reply-latency anchor arms at delivery.
-    pending_steers: list[list] = field(default_factory=list)
 
 
 def _kc_metadata(st: _ParseState, obj: dict) -> None:
@@ -466,6 +462,7 @@ def parse_kimi_code(file_key: str, blob: bytes, *, collection: CollectionPolicy 
 
     Returns the same shape as _parse_legacy.
     """
+    from backend.lane_state import _KimiCodeState  # pylint: disable=import-outside-toplevel
     st = _KimiCodeState(file_key, collection=collection)
     for line_num, raw in enumerate(blob.splitlines(), 1):
         if not raw:

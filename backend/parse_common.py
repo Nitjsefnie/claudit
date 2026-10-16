@@ -14,21 +14,18 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
 from itertools import pairwise, repeat
 from typing import TYPE_CHECKING
 
 from backend import pricing
-from backend.flags import ALL_COLLECTIONS_ON, CollectionPolicy
-from backend.parse_collection import ParseCollection, parse_collection
 from backend.agent_types import canonical_agent_type
 from backend.ctx_turns import _ctx_turns_from_turns
 from backend.tool_errors import ERROR_TEXT_MAX, _pg_text, classify_lane_error
 
 if TYPE_CHECKING:
-    from backend.lane_generation import LaneGeneration
+    from backend.lane_state import _ParseState
 
 
 def iter_lines(blob: bytes) -> Iterator[bytes]:
@@ -83,50 +80,6 @@ def _to_dt(s: str | float | None):
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
-
-
-@dataclass
-class _ParseState:
-    """Mutable per-file parse state threaded through the message handlers.
-
-    turns entries are {begin_line, begin_ts, end_line, end_ts,
-    status_lines: [line_num]}; records entries carry the keys documented
-    on parse_file plus an internal ctx_input used to build ctx_turns.
-    """
-    file_key: str
-    collection: CollectionPolicy = field(default=ALL_COLLECTIONS_ON, kw_only=True)
-    collect: ParseCollection = field(init=False)
-    lane_generation: LaneGeneration | None = field(init=False, default=None)
-    records: list[dict] = field(default_factory=list)
-    tool_uses: list[dict] = field(default_factory=list)
-    rate_limit_hits: list[dict] = field(default_factory=list)
-    # Per-file map of tool_call_id -> bool(is_error)
-    tool_result_is_error: dict[str, bool] = field(default_factory=dict)
-    # Per-file map of tool_call_id -> (error_kind, error_text) for the
-    # calls that errored, recorded when the result settles (SV-WHY-COLUMNS).
-    tool_result_error_info: dict[str, tuple[str, str | None]] = field(
-        default_factory=dict)
-    turns: list[dict] = field(default_factory=list)
-    current_turn: dict | None = None
-    current_turn_id: str | None = None
-    # Reply latency: the armed anchor's ts (the turn's start), and the ts
-    # of the first assistant event seen while it was armed -- where the
-    # window ends, matching the Claude path's first assistant line.
-    pending_turn_begin_ts: datetime | None = None
-    first_assistant_event_ts: datetime | None = None
-    # For text_chars: accumulate ContentPart.text since last TurnBegin
-    text_chars_since_turn: int = 0
-    # First event timestamp drives the per-session model label.
-    first_event_ts: datetime | None = None
-    # The role this transcript ran as, in the format's OWN vocabulary
-    # (parse_lanes.to_claudit normalises it). None when no line named one.
-    agent_role: str | None = None
-
-    def __post_init__(self) -> None:
-        self.collect = parse_collection(self.collection)
-        if self.collection is ALL_COLLECTIONS_ON or self.collection.enabled("generation_speed"):
-            from backend.lane_generation import LaneGeneration  # pylint: disable=import-outside-toplevel
-            self.lane_generation = LaneGeneration()
 
 
 def _close_turn(st: _ParseState, line_num: int, ts: datetime | None) -> None:
