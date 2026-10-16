@@ -95,9 +95,6 @@ def _header_values(sent, name):
 
 
 def test_sse_class_gets_nosniff_only():
-    """A streaming text/event-stream response carries nosniff on its
-    start message and none of the framing headers, and its body passes
-    through unwrapped."""
     sent = _drive(status=200,
                   raw_headers=[(b"content-type", b"text/event-stream"),
                                (b"cache-control", b"no-cache, no-transform")],
@@ -123,6 +120,7 @@ def test_html_error_page_gets_framing_headers():
 
 
 def test_existing_headers_are_not_clobbered():
+    """Preserve PNG export's Content-Disposition and intentional security headers."""
     sent = _drive(status=200,
                   raw_headers=[(b"content-type", b"text/html"),
                                (b"x-frame-options", b"SAMEORIGIN")],
