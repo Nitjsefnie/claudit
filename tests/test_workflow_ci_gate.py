@@ -51,7 +51,8 @@ LEG_WORKFLOWS = (
     "panel-layout.yml", "smoke.yml", "docker-smoke.yml", "audit.yml",
     "actionlint.yml", "codeql.yml",
 )
-LEG_IDS = tuple(Path(name).stem for name in LEG_WORKFLOWS)
+REUSABLE_LEG_IDS = tuple(Path(name).stem for name in LEG_WORKFLOWS)
+LEG_IDS = (*REUSABLE_LEG_IDS, "setup-docs")
 
 
 def _load(path):
@@ -154,7 +155,7 @@ def test_legs_are_conditioned_on_the_narrowing_outputs():
     comment_skipped = _aggregate_module().COMMENT_ONLY_SKIPPED
     assert set(comment_skipped) == {"test-data", "panel-layout"}
     doc = _ci_gate()
-    for leg in LEG_IDS:
+    for leg in REUSABLE_LEG_IDS:
         gate = doc["jobs"][leg].get("if") or ""
         expected = "needs.classify.outputs.docs_only != 'true'"
         if leg not in cheap:
@@ -163,6 +164,7 @@ def test_legs_are_conditioned_on_the_narrowing_outputs():
             expected += " && needs.classify.outputs.comment_only != 'true'"
         if leg != 'tests':
             expected += " && needs.classify.outputs.thresholds_only != 'true'"
+        expected += " && needs.classify.outputs.setup_only != 'true'"
         assert gate == expected, leg
 
 
@@ -173,7 +175,7 @@ def test_aggregate_module_names_the_same_cheap_legs_the_workflow_runs():
     module = _aggregate_module()
     assert module.CHEAP_LEGS == frozenset({"lint", "smoke"})
     doc = _ci_gate()
-    for leg in LEG_IDS:
+    for leg in REUSABLE_LEG_IDS:
         gate = doc["jobs"][leg].get("if") or ""
         runs_under_data_only = "data_only" not in gate
         assert runs_under_data_only == (leg in module.CHEAP_LEGS), leg
@@ -209,6 +211,25 @@ def test_classify_job_outputs_the_narrowing_outputs():
     outputs = _ci_gate()["jobs"]["classify"].get("outputs") or {}
     assert "docs_only" in outputs
     assert "data_only" in outputs
+    assert "setup_only" in outputs
+
+
+def test_setup_docs_runs_only_the_guard_with_the_tests_python_pin():
+    job = _ci_gate()["jobs"]["setup-docs"]
+    assert job["needs"] == "classify"
+    assert job["if"] == "needs.classify.outputs.setup_only == 'true'"
+    assert job["runs-on"] == "ubuntu-latest"
+    steps = job["steps"]
+    python_step, = [step for step in steps
+                    if step.get("uses", "").startswith("actions/setup-python@")]
+    tests_python, = [step for step in _tests_workflow()["jobs"]["pytest"]["steps"]
+                     if step.get("uses", "").startswith("actions/setup-python@")]
+    assert python_step["uses"] == tests_python["uses"]
+    assert python_step["with"]["python-version"] == tests_python["with"]["python-version"]
+    assert [step["run"] for step in steps if "pytest " in step.get("run", "")] == [
+        "python3 -m pytest tests/test_docs_setup.py -q"]
+    assert not any("postgres" in step.get("uses", "")
+                   or "setup-node" in step.get("uses", "") for step in steps)
 
 
 def test_classify_job_reads_actions_for_the_verified_base_walk():

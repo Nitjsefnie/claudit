@@ -38,6 +38,8 @@ from typing import NamedTuple
 import pytest
 import yaml
 
+from scripts.ci import aggregate_gate
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLASSIFIER = REPO_ROOT / "scripts" / "ci" / "classify_changes.py"
 CI_GATE = REPO_ROOT / ".github" / "workflows" / "ci-gate.yml"
@@ -65,7 +67,7 @@ REFERENCE = re.compile(r"needs\.classify\.outputs\.([A-Za-z_][A-Za-z0-9_-]*)")
 # guess, so a rewritten condition is noticed here instead of being
 # silently mis-read as the shape it happens to resemble.
 CONJUNCT = (r"needs\.classify\.outputs\.([A-Za-z_][A-Za-z0-9_-]*)"
-            r" != 'true'")
+            r" (!=|==) 'true'")
 CONJUNCT_RE = re.compile(CONJUNCT)
 # One or more conjuncts joined by `&&`: the comment-only class adds a
 # third narrowing output to some legs' conditions.
@@ -247,26 +249,26 @@ def _condition(job):
         removeprefix(" ").removesuffix("}}").removesuffix(" ").strip()
 
 
-def _output_name(conjunct):
-    """The narrowing output one conjunct reads."""
+def _output_comparison(conjunct):
+    """The narrowing output and operator one conjunct reads."""
     match = CONJUNCT_RE.fullmatch(conjunct.strip())
     assert match, f'not a narrowing conjunct: {conjunct!r}'
-    return match.group(1)
+    return match.group(1), match.group(2)
 
 
 def _runs(job, outputs):
     """Whether a leg's own condition would run it, on these outputs.
 
-    Each conjunct is one `output != 'true'`, so the condition runs the
-    leg exactly when none of the outputs it reads is the string `true`.
+    Support the matrix's exclusions and the setup guard's inclusion.
     """
     condition = _condition(job)
     if not condition:
         return True
     assert EVALUABLE.match(condition), \
         f'condition shape this evaluator does not translate: {condition!r}'
-    names = [_output_name(part) for part in condition.split(' && ')]
-    return all(outputs.get(name, '') != 'true' for name in names)
+    comparisons = [_output_comparison(part) for part in condition.split(' && ')]
+    return all((outputs.get(name, '') == 'true') == (operator == '==')
+               for name, operator in comparisons)
 
 
 def _published(written, gate=None):
@@ -307,6 +309,20 @@ def _gating_legs(outputs, gate=None):
     """The legs whose conditions run, given the written step outputs."""
     return {name for name, job in _legs(_ci_gate()).items()
             if _runs(job, _published(outputs, gate))}
+
+
+def _matrix_legs():
+    """The reusable legs covered by the full tests job."""
+    return set(_legs(_ci_gate())) - {'setup-docs'}
+
+
+def _fold_outputs(outputs, classify='success'):
+    """Fold the results of the jobs selected by the workflow's conditions."""
+    running = _gating_legs(outputs) if classify == 'success' else set()
+    needs: dict = {name: {'result': 'success' if name in running else 'skipped'}
+                   for name in _legs(_ci_gate())}
+    needs['classify'] = {'result': classify, 'outputs': _published(outputs)}
+    return aggregate_gate.decide(needs)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +375,8 @@ def test_a_code_push_runs_every_leg_end_to_end(tmp_path):
     # two assertions above accept.
     _over_the_verified_base(run)
     assert outputs.get("reason", "").startswith("2 paths changed, 2 outside")
-    assert _gating_legs(outputs) == set(_legs(_ci_gate()))
+    assert _gating_legs(outputs) == _matrix_legs()
+    assert _fold_outputs(outputs) == aggregate_gate.PASSED
 
 
 # A comment-only push: two source files whose head text differs from the
@@ -391,7 +408,7 @@ def test_a_comment_only_push_skips_the_behaviour_legs_end_to_end(tmp_path):
     assert outputs.get("comment_only") == "true", outputs
     assert _published(outputs).get("comment_only") == "true", outputs
     assert outputs.get("reason", "").startswith("comment-only change")
-    expected = set(_legs(_ci_gate())) - {"test-data", "panel-layout"}
+    expected = _matrix_legs() - {"test-data", "panel-layout"}
     assert _gating_legs(outputs) == expected
 
 
@@ -402,22 +419,24 @@ def test_a_docs_push_skips_every_leg_end_to_end(tmp_path):
     outputs = _parse_step_outputs(run.written)
     assert outputs.get("docs_only") == "true", outputs
     assert _gating_legs(outputs) == set()
+    assert _fold_outputs(outputs) == aggregate_gate.PASSED
 
 
-def test_a_setup_docs_push_runs_the_tests_leg_end_to_end(tmp_path):
-    # Issue #477, at the only level that settles it: the changed set is
-    # documentation by every path pattern, and the leg that pins those
-    # docs' setup blocks still runs against the real ci-gate.yml's
-    # conditions — so a push that deletes a setup step fails on itself.
-    run = _run_classifier(tmp_path, paths=["README.md", "docs/guide.md"])
+@pytest.mark.parametrize('setup_changed', [False, True])
+def test_a_setup_doc_push_runs_only_the_needed_guard(tmp_path, setup_changed):
+    before = '## Quick start\n```bash\npython3 -m uvicorn app\n```\n## Other\nold\n'
+    after = before.replace('app', 'other') if setup_changed else before.replace('old', 'new')
+    run = _run_classifier(tmp_path, paths=["README.md", "docs/guide.md"],
+                          base_contents={'README.md': before},
+                          head_contents={'README.md': after})
     _only_modelled_reads(run)
     _over_the_verified_base(run)
     outputs = _parse_step_outputs(run.written)
-    assert outputs.get("docs_only") == "false", outputs
-    assert "README.md" in outputs.get("reason", ""), outputs
-    legs = _gating_legs(outputs)
-    assert legs == set(_legs(_ci_gate())), legs
-    assert "tests" in legs, legs
+    assert outputs.get('docs_only') == str(not setup_changed).lower(), outputs
+    assert outputs.get('setup_only') == str(setup_changed).lower(), outputs
+    assert _published(outputs).get('setup_only') == str(setup_changed).lower()
+    assert _gating_legs(outputs) == ({'setup-docs'} if setup_changed else set())
+    assert _fold_outputs(outputs) == aggregate_gate.PASSED
 
 
 def test_a_classifier_that_writes_nothing_runs_every_leg(tmp_path):
@@ -435,7 +454,8 @@ def test_a_classifier_that_writes_nothing_runs_every_leg(tmp_path):
     _over_the_verified_base(run)
     assert run.returncode != 0, "the classifier was supposed to die"
     assert run.written == ""
-    assert _gating_legs({}) == set(_legs(_ci_gate()))
+    assert _gating_legs({}) == _matrix_legs()
+    assert _fold_outputs({}, classify='failure') == aggregate_gate.FAILED
 
 
 def test_every_workflow_published_output_is_one_the_classifier_writes(tmp_path):
@@ -491,7 +511,7 @@ def test_bot_blob_transport_preserves_assignment_line_terminators(tmp_path, term
     _over_the_verified_base(run)
     outputs = _parse_step_outputs(run.written)
     assert outputs['data_only'] == ('true' if terminator == '\n' else 'false')
-    assert _gating_legs(outputs) == ({'lint', 'smoke'} if terminator == '\n' else set(_legs(_ci_gate())))
+    assert _gating_legs(outputs) == ({'lint', 'smoke'} if terminator == '\n' else _matrix_legs())
 
 
 def test_a_thresholds_only_push_runs_only_tests_end_to_end(tmp_path):

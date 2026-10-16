@@ -129,6 +129,9 @@ EXEMPT = {
         "the pytest path argument; test code is production source's"
         " sibling here — a head's verdict is computed from its own"
         " tree, and only files that move the RULES strand it"),
+    "tests/test_docs_setup.py": (
+        "the setup-only pytest path argument; like the full tests path,"
+        " the guard is test code judged from the head's own tree"),
     "fixtures": (
         "the fixture mirror's path argument in the test-data legs;"
         " fixture content is not a rule definition"),

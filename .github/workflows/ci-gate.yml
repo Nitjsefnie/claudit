@@ -11,7 +11,8 @@ name: ci gate
 # a change. This workflow starts on every push and pull request
 # (one trigger-level ignore: the ratchet bot's data file, below),
 # classifies the changed paths, and either runs every gate leg or
-# narrows: a docs-only run skips every leg, a bot-data-only run
+# narrows: a docs-only run skips every leg; a setup-only run executes
+# only setup-docs, with the guard covered by tests on full runs. A bot-data-only run
 # (src/pricing.json alone — the refresh job already ran the full suite
 # against the new rates before pushing) runs only the cheap legs lint
 # and smoke, and a comment-only run (every changed source file's
@@ -112,6 +113,7 @@ jobs:
       data_only: ${{ steps.classify.outputs.data_only }}
       comment_only: ${{ steps.classify.outputs.comment_only }}
       thresholds_only: ${{ steps.classify.outputs.thresholds_only }}
+      setup_only: ${{ steps.classify.outputs.setup_only }}
       reason: ${{ steps.classify.outputs.reason }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -155,10 +157,11 @@ jobs:
   # missing from the needs document, or a classifier crash (whose empty
   # output reads as not-docs and leaves every leg skipped —
   # fail-closed, visibly red).
+  # setup-docs runs only for setup_only; every other class skips it.
 
   tests:
     needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true'
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.setup_only != 'true'
     uses: $/.github/workflows/tests.yml
     with:
       # The comment-only class narrows the portable matrix inside the
@@ -182,48 +185,48 @@ jobs:
     # has moved — SV-TEST-DATA's second enforcement half. The verdict is
     # the perturbed suite's pass/fail; no coverage, no ratchet.
     needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.comment_only != 'true' && needs.classify.outputs.thresholds_only != 'true'
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.comment_only != 'true' && needs.classify.outputs.thresholds_only != 'true' && needs.classify.outputs.setup_only != 'true'
     uses: $/.github/workflows/test-data.yml
 
   lint:
     needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.thresholds_only != 'true'
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.thresholds_only != 'true' && needs.classify.outputs.setup_only != 'true'
     uses: $/.github/workflows/lint.yml
 
   types:
     needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true'
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true' && needs.classify.outputs.setup_only != 'true'
     uses: $/.github/workflows/types.yml
 
   eslint:
     needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true'
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true' && needs.classify.outputs.setup_only != 'true'
     uses: $/.github/workflows/eslint.yml
 
   panel-layout:
     needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.comment_only != 'true' && needs.classify.outputs.thresholds_only != 'true'
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.comment_only != 'true' && needs.classify.outputs.thresholds_only != 'true' && needs.classify.outputs.setup_only != 'true'
     uses: $/.github/workflows/panel-layout.yml
 
   smoke:
     needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.thresholds_only != 'true'
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.thresholds_only != 'true' && needs.classify.outputs.setup_only != 'true'
     uses: $/.github/workflows/smoke.yml
 
   docker-smoke:
     # Build the container image and smoke-run the compose stack (issue #941).
     needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true'
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true' && needs.classify.outputs.setup_only != 'true'
     uses: $/.github/workflows/docker-smoke.yml
 
   audit:
     needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true'
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true' && needs.classify.outputs.setup_only != 'true'
     uses: $/.github/workflows/audit.yml
 
   actionlint:
     needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true'
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true' && needs.classify.outputs.setup_only != 'true'
     uses: $/.github/workflows/actionlint.yml
 
   codeql:
@@ -231,7 +234,7 @@ jobs:
     # comment-keyed alert suppressions, so a comment-only diff CAN change
     # CodeQL's verdict.
     needs: classify
-    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true'
+    if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true' && needs.classify.outputs.setup_only != 'true'
     uses: $/.github/workflows/codeql.yml
     permissions:
       # Writing the analysis is the whole point of the callee; the rest
@@ -240,9 +243,42 @@ jobs:
       actions: read
       contents: read
 
+  setup-docs:
+    needs: classify
+    if: needs.classify.outputs.setup_only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Restore the pip cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
+
+      - name: Install dependencies
+        run: python3 -m pip install -r backend/requirements.txt -r requirements-test.txt
+
+      - name: Save the pip cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
+
+      - name: Guard the pinned setup documentation
+        run: python3 -m pytest tests/test_docs_setup.py -q
+
   aggregate:
     needs: [classify, tests, test-data, lint, types, eslint, panel-layout,
-            smoke, docker-smoke, audit, actionlint, codeql]
+            smoke, docker-smoke, audit, actionlint, codeql, setup-docs]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
