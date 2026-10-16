@@ -88,43 +88,27 @@ def test_a_codex_record_is_priced_at_the_rate_of_its_own_timestamp(
     assert float(after["cost_usd"]) == 0.42
 
 
-def test_a_subscription_record_bills_the_long_context_meter():
-    """Every record is billed as if it were an API call, whatever plan
-    served it (issue #194): the meter is a property of the model's rate
-    card, and dropping it for a subscription rollout underbills the
-    rollout's priciest requests by 2x input.
-    """
-    blob = _codex_usage_lines(snapshots=[
+@pytest.mark.parametrize("model,plan,file_key,check_fresh,check_membership", [
+    pytest.param("gpt-5.6-sol", "pro", "codex/sub_long.jsonl", True, False, id="subscription"),
+    pytest.param("gpt-5.6-sol", None, "codex/api_long.jsonl", False, False, id="no-plan"),
+    pytest.param("gpt-5.5", "pro", "codex/gpt55_long.jsonl", True, True, id="gpt-5-5"),
+])
+def test_a_subscription_record_bills_the_long_context_meter(
+        model, plan, file_key, check_fresh, check_membership):
+    """The model's meter applies to subscription and API rollouts alike."""
+    if check_membership:
+        assert pricing.is_long_context_model(model)
+    blob = _codex_usage_lines(model=model, plan=plan, snapshots=[
         ("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 300_000, 1_000),
     ])
-    out = parse.parse_file("codex/sub_long.jsonl", blob)
+    out = parse.parse_file(file_key, blob)
 
     rec = out["records"][0]
-    assert rec["fresh_tokens"] == 300_000 > pricing.LONG_CONTEXT_THRESHOLD
+    if check_fresh:
+        assert rec["fresh_tokens"] == 300_000 > pricing.LONG_CONTEXT_THRESHOLD
     assert rec["long_context"] is True
     metered = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=300_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
-        eph5=0, eph1h=0, unsplit_create=0, read=0,
-        ts=_to_dt("2026-08-24T12:00:00.000Z"),
-        adjustments=pricing.CostAdjustments(long_context=True),
-    )
-    assert float(rec["cost_usd"]) == pytest.approx(round(metered, 6), rel=1e-9)
-
-
-def test_a_rollout_with_no_plan_still_gets_the_long_context_meter():
-    """The plan never mattered to the meter (issue #194): a rollout that
-    declares no plan is the API shape, and it bills the same meter a
-    subscription rollout does.
-    """
-    blob = _codex_usage_lines(plan=None, snapshots=[
-        ("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 300_000, 1_000),
-    ])
-    out = parse.parse_file("codex/api_long.jsonl", blob)
-
-    rec = out["records"][0]
-    assert rec["long_context"] is True
-    metered = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=300_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
+        model, fresh=300_000, output=1_000,
         eph5=0, eph1h=0, unsplit_create=0, read=0,
         ts=_to_dt("2026-08-24T12:00:00.000Z"),
         adjustments=pricing.CostAdjustments(long_context=True),
@@ -195,29 +179,5 @@ def test_a_gpt_5_5_codex_record_prices_through_its_own_row():
     metered = pricing.compute_cost(
         "gpt-5.5", fresh=100_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
         eph5=0, eph1h=0, unsplit_create=0, read=0, ts=ts,
-    )
-    assert float(rec["cost_usd"]) == pytest.approx(round(metered, 6), rel=1e-9)
-
-
-def test_a_gpt_5_5_codex_record_bills_the_long_context_meter():
-    """OpenAI bills gpt-5.5 above 272k input at the meter's own shape (2x
-    the input side, 1.5x output), so the dashed key appears in
-    long_context_meters: membership decides at reprice (the flag is
-    recomputed from stored tokens), while a fresh parse bills the meter on
-    the threshold alone. Both are pinned."""
-    ts = _to_dt("2026-08-24T12:00:00.000Z")
-    assert pricing.is_long_context_model("gpt-5.5")
-    blob = _codex_usage_lines(model="gpt-5.5", snapshots=[
-        ("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 300_000, 1_000),
-    ])
-    out = parse.parse_file("codex/gpt55_long.jsonl", blob)
-
-    rec = out["records"][0]
-    assert rec["fresh_tokens"] == 300_000 > pricing.LONG_CONTEXT_THRESHOLD
-    assert rec["long_context"] is True
-    metered = pricing.compute_cost(
-        "gpt-5.5", fresh=300_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables, meter on)
-        eph5=0, eph1h=0, unsplit_create=0, read=0, ts=ts,
-        adjustments=pricing.CostAdjustments(long_context=True),
     )
     assert float(rec["cost_usd"]) == pytest.approx(round(metered, 6), rel=1e-9)

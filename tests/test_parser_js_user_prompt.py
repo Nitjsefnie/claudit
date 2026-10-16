@@ -49,37 +49,16 @@ def _user_messages(name):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_browser_prompt_image_only_record_counts_once():
-    """A text prompt and a later image-only record each emit exactly one
-    user_message event; the image detail names the attachment."""
-    out = _user_messages("prompt_image_only.jsonl")
-    assert out["details"] == ["look at this", "[image attachment]"]
-    assert out["userMsgs"] == 2
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_browser_prompt_image_with_injected_text_counts():
-    """Injected-only text pushes nothing; the image still emits the
-    record's single user_message event."""
-    out = _user_messages("prompt_image_with_injected_text.jsonl")
-    assert out["details"] == ["[image attachment]"]
-    assert out["userMsgs"] == 1
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_browser_prompt_multi_text_block_counts_once():
-    """One record, many human text blocks: ONE event joining them, not
-    one per block."""
-    out = _user_messages("prompt_multi_text_block.jsonl")
-    assert out["details"] == ["first half\n\nsecond half"]
-    assert out["userMsgs"] == 1
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_browser_prompt_image_inside_tool_result_never_counts():
-    """An image inside a tool_result is result payload: no user_message
-    event, and the tool result still lands."""
-    out = _user_messages("prompt_image_in_tool_result.jsonl")
-    assert out["details"] == []
-    assert out["userMsgs"] == 0
-    assert out["toolResults"] == 1
+@pytest.mark.parametrize("fixture,details,user_msgs,tool_results", [
+    pytest.param("prompt_image_only.jsonl", ["look at this", "[image attachment]"], 2, None, id="image-only"),
+    pytest.param("prompt_image_with_injected_text.jsonl", ["[image attachment]"], 1, None, id="image-with-injected-text"),
+    pytest.param("prompt_multi_text_block.jsonl", ["first half\n\nsecond half"], 1, None, id="multi-text-block"),
+    pytest.param("prompt_image_in_tool_result.jsonl", [], 0, 1, id="image-in-tool-result"),
+])
+def test_browser_prompt_image_only_record_counts_once(fixture, details, user_msgs, tool_results):
+    """Human blocks count once per record; tool-result images never count."""
+    out = _user_messages(fixture)
+    assert out["details"] == details
+    assert out["userMsgs"] == user_msgs
+    if tool_results is not None:
+        assert out["toolResults"] == tool_results

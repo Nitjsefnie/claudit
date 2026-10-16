@@ -451,45 +451,19 @@ def test_backend_kimi_code_tool_call_guards_match_empty_lines():
     assert actual == expected
 
 
-def test_kimi_code_non_object_usage_matches_empty_usage():
-    name = "non_object_nested_kimi_code.jsonl"
+@pytest.mark.parametrize("name,line_index,usage_container", [
+    pytest.param("non_object_nested_kimi_code.jsonl", 6, None, id="kimi-code"),
+    pytest.param("non_object_nested_claude.jsonl", 2, "message", id="claude"),
+])
+def test_kimi_code_non_object_usage_matches_empty_usage(name, line_index, usage_container):
     lines = (FIX / name).read_text(encoding="ascii").splitlines()
-    record = json.loads(lines[6])
-    record["usage"] = 123
-    lines[6] = json.dumps(record, separators=(",", ":"))
+    record = json.loads(lines[line_index])
+    usage_record = record if usage_container is None else record[usage_container]
+    usage_record["usage"] = 123
+    lines[line_index] = json.dumps(record, separators=(",", ":"))
     malformed_usage = "\n".join(lines)
-    empty_usage_record = json.loads(lines[6])
-    empty_usage_record["usage"] = {}
-    lines[6] = json.dumps(empty_usage_record, separators=(",", ":"))
-    empty_usage = "\n".join(lines)
-
-    actual = parse.parse_file(
-        f"sessions/p/s/{name}", malformed_usage.encode("ascii")
-    )
-    expected = parse.parse_file(
-        f"sessions/p/s/{name}", empty_usage.encode("ascii")
-    )
-    got = _node_parse({name: malformed_usage})[name]
-
-    assert actual["records"]
-    assert actual["prompt_count"] == 2
-    assert actual == expected
-    assert "error" not in got, got.get("stack", got)
-    assert got["lines"] == _backend_prompt_lines(malformed_usage, actual)
-    assert got["userMsgs"] == actual["prompt_count"]
-    assert got["usageCount"] == len(actual["records"]) > 0
-
-
-def test_claude_non_object_usage_matches_empty_usage():
-    name = "non_object_nested_claude.jsonl"
-    lines = (FIX / name).read_text(encoding="ascii").splitlines()
-    record = json.loads(lines[2])
-    record["message"]["usage"] = 123
-    lines[2] = json.dumps(record, separators=(",", ":"))
-    malformed_usage = "\n".join(lines)
-    empty_usage_record = json.loads(lines[2])
-    empty_usage_record["message"]["usage"] = {}
-    lines[2] = json.dumps(empty_usage_record, separators=(",", ":"))
+    usage_record["usage"] = {}
+    lines[line_index] = json.dumps(record, separators=(",", ":"))
     empty_usage = "\n".join(lines)
 
     actual = parse.parse_file(
