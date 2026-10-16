@@ -353,14 +353,24 @@ def test_a_call_that_never_ran_wrote_nothing():
     assert by_idx[1]["lines_added"] == 0
 
 
-@pytest.mark.parametrize("family,expected,paths", [
-    ("redirect", (1, 0), ["/work/out.txt"]),
-    ("echo", (1, 0), ["/work/out.txt"]),
-    ("python", (1, 0), []),
-    ("sed", (1, 1), ["/work/out.txt"]),
+@pytest.mark.parametrize("fixture,expected,paths", [
+    pytest.param("bash_estimate_redirect.jsonl", (1, 0), ["/work/out.txt"], id="estimate-redirect"),
+    pytest.param("bash_estimate_echo.jsonl", (1, 0), ["/work/out.txt"], id="estimate-echo"),
+    pytest.param("bash_estimate_python.jsonl", (1, 0), [], id="estimate-python"),
+    pytest.param("bash_estimate_sed.jsonl", (1, 1), ["/work/out.txt"], id="estimate-sed"),
+    pytest.param("bash_review_destination_null.jsonl", (0, 0), [], id="review-destination-null"),
+    pytest.param("bash_review_cat_empty.jsonl", (0, 0), ["/work/out.txt"], id="review-cat-empty"),
+    pytest.param("bash_review_helper_empty.jsonl", (0, 0), ["/work/out.txt"], id="review-helper-empty"),
+    pytest.param("bash_review_edit_discarded.jsonl", (0, 0), ["/work/out.txt"], id="review-edit-discarded"),
+    pytest.param("bash_review_edit_overwritten.jsonl", (0, 0), ["/work/out.txt"], id="review-edit-overwritten"),
+    pytest.param("bash_review_edit_written.jsonl", (2, 1), ["/work/out.txt"], id="review-edit-written"),
+    pytest.param("bash_review_helper_rebind.jsonl", (1, 0), ["/work/out.txt"], id="review-helper-rebind"),
+    pytest.param("bash_review_helper_deferred.jsonl", (0, 0), [], id="review-helper-deferred"),
+    pytest.param("bash_review_copy_empty.jsonl", (0, 0), ["/work/out.txt"], id="review-copy-empty"),
+    pytest.param("bash_review_perl_unknown.jsonl", (1, 0), [], id="review-perl-unknown"),
 ])
-def test_bash_write_estimate_fixtures(family, expected, paths):
-    tool = parse.parse_file("k/s/s.jsonl", _read("bash_estimate_" + family + ".jsonl"))["tool_uses"][0]
+def test_bash_write_estimate_fixtures(fixture, expected, paths):
+    tool = parse.parse_file("k/s/s.jsonl", _read(fixture))["tool_uses"][0]
     assert (tool["lines_added"], tool["lines_deleted"]) == expected
     assert tool["write_targets"] == paths
 
@@ -372,24 +382,6 @@ def test_bash_write_estimates_remain_zero_on_error(family, result):
         b'"content":"ok"', ('"content":"' + result + '","is_error":true').encode())
     tool = parse.parse_file("k/s/s.jsonl", data)["tool_uses"][0]
     assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
-
-
-@pytest.mark.parametrize("family,expected,paths", [
-    ("destination_null", (0, 0), []),
-    ("cat_empty", (0, 0), ["/work/out.txt"]),
-    ("helper_empty", (0, 0), ["/work/out.txt"]),
-    ("edit_discarded", (0, 0), ["/work/out.txt"]),
-    ("edit_overwritten", (0, 0), ["/work/out.txt"]),
-    ("edit_written", (2, 1), ["/work/out.txt"]),
-    ("helper_rebind", (1, 0), ["/work/out.txt"]),
-    ("helper_deferred", (0, 0), []),
-    ("copy_empty", (0, 0), ["/work/out.txt"]),
-    ("perl_unknown", (1, 0), []),
-])
-def test_bash_review_write_estimate_fields(family, expected, paths):
-    tool = parse.parse_file("k/s/s.jsonl", _read("bash_review_" + family + ".jsonl"))["tool_uses"][0]
-    assert (tool["lines_added"], tool["lines_deleted"]) == expected
-    assert tool["write_targets"] == paths
 
 
 def test_windows_bash_write_invalidates_raw_read_without_rewriting_paths():
@@ -492,19 +484,14 @@ def test_turn_flags_attach_window_events_to_next_request():
     assert third["turn_tool_results"] == 0
 
 
-def test_turn_flags_user_prompt_pasted_content():
-    out = parse.parse_file("k/s/s.jsonl", _read("turn_flags_user_prompt_pasted_content.jsonl"))
-    assert out["records"][0]["turn_flags"] == ["user_prompt"]
-
-
-def test_turn_flags_user_prompt_image_only():
-    out = parse.parse_file("k/s/s.jsonl", _read("turn_flags_user_prompt_image_only.jsonl"))
-    assert out["records"][0]["turn_flags"] == ["user_prompt"]
-
-
-def test_turn_flags_user_prompt_excludes_is_meta_text():
-    out = parse.parse_file("k/s/s.jsonl", _read("turn_flags_user_prompt_excludes_is_meta_text.jsonl"))
-    assert out["records"][0]["turn_flags"] == []
+@pytest.mark.parametrize("fixture,file_key,expected", [
+    pytest.param("turn_flags_user_prompt_pasted_content.jsonl", "k/s/s.jsonl", ["user_prompt"], id="pasted-content"),
+    pytest.param("turn_flags_user_prompt_image_only.jsonl", "k/s/s.jsonl", ["user_prompt"], id="image-only"),
+    pytest.param("turn_flags_user_prompt_excludes_is_meta_text.jsonl", "k/s/s.jsonl", [], id="excludes-meta-text"),
+])
+def test_turn_flags_user_prompt_pasted_content(fixture, file_key, expected):
+    out = parse.parse_file(file_key, _read(fixture))
+    assert out["records"][0]["turn_flags"] == expected
 
 
 def test_prompt_snapshot_flags_land_on_the_request_they_describe():

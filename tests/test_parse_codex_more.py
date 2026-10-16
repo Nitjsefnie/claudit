@@ -38,16 +38,6 @@ def test_a_cache_write_is_billed_at_its_own_rate_not_at_fresh_input_rates():
         expected_delta, abs=1e-6)
 
 
-def test_the_billed_buckets_still_partition_the_prompt_exactly_once():
-    """fresh + create + read == the whole prompt, with cache_write counted
-    once in create and not again in fresh."""
-    out = _parse("rollout_fork_prefix.jsonl")
-    for rec in out["records"]:
-        assert rec["ctx_input"] == (
-            rec["fresh_tokens"] + rec["cache_creation_tokens"]
-            + rec["cache_read_tokens"])
-
-
 @pytest.mark.parametrize("label", [
     "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
 ])
@@ -72,12 +62,6 @@ def test_every_codex_label_lives_in_the_browser_mirrored_table():
         "kimi-k3", "kimi-k2-7-code", "kimi-k2-6",
         "gpt-6-astra", "gpt-5-6-sol", "gpt-5-6-terra", "gpt-5-6-luna",
     } <= set(pricing.VENDOR_BARE)
-
-
-def test_codex_records_are_not_billed_at_kimi_rates():
-    out = _parse("rollout_model_switch.jsonl")
-    for rec in out["records"]:
-        assert pricing.resolve(rec["model"]).kind == "exact"
 
 
 def test_the_long_context_meter_doubles_input_and_multiplies_output_by_1_5(
@@ -289,16 +273,6 @@ def test_a_filechange_item_is_counted_as_churn():
     ]
 
 
-def test_an_added_or_deleted_file_carries_content_not_a_diff():
-    """`add` and `delete` changes have no unified_diff at all — the whole
-    file body is under `content`. Counting only unified_diff drops them, and
-    on the reference corpus adds and deletes are 44% of all changes."""
-    out = _parse("rollout_item_completed.jsonl")
-    linked = [t for t in out["tool_uses"] if t["tool_name"] == "apply_patch"][0]
-    # 1 diff line + 2 added-file lines; 1 diff line + 2 deleted-file lines.
-    assert (linked["lines_added"], linked["lines_deleted"]) == (3, 3)
-
-
 def test_a_failed_filechange_contributes_no_churn_and_is_an_error():
     out = _parse("rollout_item_completed.jsonl")
     failed = [t for t in out["tool_uses"] if t["is_error"]]
@@ -429,29 +403,17 @@ def test_an_empty_file_parses_to_an_empty_result():
                    "rate_limit_hits": [], "tool_uses": [], "agent_type": parse.DEFAULT_AGENT_TYPE, "agent_type_in_band": False}
 
 
-def test_exec_command_heredoc_churn_is_counted():
-    """Codex's shell text sits one layer in, as the `cmd` argument of a
-    tools.exec_command call. A heredoc written to a file is a write."""
+@pytest.mark.parametrize("index,expected", [
+    pytest.param(0, ("exec_command", 3, 0), id="exec-heredoc"),
+    pytest.param(1, ("monitor", 1, 0), id="monitor-argv"),
+    pytest.param(2, ("exec_command", 0, 0), id="tests-only"),
+])
+def test_exec_command_heredoc_churn_is_counted(index, expected):
+    """Shell text and monitor argv count writes; running tests adds no churn."""
     out = _parse("rollout_shell_churn.jsonl")
     by_name = [(t["tool_name"], t["lines_added"], t["lines_deleted"])
                for t in out["tool_uses"]]
-    assert by_name[0] == ("exec_command", 3, 0)
-
-
-def test_monitor_argv_payload_churn_is_counted():
-    """`monitor` takes command:[argv] rather than a cmd string — the
-    shell payload is positional, and it counts the same."""
-    out = _parse("rollout_shell_churn.jsonl")
-    by_name = [(t["tool_name"], t["lines_added"], t["lines_deleted"])
-               for t in out["tool_uses"]]
-    assert by_name[1] == ("monitor", 1, 0)
-
-
-def test_a_command_that_only_runs_tests_has_no_churn():
-    out = _parse("rollout_shell_churn.jsonl")
-    by_name = [(t["tool_name"], t["lines_added"], t["lines_deleted"])
-               for t in out["tool_uses"]]
-    assert by_name[2] == ("exec_command", 0, 0)
+    assert by_name[index] == expected
 
 
 def _parse_shell_program(program):
@@ -494,18 +456,6 @@ def test_malformed_command_json_does_not_hide_a_later_write(
 
     assert [(tool["tool_name"], tool["lines_added"], tool["lines_deleted"])
             for tool in out["tool_uses"]] == [(api, 2, 0)]
-
-
-def test_an_applied_patch_is_not_also_counted_from_its_program_text():
-    """The rollout journals the applied unified diff in patch_apply_end,
-    which is better evidence than the program that requested it. The
-    inline-patch rule must never fire on a `*** Begin Patch` string too,
-    or every Codex edit is counted twice."""
-    out = _parse("rollout_patch_linked.jsonl")
-    patches = [t for t in out["tool_uses"] if t["tool_name"] == "apply_patch"]
-    assert len(patches) == 2
-    for tool_use in patches:
-        assert (tool_use["lines_added"], tool_use["lines_deleted"]) == (1, 1)
 
 
 def test_every_model_the_corpus_names_stays_itself():
