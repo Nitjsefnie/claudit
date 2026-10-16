@@ -220,7 +220,7 @@ def test_rule_selected_endpoint_imports_log_points_only_when_unique(
     out, err = capsys.readouterr()
 
     assert rc == 0 and not err
-    saved = json.loads(pricing_path.read_text())
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text()))
     assert saved["providers"][MODEL][HOST] == [
         _entry(None, RATE_A), _entry(STAMP if equal_price_alias else moved_at, RATE_B)]
     assert "rule-resolved (bare namespace)" in out
