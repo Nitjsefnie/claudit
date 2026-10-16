@@ -1,14 +1,14 @@
-"""Thresholds-only classification and the classifier's output protocol."""
+"""Emit classifier outputs."""
 from __future__ import annotations
 
 
 def thresholds_only(paths: list[str]) -> bool:
-    """Only the thresholds document changed; rename source paths count too."""
+    """Rename source paths count too."""
     return paths == ['.github/ci-thresholds.json']
 
 
 def unreadable_or_thresholds(paths: list[str] | None):
-    """The result after the caller identified unreadable or thresholds-only paths."""
+    """The caller must exclude other path sets."""
     if paths is None:
         return (False, False, False, False,
                 'could not read the changed paths; running the full gate set')
@@ -16,7 +16,7 @@ def unreadable_or_thresholds(paths: list[str] | None):
 
 
 def write_outputs(path, documentation, data, comment, thresholds, reason):
-    """Append every classification output, including false flags."""
+    """Append flags and reason."""
     if not path:
         return
     with open(path, 'a', encoding='utf-8') as handle:
