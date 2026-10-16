@@ -42,6 +42,18 @@ def git(repo: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
     return done.stdout
 
 
+def _cleanup_trees(repo: Path, paths: list[Path]) -> None:
+    """Attempt every removal and report errors without replacing the result."""
+    failures = []
+    for path in reversed(paths):
+        try:
+            git(repo, 'worktree', 'remove', '--force', str(path))
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            failures.append(f'worktree cleanup {path}: {error}')
+    for failure in failures:
+        print(failure, file=sys.stderr)
+
+
 @contextlib.contextmanager
 def trees(repo: Path, scratch: Path, base_ref: str | None,
           head_ref: str | None, head_tree: Path, self_check: bool = False):
@@ -76,10 +88,7 @@ def trees(repo: Path, scratch: Path, base_ref: str | None,
             third = add('draw3', head_ref) if head_ref else head_tree
             yield [first, second, third]
     finally:
-        registered = git(repo, 'worktree', 'list', '--porcelain').decode()
-        for path in reversed(added):
-            if f'worktree {path}\n' in registered:
-                git(repo, 'worktree', 'remove', '--force', str(path))
+        _cleanup_trees(repo, added)
 
 
 def _number(value, label: str) -> Decimal:

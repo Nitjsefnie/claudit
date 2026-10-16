@@ -51,7 +51,10 @@ def _draw(lines=100, run='10.0'):
 
 @pytest.mark.parametrize(('run', 'passed'), [('12.2', True), ('12.3', False)])
 def test_scan_absolute_cap_boundary(gate, run, passed):
-    draws = [_draw(), _draw(1100, run), _draw(1100, run)]
+    # 1000 added lines allow 2.0M + 0.2M noise; the head adds 0.5M
+    # fixed work, within its own margin and outside the SCAN comparison.
+    draws = [_draw(), _draw(1100, run),
+             _draw(1100, str(Decimal(run) + Decimal('0.5')))]
     result = gate.verdict(draws)
     assert result['passed'] is passed
     if not passed:
@@ -63,7 +66,13 @@ def test_scan_absolute_cap_boundary(gate, run, passed):
 @pytest.mark.parametrize('phase', ['collection', 'run', 'residual'])
 @pytest.mark.parametrize(('delta', 'passed'), [('1.5', True), ('1.6', False)])
 def test_fixed_margin_each_phase(gate, phase, delta, passed):
-    draws = [_draw(), _draw(), _draw()]
+    draws = [_draw(), _draw(1100), _draw(1100)]
+    # Draw2 adds 2.0M in every phase (run permits 2.2M for 1000 lines).
+    # Only draw3 - draw2 is fixed work: 1.5M passes, 1.6M fails.
+    for name, data in draws[0]['suite']['phases'].items():
+        value = str(Decimal(data['million_instructions']) + Decimal('2.0'))
+        draws[1]['suite']['phases'][name]['million_instructions'] = value
+        draws[2]['suite']['phases'][name]['million_instructions'] = value
     value = draws[2]['suite']['phases'][phase]['million_instructions']
     draws[2]['suite']['phases'][phase]['million_instructions'] = str(
         Decimal(value) + Decimal(delta))
@@ -156,6 +165,54 @@ def test_cleanup_on_failure(gate, repo, tmp_path, monkeypatch, failure):
         with gate.trees(repo, tmp_path / 'draws', 'base', None, repo):
             raise ValueError('synthetic failure')
     assert len(_git(repo, 'worktree', 'list').splitlines()) == 1
+
+
+@pytest.mark.parametrize('primary', ['pass', 'clause', 'measurement'])
+def test_cleanup_refusals_preserve_primary_result(gate, repo, tmp_path, monkeypatch, capsys, primary):
+    original = gate.git
+    removals = []
+    calls = []
+
+    def git(root, *args, **kwargs):
+        if args[:2] == ('worktree', 'remove'):
+            name = Path(args[-1]).name
+            removals.append(name)
+            if name != 'draw1':
+                raise ValueError(f'synthetic removal refusal {name}')
+        return original(root, *args, **kwargs)
+
+    def measure(root, scratch):
+        calls.append(root)
+        if primary == 'measurement':
+            raise ValueError('primary measurement failure')
+        return _draw(run='20.0' if primary == 'clause' and len(calls) == 3
+                     else '10.0')
+
+    monkeypatch.setattr(gate, 'git', git)
+    monkeypatch.setattr(gate, 'measure_draw', measure)
+    monkeypatch.chdir(repo)
+    output = tmp_path / 'verdict.json'
+    try:
+        assert gate.main(['--base-ref', 'base', '--head-ref', 'head',
+                          '--write', str(output)]) == (0 if primary == 'pass' else 1)
+        assert removals == ['draw3', 'draw2', 'draw1']
+        assert '/draw1\n' not in _git(repo, 'worktree', 'list', '--porcelain')
+        result = json.loads(output.read_text())['verdict']
+        if primary == 'measurement':
+            assert result['failures'] == ['primary measurement failure']
+        elif primary == 'clause':
+            assert result['failures'][0].startswith('FIXED run:')
+        else:
+            assert result['passed']
+        errors = capsys.readouterr().err
+        assert 'synthetic removal refusal draw3' in errors
+        assert 'synthetic removal refusal draw2' in errors
+    finally:
+        # Only the injected refusals leave these disposable registrations.
+        for line in _git(repo, 'worktree', 'list', '--porcelain').splitlines():
+            if (line.startswith('worktree ')
+                    and Path(line[9:]).name in ('draw3', 'draw2', 'draw1')):
+                original(repo, 'worktree', 'remove', '--force', line[9:])
 
 
 def test_head_tree_includes_tracked_uncommitted_tests(gate, repo, tmp_path):
