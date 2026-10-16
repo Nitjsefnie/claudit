@@ -73,8 +73,8 @@ def _guard():
     return _ci_modules()[3]
 
 
-@pytest.fixture(scope="module")
-def committed_thresholds():
+@pytest.fixture(scope="module", name="committed_thresholds")
+def _committed_thresholds():
     return _thresholds().load(THRESHOLDS_PATH)
 
 
