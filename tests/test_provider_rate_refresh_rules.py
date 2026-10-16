@@ -526,6 +526,13 @@ def test_continuity_ignores_a_changed_schedule():
 
 
 def test_continuity_requires_exactly_one_matching_price_group():
+    selected, refused, notices, _ = _select([
+        ("fixture/primary", {**RATES_B, "web_search": 0.1}),
+        ("fixture/twin", {**RATES_A, "web_search": 0.2})], stored=RATES_B)
+    assert refused == {}
+    assert selected[HOST].tag == "fixture/primary"
+    assert _rules(notices, "stored price continuity")
+
     selected, refused, _, _ = _select([
         ("fixture/primary", {**RATES_B, "web_search": 0.1}),
         ("fixture/twin", {**RATES_B, "web_search": 0.2})], stored=RATES_B)
