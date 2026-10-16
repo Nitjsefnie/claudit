@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 import refresh_pricelog
 from refresh_prices import RefreshError
+from refresh_provider_history import _occurrences
 from backend.pricing_document import effective_rates
 
 
@@ -39,7 +40,7 @@ def _append_joined_rows(
             if not same_rates(match.entries[-1], listing.rates):
                 reason = "latest log state disagrees with the listed price"
             elif (hosts.get(host) and
-                  hosts[host][-1].get("schedule") != listing.schedule):
+                  _occurrences(hosts[host], f"{model} via {host}")[-1].get("schedule") != listing.schedule):
                 reason = "stored schedule changed outside the price log"
             else:
                 try:

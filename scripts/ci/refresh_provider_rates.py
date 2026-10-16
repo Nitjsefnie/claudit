@@ -108,7 +108,7 @@ from refresh_report import (arguments as _arguments,  # noqa: E402
 from refresh_prices import RefreshError  # noqa: E402
 from refresh_selection import Listing, listed_rows  # noqa: E402
 import refresh_vendor_rates  # noqa: E402
-from refresh_provider_history import Move, _append  # noqa: E402
+from refresh_provider_history import Move, _append, _occurrences  # noqa: E402
 from refresh_provider_history_logged import _append_logged  # noqa: E402
 from backend import pricing  # noqa: E402
 from backend.pricing_document import (  # noqa: E402
@@ -196,7 +196,7 @@ def _listed_model(context: RefreshContext, model: str, source: dict,
     payload = _fetch(context.fetch, model, source)
     rows, refused, notices, untracked = listed_rows(
         model, payload, context.region, source.get("resolve", {}),
-        {host: effective_rates(history[-1])
+        {host: effective_rates(_occurrences(history, f"{model} via {host}")[-1])
          for host, history in hosts.items()}, context.at)
     return ListedModel(payload, rows, refused, notices, untracked)
 
