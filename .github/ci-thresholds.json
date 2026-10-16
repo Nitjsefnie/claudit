@@ -648,13 +648,9 @@
       336,
       1504
     ],
-    "scripts/ci/refresh_logshape.py": [
-      547,
-      3397
-    ],
     "scripts/ci/refresh_pricelog.py": [
       2950,
-      15893
+      15973
     ],
     "scripts/ci/refresh_prices.py": [
       3483,
@@ -662,7 +658,7 @@
     ],
     "scripts/ci/refresh_provider_history.py": [
       1488,
-      4438
+      4510
     ],
     "scripts/ci/refresh_provider_rates.py": [
       6704,
@@ -670,19 +666,19 @@
     ],
     "scripts/ci/refresh_report.py": [
       1822,
-      11365
+      11437
     ],
     "scripts/ci/refresh_selection.py": [
       4520,
-      12485
+      12549
     ],
     "scripts/ci/refresh_selection_rules.py": [
       4723,
       14496
     ],
     "scripts/ci/refresh_vendor_rates.py": [
-      5909,
-      14698
+      6026,
+      15183
     ],
     "scripts/ci/release_gate.py": [
       4680,
@@ -1634,7 +1630,7 @@
     ],
     "tests/test_provider_rate_refresh.py": [
       5713,
-      23104
+      23389
     ],
     "tests/test_provider_rate_refresh_alternation.py": [
       970,
@@ -1645,8 +1641,8 @@
       17045
     ],
     "tests/test_provider_rate_refresh_more.py": [
-      3412,
-      22618
+      3408,
+      22610
     ],
     "tests/test_provider_rate_refresh_notices.py": [
       2574,
