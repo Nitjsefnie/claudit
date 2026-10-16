@@ -4,8 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from backend import parse
 from backend.flag_registry import COLLECTION_SPECS
 from backend.flags import CollectionPolicy
@@ -14,18 +12,18 @@ FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
 KEY = "sessions/p/s/wire.jsonl"
 
 
-@pytest.mark.parametrize("name", ["kimi_code_generation.jsonl", "kimi_legacy_generation.jsonl"])
-def test_kimi_generation_collection_off_and_unstamped_anchor(name):
-    blob = (FIX / name).read_bytes()
+def test_kimi_generation_collection_off_and_unstamped_anchor():
     off = CollectionPolicy(frozenset({"generation_speed"}), COLLECTION_SPECS)
-    records = parse.parse_file(KEY, blob, collection=off)["records"]
-    assert len(records) == 2
-    assert records[0]["reply_latency_s"] is not None
-    assert all(r["generation_s"] is r["output_tokens_per_s"] is None for r in records)
-    rows = [json.loads(line) for line in blob.splitlines()]
-    rows[1].pop("time" if name.startswith("kimi_code") else "timestamp")
-    record = parse.parse_file(KEY, _wire(rows))["records"][0]
-    assert record["generation_s"] is record["output_tokens_per_s"] is None
+    for name in ("kimi_code_generation.jsonl", "kimi_legacy_generation.jsonl"):
+        blob = (FIX / name).read_bytes()
+        records = parse.parse_file(KEY, blob, collection=off)["records"]
+        assert len(records) == 2
+        assert records[0]["reply_latency_s"] is not None
+        assert all(r["generation_s"] is r["output_tokens_per_s"] is None for r in records)
+        rows = [json.loads(line) for line in blob.splitlines()]
+        rows[1].pop("time" if name.startswith("kimi_code") else "timestamp")
+        record = parse.parse_file(KEY, _wire(rows))["records"][0]
+        assert record["generation_s"] is record["output_tokens_per_s"] is None
 
 
 def _wire(rows: list[dict]) -> bytes:
@@ -58,26 +56,21 @@ def test_kimi_code_generation_cycles():
             _kc(23, "context.append_message", message={"role": "assistant", "content": []}), _kc_usage(24),
             _kc(30, "context.append_message", message={"role": "tool", "toolCallId": "c"}),
             _kc_event(34, "tool.call", toolCallId="c", name="Read", args={}), _kc_usage(35)]
-    records = parse.parse_file(KEY, _wire(rows))["records"]
-    assert [(r["generation_s"], r["output_tokens_per_s"])
-            for r in records] == [(6, 2), (3, 4), (None, None), (3, 4), (4, 3)]
-
-
-@pytest.mark.parametrize("kind", ["quota_exhausted", "rate_limit", "other"])
-def test_kimi_code_generation_llm_error_invalidates_any_kind(kind):
-    rows = []
-    for start, after_response in [(0, False), (10, True)]:
-        response = _kc_event(start + 3, "content.part", part={"type": "text", "text": "hi"})
-        failure = _kc(start + (4 if after_response else 2), "llm.error", kind=kind, message="request failed")
-        rows.extend([_kc(start + 1, "turn.prompt", input=[]),
-                     *([response, failure] if after_response else [failure, response]),
-                     _kc_usage(start + 5)])
-    rows.extend([_kc(21, "turn.prompt", input=[]),
-                 _kc_event(22, "content.part", part={"type": "text", "text": "ok"}), _kc_usage(23)])
+    start = 40
+    for kind in ("quota_exhausted", "rate_limit", "other"):
+        for after_response in (False, True):
+            response = _kc_event(start + 3, "content.part", part={"type": "text", "text": "hi"})
+            failure = _kc(start + (4 if after_response else 2), "llm.error", kind=kind, message="request failed")
+            rows.extend([_kc(start + 1, "turn.prompt", input=[]),
+                         *([response, failure] if after_response else [failure, response]), _kc_usage(start + 5)])
+            start += 10
+    rows.extend([_kc(start + 1, "turn.prompt", input=[]),
+                 _kc_event(start + 2, "content.part", part={"type": "text", "text": "ok"}), _kc_usage(start + 3)])
     out = parse.parse_file(KEY, _wire(rows))
-    assert [(r["generation_s"], r["output_tokens_per_s"])
-            for r in out["records"]] == [(None, None), (None, None), (1, 12)]
-    assert len(out["rate_limit_hits"]) == 2 * int(kind == "quota_exhausted")
+    assert [(r["generation_s"], r["output_tokens_per_s"]) for r in out["records"]] == (
+        [(6, 2), (3, 4), (None, None), (3, 4), (4, 3)]
+        + [(None, None)] * 6 + [(1, 12)])
+    assert [hit["line"] for hit in out["rate_limit_hits"]] == [18, 23]
 
 
 def test_legacy_kimi_generation_content_and_empty_usage():
