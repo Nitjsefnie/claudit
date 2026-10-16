@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -48,6 +47,60 @@ def _draw(lines=100, run='10.0'):
                                     'residual')},
         },
     }
+
+
+def _instrument_tree(root, api):
+    """Real suite instrumentation beside a deliberately incompatible loader."""
+    instrument = root / 'scripts/ci'
+    instrument.mkdir(parents=True)
+    for name in ('suite_phases.py', 'suite_report.py', 'suite_pricing_doc.json'):
+        shutil.copyfile(SCRIPT.parent / name, instrument / name)
+    shutil.copyfile(SCRIPT.parent / 'suite_bench.py', instrument / 'suite_instrument.py')
+    (instrument / 'suite_bench.py').write_text(
+        'import thresholds_validate\n'
+        'from suite_instrument import main\n'
+        'raise SystemExit(main())\n', encoding='utf-8')
+    (instrument / 'thresholds_validate.py').write_text(
+        f'def {api}():\n    return {root.name!r}\n', encoding='utf-8')
+    (instrument / 'suite_bench_files.txt').write_text(
+        'tests/test_loader.py\n', encoding='utf-8')
+    (root / 'backend').mkdir()
+    (root / 'backend/__init__.py').write_text(
+        '__path__.append(' + repr(str(SCRIPT.parents[2] / 'backend')) + ')\n',
+        encoding='utf-8')
+    (root / 'tests').mkdir()
+    (root / 'tests/test_loader.py').write_text(
+        'import thresholds_validate\n'
+        f'VALUE = thresholds_validate.{api}()\n'
+        f'def test_loader():\n    assert VALUE == {root.name!r}\n',
+        encoding='utf-8')
+    (root / 'pytest.ini').write_text(
+        '[pytest]\nasyncio_default_fixture_loop_scope = function\n', encoding='utf-8')
+    (instrument / 'reparse_bench.py').write_text(
+        'import argparse, json, os\nfrom pathlib import Path\n'
+        'import thresholds_validate\n'
+        'parser = argparse.ArgumentParser()\n'
+        'parser.add_argument("--write", type=Path, required=True)\n'
+        'args = parser.parse_args()\n'
+        'assert os.environ["PYTHONHASHSEED"] == "0"\n'
+        f'payload = {_draw()["reparse"]!r}\n'
+        f'payload["fixture_tree"] = thresholds_validate.{api}()\n'
+        'args.write.write_text(json.dumps(payload))\n', encoding='utf-8')
+
+
+@pytest.mark.parametrize('version', ['base', 'head'])
+def test_draw_instruments_use_their_own_tree(gate, tmp_path, monkeypatch, capsys, version):
+    base, head = tmp_path / 'base', tmp_path / 'head'
+    _instrument_tree(base, 'instruction_value')
+    _instrument_tree(head, 'replacement_value')
+    # The controller lives in head even when it measures the base tree.
+    monkeypatch.setattr(gate, 'ROOT', head, raising=False)
+    root = base if version == 'base' else head
+    measurement = gate.measure_draw(root, tmp_path / 'reading')
+    assert measurement['suite']['tests'] == 1
+    assert measurement['suite']['hash_seed'] == '0'
+    assert measurement['reparse']['fixture_tree'] == version
+    assert '1 passed' in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(('run', 'passed'), [('12.2', True), ('12.3', False)])
@@ -281,18 +334,19 @@ def test_randomized_suite_measurement_is_refused(gate):
 
 
 def test_failed_draw_diagnostics_reach_json_and_summary(gate, repo, tmp_path, monkeypatch):
-    instrument = tmp_path / 'instruments/scripts/ci'
+    instrument = repo / 'scripts/ci'
     instrument.mkdir(parents=True)
     (instrument / 'suite_bench.py').write_text(
         'import sys\n'
         'print("draw stdout detail" + "x" * 100000)\n'
         'print("y" * 100000 + "draw stderr cause", file=sys.stderr)\n'
         'raise SystemExit(1)\n', encoding='utf-8')
-    monkeypatch.setattr(gate, 'ROOT', instrument.parents[1])
+    _git(repo, 'add', 'scripts')
+    _git(repo, 'commit', '-m', 'failing instrument')
     monkeypatch.chdir(repo)
     output = tmp_path / 'verdict.json'
     summary = tmp_path / 'summary.md'
-    assert gate.main(['--base-ref', 'base', '--write', str(output),
+    assert gate.main(['--base-ref', 'head', '--write', str(output),
                       '--summary', str(summary)]) == 1
     for text in (output.read_text(), summary.read_text()):
         assert 'draw stdout detail' in text
@@ -376,7 +430,7 @@ def test_suite_child_uses_draw_backend_and_private_basetemps(gate, tmp_path, mon
     output = tmp_path / 'suite.json'
     scratch = tmp_path / 'scratch with spaces'
     scratch.mkdir()
-    instrument = tmp_path / 'instruments/scripts/ci'
+    instrument = root / 'scripts/ci'
     instrument.mkdir(parents=True)
     for name in ('suite_bench.py', 'suite_phases.py', 'suite_report.py',
                  'suite_pricing_doc.json'):
@@ -391,7 +445,6 @@ def test_suite_child_uses_draw_backend_and_private_basetemps(gate, tmp_path, mon
         return original_run(command, check=kwargs.pop('check', False), **kwargs)
 
     monkeypatch.setattr(gate.subprocess, 'run', run)
-    monkeypatch.setattr(gate, 'ROOT', instrument.parents[1])
     monkeypatch.setenv('PYTHONHASHSEED', '123')
     assert gate.main(['--instrument', 'suite', '--head-tree', str(root),
                       '--scratch', str(scratch), '--write', str(output)]) == 0
@@ -408,36 +461,3 @@ def test_suite_child_uses_draw_backend_and_private_basetemps(gate, tmp_path, mon
     assert Path(recorded['basetemp']).name.startswith('claudit-suite-bench-basetemp-')
     assert not Path(recorded['basetemp']).exists()
     assert list((root / 'tests/__pycache__').glob('test_mini.*.pyc'))
-
-
-def test_reparse_child_pins_corpus_and_imports_draw_backend(tmp_path):
-    root = tmp_path / 'mini'
-    (root / 'backend').mkdir(parents=True)
-    (root / 'backend/__init__.py').write_text(
-        '__path__.append(' + repr(str(SCRIPT.parents[2] / 'backend')) + ')\n',
-        encoding='utf-8')
-    output = tmp_path / 'reparse.json'
-    # Real counting and corpus walk; bound only the time-share repetitions.
-    code = (
-        'import sys; from pathlib import Path; '
-        'sys.path.insert(0, sys.argv[1]); '
-        'import gate_base_head as gate; '
-        'sys.path.insert(0, sys.argv[2]); import backend; '
-        'import reparse_bench as bench; '
-        'original = bench.measure; '
-        'bench.measure = lambda entries, **kw: '
-        'original(entries, passes=2, warmup=1, **kw); '
-        'gate._instrument("reparse", Path(sys.argv[2]), '
-        'Path(sys.argv[3]).parent, Path(sys.argv[3]))')
-    proc = subprocess.run(
-        [sys.executable, '-c', code, str(SCRIPT.parent), str(root), str(output)],
-        cwd=root, env={**os.environ, 'PYTHONHASHSEED': '0',
-                       'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONPATH': str(root)},
-        capture_output=True, text=True, check=False, timeout=60)
-    assert proc.returncode == 0, proc.stderr + proc.stdout
-    data = json.loads(output.read_text())
-    assert data['files'] > 0
-    assert data['counts']['available']
-    assert all(value['bytecode_hundreds_per_file'] is not None
-               for value in data['phases'].values())
-    assert 'share is telemetry' in proc.stdout

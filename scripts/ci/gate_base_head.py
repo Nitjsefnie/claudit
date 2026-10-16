@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import importlib
 import json
 import os
 import subprocess
@@ -13,7 +12,6 @@ import tempfile
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
 SUITE_PHASES = ('collection', 'run', 'residual')
 REPARSE_PHASES = ('sniff', 'parse_body', 'sidecar', 'residual')
 # Observed scan classes: 40, 304, ~1,150 instructions/tests-tree line.
@@ -171,8 +169,16 @@ def _env(root: Path) -> dict:
 
 
 def _suite_command(root: Path, output: Path) -> list[str]:
-    return [sys.executable, str(ROOT / 'scripts/ci/suite_bench.py'),
+    # Each tree uses its own instrument and loader. Instrument cost changes
+    # belong in the delta; this PR rebuilds the bench, so its proofs cite
+    # their own runs rather than pretending the instruments were identical.
+    return [sys.executable, str(root / 'scripts/ci/suite_bench.py'),
             '--repo-root', str(root), '--write', str(output)]
+
+
+def _reparse_command(root: Path, output: Path) -> list[str]:
+    return [sys.executable, str(root / 'scripts/ci/reparse_bench.py'),
+            '--write', str(output)]
 
 
 def _bounded(text: str) -> str:
@@ -199,27 +205,11 @@ def _run_measurement(command: list[str], root: Path, output: Path) -> dict:
 
 
 def _instrument(kind: str, root: Path, scratch: Path, output: Path) -> None:
-    """Delegate suite setup to its CLI; isolate the reparse backend imports."""
+    """Run the selected tree's own instrument CLI in a fresh child."""
     scratch.mkdir(parents=True, exist_ok=True)
-    if kind == 'suite':
-        _run_measurement(_suite_command(root, output), root, output)
-        return
-    sys.path.insert(0, str(root))
-    importlib.import_module('backend')
-    sys.path.insert(0, str(ROOT / 'scripts/ci'))
-    bench = importlib.import_module(f'{kind}_bench')
-    # The instruments add their own tree to sys.path at import. Backend
-    # is already bound to the draw; tests and other imports belong there too.
-    sys.path.insert(0, str(root))
-    entries = bench.corpus()
-    counts = bench.reparse_phases.measure_counts(entries, bench.run_pass)
-    per_file = (bench.reparse_phases.bytecodes_per_file(counts)
-                if counts.available else None)
-    measurement = bench.measure(
-        entries, instruction_counts=bench.reparse_report.counts_payload(counts),
-        instruction_per_file=per_file, instruction_note=counts.reason)
-    bench.reparse_report.write_measurement(output, measurement)
-    print(bench.reparse_report.report(measurement))
+    command = (_suite_command(root, output) if kind == 'suite'
+               else _reparse_command(root, output))
+    _run_measurement(command, root, output)
 
 
 def measure_draw(root: Path, scratch: Path) -> dict:
@@ -229,9 +219,7 @@ def measure_draw(root: Path, scratch: Path) -> dict:
     for kind in ('suite', 'reparse'):
         output = scratch / f'{kind}.json'
         command = (_suite_command(root, output) if kind == 'suite'
-                   else [sys.executable, str(Path(__file__).resolve()),
-                         '--instrument', kind, '--head-tree', str(root),
-                         '--scratch', str(scratch), '--write', str(output)])
+                   else _reparse_command(root, output))
         draw[kind] = _run_measurement(command, root, output)
     return draw
 
