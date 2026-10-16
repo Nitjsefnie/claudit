@@ -140,10 +140,9 @@
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
     "tag 'parasail/fast' names neither a known region nor a quantization: glm-5-3-flash via Parasail, kimi-k3 via Parasail",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek/deepseek-v4-flash-0731 via Wafer",
+    "the listing lags the listed-pricing log for deepseek/deepseek-v4-1-flash via OpenInference; the host was sampled",
     "the listing lags the listed-pricing log for deepseek/deepseek-v4-1-flash via Relace; the host was sampled",
-    "the listing lags the listed-pricing log for deepseek/deepseek-v4-1-flash via Wafer; the host was sampled",
-    "the listing lags the listed-pricing log for kimi-k3 via InferenceNet; the host was sampled",
-    "the listing lags the listed-pricing log for kimi-k3 via Wafer; the host was sampled",
+    "the listing lags the listed-pricing log for glm-5-3-flash via OpenInference; the host was sampled",
     "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, openai/gpt-3.5-turbo-0613, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-chat, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
   ],
   "sampled": {
@@ -249,10 +248,9 @@
     "deepseek/deepseek-v4-1-flash": {
       "Alibaba": "endpoint schedule",
       "BaseTen": "cheapest resolution",
-      "DeepInfra": "cheapest resolution",
       "DeepSeek": "endpoint schedule",
-      "Relace": "listing lags log",
-      "Wafer": "listing lags log"
+      "OpenInference": "listing lags log",
+      "Relace": "listing lags log"
     },
     "deepseek/deepseek-v4-flash-0731": {
       "Alibaba": "endpoint schedule",
@@ -274,6 +272,7 @@
     },
     "glm-5-3-flash": {
       "BaseTen": "2 endpoints at one current price",
+      "OpenInference": "listing lags log",
       "Sail Research": "2 endpoints at one current price"
     },
     "gpt-5-3-codex": {
@@ -351,9 +350,7 @@
       "OpenAI": "long-context band"
     },
     "kimi-k3": {
-      "Fireworks": "2 endpoints selected",
-      "InferenceNet": "listing lags log",
-      "Wafer": "listing lags log"
+      "Fireworks": "2 endpoints selected"
     }
   },
   "vanished": {
@@ -382,8 +379,7 @@
       "NextBit"
     ],
     "deepseek/deepseek-v4-pro": [
-      "NextBit",
-      "Relace"
+      "NextBit"
     ],
     "deepseek/deepseek-v4-pro-0813": [
       "Fireworks",
