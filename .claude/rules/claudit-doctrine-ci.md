@@ -156,8 +156,8 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   workload legitimately changes — the fixture list, the interpreter
   pin, the code the pinned tests execute, or the scanned tree's
   content (issue #524: the day's 345.9→348.6 step was #518's +643 test
-  lines moving the scans, not a runner change) — it lands as TWO reviewed
-  gate-definers, never one. The first deletes the stale member under
+  lines moving the scans, not a runner change) — the re-seed path lands
+  as TWO reviewed gate-definers, never one. The first deletes the stale member under
   the commit-message marker `[suite-cost-re-seed]`
   (`scripts/ci/reseed.py`) — the only way `thresholds.load` accepts a
   family-absent document; the suite-cost gate then prints `no suite_cost
@@ -172,9 +172,14 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   --seed` for reparse — FROM A RUNNER MEASUREMENT, cited by run id in
   the PR body, never hand-derived.
   Against a base that predates the family, those entries are a
-  brand-new member's seed. One change cannot do both (the guard refuses
-  an upward move the base carries): the delete is its own commit and
-  its message carries the marker. The marker's scope is that delete —
+  brand-new member's seed. `thresholds_guard.py` refuses an established
+  budget's raise except a measured suite_cost or reparse raise when the
+  judged commits carry a `feat:` or `feat(<scope>):` subject (issue #1041).
+  Hand-derived raises and every other upward move stay forbidden;
+  suite_cost's workload identity remains seed-only. Changes that cannot
+  use the feature admission, or that change the identity, take this
+  re-seed path: the delete and seed are separate commits, and the
+  delete's message carries the marker. The marker's scope is that delete —
   the seed commit does not carry it, and it is the commit that restores
   the family; a restoring document is valid either way. Every helper
   that re-validates a loader-produced document asks the same verdict
