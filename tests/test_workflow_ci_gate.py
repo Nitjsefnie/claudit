@@ -211,7 +211,7 @@ def test_classify_job_outputs_the_narrowing_outputs():
     outputs = _ci_gate()["jobs"]["classify"].get("outputs") or {}
     assert "docs_only" in outputs
     assert "data_only" in outputs
-    assert "setup_only" in outputs
+    assert outputs["setup_only"] == "${{ steps.classify.outputs.setup_only }}"
 
 
 def test_setup_docs_runs_only_the_guard_with_the_tests_python_pin():
