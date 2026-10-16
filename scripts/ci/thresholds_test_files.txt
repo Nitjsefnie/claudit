@@ -19,3 +19,4 @@ tests/test_reparse_gate.py
 tests/test_reparse_seed.py
 tests/test_suite_bench.py
 tests/test_suite_ratchet.py
+tests/test_suite_report_growth.py
