@@ -117,26 +117,6 @@ def test_documentation_only_requires_a_nonempty_all_doc_set():
         assert not classify.documentation_only(DOCS + [intruder]), intruder
 
 
-def test_a_docs_only_diff_touching_no_setup_doc_stays_docs_only():
-    docs_only, data_only, _comment, _thresholds, _setup, reason = classify.classify(
-        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
-        lambda argv: "docs/guide.md\nLICENSE\n",
-    )
-    assert (docs_only, data_only) == (True, False)
-    assert "documentation-only" in reason
-
-
-def test_a_mixed_code_and_docs_diff_touching_a_setup_doc_is_unchanged():
-    # Control: the carve-out narrows nothing here. The diff already ran
-    # every leg, and its reason stays the one naming the code path.
-    docs_only, data_only, _comment, _thresholds, _setup, reason = classify.classify(
-        {"name": "pull_request", "repository": "o/r", "pull_request": "17"},
-        lambda argv: "README.md\nbackend/app.py\n",
-    )
-    assert (docs_only, data_only) == (False, False)
-    assert "outside documentation" in reason
-
-
 # classify_changes: reading the changed paths
 
 
@@ -484,16 +464,7 @@ def test_aggregate_expected_legs_cover_the_ci_gate_jobs():
     assert aggregate.EXPECTED_LEGS == LEGS
 
 
-def test_aggregate_all_green_passes():
-    # Issue #517: the success verdict is ONE sentence -- the per-leg
-    # results are the table's job, not the message's.
-    verdict, message = aggregate.decide(_needs())
-    assert verdict == aggregate.PASSED
-    assert message == f"all {len(LEGS)} legs passed"
-
-
 @pytest.mark.parametrize('classification,matrix,guard,expected', [
-    ('docs_only', 'skipped', 'skipped', 'passed'),
     ('setup_only', 'skipped', 'success', 'passed'),
     ('setup_only', 'skipped', 'skipped', 'failed'),
     ('setup_only', 'skipped', 'failure', 'failed'),
@@ -547,15 +518,6 @@ def test_aggregate_one_failed_fails_and_names_it():
     assert "tests=failure" in message
 
 
-def test_aggregate_docs_only_skips_pass():
-    doc = _needs(docs_only="true")
-    for leg in LEGS[1:]:
-        doc[leg] = {"result": "skipped"}
-    verdict, message = aggregate.decide(doc)
-    assert verdict == aggregate.PASSED
-    assert "docs-only" in message
-
-
 def test_aggregate_non_docs_skip_fails():
     doc = _needs(docs_only="false")
     doc["smoke"] = {"result": "skipped"}
@@ -607,6 +569,8 @@ def test_aggregate_docs_only_output_missing_reads_as_not_docs_only():
 
 def test_aggregate_summary_is_markdown_naming_every_leg(tmp_path):
     doc = _needs(docs_only="true")
+    doc["classify"]["outputs"].update(
+        comment_only="false", thresholds_only="false", setup_only="false")
     doc["classify"]["outputs"]["reason"] = "documentation-only change: 3 paths"
     for leg in LEGS[1:]:
         doc[leg] = {"result": "skipped"}
@@ -615,7 +579,9 @@ def test_aggregate_summary_is_markdown_naming_every_leg(tmp_path):
         doc, summary_path=str(summary))
     assert code == 0
     text = summary.read_text(encoding="utf-8")
-    assert "docs-only" in text
+    assert f"verdict: **{aggregate.PASSED}**" in text
+    message = text.partition("classification: documentation-only change: 3 paths\n\n")[2]
+    assert "docs-only" in message.partition("\n\n| leg | result |\n")[0]
     assert "classification: documentation-only change: 3 paths" in text
     for leg in LEGS:
         assert leg in text
@@ -623,8 +589,11 @@ def test_aggregate_summary_is_markdown_naming_every_leg(tmp_path):
 
 def test_aggregate_summary_without_a_classify_reason_omits_the_line(tmp_path):
     summary = tmp_path / "summary.md"
-    aggregate.main_with(_needs(), summary_path=str(summary))
+    assert aggregate.main_with(_needs(), summary_path=str(summary)) == 0
     text = summary.read_text(encoding="utf-8")
+    assert f"verdict: **{aggregate.PASSED}**" in text
+    message = text.partition("setup-only narrowing: false\n\n")[2]
+    assert message.partition("\n\n| leg | result |\n")[0] == f"all {len(LEGS)} legs passed"
     assert "classification:" not in text
 
 

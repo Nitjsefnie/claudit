@@ -67,6 +67,7 @@ def test_changed_setup_block_is_setup_only(tmp_path):
 def test_setup_and_code_runs_full_gate(tmp_path):
     outputs = _classify(tmp_path, {}, ['README.md', 'backend/app.py'])
     _assert_flags(outputs)
+    assert 'outside documentation' in outputs['reason']
 
 
 @pytest.mark.parametrize('ref', [BASE, HEAD])
