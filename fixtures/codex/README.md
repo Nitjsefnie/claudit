@@ -92,13 +92,17 @@ being able to catch a wrong parser, which is what these rules are for.
 - **A rate-limit hit.** `rate_limit_reached_type` and
   `spend_control_reached` ride every `token_count` payload and are null
   on every one of them, as they were on every payload measured.
-- **An item type that carries no measurement.** `Reasoning`,
+- **An item type that carries no measurement.**
   `CommandExecution`, `UserMessage`, `SubAgentActivity`,
   `ContextCompaction`, `Extension`, `ImageView` and `CollabAgentToolCall`
   are all real `item_completed` items, and the parser reads none of them —
   `CommandExecution` in particular restates a `custom_tool_call` that is
   already booked, so a fixture carrying one would only be able to catch a
   double count that the tool-call assertions already catch.
+
+`item_completed/Reasoning` is covered by
+`rollout_generation_old_ordering.jsonl`. The parser uses it to advance
+request timing without adding a billing record or tool row.
 
 ## Placeholders
 
