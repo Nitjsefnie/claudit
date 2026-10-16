@@ -311,21 +311,6 @@ def test_response_cache_is_capped():
 # Issue #261: failed response-cache computes leave no entry to trigger the
 # existing per-key lock reclamation paths.
 
-def test_failed_compute_leaves_no_lock_behind(monkeypatch):
-    """A failed decorated compute propagates and releases its empty key."""
-    c = _TTLCache(ttl_seconds=3600, max_entries=256)
-    monkeypatch.setattr(cache_mod, "response_cache", c)
-
-    @cache_response
-    def endpoint(rng: str) -> dict:
-        raise HTTPException(status_code=400, detail="invalid range")
-
-    with pytest.raises(HTTPException, match="invalid range"):
-        endpoint(rng="invalid")
-
-    assert len(c._key_locks) == 0  # pylint: disable=protected-access
-    assert len(c._items) == 0  # pylint: disable=protected-access
-
 
 def test_distinct_failing_requests_do_not_accumulate_locks(monkeypatch):
     """Distinct failing query values leave no locks or entries behind."""

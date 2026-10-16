@@ -271,20 +271,29 @@ def test_cost_by_context_buckets_and_cumulative_share(app_with_data):
     assert body["total_cost_usd"] == pytest.approx(total)
 
 
-def test_cost_by_context_bad_range_400(app_with_data):
-    assert app_with_data.get(
-        "/api/cost-by-context?range=banana").status_code == 400
+@pytest.mark.parametrize("endpoint,rng", [
+    pytest.param("/api/cost-by-context", "banana", id="context"),
+    pytest.param("/api/cache", "abc", id="cache"),
+    pytest.param("/api/activity-heatmap", "bogus", id="heatmap"),
+    pytest.param("/api/cost-by-agent", "banana", id="agent"),
+])
+def test_cost_by_context_bad_range_400(app_with_data, endpoint, rng):
+    assert app_with_data.get(endpoint, params={"range": rng}).status_code == 400
 
 
-def test_cost_by_context_model_filter_subsets(app_with_data):
+@pytest.mark.parametrize("endpoint,rng", [
+    pytest.param("/api/cost-by-context", "all", id="context"),
+    pytest.param("/api/cost-by-agent", "all", id="agent"),
+])
+def test_cost_by_context_model_filter_subsets(app_with_data, endpoint, rng):
     """A model filter must never widen the result: it selects whole
-    (bucket, model) rows out of the rollup."""
-    allm = app_with_data.get("/api/cost-by-context?range=all").json()
+    (group, model) rows out of the rollup."""
+    allm = app_with_data.get(f"{endpoint}?range={rng}").json()
     models = app_with_data.get("/api/models").json()["models"]
     assert models, "fixture has no models"
     top = models[0]["model"]          # rows are {model, n}, not strings
     one = app_with_data.get(
-        f"/api/cost-by-context?range=all&model={top}").json()
+        f"{endpoint}?range={rng}&model={top}").json()
     assert one["total_cost_usd"] <= allm["total_cost_usd"] + 1e-9
     assert one["total_cost_usd"] > 0
 
@@ -438,11 +447,6 @@ def test_cache_top_n_limited_to_10(app_with_data):
     assert len(body["top_cache_read"]) <= 10
 
 
-def test_cache_bad_range_400(app_with_data):
-    r = app_with_data.get("/api/cache?range=abc")
-    assert r.status_code == 400
-
-
 def test_cache_session_total_matches_per_model_sum(app_with_data):
     r = app_with_data.get("/api/cache?range=3650d")
     body = r.json()
@@ -537,14 +541,6 @@ def test_sidecar_path_validation(app_with_data):
     assert r2.status_code == 400
 
 
-def test_sidecar_absolute_path_rejected(app_with_data):
-    r = app_with_data.get(
-        "/api/sessions/sess-A/sidecar",
-        params={"path": "/etc/passwd"},
-    )
-    assert r.status_code == 400
-
-
 def test_sidecar_missing_file_404(app_with_data):
     r = app_with_data.get(
         "/api/sessions/sess-A/sidecar",
@@ -553,36 +549,23 @@ def test_sidecar_missing_file_404(app_with_data):
     assert r.status_code == 404
 
 
-def test_sidecar_path_nul_byte_rejected(app_with_data):
+@pytest.mark.parametrize("path,requires_path_in_detail", [
+    pytest.param("/etc/passwd", False, id="absolute"),
+    pytest.param("data/\x00/tool-results.txt", True, id="nul"),
+    pytest.param(".", True, id="dot"),
+    pytest.param("data/./tool-results/x.txt", True, id="dot-component"),
+])
+def test_sidecar_path_nul_byte_rejected(app_with_data, path, requires_path_in_detail):
     """A `%00` in `path` must be a 400 naming the bad parameter. It used to
     pass validation and blow up `open()` with `ValueError: embedded null
     byte`, escaping as a 500 (issue #112)."""
     r = app_with_data.get(
         "/api/sessions/sess-A/sidecar",
-        params={"path": "data/\x00/tool-results.txt"},
+        params={"path": path},
     )
     assert r.status_code == 400
-    assert "path" in r.json()["detail"]
-
-
-def test_sidecar_path_dot_component_rejected(app_with_data):
-    """A `.` component (a whole-path `.` or mid-path) must be a 400 naming
-    the bad parameter. A whole-path `.` used to become a directory key and
-    blow up file-mode `open()` with IsADirectoryError — a 500; mid-path the
-    two r2 backends silently DISAGREE (file mode resolves `a/./b`, S3 does
-    not), so neither spelling may reach the object fetch (issue #112)."""
-    r = app_with_data.get(
-        "/api/sessions/sess-A/sidecar",
-        params={"path": "."},
-    )
-    assert r.status_code == 400
-    assert "path" in r.json()["detail"]
-    r_dot = app_with_data.get(
-        "/api/sessions/sess-A/sidecar",
-        params={"path": "data/./tool-results/x.txt"},
-    )
-    assert r_dot.status_code == 400
-    assert "path" in r_dot.json()["detail"]
+    if requires_path_in_detail:
+        assert "path" in r.json()["detail"]
 
 
 @pytest.fixture(name="app_with_rl_data")
