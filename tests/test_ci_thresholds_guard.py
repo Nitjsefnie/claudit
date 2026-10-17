@@ -154,17 +154,21 @@ def test_coverage_lowered_fails(tmp_path):
     assert _guard_result(tmp_path, base, head) == 1
 
 
-@pytest.mark.parametrize("missing", ["python", "javascript", "coverage"])
-def test_removed_coverage_entry_fails(tmp_path, capsys, missing):
-    base = _document()
-    head = _document()
-    if missing == "coverage":
-        del head["coverage"]
-    else:
-        del head["coverage"][missing]
+def test_removed_coverage_entry_fails(tmp_path, capsys):
+    for missing in [
+        "python",
+        "javascript",
+        "coverage",
+    ]:
+        base = _document()
+        head = _document()
+        if missing == "coverage":
+            del head["coverage"]
+        else:
+            del head["coverage"][missing]
 
-    assert _guard_result(tmp_path, base, head) == 1
-    assert "removed without a reason: coverage." in capsys.readouterr().err
+        assert _guard_result(tmp_path, base, head) == 1
+        assert "removed without a reason: coverage." in capsys.readouterr().err
 
 
 def test_coverage_raised_is_clean(tmp_path):
@@ -332,24 +336,22 @@ def test_main_prints_each_forbidden_move(tmp_path, capsys):
     assert "never raised or added by hand" in captured.err
 
 
-@pytest.mark.parametrize("family,path,measured,floor", [
-    pytest.param("suite_cost", ("run",), 300.0, 301.5, id="suite-run"),
-    pytest.param("reparse", ("sniff", "share"), 4.0, 5.5, id="sniff-share"),
-    pytest.param("reparse", ("parse_body", "bytecodes"), 4.0, 5.5,
-                 id="parse-body-bytecodes"),
-    pytest.param("reparse", ("parse_body", "share"), 4.0, 5.5,
-                 id="parse-body-share"),
-])
-def test_suite_cost_tightened_is_clean(tmp_path, family, path, measured, floor):
-    # The bot shape: a cheaper run moves both fields of one phase down
-    # and leaves the other phases exactly where they were.
-    base = _document()
-    head = _document()
-    parent = head[family]
-    for key in path[:-1]:
-        parent = parent[key]
-    parent[path[-1]] = {"measured": measured, "floor": floor}
-    assert _guard_result(tmp_path, base, head) == 0
+def test_suite_cost_tightened_is_clean(tmp_path):
+    for family, path, measured, floor in [
+        ("suite_cost", ("run",), 300.0, 301.5),
+        ("reparse", ("sniff", "share"), 4.0, 5.5),
+        ("reparse", ("parse_body", "bytecodes"), 4.0, 5.5),
+        ("reparse", ("parse_body", "share"), 4.0, 5.5),
+    ]:
+        # The bot shape: a cheaper run moves both fields of one phase down
+        # and leaves the other phases exactly where they were.
+        base = _document()
+        head = _document()
+        parent = head[family]
+        for key in path[:-1]:
+            parent = parent[key]
+        parent[path[-1]] = {"measured": measured, "floor": floor}
+        assert _guard_result(tmp_path, base, head) == 0
 
 
 def test_suite_cost_introduced_against_a_predating_base_is_clean(tmp_path):
@@ -378,24 +380,23 @@ def test_reparse_family_unchanged_is_clean(tmp_path):
     assert _guard_result(tmp_path, base, _document()) == 0
 
 
-@pytest.mark.parametrize("overrides", [
-    pytest.param({}, id="default-seed"),
-    pytest.param({"sniff.share": "60.0", "parse_body.share": "30.0"},
-                 id="arbitrary-seed"),
-])
-def test_reparse_family_seed_is_clean(tmp_path, overrides):
-    # The one-time seed: a base that predates the family carries no
-    # record, so the change that introduces one is not a move at all.
-    # Place the base's bytes directly to model a document predating the
-    # reparse family.
-    base = _document()
-    base.pop("reparse")
-    base_path = tmp_path / "base.json"
-    base_path.write_text(json.dumps(base, default=float), encoding="utf-8")
-    head_path = _written(
-        tmp_path, _document(reparse=_reparse(overrides)), "head.json")
-    assert _guard().main([
-        "--base", str(base_path), "--head", str(head_path)]) == 0
+def test_reparse_family_seed_is_clean(tmp_path):
+    for overrides in [
+        {},
+        {"sniff.share": "60.0", "parse_body.share": "30.0"},
+    ]:
+        # The one-time seed: a base that predates the family carries no
+        # record, so the change that introduces one is not a move at all.
+        # Place the base's bytes directly to model a document predating the
+        # reparse family.
+        base = _document()
+        base.pop("reparse")
+        base_path = tmp_path / "base.json"
+        base_path.write_text(json.dumps(base, default=float), encoding="utf-8")
+        head_path = _written(
+            tmp_path, _document(reparse=_reparse(overrides)), "head.json")
+        assert _guard().main([
+            "--base", str(base_path), "--head", str(head_path)]) == 0
 
 
 def test_suite_cost_added_to_established_base_fails(tmp_path):
@@ -451,20 +452,20 @@ def _with_identity(suite, lines):
     return family
 
 
-@pytest.mark.parametrize("base_identity,head_identity", [
-    pytest.param(40000, 40250, id="moved"),
-    pytest.param(None, 40000, id="added"),
-    pytest.param(40000, None, id="removed"),
-])
-def test_suite_cost_identity_moved_fails(tmp_path, base_identity, head_identity):
-    # The workload identity is the seed's binding to the workload it
-    # measured (issue #524). On an established family, a moved
-    # identity is a hand-edit and fails.
-    base = (_document() if base_identity is None else
-            _document(suite=_with_identity(SUITE_COST, base_identity)))
-    head = (_document() if head_identity is None else
-            _document(suite=_with_identity(SUITE_COST, head_identity)))
-    assert _guard_result(tmp_path, base, head) == 1
+def test_suite_cost_identity_moved_fails(tmp_path):
+    for base_identity, head_identity in [
+        (40000, 40250),
+        (None, 40000),
+        (40000, None),
+    ]:
+        # The workload identity is the seed's binding to the workload it
+        # measured (issue #524). On an established family, a moved
+        # identity is a hand-edit and fails.
+        base = (_document() if base_identity is None else
+                _document(suite=_with_identity(SUITE_COST, base_identity)))
+        head = (_document() if head_identity is None else
+                _document(suite=_with_identity(SUITE_COST, head_identity)))
+        assert _guard_result(tmp_path, base, head) == 1
 
 
 def test_new_family_seed_carrying_the_identity_is_clean(tmp_path):
@@ -489,17 +490,19 @@ def _git(root, *args):
 
 
 def _judged_guard(tmp_path, monkeypatch, base, head, subjects, revs=None):
-    """Use real git history; relocate only the guard's repository anchor."""
+    """Reuse the tracked tree, judging only each scenario's new commits."""
     root = tmp_path / "repo"
-    root.mkdir()
-    _git(root, "init", "-q")
-    _git(root, "config", "user.name", "Guard Test")
-    _git(root, "config", "user.email", "guard@example.invalid")
-    (root / "backend").mkdir()
-    for path in ("backend/kept.py", "backend/second.py"):
-        (root / path).write_text("pass\n", encoding="utf-8")
-        _git(root, "add", "--", path)
-    _git(root, "commit", "--allow-empty", "-qm", "feat: outside judged range")
+    if not root.exists():
+        root.mkdir()
+        _git(root, "init", "-q")
+        _git(root, "config", "user.name", "Guard Test")
+        _git(root, "config", "user.email", "guard@example.invalid")
+        (root / "backend").mkdir()
+        for path in ("backend/kept.py", "backend/second.py"):
+            (root / path).write_text("pass\n", encoding="utf-8")
+            _git(root, "add", "--", path)
+        _git(root, "commit", "--allow-empty", "-qm", "feat: outside judged range")
+    # Prior scenarios' features and declarations must stay outside this range.
     base_rev = _git(root, "rev-parse", "HEAD")
     for subject in subjects:
         _git(root, "commit", "--allow-empty", "--cleanup=verbatim", "-qm", subject)
@@ -520,67 +523,76 @@ def _raised_document(family="suite_cost", metric="bytecodes"):
     return head
 
 
-@pytest.mark.parametrize("family,metric,subjects", [
-    ("suite_cost", "bytecodes", ["feat: add a panel", "fix: polish"]),
-    ("reparse", "bytecodes", ["fix: prepare", "feat: parse new events"]),
-    ("reparse", "share", ["feat: parse new events"]),
-    ("suite_cost", "bytecodes", ["feat(ci): measure a new path"]),
-])
-def test_feature_range_admits_budget_raise(tmp_path, monkeypatch, family, metric, subjects):
-    assert _judged_guard(
-        tmp_path, monkeypatch, _document(), _raised_document(family, metric),
-        subjects) == 0
+def test_feature_range_admits_budget_raise(tmp_path, monkeypatch):
+    for family, metric, subjects in [
+        ("suite_cost", "bytecodes", ["feat: add a panel", "fix: polish"]),
+        ("reparse", "bytecodes", ["fix: prepare", "feat: parse new events"]),
+        ("reparse", "share", ["feat: parse new events"]),
+        ("suite_cost", "bytecodes", ["feat(ci): measure a new path"]),
+    ]:
+        assert _judged_guard(
+            tmp_path, monkeypatch, _document(), _raised_document(family, metric),
+            subjects) == 0
 
 
-@pytest.mark.parametrize("subject", [
-    "fix: trim work", "chore: tidy", "perf: optimise", "feature: new path",
-    "Feat: new path", "feat new path", " feat: new path",
-    "fix: keep one subject\u2028feat: embedded feature",
-    "fix: keep one subject\x0bfeat: embedded feature",
-])
-def test_non_feature_range_refuses_raise_and_names_remedy(
-        tmp_path, monkeypatch, capsys, subject):
-    assert _judged_guard(
-        tmp_path, monkeypatch, _document(), _raised_document(), [subject]) == 1
-    err = capsys.readouterr().err
-    assert "trimming its own tests" in err
-    assert "dropping redundant cases" in err
-    assert "merging parametrisations" in err
-    assert "deleting tests that repeat another test's assertions" in err
+def test_non_feature_range_refuses_raise_and_names_remedy(tmp_path, monkeypatch, capsys):
+    for subject in [
+        "fix: trim work",
+        "chore: tidy",
+        "perf: optimise",
+        "feature: new path",
+        "Feat: new path",
+        "feat new path",
+        " feat: new path",
+        "fix: keep one subject\u2028feat: embedded feature",
+        "fix: keep one subject\x0bfeat: embedded feature",
+    ]:
+        assert _judged_guard(
+            tmp_path, monkeypatch, _document(), _raised_document(), [subject]) == 1
+        err = capsys.readouterr().err
+        assert "trimming its own tests" in err
+        assert "dropping redundant cases" in err
+        assert "merging parametrisations" in err
+        assert "deleting tests that repeat another test's assertions" in err
 
 
-@pytest.mark.parametrize("revs", [
-    [], ["--base-rev", "unknown-revision", "--head-rev", "HEAD"],
-    ["--base-rev", "HEAD", "--head-rev", "HEAD"],
-])
-def test_unproved_feature_range_refuses_raise(tmp_path, monkeypatch, capsys, revs):
-    assert _judged_guard(
-        tmp_path, monkeypatch, _document(), _raised_document(),
-        ["feat: add a panel"], revs) == 1
-    assert "trimming its own tests" in capsys.readouterr().err
+def test_unproved_feature_range_refuses_raise(tmp_path, monkeypatch, capsys):
+    for revs in [
+        [],
+        ["--base-rev", "unknown-revision", "--head-rev", "HEAD"],
+        ["--base-rev", "HEAD", "--head-rev", "HEAD"],
+    ]:
+        assert _judged_guard(
+            tmp_path, monkeypatch, _document(), _raised_document(),
+            ["feat: add a panel"], revs) == 1
+        assert "trimming its own tests" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("other_move", ["coverage", "identity", "baseline"])
-def test_feature_raise_keeps_other_refusals(tmp_path, monkeypatch, capsys, other_move):
-    base = _document()
-    head = _raised_document()
-    if other_move == "coverage":
-        head["coverage"]["python"] = {"measured": 90.0, "floor": 88.5}
-        forbidden = "coverage.python.floor"
-    elif other_move == "identity":
-        base["suite_cost"]["tests_tree_lines"] = 40000
-        head["suite_cost"]["tests_tree_lines"] = 40250
-        forbidden = "suite_cost.tests_tree_lines"
-    else:
-        base["module_size_baseline"]["backend/api.py"] = 986
-        head["module_size_baseline"]["backend/api.py"] = 1486
-        forbidden = "module_size_baseline.backend/api.py"
-    assert _judged_guard(
-        tmp_path, monkeypatch, base, head, ["feat: add a panel"],
-        ["--base-rev", "HEAD^", "--head-rev", "HEAD"]) == 1
-    err = capsys.readouterr().err
-    assert f"forbidden move: {forbidden}" in err
-    assert "forbidden move: suite_cost.run." not in err
+def test_feature_raise_keeps_other_refusals(tmp_path, monkeypatch, capsys):
+    for other_move in [
+        "coverage",
+        "identity",
+        "baseline",
+    ]:
+        base = _document()
+        head = _raised_document()
+        if other_move == "coverage":
+            head["coverage"]["python"] = {"measured": 90.0, "floor": 88.5}
+            forbidden = "coverage.python.floor"
+        elif other_move == "identity":
+            base["suite_cost"]["tests_tree_lines"] = 40000
+            head["suite_cost"]["tests_tree_lines"] = 40250
+            forbidden = "suite_cost.tests_tree_lines"
+        else:
+            base["module_size_baseline"]["backend/api.py"] = 986
+            head["module_size_baseline"]["backend/api.py"] = 1486
+            forbidden = "module_size_baseline.backend/api.py"
+        assert _judged_guard(
+            tmp_path, monkeypatch, base, head, ["feat: add a panel"],
+            ["--base-rev", "HEAD^", "--head-rev", "HEAD"]) == 1
+        err = capsys.readouterr().err
+        assert f"forbidden move: {forbidden}" in err
+        assert "forbidden move: suite_cost.run." not in err
 
 
 BASELINE_VALUES = {
@@ -604,86 +616,98 @@ def _removal(entry):
     return base, head
 
 
-@pytest.mark.parametrize("entry", REMOVED_ENTRIES)
-@pytest.mark.parametrize("kind", [None, "bug", "definition"])
-def test_removal_requires_reason(tmp_path, monkeypatch, capsys, entry, kind):
-    base, head = _removal(entry)
-    message = "fix: remove threshold"
-    if kind:
-        message += f"\n\nThresholds-Removed: {entry}={kind}"
-    result = _judged_guard(tmp_path, monkeypatch, base, head, [message])
-    entries = ([f"{entry}.{path}" for path in base[entry]]
-               if entry in BASELINE_VALUES else [entry])
-    errors = [line for line in capsys.readouterr().err.splitlines()
-              if line.startswith("forbidden move:")]
-    expected = ([] if kind else [
-        f"forbidden move: removed without a reason: {name}" for name in entries])
-    assert (result, errors) == (0 if kind else 1, expected)
+def test_removal_requires_reason(tmp_path, monkeypatch, capsys):
+    for entry in REMOVED_ENTRIES:
+        for kind in [
+            None,
+            "bug",
+            "definition",
+        ]:
+            base, head = _removal(entry)
+            message = "fix: remove threshold"
+            if kind:
+                message += f"\n\nThresholds-Removed: {entry}={kind}"
+            result = _judged_guard(tmp_path, monkeypatch, base, head, [message])
+            entries = ([f"{entry}.{path}" for path in base[entry]]
+                       if entry in BASELINE_VALUES else [entry])
+            errors = [line for line in capsys.readouterr().err.splitlines()
+                      if line.startswith("forbidden move:")]
+            expected = ([] if kind else [
+                f"forbidden move: removed without a reason: {name}" for name in entries])
+            assert (result, errors) == (0 if kind else 1, expected)
 
 
-@pytest.mark.parametrize("family", BASELINE_VALUES)
-@pytest.mark.parametrize("value,allowed", [
-    ("", False), ("{entry}=bug", True), ("{entry}=definition", True),
-    ("{entry}.other=bug", False), ("{family}=bug", True),
-    ("{entry}=bug, other=typo", False), ("other, {entry}=bug", False),
-    ("{entry}=bug, =definition", False),
-    (" {entry} = bug , coverage.python = definition ", True),
-    ("{entry}=bug\nThresholds-Removed: invalid", True),
-])
-def test_tracked_path_removal_trailer(
-        tmp_path, monkeypatch, capsys, family, value, allowed):
-    base, head = _removal(family)
-    head[family] = {"backend/second.py": base[family]["backend/second.py"]}
-    entry = f"{family}.backend/kept.py"
-    trailer = value.format(entry=entry, family=family)
-    result = _judged_guard(tmp_path, monkeypatch, base, head, [
-        f"fix: remove entry\n\nThresholds-Removed:\t{trailer}"])
-    err = capsys.readouterr().err
-    assert (result, f"removed without a reason: {entry}" in err) == (
-        0 if allowed else 1, not allowed)
-    if not allowed:
-        assert all(part in err for part in (
-            "Thresholds-Removed:", "<entry>=<kind>", "bug", "definition",
-            "tracked", "path"))
+def test_tracked_path_removal_trailer(tmp_path, monkeypatch, capsys):
+    for family in BASELINE_VALUES:
+        for value, allowed in [
+            ("", False),
+            ("{entry}=bug", True),
+            ("{entry}=definition", True),
+            ("{entry}.other=bug", False),
+            ("{family}=bug", True),
+            ("{entry}=bug, other=typo", False),
+            ("other, {entry}=bug", False),
+            ("{entry}=bug, =definition", False),
+            (" {entry} = bug , coverage.python = definition ", True),
+            ("{entry}=bug\nThresholds-Removed: invalid", True),
+        ]:
+            base, head = _removal(family)
+            head[family] = {"backend/second.py": base[family]["backend/second.py"]}
+            entry = f"{family}.backend/kept.py"
+            trailer = value.format(entry=entry, family=family)
+            result = _judged_guard(tmp_path, monkeypatch, base, head, [
+                f"fix: remove entry\n\nThresholds-Removed:\t{trailer}"])
+            err = capsys.readouterr().err
+            assert (result, f"removed without a reason: {entry}" in err) == (
+                0 if allowed else 1, not allowed)
+            if not allowed:
+                assert all(part in err for part in (
+                    "Thresholds-Removed:", "<entry>=<kind>", "bug", "definition",
+                    "tracked", "path"))
 
 
-@pytest.mark.parametrize("family", BASELINE_VALUES)
-def test_gone_path_removal_needs_no_trailer(tmp_path, monkeypatch, family):
-    base = _document()
-    base[family] = {"backend/gone.py": BASELINE_VALUES[family]}
-    head = _document()
-    assert _judged_guard(tmp_path, monkeypatch, base, head, ["fix: delete file"]) == 0
+def test_gone_path_removal_needs_no_trailer(tmp_path, monkeypatch):
+    for family in BASELINE_VALUES:
+        base = _document()
+        base[family] = {"backend/gone.py": BASELINE_VALUES[family]}
+        head = _document()
+        assert _judged_guard(tmp_path, monkeypatch, base, head, ["fix: delete file"]) == 0
 
 
-@pytest.mark.parametrize("revs", [
-    [], ["--base-rev", ""], ["--base-rev", " "],
-    ["--base-rev", "unknown-revision"],
-    ["--base-rev", "HEAD", "--head-rev", "HEAD"],
-])
-def test_unproved_removal_range_fails(tmp_path, monkeypatch, capsys, revs):
-    base, head = _removal("suite_cost")
-    assert _judged_guard(tmp_path, monkeypatch, base, head, [
-        "fix: remove\n\nThresholds-Removed: suite_cost=bug"], revs) == 1
-    assert "removed without a reason: suite_cost" in capsys.readouterr().err
+def test_unproved_removal_range_fails(tmp_path, monkeypatch, capsys):
+    for revs in [
+        [],
+        ["--base-rev", ""],
+        ["--base-rev", " "],
+        ["--base-rev", "unknown-revision"],
+        ["--base-rev", "HEAD", "--head-rev", "HEAD"],
+    ]:
+        base, head = _removal("suite_cost")
+        assert _judged_guard(tmp_path, monkeypatch, base, head, [
+            "fix: remove\n\nThresholds-Removed: suite_cost=bug"], revs) == 1
+        assert "removed without a reason: suite_cost" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("family", ["suite_cost", "reparse", *BASELINE_VALUES])
-def test_removal_trailer_does_not_admit_readded_looser_value(
-        tmp_path, monkeypatch, capsys, family):
-    base, _ = _removal(family)
-    head = copy.deepcopy(base)
-    if family in BASELINE_VALUES:
-        head[family]["backend/kept.py"] = (
-            [30, 100] if family == "comment_share_baseline" else 1000)
-    else:
-        head = _raised_document(family)
-    assert _judged_guard(tmp_path, monkeypatch, base, head, [
-        f"fix: remove\n\nThresholds-Removed: {family}=definition",
-        "fix: re-add with looser value"]) == 1
-    assert "removed without a reason" not in capsys.readouterr().err
+def test_removal_trailer_does_not_admit_readded_looser_value(tmp_path, monkeypatch, capsys):
+    for family in [
+        "suite_cost",
+        "reparse",
+        *BASELINE_VALUES,
+    ]:
+        base, _ = _removal(family)
+        head = copy.deepcopy(base)
+        if family in BASELINE_VALUES:
+            head[family]["backend/kept.py"] = (
+                [30, 100] if family == "comment_share_baseline" else 1000)
+        else:
+            head = _raised_document(family)
+        assert _judged_guard(tmp_path, monkeypatch, base, head, [
+            f"fix: remove\n\nThresholds-Removed: {family}=definition",
+            "fix: re-add with looser value"]) == 1
+        assert "removed without a reason" not in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("entry", REMOVED_ENTRIES)
-def test_absent_family_seed_has_no_removal(tmp_path, entry):
-    head, base = _removal(entry)
-    assert _guard_result(tmp_path, base, head) == 0
+def test_absent_family_seed_has_no_removal(tmp_path):
+    for entry in REMOVED_ENTRIES:
+        head, base = _removal(entry)
+        assert _guard_result(tmp_path, base, head) == 0
