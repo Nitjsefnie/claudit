@@ -1,5 +1,5 @@
 """SV-PARSER-SPEC: the dedup retraction keeps a requestId-merged winner's
-usage (issue #568). When the canonical winner shares the superseded copy's
+usage. When the canonical winner shares the superseded copy's
 requestId, the streaming merge folds the winner's usage into the FIRST
 fragment's entry, which sits on the superseded copy's line -- without the
 re-point, the retraction drops the uuid's only usage entry wholesale and
@@ -57,7 +57,7 @@ def _node_usage_identity(text: str) -> list[dict]:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_dedup_replace_with_shared_request_id_keeps_the_merged_usage():
-    """issue #568: the winner shares the superseded copy's requestId, so
+    """the winner shares the superseded copy's requestId, so
     the streaming merge folds the winner's usage into the loser-line entry
     -- the retraction re-points that entry to the winner's line (not drop
     the uuid's only usage), and the loser's events still leave."""
@@ -152,7 +152,7 @@ def _claude_tool_line(uuid, request_id, blocks, results):
 def _node_tool_dedup(main, sidecar):
     """The main file and the sidecar parsed in BOTH load orders through
     ONE shared seenUuids AND seenToolIds map (the multi-load mode),
-    followed by the caller's post-load drops -- the #793 caller pattern,
+    followed by the caller's post-load drops -- the caller pattern,
     over the Claude path; then the lone sidecar, which has no main file
     to lose to."""
     script = f"""
@@ -196,11 +196,11 @@ def _node_tool_dedup(main, sidecar):
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_tool_use_id_dedup_splices_a_sidecar_s_replayed_tool_blocks():
-    """Issue #795's browser half: a compaction sidecar replays the main
+    """ browser half: a compaction sidecar replays the main
     file's tool_use blocks under new line uuids, so the line-uuid dedup
     cannot catch them; with the shared seenToolIds map passed, the same
-    winner rule keys on tool_use_id (issue #766's rule, the Claude path
-    now beside the codex one) -- the first-loaded copy wins (arrival order
+    winner rule keys on tool_use_id in both Claude and Codex paths.
+    The first-loaded copy wins (arrival order
     stands in for file_key), the losing copies leave call AND result
     together, and computeSessionStats does not double-count. An Agent
     dispatch is a tool_use block too (an agent_spawn event here, one

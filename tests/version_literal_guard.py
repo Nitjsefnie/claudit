@@ -1,7 +1,7 @@
 """The version-literal guard's detector, out of its test module.
 
 test_no_pinned_version_literals.py outgrew the test-file size cap when
-issue #675 added the tokenizer short-circuit pin, and the size
+ added the tokenizer short-circuit pin, and the size
 ratchet's rule moves code into a new module rather than raising an
 entry. This module is the pure scan: the flagged-site detector and the
 shapes it reports. The guard surface that drives it — the admission
@@ -21,7 +21,7 @@ from tests.source_scan_cache import for_source
 
 
 VERSION_NAMES = ("PARSER_VERSION", "PRICING_VERSION", "MARKER_READER_VERSION")
-# Version-constant modules (issue #986: hourly bot rewrite of constants.py).
+# Version-constant modules (hourly bot rewrite of constants.py).
 VERSION_MODULES = frozenset({"constants", "parser_version"})
 RATE_CALL_NAMES = frozenset({"rate_for", "resolve", "compute_cost"})
 
@@ -187,7 +187,7 @@ def _match_wanted(norm: str, wanted: frozenset[str]) -> str | None:
     The candidates are derived from the QUERY, never the set: the keys
     some fold-accepted rest completes are exactly `norm` minus such a
     tail, so `_splits` enumerates those and membership decides — the
-    cost is the query's own length, never |wanted| (issue #829: the
+    cost is the query's own length, never |wanted| (the
     tree scan pays this per string constant under tests/, and a linear
     fold priced the suite-cost run phase by src/pricing.json's row
     count, moving it on every hourly refresh). ``_match_wanted_scan``

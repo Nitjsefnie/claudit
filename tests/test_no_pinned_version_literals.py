@@ -75,7 +75,7 @@ def _scan_admits(source: str, *, wanted_models: frozenset[str] = frozenset(),
                  wanted_hosts: frozenset[str] = frozenset()) -> bool:
     """Whether one module's source can hold anything check() can flag.
 
-    The fail-closed gate that keeps this file's tree scan (issue #510)
+    The fail-closed gate that keeps this file's tree scan
     from walking every unrelated module: every clause admits a strict
     superset of the shapes detect()/check() flag, so a skip only saves
     the walk, never hides a site. Admission is compile-level vocabulary
@@ -92,13 +92,13 @@ def _scan_admits(source: str, *, wanted_models: frozenset[str] = frozenset(),
     folded into consts — the clause demands that const evidence beside
     the call's name, because ``resolve`` is spelled by every
     ``Path(...).resolve()`` caller while a flaggable site always pairs
-    the name with a wanted-literal argument (issue #715). A source
+    the name with a wanted-literal argument. A source
     that does not compile raises out of the gate: loud by
     construction, and collection fails on the same file anyway.
 
     Not covered: vocabulary spelled only inside a dead branch
     (``if 0:``). A split or escaped spelling there is unreachable
-    short of steganography, but since #715 a PLAIN literal there is
+    short of steganography, but a PLAIN literal there is
     skipped too: dead-code elimination drops the constant while the
     call's name survives in co_names, so the new const-evidence
     clause never fires. The shape stays loud — the AST sees the
@@ -115,7 +115,7 @@ def _scan_admits(source: str, *, wanted_models: frozenset[str] = frozenset(),
     # rate-call names by membership in names WITH a wanted row as a
     # string constant — the call's function is an identifier, and the
     # argument a detector would flag is exactly such a const, so the
-    # pair is the admission's evidence (issue #715), the path bind by
+    # pair is the admission's evidence, the path bind by
     # substring (detect folds a substring test over the value), the
     # module reference by attribute name. Empty wanted sets can hold
     # no live-call site, so with the defaults the rate clause admits
@@ -149,7 +149,7 @@ def check(source: str, *, wanted_models: frozenset[str] = frozenset(),
     # A marker comment spells "sv-test-data" verbatim (the MARKER regex
     # requires it), so a source carrying no site and no marker substring
     # has nothing to excuse and nothing to rot, and reading its markers
-    # back would tokenize the whole module for nothing (issue #675):
+    # back would tokenize the whole module for nothing:
     # every flagged shape is caught exactly as before, the tokenizer
     # just does not run where its verdict is already decided.
     marker_lines = (set()
@@ -271,8 +271,6 @@ def test_multiline_marker_on_an_inner_line_is_rot():
     assert "line 2" in problems[0]
     assert "line 3" in problems[1] and "rot" in problems[1]
 
-
-# --- the live-row family: the committed-document and rate-row sites ---
 
 WANTED_MODELS = frozenset({"acme/acme-9", "claude-sonnet-5"})
 WANTED_HOSTS = frozenset({"HostCo"})
@@ -492,7 +490,7 @@ def test_a_seeded_split_path_bind_in_a_longer_literal_is_flagged(tmp_path):
 
 
 def test_a_module_without_the_scan_vocabulary_is_skipped():
-    # The structural cost pin (issue #510): a source that names
+    # The structural cost pin: a source that names
     # nothing the scanner can flag is not walked at all.
     source = "import os\n\n\ndef test_ok():\n    return os.sep\n"
     assert check(source) == []
@@ -500,7 +498,7 @@ def test_a_module_without_the_scan_vocabulary_is_skipped():
 
 
 def test_a_site_free_marker_free_module_is_not_tokenized(monkeypatch):
-    # The second structural cost pin (issue #675): an ADMITTED source
+    # The second structural cost pin: an ADMITTED source
     # that carries no flagged site and no marker text pays no tokenizer
     # pass. A marker comment spells ``sv-test-data`` verbatim (the
     # MARKER regex requires it), so a source without that substring has
@@ -531,7 +529,7 @@ def test_a_site_free_marker_free_module_is_not_tokenized(monkeypatch):
 
 
 def test_a_prose_rate_or_version_name_is_not_admitted():
-    # Issue #679: admission is compile-level — an identifier lands in
+    # admission is compile-level — an identifier lands in
     # co_names and a string constant in co_consts, so a comment, or a
     # docstring the name is merely a substring of, can hold nothing
     # detect() flags (the scan is AST-based) and admits no longer:
@@ -550,7 +548,7 @@ def test_a_prose_rate_or_version_name_is_not_admitted():
 
 
 def test_a_rate_call_without_a_wanted_const_is_not_admitted():
-    # Issue #715: the rate-call clause admitted on the call's name
+    # the rate-call clause admitted on the call's name
     # alone, so any module whose code merely spells ``resolve`` — every
     # ``Path(...).resolve()`` caller — paid the full AST walk while
     # nothing flaggable existed. A flaggable live-call site needs a
@@ -618,7 +616,7 @@ def test_names_wanted_row_never_pays_the_scan(monkeypatch):
     scan pays ``_names_wanted_row`` once per string constant under
     tests/, so a per-call scan would price the guard by the committed
     document's row count and the suite-cost run phase would move on
-    every pricing refresh (issue #829)."""
+    every pricing refresh."""
     def _boom(*_args, **_kwargs):
         raise AssertionError("the linear wanted-row scan ran")
 

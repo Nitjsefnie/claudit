@@ -1,5 +1,5 @@
 """Pin PARSER_VERSION's home (backend/parser_version.py) away from the
-pricing bot's write surface (issue #986): the bot rewrites constants.py
+pricing bot's write surface: the bot rewrites constants.py
 hourly for PRICING_VERSION, so a parser-version edit there shared the
 changed file with every bot commit and rebased on the bot's hourly
 commits."""
@@ -22,7 +22,6 @@ HOME = "backend/parser_version.py"
 
 
 def _run_blocks() -> list[str]:
-    """Every `run:` block in the pricing bot's workflow."""
     doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     return [step.get("run") or ""
             for job in doc["jobs"].values()

@@ -34,7 +34,7 @@ DOC_MAX_STAMP = "2026-06-01T00:00:00Z"
 def _assert_stored_compactly(entry: dict) -> None:
     """The appended entry's shape: five effective draws — from, note and
     the five rates — stored in the document's compact spelling (a cache
-    write equal to fresh is omitted, issue #931's storage rule)."""
+    write equal to fresh is omitted by the compact storage rule)."""
     assert {"from", "note"} <= set(entry)
     assert set(entry) <= {"from", "note", *RATE_FIELDS}
     assert set(effective_rates(entry)) == set(RATE_FIELDS)
@@ -185,7 +185,7 @@ def test_the_stamp_is_one_second_after_the_row_floor(monkeypatch, tmp_path):
 
 def test_offset_spellings_carry_the_same_later_instant():
     """A quarter of the appended stamps spell their instant with a
-    ±HH:MM offset (issue #264's normalisation): the text parses, and
+    ±HH:MM offset after normalization: the text parses, and
     the instant is the row floor + 1s — the SAME instant the Z spelling
     would carry, never the offset-local wall time mislabeled."""
     entries = [{"from": DOC_MAX_STAMP, **RATES_A}]
@@ -203,7 +203,7 @@ def test_offset_spellings_carry_the_same_later_instant():
 
 
 def test_an_offset_spelled_predecessor_bounds_the_appended_instant():
-    """(issue #264) The row floor is parsed from whatever spelling the
+    """ The row floor is parsed from whatever spelling the
     predecessor carries. When that spelling is an offset, the appended
     stamp is normalised to UTC BEFORE the literal-Z format renders it:
     strftime writes the datetime's own wall time, so a raw strftime
@@ -661,7 +661,6 @@ def test_shards_partition_the_iterations_round_robin():
 
 
 class _FakeChild:
-    """A Popen stand-in: an exit code and nothing else."""
 
     def __init__(self, code: int):
         self._code = code

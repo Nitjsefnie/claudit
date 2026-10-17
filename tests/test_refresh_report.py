@@ -1,4 +1,3 @@
-"""Report layout for the hourly pricing refresh."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -37,7 +36,7 @@ def test_report_groups_vanished_and_sampled_hosts_by_model_and_reason():
 
 
 def test_report_drops_the_standing_blocks_for_the_commit_body():
-    """Issue #933: the vanished and sampled blocks are standing state — the
+    """the vanished and sampled blocks are standing state — the
     run's own stdout report keeps them (the default above), the commit body
     does not, and a model section left empty by the drop leaves no header."""
     result = _result(
@@ -76,7 +75,7 @@ def test_vanished_state_groups_hosts_per_model_in_order():
 def test_sampled_state_records_the_display_classification():
     """The recorded classification per sampled host is the short display
     reason the report's sampled line groups by, so a changed
-    classification is a diff of the state file (issue #933); a model with
+    classification is a diff of the state file; a model with
     no sampled hosts leaves no empty entry behind."""
     assert refresh.sampled_state({
         "model": {
@@ -132,7 +131,7 @@ def _delisted(subject: str) -> str:
 def test_notice_lines_render_groups_and_pass_through_the_rest():
     """The baseline unit is the rendered line: grouped subjects join one
     line, a notice `_notice_parts` does not recognise passes through
-    verbatim, and exact duplicates collapse (issue #888)."""
+    verbatim, and exact duplicates collapse ."""
     assert refresh.notice_lines([
         _delisted("alpha (openrouter/alpha)"),
         _delisted("beta (openrouter/beta)"),

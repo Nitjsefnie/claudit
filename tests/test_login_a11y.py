@@ -1,16 +1,16 @@
-"""Sign-in page accessibility and failure rendering (issue #395).
+"""Sign-in page accessibility and failure rendering.
 
 Findings 1-3 of the axe-core audit:
 1. the Username/Password <label> elements name no input (no for/id, no
    wrapping), so both fields have an empty accessible name;
-2. the "or" separator paints #556 over the form card #14181d — 2.44:1,
+2. the "or" separator paints over the form card d — 2.44:1,
    below the 4.5:1 AA text floor;
 3. every credential failure (401) and the rate-limit answer (429) reply
    with a bare text/plain body — no form, no link back, no title, no
    lang. They must re-render the full sign-in page with the error in a
    role="alert" element, and the generic failure body must stay
    byte-identical between wrong-password and unknown-id (no id
-   enumeration, issue #109).
+   enumeration).
 """
 import re
 import secrets
@@ -87,9 +87,9 @@ def _fake_session_store_fixture(monkeypatch):
     return rows
 
 
-# The generic failure body is the FULL sign-in page (#395): 401,
+# The generic failure body is the FULL sign-in page: 401,
 # text/html, the error announced in the role=alert element. Every
-# credential failure answers the same status and the same bytes (#109),
+# credential failure answers the same status and the same bytes,
 # so the older suites assert through this one helper.
 _GENERIC_401 = "Invalid credentials."
 
@@ -110,9 +110,6 @@ def _post_login(client, user_id, password):
         headers=_ORIGIN,
         follow_redirects=False,
     )
-
-
-# -- Finding 1: labels are associated with their inputs ----------------
 
 
 class _FormScan(HTMLParser):
@@ -175,9 +172,6 @@ def test_label_association_survives_onto_failed_signins(app, fake_user):
             f"the {want!r} label on the failure page names no input")
 
 
-# -- Finding 2: the "or" separator meets AA ----------------------------
-
-
 def _rel_lum(hex_color: str) -> float:
     """WCAG 2.x relative luminance of #rgb or #rrggbb."""
     h = hex_color.lstrip("#")
@@ -211,9 +205,6 @@ def test_or_separator_meets_aa_against_its_rendered_background(app):
     assert r >= 4.5, (
         f".or {color.group(1)} over the form card {bg.group(1)} computes "
         f"{r:.2f}:1, below the 4.5:1 AA text floor")
-
-
-# -- Finding 3: failures re-render the full sign-in page ----------------
 
 
 def _alert_text(html: str) -> str:

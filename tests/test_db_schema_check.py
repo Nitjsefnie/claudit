@@ -1,19 +1,9 @@
-"""schema_check() discriminates auth-DB failure causes (issue #122).
-
-An empty information_schema probe for users.config has three causes:
-the column is genuinely absent; the role holds no SELECT on users (a
-table without SELECT is invisible in information_schema.columns); or
-CLAUDIT_DATABASE_URL_AUTH points at the wrong (empty) database. The old code
-reported all three as "no 'config' column" — the live finding was a
-connectable role with no SELECT producing that message against a DB
-where the column exists. These tests pin the discrimination: privilege
-and wrong-DB failures must name their own cause.
-
-Issue #368 widens the check to every auth column the app reads: the
-lookup in backend/session.load_user_config keys on users.user_id and
-reads users.config, so an auth table with another key name (the old
-fixtures built `id`) must abort startup, not 500 at first login.
-"""
+"""Distinguish a missing auth column, missing SELECT privilege and a wrong database.
+A table without SELECT is invisible in information_schema.columns, so an
+empty probe alone cannot prove a column is absent. Privilege and wrong-DB
+failures must name their causes. Check every auth column the app reads:
+session lookup needs users.user_id and users.config. A differently named key
+must abort startup rather than fail at first login."""
 from contextlib import closing
 
 import psycopg
@@ -94,7 +84,7 @@ def test_column_absent_reports_missing_column(auth_env):
 
 
 def test_user_id_absent_reports_missing_column(auth_env):
-    """An auth table keyed by another name (issue #368's shape: `id`
+    """An auth table keyed by another name (for example, `id`
     instead of user_id) aborts startup naming the missing key column,
     instead of passing the check and 500ing every login."""
     name = auth_env("schema_chk_nouid")
@@ -130,7 +120,7 @@ def test_wrong_type_reports_jsonb(auth_env):
 def test_missing_select_names_the_grant_not_the_column(auth_env):
     """A connectable role with no SELECT on users sees an empty
     information_schema — the error must name the privilege and the grant,
-    NOT "no 'config' column" (issue #122)."""
+    NOT "no 'config' column"."""
     name = auth_env("schema_chk_priv")
     with closing(_auth_conn(name)) as c:
         c.execute("CREATE TABLE public.users (user_id bigint PRIMARY KEY, "

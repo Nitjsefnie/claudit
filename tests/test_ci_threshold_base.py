@@ -1,4 +1,3 @@
-"""Exercise push threshold-base selection against real scratch git histories."""
 from __future__ import annotations
 
 import importlib.util

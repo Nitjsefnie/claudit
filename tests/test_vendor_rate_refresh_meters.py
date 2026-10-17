@@ -1,4 +1,3 @@
-"""Long-context band folding and reporting through vendor refresh."""
 from __future__ import annotations
 
 import json

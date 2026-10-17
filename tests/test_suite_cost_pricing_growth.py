@@ -1,26 +1,13 @@
-"""Issue #840's check: the suite-cost bench's measurement does not move
-when only rate data grows.
-
-The incident (#872): a data-only pricing refresh grew ``src/pricing.json``
-3.4x and the gate's residual phase grew with it, breaching its ceiling —
-the counted workload's conftest-time ``backend.pricing`` import parses the
-whole document. The fix routes the bench's counted workload through a
-bounded document — the bench loads ``scripts/ci/suite_pricing_doc.json``
-and rebinds the pricing tables before any counted window opens — so this
-check runs each COPY'S OWN bench over its tree twice — the deployed
-document, and the same document with synthetic rows appended — and
-requires the phase counts to be EXACTLY equal.
-
-Red on the scaling code: before the seam, both copies' benches parsed
-the deployed document, and the appended rows moved the residual by their
-parse cost. Nothing here reads rate values: the appended rows are
-loader-valid synthetic hosts, and the comparison is between instruction
-counts. Each trial executes the copy's own bench (with its full support
-closure and the bounded document copied beside it), so the copy named by
-``--repo-root`` is also the bench ROOT whose injection runs — a late
-injection would parse that copy's deployed document, whose growth
-between the arms the equality then catches.
-"""
+"""The suite-cost measurement must not grow when only pricing data grows.
+The counted conftest-time pricing import parses the document, so use the
+bounded scripts/ci/suite_pricing_doc.json and rebind pricing tables before
+any counted interval opens. Run each copy's own bench over the deployed
+document and a copy with synthetic rows appended; phase instruction counts
+must be exactly equal, independently of rate values.
+Copy the complete bench support closure and bounded document beside each
+bench. The --repo-root copy must also be the bench root whose injection
+runs; a late injection would parse the growing deployed document and the
+between-arm equality must catch that added parse work."""
 from __future__ import annotations
 
 import json
@@ -97,7 +84,7 @@ def _appended_document(doc: dict) -> dict:
              "read": 0.05, "output": 2.0}
     model = next(iter(doc["providers"]))
     for host_index in range(20):
-        # Each entry differs from its predecessor (issue #930); the
+        # Each entry differs from its predecessor; the
         # rates' values never price anything in the bench's own probe.
         entries = [{"from": f"2027-{1 + stamp // 12:02d}-{1 + stamp % 12:02d}"
                     "T00:00:00Z", **rates, "read": 0.05 + stamp * 1e-6}
@@ -106,7 +93,7 @@ def _appended_document(doc: dict) -> dict:
     newcomer = {key: [{"from": None, **rates}]
                 for key in ("suite-synth-appended-model",)}
     doc["models"].update(newcomer)
-    # The fetch stamp covers the synthetic rows (issue #931).
+    # The fetch stamp covers the synthetic rows.
     doc["provider_rates_fetched"] = "2028-01-01T00:00:00Z"
     return doc
 

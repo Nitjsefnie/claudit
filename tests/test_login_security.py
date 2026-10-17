@@ -1,4 +1,3 @@
-"""Login security regressions that exercise limiter and cookie state."""
 import asyncio
 import secrets
 import threading
@@ -159,7 +158,7 @@ def test_stale_password_login_cannot_rebind_after_new_password_login(
 
     assert new_response.status_code == 303
     assert old_response.status_code == 401
-    # The generic failure page (#395): the message announced in its
+    # The generic failure page: the message announced in its
     # role=alert element, nothing else about the answer changed.
     assert old_response.headers["content-type"].startswith("text/html")
     assert b'<div class="err" role="alert">Invalid credentials.</div>' \
@@ -206,7 +205,7 @@ def test_non_string_credential_material_is_generic_and_normalizes_from_zero(
 
 
 def test_malformed_user_id_renders_full_signin_page(app, monkeypatch):
-    """The malformed-id 400 is the FULL sign-in page (#427): the fixed
+    """The malformed-id 400 is the FULL sign-in page: the fixed
     text announced in its role=alert, the form back to retry from, and
     the body byte-identical across every malformed shape. It costs no
     query, no PBKDF2 run and no limiter accounting, answering before

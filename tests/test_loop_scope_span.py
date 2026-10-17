@@ -1,18 +1,9 @@
-"""Spanning control for the duplicated loop-scope literal (issue #601).
-
-Issue #481 had to set ``asyncio_default_fixture_loop_scope = function``
-at BOTH session-root shapes: setup.cfg's [tool:pytest] (repo-rooted
-sessions, the real canary's nested run included) and the string
-pytest.ini the mini-suite fixture inside tests/test_suite_bench.py
-generates for its tmp-rooted bench sessions. Differential run proved
-each site independently load-bearing -- a setup.cfg-only fix left the
-tmp-rooted nested bench sessions warning -- so each site needs its own
-copy, and #601's point is that nothing reds when either is dropped,
-renamed or edited out of agreement: the fixture site's only oracle is
-the full-suite warnings summary, human-read, and the setup.cfg site has
-none at all. This module is the span: it reads BOTH files and fails
-when the literal is absent from either or the two values diverge.
-"""
+"""Both session-root shapes require asyncio_default_fixture_loop_scope=function.
+setup.cfg configures repository-rooted sessions, including the canary's
+nested run; the mini-suite's generated pytest.ini configures temporary-rooted
+bench sessions. Each site must carry the setting independently. Read both
+files so dropping either setting or making their values disagree fails
+without relying on a human reading the full-suite warning summary."""
 from __future__ import annotations
 
 import configparser

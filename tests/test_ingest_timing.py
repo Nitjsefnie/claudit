@@ -12,8 +12,8 @@ from backend import ingest, timing
 
 from tests import mini_mirror
 
-#: How many transcripts the committed mirror holds, read from its
-#: tree (issue #503 grew it with the lane layout).
+# How many transcripts the committed mirror holds, read from its
+# tree ( grew it with the lane layout).
 _MIRROR = mini_mirror.counts()["transcripts"]
 
 
@@ -31,9 +31,7 @@ _INGEST_PHASES = (
 
 
 def _timing_lines(caplog):
-    # The pass-internal TIMING lines (the reprice pass emits its own,
-    # issue #350) are distinct instruments; these tests read the run-level
-    # ingest line only.
+    # Read run-level ingest TIMING, separately from pass-internal TIMING.
     return [record.getMessage() for record in caplog.records
             if record.name == "claudit.ingest"
             and record.getMessage().startswith("TIMING ingest ")]
@@ -66,7 +64,7 @@ def test_phases_done_reports_total_sum_and_gap(monkeypatch, caplog):
     phases = timing.Phases("synthetic", account=True)
     phases.mark("first", 0.012)
     phases.mark("second", 0.008)
-    # A part (#662) prints but never enters the sum/gap.
+    # A part prints but never enters the sum/gap.
     phases.mark_part("child_parse", 9.0)
 
     with caplog.at_level(logging.INFO, logger="claudit.api"):
@@ -100,7 +98,7 @@ def test_phases_done_keeps_api_line_shape_without_accounting(
 
 
 def test_mark_part_is_excluded_from_the_account_sum(monkeypatch, caplog):
-    """A part is a breakdown figure (issue #662): it prints on the line
+    """A part is a breakdown figure: it prints on the line
     but never enters the sum/gap accounting — the pool wall's parts are
     summed across children and may exceed the run's wall, and a part
     counted into the sum would make every account line dishonest."""

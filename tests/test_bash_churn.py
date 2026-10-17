@@ -364,8 +364,6 @@ def test_parsing_a_body_with_a_bad_escape_emits_no_warning():
     assert [str(w.message) for w in caught] == []
 
 
-# --- does an errored result mean the write did not happen? ------------
-
 def test_heredoc_write_followed_by_other_stages_survives_an_error():
     """`cat > f <<EOF … EOF && python3 f` failing in python3 wrote f
     all the same; the exit status belongs to the last stage."""
@@ -419,7 +417,7 @@ def test_interpreter_given_by_path_is_still_python(interp):
 def test_heredoc_cat_books_churn_through_every_stream_spelling(redirect):
     """Bash writes the heredoc body into the target whatever the
     redirect spelling: `>|` clobbers, `&>`/`&>>` and `>& file` take
-    stdout+stderr, and each books the body like plain `>` (#803, #802)."""
+    stdout+stderr, and each books the body like plain `>`."""
     command = f"cat <<EOF {redirect} f.txt\nline1\nline2\nline3\nEOF\n"
     assert bash_churn(command) == (3, 0)
 
@@ -427,7 +425,7 @@ def test_heredoc_cat_books_churn_through_every_stream_spelling(redirect):
 @pytest.mark.parametrize("redirect", [">&2", "2>&1", ">&-"])
 def test_heredoc_cat_through_an_fd_dup_books_no_churn(redirect):
     """`>& digits` duplicates and `>&-` closes: the body goes to a
-    stream, never a file, so no churn is booked (#803)."""
+    stream, never a file, so no churn is booked."""
     command = f"cat <<EOF {redirect}\nline1\nline2\nline3\nEOF\n"
     assert bash_churn(command) == (0, 0)
 
@@ -436,14 +434,14 @@ def test_fd_dup_target_is_not_an_error_line_path():
     """A bare digit `>&` target is filtered as a descriptor, so an error
     line naming a digit-leading path (`2.py`) cannot match it and zero
     counted tee churn; the real tee target beside it keeps the write
-    alive: the filter limb in bash_churn_errors is load-bearing (#802)."""
+    alive: the filter limb in bash_churn_errors is load-bearing."""
     command = "cat <<E | tee >&2 real.txt\nbody\nE\npython3 2.py"
     text = "python3: cannot open file '2.py': No such file or directory"
     assert churn_survives_error(command, text) is True
 
 
 def test_tee_into_stderr_alone_has_no_survivable_write():
-    """With the operator token filtered (#820), `tee >&2` books no file
+    """With the operator token filtered, `tee >&2` books no file
     target at all: the counted body churn has no verbatim write behind
     it, so an errored later stage zeroes it."""
     command = "cat <<E | tee >&2\nbody\nE\npython3 2.py"
@@ -456,7 +454,7 @@ def test_tee_into_stderr_alone_has_no_survivable_write():
 def test_heredoc_cat_books_churn_through_fd_one_stdout_spellings(redirect):
     """fd 1 IS stdout: bash lands the heredoc body in the target through
     the fd-spelled stdout forms exactly like plain `>`. Leading zeros are
-    insignificant, so a zero-padded fd reads as fd 1 too (#819, #857)."""
+    insignificant, so a zero-padded fd reads as fd 1 too."""
     command = f"cat <<EOF {redirect} f.txt\nline1\nline2\nline3\nEOF\n"
     assert bash_churn(command) == (3, 0)
 
@@ -466,7 +464,7 @@ def test_heredoc_cat_with_a_higher_fd_redirect_keeps_the_sink_line(redirect):
     """A higher fd's redirect (`2>`, `21>`) points another descriptor at
     f.txt — the body lands on stdout (no heredoc churn), but bash creates
     f.txt, and the redirect itself is a recognized write of unknown
-    addition size: the one unknown-size line, `2>`'s parity (#805, #819)."""
+    addition size: the one unknown-size line, `2>`'s parity."""
     command = f"cat <<EOF {redirect} f.txt\nline1\nline2\nline3\nEOF\n"
     assert bash_churn(command) == (1, 0)
 
@@ -481,7 +479,7 @@ def test_heredoc_cat_with_a_higher_fd_redirect_keeps_the_sink_line(redirect):
 def test_tee_arm_books_no_operator_tokens(context, expected):
     """The tee arm reads raw shlex tokens, so a redirect operator rides
     in looking like a path: `>&2` is not a file, and the operator shape
-    is filtered while real targets book (#820)."""
+    is filtered while real targets book."""
     assert _verbatim_targets(context) == expected
 
 
@@ -490,7 +488,7 @@ def test_heredoc_sink_line_through_multi_digit_fds(fd):
     """An fd of two or more digits still opens the target: bash creates
     f.txt before the command runs, so the redirect is a recognized write
     of unknown addition size — the same one line a single-digit fd
-    counts (#854)."""
+    counts."""
     command = f"cat <<EOF {fd} f.txt\nline1\nline2\nline3\nEOF\n"
     assert bash_churn(command) == (1, 0)
 
@@ -507,14 +505,14 @@ def test_tee_arm_books_no_stdin_redirect_target(context, expected):
     bash opens f.txt for reading and the body lands on stdout, so the
     stdin-redirect shape filters with the other operators while real
     targets book. An fd-prefixed `<` (`2<f.txt`) is the same input
-    redirect and filters too (#855, #856)."""
+    redirect and filters too."""
     assert _verbatim_targets(context) == expected
 
 
 def test_echo_pipeline_reads_fd_prefix_by_value():
     """The pipeline fold reads an explicit fd by VALUE too: `echo hi 01>
     f.txt` books its payload like plain `>` (fd 1 is stdout), and a null
-    sink still books nothing (#857)."""
+    sink still books nothing."""
     assert bash_churn("echo hi 01> f.txt") == (1, 0)
     assert bash_churn("echo hi 001> f.txt") == (1, 0)
     assert bash_churn("echo hi 01> /dev/null") == (0, 0)
@@ -523,7 +521,7 @@ def test_echo_pipeline_reads_fd_prefix_by_value():
 def test_folded_fd_zero_narrows_other_sink_and_replaces_stdin():
     """`00>` folds to fd 0, so it stops booking the unknown-size other
     sink and narrows to the pinned `0>` shape; `00<` folds to fd 0 and
-    now counts as stdin-replaced (#856, #857)."""
+    now counts as stdin-replaced."""
     assert bash_churn("cat /dev/null 00> f.txt") == (0, 0)
     assert bash_churn("cat /dev/null 0> f.txt") == (0, 0)
     assert _redirects(shell_tokens("cat 00< f.txt"))[2] is True

@@ -14,7 +14,7 @@ Two layers:
   the gate.
 
 This file walks the whole tree when it runs — that walk is exactly the
-cost issue #510 removed from the PINNED scans, so this file is
+cost removed from the PINNED scans, so this file is
 UNPINNED on purpose: never add it to suite_bench_files.txt.
 """
 from __future__ import annotations

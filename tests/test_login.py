@@ -1,7 +1,3 @@
-"""Login flow regressions for #109 failures/timing, #111 rate limiting,
-#94 auth-DB read-only behavior, and #108 logout. Includes the malformed-ID
-400 and shared auth/session flow checks.
-"""
 import copy
 import secrets
 import threading
@@ -23,7 +19,7 @@ from tests.test_login_a11y import (
 _ORIGIN = {"Origin": "http://testserver"}
 
 # An 18-digit id — the auth DB's real user_id shape (bigint), far above
-# the 2^31 an INTEGER column holds (issue #185).
+# the 2^31 an INTEGER column holds.
 _BIG_UID = 123456789012345678
 
 
@@ -60,7 +56,6 @@ def _reset_rate_limits():
 
 @pytest.fixture(name="app")
 def _app_fixture():
-    """Build a fresh FastAPI app per test, with the auth DB mocked."""
     a = FastAPI()
     a.middleware("http")(session_mod.auth_middleware)
     a.include_router(login_mod.router)
@@ -107,7 +102,6 @@ def _fake_session_store_fixture(monkeypatch):
 
 @pytest.fixture(name="fake_user")
 def _fake_user_fixture(monkeypatch):
-    """Stub the auth DB with one user that has a known password."""
     config: dict = {}
     auth.set_web_password(config, "hunter2")
     store = {12345: config}
@@ -228,7 +222,7 @@ def test_no_password_user_is_generic_401(app, fake_user):
 
 
 def test_all_credential_failures_answer_identically(app, fake_user):
-    """#109: unknown id, no configured password and wrong password must
+    """unknown id, no configured password and wrong password must
     be indistinguishable — identical status AND identical body."""
     store = fake_user
     store[777] = {}
@@ -326,9 +320,7 @@ def test_unknown_id_normalizes_from_zero(app, fake_user, monkeypatch):
 def test_malformed_hash_failure_normalizes_from_zero(
     app, fake_user, monkeypatch
 ):
-    """A malformed versioned string used to fail with no PBKDF2 run at
-    all — the cheapest failure on the board. It now normalizes from
-    zero like every other cannot-verify path."""
+    """Malformed versioned credentials pay the cannot-verify PBKDF2 cost."""
     salt_hex = "22" * 16
     store = fake_user
     store[556] = {
@@ -369,7 +361,7 @@ def test_wrong_password_at_target_spends_nothing_extra(
 
 
 def test_malformed_user_id_is_still_400(app, fake_user):
-    """The malformed-id 400 stays, on the full sign-in page (#427)."""
+    """The malformed-id 400 stays, on the full sign-in page."""
     client = TestClient(app)
     for bad in ("abc", "", "0", "-3"):
         r = _post_login(client, bad, "bad id")
@@ -379,7 +371,7 @@ def test_malformed_user_id_is_still_400(app, fake_user):
 
 
 def test_failures_for_one_user_do_not_lock_another(app, fake_user, fake_session_store):
-    """#111: the limiter is keyed per (ip, user) pair. User B's correct
+    """the limiter is keyed per (ip, user) pair. User B's correct
     login survives user A's failures; user A's own pair stays locked."""
     store = fake_user
     store[777] = {}
@@ -435,7 +427,7 @@ def test_empty_key_is_dropped_on_access():
 
 def test_eviction_sweeps_aged_keys_when_over_cap():
     """Above _LOGIN_MAX_KEYS, a record/prune pass sweeps every key whose
-    window has expired — the dict never grows without bound (#111)."""
+    window has expired — the dict never grows without bound."""
     now = time_mod.time()
     failures = login_mod._LOGIN_FAILURES  # pylint: disable=protected-access
     aged = now - login_mod._LOGIN_WINDOW_SECONDS - 1  # pylint: disable=protected-access
@@ -522,7 +514,7 @@ def test_ip_limited_429_does_not_reach_auth_work(app, fake_user, monkeypatch):
 def test_successful_login_does_not_write_the_auth_db(
     app, fake_user, fake_session_store
 ):
-    """#94 regression: a successful login must leave the shared users
+    """ regression: a successful login must leave the shared users
     table unchanged — the session secret went to claudit's own store,
     and no write path to the auth DB exists at all any more."""
     before = copy.deepcopy(fake_user[12345])
@@ -548,7 +540,7 @@ def test_logout_clears_cookie(app, fake_user, fake_session_store):
 def test_logout_bumps_generation_and_invalidates_the_session(
     app, fake_user, fake_session_store
 ):
-    """#108: logout is server-side. The bumped generation kills every
+    """logout is server-side. The bumped generation kills every
     token the user holds, so a CAPTURED cookie — the threat model — no
     longer verifies, not just the one the logout response clears."""
     client = TestClient(app)
@@ -571,8 +563,7 @@ def test_logout_still_clears_cookie_when_store_fails(
     """Server-side logout is best-effort: when the session store is
     unavailable, the bump is skipped, but the cookie is still deleted
     and the redirect still returned — the one route whose job is
-    dropping credentials must not fail closed (it used to 500 with the
-    cookie still set)."""
+    dropping credentials must not fail closed."""
     client = TestClient(app)
     _post_login(client, 12345, "hunter2")
     assert client.get("/api/me").status_code == 200
@@ -660,12 +651,12 @@ def test_login_after_password_change_rebinds_session_immediately(
 @pytest.fixture(name="fresh_db")
 def _fresh_db_fixture(monkeypatch):
     """A fresh claudit DB with the startup schema applied — the real
-    user_session table the big-id login writes through (issue #185)."""
+    user_session table the big-id login writes through."""
     yield from scratch_db.scratch_viz_database(monkeypatch, "login")
 
 
 def test_login_with_an_18_digit_user_id_round_trips(app, fake_user, fresh_db):
-    """Issue #185: a real (non-guest) login whose user id needs bigint —
+    """a real (non-guest) login whose user id needs bigint —
     the auth DB's actual shape — must persist its user_session row, mint
     the cookie, and have that cookie resolve back through the REAL store
     to the same id."""

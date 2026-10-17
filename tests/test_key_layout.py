@@ -1,18 +1,8 @@
-"""Object-key layout rules: key → (project, session, is_main), or None.
-
-claude audit ingests two bucket layouts through one classify():
-
-- Claude Code's own, which ingest used to derive inline (project =
-  segment 0, session = segment 1, main when the stem equals the
-  session id) — unchanged, byte for byte.
-- the lane layout shared by codexmeter and kimimeter, whose
-  transcripts are wire.jsonl files under sessions/<project>/<session>/,
-  with subagent wires under a further subagents/ directory and a
-  project.json marker carrying the project's display path.
-
-Tests use bucket-less keys throughout: a later task qualifies stored
-keys with their bucket and strips it before calling classify().
-"""
+"""Object-key layouts map to project, session and main-file identity or None.
+Claude keys name project/session/stem, with a main stem equal to the session
+id. Lane keys put wire.jsonl under sessions/project/session, subagents in a
+subagents directory, and the project display path in project.json.
+Use bucket-less keys; storage qualification is stripped before classify()."""
 from backend import key_layout
 from backend.key_layout import (
     KeyInfo, canonical_project_id, classify, lane_project_id,
@@ -163,7 +153,7 @@ def test_marker_windows_path_and_claude_key_meet_on_one_id():
 
 def test_a_lane_test_session_is_not_a_transcript():
     """A lane session named exactly `test` is the kimi-code test suite's
-    scratch archive (issue #650): no wire in the subtree classifies, main
+    scratch archive: no wire in the subtree classifies, main
     wire or subagent wire, and neither does its sidecar."""
     assert classify(
         "sessions/8805b8ac99ad/test/subagents/ac92a5a25/wire.jsonl.xz") is None
@@ -193,8 +183,8 @@ def test_a_lane_test_session_shares_no_segments_with_the_test_rule():
 
 
 def test_a_junk_lane_key_never_index_errors():
-    """Every lane-tree entry point guards its indexes before reading them
-    (review of PR 689): a junk key of any length classifies as nothing,
+    """Every lane-tree entry point guards its indexes before reading them:
+    a junk key of any length classifies as nothing,
     never raises. A sidecar-shaped key under a REAL session still pairs;
     only the test session's sidecar is refused."""
     for key in ("sessions", "sessions/x", "sessions/x/y",

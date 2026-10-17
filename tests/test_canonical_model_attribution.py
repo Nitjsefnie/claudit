@@ -1,32 +1,20 @@
-"""A replayed copy loses to its original, whatever the key order (issues #529, #687).
-
-A forked Codex rollout REPLAYS its parent's history in its leading lines.
-Under issue #653 the replayed prefix takes the file's first declared
-model, so both copies of a replayed uuid are attributed and — before
-#687 — the attribution rank tied and `file_key` decided: the fork's
-`subagents/…` key sorts before its parent's `wire.jsonl`, and the fork's
-copy won. #687 adds a replay rank ahead of attribution: a copy parsed
-from a fork's replayed prefix (marked `is_replay` at parse time, from
-the first session_meta's `forked_from_id` and the replay's position
-before the fork's own first model declaration) loses to an original of
-the same uuid, whatever the key order, so the parent's copy — carrying
-the model the parent had in force — stays canonical and replayed history
-counts once, as the main session's.
-
-With the parent absent, the fork's replay is the only copy and stays
-canonical, attributed to the fork's first declared model — the #653
-fallback, never an `unknown` placeholder. With the parent present, a
-losing copy also ADOPTS the original's model (issue #713): the fork's
-first declaration is the model at the fork point, and only the parent's
-copy carries the model the parent had in force for that record.
-
-The winner rule is the spec (SV-CANONICAL-FLAG): an original beats a
-replay, an attributed copy beats an unattributed one, then file_key,
-then line_num. Under #653 and #688 no parser emits a placeholder, so
-the unattributed members of the rank are reachable only as stored
-historical rows (the lockstep shapes test_ingest pins) — a live
-model-less file is refused at parse instead.
-"""
+"""A replayed copy loses to its original, whatever the key order.
+A forked Codex rollout replays its parent's leading history. The replayed
+prefix takes the fork's first declared model, so both copies may be
+attributed. Replay rank must precede attribution and file_key: the fork's
+subagents key sorts before its parent's wire.jsonl, but must not win.
+A prefix is marked is_replay from the first session_meta's forked_from_id
+and its position before the fork's first model declaration. An original
+wins the same uuid, retaining the parent's model at that request, so
+replayed history counts once as part of the main session.
+With no parent, the fork's only copy remains canonical under its first
+declared model rather than an unknown placeholder. With the parent present,
+the losing copy adopts the original's model, because the fork's first
+declaration describes the fork point rather than every replayed request.
+The winner rule (SV-CANONICAL-FLAG) orders original before replay,
+attributed before unattributed, then file_key and line_num. Parsers refuse
+model-less files, so unattributed rank members occur only as stored
+historical rows, covered by the lockstep shapes in test_ingest."""
 from __future__ import annotations
 
 import json
@@ -94,7 +82,6 @@ def _parent_rollout() -> bytes:
         # request 1: the counter opens at zero, so cumulative == last
         _token_count("2026-06-14T11:00:03.000Z",
                      (100000, 98000, 500, 300), (100000, 98000, 500, 300)),
-        # request 2
         _token_count("2026-06-14T11:00:04.000Z",
                      (109800, 107604, 1120, 520), (9800, 9604, 620, 220)),
     ]
@@ -120,7 +107,6 @@ def _switching_parent_rollout() -> bytes:
                      (100000, 98000, 500, 300), (100000, 98000, 500, 300)),
         {"timestamp": "2026-06-14T11:00:04.000Z", "type": "turn_context",
          "payload": {"model": "gpt-5.6-terra"}},
-        # request 2
         _token_count("2026-06-14T11:00:05.000Z",
                      (109800, 107604, 1120, 520), (9800, 9604, 620, 220)),
     ]
@@ -150,7 +136,6 @@ def _mirror(monkeypatch, tmp_path, fixture: Path, parent_bytes: bytes | None):
 
 @pytest.fixture(name="fork_mirror")
 def _fork_mirror_fixture(monkeypatch, tmp_path):
-    """A lane mirror holding the sol-seeded fork fixture alone."""
     return _mirror(monkeypatch, tmp_path, FORK_FIXTURE, None)
 
 
@@ -179,7 +164,7 @@ def test_a_replayed_copy_loses_to_the_parents_original(
     copies — carrying the model the parent had in force — win the dedup
     whatever the key order, so replayed history counts once, as the main
     session's, under the parent's model; the fork's losing copies ADOPT
-    the parent's model in force (issue #713), so the stored row a later
+    the parent's model in force, so the stored row a later
     promotion surfaces agrees with the winner instead of carrying the
     fork's first declaration."""
     _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE,
@@ -204,7 +189,7 @@ def test_a_replayed_copy_loses_to_the_parents_original(
 
 def test_a_replayed_copy_takes_the_model_the_parent_had_in_force(
         fresh_db, monkeypatch, tmp_path):
-    """Issue #713's core: the fork's first declaration is the model at
+    """ core: the fork's first declaration is the model at
     the fork point, not the model each replayed request ran on. The
     parent switches sol -> terra mid-history and the fork (cut after the
     switch) declares terra, so the fork's parse-time copy of the parent's
@@ -266,7 +251,7 @@ def test_a_parent_arriving_later_adopts_into_the_stored_fork(
         fresh_db, monkeypatch, tmp_path):
     """The adoption is an ingest pass, so it also fires when the parent
     ARRIVES after the fork was stored: the fork's first ingest keeps the
-    #653 fallback (its own first declaration), the second — the parent's
+     fallback (its own first declaration), the second — the parent's
     uuids joining the scope — adopts the parent's models into the fork's
     stored rows."""
     root = _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE, None)
@@ -316,7 +301,7 @@ def test_a_promoted_replay_keeps_the_adopted_models(
 def test_adoption_extends_files_models(fresh_db, monkeypatch, tmp_path):
     """files.models lists every model that answered in the file; the fork
     journals its parent's requests, so once the originals are present the
-    fork's list carries the parent's models too (issue #713)."""
+    fork's list carries the parent's models too."""
     _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE,
             _switching_parent_rollout())
     result = ingest.run_ingest(trigger="manual")
@@ -335,7 +320,7 @@ def test_adoption_extends_files_models(fresh_db, monkeypatch, tmp_path):
 def test_a_fork_alone_attributes_its_replay_to_the_first_declared_model(
         fresh_db, fork_mirror):
     """With the parent file absent, the fork's replayed prefix has no
-    competitor: it takes the file's first declared model (issue #653) and
+    competitor: it takes the file's first declared model and
     stays canonical — no `unknown` placeholder is stored."""
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
@@ -387,7 +372,7 @@ def test_the_replay_rank_applies_to_tool_uses_too(fresh_db):
 
 
 def test_a_replayed_tool_call_adopts_the_originals_model(fresh_db):
-    """The adoption (issue #713) is keyed on tool_use_id too: a replayed
+    """The adoption is keyed on tool_use_id too: a replayed
     fork call stored with the fork's first declaration takes the
     original's model, like its record does."""
     with db.viz_conn() as c:
@@ -467,7 +452,7 @@ def test_a_null_original_model_is_never_adopted(fresh_db):
 
 def _claude_copy(model: str | None, output_tokens: int) -> str:
     """One Claude assistant line: model omitted entirely when None, which
-    the #688 refusal rejects at parse_file."""
+    the refusal rejects at parse_file."""
     message = {"role": "assistant",
                "usage": {"input_tokens": 100,
                          "cache_creation_input_tokens": 0,
@@ -483,12 +468,8 @@ def _claude_copy(model: str | None, output_tokens: int) -> str:
 
 def test_a_claude_modelless_copy_is_refused(
         fresh_db, monkeypatch, tmp_path):
-    """The Claude path used to store a model-less line as the `(unknown)`
-    fallback (issue #688 removed it); the shape that exercised that rank
-    member live — a model-less Claude copy in the file_key-first position
-    the old rule would have picked — is now REFUSED at parse, storing no
-    rows, while the attributed copy of the same uuid in the same run
-    stores and stays canonical."""
+    """A model-less Claude file is refused at parse and stores no rows.
+    An attributed copy of the same uuid in the same run stores and stays canonical."""
     root = tmp_path / "mirror"
     for proj, model, out in (
             ("aaa-proj", None, 200),                    # -> refused
@@ -552,9 +533,9 @@ def _seed_two_identities() -> None:
 
 
 def test_an_incremental_scope_adopts_only_its_own_uuids(fresh_db):
-    """The adoption's incremental limb (issue #713): a scoped run adopts
+    """The adoption's incremental limb: a scoped run adopts
     only the uuids the run touched — the out-of-scope replayed copy keeps
-    the #653 fallback until a run touches its identity."""
+    the fallback until a run touches its identity."""
     _seed_two_identities()
     scope = Scope(False, "test", 2000)
     scope.affected_uuids = {"u1"}

@@ -1,4 +1,3 @@
-"""Effective startup policy at HTTP, payload, bootstrap and warm boundaries."""
 from __future__ import annotations
 
 import asyncio

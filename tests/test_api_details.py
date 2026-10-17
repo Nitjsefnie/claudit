@@ -71,7 +71,7 @@ def test_dashboard_returns_prompts_and_turns_totals(app_with_data):
     over an all-covering range that equals the old whole-file SUMs. Mini
     r2 carried one real user prompt (sess-A) and five usage-bearing files
     (sess-A, sess-B, sess-C main, sess-C agent, sess-D), one ctx_turn. It
-    now also carries the lane wires (issue #503), so both totals are read
+    now also carries the lane wires, so both totals are read
     off the mirror by running the production parser over it — a transcript
     is not a prompt, and no inventory can say how many prompts a mirror
     holds."""
@@ -86,7 +86,7 @@ def test_dashboard_returns_prompts_and_turns_totals(app_with_data):
 
 
 def test_dashboard_hourly_carries_line_churn(app_with_fresh_data):
-    """Issue #10: lines added/deleted ride the hourly panel entries.
+    """lines added/deleted ride the hourly panel entries.
     Churn lives on tool_uses (not records/usage_rollup) and is bucketed
     per hour, attributed to the hour's first model row like
     session_count — so summing the key across entries is exact, and the
@@ -159,7 +159,7 @@ def test_dashboard_churn_uses_rollup_only_at_hourly_grain(
                  sonnet),
             )
             # cost_usd is a reprice-written column and lives on the
-            # records_price sidecar (#959 R4); every writer keeps the pair.
+            # records_price sidecar; every writer keeps the pair.
             cur.execute(
                 "INSERT INTO records_price (file_id, line_num, cost_usd) "
                 "VALUES ((SELECT file_id FROM files WHERE file_key = %s), "
@@ -239,7 +239,6 @@ def test_a_malformed_hit_ts_does_not_take_down_the_dashboard(app_with_fresh_data
             "       rate_limit_hits = %s::jsonb "
             " WHERE file_key = (SELECT MIN(file_key) FROM files WHERE is_main)",
             (json.dumps([
-                # Not timestamp-shaped at all.
                 {"ts": "not-a-timestamp", "content": "junk ts"},
                 {"ts": 123, "content": "numeric ts"},
                 {"ts": "", "content": "empty ts"},
@@ -249,7 +248,6 @@ def test_a_malformed_hit_ts_does_not_take_down_the_dashboard(app_with_fresh_data
                 {"ts": "2026-02-30T00:00:00Z", "content": "30th of february"},
                 {"ts": "2026-01-01 25:00:00Z", "content": "hour 25"},
                 {"ts": "2026-01-01T00:00:00Z lolwat", "content": "trailing junk"},
-                # Valid, and on either side of the range boundary.
                 {"ts": (datetime.now(timezone.utc) - timedelta(days=5)).strftime(
                     "%Y-%m-%dT%H:%M:%SZ"), "content": "good hit"},
                 {"ts": "1998-01-01T00:00:00Z", "content": "too old"},
@@ -283,9 +281,8 @@ def test_dashboard_response_is_cached_and_fresh_bypasses(app_with_fresh_data):
 
 
 def test_dashboard_range_non_numeric_days_400(app_with_data):
-    """`1e5d` ends in `d` but `int('1e5')` raises, and that ValueError used
-    to escape the shared range parser as a 500. It must come back as the
-    same 400 an unknown suffix gets, naming the parameter (issue #112)."""
+    """Reject a non-integer duration such as 1e5d with the same parameter-naming
+    400 as an unknown suffix; int() raising must not escape as a 500."""
     r = app_with_data.get("/api/dashboard?range=1e5d")
     assert r.status_code == 400
     assert "range" in r.json()["detail"]
@@ -295,7 +292,7 @@ def test_dashboard_range_overflow_400(app_with_data):
     """`999999999d` parses (timedelta's day cap) and then overflows the
     caller's `since = now - delta` with OverflowError — a 500. The bound
     check belongs in the shared parser, so every endpoint returns 400
-    without per-endpoint try/excepts (issue #112). A day count one past
+    without per-endpoint try/excepts. A day count one past
     timedelta's own cap (construction overflow) is the same behavior."""
     r = app_with_data.get("/api/dashboard?range=999999999d")
     assert r.status_code == 400
@@ -355,7 +352,6 @@ def test_dashboard_cost_by_project_omitted_for_guest(app_with_data):
     assert "tokens_by_project" not in guest.json(), (
         "per-project token names are the same guest-withheld data the "
         "cost key is — stripped server-side, outside the shared cache")
-    # The rest of the payload is untouched.
     assert "cost_by_model" in guest.json()
 
 
@@ -444,7 +440,7 @@ def test_admin_ingest_runs_off_the_event_loop():
     the event loop, so every concurrent request — /health, /api/*, the SSE
     stream, the login page — stalled for the length of the run. FastAPI
     moves a plain `def` handler to its threadpool, which is the only thing
-    that keeps the loop free while the ingest blocks a worker (issue #101).
+    that keeps the loop free while the ingest blocks a worker.
     """
     matches = [
         r for r in app_mod.app.routes

@@ -35,7 +35,6 @@ def _scalar(cur, sql: str, params=None):
 
 @pytest.fixture(name="fresh_db")
 def _fresh_db_fixture(monkeypatch):
-    """Per-test schema reset on a separate DB."""
     yield from scratch_db.scratch_viz_database(monkeypatch, "ingest")
 
 
@@ -56,7 +55,7 @@ def test_ingest_inserts_one_row_per_jsonl(fresh_db, mini_r2_env):
     the assertion is that the ingest agrees with the corpus it was given,
     not that the corpus still has the size it had when this test was
     written. Claude- and lane-layout transcripts alike land here — the
-    mirror grew the lane wires in issue #503."""
+    mirror grew the lane wires in."""
     shape = mini_mirror.counts()
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
@@ -103,7 +102,7 @@ def test_ctx_turns_stored_per_file(fresh_db, mini_r2_env):
 
 def test_nul_in_tool_text_still_stores(fresh_db, mini_r2_env):
     """A NUL in a tool name or tool argument must not abort the file's
-    transaction (issue #670): _persist strips the byte from every text
+    transaction: _persist strips the byte from every text
     value it writes, whatever column carries it, so the transcript
     stores like any other."""
     fk = "claude/projNul/sess-nul/sess-nul.jsonl"
@@ -234,7 +233,7 @@ def test_xz_compressed_jsonl_ingests_transparently(fresh_db, mini_r2_env):
 def test_is_canonical_matches_read_time_distinct_on(fresh_db, mini_r2_env):
     """The ingest-time flag must select exactly the rows the read-time
     `DISTINCT ON (uuid) ORDER BY uuid, <unattributed-last>, file_key`
-    would have kept (issue #529: the copy whose model is attributed beats
+    would have kept (the copy whose model is attributed beats
     an unattributed one; NULL counts unattributed).
 
     This is the invariant that lets the read endpoints filter a boolean
@@ -248,7 +247,7 @@ def test_is_canonical_matches_read_time_distinct_on(fresh_db, mini_r2_env):
         flagged = c.execute(
             "SELECT f.file_key, r.line_num FROM records r JOIN files f ON f.file_id = r.file_id WHERE r.is_canonical ORDER BY f.file_key, r.line_num"
         ).fetchall()
-        # The pre-#959 text rule, still the rule (R2: file_key TEXT order).
+        # The legacy text rule, still the rule (R2: file_key TEXT order).
         uuid_text = uuid_split.uuid_text_sql("r")
         expected = c.execute(
             f"""
@@ -278,11 +277,11 @@ def test_is_canonical_matches_read_time_distinct_on(fresh_db, mini_r2_env):
 
 
 # --------------------------------------------------------------------------
-# The winner rule's shared vocabulary (issue #563): SQL and browser
+# The winner rule's shared vocabulary: SQL and browser
 # --------------------------------------------------------------------------
 
 # The winner-rule shapes the SQL canonical pass and the browser's
-# record-dedup must decide IDENTICALLY (issue #563): each is one uuid's
+# record-dedup must decide IDENTICALLY: each is one uuid's
 # copies in file_key/arrival order, with the winner copy's arrival label.
 # <synthetic> is Claude's harness-fabricated stub model; it names no
 # model, so it sits in the unattributed class beside the two unknown
@@ -290,7 +289,7 @@ def test_is_canonical_matches_read_time_distinct_on(fresh_db, mini_r2_env):
 # unreachable here; the read-time DISTINCT ON test below covers it.
 _REAL_MODEL = "claude-sonnet-4-5"
 # Each copy is (arrival label, model, is_replay) — the replay member
-# rides #687's rank ahead of attribution.
+# rides rank ahead of attribution.
 _LOCKSTEP_SHAPES = [
     ("lane-unknown-then-real", [("a", "unknown", False), ("b", _REAL_MODEL, False)], "b"),
     ("real-then-lane-unknown", [("a", _REAL_MODEL, False), ("b", "unknown", False)], "a"),
@@ -374,7 +373,7 @@ def _js_winners() -> dict[str, str]:
 
 def test_canonical_winner_rule_is_lockstep_with_the_browser(fresh_db):
     """SV-CANONICAL-FLAG's vocabulary is the contract between the ingest's
-    canonical pass and the browser's record-dedup (issue #563). The SAME
+    canonical pass and the browser's record-dedup. The SAME
     shape list drives both halves -- recompute_canonical over seeded rows
     and record-dedup's decide through node -- and each must crown the same
     winner per uuid, so a vocabulary edit on either side fails here before
@@ -433,8 +432,8 @@ def test_warm_common_covers_every_warmed_range(fresh_db, mini_r2_env, monkeypatc
     assert not missing, "warm_common left these uncached: " + ", ".join(missing)
 
     # The no-range warm: /api/models takes no range, so warm_common
-    # warms ONE key per ingest, not one per WARM_RANGES entry (issue
-    # #644). Forcing `rng` into its key would reproduce a key nothing
+    # warms ONE key per ingest, not one per WARM_RANGES entry. Forcing
+    # `rng` into its key would reproduce a key nothing
     # writes — the same trap the /api/projects regression was.
     deadline = time.time() + 60
     while (cache.response_cache.get(_warm_key(api.list_models, None))
@@ -466,13 +465,8 @@ def _warm_key(fn, rng: str | None) -> str:
 
 
 def test_ingest_marks_response_cache_stale(fresh_db, mini_r2_env):
-    """Ingest marks cached responses stale but leaves them SERVABLE.
-
-    It used to clear() the cache, which dropped every reader onto the
-    uncached path once an hour — 8s+ for /api/dashboard at range=all.
-    Stale-while-revalidate keeps the previous numbers available while the
-    refresh runs off the request path.
-    """
+    """Ingest marks responses stale while leaving previous numbers servable.
+    Refresh off the request path so readers do not all enter the uncached path."""
     cache.response_cache.put("stale-key", {"v": "old"})
     entry = cache.response_cache.get_entry("stale-key")
     assert entry == ({"v": "old"}, False), "fresh before ingest"
@@ -520,7 +514,6 @@ def test_parallel_ingest_matches_sequential_exactly(
     ingest.run_ingest("test-seq")
     sequential = _snapshot()
 
-    # Wipe and re-ingest the identical mirror with a pool.
     with db.viz_conn() as c:
         c.execute("DELETE FROM files")
         c.execute("DELETE FROM projects")
@@ -547,11 +540,9 @@ def test_ingest_workers_defaults_and_clamps(monkeypatch):
 
 
 def test_a_second_ingest_is_skipped_while_one_is_running(fresh_db, mini_r2_env):
-    """The hourly cron fires regardless of whether a run is still going. A
-    PARSER_VERSION bump makes a run take ~40min, so a cron landed on top of a
-    startup reparse and both walked the whole bucket — duplicate GETs,
-    duplicate parses, two sets of rollup rebuilds, and a progress readout that
-    went backwards. A concurrent run must decline, not pile on."""
+    """A concurrent ingest must decline while another run is active.
+    Cron can fire during a startup reparse; overlapping runs would duplicate
+    fetches, parsing and rollup rebuilds while competing for progress state."""
     started = threading.Event()
     release = threading.Event()
     seen = {}
@@ -588,7 +579,6 @@ def test_ingest_runs_again_once_the_lock_is_free(fresh_db, mini_r2_env):
 
 
 def _suppress(pattern: str) -> None:
-    """Add one suppression pattern, the way an operator would."""
     with db.viz_conn() as c:
         c.execute("INSERT INTO suppressed_models (pattern, note) "
                   "VALUES (%s, 'test')", (pattern,))
@@ -666,7 +656,6 @@ def test_suppressed_tool_uses_go_with_their_records(fresh_db, mini_r2_env):
 
 
 def _plant(mirror, project, session, fixture):
-    """Copy a parser fixture into the mini mirror as its own session."""
     dest = mirror / project / session
     dest.mkdir(parents=True, exist_ok=True)
     target = dest / f"{session}.jsonl"
@@ -683,14 +672,13 @@ def _plant(mirror, project, session, fixture):
 
 
 # ---------------------------------------------------------------------------
-# Run bookkeeping order (issue #42): finished_at is written only AFTER the
+# Run bookkeeping order: finished_at is written only AFTER the
 # derived-state rebuild, so a reader that waits on the run row then reads a
 # rollup sees THIS run's aggregates, never the previous run's.
 # ---------------------------------------------------------------------------
 
 
 def _last_run_finished_at():
-    """finished_at of the newest ingest_runs row (the run just executed)."""
     with db.viz_conn() as c:
         return _scalar(
             c,

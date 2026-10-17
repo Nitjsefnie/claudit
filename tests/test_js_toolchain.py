@@ -1,18 +1,9 @@
-"""The JS/CI toolchain pins are a manifest Dependabot can see (issue #361).
+"""The JS/CI toolchain pins are a manifest Dependabot can see.
 
-Issue #361: `eslint.yml` installed `eslint@8.57.1` and `tests.yml` installed
-`c8@10.1.3` inside a workflow `run:` line. Two release lines npm marks
-deprecated, pinned where no update mechanism can reach them, with
-`.github/dependabot.yml` carrying a hand-bump instruction ("Bump them by hand
-when the github-actions PRs land") that the grouped action bump (#347) passed
-straight over — the drift the issue describes.
-
-The fix moves the toolchain to a committed `package.json` + `package-lock.json`
-installed with `npm ci`, adds the npm entry to dependabot.yml so a bump opens
-a PR, and migrates `.eslintrc.json` to `eslint.config.mjs` (ESLint 10 reads
-no eslintrc: the `@eslint/eslintrc` dependency 8.57.1 carried is absent from
-10.11.0's package.json). These tests pin the properties that made the drift
-invisible:
+Keep package.json and package-lock.json installed through npm ci, with an
+npm Dependabot entry so tool updates are discoverable. ESLint's flat config
+must carry the rule, parser and globals settings the toolchain requires;
+ESLint 10 does not read eslintrc. The contracts checked here:
 
 - every tool version is an EXACT pin (the repo's standing pin doctrine), the
   manifest is private and carries no runtime `dependencies` — the frontend
@@ -21,13 +12,13 @@ invisible:
 - exactly ONE npm entry owns the manifest, the way exactly one pip entry owns
   each requirements file (tests/test_dependabot_coverage.py);
 - no workflow pins an npm package inline again — the shape that hid the
-  stale pins for a year;
+  pins from the updater;
 - the flat config carries the five rules `.eslintrc.json` carried, with the
   one option ESLint 9 changed spelled out;
 - the flat config still reads its environment, parser options and cross-file
   globals from where `.eslintrc.json` left them. The ONE deliberate
   behavioural difference in the migration is the browser environment, and
-  the `globals` entry is what ties that set to the manifest: since #814 a
+  the `globals` entry is what ties that set to the manifest: a
   consistent bump lands green BY DESIGN, and the reviewed diff is the
   guard — a bump that moves the set arrives as a manifest diff;
 - the JS coverage gate folds V8 captures with the AST converter and reads one decimal off
@@ -56,7 +47,7 @@ DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 
 # The tools the two gates need. The NAMES are the pin; the VERSIONS are
-# data the repository's bots own (issue #814): Dependabot bumps them in
+# data the repository's bots own: Dependabot bumps them in
 # package.json + package-lock.json together, and that is a green PR by
 # design, never a reviewed one. What the pin doctrine still freezes is
 # the SHAPE — every version an exact `\d+.\d+.\d+`, no range, no tilde,
@@ -93,8 +84,6 @@ EXPECTED_RULES = {
 # the list: every name is checked against the tree by
 # `test_flat_config_keeps_the_cross_file_globals`, so a stale one fails there
 # and a dropped or added one fails here.
-# 95 since #649/#652: ContextSubPanel and ToolErrorSubPanel are gone
-# with the per-model grids they served.
 EXPECTED_CROSS_FILE_GLOBALS = 95
 
 # `.jsx` is not a default lint target in flat config, so the files glob has
@@ -104,7 +93,7 @@ EXPECTED_CROSS_FILE_GLOBALS = 95
 EXPECTED_LINT_GLOBS = ["**/*.js", "**/*.jsx"]
 
 # An inline `<pkg>@<version>` on any npm command a workflow runs — the shape
-# issue #361 is about, and it is invisible to every update mechanism. The
+# is about, and it is invisible to every update mechanism. The
 # command names are the ecosystem's own spellings, all of them: `install`, the
 # `npm i` short form, `ci`, `add`, and `npx pkg@version` (which downloads
 # without touching the manifest, so a bump of it is even less visible). A body
@@ -171,18 +160,10 @@ _EXACT_VERSION = re.compile(r"\d+\.\d+\.\d+")
 
 
 def test_ci_tools_are_pinned_to_exact_versions() -> None:
-    r"""The pins are exact SHAPES, not named numbers.
-
-    Equality against a literal map used to do the whole job — every value
-    it accepted was an exact `\d+.\d+.\d+` by construction — until #814:
-    the versions are data Dependabot changes BY DESIGN, so the map turned
-    every consistent bump into a red PR. What the pin doctrine needs is
-    the shape, asserted directly: no range, no tilde, no caret, so a tool
-    release cannot resolve to something new at install time. The tool set
-    is held by EXPECTED_DEV_TOOLS, and the lockfile's agreement with the
-    manifest is the lockfile test's job — a package.json/lockfile
-    disagreement fails there, not here.
-    """
+    """Require exact version shapes without pinning repository-managed versions.
+    Dependabot changes version data; no range, tilde or caret may permit a
+    new version at install time. EXPECTED_DEV_TOOLS owns the tool set, while
+    lockfile tests check its agreement with package.json."""
     dev = _package().get("devDependencies") or {}
     assert set(dev) == set(EXPECTED_DEV_TOOLS), (
         "package.json devDependencies no longer name exactly the pinned "
@@ -260,10 +241,8 @@ def test_the_lockfile_is_committed_and_matches_the_manifest() -> None:
 
 
 def test_exactly_one_npm_entry_owns_the_manifest() -> None:
-    """One owner per file, the way tests/test_dependabot_coverage.py holds
-    the pip requirements files. A second npm entry double-opens every bump,
-    which is how boto3 opened #164 and #165 sixteen seconds apart (#176).
-    """
+    """Require one updater entry per manifest, as pip requirements files do.
+    A second npm entry would open each package update twice."""
     doc = yaml.safe_load(DEPENDABOT.read_text(encoding="utf-8")) or {}
     npm_entries = [entry for entry in (doc.get("updates") or [])
                    if entry.get("package-ecosystem") == "npm"]
@@ -277,7 +256,7 @@ def test_exactly_one_npm_entry_owns_the_manifest() -> None:
 
 
 def test_no_workflow_pins_an_npm_package_inline() -> None:
-    """The shape issue #361 is about, wherever it reappears.
+    """The shape is about, wherever it reappears.
 
     Every workflow, both extensions, and the extracted coverage gate:
     moving coverage conversion into an action keeps its pins visible here.
@@ -350,22 +329,10 @@ def test_flat_config_keeps_the_eslintrc_rule_set() -> None:
 
 
 def test_flat_config_still_supplies_the_browser_environment() -> None:
-    """`no-undef` has to know which names need no declaration.
-
-    `.eslintrc.json` got that from `env: {browser: true}`, which eslint
-    8.57.1 expanded through the globals@13.24.0 it bundles. The flat config
-    gets it from `globals.browser` at whatever version is pinned, a
-    DIFFERENT set from the bundled one: 464 names added, 23 removed,
-    measured by name in both directions (see the config's own header).
-
-    So the environment is pinned TRANSITIVELY, and that is worth naming:
-    the `globals` entry in EXPECTED_DEV_TOOLS is what keeps the set behind
-    a manifest diff a reviewer reads (#814 took the literal version pins
-    out of the way so a consistent bump lands green). Nothing here gates
-    the set's movement — the reviewer diffing the manifests is the check;
-    what the pin guarantees is that the movement cannot happen OUTSIDE a
-    manifest diff.
-    """
+    """no-undef needs a browser-global set supplied by globals.browser.
+    Pin the globals package through EXPECTED_DEV_TOOLS so changes to that set
+    require a manifest diff. Consistent package updates may pass these tests;
+    reviewing the manifest change is what checks the vocabulary movement."""
     text = FLAT_CONFIG.read_text(encoding="utf-8")
     assert "...globals.browser" in text, (
         f"{FLAT_CONFIG.name} no longer spreads globals.browser into "
@@ -440,8 +407,6 @@ def test_flat_config_keeps_the_cross_file_globals() -> None:
     cross-file reference the list is missing — not this test, which checks
     the list's two ends rather than the whole resolution.
 
-    Dropped from 98 in issue #648, with `capForModel` — the per-model
-    context cap table went with it.
     """
     declared = _declared_cross_file_globals()
     stale = sorted(declared - _names_the_tree_defines())
@@ -524,7 +489,7 @@ def test_js_coverage_measured_set_matches_its_derivation() -> None:
     the file's content to the files containing `["node"` under tests/ — the command
     the workflow comment cites, `grep -lF '["node"' tests/*.py` (the
     fixed-string -F is load-bearing: unquoted-bracket grep exits 2 —
-    issue #433: the hand-list had drifted four files behind what it
+    the hand-list had drifted four files behind what it
     claimed to derive from).
     """
     list_file = REPO_ROOT / "scripts" / "ci" / "node_test_files.txt"

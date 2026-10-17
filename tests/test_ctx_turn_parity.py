@@ -1,4 +1,3 @@
-"""Backend and Inspector parity for Claude context-turn traces."""
 import json
 import shutil
 import subprocess

@@ -1,4 +1,4 @@
-"""The records.uuid type gate (issue #959, ruling R6 → task 8's split).
+"""The records.uuid type gate (ruling R6 → task 8's split).
 
 ``gate()`` is the decision rule: convert the column to the ``uuid`` type
 ONLY when every stored value casts; one refusal keeps the values out of

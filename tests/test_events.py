@@ -1,4 +1,3 @@
-"""SSE broadcaster behaviour and the /api/events stream."""
 import asyncio
 import json
 import threading
@@ -19,7 +18,6 @@ _BOUND_S = 5.0
 
 
 def _stub_scheduler(calls):
-    """A BackgroundScheduler double recording shutdown(wait) into calls."""
     class _Scheduler:
         def __init__(self, **_kwargs):
             pass
@@ -111,7 +109,7 @@ async def test_lifespan_keeps_shutdown_request_when_wait_times_out(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Broadcaster + /api/events stream coverage (issue #116). Everything below
+# Broadcaster + /api/events stream coverage. Everything below
 # drives the real queue/subscribe machinery and asserts on its objects; the
 # only wall-clock wait in the file is the heartbeat test compressing the
 # generator's literal 15 s timeout, and every async pull is bounded by
@@ -471,7 +469,7 @@ async def test_event_stream_shutdown_ends_the_stream(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_lifespan_cancels_statements_and_closes_the_open_run(monkeypatch):
-    """Teardown (issue #372) cancels in-flight viz statements right after
+    """Teardown cancels in-flight viz statements right after
     the abort request so a run stuck inside a long single-statement phase
     stops within the bounded wait, and — only when the wait times out —
     closes the open ingest_runs row as the fallback abort."""

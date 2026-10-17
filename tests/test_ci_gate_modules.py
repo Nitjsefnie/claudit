@@ -39,9 +39,6 @@ classify = _load("classify_changes")
 aggregate = _load("aggregate_gate")
 
 
-# classify_changes: the pattern set
-
-
 def test_pattern_set_is_the_re_homed_deny_list():
     # The exact set the gate workflows' paths-ignore deny-lists carried,
     # re-homed as classifier patterns. `.github/ci-thresholds.json` is
@@ -117,9 +114,6 @@ def test_documentation_only_requires_a_nonempty_all_doc_set():
         assert not classify.documentation_only(DOCS + [intruder]), intruder
 
 
-# classify_changes: reading the changed paths
-
-
 def test_pr_event_reads_the_pull_request_files_api():
     calls = []
 
@@ -147,7 +141,7 @@ def test_pr_event_with_an_unusable_number_over_runs():
         assert paths is None
 
 
-# The runs-list URL segment the classifier reads on a push (issue #208);
+# The runs-list URL segment the classifier reads on a push;
 # the walk itself has its own module, test_ci_classify_verified_base.py.
 WORKFLOW_RUNS_URL = "actions/workflows/ci-gate.yml/runs"
 
@@ -265,7 +259,7 @@ def _apply_files_jq(jq, rows):
 
 
 def test_pr_rename_row_yields_both_paths_and_classifies_full():
-    # Issue #245. GitHub reports a rename as ONE row: `filename` is the
+    # GitHub reports a rename as ONE row: `filename` is the
     # NEW path and the old path arrives as `previous_filename`. A
     # selector that keeps only `.filename` reads backend/auth.py renamed
     # to backend/auth.md as a docs-only change, skips every leg and
@@ -291,7 +285,7 @@ def test_pr_rename_row_yields_both_paths_and_classifies_full():
 
 
 def test_push_compare_rename_row_yields_both_paths():
-    # Issue #245 on the push path: the compare read projects the old
+    # on the push path: the compare read projects the old
     # path too, so a rename inside the verified-base range is not read
     # as its new docs-only name alone.
     rows = [{"status": "renamed", "filename": "backend/auth.md",
@@ -438,7 +432,7 @@ def _needs(**overrides):
     """A green needs document, with per-leg result overrides.
 
     Key a leg as ``<name>__result`` to set its result, ``docs_only`` to
-    flip the classifier output. The issue-455 data-only fold pins carry
+    flip the classifier output. The data-only fold pins carry
     their own helper in test_ci_gate_botdata.py.
     """
     doc = {

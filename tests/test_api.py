@@ -25,7 +25,6 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _load_plot_db_module(monkeypatch, request):
-    """Import plot module by path with helper modules isolated per test."""
     path = _REPO_ROOT / "scripts/plots/ccusage_plot_db.py"
     helper_names = ("ccusage_plot_render", "ccusage_plot_timeline")
     present_before = set(sys.modules).intersection(helper_names)
@@ -47,7 +46,6 @@ def test_export_returns_png_attachment(app_with_data, monkeypatch):
 
     async def fake_render(argv, out_path):
         captured["argv"] = argv
-        # Simulate the script writing a PNG.
         with open(out_path, "wb") as fh:
             fh.write(b"\x89PNG\r\n\x1a\n" + b"fake")
 
@@ -102,7 +100,7 @@ def test_export_missing_module_child_is_503_naming_export_python(
 ):
     """A plot child that died of ModuleNotFoundError means the CLAUDIT_EXPORT_PYTHON
     interpreter lacks matplotlib or psycopg — answer 503 naming the knob,
-    not an opaque 500 (issue #115)."""
+    not an opaque 500."""
     out_path = str(tmp_path / "out.png")
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(api_export._render_export(  # pylint: disable=protected-access
@@ -118,7 +116,7 @@ def test_export_missing_module_child_is_503_naming_export_python(
 ])
 def test_export_other_child_failure_stays_500(app_with_data, tmp_path, rc, stderr_text):
     """Any other nonzero exit keeps the plain 500 — only the missing-module
-    shape and the no-data exit (3, issue #445) are classified. rc 2
+    shape and the no-data exit (3) are classified. rc 2
     (argparse) and rc 4 pin the boundaries on both sides of 3."""
     out_path = str(tmp_path / "out.png")
     child = [sys.executable, "-c",
@@ -132,8 +130,7 @@ def test_export_other_child_failure_stays_500(app_with_data, tmp_path, rc, stder
 
 def test_export_no_data_child_is_404(app_with_data, tmp_path, capsys):
     """The plot child's no-data exit (rc 3) maps to a 404, not a 500 —
-    'no data in range' is an empty outcome, not a render failure (issue
-    #445). 3 is distinct from 1 (genuine failure → 500), 2 (argparse →
+    'no data in range' is an empty outcome, not a render failure . 3 is distinct from 1 (genuine failure → 500), 2 (argparse →
     500) and 4 (→ 500). The empty outcome must also stay SILENT: the
     '[export] render failed' log line lives inside the rc != 0 branch,
     so no failure line may be logged for a no-data request."""
@@ -151,7 +148,7 @@ def test_export_no_data_range_answers_404_not_500(app_with_data, monkeypatch, tm
     """End to end through the REAL plot child (CLAUDIT_EXPORT_PYTHON = the test
     interpreter, so matplotlib and psycopg are importable): an export for
     a project with no records must not answer 500 — the child's no-data
-    exit maps to 404 (issue #445). On unfixed code the child exits 1 on
+    exit maps to 404. On unfixed code the child exits 1 on
     its empty path and this 500s — that is the RED."""
     monkeypatch.setattr(api_export, "_EXPORT_PYTHON", sys.executable)
     out_path = str(tmp_path / "out.png")
@@ -166,7 +163,7 @@ def test_export_no_data_range_answers_404_not_500(app_with_data, monkeypatch, tm
 def test_plot_db_no_data_exits_distinct_code(monkeypatch, request, app_with_data):
     """The plot script signals 'no data' with exit 3 — distinguishable from
     a genuine failure (1) and argparse (2) — so the API can answer 4xx
-    instead of 500 for an empty range/project (issue #445). A nonexistent
+    instead of 500 for an empty range/project. A nonexistent
     project filter yields zero events regardless of fixture timestamps."""
     mod = _load_plot_db_module(monkeypatch, request)
     monkeypatch.setattr(sys, "argv", [
@@ -188,7 +185,6 @@ def test_plot_db_project_filter_subsets_events(app_with_data, monkeypatch, reque
     all_events = mod.load_events(None, None)
     assert all_events, "fixture should yield records"
 
-    # Discover a real project_id from the test DB.
     with closing(psycopg.connect(mod.DB_URL)) as conn, conn.cursor() as cur:
         cur.execute("SELECT DISTINCT project_id FROM files ORDER BY 1")
         project_ids = [r[0] for r in cur.fetchall()]
@@ -302,7 +298,7 @@ def test_projects(app_with_data):
     r = app_with_data.get("/api/projects")
     assert r.status_code == 200
     body = r.json()
-    # The mirror's projects, from its tree (issue #503 grew it with the
+    # The mirror's projects, from its tree ( grew it with the
     # lane layout): every one the corpus holds is LISTED.
     pids = sorted(p["project_id"] for p in body["projects"])
     assert pids == mini_mirror.project_ids()
@@ -369,7 +365,6 @@ def test_projects_range_scoped_ordering_and_zero_token_exclusion(app_with_fresh_
 
 
 def _seed_project_ordering_rollups(cur) -> None:
-    """The four usage_rollup rows the range-scoped ordering test folds."""
     now = datetime.now(timezone.utc)
     rollup_rows = [
             # No tokens ever — "no usage at all". Must be excluded
@@ -405,7 +400,7 @@ def test_cache_per_model_shape(app_with_data):
     cost_buckets = {"fresh", "create_5m", "create_1h", "read", "output",
                     "web_search"}
     # Only the session total carries the decomposition; per_model omits it
-    # (issue #916).
+    #
     assert set(body["session_total"]["cost_buckets"]) == cost_buckets
     if body["per_model"]:
         m = body["per_model"][0]
@@ -434,8 +429,8 @@ def test_cache_dedups_cross_file_uuid(app_with_data):
     """
     r = app_with_data.get("/api/cache?range=3650d&project=projB")
     body = r.json()
-    assert body["session_total"]["fresh"] == 1050   # 1000 + 50
-    assert body["session_total"]["output"] == 525   # 500 + 25
+    assert body["session_total"]["fresh"] == 1050
+    assert body["session_total"]["output"] == 525
     assert body["session_total"]["turns"] == 2       # one shared + one unique
 
 
@@ -489,7 +484,7 @@ def test_cache_session_total_estimated_rate_true_when_any_model_estimated(
 
 def test_cache_session_total_estimated_rate_false_when_all_exact(app_with_data):
     body = app_with_data.get("/api/cache?range=3650d").json()
-    # Only the Claude rows (#503 grew the mirror with lane wires, and a
+    # Only the Claude rows ( grew the mirror with lane wires, and a
     # lane model's exactness is rate-table data); the total is the OR of
     # every row, so neither direction goes unpinned.
     claude = [m for m in body["per_model"] if m["model"][:7] == "claude-"]
@@ -556,9 +551,8 @@ def test_sidecar_missing_file_404(app_with_data):
     pytest.param("data/./tool-results/x.txt", True, id="dot-component"),
 ])
 def test_sidecar_path_nul_byte_rejected(app_with_data, path, requires_path_in_detail):
-    """A `%00` in `path` must be a 400 naming the bad parameter. It used to
-    pass validation and blow up `open()` with `ValueError: embedded null
-    byte`, escaping as a 500 (issue #112)."""
+    """A `%00` in `path` must return a 400 naming the bad parameter.
+    Validation must catch the null byte before open() can raise a 500."""
     r = app_with_data.get(
         "/api/sessions/sess-A/sidecar",
         params={"path": path},
@@ -629,8 +623,6 @@ def _app_with_rl_data_fixture(monkeypatch):
     scratch_db.drop_database(test_db)
 
 
-# ---------------------------------------------------------------- heatmap
-
 def _insert_tz_probe_rows():
     """Two records with a unique model, one in winter (CET, UTC+1) and one
     in summer (CEST, UTC+2), to prove the endpoint is DST-aware."""
@@ -649,13 +641,13 @@ def _insert_tz_probe_rows():
         cur.execute(
             "INSERT INTO records (file_id, line_num, fallback, ts, model_id, "
             "output_tokens) VALUES "
-            # 2026-01-15 is a Thursday (ISODOW 4); 10:30Z in CET (UTC+1) is 11:30 local.
+            # The winter sample is Thursday (ISODOW 4); 10:30Z in CET (UTC+1) is 11:30 local.
             "(%s, 1, 'uuid-tz-winter', '2026-01-15T10:30:00Z', %s, 10), "
-            # 2026-07-15 is a Wednesday (ISODOW 3); 10:30Z in CEST (UTC+2) is 12:30 local.
+            # The summer sample is Wednesday (ISODOW 3); 10:30Z in CEST (UTC+2) is 12:30 local.
             "(%s, 2, 'uuid-tz-summer', '2026-07-15T10:30:00Z', %s, 20)",
             (fid, mid, fid, mid),
         )
-        # cost_usd moved to the records_price sidecar (#959 R4); the pair
+        # cost_usd moved to the records_price sidecar; the pair
         # is written together so the rollup's cost fold still sees it.
         cur.execute(
             "INSERT INTO records_price (file_id, line_num, cost_usd) "
@@ -670,6 +662,3 @@ def _insert_tz_probe_rows():
     # derived state; anything mutating `records` outside ingest must
     # rebuild it).
     ingest.rebuild_rollup()
-
-
-# --------------------------------------------------------- backend.app routes

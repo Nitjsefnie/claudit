@@ -1,16 +1,8 @@
-"""The Overview must never sit on "loading…" once loading has ended.
-
-Issue #394: `src/app.jsx` fetched /api/dashboard with no `r.ok` check, its
-catch only logged, and the aggregate builder returned null for a range
-with no rows -- so BOTH an empty range and a 500 rendered the same
-"status: loading…" placeholder, forever.
-
-Nothing else in the suite can see this: no test renders React and node
-cannot parse JSX. So the decision logic is extracted into
-`src/dashboard-fetch.js` -- plain JS, no React, no fetch glue -- and
-driven through node here, while test_panel_wiring.py pins that app.jsx
-actually WIRES it (a correct module nobody calls passes this file).
-"""
+"""The Overview must leave loading after success, empty data or an error.
+An unchecked HTTP failure or a null empty-range aggregate must not render a
+permanent loading placeholder. Drive plain dashboard-fetch.js logic through
+node because the suite does not render React or parse JSX; source wiring
+checks separately require app.jsx to call that logic."""
 from __future__ import annotations
 
 import json
@@ -25,7 +17,6 @@ FETCH_JS = ROOT / "src" / "dashboard-fetch.js"
 
 
 def _node(body: str):
-    """Run `body` against the real src/dashboard-fetch.js in node."""
     script = f"""
       global.window = {{}};
       global.fetch = undefined;
@@ -41,8 +32,6 @@ def _node(body: str):
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 
-
-# --- the state machine -------------------------------------------------
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_states_are_tracked_apart_from_the_data():
@@ -122,8 +111,6 @@ def test_data_replaces_every_placeholder():
                               "error": False}
 
 
-# --- the request itself ------------------------------------------------
-
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_load_parses_a_successful_response():
     out = _node("""
@@ -140,7 +127,7 @@ def test_load_parses_a_successful_response():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_load_carries_the_run_signal_and_credentials():
-    """The supersede guard (issue #179) is the abort signal; dropping it
+    """The supersede guard is the abort signal; dropping it
     lets a stale response overwrite a fresher one."""
     out = _node("""
       const F = window.dashboardFetch;

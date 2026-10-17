@@ -1,11 +1,5 @@
-"""Lane project markers are fetched only when new or changed.
-
-Every run used to GET every sessions/<project>/project.json marker: the
-resolved paths lived only in memory, so the next run had nothing to
-compare a listed etag against. Each marker's key, etag and resolved path
-is now stored, and a run fetches a marker only when its listing shows a
-key with no row or an etag that differs from the row's.
-"""
+"""Fetch lane project markers only when their key is new or their etag changes.
+Store the marker key, etag and resolved path so later runs can compare listings."""
 import json
 import lzma
 import os
@@ -50,7 +44,6 @@ def _lane_tree_fixture(tmp_path, monkeypatch):
 
 @pytest.fixture(name="marker_gets")
 def _marker_gets_fixture(monkeypatch):
-    """Counts every r2.get_object of a marker key, by key."""
     counts: Counter = Counter()
     real_get = r2.get_object
 
@@ -92,7 +85,7 @@ def _rewrite_marker(bucket, proj, body):
 
 def test_second_ingest_fetches_no_unchanged_marker(
         fresh_db, lane_tree, marker_gets):
-    """The #80 reproduction: the first run fetches each marker once, and a
+    """The reproduction: the first run fetches each marker once, and a
     second run over the same listing fetches none of them."""
     first = ingest.run_ingest(trigger="manual")
     assert first["error"] is None
@@ -199,7 +192,7 @@ def test_a_reader_version_change_refetches_every_marker(
     its etag, so changing how markers are read refetches each once."""
     ingest.run_ingest(trigger="manual")
     # Any changed reader version refetches; derived from the committed
-    # constant so the bump target can never collide with it (issue #198).
+    # constant so the bump target can never collide with it.
     monkeypatch.setattr(
         constants, "MARKER_READER_VERSION",
         str(int(constants.MARKER_READER_VERSION) + 1))
@@ -319,7 +312,7 @@ def test_startup_schema_creates_the_marker_table(fresh_db):
         c.execute("DROP TABLE lane_markers")
         c.commit()
 
-    # Issue #387: apply_schema skips the DDL while the content stamp
+    # apply_schema skips the DDL while the content stamp
     # matches, so out-of-band schema damage needs the stamp cleared to
     # force the re-apply under test.
     with db.viz_conn() as c:
@@ -334,7 +327,7 @@ def test_startup_schema_creates_the_marker_table(fresh_db):
 
 def test_nul_in_marker_path_still_stores(fresh_db):
     """A marker path carrying 0x00 must not abort the write that stores
-    it (issue #673): the byte is stripped like every other text value
+    it: the byte is stripped like every other text value
     reaching a PostgreSQL text column."""
     key = f"claude/sessions/aaaa1111/{_MARKER}"
     lane_markers.save_markers({key: ("etag-1", "/home/me/\x00gamma")}, {key})
@@ -343,7 +336,7 @@ def test_nul_in_marker_path_still_stores(fresh_db):
 
 def test_nul_in_rekey_marker_path_still_moves(fresh_db):
     """The rekey INSERT carries the marker path as the project's
-    display_name; a NUL in it must not abort the move (issue #673), and
+    display_name; a NUL in it must not abort the move, and
     the stripped path keys the destination project like a clean one."""
     with db.viz_conn() as c, c.cursor() as cur:
         cur.execute(
@@ -375,7 +368,7 @@ def test_a_nul_in_a_marker_path_does_not_abort_the_run(
         fresh_db, lane_tree, marker_gets):
     """End to end: a marker whose path carries 0x00 ingests like any
     other, its row stores the stripped path, and the project lands under
-    that path's slug (issue #673)."""
+    that path's slug."""
     _lane_project(lane_tree, "cccc3333", _path_marker("/home/me/\x00delta"))
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None

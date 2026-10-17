@@ -93,7 +93,6 @@ def _node_rates():
     """
     proc = subprocess.run(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        # Return code checked by hand on the next line.
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
@@ -169,12 +168,12 @@ def _node_dedup_survivor(*files):
     """The winner view of several files parsed in order through ONE shared
     seenUuids map (the cross-file dedup mode), followed by the caller's
     post-load drop through recordDedup.dropMasked -- the drop the old
-    contract left to prose no production caller implemented (issue #563),
+    contract left to prose no production caller implemented,
     now module code the test drives the way a caller would.
 
     Events are pinned beside meta: computeSessionStats counts tool calls
     from `events`, so a superseded copy's tool_call entries must leave the
-    output together with its assistant_usage meta (issue #562) -- within a
+    output together with its assistant_usage meta -- within a
     parse call by the end-of-parse retraction, across calls by
     dropMasked."""
     script = f"""
@@ -254,7 +253,6 @@ def _node_json(body: str):
     """
     proc = subprocess.run(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        # Return code checked by hand on the next line.
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
@@ -322,7 +320,7 @@ _OPUS_JS_376 = {"fresh": 9.0, "c5": 11.25, "c1h": 18.0, "read": 0.9,
 
 
 class TestNodeDrivenBrowserMirror:
-    # Every test below drives node; the class mark is the file's node skip (#746).
+    # Every test below drives node; the class mark is the file's node skip.
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
     def test_parser_js_rate_table_matches_backend_pricing(self):
@@ -350,7 +348,6 @@ class TestNodeDrivenBrowserMirror:
         """
         proc = subprocess.run(
             ["node", "-e", script], capture_output=True, text=True, timeout=60,
-            # Return code checked by hand on the next line.
             check=False,
         )
         assert proc.returncode == 0, proc.stderr
@@ -406,7 +403,7 @@ class TestNodeDrivenBrowserMirror:
         rule (SV-CANONICAL-FLAG): an unattributed copy must not mask a later
         attributed one, and a seen attributed copy beats a later unattributed
         one -- the winner is decided by attribution, not by arrival order, and
-        the superseded copy's events never survive (issue #562)."""
+        the superseded copy's events never survive."""
         unknown = _claude_line("u-1", None, "copy with no model", 200, tool="Read")
         known = _claude_line("u-1", "claude-sonnet-4-5", "attributed copy", 300,
                              tool="Write")
@@ -414,7 +411,7 @@ class TestNodeDrivenBrowserMirror:
         assert _node_dedup_survivor(known, unknown) == _WINNER_VIEW
 
     def test_dedup_replace_retracts_events_within_one_call(self):
-        """issue #562: a superseded copy's events are retracted in the SAME
+        """a superseded copy's events are retracted in the SAME
         parse call that replaces it -- both copies sit in one file (distinct
         requestIds, so the two usage lines stay separate entries the
         retraction can drop one by one), and computeSessionStats must count
@@ -451,16 +448,16 @@ class TestNodeDrivenBrowserMirror:
     def test_dedup_pinned_on_the_lane_unknown_fallback_member(self):
         """The lane fallback spells its member 'unknown' outright and must
         classify as unattributed the same way as a model-less Claude copy's
-        null (issue #688) -- the JS half of the shared vocabulary, each
+        null -- the JS half of the shared vocabulary, each
         member pinned. This case rides the lane-fallback member; <synthetic>
-        rides the vocabulary tests below (issue #563)."""
+        rides the vocabulary tests below."""
         lane_unknown = _claude_line("u-1", "unknown", "lane fallback copy", 200)
         known = _claude_line("u-1", "claude-sonnet-4-5", "attributed copy", 300,
                              tool="Write")
         assert _node_dedup_survivor(lane_unknown, known) == _WINNER_VIEW
 
     def test_dedup_vocabulary_treats_synthetic_as_unattributed(self):
-        """The <synthetic> member of the shared vocabulary (issue #563): a
+        """The <synthetic> member of the shared vocabulary: a
         harness-fabricated stub names no model, so a real-model copy beats it
         in both orders -- exactly like the unknown fallbacks -- and its events
         leave with it."""
@@ -488,7 +485,7 @@ class TestNodeDrivenBrowserMirror:
 
 
 class TestNodeDrivenBrowserProviderParsing:
-    # Every test below drives node; the class mark is the file's node skip (#746).
+    # Every test below drives node; the class mark is the file's node skip.
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
     def test_parser_js_resolves_provider_rates_like_the_backend(self):
@@ -599,7 +596,6 @@ class TestNodeDrivenBrowserProviderParsing:
         """
         proc = subprocess.run(
             ["node", "-e", script], capture_output=True, text=True, timeout=60,
-            # Return code checked by hand on the next line.
             check=False,
         )
         assert proc.returncode == 0, proc.stderr
@@ -654,7 +650,7 @@ class TestNodeDrivenBrowserProviderParsing:
         env = {**os.environ, "TZ": "Europe/Berlin"}
         proc = subprocess.run(
             ["node", "-e", script], capture_output=True, text=True, timeout=60,
-            env=env, check=False,  # Return code checked by hand on the next line.
+            env=env, check=False,
         )
         assert proc.returncode == 0, proc.stderr
         got = json.loads(proc.stdout)

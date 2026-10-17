@@ -1,4 +1,3 @@
-"""Read-target recovery from Bash command text (backend/bash_reads.py)."""
 from __future__ import annotations
 
 import json
@@ -349,8 +348,6 @@ def test_duplicate_paths_collapse():
     _, reads, _ = scan("cat a.py a.py", "/repo")
     assert reads == ["/repo/a.py"]
 
-
-# --- what a Bash command WROTE, recovered from its text ---------------
 
 @pytest.mark.parametrize("command", [
     "sed -i 's/a/b/' foo.py",

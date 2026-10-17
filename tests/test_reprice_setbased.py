@@ -1,4 +1,4 @@
-"""The reprice pass's restamp/reprice split (issue #339).
+"""The reprice pass's restamp/reprice split.
 
 The pass recomputes every stale row's rate-derived state from stored
 columns (unchanged assembly point `_record_updates`) and writes only
@@ -156,14 +156,10 @@ def test_reprice_split_survives_the_keyset_and_shutdown(fresh_db,
 
 
 def test_reprice_writes_set_based_not_per_row(fresh_db, monkeypatch):
-    """The mechanism half of issue #339: each batch's rows travel in at
-    most two set-based UPDATE statements (restamp + reprice), and no
-    per-row executemany stream returns. A regression to one statement
-    per row — the shape this issue removed — would keep every semantic
-    test green, so the write shape itself is pinned here: statement
-    count stays O(batches), never O(rows). Issue #351 adds ONE more
-    UPDATE in front of the loop — the pair-qualified clean restamp —
-    so the whole-pass bound moves from two to three, deliberately."""
+    """Batch writes must use at most two set-based UPDATEs: restamp and reprice.
+    Semantic tests alone cannot catch a return to per-row writes, so bound the
+    statement count by batches rather than rows. One pair-qualified clean
+    restamp before the loop raises the whole-pass bound to three UPDATEs."""
     calls: list[str] = []
     real_viz_conn = db.viz_conn
 
@@ -229,11 +225,11 @@ def test_reprice_writes_set_based_not_per_row(fresh_db, monkeypatch):
 
 def test_reprice_pass_emits_phase_timing_when_on(fresh_db, monkeypatch,
                                                  caplog):
-    """CLAUDIT_TIMING gives the pass a phase split (issue #350): one
+    """CLAUDIT_TIMING gives the pass a phase split: one
     account=True TIMING line per run whose select/recompute/restamp/
     moved/commit marks must sum to the measured total — the gap is the
     unattributed residue, so the instrument accounts for the whole.
-    Issue #351 adds the pair-qualified clean restamp's own marks:
+    The pair-qualified clean restamp has its own marks:
     pairs (the DISTINCT pair scan and the fingerprinting) and clean
     (its set-based restamp)."""
     monkeypatch.setattr(timing, "TIMING_ON", True)

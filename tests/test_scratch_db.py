@@ -1,9 +1,5 @@
-"""Run-unique scratch databases (issue #68).
-
-Two suites on one Postgres server used to share fixed database names, so
-each run's teardown removed the other's database mid-test. Every name now
-comes from tests/scratch_db.py; these tests hold that in place.
-"""
+"""Scratch database names must be unique per run so teardown cannot remove
+another suite's database on the same server."""
 from __future__ import annotations
 
 import os
@@ -57,8 +53,6 @@ def _python(code: str, **env) -> subprocess.CompletedProcess:
 def _old_epoch() -> int:
     return int(time.time()) - scratch_db.STALE_AFTER_S - 60
 
-
-# ---- naming -----------------------------------------------------------
 
 def test_every_name_carries_this_runs_tag():
     name = scratch_db.db_name("api_mut")
@@ -130,15 +124,13 @@ def test_the_scratch_schema_lists_every_schema_files_path():
     A split file added to SCHEMA_PATHS but missing from SCHEMA leaves
     scratch databases without its tables; tests that persist rows directly
     then fail with UndefinedColumn while every ingest-driven test passes
-    (issue #692). Pinned by equality so the drift fails at the committing
+    . Pinned by equality so the drift fails at the committing
     change's own CI run, not 226 failures later.
     """
     from backend import schema_files  # pylint: disable=import-outside-toplevel
 
     assert scratch_db.SCHEMA == tuple(schema_files.SCHEMA_PATHS)
 
-
-# ---- create / drop ----------------------------------------------------
 
 @pytest.mark.db
 def test_create_applies_the_schema_and_drop_removes_it():
@@ -189,7 +181,7 @@ def test_the_lease_outlives_an_idle_session_timeout():
 def test_the_lease_connection_sits_on_this_runs_lease_database():
     """Never on `postgres` and never on `template1`: Postgres refuses any
     other client's database creation while a template has an open
-    connection, and the lease stays open for the whole run (issue #87)."""
+    connection, and the lease stays open for the whole run."""
     scratch_db.hold_run_lease()
     # The test's subject IS that private connection slot.
     assert scratch_db._lease[0].info.dbname == scratch_db.db_name("lease")  # pylint: disable=protected-access
@@ -214,8 +206,6 @@ def test_the_end_of_run_cleanup_closes_the_lease_and_drops_the_lease_database():
     open_, closed, gone = proc.stdout.split()
     assert (open_, closed, gone) == ("False", "True", "True"), proc.stdout
 
-
-# ---- stale sweep ------------------------------------------------------
 
 @pytest.mark.db
 def test_sweep_drops_a_stale_orphan_and_keeps_everything_else():
@@ -257,8 +247,7 @@ def test_sweep_keeps_a_leased_run_whose_pid_it_cannot_see():
 @pytest.mark.db
 def test_a_lease_labelled_database_is_kept_while_leased_and_swept_after():
     """Mirror of test_sweep_keeps_a_leased_run_whose_pid_it_cannot_see for
-    the `_lease` label this run's own lease database now carries (issue
-    #87): a stale-aged, dead-pid foreign run's `_lease`-labelled database
+    the `_lease` label this run's own lease database now carries : a stale-aged, dead-pid foreign run's `_lease`-labelled database
     survives the sweep while a connection with that run's base
     application_name is open, and is swept once no lease connection
     exists."""
@@ -350,8 +339,6 @@ def test_another_roles_stale_database_is_left_alone_not_fatal():
                 conn.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(role)))
 
 
-# ---- session wiring ---------------------------------------------------
-
 def _nested_session(tmp_path, body: str, *hooks: str):
     (tmp_path / "conftest.py").write_text(
         f"from tests.conftest import {', '.join(hooks)}  # noqa: F401\n")
@@ -413,8 +400,6 @@ def test_a_session_start_sweeps_stale_orphans(tmp_path):
         scratch_db.drop_database(orphan)
 
 
-# ---- guard ------------------------------------------------------------
-
 # What only the helper may do: name a test database, or create or drop one.
 _FORBIDDEN = re.compile(
     rf"{scratch_db.NAME_ROOT}|\b(?:create|drop)db\b|\b(?:CREATE|DROP)\s+DATABASE\b",
@@ -425,7 +410,7 @@ def _db_vocab(text: str) -> bool:
     """Whether a file's text can hold anything _FORBIDDEN matches in code.
 
     The gate that keeps this scan from tokenizing every unrelated
-    module (issue #510): each forbidden alternative's literals are
+    module: each forbidden alternative's literals are
     verbatim in the source when the pattern matches the token stream
     (single-token literals are contiguous; the two words of the
     statement form are separate tokens, each present in full), so a
@@ -454,8 +439,7 @@ def _db_text(path: Path) -> str | None:
     """The file's text when its vocabulary gate admits it, else None.
 
     Reading once and gating before the tokenizer keeps a vocabulary-
-    free module out of the comment-stripping pass entirely (issue
-    #510); None is the caller's skip signal.
+    free module out of the comment-stripping pass entirely ; None is the caller's skip signal.
     """
     text = cached_source(path)
     return text if _db_vocab(text) else None
@@ -507,7 +491,7 @@ def test_the_guard_catches_a_multiline_statement_string(tmp_path):
 
 
 def test_a_vocabulary_free_file_is_not_tokenized(tmp_path):
-    # The structural cost pin (issue #510): a file whose text names
+    # The structural cost pin: a file whose text names
     # neither the scratch-db name, db-building commands, nor a
     # create/drop database phrase is excluded before the tokenizer.
     (tmp_path / "test_plain.py").write_text(

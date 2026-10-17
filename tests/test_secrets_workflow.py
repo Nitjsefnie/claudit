@@ -1,4 +1,4 @@
-"""Source-level pins for the CI secret scan (issue #130).
+"""Source-level pins for the CI secret scan.
 
 Nothing here executes a workflow: the scan runs on GitHub's runners over
 the pushed history, and this suite also runs on platforms where neither a
@@ -52,15 +52,11 @@ def _step_block(marker: str) -> str:
     return "\n".join(lines[begin:])
 
 
-# --- the workflow exists -----------------------------------------------------
-
 def test_workflow_file_exists():
     assert WORKFLOW.exists(), (
         ".github/workflows/secrets.yml is missing — the repository's only "
         "CI-resident secret scan cannot be edited away silently")
 
-
-# --- triggers ----------------------------------------------------------------
 
 def test_push_trigger_is_limited_to_master():
     block = _on_block()
@@ -96,8 +92,6 @@ def test_pull_request_and_dispatch_triggers_present():
         "checked by dispatch in this repo")
 
 
-# --- hardening pins ----------------------------------------------------------
-
 def test_checkout_fetches_full_history_and_drops_credentials():
     block = _step_block("actions/checkout@")
     assert "fetch-depth: 0" in block, (
@@ -114,8 +108,6 @@ def test_permissions_block_and_timeout_present():
     assert re.search(r"^ {4}timeout-minutes: \d+", src, re.M), (
         "the job must carry a timeout-minutes bound")
 
-
-# --- the scan itself ---------------------------------------------------------
 
 def test_download_step_verifies_the_binary_digest():
     # Which gitleaks release the workflow pins is the workflow's business
@@ -151,8 +143,6 @@ def test_scan_step_is_bare_verbose_and_redacted():
         "continue-on-error anywhere in the workflow would turn findings "
         "green")
 
-
-# --- the gitleaks config -----------------------------------------------------
 
 def test_gitleaks_config_exists_and_extends_the_default_ruleset():
     assert CONFIG.exists(), ".gitleaks.toml is missing at the repo root"

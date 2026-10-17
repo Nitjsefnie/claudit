@@ -1,17 +1,7 @@
-"""window.modelColors answers for EVERY model, not only the hardcoded ones.
-
-The table in src/dashboard-charts.jsx names the models that had a hand-
-picked colour; anything else (a new lane, a new generation) fell to the
-'#888' every lookup site carries as its fallback, so two unknown models
-were the same grey on every panel. The table is now a Proxy over the
-hardcoded map: a listed key returns its hand-picked colour, any other
-string returns a colour DERIVED from the key — deterministic, so a model
-keeps its colour across panels and reloads, and spread by hue so two
-unknown models are distinguishable.
-
-Driven through node on the block extracted verbatim from the .jsx (same
-approach as test_vbar_label_geometry.py); rendering is not exercised.
-"""
+"""modelColors must answer for every model with deterministic distinct colours.
+Listed keys keep hand-picked colours; the proxy derives unknown colours from
+the key so models stay distinguishable across panels and reloads.
+Execute the extracted JSX block through node; rendering is separate."""
 import json
 import re
 import shutil
@@ -51,7 +41,7 @@ OKLCH = re.compile(r"^oklch\(0\.\d+ 0\.\d+ \d+(\.\d+)?\)$")
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_hardcoded_models_keep_their_hand_picked_colour():
     """The keys are the ids as recorded, vendor prefix included: issue
-    #472 stopped the display dropping `claude-`, and the table is keyed
+     stopped the display dropping `claude-`, and the table is keyed
     on the same canonical names the display produces."""
     out = _node_probe(["claude-opus-5", "claude-haiku-4-5", "<synthetic>"])
     assert out["claude-opus-5"] == "oklch(0.72 0.18 350)"

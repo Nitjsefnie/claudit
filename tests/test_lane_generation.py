@@ -1,4 +1,3 @@
-"""Lane generation windows and Codex wire timing boundaries."""
 from __future__ import annotations
 
 import json

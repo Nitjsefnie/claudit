@@ -1,6 +1,6 @@
 """The picker-underfill and panel-label classifiers, driven through node.
 
-Issues #808 and #826: the picker must render every chip that fits (the
+the picker must render every chip that fits (the
 fixed-small-page regression) and every marked panel label must stay
 inside its panel's box. The rendered rules live in
 scripts/ci/panel_layout_rules.mjs; this file pins their pure halves.
@@ -19,7 +19,6 @@ MODULE = ROOT / "scripts" / "ci" / "panel_layout_rules.mjs"
 
 
 def _node(body: str):
-    """Import the harness in node and evaluate `body` against its exports."""
     url = MODULE.as_uri()
     script = (
         f"const mod = await import({json.dumps(url)});\n"
@@ -35,7 +34,7 @@ def _node(body: str):
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 class TestUnderfillViolation:
-    """The picker-underfill classifier (#808): fewer chips rendered
+    """The picker-underfill classifier: fewer chips rendered
     than the measure row holds, with room for the next off-page chip,
     is the fixed-small-page regression. The fit is order-preserving,
     so the chip being denied a slot is the NEXT one in list order.
@@ -71,7 +70,7 @@ class TestUnderfillViolation:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 class TestLabelOverflowViolations:
-    """The panel-label rule's classifier (#826): a marked label text
+    """The panel-label rule's classifier: a marked label text
     whose box escapes its panel's box on either side is an overflow.
     The exact-fit and 1px-noise cases pass."""
 

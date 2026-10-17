@@ -1,14 +1,14 @@
-"""One role, one name in the Inspector too (issue #691).
+"""One role, one name in the Inspector too.
 
 The backend folds an agent role to its canonical name at parse time
-(backend/agent_types.py, issue #650): files.agent_type and the dispatch
+(backend/agent_types.py): files.agent_type and the dispatch
 columns store it, and Cost by Agent Type reports it. The Inspector's
 agent_spawn events were built from the dispatch's RAW argument
 (c.input.name / c.input.subagent_type), so a transcript and its stored
 columns disagreed on one screen.
 
 The fold TABLE stays backend-owned (SV-WHY-COLUMNS' canonical-name
-paragraph; the #691 brief's constraint: no second literal table in the
+paragraph; the brief's constraint: no second literal table in the
 browser). The page injects it as window.AGENT_TYPE_FOLD at serve time
 (backend/agent_types.fold_js, riding app.py's existing injection script),
 and the browser lookup (src/agent-types.js) holds the split+lookup logic
@@ -188,7 +188,7 @@ def test_a_dispatch_carrying_both_fields_names_the_stored_role():
     """The stored dispatch column reads subagent_type only
     (backend/parse.py _dispatch_args): a dispatch carrying both an
     instance name and a namespaced subagent_type names the folded
-    subagent_type in the Inspector, never the instance name (#726)."""
+    subagent_type in the Inspector, never the instance name."""
     tool_use = {
         "type": "tool_use", "id": "tu-1", "name": "Agent",
         "input": {"name": "my-instance",
@@ -209,7 +209,7 @@ def test_the_dispatch_summary_line_folds_the_shown_name():
     """event-helpers.jsx's Agent/Task summary shows the folded
     subagent_type too, the same name the dispatch column carries
     (node cannot parse JSX: pinned at the source level, the
-    test_panel_wiring idiom) (#726)."""
+    test_panel_wiring idiom)."""
     src = (ROOT / "src" / "event-helpers.jsx").read_text(encoding="utf-8")
     m = re.search(r"case 'Agent':\s*case 'Task':\s*return `([^`]*)`;", src)
     assert m, src

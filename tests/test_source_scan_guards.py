@@ -146,7 +146,6 @@ def test_pinned_guards_share_one_preprocessing_pass(
     assert _marking_offenders(tmp_path) == [f"{path.name}:test_server"]
     assert len(_tree_problems(tmp_path)) == 1
     assert scratch.offending_files(tmp_path) == [path.name]
-    # #1060: the version guard's single-pass field-schema walk replaced the ast.walk pass; sharing unchanged.
     assert counts == {"read": 1, "parse": 1, "tokens": 1,
                       "compile": 1, "index": 1}
 
@@ -212,8 +211,6 @@ def test_version_admitted_without_sites_or_markers_skips_tokens(
     monkeypatch.setattr(tokenize, "generate_tokens", unexpected_tokens)
     assert version.check(text) == []
 
-
-# ---- Node, scan-property, coverage-list and lane guards -----------------
 
 _LIST = "scripts/ci/node_test_files.txt"
 _COVERAGE_GATE = ".github/actions/coverage-gate/action.yml"

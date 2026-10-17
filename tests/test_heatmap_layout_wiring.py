@@ -1,15 +1,8 @@
-"""Source-level pins for the Activity Heatmap's responsive layout (#636, #637).
-
-The grid's cell width carried a floor of 8 that engaged at a 320px
-viewport -- the grid was pinned at 304px against a ~292px panel and the
-plot and the axis labels escaped the panel's right edge -- and the
-footer legend's svg drew its gradient rect at a fixed 120 user units
-while the flex row around it shrank the svg element itself, so the bar
-overflowed the shrunk element. The rendered half is asserted by the
-browser guard (scripts/ci/panel_layout.mjs), whose FILED ledger this
-fix empties; this module is the source-level half, which fails on the
-revert before any browser runs.
-"""
+"""Pin the Activity Heatmap's responsive layout at source level.
+The cell-width floor must not force the grid beyond a narrow panel. The
+legend gradient must scale with its flex-shrunk SVG rather than overflow at
+its fixed user-unit width. Source checks catch removal of those mechanisms;
+the browser guard in scripts/ci/panel_layout.mjs checks rendered geometry."""
 from __future__ import annotations
 
 import json
@@ -21,8 +14,6 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-# #690 moved ActivityHeatmapPanel into its own module; the pins
-# moved with it.
 EXTRA = ROOT / "src" / "activity-heatmap-panel.jsx"
 
 
@@ -70,7 +61,7 @@ def _geometry_at(widths: list[int]) -> dict:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_grid_fits_the_measured_width_at_every_panel_width():
-    """#636: the floor of 8 engaged at a 320px viewport, pinning the drawn
+    """the floor of 8 engaged at a 320px viewport, pinning the drawn
     grid at 312px (25 cells at the floor) against a ~292px panel. cellW may
     only fall back where the pads and gaps alone outrun 25 cells -- below
     the ~162px panel no real viewport reaches -- so the grid fits every
@@ -85,7 +76,7 @@ def test_the_grid_fits_the_measured_width_at_every_panel_width():
 
 
 def test_the_legend_gradient_is_drawn_in_units_that_scale():
-    """#637: the legend svg carried no viewBox, so the flex row could
+    """the legend svg carried no viewBox, so the flex row could
     shrink the svg element while the gradient rect inside kept its fixed
     120px width -- the bar overflowed the shrunk element by 59px. A
     viewBox with preserveAspectRatio="none" draws the rect in user units

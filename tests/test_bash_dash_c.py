@@ -1,4 +1,3 @@
-"""Regression tests for Python command recognition and inline-script lexing."""
 from __future__ import annotations
 
 import io

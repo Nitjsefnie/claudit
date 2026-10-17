@@ -1,6 +1,6 @@
 """Pins for the db-marker scanners' compile-level admission gate.
 
-Split out of tests/test_db_marker.py to hold the issue-#679 gate
+Split out of tests/test_db_marker.py to hold the gate
 pins without pushing that pinned, bench-measured module over the
 test-file size cap: the size ratchet moves code into a new module
 rather than raising an entry. The guard surface and its older pins
@@ -21,15 +21,13 @@ from tests.test_db_marker import (_derive_narrow, _marking_offenders,
                                   _module_facts, _modules)
 
 
-# ---- the compile-level fixture half of the gate (issue #679) --------
-
 def test_a_prose_fixture_mention_is_not_scanned(tmp_path):
     # The gate's fixture half admits on compile-level vocabulary —
     # ``fixture`` as an identifier or a whole string constant — not on
     # raw text: a comment or docstring mentioning fixtures can
     # register nothing, and the marking guard's own per-module check
     # is text-server-based and already skipped it, so walking it was
-    # pure cost (issue #679). The decorator spelling's admission is
+    # pure cost. The decorator spelling's admission is
     # pinned by test_a_seeded_rooted_fixture_arrives_in_the_derived_
     # registry; the getattr spelling's by the test after this one.
     (tmp_path / "test_prose.py").write_text(

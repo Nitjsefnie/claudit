@@ -1,13 +1,10 @@
-"""Unit tests for VBar's rotated axis-label geometry (issue #9).
+"""Unit tests for VBar's rotated axis-label geometry.
 
-Cost by Project drew each project label as ONE end-anchored <text>
-rotated -35deg inside an SVG whose bottom padding was fixed at 104px, so
-a long name ran past the bottom-left edge and was clipped. The fix wraps
-labels into <tspan> lines (never truncation) and DERIVES padB from the
-deepest wrapped label through three pure helpers in
-src/dashboard-charts.jsx:
+Wrap rotated project labels losslessly into tspan lines and derive bottom
+padding from the deepest wrapped label so long names cannot be clipped.
+The pure geometry helpers in src/dashboard-charts.jsx are:
 
-  * wrapAxisLabel    — lossless hard-wrap into <= maxChars lines;
+  * wrapAxisLabel — lossless hard-wrap into <= maxChars lines;
   * axisLabelDepthPx — vertical reach below the anchor of one wrapped
                        label: max over line k of
                        k*lineH*cos(A) + len_k*charPx*sin(A), because the
@@ -15,7 +12,7 @@ src/dashboard-charts.jsx:
   * axisLabelMaxChars — chars per line, capped so a line's horizontal
                        projection fits the bar slot and the leftmost
                        label cannot cross the SVG's left edge;
-  * vbarPadB         — LABEL_Y + deepest label + one line-height of
+  * vbarPadB — LABEL_Y + deepest label + one line-height of
                        descent clearance.
 
 These tests drive the REAL helper block (extracted verbatim from the

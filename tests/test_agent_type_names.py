@@ -1,4 +1,4 @@
-"""Agent-type canonical names (issue #650): one role, one name across lanes.
+"""Agent-type canonical names: one role, one name across lanes.
 
 The fold itself lives in backend/agent_types.py; these drive it through
 parse_file on the lane formats, beside the verbatim-role pins that stay
@@ -24,7 +24,7 @@ def test_codex_roles_take_their_canonical_name(role, expected):
 
 
 def test_kimi_dispatch_asking_for_coder_is_the_implementer_role():
-    """A dispatch asking for `coder` stores `implementer` (issue #749)."""
+    """A dispatch asking for `coder` stores `implementer`."""
     out = parse.parse_file(
         "sessions/p/s/wire.jsonl",
         (b'{"type":"metadata","protocol_version":"1.4",'
@@ -39,14 +39,14 @@ def test_kimi_dispatch_asking_for_coder_is_the_implementer_role():
 
 def test_kimi_code_explore_profile_folds_to_the_canonical_name():
     """Kimi's `explore` profile is the Explore-equivalent role: it takes
-    Claude's spelling (issue #650)."""
+    Claude's spelling."""
     out = parse.parse_file("sessions/p/s/wire.jsonl",
                            _kc_profile('"explore"'))
     assert out["agent_type"] == "Explore"
 
 
 def test_kimi_code_coder_profile_is_the_implementer_role():
-    """Kimi's `coder` profile is the implementer role (issue #749): it
+    """Kimi's `coder` profile is the implementer role: it
     takes Claude's spelling, not the default bucket."""
     out = parse.parse_file("sessions/p/s/wire.jsonl",
                            _kc_profile('"coder"'))

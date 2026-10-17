@@ -1,7 +1,7 @@
 """What the committed mini mirror holds, derived rather than written down.
 
 `fixtures/r2_mini` is the corpus a dozen tests ingest, the reparse bench
-measures and the smoke job boots against, and it grows: issue #503 added
+measures and the smoke job boots against, and it grows: added
 the lane-layout wires and their meta.json sidecar so the Codex and both
 Kimi formats are exercised end to end. A count written into a test is a
 count that has to be edited on every addition and is silently wrong the

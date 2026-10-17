@@ -1,4 +1,3 @@
-"""Incremental derived-state equivalence and scope selection tests."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -27,7 +26,7 @@ UTC = timezone.utc
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PARSER_FIXTURES = _ROOT / "fixtures" / "parser"
-# The #959 shape stores dim FK ids; every snapshot projects the TEXT
+# The shape stores dim FK ids; every snapshot projects the TEXT
 # back through its dim so incremental and full rebuilds still compare
 # as the old text grain did (one row per logical grain either way).
 _ROLLUPS = {
@@ -112,7 +111,6 @@ _TEAMMATE_SIDECAR = json.dumps({
 
 def _single_turn(record_uuid: str, session: str, request_id: str,
                  user_uuid: str) -> bytes:
-    """Specialize the small checked-in JSONL fixture for one mirror file."""
     raw = (_PARSER_FIXTURES / "single_turn.jsonl").read_bytes()
     return (raw.replace(b'"u1"', f'"{user_uuid}"'.encode())
             .replace(b'"a1"', f'"{record_uuid}"'.encode())
@@ -177,7 +175,6 @@ def _prepare_mixed_change_mirror(mini_r2_env: Path) -> None:
 
 def _run_and_assert_scope(caplog: pytest.LogCaptureFixture,
                           expected_scope: str) -> dict[str, object]:
-    """Run ingest with timing enabled and check its reported scope."""
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
         result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
@@ -186,7 +183,6 @@ def _run_and_assert_scope(caplog: pytest.LogCaptureFixture,
 
 
 def _canonical_file(record_uuid: str) -> tuple[str, ...] | None:
-    """Return the current canonical file for one UUID."""
     with db.viz_conn() as conn:
         return conn.execute(
             "SELECT f.file_key FROM records r "
@@ -197,7 +193,6 @@ def _canonical_file(record_uuid: str) -> tuple[str, ...] | None:
 
 
 def _apply_mixed_changes(mini_r2_env: Path, old_winner_key: str) -> None:
-    """Delete and reparse files, add a new winner, alias file and teammate."""
     old_winner_path = mini_r2_env / old_winner_key.removeprefix("claude/")
     old_winner_path.unlink()
 
@@ -222,7 +217,6 @@ def _apply_mixed_changes(mini_r2_env: Path, old_winner_key: str) -> None:
 
 
 def _assert_incremental_mixed_rows() -> None:
-    """Check canonical promotion, alias folding and teammate resolution."""
     winner = _canonical_file("shared-uuid-1")
     with db.viz_conn() as conn:
         alias_project = conn.execute(
@@ -340,7 +334,7 @@ def test_dirty_file_threshold_forces_full(fresh_db, mini_r2_env,
 
 def test_reprice_changes_force_full_rebuild(fresh_db, mini_r2_env,
                                             monkeypatch, caplog):
-    # Issue #339: only rows whose rate-derived data moved count as
+    # only rows whose rate-derived data moved count as
     # reprice changes, so the simulated bump mutates the loaded rate
     # tables (a restamp-only bump would rebuild nothing).
     monkeypatch.setattr(timing, "TIMING_ON", True)

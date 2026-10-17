@@ -1,6 +1,6 @@
 """The single-chart model panels: selection rule, shape, and module pins.
 
-Issues #649/#652/#638: the Per-Session Context Growth panel drew one
+the Per-Session Context Growth panel drew one
 sub-chart per model (a 17-row grid at 33 models) and so did Tool Error
 Rate. Both are now ONE chart per panel with model checkboxes, on shared
 axes, so a panel's height no longer grows with the model count. The
@@ -51,11 +51,9 @@ def _node_lists(expr: str):
     )
 
 
-# -- The selection rule (node-driven) ---------------------------------
-
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_default_selection_is_top_two_whatever_the_model_count():
-    """#649/#652: the default checked set is top-2, for 2 .. 40 models.
+    """the default checked set is top-2, for 2.. 40 models.
 
     This is the height pin in its cheapest form: the panels render one
     chart whose height follows the CHECKED count, so an all-models
@@ -89,8 +87,6 @@ def test_unchecking_a_default_model_removes_it():
     assert got == ["b"]
 
 
-# -- Shape pins: one chart, no per-model grid -------------------------
-
 def _strip_comments(src: str) -> str:
     src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
     return re.sub(r"//[^\n]*", "", src)
@@ -104,7 +100,7 @@ def _panel_src(name: str, src: str) -> str:
 
 
 def test_the_growth_panel_has_no_per_model_grid():
-    """#649: the sub-panel grid is gone — no ContextSubPanel anywhere,
+    """the sub-panel grid is gone — no ContextSubPanel anywhere,
     no per-model row pairing in the panel, one ComparisonRow mount."""
     src = _strip_comments(EXTRA.read_text(encoding="utf-8"))
     assert "ContextSubPanel" not in src, (
@@ -117,7 +113,7 @@ def test_the_growth_panel_has_no_per_model_grid():
 
 
 def test_the_growth_chart_draws_the_full_breakdown():
-    """#649: median, p25–p75 band and p90 per checked model, and the
+    """median, p25–p75 band and p90 per checked model, and the
     session traces gated by the showSessions prop."""
     src = _strip_comments(COMPARISON.read_text(encoding="utf-8"))
     assert "showSessions" in src, "the sessions toggle prop is missing"
@@ -131,7 +127,7 @@ def test_the_growth_chart_draws_the_full_breakdown():
 
 
 def test_the_growth_sessions_toggle_defaults_off():
-    """#649 point 4: the sessions toggle is OFF by default."""
+    """the sessions toggle is OFF by default."""
     src = _strip_comments(EXTRA.read_text(encoding="utf-8"))
     panel = _panel_src("ContextGrowthPanel", src)
     assert re.search(r"useState\(false\)", panel), (
@@ -154,7 +150,7 @@ def test_both_panels_route_their_default_through_the_shared_rule():
 
 
 def test_the_growth_tooltip_names_the_breakdown():
-    """#649 point 5: the tooltip lists median, p25, p75, p90 and the
+    """the tooltip lists median, p25, p75, p90 and the
     session count per checked model."""
     src = _strip_comments(COMPARISON.read_text(encoding="utf-8"))
     body = _panel_src("ComparisonRow", src)
@@ -164,7 +160,7 @@ def test_the_growth_tooltip_names_the_breakdown():
 
 
 def test_the_tool_panel_is_its_own_module_on_the_page():
-    """#652: the panel lives in its own module (dashboard-charts-extra
+    """the panel lives in its own module (dashboard-charts-extra
     .jsx sits at its measured size entry, so growth moves out first) and
     the page loads the module after the theme's file."""
     assert TOOL_PANEL.exists()
@@ -177,7 +173,7 @@ def test_the_tool_panel_is_its_own_module_on_the_page():
 
 
 def test_the_tool_panel_is_one_chart_with_checkboxes():
-    """#652: one chart, model checkboxes (the shared LegendCheckboxRow),
+    """one chart, model checkboxes (the shared LegendCheckboxRow),
     a per-tool toggle that defaults off, and the aggregate line drawn
     for every checked model."""
     src = _strip_comments(TOOL_PANEL.read_text(encoding="utf-8"))
@@ -199,7 +195,7 @@ def test_the_tool_panel_is_one_chart_with_checkboxes():
 
 
 def test_the_tool_panel_never_returns_to_a_per_model_grid():
-    """#652's general shape: no sub-chart-per-model pairing anywhere in
+    """ general shape: no sub-chart-per-model pairing anywhere in
     the tool module — a third grid cannot ship through this file."""
     src = _strip_comments(TOOL_PANEL.read_text(encoding="utf-8"))
     assert "slice(i, i + 2)" not in src
@@ -207,7 +203,7 @@ def test_the_tool_panel_never_returns_to_a_per_model_grid():
 
 
 def test_the_638_sub_panel_legend_exemption_is_gone():
-    """#638: the sub-panels and their overflowing legends are deleted, so
+    """the sub-panels and their overflowing legends are deleted, so
     the rendered-layout guard's ledger no longer carries the exemption —
     any legend overflow the replacement panel shows fails the leg."""
     src = GUARD.read_text(encoding="utf-8")
@@ -228,8 +224,6 @@ def test_the_shared_selection_helper_is_node_runnable_plain_js():
         "model-select.js must stay plain JS (no imports) so node can "
         "require it")
 
-
-# -- The rate/EMA math (node-driven, src/rate-series.js) --------------
 
 def _rs(expr: str):
     return _node(

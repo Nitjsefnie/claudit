@@ -66,7 +66,7 @@ def test_synthetic_versioned_rows_resolve_separately(monkeypatch):
 
 def test_sonnet_5_5_resolves_exact_to_its_own_row():
     """Sonnet 5.5 carries its own row and never rides the Sonnet family
-    fallback (issue #328): before the row landed it resolved kind='tier'
+    fallback: before the row landed it resolved kind='tier'
     with key=None. The live table check pins only exact-key resolution."""
     s55 = pricing.resolve("claude-sonnet-5-5")  # sv-test-data: allow (structure: exact key survives appends)
     assert s55.kind == "exact"
@@ -97,7 +97,7 @@ def test_unknown_fable_falls_back_to_current_generation():
     assert r.kind == "tier"
     # The family rows are tracked vendor rows since the migration: the
     # merged view's list price is the assertion's source, derived (never
-    # a pinned generation) so a refresh moves both sides together (#907).
+    # a pinned generation) so a refresh moves both sides together.
     assert r.rates is pricing._latest("fable", "mythos")  # pylint: disable=protected-access
 
 
@@ -434,10 +434,10 @@ def test_provider_compute_cost_splits_at_the_cutover(
     assert (just_before, at) == (w.before["fresh"], w.after["fresh"])
 
 
-# --- OpenRouter variant suffixes fold to the bare id (issue 72) -------------
-# A variant suffix (:nitro, :floor) is a service tier, not a price: the
+# --- OpenRouter variant suffixes fold to the bare id -------------
+# A variant suffix (:nitro,:floor) is a service tier, not a price: the
 # tiered id must resolve to the bare model's provider row, not fall to the
-# default estimate. Only :free changes price (zero), and resolve() prices
+# default estimate. Only:free changes price (zero), and resolve() prices
 # it before the provider lookup. Exercised through the synthetic provider
 # row, like every provider behaviour above.
 
@@ -508,9 +508,6 @@ def test_an_exact_variant_row_wins_over_the_bare_fold(
     assert r.rates == w.after
 
 
-# --- resolution robustness -------------------------------------------------
-
-
 def test_future_opus_uses_the_current_opus_tier_fallback():
     # 'claude-opus-4' is a prefix of 'claude-opus-4-99', but the unknown
     # future model must use the family fallback rather than an exact row.
@@ -557,7 +554,7 @@ def test_resolve_reports_exact_match():
 def test_resolve_reports_tier_fallback_for_unknown_claude_model():
     # A Sonnet generation beyond any plausible release, and the family's
     # current-generation rates derived (never a pinned generation), so a
-    # refresh adding a newer Sonnet row can never turn this exact (#827).
+    # refresh adding a newer Sonnet row can never turn this exact.
     res = pricing.resolve("claude-sonnet-99")
     assert res.kind == "tier"
     assert res.rates == pricing._latest("sonnet")  # pylint: disable=protected-access
@@ -565,7 +562,7 @@ def test_resolve_reports_tier_fallback_for_unknown_claude_model():
 
 def test_resolve_reports_default_for_wholly_unknown_model():
     # A synthetic id: no rate row the refresh can add may ever match it,
-    # so "wholly unknown" stays true against refreshed data (issue #824).
+    # so "wholly unknown" stays true against refreshed data.
     assert pricing.resolve("totally-unknown-model").kind == "default"
 
 
@@ -575,7 +572,6 @@ def test_fast_variants_are_not_silently_billed_at_standard_rates():
     assert pricing.resolve("claude-opus-4-8-fast").kind != "exact"
 
 
-# --- GLM-5.3-Flash (Z.ai) ---------------------------------------------------
 GLM_CUTOVER = datetime(2026, 9, 10, 2, 28, 4, tzinfo=UTC)
 GLM_LIST = {"fresh": 0.15, "create_5m": 0.15, "create_1h": 0.15,
             "read": 0.03, "output": 0.50}

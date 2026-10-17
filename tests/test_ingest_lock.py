@@ -3,7 +3,7 @@
 The lock tests moved here from test_ingest.py (they serialise the suite
 rather than exercise its parsing behaviour, and need only the scratch
 database, the mini mirror and the advisory-lock key); the abort tests of
-issue #103 were written for test_ingest.py and landed here so that
+ were written for test_ingest.py and landed here so that
 module stays under pylint's line cap without its old pragma. The
 fixtures they all share come from test_ingest.
 """
@@ -130,13 +130,9 @@ def test_ingest_lock_released_when_holder_dies(fresh_db, mini_r2_env):
 
 
 # ---------------------------------------------------------------------------
-# Unlock failure must not mask the run's own error (issue #154): the unlock
-# in _db_run_lock's inner finally used to run bare, so a lock connection
-# that died during the run raised at exit and REPLACED the body's exception
-# at the caller. The guard swallows it — a session-scoped advisory lock is
-# released by the server at session death, so the swallow can never leave a
-# stale lock, and the dedicated connection's close() in the outer finally
-# ends the session on every exit path.
+# Unlock failures must not mask the run's own error. Swallowing them cannot
+# leave a stale lock: PostgreSQL releases session locks at session death,
+# and the outer finally closes the dedicated connection on every exit.
 # ---------------------------------------------------------------------------
 
 
@@ -211,7 +207,7 @@ def test_db_run_lock_swallows_unlock_failure_after_a_successful_run(
 
 
 # ---------------------------------------------------------------------------
-# Cooperative abort (issue #103): a shutdown request sets _SHUTDOWN; a run
+# Cooperative abort: a shutdown request sets _SHUTDOWN; a run
 # stops at its next bounded step, closes its ingest_runs row as aborted, and
 # skips the derived-state rebuild, the ingest_done broadcast and the cache
 # warm. wait_for_run bounds lifespan teardown's wait on the in-flight run.
@@ -237,7 +233,7 @@ def test_run_ingest_skips_when_shutdown_requested(fresh_db, mini_r2_env):
 def test_run_ingest_skips_when_shutdown_lands_during_lock_take(
         fresh_db, mini_r2_env, monkeypatch):
     """The re-check AFTER both locks are acquired ("landed while waiting
-    on the locks") had no test (issue #154): a regression there would pass
+    on the locks") had no test: a regression there would pass
     the suite. Setting the event INSIDE _db_run_lock — while the locks are
     being taken — must yield the skip dict and open no ingest_runs row,
     exactly like a shutdown that landed before the run was attempted."""
@@ -414,8 +410,8 @@ def test_wait_for_run(fresh_db, mini_r2_env):
 
 
 # ---------------------------------------------------------------------------
-# The lost-lock guard (issue #374) and the cancel-during-shutdown abort
-# (issue #372): a run whose lock session the server ends mid-run, or whose
+# The lost-lock guard and the cancel-during-shutdown abort
+# a run whose lock session the server ends mid-run, or whose
 # in-flight statement the lifespan teardown cancels, must unwind as an
 # abort — the row closed with the cause named — never continuing unlocked
 # or lingering unfinished.
@@ -457,7 +453,7 @@ def test_bounded_step_notices_a_dead_lock_session(fresh_db, mini_r2_env):
 
 
 def test_holder_lookup_ignores_another_database(fresh_db):
-    """Issue #965: while only a backend on another database of the instance
+    """while only a backend on another database of the instance
     holds the key, the lookup finds no holder, so the callers' termination
     never runs and that backend survives."""
     peer_db = scratch_db.db_name("ingest_peer")
@@ -511,7 +507,7 @@ def test_lost_lock_session_aborts_the_run(fresh_db, mini_r2_env, monkeypatch):
 def test_cancelled_statement_during_shutdown_closes_aborted(
         fresh_db, mini_r2_env, monkeypatch):
     """Teardown cancels the statement a long single-statement phase is
-    stuck in (issue #372); the driver surfaces the server's cancel as
+    stuck in; the driver surfaces the server's cancel as
     QueryCanceled. With the shutdown request in force that cancel IS the
     abort arriving, so the run closes 'aborted' — never 'fatal' — and
     later rebuilds are skipped."""
@@ -542,7 +538,7 @@ def test_cancelled_statement_during_shutdown_closes_aborted(
 
 
 def test_close_open_run_closes_the_row_teardown_could_not_free(fresh_db):
-    """The fallback behind the bounded wait (issue #372): when a run is
+    """The fallback behind the bounded wait: when a run is
     stuck beyond it, teardown closes the open row itself, so a stop never
     leaves finished_at NULL. Only a still-open row is written — the run
     thread's own close, either side of ours, wins."""
@@ -580,7 +576,7 @@ def test_close_open_run_without_an_open_run_is_a_noop(fresh_db):
 
 
 # ---------------------------------------------------------------------------
-# Teardown cancellation (issue #372): the bounded steps cannot fire while a
+# Teardown cancellation: the bounded steps cannot fire while a
 # run sits inside one long single-statement phase, so teardown cancels the
 # statement server-side; the driver raises QueryCanceled and the run
 # classifies it as the abort. The fallback row close behind the bounded
@@ -638,7 +634,7 @@ def test_cancel_viz_queries_interrupts_an_inflight_statement(fresh_db):
 # Pins for the guards the round-2 review flagged as unpinned: the
 # QueryCanceled classification must key on the shutdown request (a cancel
 # from any other source is a fatal, not an abort), and the lock guard's
-# lock-gone-but-session-alive branch is the one issue #374 exists for.
+# lock-gone-but-session-alive branch is the one exists for.
 # ---------------------------------------------------------------------------
 
 
@@ -668,7 +664,7 @@ def test_querycanceled_without_a_shutdown_is_a_fatal(
 def test_lock_gone_with_a_live_session_aborts(fresh_db):
     """The pg_locks branch: a session that is alive but no longer holds the
     advisory lock must abort the run exactly like a dead one — a live
-    session that lost the lock is the unlocked continuation issue #374
+    session that lost the lock is the unlocked continuation
     forbids. The holder here is armed with a connection that never took
     the lock."""
     conn = psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"], autocommit=True)

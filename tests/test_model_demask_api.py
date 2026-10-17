@@ -1,10 +1,6 @@
-"""The API layer passes an unattributed model through unmasked (issue #653).
-
-parse_lanes.refuse_unattributed keeps a model-less lane file out of the
-database, and records.model is NOT NULL — so the hole the API fold used
-to mask as `unknown` is reachable only through an out-of-band row, which
-this module seeds directly.
-"""
+"""Pass unattributed models through the API without substituting unknown.
+Ingest refuses model-less lane files and records.model is NOT NULL, so
+exercise the empty-string hole with a directly seeded SQL row."""
 from __future__ import annotations
 
 import shutil
@@ -54,12 +50,9 @@ def _client_fixture(monkeypatch):
 
 
 def test_a_null_model_row_is_not_masked_as_unknown(client):
-    """The de-masking control for the issue-653 API sites: ingest refuses
-    a file whose rows name no model, and records.model is NOT NULL — so
-    the hole the fold used to mask is the EMPTY-STRING model, seeded here
-    directly through SQL. The fold and the hourly panel pass it through
-    as the empty string (never the `unknown` string), and pricing falls
-    back to the default rates instead of renaming the hole."""
+    """Seed an empty-string model directly: ingest refuses model-less files
+    and records.model is NOT NULL. API folds must preserve the empty string
+    while pricing falls back to default rates rather than renaming the hole."""
     with db.viz_conn() as c:
         c.execute(
             """
@@ -92,7 +85,7 @@ def test_a_null_model_row_is_not_masked_as_unknown(client):
 
 
 def test_rollup_grains_do_not_mask_an_empty_model(client):
-    """The rollup grains shared the read path's masking (issue #686): a
+    """The rollup grains shared the read path's masking: a
     stored empty-string model was grouped as `unknown` in usage_rollup
     and latency_rollup, so the >=1h views disagreed with the live pass.
     The seed sits on an existing file key, so the second ingest does not

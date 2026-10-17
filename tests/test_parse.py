@@ -105,7 +105,7 @@ def test_malformed_cache_detail_is_billed_as_unsplit_creation(monkeypatch):
 
 
 def test_cache_write_tokens_derives_the_neutral_write_per_record():
-    """Issue #842: every record carries a provider-neutral cache-write
+    """every record carries a provider-neutral cache-write
     count. An explicit-caching lane's reported write (create > 0) is
     trusted verbatim; otherwise the write is derived from the NEXT
     request's cache-read growth, capped by this record's fresh input;
@@ -127,10 +127,9 @@ def test_cache_write_tokens_derives_the_neutral_write_per_record():
     ("sessions/p/s/wire.jsonl", "codex_min.jsonl"),
 ])
 def test_cache_write_tokens_is_not_a_pricing_input(key, name):
-    """Issue #842: the neutral column is NOT billed. cost_usd stays equal
+    """the neutral column is NOT billed. cost_usd stays equal
     to compute_cost over the billed partition (fresh/create/read/output)
-    alone, exactly as before the column existed -- for the Claude path and
-    a lane path alike."""
+    alone, for the Claude path and lane paths alike."""
     out = parse.parse_file(key, _read(name))
     assert out["records"]
     for r in out["records"]:
@@ -344,7 +343,7 @@ def test_user_text_lines_drive_turn_boundaries():
     assert out["ctx_turns"][0]["input"] == 100  # a2 wins turn 1
     assert out["ctx_turns"][0]["output"] == 2
     assert out["ctx_turns"][1]["input"] == 200  # a3 wins turn 2
-    assert out["ctx_turns"][1]["delta"] == 100  # 200 - 100
+    assert out["ctx_turns"][1]["delta"] == 100
 
 
 def test_mixed_dated_and_undated_records_sort_undated_first():
@@ -360,7 +359,7 @@ def test_mixed_dated_and_undated_records_sort_undated_first():
 
 
 def test_naive_timestamp_is_stored_and_priced_as_utc():
-    """An offset-less timestamp is UTC (issue #376): the same instant is
+    """An offset-less timestamp is UTC: the same instant is
     priced and stored, so a reprice of the stored row prices what a
     reparse of the raw text prices. Before the normalisation the parser
     handed a naive datetime to pricing (UTC) AND to the driver (the
@@ -437,13 +436,8 @@ def test_reply_latency_terminated_by_rate_limit_reply():
 
 
 def test_rate_limit_detection_is_shape_based_not_wording_based():
-    """Every `error: "rate_limit"` record is a hit EXCEPT the transient
-    per-minute 429. Regression: the detector allow-listed the single
-    wording "out of extra usage", so when Claude Code switched to
-    "You've hit your weekly limit" the hits stopped being recorded —
-    silently, with the old wording still matching so nothing looked
-    broken. Live corpus: no hit booked after 2026-05-06 despite a real
-    weekly limit on 2026-08-09."""
+    """Count every rate-limit error except transient per-minute 429s.
+    Do not allow-list a single message: weekly and extra-usage wording can differ."""
     out = parse.parse_file(
         "k/sess-rlw/sess-rlw.jsonl", _read("rate_limit_weekly.jsonl")
     )
@@ -460,7 +454,7 @@ def test_edit_call_yields_added_deleted_counts():
     """Edit churn comes from the CALL arguments (old_string/new_string),
     not the result text, DIFFED so context lines repeated in both
     payloads are not churn: "a\\nb\\n" → "a\\nb\\nc\\nd\\n" adds 2 and
-    deletes 0. Two separate positive series (issue #10)."""
+    deletes 0. Two separate positive series."""
     out = parse.parse_file(
         "k/sess-edit/sess-edit.jsonl", _read("edit_churn.jsonl")
     )
@@ -568,7 +562,7 @@ def test_bash_captured_mktemp_template_is_a_write_target():
 
 
 def test_bash_quoted_capture_paren_template_is_a_write_target():
-    """#741: the double-quoted capture tokenizes its body with quote
+    """the double-quoted capture tokenizes its body with quote
     provenance intact, so a literal paren in a quoted template books."""
     out = parse.parse_file(
         "k/sess-mktq/sess-mktq.jsonl", _read("bash_quoted_capture.jsonl"))
@@ -576,7 +570,7 @@ def test_bash_quoted_capture_paren_template_is_a_write_target():
 
 
 def test_bash_subshell_group_books_targets():
-    """#748: commands inside a `( … )` subshell book reads and writes,
+    """commands inside a `( …)` subshell book reads and writes,
     and a redirect on the closing paren books its target."""
     out = parse.parse_file(
         "k/sess-ssg/sess-ssg.jsonl", _read("bash_subshell_group.jsonl"))
@@ -586,7 +580,7 @@ def test_bash_subshell_group_books_targets():
 
 
 def test_bash_declaration_flag_capture_books_write_target():
-    """#770: option flags after a declaration builtin are transparent to
+    """option flags after a declaration builtin are transparent to
     the capture scan, so a flagged capture books its inner writes."""
     out = parse.parse_file(
         "k/sess-dfc/sess-dfc.jsonl", _read("bash_declaration_flag_capture.jsonl"))
@@ -594,7 +588,7 @@ def test_bash_declaration_flag_capture_books_write_target():
 
 
 def test_bash_nested_subshell_books_write_target():
-    """#771: parens spaced apart are a real nested subshell, scanned
+    """parens spaced apart are a real nested subshell, scanned
     like any other group; only the unspaced `((` stays refused."""
     out = parse.parse_file(
         "k/sess-nss/sess-nss.jsonl", _read("bash_nested_subshell.jsonl"))
@@ -666,7 +660,7 @@ def test_context_beyond_any_window_is_not_a_turn():
 
 def test_nul_in_tool_name_and_argument_stays_in_parse_output():
     """A NUL (\\u0000 in the JSON) inside a tool name or tool argument
-    reaches tool_uses intact at parse level (issue #670): the parser
+    reaches tool_uses intact at parse level: the parser
     keeps the call, and the persist-level choke point strips the byte
     before it can reach a PostgreSQL text column (tests.test_ingest).
     """

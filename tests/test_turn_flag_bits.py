@@ -1,4 +1,4 @@
-"""Flag name <-> INT4 bit for records.turn_flags (issue #959, ruling R5).
+"""Flag name <-> INT4 bit for records.turn_flags (ruling R5).
 
 The vocabulary stays ``backend/turn_flags.py`` (the FLAG_* constants);
 ``backend/turn_flag_bits.py`` owns the bit ASSIGNMENT and is the only

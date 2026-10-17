@@ -1,4 +1,3 @@
-"""Subshell and brace-group scanning in Bash read targets (issue #748)."""
 from __future__ import annotations
 
 import pytest
@@ -12,9 +11,9 @@ from backend.bash_reads import scan
     ("(cat a.py; cat b.py) > c.txt", ("whole", ["/w/a.py", "/w/b.py"], ["/w/c.txt"])),
     ("cat a.py && (echo y > o.txt)", ("whole", ["/w/a.py"], ["/w/o.txt"])),
     ("(cd /sub && cat a.py); cat b.py", ("whole", ["/sub/a.py", "/w/b.py"], [])),
-    # `(( … ))` — the unspaced spelling — is bash's arithmetic command
+    # `(( …))` — the unspaced spelling — is bash's arithmetic command
     # and books nothing; the same pair spaced apart is a real nested
-    # subshell, whose commands run and book (issue #771).
+    # subshell, whose commands run and book.
     ("( ( echo x > deep.txt ) )", (None, [], ["/w/deep.txt"])),
     ("( ( ( echo x > deepest.txt ) ) )", (None, [], ["/w/deepest.txt"])),
     ("( (cat a.py) )", ("whole", ["/w/a.py"], [])),
@@ -22,7 +21,7 @@ from backend.bash_reads import scan
     ("((x > y))", (None, [], [])),
     # The adjacent opener with an UNDOUBLED close never terminates the
     # arithmetic command: bash falls back to re-reading it as a nested
-    # subshell, and the tail redirect runs (issue #778).
+    # subshell, and the tail redirect runs.
     ("((x) > wide.txt)", (None, [], ["/w/wide.txt"])),
     ("((cat a.py) > c.txt)", ("whole", ["/w/a.py"], ["/w/c.txt"])),
     # A doubled close still re-lexes when the arithmetic expression
@@ -39,7 +38,7 @@ from backend.bash_reads import scan
     # A redirect on the close of the REFUSED arithmetic compound still
     # runs: bash opens the target before the (failing) evaluation, so
     # the write books while the compound itself stays unmodelled — no
-    # reads, no kind (issue #785).
+    # reads, no kind.
     ("((x)) > wide.txt", (None, [], ["/w/wide.txt"])),
     ("(( echo x > o.txt )) > wide.txt", (None, [], ["/w/wide.txt"])),
     ("((x)) >| wide.txt", (None, [], ["/w/wide.txt"])),
@@ -53,7 +52,7 @@ from backend.bash_reads import scan
     ("(cat a.py) < in.txt", ("whole", ["/w/a.py", "/w/in.txt"], [])),
 ])
 def test_subshell_and_group_commands_are_scanned(command, expected):
-    """#748: commands inside `( … )` are scanned like those in a
+    """commands inside `( …)` are scanned like those in a
     `{ …; }` group — reads, slice/whole kind and writes all book, a
     `cd` inside stays inside, and a redirect on the closing paren books
     its target."""
@@ -64,8 +63,8 @@ def test_subshell_and_group_commands_are_scanned(command, expected):
     "(cat a.py",            # unclosed group books nothing
     "(cat a.py) foo",       # words after the close: not a redirect
     "(echo x) < in.txt",    # a non-reading group takes no stdin input
-    # Issue #771 negative space: the unspaced spelling is arithmetic
-    # either way — spaced `(( … ))` included — and its `>` is a
+    # negative space: the unspaced spelling is arithmetic
+    # either way — spaced `(( …))` included — and its `>` is a
     # comparison, never a redirect, so inventing `o.txt` is a phantom.
     "(( echo x > o.txt ))",
     "(( x + 1 ))",

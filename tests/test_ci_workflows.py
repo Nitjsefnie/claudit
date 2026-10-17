@@ -1,30 +1,10 @@
-"""Tripwires for the codeql-action pin coupling (issue #335).
-
-github/codeql-action/init and github/codeql-action/analyze must run the same
-version inside one workflow run: the action records its version at init and
-refuses a later step at a different one — PR #62's analyze log records
-exactly that refusal ("Loaded a configuration file for version '4.38.1',
-but running version '4.37.7'") — which fails every CodeQL run of the tree
-at SARIF processing ("Error when processing the SARIF file"). Dependabot
-names the two subpaths as separate dependencies, so ungrouped it files one
-half-bump PR per pin, and each half fails CI on its own (#25/#26, #31/#32,
-#38/#39, #50/#51, #62/#63 — four of the five pairs were closed unmerged).
-The dependabot.yml groups block keeps the pins in one atomic PR; these
-tests are the in-tree layer that fails if a single-pin bump ever lands,
-and that fails loudly if the group is ever removed.
-
-The workflows and dependabot.yml are asserted on their YAML-DECODED
-structure, the way Dependabot itself reads them — a regex over the raw text
-would satisfy a decoy spelling and cannot tell a value from a comment. The
-one exception is the pin comments themselves, which do not survive YAML
-parsing, so that pin is necessarily textual.
-
-Also the CI-tool manifest tripwires (issue #551): Dependabot's pip ecosystem
-reads manifest files, never a workflow `run:` block, so an inline
-`pip install name==ver` pin can only go stale unnoticed — the pins live in
-requirements manifests at the repo root, the zizmor one hash-pinned, and
-audit.yml's audit step covers every manifest in the tree.
-"""
+"""CodeQL init and analyze must use the same action version in one workflow.
+Init records its action version; analyze refuses configuration from another
+version. Dependabot treats the subpaths separately, so group updates atomically.
+Inspect decoded workflow and Dependabot structures rather than regexes that
+can accept decoy comments; action pin comments require a textual check.
+Keep CI-tool pins in requirement manifests so Dependabot sees them and audit
+covers them; an inline pip-install version can otherwise go stale unnoticed."""
 from __future__ import annotations
 
 import re
@@ -169,23 +149,10 @@ def test_dependabot_groups_action_updates_into_one_pr() -> None:
 
 
 def test_every_group_has_a_security_updates_twin() -> None:
-    """A group covers the kind it names, and the kind DEFAULTS to version.
-
-    Security updates are enabled on this repository (verified 2026-10-04
-    via `gh api repos/Nitjsefnie/claudit/automated-security-fixes`), and
-    they skip a version-updates group entirely — one written that way
-    explicitly, and one that simply never names `applies-to`. A codeql-action
-    CVE bump then arrives as one pull request per `uses:` line, leaving init
-    and analyze on different versions — the same red PR the group above
-    exists to prevent (issue #555; Nitjsefnie-Actions/claim PR #38, pr-gate
-    PR #29).
-
-    A twin must match its sibling in EVERY key but `applies-to`, not merely
-    be catch-all: one that narrowed `patterns`, or added
-    `exclude-patterns`, `update-types` or `dependency-type`, still reads as a
-    twin to a membership-only check while bundling a different set — and for
-    `github/codeql-action` that is the very split #555 is about.
-    """
+    """Dependabot groups default to version updates, excluding security updates.
+    Security and version groups must match in every key except applies-to,
+    including patterns, exclude-patterns, update-types and dependency-type.
+    Otherwise a CodeQL update can split init and analyze across versions."""
     doc = yaml.safe_load(DEPENDABOT.read_text(encoding="utf-8")) or {}
     unpaired = []
     for entry in doc.get("updates") or []:
@@ -304,7 +271,7 @@ def test_postgres_action_pulls_a_digest_from_the_public_ecr_mirror() -> None:
 
 
 def test_codeql_matrix_analyses_the_workflows() -> None:
-    """The `actions` language stays in the CodeQL matrix (issue #552).
+    """The `actions` language stays in the CodeQL matrix.
 
     The workflow files are among the most privileged code here: a bot
     pushes ratchet commits to master with a deploy key, and the
@@ -374,15 +341,8 @@ def test_codeql_matrix_analyses_the_workflows() -> None:
 
 
 def test_workflow_pip_installs_never_pin_inline() -> None:
-    """A pip install in a workflow installs from a manifest, never a pin.
-
-    Dependabot's pip ecosystem reads requirements manifests, never a
-    workflow `run:` block, so `pip install name==ver` in a step is a pin
-    that can only go stale unnoticed — zizmor sat at 1.29.0 through two
-    releases this way (issue #551). `--upgrade pip` is exempt here: it
-    carries no version operator, and upgrading the installer itself is
-    refresh-pricing/tests/lint's existing shape, not this issue's scope.
-    """
+    """Install CI tools from manifests so Dependabot can discover their pins.
+    An unversioned --upgrade pip is exempt because it carries no version operator."""
     offenders = []
     for path in _workflow_files():
         for run in _run_blocks(path):
@@ -447,11 +407,11 @@ def test_actionlint_pin_parses_self_repository_uses() -> None:
     """The pinned actionlint build parses the `$/` self-repository refs.
 
     Stock actionlint's workflow-call and action format checks reject the
-    `$/` syntax GitHub's July-2026 self-repository form uses, and the
+    `$/` syntax GitHub's self-repository form uses, and the
     inline `# actionlint: ignore` comment cannot silence them — the
-    migrated `uses: $/.github/...` refs (issue #605) are unlintable below
-    fork build 1.7.12-queue.2, which cherry-picked upstream
-    rhysd/actionlint#732. A threshold in the fork's queue series, not an
+    migrated `uses: $/.github/...` refs are unlintable below
+    fork build 1.7.12-queue.2, which carries parser support for that form.
+    This is a threshold in the fork's queue series, not an
     exact pin: the next fork build (queue.3+) must keep passing. Any
     other shape — stock upstream, an older queue build, a mangled
     version — fails closed: the gate cannot be shown to parse the refs,
@@ -474,15 +434,9 @@ def test_actionlint_pin_parses_self_repository_uses() -> None:
 
 
 def test_self_repository_uses_use_the_dollar_slash_form() -> None:
-    """Self-repository `uses:` refs take the `$/` form, with no suppression.
-
-    The workspace-relative `uses: ./` spelling is gone (issue #605): the
-    pinned actionlint parses `$/` (1.7.12-queue.2), so every local ref
-    takes GitHub's self-repository form and zizmor >= 1.30's
-    self-repository audit passes it with no suppression — the 11 per-line
-    `# zizmor: ignore[self-repository]` comments went with the migration.
-    Scoped to .github/workflows/, the surface the audit gate scans.
-    """
+    """Self-repository uses references take $/ with no suppression.
+    The pinned actionlint supports that form and zizmor accepts it directly.
+    Scope the check to .github/workflows, the surface the audit scans."""
     offenders: list[str] = []
     for path in _workflow_files():
         for lineno, line in enumerate(
@@ -502,7 +456,7 @@ def test_audit_gate_covers_every_requirements_manifest() -> None:
 
     The gate's job is "is a version we froze still safe", and a manifest
     it does not name is frozen outside its view — the manifest Dependabot
-    keeps fresh (issue #551) would be exactly one pip-audit never saw.
+    keeps fresh would be exactly one pip-audit never saw.
     """
     audited: set[str] = set()
     for run in _run_blocks(WORKFLOWS_DIR / "audit.yml"):

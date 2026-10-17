@@ -24,7 +24,7 @@ from tests import scratch_db
 os.environ.setdefault("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{scratch_db.db_name()}")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-# ...and this directory, so one test module can import another's fixture
+# ..and this directory, so one test module can import another's fixture
 # instead of duplicating an expensive fresh-DB + mini-R2 setup.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -35,7 +35,7 @@ os.environ.setdefault("R2_ACCOUNT_ID", "")
 os.environ.setdefault("CLAUDIT_R2_ACCESS_KEY_ID", "")
 os.environ.setdefault("CLAUDIT_R2_SECRET_ACCESS_KEY", "")
 # The blob cache's off default must not rest on the host env happening
-# to leave it unset (issue #684): a developer's exported cache
+# to leave it unset: a developer's exported cache
 # directory would otherwise answer every fetch's consult.
 os.environ.pop("CLAUDIT_R2_BLOB_CACHE", None)
 os.environ.setdefault("CLAUDIT_ADMIN_TOKEN", "test-admin")
@@ -46,7 +46,7 @@ os.environ.setdefault("CLAUDIT_TIMING", "0")
 # The in-process pipeline by default: parse-process pools add startup
 # work to every ingest test. The process-pool
 # tests opt in explicitly (test_ingest_pipeline.py, test_ingest_fetch.py
-# and test_ingest_forkserver.py; issue #309).
+# and test_ingest_forkserver.py.
 os.environ["CLAUDIT_INGEST_PARSE_PROCESSES"] = "1"
 os.environ["CLAUDIT_INGEST_PERSIST_THREADS"] = "1"
 # TestClient runs over plain HTTP — Secure-flag cookies would never come back.
@@ -93,7 +93,7 @@ def synthetic_dated_rate(monkeypatch):
 
     SV-DATED-RATES requires the models-table window machinery to keep
     working for the next promotion, but the claude rows are tracked vendor
-    rows since the vendor migration (issue #851), so the models table
+    rows since the vendor migration, so the models table
     holds no claude row a live window could hang on. The fixture installs
     its OWN models-table row and window — synthetic rates, unlike any real
     price, so a test asserting against them can never be mistaken for a
@@ -191,8 +191,8 @@ def _isolate_transcript_cache(monkeypatch):
 @pytest.fixture(autouse=True)
 def _fresh_match_key_cache():
     """pricing._match_key memoizes per normalised id against the rate
-    table loaded at import (issue #350), and rate_fingerprint memoizes
-    per pair against the same tables (issue #351). Tests patch the
+    table loaded at import, and rate_fingerprint memoizes
+    per pair against the same tables. Tests patch the
     tables with synthetic rows; a cached entry computed under a patch
     must never outlive it, so every test starts and ends with empty
     caches. A test that patches the tables MID-TEST (after an ingest
@@ -210,7 +210,7 @@ def _fresh_match_key_cache():
 
 
 def pytest_collection_modifyitems(config, items):
-    # The mechanical db/portable split (issue #27): every test whose
+    # The mechanical db/portable split: every test whose
     # fixture closure reaches a registered DB fixture is marked `db`, so
     # the portable CI matrix can run -m "not db" with no server at all.
     # Imported in the hook because only collection needs it; same shape

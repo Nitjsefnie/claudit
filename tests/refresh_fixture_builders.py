@@ -14,7 +14,7 @@ from backend.pricing import RATE_FIELDS
 
 # The rate-key sets a LIVE row's vector may carry (SV-RATE-DATA): the
 # five RATE_FIELDS, plus the optional `web_search` rate a PROVIDER row
-# gains from the refresh (issue #900). A structure test reading a live
+# gains from the refresh. A structure test reading a live
 # row asserts membership here, so an appended web_search rate — valid
 # data — never reds the suite.
 LIVE_RATE_KEY_SETS = (frozenset(RATE_FIELDS),
@@ -73,7 +73,7 @@ def _discount(entry: dict) -> float:
     return float(m.group(1)) / 100 if m else 0
 
 
-# The default estimate's seed row (issue #858): frozen synthetic rates at
+# The default estimate's seed row: frozen synthetic rates at
 # no cutover — the one claude-opus-4-7 literal in the repo. The loaders
 # require it on every loadable document (SV-RATE-DATA); a site that
 # mutates the row copies it (dict(DEFAULT_ROW)) so this source stays
@@ -117,7 +117,7 @@ def _group_meters(members, meters) -> list[dict]:
 def seed_doc(*, members=None, meters=None, models=None, tracked=None,
              providers=None, resolve=None, prefixes=None,
              fetched="2030-01-01T00:00:00Z") -> dict:
-    """The minimal loadable seed document (issue #858): every section the
+    """The minimal loadable seed document: every section the
     loaders demand plus the default estimate's row. ``members`` and
     ``meters`` are test conveniences that fold into the one grouped
     ``long_context_meters`` field. Callers add their own rows through the

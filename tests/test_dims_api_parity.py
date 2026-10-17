@@ -1,4 +1,4 @@
-"""API-response parity across the issue #959 surrogate-id migration.
+"""API-response parity across the surrogate-id migration.
 
 Every payload below was captured from the PRE-migration code over the
 committed mini mirror (CLAUDIT_WRITE_DIMS_GOLDEN=1 regenerates it) and is
@@ -242,7 +242,7 @@ def _collect(client: TestClient, paths: list[str]) -> dict:
 
 
 def test_canon_neutralizes_rate_derived_values_but_keeps_shape_and_content():
-    """Steering pin for the rate-drift decoupling (#959 review fix).
+    """Steering pin for the rate-drift decoupling ( review fix).
 
     The golden holds money captured under the src/pricing.json rates of
     capture day, so the next rate-refresh commit would redden this
@@ -261,14 +261,14 @@ def test_canon_neutralizes_rate_derived_values_but_keeps_shape_and_content():
     # rate-derived VALUES do not compare (rate drift is not a regression) ...
     assert a == b
     assert isinstance(a, dict)
-    # ... their keys must still be present (a dropped field IS caught) ...
+    # .. their keys must still be present (a dropped field IS caught) ...
     for key in ("cost_usd", "cost_buckets", "share"):
         assert key in a
-    # ... and non-rate content keeps full value parity ...
+    # .. and non-rate content keeps full value parity ...
     assert _canon({"model": "m"}) != _canon({"model": "other"})
     assert _canon({"fresh": 100}) != _canon({"fresh": 200})
     assert _canon({"file_key": "a"}) != _canon({"file_key": "b"})
-    # ... and a shape change (rate field vanishing) is caught too.
+    # .. and a shape change (rate field vanishing) is caught too.
     assert _canon({"cost_usd": 1.0}) != _canon({"n": 1})
 
 
@@ -307,7 +307,7 @@ def test_top_n_contracts_neutralise_ties_but_pin_the_measure_order():
             == _canon_body(path, {"top_output": tied}))
     _assert_order_contract(path, {"top_output": desc})
     _assert_order_contract(path, {"top_output": tied})
-    # ... but a payload that violates the measure order fails outright.
+    # .. but a payload that violates the measure order fails outright.
     with pytest.raises(AssertionError, match="DESC"):
         _assert_order_contract(path, {"top_output": list(reversed(desc))})
     # every top-N list of the contract is covered, by its own measure.
@@ -317,7 +317,7 @@ def test_top_n_contracts_neutralise_ties_but_pin_the_measure_order():
 
 @pytest.mark.db
 def test_api_responses_match_the_precapture(parity_clients):
-    """Byte parity (modulo never-specified ordering) with the pre-#959
+    """Byte parity (modulo never-specified ordering) with the pre-
     capture, guest strips and public file_key included."""
     user, guest, sid = parity_clients
     current = {

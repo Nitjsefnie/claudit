@@ -145,7 +145,7 @@ def test_fold_tokens_by_project_top10_and_remainder():
     "Other (N projects)" row carrying the summed remainder. The query
     hands the fold DESC-sorted rows (the slice is the top-10), so the
     fixture rows are sorted too."""
-    rows = [(f"p{i}", 12 - i) for i in range(12)]  # p0..p11 → tokens 12..1
+    rows = [(f"p{i}", 12 - i) for i in range(12)]
     folded = api_dashboard._fold_tokens_by_project(  # pylint: disable=protected-access
         rows)
     assert len(folded) == 11

@@ -21,7 +21,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CHARTS = ROOT / "src" / "dashboard-charts.jsx"
 EXTRA = ROOT / "src" / "dashboard-charts-extra.jsx"
-# #690 moved ActivityHeatmapPanel into its own module.
 HEATMAP = ROOT / "src" / "activity-heatmap-panel.jsx"
 TTL = ROOT / "src" / "cache-ttl-panel.jsx"
 
@@ -153,7 +152,7 @@ def test_cost_by_context_replicates_the_reference_mark_treatment():
 
 def test_cost_by_context_hover_matches_the_reference():
     """Hover hit-tests in the <svg>'s frame (padT/plotH are svg coords;
-    the container rect carries the header above the svg, #645) while the
+    the container rect carries the header above the svg) while the
     tip positions in container coordinates (its offsetParent)."""
     src = _panel_src("CostByContextPanel")
     m = re.search(r"function onMove\(e\) \{(.*?)\n  \}", src, re.S)
@@ -449,7 +448,7 @@ def test_vbar_fmt_is_value_only():
     """
     charts = _strip_line_comments(CHARTS.read_text(encoding="utf-8"))
     start = charts.index("function VBar(")
-    # The Burn Rate panel moved to src/burn-rate-panel.jsx (#634/#635), so
+    # The Burn Rate panel moved to src/burn-rate-panel.jsx, so
     # the region's old end marker went with it; the export tail follows
     # VBar wherever the panel after it lives.
     end = charts.index("window.TimeSeriesPanel = TimeSeriesPanel;", start)
@@ -478,7 +477,7 @@ def test_vbar_fmt_is_value_only():
     sites = 0
     for path in sorted((ROOT / "src").rglob("*.jsx")):
         src = _strip_line_comments(path.read_text(encoding="utf-8"))
-        # .*? (not [^>]*?): prop values contain arrow functions, whose `>`
+        # *? (not [^>]*?): prop values contain arrow functions, whose `>`
         # would end the match early and orphan the fmt from its site.
         for m in re.finditer(r"<window\.VBar\b.*?/>", src, re.S):
             sites += 1
@@ -491,8 +490,6 @@ def test_vbar_fmt_is_value_only():
                 f"({fmt.strip()!r}) -- VBar already prints each "
                 f"bar's share, so it renders twice")
     assert sites >= 1, "no window.VBar call sites found - the guard would pass vacuously"
-
-# --- Issue #394: the Overview's fetch state -----------------------------
 
 
 def _app() -> str:
@@ -514,7 +511,7 @@ def test_dashboard_fetch_state_is_written_at_every_outcome():
     that produced it.
 
     A count of the module's call sites satisfies any four of them: a
-    discarded `failed(...)` (the pre-#394 symptom back through a new
+    discarded `failed(...)` (the legacy symptom back through a new
     door), a `loaded()` where the run opens, or no reset at all each
     leave every other assertion in this file green.
     """
@@ -574,7 +571,7 @@ def test_dashboard_fetch_state_is_declared_and_passed_down():
 def test_dashboard_summary_renders_every_non_data_state():
     """The stat block is gated on the RESOLVED state, and the status
     block renders every other one. Reading a null shape as "still
-    loading" instead is the bug (#394)."""
+    loading" instead is the bug."""
     src = _app()
     assert re.search(r"\{window\.featureOn\('summary'\) && summary\.kind === 'data' &&\s*\(", src), (
         "the stat block is no longer gated on the resolved state, so an "
@@ -619,7 +616,7 @@ def test_error_banner_does_not_double_with_the_status_line():
 
 
 # ─────────────────────────────────────────────────────────────────────
-# The Per-Session Context Growth comparison panel (issue #630)
+# The Per-Session Context Growth comparison panel
 # ─────────────────────────────────────────────────────────────────────
 
 COMPARISON = ROOT / "src" / "context-growth-comparison.jsx"
@@ -634,7 +631,7 @@ def test_the_comparison_svg_is_sized_by_its_legend_not_by_a_prop():
     clusters fit on one row at every width this guard drives, so reverting
     the height to the prop is invisible to it. A third compared model
     would wrap the legend and the fixed height would clip the second row
-    off the bottom of the svg — which is what #630 reported.
+    off the bottom of the svg.
     """
     src = _strip_line_comments(COMPARISON.read_text(encoding="utf-8"))
     height = re.search(r"<svg[^>]*\bheight=\{(\w+)\}", src, re.S)
@@ -642,7 +639,7 @@ def test_the_comparison_svg_is_sized_by_its_legend_not_by_a_prop():
     assert height.group(1) == "svgH", (
         f"the comparison svg is sized by {height.group(1)!r}, not by the "
         "legend-aware height: a wrapped legend row is clipped instead")
-    # Two packed rows since #649: the per-model clusters, then the
+    # Stack two packed rows: the per-model clusters, then the
     # static legend-key row beneath them; svgH must still grow with the
     # last row count, or a wrapped key row is clipped instead.
     assert re.search(r"const keyTop = legendTop \+ "
@@ -689,7 +686,7 @@ def test_the_legend_packing_lives_in_a_plain_js_module():
 
 def test_the_burn_rate_module_is_loaded_by_the_page():
     """The Session Burn Rate panel lives in src/burn-rate-panel.jsx
-    (#634/#635); a script tag someone drops fails no layout check — the
+    ; a script tag someone drops fails no layout check — the
     guard counts the panels that render, never the ones that should — so
     the load is pinned like the comparison module's."""
     index = (ROOT / "public" / "index.html").read_text(encoding="utf-8")

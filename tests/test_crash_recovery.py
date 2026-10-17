@@ -1,11 +1,11 @@
 """Crash recovery: the startup sweeps for what a SIGKILL leaves behind.
 
-A SIGKILL never runs the lifespan teardown, so the graceful paths (#372
-for the run row, #363/#414 for the export children) cannot close what it
-leaves behind. #440: the crashed run's ingest_runs row stayed open
+A SIGKILL never runs the lifespan teardown, so the graceful paths (
+for the run row, for the export children) cannot close what it
+leaves behind. the crashed run's ingest_runs row stayed open
 forever — the sweep at the top of the next run closes it, and holding
 the db-wide advisory lock at that moment is the proof the opener's
-process is gone. #441: the crashed export's partial claudit_export_*
+process is gone. the crashed export's partial claudit_export_*
 PNG stayed in the tmp forever — the lifespan startup sweep unlinks it,
 aged past any live render's lifetime.
 """
@@ -46,7 +46,7 @@ def _insert_open_run(started_before_s: int = 3600) -> int:
              "startup", 9, 8, 7, 2, 1),
         )
         run_row = cur.fetchone()
-        assert run_row is not None  # INSERT ... RETURNING always yields
+        assert run_row is not None
         run_id = run_row[0]
         c.commit()
     return run_id
@@ -145,7 +145,7 @@ def test_next_run_sweeps_the_leftover_before_booking(fresh_db, mini_r2_env):
 
 
 # ---------------------------------------------------------------------------
-# #441: the export tmp sweep.
+# the export tmp sweep.
 # ---------------------------------------------------------------------------
 
 

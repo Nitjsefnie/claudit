@@ -1,4 +1,4 @@
-"""Source-level and route-level guards for the page shell (issues #447/#448).
+"""Source-level and route-level guards for the page shell.
 
 Same boundary as test_a11y_wiring.py: node cannot parse JSX and nothing
 here renders React, so a page can lose its level-one heading or its main
@@ -66,7 +66,7 @@ def _panel_src(name: str, src: str) -> str:
     return src[start:end]
 
 
-# -- One h1 per page (issue #447) ---------------------------------------
+# -- One h1 per page ---------------------------------------
 
 def test_every_page_renders_exactly_one_h1():
     """Each page state renders exactly one level-one heading, named for
@@ -115,7 +115,7 @@ def test_sign_in_page_carries_exactly_one_h1():
     assert len(re.findall(r"<h1\b", src)) == 1
 
 
-# -- The main landmark (issue #447) --------------------------------------
+# -- The main landmark --------------------------------------
 
 def test_main_landmark_is_unique_and_shell_level():
     """Exactly one <main> exists across the src tree: the shell's, in
@@ -154,7 +154,7 @@ def test_inspector_detail_pane_is_a_named_section():
     assert '<section className="session-detail" aria-label="Event detail">' in sv
 
 
-# -- The favicon (issue #448) --------------------------------------------
+# -- The favicon --------------------------------------------
 
 def test_index_declares_a_same_origin_icon():
     """index.html declares the icon as a same-origin path: the CSP's

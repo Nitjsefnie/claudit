@@ -1,4 +1,4 @@
-"""The three load-bearing guards of the clean restamp (issue #391).
+"""The three load-bearing guards of the clean restamp.
 
 Each guard below can be deleted with the rest of the suite still green,
 so each gets one test that fails under its deletion:
@@ -132,7 +132,7 @@ def _guard_rows(c) -> dict[int, tuple]:
 
 
 def test_clean_restamp_keeps_the_provider_shapes_apart(fresh_db, monkeypatch):
-    """The provider match in _SQL_CLEAN_RESTAMP (issue #391, T1).
+    """The provider match in _SQL_CLEAN_RESTAMP (T1).
 
     Row X (provider 'xh') and row Y (provider NULL) of one model carry
     the SAME stored fingerprint string — the cross-shape collision the
@@ -196,7 +196,7 @@ def test_clean_restamp_keeps_the_provider_shapes_apart(fresh_db, monkeypatch):
 
 
 def test_logic_digest_moves_the_fingerprint(monkeypatch):
-    """The logic digest in rate_fingerprint._document (issue #391, T2).
+    """The logic digest in rate_fingerprint._document (T2).
 
     The fingerprint covers the pricing modules' AND the reprice pass's
     source, so a rule change shipped with a PRICING_VERSION bump moves
@@ -218,7 +218,7 @@ def test_logic_digest_moves_the_fingerprint(monkeypatch):
 
 
 def test_schedule_weekday_order_is_normalised(monkeypatch):
-    """sorted(days) in rate_fingerprint._schedule (issue #391, T3).
+    """sorted(days) in rate_fingerprint._schedule (T3).
 
     A schedule window's days are a SET of weekday names; the digest
     must see them in one canonical order, so the same window spelled
@@ -227,7 +227,7 @@ def test_schedule_weekday_order_is_normalised(monkeypatch):
     different day set must still fingerprint differently. The window
     rides the TAIL index (len(windows), here 0: the pair has no dated
     window), the entry resolve() consults once every dated window has
-    ended (issue #377). Drop the sorted() and the two orders serialize
+    ended. Drop the sorted() and the two orders serialize
     differently: the equality assertion below fails.
     """
     monkeypatch.setattr(

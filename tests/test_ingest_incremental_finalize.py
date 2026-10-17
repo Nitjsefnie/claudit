@@ -1,4 +1,3 @@
-"""Failure recovery tests for derived-state finalization."""
 from __future__ import annotations
 
 import pytest

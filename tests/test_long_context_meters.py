@@ -1,10 +1,10 @@
-"""Per-model long-context meter thresholds and factors (issue #878).
+"""Per-model long-context meter thresholds and factors.
 
 long_context_meters groups model keys by threshold; optional per-model
 input/output factors override the global defaults. Every member therefore
 has an explicit threshold. A Claude-format record above its model's threshold bills
 the band and carries the flag; every other Claude-format row keeps the
-NULL marker (issue #249's reprice-equals-reparse law forces the decision
+NULL marker (the reprice-equals-reparse law forces the decision
 into the parse path). The Codex lane and the reprice re-derivation read the
 same threshold.
 """
@@ -40,7 +40,6 @@ METERS = {
 
 
 def _install_tables(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The synthetic membership, meters and rates the decisions consult."""
     monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS", MEMBERS)
     monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", METERS)
     monkeypatch.setattr(pricing, "MODEL_RATES",
@@ -245,7 +244,7 @@ def test_reprice_derives_the_flag_from_the_model_threshold(monkeypatch):
 
 
 def test_reprice_unbills_a_lapsed_members_stored_true(monkeypatch):
-    """Issue #833: the membership lapsed but the stored flag is the
+    """the membership lapsed but the stored flag is the
     member era's TRUE — below the global threshold the one non-member
     shape no parse path stores. The reprice re-derives the Codex path's
     threshold test for a non-member's stored TRUE: the row unbills; a

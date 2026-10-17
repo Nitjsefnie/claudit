@@ -1,4 +1,3 @@
-"""Pure halves of the rendered project-picker acceptance rules."""
 from __future__ import annotations
 
 import json

@@ -1,12 +1,6 @@
-"""The browser's codex fork handling, end to end through node.
-
-The fork fixtures' browser pins: the replayed prefix is marked isReplay
-(issue #687), the head-scan fork flag reads the FIRST real session_meta,
-and a parent + fork loaded together agree on the parent's model (issue
-#713) — the dedup winners are the parent's originals, in both load
-orders. Split from test_parser_js_lanes.py, whose size ratchet the fork
-browser tests outgrew.
-"""
+"""Browser fork parsing marks replayed prefixes and reads the first session_meta.
+Loading parent and fork in either order must agree on the parent's model
+and choose the parent's original records as dedup winners."""
 from __future__ import annotations
 
 import json
@@ -54,7 +48,7 @@ def test_the_browser_marks_a_forks_replayed_prefix():
 @pytest.mark.skipif(
     shutil.which("node") is None, reason="node not available")
 def test_the_browser_fork_scan_advances_past_a_needle_mention():
-    """The mirror of the backend's fork-advance edge (issue #687 delta):
+    """The mirror of the backend's fork-advance edge ( delta):
     a needle mention does not decide the fork flag - the first real meta
     does."""
     mention = ('{"timestamp":"2026-06-14T12:00:00.000Z","type":"event_msg",'
@@ -81,9 +75,9 @@ def test_the_browser_fork_scan_advances_past_a_needle_mention():
 @pytest.mark.skipif(
     shutil.which("node") is None, reason="node not available")
 def test_the_browser_parent_and_fork_agree_on_the_parents_model():
-    """Issue #713's browser half: a lone fork file cannot know the model
+    """ browser half: a lone fork file cannot know the model
     its replayed prefix ran on (the parent is a different file; a lone
-    parse keeps the #653 fallback — SV-PARSER-SPEC records why), but with
+    parse keeps the fallback — SV-PARSER-SPEC records why), but with
     a parent and its fork loaded together the dedup winner of a replayed
     uuid is the parent's original, so the surviving entries carry the
     model the parent had in force. Pinned in BOTH load orders: the
@@ -185,7 +179,7 @@ def _tool_rollout(text, session_id, lines):
 @pytest.mark.skipif(
     shutil.which("node") is None, reason="node not available")
 def test_the_browser_dedups_a_forks_replayed_tool_calls():
-    """Issue #766's browser half: with a parent and its fork loaded
+    """ browser half: with a parent and its fork loaded
     together, one copy of each replayed tool call survives — the parent's
     original, the same winner the DB's tool_uses.is_canonical keeps — and
     computeSessionStats does not double-count the replayed calls. The

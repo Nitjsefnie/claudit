@@ -1,4 +1,4 @@
-"""Source-level pins for issue #697: the bar panels' ONE hover treatment
+"""Source-level pins for the bar panels' ONE hover treatment
 and the crosshair's snap.
 
 The suite cannot render React (node parses no JSX and nothing here
@@ -16,7 +16,7 @@ The crosshair guards pin WHERE the dashed vertical is drawn: at the x of
 the datum the tooltip describes -- the bucket/bar centre on a bucketed
 panel, the interpolated point on a line panel -- never at the raw
 cursor. Cursor-following is the TOOLTIP's job; a crosshair at tip.x
-describes nothing (issue #697). The enumeration is complete over src/ as
+describes nothing. The enumeration is complete over src/ as
 of this fix: the NINE hover crosshairs in served sources are the six
 below plus ToolErrorRatePanel, the context-growth ComparisonRow, and
 ContextGrowthView's (src/context-growth-view.jsx, already snapped to
@@ -32,8 +32,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CHARTS = ROOT / "src" / "dashboard-charts.jsx"
 EXTRA = ROOT / "src" / "dashboard-charts-extra.jsx"
-# #690 moved ReplyLatencyPanel and ResponseSizesPanel into their own
-# modules.
 REPLY = ROOT / "src" / "reply-latency-panel.jsx"
 RSIZES = ROOT / "src" / "response-sizes-panel.jsx"
 TTL = ROOT / "src" / "cache-ttl-panel.jsx"
@@ -131,7 +129,7 @@ def test_crosshairs_snap_to_the_hovered_datum_not_the_cursor():
     """Wherever a crosshair is drawn it marks the x of the datum the
     tooltip describes: the bucket/bar centre on a bucketed panel, the
     interpolated point on a line panel. A crosshair at tip.x is the raw
-    cursor and describes nothing (#697)."""
+    cursor and describes nothing."""
     tsp = _charts_panel("TimeSeriesPanel")
     ttl = _strip_line_comments(TTL.read_text(encoding="utf-8"))
     cbc = _extra_panel("CostByContextPanel")
@@ -143,7 +141,7 @@ def test_crosshairs_snap_to_the_hovered_datum_not_the_cursor():
     assert _crosshair_x1(tsp, "TimeSeriesPanel") == "tip.cx"
     assert _crosshair_x1(cbc, "CostByContextPanel") == "padL + tip.idx * bw + bw / 2"
     assert _crosshair_x1(ttl, "CacheTTLPanel") == "xScale(bins[tip.idx].start) + barW / 2"
-    # ...and the reference's cx is the hovered bar's centre, not the cursor.
+    # ..and the reference's cx is the hovered bar's centre, not the cursor.
     assert "cx: bar.x + bar.width / 2," in tsp
 
     # Line panels snap to the interpolated point (the outlier branch to
@@ -176,7 +174,7 @@ def test_crosshairs_snap_to_the_hovered_datum_not_the_cursor():
     # Error Rate panel snaps its hover to the nearest bucket centre
     # (xs(ts + bucketMs / 2) is where its own lines plot) and the
     # context-growth ComparisonRow to the hovered turn. Both single-
-    # branch handlers. #690: the tool panel's crosshair became its hit
+    # branch handlers. the tool panel's crosshair became its hit
     # columns -- the hovered union bucket's column lifts, keyed on the
     # same snapped tip -- so its position indicator is pinned as the
     # column keying, not a crosshair x1.
@@ -194,7 +192,7 @@ def test_crosshairs_snap_to_the_hovered_datum_not_the_cursor():
     assert "cx: xScale(turn)," in cmp_, (
         "ComparisonRow: the tip must carry the hovered turn's plotted x")
 
-    # The ninth site (found in the re-review round): ContextGrowthView's
+    # The ninth site: ContextGrowthView's
     # crosshair keys on a hoverIdx state rather than a tip object and is
     # already snapped to the hovered turn's plotted x -- pinned so a
     # regression to the cursor fails here too.

@@ -22,7 +22,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load(name):
-    """Import scripts/ci/<name>.py by path (scripts/ci is not a package)."""
     path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
@@ -133,8 +132,6 @@ def test_git_failure_raises_query_error():
         raise AssertionError("expected QueryError")
 
 
-# --- the trigger hit and the verdict ---------------------------------------
-
 def test_first_trigger_hit_names_the_commit_and_path():
     commits = [
         ("c" * 40, ["backend/app.py"]),
@@ -184,8 +181,6 @@ def test_head_verdict_unreadable_compare_publishes_red():
     assert "fetch failed" in summary
 
 
-# --- publishing -------------------------------------------------------------
-
 def _capture_gh(fail_first=0):
     calls = []
 
@@ -232,8 +227,6 @@ def test_publish_with_retry_raises_after_two_failures():
         raise AssertionError("expected QueryError")
 
 
-# --- the event mode ---------------------------------------------------------
-
 def test_env_selects_single_pr_mode():
     heads = gf.heads_for_run(
         {gf.ENV_PR: "9", gf.ENV_HEAD_SHA: HEAD}, [])
@@ -276,8 +269,6 @@ def test_scannable_is_the_predicate_selection_and_counting_share():
     assert not gf.scannable(
         {"number": 4, "sha": None, "base": "master", "repo": ""})
 
-
-# --- main wiring ------------------------------------------------------------
 
 def test_main_publishes_one_check_per_open_head(monkeypatch, tmp_path):
     run_gh, _ = _capture_gh()
@@ -369,8 +360,6 @@ def test_dry_run_publishes_nothing(monkeypatch):
     assert exit_code == 0
     assert not published
 
-
-# --- the workflow wiring ----------------------------------------------------
 
 def _workflow_text():
     return (REPO_ROOT / ".github" / "workflows" / "gate-freshness.yml"

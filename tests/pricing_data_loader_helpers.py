@@ -204,7 +204,7 @@ def _with_schedule(schedule=None) -> dict:
     return doc
 
 
-# 2031-01-06 is a Monday.
+# The sample instant is a Monday.
 SCHEDULE_CASES = [
     ("2031-01-04T12:00:00Z", R_WEEKEND),     # Saturday, all day
     ("2031-01-05T23:30:00Z", R_WEEKEND),     # Sunday: first match wins over wrap
@@ -290,10 +290,10 @@ def _provider_only_doc() -> dict:
 _CLAUDE_DEFAULT_ENTRY = dict(DEFAULT_ROW)
 
 
-# --- a variant suffix folds to the bare id (issue 72) ------------------------
-# A variant suffix (:nitro, :floor) is a service tier, not a price: the
+# --- a variant suffix folds to the bare id ------------------------
+# A variant suffix (:nitro,:floor) is a service tier, not a price: the
 # tiered id resolves to the bare model's row, exactly as pricing.
-# _provider_key resolves it. Only :free changes price (zero), and
+# _provider_key resolves it. Only:free changes price (zero), and
 # resolveModelRate prices it before the provider lookup. Same synthetic
 # row, same assertions as tests/test_pricing.py, browser side.
 

@@ -1,4 +1,4 @@
-"""Fail-closed vocabulary gate for the tests/-tree scans (issue #510).
+"""Fail-closed vocabulary gate for the tests/-tree scans.
 
 Three files the suite-cost fixture pins (tests/test_db_marker.py,
 tests/test_no_pinned_version_literals.py, tests/test_scratch_db.py)
@@ -57,7 +57,7 @@ def module_def_vocab(source: str) -> tuple[frozenset[str], bool]:
     """(every name the source may spell, whether the source may carry a
     ``pytest.fixture`` decorator application) for one module's source.
 
-    The def-site index for the db-marker derivation (issue #715): the
+    The def-site index for the db-marker derivation: the
     first set unions, over every code object, ``co_names``,
     ``co_varnames`` (a fixture REQUEST binds its name only as a
     parameter — invisible to ``co_names`` and ``co_consts``) and each
@@ -76,6 +76,6 @@ def module_def_vocab(source: str) -> tuple[frozenset[str], bool]:
     parameter names in no surviving code object, so the index cannot
     see it. Such a def never executes and never registers at
     runtime, which is the precondition the derivation's parity claim
-    rests on (issue #715 review, PR #730).
+    rests on ( review).
     """
     return def_vocab(source)

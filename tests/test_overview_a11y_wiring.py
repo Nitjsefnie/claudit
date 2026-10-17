@@ -1,4 +1,4 @@
-"""Source-level guards for the Overview accessibility findings (issue #395).
+"""Source-level guards for the Overview accessibility findings.
 
 Same boundary as test_a11y_wiring.py and test_panel_wiring.py: node cannot
 parse JSX and nothing here renders React, so a legend can dim its own text
@@ -12,7 +12,7 @@ suite stays green. These guards read the sources directly and pin:
    4.84:1 over --bg-card at full opacity, 2.51:1 at the old 0.6 (axe
    color-contrast);
 5. the legend checkbox: its visible box stays in proportion with the 11px
-   legend text and no larger than the 14px panel title (issue #474, which
+   legend text and no larger than the 14px panel title (which
    found the 24x24 target this finding installed rendering as the largest
    element in its row), and the 24x24 target SC 2.5.8 asks for is met by
    the SPACING exception instead — consecutive rows' centres at least 24px
@@ -20,7 +20,7 @@ suite stays green. These guards read the sources directly and pin:
    every one of the five containers (axe target-size; the default control
    renders 13x13);
 6. each TopBar nav button carries `aria-current` bound to its own route
-   equality, so the active page is exposed beyond the .on class (axe
+   equality, so the active page is exposed beyond the.on class (axe
    aria-current-valid... its absence left state class-only);
 7. the CSS mechanisms that keep the Overview inside 320 px: wrapping panel
    toolbars, a wrapping sub-panel row, a cell floor that fits the 320 px
@@ -85,12 +85,9 @@ def _panel_src(name: str, src: str) -> str:
 
 
 def _legend_srcs() -> list[str]:
-    """The files that may hold legend checkbox rows: dashboard-charts
-    -extra.jsx and, since #652 moved the Tool Error Rate panel into its
-    own module, that module too. A hand-rolled row cannot hide in
-    either."""
-    # #690 moved ReplyLatencyPanel and ResponseSizesPanel into their own
-    # modules; their rows are the shared component's like every other.
+    """Inspect every module that may hold legend checkbox rows.
+    Tool, reply-latency and response-size panels use the shared row like
+    dashboard-charts-extra; a handwritten row must not hide in a module."""
     return [
         _strip_line_comments(EXTRA.read_text(encoding="utf-8")),
         _strip_line_comments(TOOL_PANEL.read_text(encoding="utf-8")),
@@ -160,7 +157,7 @@ def test_legend_rows_keep_a_nontext_state_affordance():
     toggled on) survives on the checkbox itself -- a non-text element
     the AA contrast floor does not reach -- rather than on the text.
 
-    Since issue #474 the checkbox IS the colour key, so the row holds
+    the checkbox IS the colour key, so the row holds
     exactly TWO spans (the series name and its count): the separate 10px
     swatch is gone, because a tinted checkbox beside a swatch of the
     same hue showed the series colour twice and made the 24px box the
@@ -202,14 +199,10 @@ def test_legend_rows_keep_a_nontext_state_affordance():
 
 # -- Finding 5: checkbox targets are at least 24x24 --------------------
 
-# SC 2.5.8's spacing exception: an undersized target passes when the
-# 24px circles centred on two targets do not MEET, so their centres
-# must be 25px apart. 24 is the tangent case, where the circles touch;
-# issue #474 takes the margin. Measured (headless Chromium, DPR 1): at a
-# 25px separation axe is clean, at 19px it reports 46-66 violations.
+# SC 2.5.8's spacing exception requires the 24px circles around undersized
+# targets not to touch; 25px centre separation leaves a margin over tangency.
 _LEGEND_MIN_CENTRE_SEP_PX = 25
-# The panel title the checkbox must not exceed, measured on the deployed
-# Overview (issue #474's own table): 14px font.
+# Checkboxes must not exceed the panel title's 14px font size.
 _LEGEND_TITLE_PX = 14
 
 
@@ -278,29 +271,12 @@ def test_legend_checkboxes_are_proportionate_to_the_legend_text():
 
 
 def test_legend_rows_keep_the_sc_2_5_8_spacing_exception():
-    """With the box back at 13px the row spacing carries the rule: two
-    undersized targets pass when the 24px circles centred on them do not
-    meet, so consecutive rows' centres must sit at least 25px apart --
-    the band height plus the container's row gap.
-
-    This is the load-bearing half of the fix and it is measured, not
-    assumed: at a 6px gap the centres measured 19px and axe reported 46-66
-    `target-size` violations on a wrapped legend, from 1718px down to
-    320px; at 14 they measure 27px and axe is clean at every width, and a
-    25px separation is clean too (issue #474, headless Chromium, DPR 1).
-
-    The band is taken as the checkbox's own edge. The legend text's line
-    box is the same 13px, and any taller child (a longer wrapped name)
-    only pushes the band UP, so this is the conservative direction.
-
-    The COLUMN gap is controlled too, not left as an uncontrolled limb
-    of the same literal. Two checkboxes in one row are separated by the
-    row gap, the label's text, and the column gap; with the text
-    measured at zero width the floor on their centre separation is
-    `box + column`. Asserting that floor rather than the measured 37px
-    can only fail when the geometry is definitely too tight -- a real
-    label is always wider than nothing -- so it never passes a layout
-    that violates the exception."""
+    """With a 13px checkbox, row spacing must satisfy the target-size exception.
+    The 24px circles around undersized targets must not touch, requiring at
+    least 25px between consecutive centres. Use the checkbox edge as the band;
+    a taller child only increases separation, so this is conservative.
+    Also bound the column gap: box plus gap is a lower bound on separation
+    with zero-width text, so a passing bound cannot admit overlapping targets."""
     srcs = _legend_srcs()
     rows = _checkbox_rows()
     assert len(rows) == 1, (
@@ -308,11 +284,9 @@ def test_legend_rows_keep_the_sc_2_5_8_spacing_exception():
         "legend row appeared; reuse the shared component")
     box = _legend_box_px(rows[0][1])
     gaps = [g for src in srcs for g in _legend_container_gaps(src)]
-    # Eight call sites share six containers: ToolUsagePanel renders one
-    # container for its per-tool rows and its Other row, and #773 moved
-    # the tool panel's two strips below its chart as separate
-    # data-role="legend" containers (#690's PickerRow fold is gone with
-    # that relocation).
+    # Eight call sites share six containers: ToolUsagePanel shares one for
+    # per-tool and Other rows. The tool panel has two separate legend strips
+    # below its chart; each container must carry the spacing rule.
     assert len(gaps) == 6, (
         f"{len(gaps)} of the 6 legend containers read as a wrapping flex "
         f"row with an explicit px gap -- one moved or lost its spacing")
@@ -368,10 +342,7 @@ def _has_flexwrap(body: str) -> bool:
 
 
 def test_panel_toolbars_wrap_below_320():
-    """Four panel toolbars refused to wrap, so at 320 px their intrinsic
-    width (title + buttons + model select) pushed the document to
-    scrollWidth 539 (measured, signed-in, headless Chromium): the page
-    scrolled horizontally. Each toolbar and its header row must wrap."""
+    """Panel toolbars and header rows must wrap to avoid horizontal overflow."""
     src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
     heat = _strip_line_comments(HEATMAP_PANEL.read_text(encoding="utf-8"))
     for panel, psrc in (("ToolUsagePanel", src),
@@ -408,11 +379,11 @@ def test_panel_toolbars_wrap_below_320():
 
 
 def test_context_growth_panel_is_one_chart_on_a_measured_width():
-    """The per-model sub-panel grid is gone (#649): the panel measures
+    """The per-model sub-panel grid is gone: the panel measures
     its own box (its chart takes the card's width, whatever the
     viewport) and renders exactly one ComparisonRow, with no per-model
     cell geometry left to overflow a 320 px card. The two mechanisms
-    that failed there (#395: a prop-sized svg inside a flexed cell, and
+    that failed there (a prop-sized svg inside a flexed cell, and
     a row that refused a second line) belonged to the grid's cells; with
     the grid gone the shape itself is the guard."""
     src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))

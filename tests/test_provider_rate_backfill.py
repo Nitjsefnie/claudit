@@ -1,4 +1,3 @@
-"""One-time historical OpenRouter provider-rate rewrite tests."""
 from __future__ import annotations
 
 import copy
@@ -23,7 +22,6 @@ sys.path.insert(0, str(CI))
 
 
 def _load():
-    """Import scripts/ci/backfill_provider_rates.py by path."""
     path = CI / "backfill_provider_rates.py"
     spec = importlib.util.spec_from_file_location("backfill_provider_rates", path)
     assert spec and spec.loader
@@ -75,14 +73,13 @@ def _doc(hosts: dict[str, list[dict]]) -> dict:
         providers={MODEL: hosts},
         tracked={MODEL: {"id": MODEL_ID}},
         # At the backfill horizon: every seeded row entry is dated at or
-        # before it, as issue #931 requires of a stored document.
+        # before it, as requires of a stored document.
         fetched=AS_OF,
     )
 
 
 @dataclass
 class BackfillCase:
-    """Inputs for one synthetic backfill invocation."""
     hosts: dict[str, list[dict]]
     states: list[tuple[str, dict]]
     as_of: str
@@ -92,7 +89,6 @@ class BackfillCase:
 
 
 class BackfillFetches:
-    """Network stubs used by every backfill test in this file."""
     def __init__(self, endpoints: list[dict], log: dict) -> None:
         self.endpoints = endpoints
         self.log = log

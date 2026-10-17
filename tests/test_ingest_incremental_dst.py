@@ -1,4 +1,3 @@
-"""Differential tests for incremental rebuilds around timezone transitions."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -25,7 +24,6 @@ _DST_CASES = (
 
 
 def _use_timezone(monkeypatch: pytest.MonkeyPatch, zone: str) -> None:
-    """Run each viz connection with one database session timezone."""
     original = db.viz_conn
 
     @contextmanager
@@ -38,7 +36,6 @@ def _use_timezone(monkeypatch: pytest.MonkeyPatch, zone: str) -> None:
 
 
 def _change_records_and_compare(times: tuple[str, str]) -> None:
-    """Change two records and compare incremental tables to a full rebuild."""
     with db.viz_conn() as conn:
         for line_num, timestamp in enumerate(times, 1):
             conn.execute(

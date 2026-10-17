@@ -1,4 +1,3 @@
-"""Named Bash file and directory writes (backend/bash_reads.py)."""
 from __future__ import annotations
 
 import json

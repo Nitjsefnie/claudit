@@ -1,6 +1,6 @@
-"""The sign-in page records the start of the sign-in journey (#436).
+"""The sign-in page records the start of the sign-in journey.
 
-Issue #436 item (1) measures sign-in submit -> signed-in page, and that
+The sign-in journey measures submit -> signed-in page, and that
 journey spans a document that no longer exists by the time the signed-in
 page runs: the form POSTs, the server answers a bare `303` to `/`, and
 the marker has to survive the navigation to be measured at all.
@@ -159,7 +159,7 @@ def test_a_browser_without_session_storage_still_submits(page):
 
 
 def test_every_rendered_signin_page_carries_the_marker(page):
-    """A failed sign-in re-renders the full page (issue #395), and the
+    """A failed sign-in re-renders the full page, and the
     user submits again from it. A marker present only on the first render
     would time the FIRST attempt's start against the SECOND attempt's
     render -- a number nobody measured."""

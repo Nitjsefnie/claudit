@@ -1,4 +1,3 @@
-"""Real-child cancellation tests for export cleanup (issue #259)."""
 from __future__ import annotations
 
 import asyncio

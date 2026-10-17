@@ -1,4 +1,3 @@
-"""Codex and Kimi transcripts through claudit's parse_file (D2, D3, D7)."""
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,7 +10,7 @@ from tests import scratch_db
 
 def _parse_codex_wire(blob: bytes) -> dict:
     """A synthetic codex wire through the lane parse and projection,
-    minus parse_file's issue-653 refusal: this module's latency fixtures
+    minus parse_file's model-declaration refusal: this module's latency fixtures
     declare no model, which the entry point refuses."""
     return parse.to_claudit(
         parse_codex.parse("sessions/p/s/wire.jsonl", blob), "codex")
@@ -84,8 +83,7 @@ def test_lane_tool_uses_carry_claudit_columns():
 
 
 def test_a_claude_line_with_a_string_message_sniffs_claude():
-    """A non-dict "message" must not crash the legacy rung (it used to
-    raise AttributeError on .get); the file keeps sniffing claude."""
+    """A non-dict message must not raise on .get; keep sniffing Claude."""
     blob = b'{"sessionId":"x","type":"system","message":"hi"}\n'
     assert parse.sniff_format(blob) == "claude"
 
@@ -103,7 +101,6 @@ def test_a_kimi_code_llm_error_line_with_a_string_message_does_not_crash():
 
 @pytest.fixture(name="fresh_db")
 def _fresh_db_fixture(monkeypatch):
-    """Per-test schema reset on a separate DB (tests/test_ingest.py's)."""
     yield from scratch_db.scratch_viz_database(monkeypatch, "parse_lanes")
 
 
@@ -120,7 +117,7 @@ def test_a_lane_transcript_persists_through_ingest(
     """Round trip: parse_file -> ingest._persist must land rows in files,
     records and tool_uses. Guards the schema's NOT NULLs -- request_id is
     NOT NULL DEFAULT '' and files.agent_type is NOT NULL -- which None
-    values from the adapter used to violate for every lane format.
+    values from the adapter must not violate.
 
     The key is the real lane shape (wire.jsonl under sessions/): since
     key_layout owns the mapping, a non-wire basename inside sessions/ is
@@ -158,8 +155,6 @@ def test_a_lane_transcript_persists_through_ingest(
     assert tool_use_id in ids
 
 
-# ---- agent role: what a lane transcript ran as, what a dispatch asked for --
-
 def _lane(name: str) -> dict:
     return parse.parse_file("sessions/p/s/wire.jsonl", (FIX / name).read_bytes())
 
@@ -174,7 +169,7 @@ def _codex_meta(*payloads: str) -> bytes:
 def test_codex_subagent_file_records_its_agent_role():
     """The role rides the second session_meta; the first, without it,
     must not shadow it -- the non-empty value wins. The lane's own
-    spelling folds to the canonical name (issue #650)."""
+    spelling folds to the canonical name."""
     assert _lane("codex_agent_role.jsonl")["agent_type"] == "Explore"
 
 
@@ -266,7 +261,7 @@ def test_codex_spawn_agent_calls_record_what_they_asked_for():
 
 def test_kimi_code_first_profile_name_is_the_agent_type():
     """The in-band profile names the role: kimi's `coder` profile is the
-    implementer role (issue #749); a named profile folds to its
+    implementer role; a named profile folds to its
     canonical name."""
     assert _lane("kimi_code_agent_dispatch.jsonl")[
         "agent_type"] == "implementer"
@@ -366,7 +361,6 @@ def test_lane_roles_and_dispatches_persist_through_ingest(fresh_db):
 
 
 # ---- reply latency: anchor to the model's FIRST assistant output ----------
-#
 # The Claude path ends the window at the first assistant line (a thinking
 # line included); the lanes must end it at the first assistant event of the
 # turn, not at the turn's first billing record, which can land minutes or
@@ -381,7 +375,7 @@ _CODEX_TOKENS = (
 
 
 def _codex_line(sec: int, rtype: str, body: str) -> bytes:
-    """One rollout line `sec` seconds after 2026-09-10T08:00:00Z."""
+    """One rollout line sec seconds after the sample base instant."""
     ts = datetime.fromtimestamp(1_789_027_200 + sec, tz=timezone.utc)
     stamp = ts.strftime("%Y-%m-%dT%H:%M:%SZ").encode()
     return (b'{"timestamp":"%s","type":"%s","payload":{%s}}\n'

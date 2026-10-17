@@ -34,8 +34,6 @@ _PARSER_FIX = Path(__file__).resolve().parent.parent / "fixtures" / "parser"
 DEFAULT = constants.DEFAULT_AGENT_TYPE
 
 
-# ---- pairing: which sidecar belongs to which transcript -------------------
-
 @pytest.mark.parametrize("wire, meta", [
     ("-root-x/s1/subagents/agent-a1.jsonl.xz",
      "-root-x/s1/subagents/agent-a1.meta.json.xz"),
@@ -54,9 +52,9 @@ def test_a_sidecar_pairs_with_the_transcript_beside_it(wire, meta):
 
 
 @pytest.mark.parametrize("key", [
-    "-root-x/s1/subagents/agent-a1.jsonl.xz",   # a transcript
+    "-root-x/s1/subagents/agent-a1.jsonl.xz",
     "-root-x/s1/data/tool-results/x.txt",
-    "sessions/p1/project.json",                 # the project marker
+    "sessions/p1/project.json",
     "sessions/p1/s1/meta.json.xz",              # not a subagent dir
     "sessions/p1/s1/subagents/a3/state.json",
     "x.meta.json",                              # too shallow to be a transcript's
@@ -86,8 +84,8 @@ def test_a_lane_main_wire_never_pairs_with_a_subagent_sidecar():
 
 def test_the_r2_mini_mirror_carries_its_doctrine_sidecar():
     """SV-FIXTURE-SIZE counts r2_mini as holding 1 sidecar; the mirror
-    must hold one the way the code resolves sidecars -- a .meta.json
-    beside its transcript, paired by stem (issue #453)."""
+    must hold one the way the code resolves sidecars -- a.meta.json
+    beside its transcript, paired by stem."""
     root = Path(__file__).resolve().parent.parent / "fixtures" / "r2_mini"
     files = {p.relative_to(root).as_posix()
              for p in root.rglob("*") if p.is_file()}
@@ -96,8 +94,6 @@ def test_the_r2_mini_mirror_carries_its_doctrine_sidecar():
     assert transcript_stem("claude/projB/sess-C/agent-aaaa.jsonl") == (
         sidecar_stem("claude/projB/sess-C/agent-aaaa.meta.json"))
 
-
-# ---- resolution: in-band > sidecar > DEFAULT -------------------------------
 
 def _parsed(fixture: str, key: str) -> dict:
     return parse.parse_file(key, (_PARSER_FIX / fixture).read_bytes())
@@ -109,7 +105,7 @@ _CLAUDE_KEY = "-root-x/s/subagents/agent-a1.jsonl"
 
 def test_legacy_wire_takes_the_sidecar_subagent_type():
     """The top-level value wins; kimi's `coder` profile is the
-    implementer role (issue #749), not the default bucket."""
+    implementer role, not the default bucket."""
     out = agent_sidecar.apply_agent_sidecar(
         _parsed("kimi_legacy_min.jsonl", _LANE_KEY),
         json.dumps({"subagent_type": "coder",
@@ -159,7 +155,7 @@ def test_lane_normalisation_follows_the_key_layout_not_the_sniff():
 
 def test_in_band_kimi_code_profile_wins_over_the_sidecar():
     """In-band wins; the wire's `coder` profile is the implementer role
-    (issue #749), outranking the sidecar's role."""
+    , outranking the sidecar's role."""
     out = agent_sidecar.apply_agent_sidecar(
         _parsed("kimi_code_agent_dispatch.jsonl", _LANE_KEY),
         b'{"subagent_type":"explore"}', _LANE_KEY)
@@ -208,11 +204,8 @@ def test_an_unusable_sidecar_leaves_the_default(sidecar):
     assert out["agent_type"] == DEFAULT
 
 
-# ---- ingest: the sidecar is found in the listing and read per file ---------
-
 @pytest.fixture(name="lane_mirror")
 def _lane_mirror_fixture(monkeypatch, tmp_path):
-    """An empty file:// mirror of the default `claude` bucket."""
     bucket = tmp_path / "r2" / "claude"
     bucket.mkdir(parents=True)
     monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")

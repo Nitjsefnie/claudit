@@ -1,6 +1,6 @@
-"""Guard against CLAUDIT_DATABASE_URL_VIZ silently resolving to production (issue #4).
+"""Guard against CLAUDIT_DATABASE_URL_VIZ silently resolving to production.
 
-backend/app.py:20 calls db.load_dotenv(".env") at import time, and .env
+backend/app.py:20 calls db.load_dotenv(".env") at import time, and.env
 points CLAUDIT_DATABASE_URL_VIZ at the live production `claudit` database.
 load_dotenv only ever os.environ.setdefault()s, so whoever sets the
 variable first wins — and conftest.py claims it before any test module is

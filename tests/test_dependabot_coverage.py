@@ -17,9 +17,9 @@ https://github.com/dependabot/dependabot-core/blob/e3f36c58b9c9a9d8ea281cb58f3f9
 
 Two pip entries whose coverage overlaps therefore double-own a file, and
 each bump of it opens twice. That is exactly what happened with boto3:
-PR #164 (`dependabot/pip/backend/boto3-1.43.99`, from the `/backend`
-entry) and PR #165 (`dependabot/pip/boto3-1.43.99`, from the root entry),
-opened 16 seconds apart, #165 closed as the duplicate (issue #176).
+ (`dependabot/pip/backend/boto3-1.43.99`, from the `/backend`
+entry) and (`dependabot/pip/boto3-1.43.99`, from the root entry),
+opened 16 seconds apart, closed as the duplicate.
 
 The parser below is a line-based reader for THIS file's pinned shape —
 with YAML-decoded inline scalars — and fails loudly on any line it does
@@ -38,7 +38,7 @@ from tests import git_meta
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / ".github" / "dependabot.yml"
 
-# The files issue #176 is about. Discovery is a `git ls-files` glob, so
+# The files is about. Discovery is a `git ls-files` glob, so
 # this equality also proves discovery did not silently come back empty.
 EXPECTED_REQUIREMENTS_FILES = {
     "requirements-dev.txt",
@@ -282,12 +282,9 @@ def _pip_coverage_owners() -> dict[str, list[str]]:
 
 
 def test_no_requirements_file_has_two_owners():
-    """THE regression test: no file may sit under two pip entries.
-
-    Failed before the fix: the `/` and `/backend` entries both resolved
-    backend/requirements.txt, which is how boto3's bump opened twice
-    (#164 from /backend, #165 from the root, 16 seconds apart).
-    """
+    """No manifest may resolve under two pip updater entries.
+    Root and backend directory entries can both own backend/requirements.txt,
+    which would open the same package update twice."""
     git_meta.require_own_git_metadata(REPO_ROOT)
     owners = _pip_coverage_owners()
     duplicates = {path: labels for path, labels in owners.items()

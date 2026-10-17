@@ -1,45 +1,14 @@
-"""No node-listed test file carries a module-level node skip (#743, #746).
-
-A module-wide ``pytestmark`` node skip silently skips the file's
-Python-only tests on a runner without node: #743 found it in one file,
-#746 in seven more, and the module mark is exactly the shape that comes
-back when nobody is looking. The guard reads
-scripts/ci/node_test_files.txt and fails naming file and line when any
-listed file skips node at module level: a ``pytestmark`` assignment
-mentioning node (bare, annotated, list-wrapped, or nested in a
-module-level ``if``/``try``), or a module-level importorskip of node.
-The skip must otherwise ride only the tests that run node.
-
-A class-level ``pytestmark`` is the documented skip shape for a class
-whose every test drives node, and a per-test skipif the shape for one
-test; both are checked (#759), as is a mark inherited through a
-same-file base chain or a conditional class-body mark (#776): a node
-skip - own, class's, inherited, or conditional - must ride a test that
-itself runs node, judged by its transitive same-file call closure
-LAUNCHING node through a ``subprocess`` call whose argv names node (a
-helper chain resolves; the issue's purely-syntactic trap is the chain
-the closure exists to resolve, and #812 the incidental node string in
-the body that used to ground it). A mark predicate built from a
-module-level variable that itself names node
-(``HAS_NODE = shutil.which("node") is not None``) is a node skip too
-(#812), wherever the mark sits. Decorators are excluded from every
-closure step (a skipif names node and would otherwise trivially
-ground), and a function's docstring is excluded (a Python-only test's
-prose must not ground its closure). Residuals, disclosed: a helper
-outside the ``tests.`` package (except comment-share measurement
-calls with literal JavaScript inputs, and the report CLI) or a conftest fixture resolves
-nowhere and fails loud as a false offender, the deny-guard's safe
-direction; a node launched without a ``subprocess`` call (an
-``os.system``, a shelled wrapper) is not seen as an invocation, nor is
-one launched through an aliased or directly imported ``subprocess``
-(``import subprocess as sp``, ``from subprocess import run``); a base
-the walk cannot resolve (out of file, dotted, called) collects no
-mark; the chain-walk ORs every same-file base, matching pytest's own
-MRO-wide mark accumulation (#776). The argv scan is substring-wide over
-each argv element, so a node-named element grounds the call it appears
-in, where a comment does not (comments are not AST). The scan proves
-presence, not exclusivity.
-"""
+"""Node skips must apply only to tests whose transitive call closure launches node.
+A module-wide skip also hides Python-only tests on runners without node.
+Read node_test_files.txt and reject module pytestmark/importorskip shapes,
+including marks in module if/try blocks. Resolve per-test, class, inherited
+and conditional class marks, including predicates from module variables.
+A subprocess argv naming node grounds the closure; decorators, docstrings,
+incidental strings and comments do not. OR all same-file bases, as pytest does.
+Unresolved external helpers or conftest fixtures fail loud, except supported
+comment-measurement calls and the report CLI. Out-of-file/dotted/called bases collect no mark.
+os.system, shell wrappers and aliased/imported subprocess calls are not
+recognised; argv matching proves presence, not exclusivity."""
 from __future__ import annotations
 
 import ast
@@ -83,7 +52,7 @@ def test_no_node_listed_file_sets_a_module_level_node_skip() -> None:
 
 def test_every_node_skip_rides_a_test_that_runs_node() -> None:
     """A node skip - a test's own mark or the class mark it inherits -
-    rides only a test that itself runs node, wherever it sits (#759)."""
+    rides only a test that itself runs node, wherever it sits."""
     offenders = _node_skip_offenders(REPO_ROOT)
     assert not offenders, (
         "node skip(s) on tests that never run node (issue #759): "
@@ -178,7 +147,7 @@ _MARKED_CLASS = (
 
 
 def test_a_python_only_test_in_a_node_marked_class_is_detected() -> None:
-    """Shape one (#759): a test in a node-marked class that never runs
+    """Shape one: a test in a node-marked class that never runs
     node inherits the class mark and skips node-less, where the old
     module-level-only guard could not see it."""
     mod = ast.parse(_MARKED_CLASS + (
@@ -191,7 +160,7 @@ def test_a_python_only_test_in_a_node_marked_class_is_detected() -> None:
 
 
 def test_a_per_test_node_skip_on_a_python_only_test_is_detected() -> None:
-    """Shape two (#759): a per-test node skipif riding a test that never
+    """Shape two: a per-test node skipif riding a test that never
     runs node skips it node-less too - one rule, wherever the skip sits."""
     mod = ast.parse(
         "import shutil\nimport pytest\n"
@@ -326,7 +295,7 @@ def test_a_python_only_member_is_not_saved_by_its_docstring() -> None:
 
 
 def test_a_node_string_in_a_python_only_member_does_not_ground() -> None:
-    """Shape one of #812: a marked member whose only node mention is an
+    """Shape one of a marked member whose only node mention is an
     incidental string (a path, an assert message) never runs node, so it
     is flagged - a string constant no longer grounds a closure."""
     mod = ast.parse(_MARKED_CLASS + (
@@ -336,7 +305,7 @@ def test_a_node_string_in_a_python_only_member_does_not_ground() -> None:
 
 
 def test_a_locally_bound_node_command_still_grounds() -> None:
-    """The #812 control: a member that binds the node path and launches it
+    """The control: a member that binds the node path and launches it
     through subprocess still grounds (the picker-fit shape)."""
     mod = ast.parse(_MARKED_CLASS + (
         "    def test_binds_then_runs(self):\n"
@@ -346,7 +315,7 @@ def test_a_locally_bound_node_command_still_grounds() -> None:
 
 
 def test_a_mark_predicated_on_a_module_node_variable_is_detected() -> None:
-    """Shape two of #812: a node skip spelled through a module-level
+    """Shape two of a node skip spelled through a module-level
     availability variable, with a reason that does not name node, is
     still a node skip on a test that never runs node."""
     mod = ast.parse(
@@ -360,7 +329,7 @@ def test_a_mark_predicated_on_a_module_node_variable_is_detected() -> None:
 
 def test_a_module_mark_predicated_on_a_module_node_variable_is_detected(
 ) -> None:
-    """The module-level spelling of shape two (#812)."""
+    """The module-level spelling of shape two."""
     mod = ast.parse(
         "import shutil\nimport pytest\n"
         "HAS_NODE = shutil.which(\"node\") is not None\n"
@@ -410,7 +379,7 @@ _INHERITED_MARK = ("import shutil\nimport pytest\n"
 
 
 def test_an_inherited_node_mark_reaches_the_derived_class() -> None:
-    """Shape three (#776): the mark rides the MRO - a base-class mark skips a derived Python-only member."""
+    """Shape three: the mark rides the MRO - a base-class mark skips a derived Python-only member."""
     direct = ast.parse(_INHERITED_MARK + "class TestNodeChild(TestNodeBase):\n    def test_python_only_child(self):\n        assert sum([1, 2]) == 3\n")
     chain = ast.parse(_INHERITED_MARK + "class TestMid(TestNodeBase):\n    pass\nclass TestLeaf(TestMid):\n    def test_python_only_leaf(self):\n        assert sum([1, 2]) == 3\n")
     assert _skip_without_node_lines(direct) == [(8, "test_python_only_child")]
@@ -433,7 +402,7 @@ def test_a_base_mark_the_guard_cannot_see_leaves_the_child_alone() -> None:
 
 
 def test_marks_nested_in_class_body_conditionals_are_detected() -> None:
-    """Shape four (#776): if/try at class level hide a pytestmark no better
+    """Shape four: if/try at class level hide a pytestmark no better
     than module-level ones - both wrapped classes get checked."""
     mod = ast.parse(
         "import shutil\nimport pytest\nclass TestIfWrap:\n    if True:\n        pytestmark = pytest.mark.skipif(\n"

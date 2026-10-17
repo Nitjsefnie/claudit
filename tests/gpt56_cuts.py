@@ -1,7 +1,7 @@
 """The GPT-5.6 repricing instants, derived from the loaded rate tables.
 
 These lived in ``backend/pricing.py`` as import-time constants until the
-suite-cost bench's document seam (issue #840): the assert behind them
+suite-cost bench's document seam: the assert behind them
 refused every import whose loaded tables lacked the two rows — a live-data
 dependency no prod module carries, and one the bench's bounded document
 has no reason to satisfy. Only tests price around these instants, so the

@@ -1,4 +1,3 @@
-"""Codex rollout parsing against synthetic wire fixtures."""
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -15,7 +14,7 @@ KIMI_FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
 
 
 def _parse_file_norefusal(file_key: str, blob: bytes):
-    """parse_file minus the issue-653 refusal: the token-math tests parse
+    """parse_file minus the model-declaration refusal: the token-math tests parse
     the no-model fork fixture, which the entry point refuses."""
     fmt = parse.sniff_format(blob)
     return parse.to_claudit(parse.LANE_PARSERS[fmt](file_key, blob), fmt)
@@ -96,7 +95,6 @@ def test_a_rollout_without_a_session_meta_header_is_still_detected():
 # --------------------------------------------------------------------------
 # Trap 1 — a fork inherits its parent's cumulative counter
 # --------------------------------------------------------------------------
-#
 # fixtures/codex/rollout_fork_prefix.jsonl is a forked thread: its
 # session_meta carries forked_from_id and agent_path. Its first token_count
 # (line 5) reports
@@ -143,7 +141,6 @@ def test_every_forked_record_is_a_plausible_single_request():
 # --------------------------------------------------------------------------
 # Trap 2 — duplicate token_count events
 # --------------------------------------------------------------------------
-#
 # The fork fixture holds 20 token_count events. Line 35 (the one a
 # compaction emits, with last_token_usage zeroed) and line 44 both repeat
 # the previous cumulative snapshot: no request happened between them.
@@ -198,7 +195,6 @@ def test_the_three_input_buckets_partition_the_prompt():
 # --------------------------------------------------------------------------
 # Trap 4 — model attribution comes from the preceding turn_context
 # --------------------------------------------------------------------------
-#
 # fixtures/codex/rollout_model_switch.jsonl is a window across a model
 # switch: thread_settings_applied names gpt-5.6-sol through line 28 and
 # gpt-5.6-terra from line 29, with token_count records on both sides. The
@@ -254,7 +250,7 @@ def test_records_before_the_first_declaration_take_the_first_declared_model():
     the leading requests have no turn_context in front of them. The
     replayed prefix is the parent's history and the file's first declared
     model is the model the parent had in force at the fork point — the
-    inherited settings (issue #653) — so the prefix takes it."""
+    inherited settings — so the prefix takes it."""
     blob = (FIX / "rollout_sole_model_prefix.jsonl").read_bytes()
     assert _codex_first_declared_model(blob) == "gpt-5.6-sol"
     out = _parse("rollout_sole_model_prefix.jsonl")
@@ -265,7 +261,7 @@ def test_records_before_the_first_declaration_take_the_first_declared_model():
 
 def test_a_file_declaring_no_model_is_refused_not_stored_as_unknown():
     """The fork fixture declares none. Nothing here derives the model in
-    force, and the ruling (issue #653) refuses a placeholder: the parser
+    force, and the ruling refuses a placeholder: the parser
     invents no attribution the transcript does not carry, and ingest
     fails loudly on the file instead of storing `unknown` rows."""
     blob = (FIX / "rollout_fork_prefix.jsonl").read_bytes()
@@ -280,7 +276,7 @@ def test_the_first_declaration_in_file_order_is_what_backfills_the_prefix():
 
 
 def test_a_multi_model_fork_attributes_its_replayed_prefix():
-    """The issue-529 shape, under the issue-653 ruling: a fork that
+    """A fork that
     replays its parent's history and THEN declares two models of its
     own. No declaration fronts the replayed prefix and two candidates
     follow it, but the first declared model is the parent's model in
@@ -321,13 +317,13 @@ def test_model_ids_stay_as_recorded_after_spelling_normalisation(raw, expected):
 
 
 def test_the_parser_never_labels_a_model_unknown():
-    """The ruling (issue #653): `unknown` is a placeholder for a model
+    """The ruling: `unknown` is a placeholder for a model
     that was never actually unknown, so no parser may emit it — a file
     that cannot attribute is refused instead. Pin it on every lane
     parser at their shared entry point."""
     # rollout_patch_linked.jsonl is in the sweep because it is the one
     # fixture that produces tool_uses rows — without it the tool_uses
-    # half below never runs (review finding, PR 683 round 1).
+    # half below never runs.
     for name in ("rollout_model_switch.jsonl", "rollout_fork_model_switch.jsonl",
                  "rollout_sole_model_prefix.jsonl", "rollout_patch_linked.jsonl"):
         out = _parse(name)
@@ -338,7 +334,7 @@ def test_the_parser_never_labels_a_model_unknown():
 
 
 def test_a_forks_replayed_prefix_is_marked_for_the_canonical_rank():
-    """Issue #687: the rows before the fork's own first model declaration
+    """the rows before the fork's own first model declaration
     are the parent's history journalled in the fork file — is_replay
     flags them for the canonical rank, and the fork's own rows carry
     False."""
@@ -348,10 +344,8 @@ def test_a_forks_replayed_prefix_is_marked_for_the_canonical_rank():
 
 
 def test_a_sol_6_1_rollout_keeps_its_recorded_model_and_prices_it():
-    """Issue #471: a gpt-6.1-sol rollout kept reading as gpt-5.6-sol (the
-    first listed id whose needle the id contains) and billing at twice its
-    price. The id survives verbatim and resolves EXACTLY at its own
-    pricing.json row."""
+    """Keep the declared gpt-6.1-sol id verbatim and resolve its own exact row.
+    A shorter model id contained inside it must not capture attribution or price."""
     out = _parse("rollout_sol_6_1.jsonl")
     assert [r["model"] for r in out["records"]] == ["gpt-6.1-sol", "gpt-6.1-sol"]
     for rec in out["records"]:
@@ -369,7 +363,6 @@ def test_a_sol_6_1_rollout_keeps_its_recorded_model_and_prices_it():
 # --------------------------------------------------------------------------
 # Trap 5 — the same request is journalled in several files
 # --------------------------------------------------------------------------
-#
 # A resumed or forked rollout replays its parent's history into its own
 # file. Per-file parsing is right either way, but ingest sums ACROSS files,
 # and 28,889 per-file records over the local corpus represent only 12,945
@@ -606,7 +599,7 @@ TOOL_USE_KEYS = {
 # --------------------------------------------------------------------------
 
 def test_the_fork_head_advances_and_counts_like_the_parse_loop():
-    """Two codex_fork.head_scan edges (issue #687 delta round): a line
+    """Two codex_fork.head_scan edges ( delta round): a line
     that merely MENTIONS the session_meta needle (here a JSON string
     value) advances - the first session_meta line decides - and the
     boundary counts lines the way the parse loop's splitlines() does, so

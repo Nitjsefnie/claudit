@@ -1,4 +1,3 @@
-"""Section-aware setup classification without network or repository doc edits."""
 from __future__ import annotations
 
 import pytest

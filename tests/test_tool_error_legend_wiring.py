@@ -1,14 +1,7 @@
-"""Source-level guard for the Tool Error Rate panel's legend placement.
-
-Issue #773: that panel was the only section whose legend checkbox strips
-rendered ABOVE its graph — every other panel paints its strip below the
-chart. Nothing in the suite renders React, so the placement defect itself
-is green everywhere except a real browser; this file pins the mechanics
-that decide it. The rendered half — a check that fails when ANY chart's
-legend sits above its plot, over every panel, on the rendered dashboard —
-lives in scripts/ci/panel_layout_rules.mjs (the legend-below-plot rule),
-which reads the same strips off the page.
-"""
+"""Place the Tool Error Rate legend below its graph like every other panel.
+The suite does not render React, so source checks pin the placement wiring.
+The browser legend-below-plot rule in scripts/ci/panel_layout_rules.mjs
+checks those same strips across the rendered dashboard."""
 from __future__ import annotations
 
 import re

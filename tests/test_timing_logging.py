@@ -1,13 +1,6 @@
-"""Operational INFO messages reach the log without CLAUDIT_TIMING (issue
-#378).
-
-timing.py attaches the claudit logger's only handler and INFO level, so
-before the fix a deployment without the flag discarded every INFO line —
-the reprice summary, the rollback-guard skip count, rekey and eviction
-notices — and kept only warnings. The flag named for timing must gate
-the TIMING lines themselves (Phases.done returns early without it), not
-the logger's existence.
-"""
+"""Operational INFO logs must not depend on CLAUDIT_TIMING.
+The flag gates Phases.done timing lines, while the claudit handler and INFO
+level must still expose reprice, rollback, rekey and eviction summaries."""
 import importlib
 import logging
 

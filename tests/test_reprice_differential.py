@@ -1,4 +1,4 @@
-"""The reprice differential (issue #351): the pre-#351 pass vs the
+"""The reprice differential: the legacy pass vs the
 pair-qualified pass.
 
 The pass frozen here as _legacy_reprice_stale is backend/ingest_reprice
@@ -10,7 +10,7 @@ _row_is_unchanged, the fourth assembly helper) from
 backend.ingest_reprice — they must not change behaviour — and keeps
 its SQL constants local. Its one mechanical adaptation: the SELECT
 names the sidecar's rate_fingerprint too, because the shared _StaleRow
-now carries the field; the legacy writes stay the pre-#351 shapes.
+now carries the field; the legacy writes stay the legacy shapes.
 
 Split from test_reprice_parity.py, which sat one line under the
 SV-CI-RATCHETS test ceiling once the differential landed.
@@ -62,7 +62,7 @@ UTC = timezone.utc
 _WINDOW_RATES = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
                  "read": 0.1, "output": 5.0}
 _SONNET_END = datetime(2026, 3, 1, tzinfo=UTC)
-# The real provider rows at import (issue #851: the opus and
+# The real provider rows at import (the opus and
 # sonnet shapes price through their tracked (key, host) rows, and
 # the conftest fixture replaces the module tables with its own
 # minimal world before the shapes install — the snapshot is what
@@ -70,7 +70,7 @@ _SONNET_END = datetime(2026, 3, 1, tzinfo=UTC)
 _REAL_PROVIDER_ROWS = dict(pricing.PROVIDER_RATES)
 
 # ---------------------------------------------------------------------------
-# The differential (issue #351): the pre-#351 pass, frozen verbatim as
+# The differential: the legacy pass, frozen verbatim as
 # _legacy_reprice_stale, and the pair-qualified pass must end every
 # seeded shape at byte-identical (cost_usd, long_context, pricing_version).
 # The frozen copy keeps importing _StaleRow, _record_updates and
@@ -78,9 +78,9 @@ _REAL_PROVIDER_ROWS = dict(pricing.PROVIDER_RATES)
 # the assembly point and must not change behaviour — and keeps its SQL
 # constants local. The one mechanical adaptation: its SELECT names the
 # sidecar's rate_fingerprint column too, because the shared _StaleRow now
-# carries the field; the legacy writes stay exactly the pre-#351 shapes.
-# (request_fee_usd joined the same SELECT when issue #469 added
-# it to _StaleRow; the legacy writes stay the pre-#469 shapes.)
+# carries the field; the legacy writes stay exactly the legacy shapes.
+# The SELECT also carries request_fee_usd to satisfy _StaleRow;
+# legacy writes retain their frozen shapes.
 _LEGACY_SELECT_SQL = """
     SELECT r.file_id, r.line_num, dm.value, r.fresh_tokens,
            r.cache_creation_tokens, r.cache_read_tokens, r.output_tokens,
@@ -98,7 +98,7 @@ _LEGACY_SELECT_SQL = """
 """
 
 # A batch's unchanged rows: version only, no fingerprint — the
-# pre-#351 write shape.
+# legacy write shape.
 _LEGACY_SQL_RESTAMP = """
     UPDATE records_price rp
        SET pricing_version_id = %s
@@ -107,7 +107,7 @@ _LEGACY_SQL_RESTAMP = """
        AND rp.line_num = d.n
 """
 
-# A batch's moved rows: (cost, flag, version) — the pre-#351 shape.
+# A batch's moved rows: (cost, flag, version) — the legacy shape.
 _LEGACY_SQL_REPRICE = """
     UPDATE records_price rp
        SET cost_usd = d.cost, long_context = d.flag,
@@ -123,7 +123,7 @@ log = logging.getLogger("claudit.ingest")
 
 def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
                           ) -> int:
-    """The pre-#351 pass, frozen at base 8d78ce5 for the differential
+    """The legacy pass, frozen at base 8d78ce5 for the differential
     below. Verbatim except: the SELECT names rate_fingerprint (the
     shared _StaleRow carries the field), and the module-level SQL
     constants, logger and REPRICE_BATCH/IngestAborted references
@@ -291,7 +291,7 @@ def _snapshot(c) -> tuple[list[str], list[tuple]]:
     """The whole records table as (column names, rows), ordered.
 
     The three TEXT projections ride beside the raw columns for
-    _versions/_fingerprint (#959 stored the ids); _restore strips them
+    _versions/_fingerprint ( stored the ids); _restore strips them
     before re-inserting, since they are not columns of the table.
     """
     cur = c.execute(
@@ -311,7 +311,7 @@ def _snapshot(c) -> tuple[list[str], list[tuple]]:
 
 
 _PROJECTIONS = ("file_key", "pricing_version", "rate_fingerprint")
-# The snapshot's records_price columns, named beside r.* above (#959
+# The snapshot's records_price columns, named beside r.* above (
 # moved them off records); _restore writes each half to its own table.
 _PRICE_COLS = ("cost_usd", "long_context", "long_context_input_mult",
                "long_context_output_mult", "request_fee_usd",
@@ -443,8 +443,7 @@ def _build_shape_rows(prov, inside_ts: datetime, outside_ts: datetime,
         dict(row("claude-opus-4-7", _SEED_TS), fp=None),        # NULL fp
         # A consistent TRUE flag needs a tally the derivation agrees is
         # above the threshold; FALSE and the NULL seed keep any tally
-        # (the NULL seed's own derivation is FALSE — issue #765's
-        # membership-keyed reprice).
+        # (the NULL seed derives FALSE under membership-keyed repricing).
         row(_METER_MODEL, _SEED_TS, fresh=300_000, flag=True,
             cost=round(pricing.compute_cost(
                 _METER_MODEL, fresh=300_000, output=100, eph5=250,
@@ -455,13 +454,13 @@ def _build_shape_rows(prov, inside_ts: datetime, outside_ts: datetime,
             cost=cost(_METER_MODEL, _SEED_TS),
             fp=fp(_METER_MODEL)),                               # meter FALSE
         # The NULL flag of a member row is a PRE-FOLD shape: under the
-        # membership-keyed reprice (issue #765) a reparse stores the
+        # membership-keyed reprice a reparse stores the
         # decision, so a hand-consistent fingerprint can never pair with
         # it — persist stamps the derived flag beside the fingerprint.
         # Seeded with fp NULL (the conservative stale shape), so both
         # passes take the keyset path and derive FALSE.
         dict(row(_METER_MODEL, _SEED_TS, flag=None,
-                 cost=cost(_METER_MODEL, _SEED_TS)), fp=None),   # #249 NULL
+                 cost=cost(_METER_MODEL, _SEED_TS)), fp=None),   # NULL
         row("gpt-9:free", _SEED_TS, cost=0.0,
             fp=fp("gpt-9:free")),                               # free
         row("claude-opus-99", _SEED_TS),                        # tier
@@ -510,15 +509,15 @@ def _assert_moved_pair_repriced(start, end) -> None:
 
 def test_legacy_and_pair_qualified_pass_agree(
         fresh_db, monkeypatch, synthetic_provider_dated_rate):
-    """THE DIFFERENTIAL (issue #351): every seeded shape — scheduled
+    """THE DIFFERENTIAL: every seeded shape — scheduled
     provider pair (inside and outside the window), dated-window
     boundary (one second either side), NULL ts, naive ts, rollback
     guard, a changed pair and an unchanged pair, NULL-fp row,
-    long_context NULL/FALSE/TRUE (the issue #249 Claude NULL shape
+    long_context NULL/FALSE/TRUE (the Claude NULL shape
     included), free id, tier fallback, unmatchable default, permaslug
     and variant-suffix provider ids — ends at byte-identical
     (cost_usd, long_context, pricing_version) under the frozen
-    pre-#351 pass and the pair-qualified pass, whether the new pass
+    legacy pass and the pair-qualified pass, whether the new pass
     reaches a row through the SQL clean restamp or the keyset."""
     prov = synthetic_provider_dated_rate
     # hhmm 400: inside the schedule's 0300-0600 window AND the dated

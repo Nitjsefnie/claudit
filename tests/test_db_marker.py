@@ -1,4 +1,4 @@
-"""Guards for the mechanical db/portable test split (issue #27).
+"""Guards for the mechanical db/portable test split.
 
 tests/db_marker.py registers every fixture name whose invocation hands
 the test a PostgreSQL-backed database, and the conftest hook applies the
@@ -75,7 +75,7 @@ def _scan_relevant(source: str) -> bool:
     """Whether a test module can contribute to either scanner below.
 
     The vocabulary gate that keeps this file's cost from scaling with
-    the size of unrelated test files (issue #510): a module that names
+    the size of unrelated test files: a module that names
     no fixture and reaches no server is invisible to both the registry
     derivation and the marking guard, and collects no DB facts. The
     fixture half admits on compile-level vocabulary
@@ -237,24 +237,10 @@ def _attribute_chain(child: ast.AST, chain: tuple[str, ...],
 
 @functools.cache
 def _module_facts(tree: ast.Module, source: str) -> _Facts:
-    """Everything both scanners derive, from ONE walk of the tree.
-
-    The single pass that replaced four-plus walks per module (issue
-    #675): `_functions`, `_fixture_defs`, `_mention_roots` and each
-    fixpoint's per-function call sets each walked the tree separately,
-    and the fixpoints re-walked every function per round, so a
-    module's cost scaled with its line count several times over. The
-    cache shares one facts pass between the registry derivation and
-    the marking guard, which read the same modules.
-
-    Attribution is by ENCLOSURE: a node updates every function whose
-    body encloses it — the same facts the old per-function walks
-    produced, because ast.walk(fn) re-visits nested defs. The
-    source-segment mention check stays: a server-call token spelled
-    inside a string is not a Name node; it runs per function only
-    where the module's own text carries a server token at all, the
-    same short-circuit the old mention pass's `or` evaluated.
-    """
+    """Both fixture scanners share one AST facts pass.
+    Update every enclosing function because ast.walk includes nested defs.
+    Keep source-segment checks for server tokens inside strings, which are not
+    Name nodes, but skip them when the module contains no server token."""
     functions: dict[str, _AnyFn] = {}
     fixtures: dict[str, str] = {}
     mentions: dict[str, bool] = {}
@@ -280,7 +266,7 @@ def _module_facts(tree: ast.Module, source: str) -> _Facts:
         # One split per module (C), then a C-side line slice + join per
         # function: ast.get_source_segment re-split the whole source for
         # every function it measured, which was this module's largest
-        # CPU sink after the walk itself (issue #679).
+        # CPU sink after the walk itself.
         lines = source.splitlines()
         for name, node in functions.items():
             if not mentions[name] and _mentions_text("\n".join(
@@ -312,7 +298,7 @@ def _derive_from_modules(modules) -> set[str]:
     Facts come from ONE walk per module (see _module_facts), and the
     fixpoint's rounds move sets only: the old form re-walked every
     not-yet-rooted function per round for call sets that never changed
-    between rounds (issue #675).
+    between rounds.
     """
     facts_of = {name: _module_facts(tree, source)
                 for name, tree, source in modules}
@@ -329,7 +315,7 @@ def _derive_from_modules(modules) -> set[str]:
     # it only ever grows by one defining function in one module, so the
     # union gains exactly that module's names for that function: the
     # value here is `_rooted_fixture_names(fixtures, rooted)` at every
-    # point of use, at a thousandth of the visits (issue #496).
+    # point of use, at a thousandth of the visits.
     rooted_names = _rooted_fixture_names(fixtures, rooted)
     changed = True
     while changed:
@@ -388,7 +374,7 @@ def use_real_tree_sources(real_tree_sources: tuple[tuple[str, str], ...],
 
 
 def _derive_narrow(directory: Path | None = None) -> set[str]:
-    """The DB-rooted fixture names, from the tree on demand (issue #715).
+    """The DB-rooted fixture names, from the tree on demand.
 
     The mention roots live in server-text modules by construction: a
     function roots when its body mentions a server call, and the reach
@@ -508,10 +494,10 @@ def _marking_offenders(directory: Path | None = None) -> list[str]:
     Scans only modules whose text names a server call: a module without
     one has no rooted test (a root is a Name/Attribute id or raw
     segment text, both verbatim in the source), so scanning it can add
-    no offender and is pure walk cost (issue #510).
+    no offender and is pure walk cost.
 
     Each module's facts come from ONE walk (_module_facts, issue
-    #675): the old form re-walked every function per fixpoint round
+    ): the old form re-walked every function per fixpoint round
     for call sets that never changed between rounds. The two callers
     share content artifacts, so narrow derivation and marking receive
     the same AST/source pair and reuse the facts traversal.
@@ -563,8 +549,6 @@ def test_every_server_touching_test_requests_a_db_fixture_or_carries_the_mark():
         + ", ".join(_marking_offenders()))
 
 
-# ---- the vocabulary gate's fail-closed pins (issue #510) ------------
-
 # The server token, split: this file's own text must never contain it,
 # so the marking guard never sees this file as rooted (the same trick
 # _seeded_modules uses).
@@ -600,7 +584,7 @@ def test_a_seeded_rooted_fixture_arrives_in_the_derived_registry(tmp_path):
 
 
 def test_a_vocabulary_free_module_is_not_scanned(tmp_path):
-    # The structural cost pin (issue #510): a module that names no
+    # The structural cost pin: a module that names no
     # fixture and reaches no server never enters the module list the
     # scanners walk, so adding one re-prices the suite by nothing but
     # the gate's own substring check.

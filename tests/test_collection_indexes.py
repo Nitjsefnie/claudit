@@ -1,4 +1,3 @@
-"""Startup policy converges real index catalogs under the schema stamp."""
 from __future__ import annotations
 
 import hashlib
@@ -164,7 +163,7 @@ def test_unused_indexes_dropped_on_startup(monkeypatch):
 @pytest.mark.db
 @pytest.mark.parametrize("key, names", [
     # turn_context carries no index on this branch: records.turn_flags
-    # is an INT4 mask (#959 R5) and GIN has no integer operator class.
+    # is an INT4 mask and GIN has no integer operator class.
     ("context_intake", {"tool_uses_read_targets_idx", "tool_uses_reread_idx"}),
 ])
 def test_analysis_indexes_follow_collection_both_directions(monkeypatch, key, names):
@@ -215,8 +214,8 @@ def test_effective_stamp_changes_only_for_index_policy(monkeypatch):
     def digest(text: str) -> str:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-        # turn_context carries no index on this branch (#959 R5 made
-        # turn_flags an INT4 mask), so only context_intake moves it.
+    # turn_context has no index because turn_flags is an INT4 mask;
+    # only context_intake changes the index-policy stamp.
     for env in ("CLAUDIT_COLLECT_CONTEXT_INTAKE",):
         off = compiler.compile_schema(static, flags.resolve_config({env: "0"}).collection)
         assert digest(off) != digest(on)

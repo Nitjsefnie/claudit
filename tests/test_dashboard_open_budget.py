@@ -1,6 +1,6 @@
-"""The dashboard must not run the context-growth trace query (issue #838).
+"""The dashboard must not run the context-growth trace query.
 
-After PR #787 the dashboard payload stopped carrying the per-file ctx
+After the dashboard payload stopped carrying the per-file ctx
 traces — the Per-Session Context Growth panel fetches
 /api/context-growth/traces itself — but /api/dashboard still ran the FULL
 per-file trace query (api_ctx_growth.ctx_traces_rows, with its file_models
@@ -46,22 +46,17 @@ _EXTRA_JSX = _ROOT / "src" / "dashboard-charts-extra.jsx"
 # panel queries (hourly, response_sizes, churn, total_sessions,
 # cost_by_project, tokens_by_project, file_counts, sessions) + the
 # ctx-end query + the rate-limit query. The trace query is deliberately
-# NOT among them (issue #838). The count pin fails if a panel query is
+# NOT among them. The count pin fails if a panel query is
 # added without a thought; the file_models pin below fails specifically if
 # the trace query comes back.
 _DASHBOARD_STATEMENT_BUDGET = 11
 
-# The payload byte budget for /api/dashboard?range=all on the mini
-# fixture. Measured at ~5.4 KB bare; the seed in
-# test_dashboard_payload_stays_within_budget grows the trace-bearing body
-# past 9 KB, so 8 KB sits well clear of the real body and well below the
-# body the traces would produce. The proof that it goes red when the
-# traces return is recorded in the PR.
+# The payload budget fits the mini fixture but rejects the trace-bearing
+# body seeded by test_dashboard_payload_stays_within_budget.
 _PAYLOAD_BUDGET_BYTES = 8 * 1024
 
 
 class _CountingCursor:
-    """A cursor proxy that records every statement it is asked to run."""
 
     def __init__(self, cur, log):
         self._cur = cur
@@ -112,7 +107,7 @@ def test_dashboard_runs_no_context_trace_query(app_with_data, monkeypatch):
 
     `file_models` is the trace SQL's distinctive CTE (a records scan
     grouped per file); its presence means the full per-file trace query
-    ran — exactly what the ctx_at_end fold no longer needs (issue #838).
+    ran — exactly what the ctx_at_end fold no longer needs.
     """
     statement_log = _log_statements(monkeypatch)
     cache.response_cache.clear()
@@ -132,7 +127,7 @@ def test_dashboard_runs_no_context_trace_query(app_with_data, monkeypatch):
 def test_opening_the_dashboard_runs_the_trace_query_at_most_once(
         app_with_data, monkeypatch):
     """A dashboard open plus a panel open runs the trace query ONCE — the
-    panel's own fetch. The dashboard contributes none (issue #838)."""
+    panel's own fetch. The dashboard contributes none."""
     statement_log = _log_statements(monkeypatch)
     cache.response_cache.clear()
     app_with_data.get("/api/dashboard?range=all")
@@ -211,7 +206,6 @@ def _main_file_with_records() -> tuple[str, str]:
 
 
 def _seed_ctx_turn_inputs(file_key: str, inputs: list[int]) -> None:
-    """Rewrite one file's context inputs to `inputs`, in order."""
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         cur.execute(
@@ -232,7 +226,7 @@ def test_ctx_at_end_is_the_last_turn_not_the_first(app_with_fresh_data):
     first and last array subscripts are indistinguishable there: a future
     edit to subscript 1 would silently make every ctx_at_end the FIRST turn.
     Seed a multi-turn trace whose first and last inputs differ, and pin
-    that the dashboard reports the last one (issue #838).
+    that the dashboard reports the last one.
     """
     file_key, sid = _main_file_with_records()
     _seed_ctx_turn_inputs(file_key, [11, 22, 333])
@@ -255,7 +249,7 @@ def _strip_comments(src: str) -> str:
     lookbehind spares `https://`). The block pass is load-bearing: without
     it a `/* window.deferred.run(...) */` left in the file satisfies the
     pin while the real call was reverted — a false green for the exact
-    defect this pin exists to catch (issue #838 delta review).
+    defect this pin exists to catch ( delta review).
     """
     src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
     return re.sub(r"(?<![:'\"\w])//.*$", "", src, flags=re.M)
@@ -274,12 +268,12 @@ def _traces_effect_src() -> str:
 def test_traces_fetch_routes_setTraces_through_the_deferred_helper():
     """The Context Growth panel's traces fetch must hand `setTraces` to
     `window.deferred.run`, not call it in the commit that lands the fetch
-    (issue #838).
+    .
 
     The POSITIVE assertion is the pin: it matches the deferred call in the
     first traces-fetch effect, so it fails when the routing is reverted to
     either `setTraces(b.traces || [])` or `setTraces(b.traces)`. A
-    `/* ... */` block comment, or a free-standing `//` line comment,
+    `/*... */` block comment, or a free-standing `//` line comment,
     spelling the routing does not satisfy it — those are stripped before
     matching.
     """

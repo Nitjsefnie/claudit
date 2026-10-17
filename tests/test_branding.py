@@ -59,17 +59,11 @@ def _login_client_fixture():
 
 
 def _diff_lines(template: str, served: str) -> list[str]:
-    """+/- lines of the line diff template → served (no context)."""
     return [
         line for line in difflib.unified_diff(
             template.splitlines(), served.splitlines(), lineterm="", n=0)
         if line[:1] in "+-" and line[:3] not in ("+++", "---")
     ]
-
-
-# ---------------------------------------------------------------------------
-# Served index page
-# ---------------------------------------------------------------------------
 
 
 def test_default_page_differs_from_template_only_by_injections(page_client):
@@ -131,7 +125,7 @@ def test_brand_rides_the_existing_injection_script(page_client):
     resp = page_client.get("/")
     served = resp.text
     # The guest cookie the fixture set: IS_GUEST comes out true and
-    # IS_OPERATOR false (a guest is never an operator, #629); window.BRAND
+    # IS_OPERATOR false (a guest is never an operator); window.BRAND
     # rides the SAME <script> line, which now carries the CSP nonce too.
     match = re.search(r"'nonce-([^']+)'",
                       resp.headers["content-security-policy"])
@@ -158,11 +152,6 @@ def test_operator_flag_reads_true_for_an_operator(page_client, monkeypatch):
                         lambda user_id: user_id == 4242)
     served = page_client.get("/").text
     assert "window.IS_GUEST = false; window.IS_OPERATOR = true; " in served
-
-
-# ---------------------------------------------------------------------------
-# The CSP nonce rewrite vs. a brand value containing `<script` (#439)
-# ---------------------------------------------------------------------------
 
 
 class _ScriptCollector(HTMLParser):
@@ -234,7 +223,7 @@ def _node_parses(js: str) -> tuple[bool, str]:
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_brand_containing_an_open_script_tag_leaves_the_page_loadable(
         page_client, monkeypatch):
-    """#439: a brand value may legally contain the text `<script` — it is
+    """a brand value may legally contain the text `<script` — it is
     hostile but not forbidden config. The per-response nonce rewrite must
     not reach INSIDE the bootstrap script's JSON payload and inject its
     attribute's raw quotes there, which terminates the JS string literal
@@ -282,7 +271,7 @@ def test_bootstrap_stays_valid_js_for_every_script_unsafe_brand(
 ])
 def test_every_served_script_element_carries_the_nonce(
         page_client, monkeypatch, title):
-    """The invariant #439's fix rests on, checked under a hostile brand
+    """The rewrite invariant must hold under a hostile brand
     value too: the rewrite tags script ELEMENTS, so every element an
     independent HTML parser sees in the served page carries the
     response's nonce — and, against the template's own count, that no
@@ -354,11 +343,6 @@ def test_nonce_rewrite_tags_every_element_a_browser_sees(html):
         assert 'nonce="NONCE"' in tag, f"untagged element: {out!r}"
 
 
-# ---------------------------------------------------------------------------
-# FastAPI / OpenAPI title
-# ---------------------------------------------------------------------------
-
-
 def test_fastapi_title_follows_env():
     """The FastAPI title is read at import; each case boots a fresh
     interpreter (no lifespan, no DB) and prints app.title."""
@@ -373,11 +357,6 @@ def test_fastapi_title_follows_env():
             capture_output=True, text=True, check=True,
         )
         assert out.stdout.strip() == ("codexmeter" if want else "claudit")
-
-
-# ---------------------------------------------------------------------------
-# Login page
-# ---------------------------------------------------------------------------
 
 
 def test_login_page_default_is_byte_identical(login_client, monkeypatch):
@@ -401,11 +380,6 @@ def test_login_page_escapes_the_name(login_client, monkeypatch):
     assert "<h1>A&lt;B&gt;&amp;&quot;C · sign in</h1>" in html
 
 
-# ---------------------------------------------------------------------------
-# URL-attribute context (the privacy-notice href, #365)
-# ---------------------------------------------------------------------------
-
-
 def test_url_attr_escapes_the_accepted_value_for_the_attribute():
     """The function owns the whole context: an accepted value comes back
     ready to drop into a double-quoted attribute, `&` and `"` included."""
@@ -424,7 +398,7 @@ def test_url_attr_escapes_the_accepted_value_for_the_attribute():
     "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
     "vbscript:MsgBox",
     "//evil.example/steal",
-    # #438: the URL parser maps `\` to `/` for special schemes, so these
+    # the URL parser maps `\` to `/` for special schemes, so these
     # are the `//` scheme-relative shape spelled with a backslash.
     "/\\evil.example/steal",
     "/\\\\evil.example",
@@ -435,7 +409,7 @@ def test_url_attr_escapes_the_accepted_value_for_the_attribute():
     # a relative path); refused anyway, because the rule is positional
     # and a value this shape reaches in one browser may not in another.
     "\\evil.example/steal",
-    # #450: the same ride with a character the parser REMOVES rather than
+    # the same ride with a character the parser REMOVES rather than
     # one it rewrites. A tab, LF or CR is stripped from anywhere in the
     # value, so `/\t/evil.example` is `//evil.example` by the time the
     # browser resolves it — the `//` this guard already refused, spelled
@@ -446,24 +420,24 @@ def test_url_attr_escapes_the_accepted_value_for_the_attribute():
     "/\t//evil.example",
     "/\n//evil.example",
     "/\r//evil.example",
-    # ... and the same ride on the http(s) branch's authority.
+    # .. and the same ride on the http(s) branch's authority.
     "https://\\evil.example",
     "https:///\\evil.example",
     "http:\\\\evil.example",
 ])
 def test_url_attr_refuses_every_non_allowlisted_shape(value):
-    """#365: an allow-list, not a javascript: deny-list. Refused in every
+    """an allow-list, not a javascript: deny-list. Refused in every
     spelling a browser normalises — mixed case, leading whitespace and
     C0 controls the URL parser strips, an inner tab it removes, an HTML
     entity the attribute parser decodes before the URL parser runs —
-    plus data: and vbscript:, the scheme-relative `//` shape, and #438's
+    plus data: and vbscript:, the scheme-relative `//` shape, and
     backslash spelling of it (`/\\host`, which browsers read as
     `//host`)."""
     assert branding.url_attr(value) is None
 
 
-# The values #438 pins as still valid, asserted on the exact body the
-# function returns — a refusal must be the ONLY thing that changes.
+# Accepted values must retain their exact returned body;
+# refusing unsafe values must not rewrite valid ones.
 # Absolute http(s) URLs name the operator's own notice host, so any host
 # is allowed there; a SITE-RELATIVE value must stay on this origin.
 _ABSOLUTE_URLS = [
@@ -482,7 +456,7 @@ _SITE_RELATIVE_URLS = [
 
 @pytest.mark.parametrize("value", _ABSOLUTE_URLS + _SITE_RELATIVE_URLS)
 def test_url_attr_accepts_the_still_valid_values_unchanged(value):
-    """#438 must not narrow the allow-list: each of these comes back as
+    """The backslash guard must not narrow the allow-list: each of these comes back as
     its own body, so a backslash guard cannot have broken a legitimate
     privacy-notice URL (a backslash that means itself is spelled `%5C`)."""
     assert branding.url_attr(value) == value
@@ -490,29 +464,16 @@ def test_url_attr_accepts_the_still_valid_values_unchanged(value):
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_every_accepted_site_relative_url_resolves_same_origin(caplog):
-    """#438 / #450, the property the site-relative branch exists to
-    provide: whatever `url_attr` hands back goes into an href, and a
-    browser resolves it against this origin.
-
-    The negative space is DERIVED, not written out. Two character sets
-    ride the front of the path — every C0 control and space the parser
-    removes or percent-encodes, plus the `/` and the backslash it
-    rewrites to a separator — crossed with every position the escape
-    can sit in. The
-    whole class is measured in node's own WHATWG parser, the
-    implementation this check models, so a shape the repo reasons about
-    wrongly fails here instead of in a browser. A hand-written list can
-    only ever be as complete as the person who wrote it, and two of the
-    three escapes in this file's history (the backslash, then the
-    tab-separated `//`) were exactly the members a hand-written list
-    missed.
-
-    A browser that cannot parse a value at all is not a leak — the
-    anchor goes nowhere — so only a value that parses to a DIFFERENT
-    origin fails. The oracle comes from node, independently of
-    `branding`, so it can contradict the repo's own belief, and both
-    extremes bite: a refuse-everything and an accept-everything mutant
-    each fail this file."""
+    """Site-relative privacy links must resolve against this origin.
+    Whatever url_attr returns becomes an href resolved by the browser.
+    Derive the negative space by crossing all C0 controls and space with slash
+    and backslash separators at every escape position; a handwritten list can
+    omit combinations. Controls can be removed or percent-encoded, while
+    backslashes can be rewritten as separators, changing the interpreted host.
+    Use node's WHATWG URL parser as an independent oracle so it can contradict
+    branding's own interpretation. An unparsable value is not a leak because
+    the anchor goes nowhere; a parsed value with a different origin is a leak.
+    Both refuse-everything and accept-everything mutants must fail the check."""
     base = "https://op.example/dashboard"
     origin = "https://op.example"
     # The class is thousands of refusals by design; the warnings they
@@ -580,11 +541,6 @@ def test_url_attr_refusal_is_visible_to_the_operator(caplog):
     )
 
 
-# ---------------------------------------------------------------------------
-# Export-PNG download filename
-# ---------------------------------------------------------------------------
-
-
 def test_export_filename_default(monkeypatch):
     monkeypatch.delenv("CLAUDIT_APP_NAME", raising=False)
     assert api_export.export_filename("30d", "proj/one") == (
@@ -595,24 +551,18 @@ def test_export_filename_follows_brand(monkeypatch):
     monkeypatch.setenv("CLAUDIT_APP_NAME", "codexmeter")
     assert api_export.export_filename("30d", "proj/one") == (
         "codexmeter_proj_one_30d.png")
-    monkeypatch.setenv("CLAUDIT_APP_NAME", "My Meter")  # slugified like project
+    monkeypatch.setenv("CLAUDIT_APP_NAME", "My Meter")
     assert api_export.export_filename("all", None) == "My_Meter_all_all.png"
 
 
 def test_export_filename_never_leads_with_underscore(monkeypatch):
-    """CLAUDIT_APP_NAME set but empty used to export "_all_all.png"; an empty
-    or whitespace-only value must fall back to the default name."""
+    """An empty or whitespace-only CLAUDIT_APP_NAME falls back to the default filename."""
     monkeypatch.setenv("CLAUDIT_APP_NAME", "")
     assert api_export.export_filename("all", None) == (
         f"{branding.DEFAULT_NAME}_all_all.png")
     monkeypatch.setenv("CLAUDIT_APP_NAME", "   ")
     assert api_export.export_filename("30d", "proj/one") == (
         f"{branding.DEFAULT_NAME}_proj_one_30d.png")
-
-
-# ---------------------------------------------------------------------------
-# Frontend source-level guards
-# ---------------------------------------------------------------------------
 
 
 def test_app_jsx_has_no_literal_brand():

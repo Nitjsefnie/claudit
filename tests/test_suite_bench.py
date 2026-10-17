@@ -72,7 +72,7 @@ def mini_suite_fixture(tmp_path):
     # this config, never the repo's setup.cfg: without the loop scope set,
     # pytest-asyncio's configure-stage deprecation warning — swallowed in
     # a top-level run by Python's default filters — re-enters the OUTER
-    # run's warnings summary from inside these tests (issue #481).
+    # run's warnings summary from inside these tests.
     (tmp_path / "pytest.ini").write_text(
         "[pytest]\nasyncio_default_fixture_loop_scope = function\n",
         encoding="utf-8")
@@ -475,7 +475,7 @@ def _purge_bytecode_caches(root):
 def test_the_bench_compiles_every_pinned_file_before_it_counts(mini_suite):
     # The count must not depend on the caches the checkout arrived with:
     # compiling a module costs about as much again as loading it, and
-    # before #499 the two call sites did not agree on whether the
+    # before the two call sites did not agree on whether the
     # compile had already happened -- the bench leg measured a fresh
     # checkout, the canary measured after the suite had run.
     # warm_bytecode_caches draws that split outside the counted window,
@@ -483,8 +483,7 @@ def test_the_bench_compiles_every_pinned_file_before_it_counts(mini_suite):
     # tree carrying no bytecode caches at all, one measurement must
     # leave EVERY pinned file compiled. Without the warm-up the tree
     # would still be bare, and the gate would read one number while
-    # the tighten bot wrote the other into the budgets (issue #496).
-    #
+    # the tighten bot wrote the other into the budgets.
     # The per-file assertion is what makes it bite: a warm-up that
     # collected only part of the fixture would compile a __pycache__ and
     # still pass a looser "some cache exists" check.
@@ -548,7 +547,7 @@ def test_measurement_records_the_workload_identity(mini_suite):
     # The seed binds a budget to the workload it measured: the
     # measurement records the total line count of the scanned tree,
     # tests/*.py, which the tree-scanning tests spend per-line over
-    # (SV-CI-RATCHETS, issue #524).
+    # (SV-CI-RATCHETS).
     (mini_suite / "tests").mkdir()
     (mini_suite / "tests" / "sub").mkdir()
     (mini_suite / "tests" / "a.py").write_text("x = 1\n", encoding="utf-8")

@@ -1,4 +1,3 @@
-"""Directory write targets from mkdir, mktemp and git (backend/bash_directories.py)."""
 from __future__ import annotations
 
 import pytest
@@ -99,7 +98,7 @@ def test_mktemp_template_is_a_write_target(command, expected):
     ("e=y d=$(mktemp -d /tmp/p.XX) cmd", []),
     ("d=`mktemp -d /tmp/probe.XXXXXX`", []),
     ("d=$(mktemp -d \"$(dirname f)/p.XX\")", []),
-    # Issue #741: a literal paren inside the quoted template is quote
+    # a literal paren inside the quoted template is quote
     # provenance, not substitution nesting.
     ("d=\"$(mktemp '/tmp/p(1).XXXXXX')\"", ["/tmp/p(1).XXXXXX"]),
     ("d=\"$( (mktemp -d /tmp/probe.XXXXXX) )\"", ["/tmp/probe.XXXXXX"]),
@@ -108,7 +107,7 @@ def test_mktemp_template_is_a_write_target(command, expected):
     ('d="$(mktemp -d /tmp/p\\.XX)"', []),
     ("d=\"$(mktemp '/tmp/p.XX\" z)", []),
     ("d=\"$(mktemp -d \\\"/tmp/p.XX\\\")\"", []),
-    # Issue #747: a declaration builtin runs the same substitution and
+    # a declaration builtin runs the same substitution and
     # its assignment arguments carry into the capture's inner scan.
     ("export d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
     ("local d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
@@ -118,8 +117,8 @@ def test_mktemp_template_is_a_write_target(command, expected):
     ("export d=$(mktemp -d /tmp/p.XX) extra", []),
     ("res=$((x > y))", []),  # arithmetic expansion, not a group write
     ("export T=/tmp d=$(mktemp -d $T/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
-    # Issue #770: a builtin's option flags are as transparent to the
-    # capture scan as the bare builtin is since #747.
+    # a builtin's option flags are as transparent to the
+    # capture scan as the bare builtin is.
     ("local -r d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
     ("declare -x d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
     ("local -rx d=$(mktemp -d /tmp/probe.XXXXXX)", ["/tmp/probe.XXXXXX"]),
@@ -164,7 +163,7 @@ def test_directory_targets_join_file_writes_in_order():
     ("local -a arr=(x y)", (None, [], [])),
     # A bare assignment list behind the builtin still carries.
     ("export T=/tmp; cat $T/f.py", ("whole", ["/tmp/f.py"], [])),
-    # Issue #770 negative space: the flags stay transparent on the
+    # negative space: the flags stay transparent on the
     # still-refusing arms too — a capture behind them books no intake,
     # a plain assignment behind them invents no target, and a flag
     # followed by a non-assignment still refuses the segment.
@@ -174,6 +173,6 @@ def test_directory_targets_join_file_writes_in_order():
     ("declare -r x=1 cat f.py", (None, [], [])),
 ])
 def test_declaration_builtin_args_are_not_commands(command, expected):
-    """#747 review: the builtin's non-assignment words are identifier
+    """ review: the builtin's non-assignment words are identifier
     arguments bash rejects, never a command that runs."""
     assert scan(command, "/work") == expected

@@ -1,22 +1,10 @@
-"""Keep `adopt_original_models`' records join on a hashable plan.
-
-The records adoption joins two subsets of `records` on the split uuid
-identity. Since issue #959 task 8 that join was spelled
-`IS NOT DISTINCT FROM` over the three parts — a form PostgreSQL can
-neither hash nor merge — so the planner's ONLY shape was a nested loop
-whose inner side seq-scans the whole `records` table once per replayed
-copy. At corpus scale (14,011 replay rows against 1.79M records) that is
-quadratic and ran for hours; an equality join on the rebuilt identity
-text (the same fragment every other uuid read uses) plans as a hash
-join: equal texts iff equal parts, enforced by uuid_split's docstring
-and schema_dims' CHECK disjointness.
-
-The test seeds a 50/50 winner/replay population, EXPLAINs the actual
-statement `adopt_original_models` executes (captured the way
-`test_ingest_incremental_plan` captures the rollup INSERTs) and fails on
-a Nested Loop; it then checks the adoption itself still moved every
-replayed copy onto its winner's model.
-"""
+"""Keep adopt_original_models on a hashable join of the split uuid identity.
+IS NOT DISTINCT FROM over the three parts cannot hash or merge, forcing a
+nested loop whose inner side scans records once per replayed copy. Equality
+on rebuilt identity text permits a hash join; equal texts imply equal parts
+because uuid_split and schema CHECKs enforce disjoint component encodings.
+Seed a balanced winner/replay population, EXPLAIN the actual captured adoption
+statement and reject Nested Loop, then verify every replay adopts its winner's model."""
 from __future__ import annotations
 
 import re

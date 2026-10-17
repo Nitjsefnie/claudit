@@ -1,4 +1,4 @@
-"""The records.uuid split columns (issue #959 task 8).
+"""The records.uuid split columns.
 
 `records.uuid` stores one identity in exactly one of three slots —
 ``uuid_col`` (native uuid), ``seq`` (the INT4 counter beside it) or
@@ -328,7 +328,7 @@ def test_pure_and_split_rows_of_one_uuid_keep_separate_winners(monkeypatch):
         winners = {text for _line, text, canon in rows if canon}
         # The pure identity has exactly its one row as winner...
         assert winners == {CANON, f"{CANON}:5"}, rows
-        # ...and the split identity still picks ONE of its two copies.
+        # ..and the split identity still picks ONE of its two copies.
         split_rows = [row for row in rows if row[1] == f"{CANON}:5"]
         assert sum(1 for row in split_rows if row[2]) == 1, rows
     finally:
@@ -338,7 +338,7 @@ def test_pure_and_split_rows_of_one_uuid_keep_separate_winners(monkeypatch):
 
 @pytest.mark.db
 def test_the_uuid_index_is_gone_with_its_readers_named():
-    """records_uuid_idx is dropped (#958-class: measured 140 MB on the
+    """records_uuid_idx is dropped (-class: measured 140 MB on the
     full corpus). Its only readers were the two hourly equality probes in
     ingest_rollup_state's incremental branches (recompute_canonical's
     ``uuid = ANY`` winners scan and adopt_original_models' join) — 4 ms

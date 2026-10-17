@@ -1,4 +1,3 @@
-"""Tests moved from test_bash_churn.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
 import pytest
@@ -240,7 +239,6 @@ def test_cat_empty_source_and_unknown_controls(command, expected):
     ("", "x\ny\n", (2, 0)),
 ])
 def test_replace_churn_counts_like_git(old, new, expected):
-    """One occurrence of old → new, diffed as the file would show it."""
     assert replace_churn(old, new) == expected
 
 

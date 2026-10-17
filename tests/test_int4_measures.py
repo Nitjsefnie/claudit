@@ -1,12 +1,12 @@
 """Per-row measure columns narrow to INT4; every rollup total stays BIGINT.
 
-Ruling R7 (issue #959): only per-row measures — the nine records token
+Ruling R7: only per-row measures — the nine records token
 columns, tool_uses' churn and result_chars — narrow; corpus evidence
 says no per-row value reaches 2^31-1. Aggregates are sums over the whole
 corpus and exceed int4 by construction, so every rollup TOTAL column
-stays BIGINT. Also pinned here: no index on the turn_flags mask (aligns
-with #958) and the guarded convergence of a database already carrying
-the surrogate-id shape (the path schema_dims.sql's pre-#959 drop skips).
+stays BIGINT. Also require no index on the turn_flags mask and guarded
+convergence of a database already carrying
+the surrogate-id shape (the path schema_dims.sql's legacy drop skips).
 """
 from __future__ import annotations
 
@@ -104,7 +104,7 @@ def test_rollup_totals_stay_bigint():
 
 @pytest.mark.db
 def test_no_index_on_the_turn_flags_mask():
-    """#958 dropped the GIN index; the mask gets no replacement."""
+    """The token mask has no replacement GIN index."""
     name = scratch_db.create_database("no_tf_index")
     try:
         with psycopg.connect(f"postgresql:///{name}") as conn:
@@ -121,9 +121,9 @@ def test_no_index_on_the_turn_flags_mask():
 
 @pytest.mark.db
 def test_schema_retypes_a_surrogate_shape_database(monkeypatch):
-    """A database already carrying the #959 surrogate shape converges.
+    """A database already carrying the surrogate shape converges.
 
-    schema_dims.sql's drop guard keys on the PRE-#959 text shape
+    schema_dims.sql's drop guard keys on the legacy text shape
     (records.file_key); a database migrated by Task 1 keeps its rows, so
     the type compaction runs as guarded in-place ALTERs instead — a
     no-op once the columns already carry the narrow types.
@@ -133,7 +133,6 @@ def test_schema_retypes_a_surrogate_shape_database(monkeypatch):
     db.reset_viz_pool()
     try:
         with psycopg.connect(f"postgresql:///{name}") as conn:
-            # Simulate the Task-1 shape: TEXT[] flags, BIGINT measures.
             conn.execute(
                 "ALTER TABLE records ALTER COLUMN turn_flags DROP DEFAULT, "
                 "ALTER COLUMN turn_flags TYPE text[] USING '{}'::text[], "

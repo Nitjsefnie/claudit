@@ -1,4 +1,4 @@
-"""Browser-parser parity for the per-record prompt rule (issue #215).
+"""Browser-parser parity for the per-record prompt rule.
 
 src/parser.js must apply the same rule the backend pins in
 tests/test_parse_user_prompt.py: ONE user_message event per user record

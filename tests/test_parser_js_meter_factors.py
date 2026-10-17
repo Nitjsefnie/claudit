@@ -1,4 +1,3 @@
-"""Browser parity for asymmetric and one-sided long-context factors."""
 from __future__ import annotations
 
 import json

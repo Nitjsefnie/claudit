@@ -1,20 +1,6 @@
-"""shortModelName keeps the vendor prefix; it folds only variant and date.
-
-Issue #472. Every vendor's model id was displayed exactly as recorded
-except Claude's, which lost `claude-` — so the dashboard read
-`opus-5-5` where the record says `claude-opus-5-5`, next to a
-`glm-5.3-flash` and a `deepseek/deepseek-v4-pro` that kept theirs.
-
-What must survive the canonicalisation is the FOLDING, not the prefix: a
-dated snapshot and a bracketed variant are the same model as the base
-id, and merging them is what makes one colour and one series apply to the
-whole family. (It used to read "one cap" — #648 removed the per-model cap
-table, and no axis is keyed on the model any more.)
-
-Driven through node on the function sliced verbatim from the .jsx (node
-cannot parse the file's JSX elsewhere), as the other source-level JS
-tests do.
-"""
+"""shortModelName keeps vendor prefixes while folding snapshot and variant suffixes.
+Snapshots and bracketed variants must share a colour and series with the
+base id. Execute the extracted JSX helper through node; rendering is separate."""
 import json
 import shutil
 import subprocess
@@ -48,7 +34,6 @@ def _node(body: str):
 
 
 CASES = [
-    # raw id                            canonical key
     ("claude-opus-5-5",                 "claude-opus-5-5"),
     ("claude-fable-5[1m]",              "claude-fable-5"),
     ("claude-opus-4-7-20251101",        "claude-opus-4-7"),

@@ -357,7 +357,7 @@ def test_browser_kimi_tool_result_content_matches_backend_filtering():
 
 
 def _parse_codex_file(file_key: str, blob: bytes) -> dict:
-    """parse_file minus the issue-653 refusal: this module's codex
+    """parse_file minus the model-declaration refusal: this module's codex
     fixture carries no model declaration, which the entry point refuses;
     these tests pin shape guards, not attribution."""
     return parse.to_claudit(

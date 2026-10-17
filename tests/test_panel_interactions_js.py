@@ -1,6 +1,6 @@
 """The interaction guard's testable halves, driven through node.
 
-Issue #647's guard proper is `scripts/ci/panel_interactions.mjs`, and it
+ guard proper is `scripts/ci/panel_interactions.mjs`, and it
 runs only in the browser leg (panel-layout.yml): nothing in pytest can
 hover a bar. What the suite CAN drive are the guard's pure halves — the
 KNOWN ledger and the payload-variant rewriter the height check feeds —
@@ -51,8 +51,6 @@ def _node(body: str):
     return json.loads(proc.stdout)
 
 
-# --- the KNOWN ledger -------------------------------------------------
-
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_every_ledger_entry_fires_on_the_defect_it_names():
     """Each entry must match a synthetic finding of its kind — an entry
@@ -102,13 +100,9 @@ def test_the_ledger_does_not_over_match():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_liveness_is_keyed_per_entry_not_per_issue_kind_pair():
-    """Two entries may share an issue and a kind -- #651's twins were
-    the motivating case -- and the matcher must hand back the ENTRY, so
-    the sweep's liveness set can prove each twin fired on its own; a
-    matcher that collapses to the issue/kind pair lets one twin's
-    firing stand as the other's. The live ledger is empty now that #651
-    is fixed, so the pin drives synthetic twin entries and puts the
-    ledger back the way it found it."""
+    """Two ledger entries may share an issue and kind but each must prove liveness.
+    Return the entry itself so one twin's firing cannot satisfy another's.
+    Drive synthetic twins and restore the ledger, which may otherwise be empty."""
     out = _node("""
       const a = { issue: 4242, panel: 'Cost by Agent Type',
         kind: 'height-growth' };
@@ -142,8 +136,6 @@ def test_every_ledger_kind_is_in_the_closed_set():
     """)
     assert out["covered"], out
 
-
-# --- payload variants: 2 vs 30+ models --------------------------------
 
 BASE = {
     "me.json": {"user": 7},
@@ -209,7 +201,7 @@ def test_many_yields_at_least_thirty_distinct_models():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_agent_keyed_lists_scale_like_model_lists():
-    """#651's category: the agent-role identity drives the height check
+    """ category: the agent-role identity drives the height check
     the same way the model identity does, so a panel cannot hide behind
     a differently-named identity field."""
     out = _node(f"""
@@ -229,7 +221,7 @@ def test_agent_keyed_lists_scale_like_model_lists():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_last_expanded_copy_carries_a_long_label():
-    """#642's overflow half never fires on the frozen fixtures' labels;
+    """ overflow half never fires on the frozen fixtures' labels;
     the long identity the rewriter appends is the ONE fixture case that
     exercises the overflow assertion at every run."""
     out = _node(f"""
@@ -258,13 +250,11 @@ def test_lists_without_a_model_field_pass_through_untouched():
     assert out["me"] == BASE["me.json"], out
 
 
-# --- the height comparison (#694) -------------------------------------
-
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_one_pixel_wobble_passes_the_height_check():
     """The two height renders are separate headless contexts: Chromium's
     sub-pixel rounding is not reproducible between them, and the exact
-    comparison reds a one-pixel wobble (#694 hit master as 339px ->
+    comparison reds a one-pixel wobble ( hit master as 339px ->
     338px at 1024px — a shrink failing a growth check). ±1px agrees."""
     out = _node("""
       console.log(JSON.stringify({
@@ -299,14 +289,12 @@ def test_a_one_row_growth_or_shrink_still_fails():
 def test_the_height_loop_compares_through_the_noise_band():
     """Source pin in the tooltip-oracle's style: the height loop must
     compare through heightsAgree, so the exact-equality regression that
-    reds on a 1px wobble (#694) cannot return while this file passes."""
+    reds on a 1px wobble cannot return while this file passes."""
     src = MODULE.read_text(encoding="utf-8")
     assert "if (heightsAgree(two.get(name), hMany)) continue;" in src, (
         "the height loop must compare through heightsAgree (#694's noise "
         "band), not raw equality")
 
-
-# --- the wiring -------------------------------------------------------
 
 def test_the_marks_are_pinned_at_source():
     """`data-hover-target` is how the sweep finds its targets; a mark
@@ -335,7 +323,7 @@ def test_the_marks_are_pinned_at_source():
 
 
 def test_the_agent_panel_declares_a_bound_the_guard_reads():
-    """#651's fixed bound, pinned on both sides of the shared literal:
+    """ fixed bound, pinned on both sides of the shared literal:
     the panel card declares data-max-h and never a listPanel prop (that
     would exempt the one panel the height category exists to fail), and
     the guard reads the bound off the nearest [data-max-h] ancestor.
@@ -397,7 +385,7 @@ def test_the_expand_toggle_gates_on_the_collapsed_fold():
 
 def test_cost_by_agent_is_hidden_when_the_range_is_free():
     """Moved from test_panel_wiring.py with its subject: the agent panel
-    now lives in src/cost-by-agent-panel.jsx (#651). Same rule as Cost
+    now lives in src/cost-by-agent-panel.jsx. Same rule as Cost
     by Model, in the panel that owns its own fetch: with every bar at
     $0 the cost list is a list of zeros, so it is dropped, while
     Tokens by Agent Type, which measures tokens, still renders."""
@@ -413,7 +401,7 @@ def test_cost_by_agent_is_hidden_when_the_range_is_free():
 def test_the_agent_panel_modules_are_loaded_by_the_page():
     """A script tag someone drops fails no layout check -- the guard
     counts the panels that render, never the ones that should -- so the
-    two #651 modules are load-pinned like every other panel module."""
+    two modules are load-pinned like every other panel module."""
     index = (ROOT / "public" / "index.html").read_text(encoding="utf-8")
     assert '/src/agent-list-caps.js' in index, (
         "agent-list-caps.js is not loaded by the page, so "
@@ -439,11 +427,9 @@ def test_both_guards_share_one_server_module():
         "panel_layout.mjs grew a private copy of the /api fixture table")
 
 
-# --- the #701 long-key row probe --------------------------------------
-
 def test_both_primitives_render_identical_row_spans():
-    """#701's shape: the two tooltip primitives lay their rows out with
-    the SHARED .chart-tooltip-key / .chart-tooltip-val rules in
+    """ shape: the two tooltip primitives lay their rows out with
+    the shared .chart-tooltip-key / .chart-tooltip-val rules in
     public/app.css, and carry no inline sizing styles — that per-
     primitive divergence was the defect. The spans must stay
     byte-identical across the two modules. The rendered long-key probe
@@ -473,7 +459,7 @@ def test_the_guard_probes_a_rendered_long_key_row():
     """The rendered half: the sweep's real tooltips draw only short
     fixed keys, so the probe — the real primitive mounted with a key
     longer than the box — is the ONE fixture case that renders a long
-    key at every run. Drop it and #701's row contract loses its
+    key at every run. Drop it and the row contract loses its
     rendered witness; the byte-identical pin above still holds the
     source half. The oracle strings are asserted inside the LONGKEY
     body's own slice: the sweep's READ carries byte-identical copies,
@@ -491,12 +477,12 @@ def test_the_guard_probes_a_rendered_long_key_row():
         "site now answers for it")
 
 
-# --- #690: coverage is never opt-in -----------------------------------
+# --- coverage is never opt-in -----------------------------------
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_no_target_kind_is_in_the_closed_kind_table():
     """A panel rendered with data but no [data-hover-target] is the
-    sweep's own finding kind — printed NO TARGETS is the #690 blindness
+    sweep's own finding kind — printed NO TARGETS is the blindness
     and may not come back."""
     out = _node("""
       console.log(JSON.stringify({
@@ -514,7 +500,7 @@ def test_no_target_kind_is_in_the_closed_kind_table():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_ledger_never_carries_an_other_region_catch_all():
-    """#690's second bullet: every layout shift, cold-load included,
+    """Every layout shift, cold-load included,
     resolves to a named region or panel. The old escape — a catch-all
     `{ panel: null, kind: 'other-region' }` entry that matched every
     unnamed attribution and could never fail — is banned outright: a
@@ -529,7 +515,7 @@ def test_the_ledger_never_carries_an_other_region_catch_all():
 
 
 def test_the_page_performance_panel_answers_hover():
-    """#834: a static declaration on a data panel fails; 'Page
+    """a static declaration on a data panel fails; 'Page
     performance' answers hover now — marked rows, shared tooltip."""
     src = (ROOT / "src" / "perf-panel.jsx").read_text(encoding="utf-8")
     assert "data-static-panel" not in src, (
@@ -547,7 +533,7 @@ def test_the_page_performance_panel_answers_hover():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_static_declarations_are_listed_by_the_guard():
-    """#834: nothing limited which panels may declare data-static-panel;
+    """nothing limited which panels may declare data-static-panel;
     the reviewed static list makes an off-list declaration the
     'unlisted-static' finding, a cap-bitten mark the 'unhovered' one."""
     out = _node("""
@@ -567,7 +553,7 @@ def test_static_declarations_are_listed_by_the_guard():
 
 
 def test_unhovered_targets_never_pass_silently():
-    """#834: sampling, off-viewport drops and static exemptions must not
+    """sampling, off-viewport drops and static exemptions must not
     let an unhovered mark pass. The sweep defaults to unbounded; a biting
     cap and an unreachable target are both the unhovered-targets finding;
     the old FOLDED pass is gone."""
@@ -582,7 +568,7 @@ def test_unhovered_targets_never_pass_silently():
 
 
 def test_the_reply_latency_outlier_dots_are_swept():
-    """#834: the outlier dots answer hover but carried no mark, so the
+    """the outlier dots answer hover but carried no mark, so the
     sweep never hovered them; now marked, lit on the tip's datum, and
     the fixture carries outliers matching the bands' models."""
     src = (ROOT / "src" / "reply-latency-panel.jsx").read_text(
@@ -612,7 +598,7 @@ def test_the_reply_latency_outlier_dots_are_swept():
 
 
 def test_the_no_targets_seed_recounts_through_the_real_mark_pass():
-    """#835: the seed zeroed the node-side count, red even when MARK's
+    """the seed zeroed the node-side count, red even when MARK's
     own count stopped noticing a stripped panel; the seed now strips and
     re-runs MARK — the count an unseeded run reads."""
     src = MODULE.read_text(encoding="utf-8")
@@ -626,7 +612,7 @@ def test_the_no_targets_seed_recounts_through_the_real_mark_pass():
 
 
 def test_the_three_style_channel_lists_agree():
-    """#864: the channels live in STYLE_PROPS, restated inside MARK and
+    """the channels live in STYLE_PROPS, restated inside MARK and
     READ (in-page functions carry no closure) — one-list edits fail."""
     src = MODULE.read_text(encoding="utf-8")
     lists = [re.findall(r"'([a-z-]+)'", src[i:src.index('];', i)])
@@ -637,7 +623,7 @@ def test_the_three_style_channel_lists_agree():
 
 
 def test_the_seeded_runs_run_one_width_and_uncapped():
-    """#843: the seeded proof re-drove the full sweep three times over —
+    """the seeded proof re-drove the full sweep three times over —
     half the leg's wall; the runner now drives the seeds concurrently at
     one width each, uncapped."""
     runner = (ROOT / "scripts" / "ci" / "panel_interactions_seeds.mjs") \
@@ -674,7 +660,7 @@ def test_the_seeded_violations_are_wired_end_to_end():
 
 
 def test_cold_load_shifts_are_attributed_in_the_guard_source():
-    """#690's cold-load half at source level, beside the rendered proof:
+    """ cold-load half at source level, beside the rendered proof:
     SHIFTS attributes the cold half like the sweep half, and the sweep
     records an other-region finding when a cold shift cannot name its
     region — the old 'counted for the log, not asserted' posture is the

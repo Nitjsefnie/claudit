@@ -1,4 +1,3 @@
-"""Tests moved from test_pricing_data.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
 import json
@@ -98,7 +97,7 @@ def test_a_string_provider_rate_is_refused_naming_the_row_in_the_browser(tmp_pat
 
 
 def test_an_empty_models_key_is_refused_naming_the_row():
-    """A models key must be a non-empty string (issue #837)."""
+    """A models key must be a non-empty string."""
     with pytest.raises(ValueError, match=r"models key ''"):
         pricing.load_tables(seed_doc(models={"": [dict(DEFAULT_ROW)]}))
 
@@ -574,7 +573,7 @@ def _extending_ids() -> list[tuple[str, str | None]]:
     entries resolve provider histories through their tracked key and have
     no vendor_host fallback. Unpriced ids name no resolved key."""
     keys = [*pricing.MODEL_RATES, *pricing.VENDOR_BARE]
-    # SV-RATE-ESTIMATES: "EXACT allows only a dated-snapshot (`-20250514`)
+    # SV-RATE-ESTIMATES: "EXACT allows only a dated-snapshot (`-YYYYMMDD`)
     # or bracket (`[1m]`) suffix after a key." The undashed six-digit
     # extension below exercises syntactic matching without promising a
     # first-party rate for an id-only key with no vendor_host fallback.
@@ -610,7 +609,7 @@ def test_the_longest_matching_key_wins_in_the_browser():
 
 @needs_node
 def test_both_sides_resolve_the_dotted_gpt_6_1_sol_id_to_its_own_row():
-    """issue #357: the dotted transcript id and its dashed form both hit
+    """the dotted transcript id and its dashed form both hit
     the new exact key in the browser too — never the shorter gpt-6-sol
     row — at the rates the committed file defines, priced identically on
     both sides. The ids are literals in a plain list, not rate-call

@@ -1,12 +1,6 @@
-"""tool_uses.model: a tool call carries the model that emitted it.
-
-Readers used to get a call's model by joining `records` on
-(file_key, line_num). A Claude tool_use block usually sits on a LATER line
-of the same requestId than the merged record, and a lane tool call never
-shares a line with a record, so most calls came out with model '' and
-dropped out of the error rate. These pin the stored column and every
-reader that used the join.
-"""
+"""Store each tool call's emitting model directly.
+Joining records by file_key and line_num loses Claude calls on later lines
+of a merged request and lane calls without a matching record line."""
 import json
 import shutil
 from datetime import datetime, timezone

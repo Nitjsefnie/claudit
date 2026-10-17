@@ -6,7 +6,7 @@ top-level const/let/class there is a one-way door: the next classic
 script that declares the same name - or declares it over the
 non-configurable global property another file's top-level function
 declaration created - dies with a SyntaxError before its first statement
-(issue #780: parser-codex.js's top-level ``const { ... } = window``
+(parser-codex.js's top-level ``const {... } = window``
 against parser-lanes.js's same-named function declarations silenced the
 entire Codex lane parser; window.parseLaneCodex was never defined).
 

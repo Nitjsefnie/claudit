@@ -1,7 +1,7 @@
-"""The issue #959 startup migration: old text shape -> surrogate ids.
+"""The startup migration: old text shape -> surrogate ids.
 
 Every assertion here is about what `db.apply_schema()` leaves behind on
-a database that carried the PRE-#959 shape with data in it — the deploy
+a database that carried the legacy shape with data in it — the deploy
 path R1 sanctions: fact and rollup tables drop-and-recreate (refilled by
 the PARSER_VERSION bump's full reparse), `projects`/`files` migrate in
 place keeping their rows, and re-running the whole schema is a no-op.
@@ -16,7 +16,7 @@ import pytest
 from backend import db
 from tests import scratch_db
 
-# The pre-#959 chain (every schema file but the four #959 migration
+# The legacy chain (every schema file but the four migration
 # files) lives beside SCHEMA: scratch_db.OLD_SCHEMA.
 
 _OLD_FILE_KEY = "bucket/projX/sess-1/main.jsonl"
@@ -47,12 +47,9 @@ def _index_names(conn) -> set[str]:
 def _seed_old_shape(conn) -> None:
     """One project, one file, one record, one call, one rollup row each.
 
-    The TEXT dimension columns the seeded rows name are the pre-#959
-    deploy's: schema.sql stopped adding them (#959 round two — an ADD of
-    a retired column is dropped again by the migration in the same
-    transaction, so it only ever burned an attnum), which makes this
-    fixture the place that stands the legacy shape up. A real deploy
-    already carries the columns from the release that added them.
+    Build the legacy TEXT dimension columns here: current schema.sql must
+    not add retired columns only for the migration to drop them in the same
+    transaction, consuming attnums. A legacy deployment already has them.
     """
     for ddl in (
         "ALTER TABLE records ADD COLUMN IF NOT EXISTS provider TEXT",
@@ -108,7 +105,7 @@ def _seed_old_shape(conn) -> None:
 def test_migration_rebuilds_facts_and_migrates_identity_in_place(
         monkeypatch,
 ):
-    """Old-shape deploy -> the #959 shape, with projects/files kept."""
+    """Old-shape deploy -> the shape, with projects/files kept."""
     name = scratch_db.create_database("dims_migrate", schema=scratch_db.OLD_SCHEMA)
     monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")
     db.reset_viz_pool()
@@ -154,7 +151,7 @@ def test_migration_rebuilds_facts_and_migrates_identity_in_place(
             assert "file_key" not in rec_cols
             assert {"file_id", "model_id", "provider_id", "stop_reason_id",
                     "effort_id"} <= rec_cols
-            # The staleness markers ride the records_price sidecar (#959
+            # The staleness markers ride the records_price sidecar (
             # R4), nullable beside the fact table's own nullable FKs.
             assert {"file_id", "line_num", "pricing_version_id",
                     "rate_fingerprint_id",
@@ -363,9 +360,9 @@ def test_reapplying_the_schema_preserves_rows_and_leaves_no_strays(
             assert "model" not in _columns(conn, "tool_uses")
             assert "error_kind" not in _columns(conn, "tool_uses")
             assert "provider" not in _columns(conn, "usage_rollup")
-            # #958's index policy now owns the analysis indexes: the
-            # obsolete two and turn_flags' GIN (no integer opclass,
-            # #959 R5) stay gone; read_targets/reread exist again
+            # index policy now owns the analysis indexes: the
+            # obsolete two and turn_flags' GIN (no integer opclass)
+            # stay absent; read_targets/reread exist
             # while their collection group is on (default).
             names = _index_names(conn)
             for gone in ("records_request_idx", "tool_uses_tool_idx",
@@ -388,8 +385,8 @@ def test_reapplying_the_schema_preserves_rows_and_leaves_no_strays(
 # The THIRD deployment state: a dev database stamped by this branch at the
 # EARLIER widths — BIGINT surrogate ids everywhere, a TEXT cli_version, and
 # the narrow-last declaration order. Rebuilt below by the same guarded path
-# as the pre-#959 shape, because a stamped database must not keep the old
-# column order forever (issue #959 task 7).
+# as the legacy shape, because a stamped database must not keep the old
+# column order forever.
 # ---------------------------------------------------------------------------
 
 # records / tool_uses as the branch declared them before task 7: same live
@@ -600,7 +597,7 @@ def test_a_database_stamped_at_the_earlier_widths_converges(monkeypatch):
             assert (conn.execute(
                 "SELECT COUNT(*) FROM dim_model WHERE value = 'm'"
             ).fetchone() or (0,))[0] == 1
-            # ...the derived facts rebuild empty (the PARSER_VERSION
+            # ..the derived facts rebuild empty (the PARSER_VERSION
             # bump's reparse refills them), never carrying the old row
             # or the TEXT cli_version across.
             assert (conn.execute(

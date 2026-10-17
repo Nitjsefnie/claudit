@@ -1,22 +1,9 @@
-"""Source-level guards for the issue #179 stale-dashboard-response race.
-
-Same boundary as test_panel_wiring.py / test_a11y_wiring.py: node cannot
-parse JSX and nothing here renders React, so the fetch-race wiring can
-regress while the whole suite stays green. These guards read app.jsx
-directly and pin the request-currency mechanism shared by the
-/api/dashboard and /api/projects refetch effects.
-
-An effect re-fires on project/range/nonce changes while an earlier
-request may still be in flight, and the response that landed LAST used
-to win -- a slow stale response could overwrite a fresher one (issue
-#179 on the dashboard, #182 on the project list). Each effect run now
-owns its request through the shared mintRunSignal helper: the effect's
-cleanup aborts the superseded request, the success path applies its
-response only while its run is current, and the catch tells an abort
-from a real failure -- an aborted run applies nothing (and logs
-nothing), while a real failure still logs and, on the dashboard, still
-drops the pending live-region line (the 4bf3e66 behaviour).
-"""
+"""Pin request-currency wiring shared by dashboard and project refetch effects.
+Node cannot parse JSX and the suite does not render React, so source checks
+cover this boundary. Each run owns its request through mintRunSignal:
+cleanup aborts it, success checks currency, and catch distinguishes abort
+from real failure. Aborts apply and log nothing; real dashboard failures
+still drop the pending live-region announcement."""
 from __future__ import annotations
 
 import re
@@ -101,7 +88,7 @@ def test_exactly_one_projects_fetch_site():
 
 
 def test_each_effect_run_owns_its_request():
-    """The mechanism (issue #179, #182): the shared mintRunSignal helper
+    """The mechanism: the shared mintRunSignal helper
     mints a fresh AbortController per call, and BOTH guarded effects
     hand its signal to their fetch and return the run's abort as the
     effect's cleanup -- a dep re-fire tears down the superseded request
@@ -120,9 +107,8 @@ def test_each_effect_run_owns_its_request():
     for effect in (_dashboard_effect(), _projects_effect()):
         assert "const run = mintRunSignal();" in effect, (
             "each guarded effect run must mint its own run guard")
-        # The two effects issue their request differently since #394: the
-        # and the projects list still calls fetch directly. Both must hand
-        # their run's signal to it, so the guard matches either shape.
+        # Dashboard uses dashboardFetch.load while projects calls fetch
+        # directly. Both must carry the run signal, so match either shape.
         m = re.search(r"(?:fetch|window\.dashboardFetch\.load)"
                       r"\(`[^`]*`, \{([^}]*)\}\)", effect)
         assert m, "the effect's request call moved"

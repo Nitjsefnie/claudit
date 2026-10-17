@@ -13,7 +13,7 @@ Neither filtered the flag, so a replayed copy (a forked Codex rollout's
 replayed prefix) counted again in the percentiles and could surface
 among the outliers -- the same defect class as `tests/
 test_sessions_read_canonical.py` and the /api/models read pin
-(issue #644, `test_models_excludes_non_canonical_rows`).
+(`test_models_excludes_non_canonical_rows`).
 
 The rollup path is fine: `backend/ingest_rollup_latency.py` already
 filters `r.is_canonical` when it builds `latency_rollup`, so only the
@@ -48,7 +48,7 @@ _FILE_KEY = "projLat/sessLat/lat.jsonl"
 _CANON_ROWS = 120
 _CANON_LATENCY_S = 10.0
 # The single non-canonical row: same model, same 900s bucket, an extreme
-# latency that would rank #1 among the outliers if it counted.
+# latency that would rank among the outliers if it counted.
 _NONCANON_LINE = 9999
 _NONCANON_LATENCY_S = 999.0
 

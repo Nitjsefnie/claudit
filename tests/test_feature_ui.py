@@ -1,4 +1,3 @@
-"""Execute the frontend's sparse dashboard adapter with real policy helpers."""
 from __future__ import annotations
 
 import json

@@ -1,4 +1,3 @@
-"""Startup collection and display flag contracts."""
 from __future__ import annotations
 
 import pickle

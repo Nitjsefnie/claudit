@@ -1,4 +1,3 @@
-"""Migration cost parity and default/empty-bare-form loader refusals."""
 from __future__ import annotations
 
 import json
@@ -221,8 +220,6 @@ def test_the_folded_provider_row_keeps_token_prices_equal():
 
 # The instant every committed history predates: pricing each migrated row's
 # first entry, which an append-only history never rewrites.
-
-# --- the default estimate's row, tracked but rowless ---------------------------
 
 
 def _rowless_default_doc() -> dict:

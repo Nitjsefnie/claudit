@@ -4,9 +4,9 @@ Split out of the test module to stay under the tests/ size ceiling
 (scripts/ci/size_baseline.py); the tests import the entry points from
 here. A node skip rides a test that itself runs node, judged by its
 transitive same-file call closure LAUNCHING node through a subprocess
-call - never by an incidental string constant in the body (#812) - and
+call - never by an incidental string constant in the body - and
 a mark predicate built from a module-level variable that names node is
-a node skip too (#812). Measurement calls need literal JavaScript inputs;
+a node skip too. Measurement calls need literal JavaScript inputs;
 the report CLI launches node. Parameter data is never a skip mark.
 """
 from __future__ import annotations
@@ -33,7 +33,7 @@ def _module_tree(path: Path) -> ast.Module:
 
 
 def _node_skip_offenders(root: Path) -> list[str]:
-    """The #759 branch: file:line (test) for every node-skipped test that
+    """The branch: file:line (test) for every node-skipped test that
     never runs node, across every listed file."""
     offenders = []
     cache: dict[str, dict] = {}
@@ -46,7 +46,7 @@ def _node_skip_offenders(root: Path) -> list[str]:
 
 def _skip_without_node_lines(
         tree: ast.Module) -> list[tuple[int, str]]:
-    """The #759 branch over one parsed tree (synthetic modules, tests)."""
+    """The branch over one parsed tree (synthetic modules, tests)."""
     return _test_offenders_in_ctx(_context_from_tree(tree, None, {}))
 
 
@@ -205,7 +205,7 @@ _SUBPROCESS_LAUNCHERS = frozenset(
 def _launches_node(nodes: list[ast.AST]) -> bool:
     """True when the nodes launch node: a ``subprocess``-family call whose
     argv names node. The INVOCATION grounds a marked test, never an
-    incidental node string in its body (issue #812)."""
+    incidental node string in its body."""
     return any(
         isinstance(n, ast.Call)
         and isinstance(n.func, ast.Attribute)
@@ -284,7 +284,7 @@ def _named_targets(func_expr, ctx, class_methods) -> list:
 
 
 def _class_mark_mentions_node(cls: ast.ClassDef, ctx: dict) -> bool:
-    """cls's pytestmark or a same-file base's, conditionals descended (#776)."""
+    """cls's pytestmark or a same-file base's, conditionals descended."""
     seen: set[int] = set()
     stack = [cls]
     while stack:
@@ -334,7 +334,7 @@ def _node_mark_lines(tree: ast.Module) -> list[int]:
 def _node_names(tree: ast.Module) -> dict[str, ast.expr]:
     """Module-level names bound to a value that names node - the
     ``HAS_NODE = shutil.which("node") is not None`` spelling a mark
-    predicate may be built from (issue #812)."""
+    predicate may be built from."""
     out: dict[str, ast.expr] = {}
     for stmt, _line in _module_level_statements(tree):
         if not isinstance(stmt, (ast.Assign, ast.AnnAssign)):
@@ -351,7 +351,7 @@ def _node_names(tree: ast.Module) -> dict[str, ast.expr]:
 
 def _mentions_node_ref(value: ast.expr, node_names: dict) -> bool:
     """A mark names node when its own text does OR it references a
-    module-level name that names node (#812)."""
+    module-level name that names node."""
     return _mentions_node(value) or any(
         isinstance(n, ast.Name) and n.id in node_names
         for n in ast.walk(value))

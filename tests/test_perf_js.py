@@ -1,4 +1,4 @@
-"""The browser telemetry client, driven through node (issue #436).
+"""The browser telemetry client, driven through node.
 
 `src/perf.js` is plain JS on purpose -- no React, no JSX -- so node can
 execute it, exactly as `tests/test_dashboard_fetch_js.py` drives the real
@@ -6,8 +6,8 @@ execute it, exactly as `tests/test_dashboard_fetch_js.py` drives the real
 code: the beacons it emits only exist in a browser, and the panel that
 reads them back is JSX node cannot parse.
 
-Every assertion here was proven red against a missing `src/perf.js`
-before the fix. The fakes stand in for the browser globals the module
+Assertions must fail if the telemetry client is missing. The fakes stand
+in for the browser globals the module
 touches (`performance`, `PerformanceObserver`, `navigator`,
 `sessionStorage`, the timers), so no test depends on a real browser --
 and none of them may send anything cross-origin or surface an error: a
@@ -128,8 +128,6 @@ def _run(body: str, **cfg) -> dict:
     return json.loads(lines[0])
 
 
-# --- journeys ---------------------------------------------------------
-
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_journey_reports_its_measured_parts_only():
     """total / fetch / client, in the shape the endpoint's closed
@@ -227,8 +225,6 @@ def test_an_unsupported_entry_type_does_not_take_the_supported_one_down():
         "an unsupported entry type took the supported one down with it")
 
 
-# --- the observed metrics --------------------------------------------
-
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_user_caused_shift_is_not_a_defect():
     """hadRecentInput: a shift the user caused (scrolling, clicking) is
@@ -293,8 +289,6 @@ def test_the_phase_moves_with_the_page_and_the_sse_tick():
                            "post_usable"], out
     assert out["beacons"][0]["phase"] == "sse_update", out
 
-
-# --- batching and transport ------------------------------------------
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_burst_is_one_request_not_one_per_entry():
@@ -451,8 +445,6 @@ def test_a_send_beacon_that_throws_falls_through_rather_than_losing_the_batch():
     assert out == {"posted": 1, "ok": True}, out
 
 
-# --- the sign-in journey across the redirect -------------------------
-
 # The marker the login page writes on submit, and the wall-clock epoch it
 # corresponds to. The login document's origin is 1000000 + 500 - 1000000
 # behind this one, so the elapsed journey is only knowable by bridging
@@ -468,7 +460,6 @@ _MALFORMED = {
 _NAV = {"responseStart": 300, "startTime": 0}
 # A navigation timing that claims more fetch than the whole journey took.
 _LATE_NAV = {"responseStart": 1500, "startTime": 0}
-# Both observed entry types supported.
 _BOTH = ["layout-shift", "longtask"]
 
 
@@ -560,8 +551,6 @@ def test_a_signin_journey_named_by_hand_is_not_double_reported():
     metrics = [r["metric"] for r in out["beacons"]]
     assert metrics == ["signin"], out
 
-
-# --- the shape the endpoint admits -----------------------------------
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_every_beacon_the_module_emits_is_inside_the_contract():

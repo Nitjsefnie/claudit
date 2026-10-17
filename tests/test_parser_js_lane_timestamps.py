@@ -1,4 +1,3 @@
-"""Timestamp semantics shared by the backend and browser lane parser."""
 from __future__ import annotations
 
 import json
@@ -34,7 +33,7 @@ def test_lane_parser_reads_an_offset_less_timestamp_as_utc():
     env = {**os.environ, "TZ": "Europe/Berlin"}
     proc = subprocess.run(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        env=env, check=False,  # Return code checked by hand on the next line.
+        env=env, check=False,
     )
     assert proc.returncode == 0, proc.stderr
     got = json.loads(proc.stdout)

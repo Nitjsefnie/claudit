@@ -32,7 +32,6 @@ def _scalar(cur, sql: str, params=None):
 
 
 def _plant(mirror: Path, project: str, session: str, fixture: str) -> None:
-    """Copy a parser fixture into the mirror as a Claude-layout session."""
     dest = mirror / project / session
     dest.mkdir(parents=True, exist_ok=True)
     (dest / f"{session}.jsonl").write_bytes(
@@ -41,7 +40,6 @@ def _plant(mirror: Path, project: str, session: str, fixture: str) -> None:
 
 @pytest.fixture(name="fresh_db")
 def _fresh_db_fixture(monkeypatch):
-    """Per-test schema reset on a separate DB (as in test_ingest.py)."""
     yield from scratch_db.scratch_viz_database(monkeypatch, "case_fold")
 
 

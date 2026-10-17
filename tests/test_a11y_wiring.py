@@ -1,4 +1,4 @@
-"""Source-level guards for the issue #117 accessibility wiring.
+"""Source-level guards for the accessibility wiring.
 
 Same boundary as test_panel_wiring.py: node cannot parse JSX and nothing
 here renders React, so a panel can carry missing or broken accessibility
@@ -34,7 +34,7 @@ def _svg_bearing_jsx():
     """Every src/**/*.jsx module that draws an <svg>.
 
     DERIVED, not a hand-maintained list, because the hand-maintained list
-    failed exactly once already: issue #630 moved ComparisonRow's svg out
+    failed exactly once already: moved ComparisonRow's svg out
     of dashboard-charts-extra.jsx into its own module, and the hard-coded
     tuple it replaced went on counting 14 svgs where it asserted 15 — the
     assertion's own "the guard would pass vacuously" message firing for
@@ -63,8 +63,6 @@ def _strip_line_comments(src: str) -> str:
     """
     return re.sub(r"(?<![:'\"\w])//.*$", "", src, flags=re.M)
 
-
-# -- Contrast ----------------------------------------------------------
 
 def _hex_token(name: str) -> str:
     """The hex value app.css declares for a --token."""
@@ -158,9 +156,9 @@ def test_fg2_meets_aa_where_it_paints_text():
 
 def test_muted2_has_no_non_decorative_text_use():
     """--muted-2 stays below AA on every surface (2.45:1 over --bg,
-    2.20:1 over --panel-2 at #4a4f6a) and that is the documented,
+    2.20:1 over --panel-2 at a4f6a) and that is the documented,
     deliberate shape: its only text renderings are decorative
-    separators (the "/" prefix of .logo-sub and the slash between the
+    separators (the "/" prefix of.logo-sub and the slash between the
     +/- line-churn figures in app.jsx), which WCAG 1.4.3's
     incidental-text exception covers; everywhere else it is the
     .stat-label marker dot's fill (non-text). This guard fires if
@@ -194,8 +192,6 @@ def test_theme_fallback_tracks_the_token_it_mirrors():
         f"TH.textDim fallback {m.group(1)} disagrees with the --muted "
         f"token {_hex_token('muted')}; keep the mirror in step")
 
-
-# -- Chart ARIA --------------------------------------------------------
 
 def _svg_tags(path):
     """Every <svg ...> opening tag with its 1-based line number,
@@ -248,8 +244,7 @@ def test_every_chart_svg_is_named_or_explicitly_hidden():
             assert "aria-label={" in tag, (
                 f"{path.name}:{line}: aria-label is not a data binding, "
                 f"so it cannot follow the panel's data")
-    # 14 since #649/#652: the per-model sub-panel svgs are gone; the
-    # tool panel's single chart remains. A floor, not a census.
+    # A floor, not a census: adding SVGs must not weaken the naming guard.
     assert total >= 14, (
         f"only {total} <svg> tags found -- the guard would pass "
         f"vacuously")
@@ -340,8 +335,6 @@ def test_helper_is_reachable_where_scripts_load_out_of_order():
         "loads before the helper's file")
 
 
-# -- Live region -------------------------------------------------------
-
 REGION_RE = re.compile(
     r'<div aria-live="polite" aria-atomic="true" className="sr-only">')
 
@@ -406,12 +399,8 @@ def test_live_region_announces_only_after_the_refetch_lands():
 
 
 def test_ingest_change_summary_degrades_on_unknown_payloads():
-    """The payload is JSON the backend owns, but the reader must not
-    throw on a shape it cannot read: the announcement then carries no
-    what-changed line instead of crashing the SSE handler. The helper
-    lives in event-helpers.jsx (moved out of app.jsx for the size
-    ratchet, PR 457); app.jsx reaches it through window.
-    """
+    """Unreadable payloads omit the what-changed line without crashing SSE.
+    The helper lives in event-helpers.jsx; app.jsx reaches it through window."""
     src = EVENT_HELPERS.read_text(encoding="utf-8")
     m = re.search(r"function ingestChangeSummary\(e\) \{(.*?)\n\}", src, re.S)
     assert m, "the ingestChangeSummary helper is missing from event-helpers.jsx"
@@ -444,8 +433,6 @@ def test_sr_only_spans_exist_in_the_chart_files():
         f"only {sites} sr-only spans across the chart files -- the "
         f"guard would pass vacuously")
 
-
-# -- Inspector transcript keyboard selection (issue #251) --------------
 
 def _opening_tag(src: str, pos: int) -> str:
     """The opening tag starting at src[pos], JSX-aware: it ends at the
@@ -557,8 +544,6 @@ def test_inspector_keys_drive_the_click_selection_path():
         "key handler's path is no longer the click path")
 
 
-# -- Model filter selects (issue #268) ----------------------------------
-
 def test_every_select_has_an_accessible_name():
     """Every <select> in src/*.jsx carries an accessible name: an
     aria-label, an aria-labelledby, or an id a <label htmlFor> in the
@@ -593,8 +578,6 @@ def test_every_select_has_an_accessible_name():
         f"only {total} <select> elements found across src/*.jsx -- the "
         f"guard would pass vacuously")
 
-
-# -- Selected-row timestamp contrast (issue #268) ------------------------
 
 def _oklch_over_hex(L: float, C: float, h_deg: float, alpha: float,
                     over_hex: str) -> str:
@@ -638,7 +621,7 @@ def _selected_row_surface() -> str:
 def test_selected_row_timestamp_meets_aa_on_the_highlight():
     """The Inspector timestamp paints --muted at 11.5px; over the
     selected row's --accent-soft highlight (composited over --bg that is
-    #0f2f2d) muted computes 3.77:1, below AA. The pair therefore belongs
+    f2f2d) muted computes 3.77:1, below AA. The pair therefore belongs
     in the contrast floor: whatever paints the timestamp on the SELECTED
     row must compute >= 4.5:1 against the composited highlight, while
     the non-selected rows keep --muted over --bg (pinned elsewhere).

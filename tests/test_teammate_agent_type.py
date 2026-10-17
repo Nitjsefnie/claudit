@@ -171,7 +171,6 @@ def test_a_non_dispatch_call_with_a_name_argument_records_no_dispatch_name():
 
 @pytest.fixture(name="mirror")
 def _mirror_fixture(monkeypatch, tmp_path):
-    """An empty file:// mirror of the default `claude` bucket."""
     bucket = tmp_path / "r2" / "claude"
     bucket.mkdir(parents=True)
     monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")

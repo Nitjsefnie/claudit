@@ -1,6 +1,3 @@
-"""Run browser lane parsing through Node and compare records/costs with
-the backend, including per-model long-context meters.
-"""
 from __future__ import annotations
 
 import json
@@ -26,12 +23,10 @@ FIX_PARSER = ROOT / "fixtures" / "parser"
 FIX_CODEX = ROOT / "fixtures" / "codex"
 
 
-# Lane fixtures used by backend parser tests.
 LANE_FIXTURES = [
     FIX_PARSER / "codex_min.jsonl",
     FIX_PARSER / "codex_user_xml.jsonl",
-    # The Claude path derives the same neutral cache-write split (issue
-    # #842); a Claude fixture exercises it through the same assertions.
+    # Exercise the neutral cache-write split through the same Claude assertions.
     FIX_PARSER / "cache_write_claude.jsonl",
     # The unattributed rollout has a separate browser null-model pin.
     *[p for p in sorted(FIX_CODEX.glob("*.jsonl"))
@@ -50,7 +45,6 @@ TRICKY_BLOBS = [
 
 @lru_cache(maxsize=1)
 def _browser_lane_output() -> dict:
-    """Parse every lane fixture in the browser, once, through node."""
     fixtures = {p.name: p.read_text(encoding="utf-8") for p in LANE_FIXTURES}
     script = f"""
       global.window = {{}};
@@ -93,7 +87,7 @@ def _browser_lane_output() -> dict:
     # STDIN avoids Windows' CreateProcess 32k command-line limit.
     proc = subprocess.run(
         ["node"], input=script, capture_output=True, text=True, timeout=120,
-        check=False,  # Return code checked by hand on the next line.
+        check=False,
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)

@@ -4,7 +4,7 @@ The "Wait for the other gates on this commit" step polls the commit's
 check runs and, on the face of it, requires every gate it judges to
 have completed success/skipped/neutral. WHICH rows it judges is
 scripts/ci/release_gate.py's subject and is pinned in
-tests/test_release_gate.py (issues #557 and #579); what these tests pin
+tests/test_release_gate.py; what these tests pin
 is the step around it:
 
 - the wait proceeds ONLY when a check run named exactly `aggregate`,
@@ -22,7 +22,7 @@ is the step around it:
   app slug of the aggregate rule is projected from.
 
 The "Refuse to re-release an existing tag" step is pinned the same way
-(issue #248): it treats ONLY an HTTP 404 as "absent" and fails closed
+: it treats ONLY an HTTP 404 as "absent" and fails closed
 on every other probe failure — a 403, a 5xx or a network error must
 never read as "the version is free" — and both probes go through
 `gh api` with their output captured, nothing discarded.
@@ -242,7 +242,7 @@ def test_wait_proceeds_when_aggregate_success_among_all_success(tmp_path):
 @ubuntu_step_body
 def test_wait_times_out_without_an_aggregate_verdict(tmp_path):
     # A master push whose gate never reported a verdict — the exact hole
-    # of issue #247: everything green, no aggregate row at all.
+    # of everything green, no aggregate row at all.
     checks = _checks(_row("completed", "success", "version-guard",
                           run_id="37138486016"))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
@@ -323,7 +323,7 @@ def test_wait_refuses_promptly_when_a_check_failed(tmp_path, conclusion):
 
 @ubuntu_step_body
 def test_wait_refuses_on_a_red_gate_the_selector_keeps(tmp_path):
-    # Issue #557 end to end: a PUSH-run gate whose check name begins
+    # end to end: a PUSH-run gate whose check name begins
     # `release`. The old prefix filter dropped this row and released over
     # it; the selector keeps it, so the wait refuses.
     checks = _checks(_row("completed", "failure", "release-notes"),
@@ -338,7 +338,7 @@ def test_wait_refuses_on_a_red_gate_the_selector_keeps(tmp_path):
 
 @ubuntu_step_body
 def test_wait_ignores_a_red_claim_row_from_an_issue_comment_run(tmp_path):
-    # Issue #579 end to end: the red `claim` row an `issue_comment` run
+    # end to end: the red `claim` row an `issue_comment` run
     # stamps on the default branch's tip. Skipped by the selector, so it
     # neither refuses the release nor waits on it.
     checks = _checks(_row("completed", "failure", "claim",
@@ -453,7 +453,6 @@ def test_wait_falls_back_to_the_listing_when_the_derived_path_is_not_under_workf
     # file, so the step hands the selector an EMPTY path and the LISTING's
     # path for the self run decides — which excludes the earlier release
     # run's row exactly as the matched-case path does, and proceeds.
-    #
     # The self run IS listed, and that is what makes the two arms differ:
     # with the guard the empty path falls back and finds it, so the
     # predecessor's red row is dropped; without the guard the derived value
@@ -626,7 +625,7 @@ def test_refusal_fails_closed_when_the_tag_probe_answers_403(
 
 
 def test_refusal_probes_go_through_captured_gh_api():
-    # The failure this pins (issue #248) lived in the discard: a probe
+    # The failure this pins lived in the discard: a probe
     # whose output is thrown away cannot be told apart from one that
     # never answered, so any nonzero exit read as "absent". Both probes
     # must call `gh api` and capture what came back.

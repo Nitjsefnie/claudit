@@ -1,4 +1,4 @@
-"""Post-ingest VACUUM wiring (issue #959).
+"""Post-ingest VACUUM wiring.
 
 Which tables a run vacuums (each family it rewrote), when it skips (the
 threshold's two sides, the batch cadence's two sides), the guarantees
@@ -58,7 +58,6 @@ _FAMILY_CASES = [
 
 
 def _spy_executes(monkeypatch):
-    """Record every (tables, analyze) the module would execute."""
     executed: list = []
     monkeypatch.setattr(
         ingest_vacuum, "_execute",
@@ -175,7 +174,7 @@ def test_the_threshold_skips_just_below_and_vacuums_at_it(monkeypatch):
 
     before = len(executed)
     ingest_vacuum.begin_run()
-    ingest_vacuum.note_files(-(-minimum // per_file))  # ceil division
+    ingest_vacuum.note_files(-(-minimum // per_file))
     ingest_vacuum.vacuum_after_run()
     assert len(executed) == before + 1, (
         "enough reparsed files must cross it")
@@ -324,7 +323,7 @@ def test_a_cancelled_mid_statement_vacuum_ends_promptly_and_stays_green(
         fresh_db, mini_r2_env, monkeypatch):
     """The vacuum's dedicated connection is registered with db's
     cancellation registry, so teardown's db.cancel_viz_queries()
-    (issue #372's mechanism) interrupts an in-flight statement: the
+    interrupts an in-flight statement: the
     run's wait ends promptly, the driver's cancellation is swallowed as
     an ordinary vacuum failure, and the run still closes green with the
     warning."""

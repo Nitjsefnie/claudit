@@ -1,4 +1,4 @@
-"""#1012: retained future provider entries never block another host's refresh."""
+"""retained future provider entries never block another host's refresh."""
 from __future__ import annotations
 
 import json
@@ -20,7 +20,7 @@ from tests.test_provider_rate_refresh import NOW, STAMP, refresh
 @pytest.mark.parametrize("logged", [True, False], ids=["logged", "sampled"])
 def test_a_postdated_host_does_not_block_other_hosts_moves(
         tmp_path, capsys, stored_stamp, logged):
-    """#1012: keeping Wafer's later entry must not invalidate OtherHost's move."""
+    """keeping Wafer's later entry must not invalidate OtherHost's move."""
     old = {"fresh": 1.0, "create_5m": 1.0, "create_1h": 1.0,
            "read": 0.1, "output": 3.0}
     wafer_listed = {"fresh": 2.0, "create_5m": 2.0, "create_1h": 2.0,

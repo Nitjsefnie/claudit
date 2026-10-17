@@ -1,4 +1,4 @@
-"""The records_price sidecar (issue #959, ruling R4).
+"""The records_price sidecar (ruling R4).
 
 The reprice pass rewrites its six columns on every PRICING_VERSION bump.
 Ruling R4 puts the reprice-written columns on a narrow
@@ -96,7 +96,7 @@ def _columns(conn, table: str) -> set[str]:
 def test_the_sidecar_shape_and_both_fillfactors_are_applied(fresh_db):
     """The split as the database actually stores it: records_price keyed
     (file_id, line_num) with the cascade back to records, sidecar at
-    fillfactor 50 (#350's HOT pages) and records at 100 — the reloption
+    fillfactor 50 (for HOT pages) and records at 100 — the reloption
     every startup stamps (SV-SCHEMA-AUTOAPPLY), not just a source line."""
     with db.viz_conn() as conn:
         assert _pk_def(conn, "records_price") == "PRIMARY KEY (file_id, line_num)"
@@ -118,8 +118,8 @@ def test_the_sidecar_shape_and_both_fillfactors_are_applied(fresh_db):
 
 
 def test_no_schema_line_pins_records_at_fillfactor_50(fresh_db):
-    """Issue #350's storage fix moves with the columns it was protecting:
-    after the split, every fillfactor statement the schema chain applies
+    """Fillfactor follows the hot columns into records_price:
+    every fillfactor statement the schema chain applies
     to `records` says 100, and 50 is stated for records_price alone.
     PostgreSQL applies the LAST assignment, so a surviving 50 anywhere
     in the chain would win silently over the pinned 100."""
@@ -511,11 +511,9 @@ def test_sessions_list_response_is_byte_identical(cost_client):
 
 
 # ---------------------------------------------------------------------------
-# Full-response BYTE assertions for the three heavier readers that used to
-# assert JSON field equality only: /api/cache, /api/dashboard and the
-# session detail. Every leaf — not just the cost ones — must match the
-# seeded truth, through the sidecar join, exactly as the starlette
-# JSONResponse serialises it (_bytes above).
+# Full-response byte assertions cover cache, dashboard and session detail.
+# Every leaf must match the seeded truth through the sidecar join, exactly
+# as JSONResponse serialises it (_bytes above).
 # ---------------------------------------------------------------------------
 
 

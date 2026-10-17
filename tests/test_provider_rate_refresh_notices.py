@@ -1,5 +1,5 @@
 """The hourly refresh's commit message omits a notice line the last
-committing run already carried (issue #888), so a model still delisted — or
+committing run already carried , so a model still delisted — or
 a tag still unrecognised — is not repeated in every commit.
 
 The baseline is the committed ``pricing_notices.json`` beside the pricing
@@ -48,7 +48,7 @@ def _commit_message(run: Run) -> str:
 def test_the_notice_stays_suppressed_across_consecutive_commits(tmp_path, capsys):
     """The regression this design exists for: the baseline holds the lines
     the last committing run suppressed, so a permanently-delisted model's
-    notice does not alternate back into every second commit (issue #888).
+    notice does not alternate back into every second commit .
 
     Three commits, because the defect shows on the run AFTER a suppressing
     one — a two-commit case passes against a baseline that drops what it
@@ -74,7 +74,7 @@ def test_the_notice_stays_suppressed_across_consecutive_commits(tmp_path, capsys
 def test_a_changed_delisting_notice_still_appears(tmp_path, capsys):
     """A grouped line that no longer matches the carried one — a model
     dropped from it — is not suppressed, so a changed notice is never
-    hidden (issue #888)."""
+    hidden ."""
     run = _delisted_run(tmp_path)
     (tmp_path / "pricing_notices.json").write_text(
         '{\n  "notices": [\n'
@@ -110,7 +110,7 @@ def test_an_unusable_baseline_suppresses_nothing(tmp_path, capsys, baseline):
     malformed, wrong-shaped, key-less, a top-level array or null, a non-list
     ``notices`` (including one whose keys WOULD suppress), and a non-string
     entry. The feature can never hide a notice behind a bad read, nor crash
-    the run on one (issue #888)."""
+    the run on one ."""
     run = _delisted_run(tmp_path)
     path = tmp_path / "pricing_notices.json"
     if baseline is not None:
@@ -151,7 +151,7 @@ def test_a_run_that_commits_records_the_carried_notice_set(tmp_path, capsys):
 
 def test_a_quiet_run_leaves_the_baseline_untouched(tmp_path, capsys):
     """A run that appends nothing publishes no commit, so it must not move
-    the baseline either (issue #888)."""
+    the baseline either ."""
     run = Run(tmp_path)
     path = tmp_path / "pricing_notices.json"
 
@@ -186,7 +186,7 @@ def _vendor_pass(*_args):
 def test_a_vendor_notice_also_stays_suppressed_across_commits(tmp_path, capsys):
     """The baseline carries the vendor pass's notices too: a regression
     dropping that half would oscillate a vendor notice exactly as the
-    provider one did (issue #888).
+    provider one did .
 
     Three commits, for the same reason the provider case runs three: a
     two-commit case passes against a baseline that records only what it
@@ -211,7 +211,7 @@ def test_the_shipped_baseline_has_the_documents_shape():
     on every committing run, so only its SHAPE is pinned, never its content
     (SV-TEST-DATA).
 
-    The ``sampled`` and ``vanished`` standing-state keys (issue #933) join
+    The ``sampled`` and ``vanished`` standing-state keys join
     the file at the first committing run on that code; the shipped baseline
     predates it, so they are shape-checked only while present."""
     doc = json.loads(_NOTICES_JSON.read_text(encoding="utf-8"))

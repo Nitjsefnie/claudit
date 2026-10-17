@@ -4,7 +4,7 @@
 post-job step, which runs AFTER the job has checked out and executed the
 tree under test. On a pull_request event that is untrusted code writing
 the cross-run state a later master push restores and installs from
-(issue #126). The shape pinned here replaces it: no setup-python step
+. The shape pinned here replaces it: no setup-python step
 owns the cache, restore runs on every event, and save runs only from a
 push of the default branch, immediately after that job's dependency
 install so the freshly populated cache is what gets saved.

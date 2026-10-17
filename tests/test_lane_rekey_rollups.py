@@ -1,8 +1,8 @@
 """A lane re-key that deletes the source project leaves the rollups right.
 
 The rekey UPDATEs a stale hash project's files onto the folded marker
-project and DELETEs the hash project's row once no file references it
-(#370). Since #959 that DELETE cascades: sessions and every
+project and DELETEs the hash project's row once no file references it.
+That DELETE cascades: sessions and every
 proj_id-keyed rollup row go with it. The moved files' contributions must
 reappear under the TARGET project, which only happens if the run's
 rebuild sees the move — ingest promotes the scope to full when a rekey
@@ -35,14 +35,13 @@ _MARKER = "project.json"
 _HASH = "aaaa1111"
 _PATH = "/home/me/alpha"
 
-# Every rollup keyed by proj_id (#959's FK list, plus sessions' own).
+# Every rollup keyed by proj_id (the FK list, plus sessions' own).
 _ROLLUPS = ("usage_rollup", "tool_rollup", "tool_error_rollup",
             "dispatch_rollup", "dispatch_brief_rollup", "ctx_cost_rollup",
             "agent_rollup", "latency_rollup")
 
 
 def _lane(bucket, proj: str, marker: str | None = None) -> None:
-    """One lane project with one main wire; `marker` plants its body."""
     lane = bucket / "sessions" / proj / "s-1"
     lane.mkdir(parents=True)
     (lane / "wire.jsonl.xz").write_bytes(
@@ -52,7 +51,6 @@ def _lane(bucket, proj: str, marker: str | None = None) -> None:
 
 
 def _usage_totals(conn, project_id: str) -> tuple:
-    """usage_rollup's totals for one project id."""
     row = conn.execute(
         "SELECT COALESCE(SUM(u.requests), 0), "
         "       COALESCE(SUM(u.fresh_tokens), 0), "
@@ -83,7 +81,6 @@ def _record_totals(conn, project_id: str) -> tuple:
 
 
 def _rollup_rows(conn, project_id: str) -> dict[str, int]:
-    """Row count per rollup table for one project id."""
     counts = {}
     for table in _ROLLUPS:
         counts[table] = _scalar(

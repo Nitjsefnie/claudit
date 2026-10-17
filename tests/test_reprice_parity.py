@@ -1,14 +1,14 @@
-"""The reprice's PROOF: reprice == full reparse (issue #193).
+"""The reprice's PROOF: reprice == full reparse.
 
 A rate change must rePRICE stored records — recompute cost_usd from the
 stored token columns — instead of re-parsing every R2 object. The proof
 is parity: repriced rows must equal what a full reparse of the same
 bytes under the same rate tables yields. This module holds the
 mirror/parity block (split from test_reprice.py, which outgrew the
-SV-CI-RATCHETS test ceiling when the issue #249 coverage landed): the
+SV-CI-RATCHETS test ceiling when the coverage landed): the
 lane and Claude-format blobs, the proof mirror, and
 test_reprice_matches_full_reparse, whose flag parity covers the
-reprice's re-derivation (issue #194) and the issue #249 fix — a
+reprice's re-derivation and the fix — a
 Claude-format record from a bare meter model keeps the parse-stored
 NULL flag and a flat cost across the reprice.
 """
@@ -88,7 +88,7 @@ def _claude_blob() -> bytes:
     """One Claude-format transcript: a plain prompt, then one assistant
     line from the bare long-context model id gpt-6-sol with no provider
     and a 300k-fresh tally — above the REAL threshold, so both the parse
-    (issue #765's derivation) and the reprice store the metered shape,
+    derivation and the reprice store the metered shape,
     the same values a reparse stores."""
     lines = [
         {"type": "user", "timestamp": "2026-09-01T12:00:00.000Z",
@@ -180,11 +180,9 @@ def _stored_rows() -> list:
 
 def _assert_reprice_parity(blobs: dict, before: dict, next_version: str,
                            repriced: int) -> None:
-    """Every stored row equals the reparse of the same bytes under the
-    loaded tables, a repriced row carries the new version, and the
-    pass's changed count is exactly the rows whose cost moved (issue
-    #339: tallies that price identically under the mutated tables are
-    restamped, not rewritten)."""
+    """Every stored row must equal a reparse under the loaded tables.
+    The changed count includes only changed costs; rows with identical pricing
+    are restamped without rewriting their values."""
     expected = _reparse_costs(blobs)
     rows = _stored_rows()
     assert len(rows) == len(expected), (
@@ -205,37 +203,18 @@ def _assert_reprice_parity(blobs: dict, before: dict, next_version: str,
 
 
 def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
-    """THE PROOF (issue #193): reprice == full reparse. Ingest the mini
-    mirror plus codex lane files, MUTATE the loaded rate tables, bump
-    PRICING_VERSION, run the reprice — then every stored cost_usd must
-    equal what parse_file yields for the same fixture bytes under the
-    same mutated tables.
-
-    Shapes exercised here: exact-key rows (claude-opus-4-7,
-    gpt-6-astra), a dated window (claude-sonnet-4-5, end 2099 so it
-    covers every fixture timestamp) and the long-context meter: three
-    codex lane files — the small fixture plus two 300k-fresh rollouts,
-    one per plan shape ("pro" on every token_count, and no rate_limits)
-    — whose flag parity now includes the reprice's re-derivation (issue
-    #194). The threshold patch to 1 stays only so the small fixture
-    parses TRUE; the two meter-shaped files sit above the REAL 272k, so
-    the reprice (re-derivation) and the reparse agree for both plan
-    shapes. A Claude-format file from the bare meter model gpt-6-sol
-    with no provider (issue #249): the parse path itself now derives the
-    meter decision for a member above its threshold (issue #765), and
-    the reprice re-derives the same from the stored columns — reprice
-    equals reparse for the shape the pass used to flip. The provider-row and
-    weekly-schedule shapes have no
-    fixture-backed record; the seeded tests price them through the same
-    compute_cost call the parse path makes — parity by construction,
-    and still a check on the pass's column mapping.
-    """
+    """Reprice must equal a full reparse of identical bytes under mutated rate tables.
+    Cover exact rows, a dated window and long-context models on subscription
+    and API-key plans. Keep the small-fixture threshold patch, but also use
+    rollouts above the real threshold. Cover a bare meter model in Claude format.
+    Provider and weekly-schedule rows lack fixture-backed records; seeded tests
+    exercise their pricing through the same compute_cost entry point."""
     bucket, lane_blobs = _proof_mirror(tmp_path)
     monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
     # Threshold 1: the small codex fixture parses long_context=TRUE; the
     # two 300k rollouts clear the REAL threshold either way, and the
     # claude rows carry no meter decision (non-members), and the
-    # Claude-format member row's flag comes from the parse (issue #765).
+    # Claude-format member row's flag comes from the parse.
     monkeypatch.setattr(pricing, "LONG_CONTEXT_THRESHOLD", 1)
     # The membership is the test's own (SV-TEST-DATA): exactly the
     # bare meter model, so the claude fixture rows stay non-members
@@ -261,7 +240,7 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     # still a models-table key, while the two vendor keys moved at the
     # migration — their bare ids price through their (key, vendor_host)
     # rows — so the mutation lands on those tables. The dated window ends
-    # 2099, covering every fixture timestamp.
+    # after every fixture timestamp.
     monkeypatch.setattr(pricing, "MODEL_RATES", {
         **pricing.MODEL_RATES,
         "claude-opus-4-7": _OPUS_RATES,
@@ -284,14 +263,14 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     rate_fingerprint.clear_fingerprint_cache()
     before = _stored_costs()
 
-    # One past the tree's own version (derived, issue #198): the refresh
+    # One past the tree's own version (derived): the refresh
     # workflow bumps PRICING_VERSION itself, so a literal bump target can
     # collide with the working tree and turn the patch into a no-op — and
     # the mirror ingest stamps the tree's real value, so every row is
     # stale whatever the tree carries.
     next_version = str(int(constants.PRICING_VERSION) + 1)
     monkeypatch.setattr(constants, "PRICING_VERSION", next_version)
-    # Issue #339: the count is rows whose rate-derived data moved, not
+    # the count is rows whose rate-derived data moved, not
     # every stale row — tallies that price identically under the mutated
     # tables (zero-token rows) are restamped, not rewritten. The proof
     # below asserts the count equals the rows the parity diff observes
@@ -332,7 +311,7 @@ _CUTOVER_376 = datetime(2026, 9, 10, 0, 0, tzinfo=UTC)
 
 def test_reprice_matches_reparse_for_offset_less_timestamps(
         fresh_db, tmp_path, monkeypatch):
-    """Issue #376: an offset-less record timestamp is UTC — the SAME
+    """an offset-less record timestamp is UTC — the SAME
     instant is priced and stored — so a reprice of the stored row prices
     what a reparse of the raw text prices, even in a non-UTC session
     zone with a rate cutover between the two interpretations. Before the
@@ -369,7 +348,7 @@ def test_reprice_matches_reparse_for_offset_less_timestamps(
         f"the stored instant must be the UTC reading of the raw text: "
         f"{stored_utc_wall}")
 
-    # Move the pair AFTER the ingest (the #249 route: a rate change with
+    # Move the pair AFTER the ingest (the route: a rate change with
     # its bump), so the reprice pass must RECOMPUTE from the stored
     # instant instead of proving the row clean by fingerprint: a window
     # appears that ends at the cutover, and the list row moves with it.

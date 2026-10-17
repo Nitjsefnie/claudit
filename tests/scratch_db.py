@@ -2,7 +2,7 @@
 
 Every name is `claudit_test_run_<epoch>_<pid>_<hex>[_<label>]`, unique to
 this process, so two suites on one Postgres server never touch each
-other's databases (issue #68). Import it as `tests.scratch_db` only: the
+other's databases. Import it as `tests.scratch_db` only: the
 run tag is drawn at import, and a second import path would draw another.
 
 Deliberately free of `backend` imports at module load:
@@ -32,7 +32,7 @@ STALE_AFTER_S = 6 * 3600
 # Every schema file, in the order db.SCHEMA_PATHS applies them. A test
 # database missing a table the app reads fails in a way that looks like a
 # product bug, so the fixture applies the whole schema and not just its
-# first file (issue #436 added the second, #469 the third). Equal to
+# first file ( added the second, the third). Equal to
 # backend.schema_files.SCHEMA_PATHS, element for element:
 # test_the_scratch_schema_lists_every_schema_files_path fails the change
 # that drops one.
@@ -52,7 +52,7 @@ SCHEMA = (
     Path(__file__).resolve().parents[1] / "backend" / "schema_timelines.sql",
 )
 
-# The schema every earlier file builds: everything except the #959
+# The schema every earlier file builds: everything except the
 # migration itself (the width guard, the shape file, the type
 # compaction that converges a database already in that shape, and the
 # records_price split those end at) — the LAST SCHEMA_PATHS entries.
@@ -125,9 +125,7 @@ def seq_used(conn, sequence: str) -> int:
 
 def seed_projects_with_file(conn, project_ids, file_key, session_id, ts,
                             alias=None) -> None:
-    """Two `projects` rows and the one `files` row that ties the source to
-    the target — the seed the alias-fold and lane-rekey target-upsert tests
-    each used to spell out for themselves."""
+    """Two projects and one file tying source to target for alias-fold and rekey tests."""
     for pid in project_ids:
         conn.execute(
             "INSERT INTO projects (project_id, display_name, "
@@ -154,7 +152,7 @@ def hold_run_lease() -> None:
     The connection sits on THIS run's own small lease database, not on
     `postgres`/`template1`: Postgres refuses any other client's database
     creation for as long as a template has an open connection, and the
-    lease is open for the whole run (issue #87)."""
+    lease is open for the whole run."""
     if _lease and not _lease[0].closed:
         return
     create_empty_database(db_name("lease"))
@@ -235,7 +233,7 @@ def drop_run_databases() -> list[str]:
     with closing(admin_connection()) as conn:
         # Release the lease first: the lease database is one of the rows
         # below, and its WITH (FORCE) drop must not terminate our own
-        # backend (issue #87).
+        # backend.
         if _lease and not _lease[0].closed:
             _lease[0].close()
         rows = conn.execute(

@@ -1,6 +1,6 @@
-"""The smoke client presents the same origin a browser page would (#136).
+"""The smoke client presents the same origin a browser page would.
 
-PR #132 made the auth middleware refuse a mutating request whose Origin
+ made the auth middleware refuse a mutating request whose Origin
 or Referer does not match Host, so a bare urllib POST gets 403 and the
 smoke gate goes red. A browser form POST always carries Origin — the
 defect was in the smoke client, not the server. These tests boot a real
@@ -39,7 +39,6 @@ ci_smoke = _load()
 
 
 def _probe_handler(captured: dict):
-    """A handler class bound to this test's capture dict."""
 
     class _Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self):

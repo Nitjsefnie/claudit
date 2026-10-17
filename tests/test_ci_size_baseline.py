@@ -350,7 +350,7 @@ def test_committed_baseline_seeds_only_over_ceiling_files(baseline_case):
 
 
 def test_tracked_sizes_cover_sql_css_and_workflow_yaml(real_tracked_sizes):
-    # The three families the audit found growing unmeasured (#393): the
+    # The three families the audit found growing unmeasured: the
     # shipped schema, the stylesheet and the workflow YAML join the
     # ratchet, priced against the production ceiling like any other
     # production source. The thresholds document itself is data, not

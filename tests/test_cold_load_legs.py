@@ -1,17 +1,7 @@
-"""Source pins for the two cold-load legs the rendered guard cannot see.
-
-scripts/ci/panel_interactions.mjs judges cold-load CLS in CI, where the
-css2 sheet lands in ~62 ms and /api/projects is local: reverting the
-font leg or the picker leg shifts nothing measurable there, and the
-guard stays green (the 2026-10-06 review's mutants 3/3b). Production
-latency is where those legs carry up to 0.07-0.12 CLS, so the legs are
-pinned here at source level — each pin names a string the leg needs,
-and each was proven red against its revert mutant before landing.
-
-These are pins, not behaviour tests: they fail when a leg is deleted or
-reworded, and say nothing about whether the leg still WORKS — the
-rendered guard covers that part of the category.
-"""
+"""Source pins cover cold-load font and picker legs that local CI latency can hide.
+Fast stylesheet and project responses can make a reverted leg produce no
+measurable CLS in the rendered guard. Source pins require each leg; the
+rendered guard checks whether the implementation works."""
 from __future__ import annotations
 
 from pathlib import Path

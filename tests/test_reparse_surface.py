@@ -1,6 +1,6 @@
 """The parse-surface gate: the corpus must walk every path the pass can reach.
 
-Issue #503: the reparse bench measures one pass over `fixtures/r2_mini`,
+the reparse bench measures one pass over `fixtures/r2_mini`,
 and that mirror held only Claude-layout transcripts, so a regression in any
 Codex or Kimi parse path, the lane key layout or the lane role mapping
 moved no number in either direction. The mirror now carries one wire per
@@ -51,8 +51,6 @@ walk = _load("reparse_ast")
 surface = _load("reparse_surface")
 bench = _load("reparse_bench")
 
-
-# --- the walk ----------------------------------------------------------------
 
 def test_the_walk_starts_at_the_three_callables_the_pass_is_made_of():
     # reparse_phases' partition names them; if the roots moved, the gate
@@ -286,8 +284,6 @@ def test_a_nested_def_is_not_a_finding_of_its_own():
     assert walk._defines(tree) == {"outer"}  # pylint: disable=protected-access
 
 
-# --- the executed side -------------------------------------------------------
-
 def test_a_decorated_function_is_found_by_its_code_object():
     # functools leaves a wrapper with no `__code__` of its own, so the
     # table would miss it and the gate would report a path the corpus
@@ -306,8 +302,6 @@ def test_the_code_object_table_covers_the_whole_reachable_surface():
     reached = walk.reachable_surface()
     assert set(walk.code_objects(reached).values()) == set(reached)
 
-
-# --- the allowlist -----------------------------------------------------------
 
 def test_an_allowlist_entry_without_a_reason_is_refused(tmp_path):
     # Deny by default: an excuse with no stated reason is the hole the
@@ -353,14 +347,12 @@ def test_the_committed_allowlist_excuses_nothing_the_corpus_could_walk():
     allowed = surface.allowlist_entries()
     reached = walk.reachable_surface()
     assert surface.stale_allowlist(reached, allowed) == []
-    # #505 deleted the gate's one excuse with the dead branch it excused
+    # deleted the gate's one excuse with the dead branch it excused
     # (parse._tool_access's Bash arm, which its only caller can never take):
     # the gate runs at full strictness, and an entry may return only with a
     # reachable function no fixture can walk.
     assert allowed == {}
 
-
-# --- the corpus itself -------------------------------------------------------
 
 def _sniff(blob: bytes) -> str:
     # pylint: disable-next=import-outside-toplevel
@@ -421,10 +413,8 @@ def test_the_surface_corpus_reads_nothing_but_committed_bytes():
         assert entry.blob, f"{entry.key} read no bytes"
 
 
-# --- the gate ----------------------------------------------------------------
-
 def _run_gate() -> subprocess.CompletedProcess:
-    """The gate as a PROCESS, which is how it always runs (issue #503).
+    """The gate as a PROCESS, which is how it always runs.
 
     A fresh interpreter is not ceremony: several surface functions sit
     behind an ``lru_cache``, so a process that had already parsed the

@@ -1,4 +1,4 @@
-"""Push-event classification: the verified base (issue #208).
+"""Push-event classification: the verified base.
 
 ci-gate's classifier narrows a documentation-only push by reading the
 push's changed paths, and on master it reads them since the newest
@@ -8,7 +8,7 @@ scenarios here arrange the runs list, the candidate runs' jobs and the
 compare read through a stubbed `run` callable keyed on argv, and pin
 the walk's contract: a completed run whose conclusion is `success`
 with at least one leg executed is the base; a failed or timed-out run
-is skipped like a cancelled one (issue #246), and anything unreadable
+is skipped like a cancelled one, and anything unreadable
 over-runs to the full gate set, never fewer legs.
 
 The classifier's pattern set and its pull-request reads live in
@@ -65,7 +65,7 @@ def _runs_page(*lines):
 
 
 def test_jobs_read_sees_every_job_of_a_run():
-    # Issue #210. The legs-executed decision read a run's jobs with no
+    # The legs-executed decision read a run's jobs with no
     # `per_page` and no pagination, so it saw only the API's default
     # first page (30 jobs); on a longer run an all-skipped later page
     # would hide a leg that executed and misread that run as a verified
@@ -96,7 +96,7 @@ def test_jobs_read_sees_every_job_of_a_run():
 
 
 def test_push_classifies_since_the_last_run_whose_legs_executed():
-    # Issue #208. A code push had its ci-gate run cancelled by the next
+    # A code push had its ci-gate run cancelled by the next
     # push; the following docs-only push then classified only its own
     # before...sha, so every leg skipped and the aggregate reported
     # green over code no leg had run on. The classifier must instead
@@ -162,7 +162,7 @@ def test_push_walks_past_a_docs_only_run_whose_legs_all_skipped():
 
 
 def test_push_walks_past_a_failed_base_run():
-    # Issue #246. A run whose legs executed and FAILED verified nothing
+    # A run whose legs executed and FAILED verified nothing
     # about the tree: it is evidence the code was exercised, not that it
     # passed. A docs-only push on top of a failed code push must
     # classify against the newest SUCCESSFUL legs-bearing run, or its
@@ -200,7 +200,7 @@ def test_push_walks_past_a_failed_base_run():
 
 
 def test_push_walks_past_a_timed_out_base_run():
-    # Issue #246: a timeout is a failed run for this purpose — its legs
+    # a timeout is a failed run for this purpose — its legs
     # ran, so execution alone never made it a base, and its conclusion
     # disqualifies it exactly as a failure does.
     calls = []
@@ -232,7 +232,7 @@ def test_push_walks_past_a_timed_out_base_run():
 
 
 def test_push_with_no_successful_run_over_runs():
-    # Issue #246: with no successful run anywhere, nothing on master is
+    # with no successful run anywhere, nothing on master is
     # a verified base — a failed run does not become one by having
     # executed its legs — so the walk over-runs to the full gate set
     # instead of diffing against failing code.

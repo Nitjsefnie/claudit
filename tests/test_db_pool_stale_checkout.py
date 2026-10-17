@@ -74,7 +74,6 @@ class FakeServer:
 
 
 def _fake_pool_class(server: FakeServer) -> type[ConnectionPool]:
-    """A ConnectionPool that talks to `server` instead of PostgreSQL."""
 
     class _FakeConnection(FakeConnection):
         @classmethod
@@ -108,7 +107,7 @@ def test_pool_replaces_connection_terminated_while_idle(
     # factories read the DSN out of the environment.
     monkeypatch.setenv(dsn_env, "postgresql:///pool-checkout-test")
     monkeypatch.setattr(db, "ConnectionPool", _fake_pool_class(server))
-    # The first-connection probe (issue #449) must not dial a real server
+    # The first-connection probe must not dial a real server
     # either — this test opens no socket, so the probe gets a throwaway
     # connection from the same fake world.
     monkeypatch.setattr(

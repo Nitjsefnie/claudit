@@ -1,10 +1,10 @@
 """ID allocation must spend a sequence value only on a row it inserts.
 
 PostgreSQL evaluates a DEFAULT nextval while forming the tuple — BEFORE
-the unique index decides the row conflicts — so `INSERT ... ON CONFLICT`
+the unique index decides the row conflicts — so `INSERT... ON CONFLICT`
 attempted for a value that is already stored burns the id anyway, and
 `DO UPDATE` additionally locks the row it did not need to touch. At the
-#959 shape every id is a surrogate (dim ids, proj_id, file_id, ses_id),
+ shape every id is a surrogate (dim ids, proj_id, file_id, ses_id),
 so a per-attempt burn is what makes a SMALLINT id space (32767) run out
 and what queues the four persist threads behind one hot row. Every
 allocation site therefore reads the existing rows first, inserts only

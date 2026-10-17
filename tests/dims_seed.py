@@ -1,11 +1,6 @@
-"""Dimension/id helpers for tests that seed fact rows directly (issue #959).
-
-`records`/`tool_uses` store dim FKs and reference `files` by `file_id`
-now, so a test that used to INSERT a `file_key` and a `model` text
-resolves them here instead: one upsert per value, the id back. Import as
-`tests.dims_seed` only — like `tests.scratch_db`, it draws nothing at
-import and holds no state.
-"""
+"""Dimension/id helpers for tests that seed fact rows directly.
+Resolve dimension values through one upsert per value, returning the id.
+Import as `tests.dims_seed` only; imports draw nothing and hold no state."""
 from __future__ import annotations
 
 from psycopg.types.json import Jsonb  # noqa: F401  (re-exported for seeds)

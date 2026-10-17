@@ -1,4 +1,4 @@
-"""The per-(model, provider) rate fingerprint (issue #351).
+"""The per-(model, provider) rate fingerprint.
 
 pair_fingerprint(model, provider) digests exactly the rate data
 pricing.resolve() consults for the pair, plus the pricing modules'
@@ -363,9 +363,9 @@ def test_memo_and_cache_clear(rate_tables, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# The reprice pass's own derivation is hashed (issue #377): a logic
+# The reprice pass's own derivation is hashed: a logic
 # change to ANY module the pass computes stored state from must move
-# the fingerprint, so the #249 route (rule change shipped with a
+# the fingerprint, so the route (rule change shipped with a
 # PRICING_VERSION bump) can never reprice nothing.
 # --------------------------------------------------------------------------
 

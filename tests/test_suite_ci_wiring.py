@@ -1,11 +1,6 @@
-"""Workflow wiring: the canary measures and gates the suite bench.
-
-The old speed.yml measured one pass in a leg of its own; since issue
-#515 the tests canary owns the measurement AND the gate (one bench pass
-per ci-gate run), and speed.yml is gone. Every case here pins the shape
-by its DECODED scalars -- exact expressions, exact commands, exact
-artifact names -- not the presence of a script text.
-"""
+"""The tests canary measures and gates the suite bench once per ci-gate run.
+Assert decoded scalars, expressions, commands and artifact names so decoy
+script text cannot satisfy the workflow contract."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -65,8 +60,6 @@ def _find_step(job, needle):
     return matches[0]
 
 
-# --- the bench lives in the tests canary -------------------------------------
-
 def test_the_bench_action_measures_and_gates():
     """The composite action's own shape: measure, then gate."""
     action = yaml.load(
@@ -82,8 +75,7 @@ def test_the_bench_action_measures_and_gates():
     assert action["outputs"]["measured"]["value"] == (
         "${{ steps.measure.outputs.measured }}")
     gate = steps[1]
-    # One mode only: the canary always gates after measuring (issue
-    # #515). The record-vs-gate split died with the second leg.
+    # The canary must always gate after measuring; no alternate mode may skip it.
     assert "if" not in gate
     assert "mode" not in (action.get("inputs") or {})
     lines = _run_lines(gate)
@@ -96,7 +88,7 @@ def test_the_bench_action_measures_and_gates():
 def test_every_run_step_binds_MEASUREMENT_to_the_measurement_input():
     """The command strings above quote `"$MEASUREMENT"`, so both steps
     read one variable -- but nothing pinned what that variable is BOUND
-    to (issue #728, the #712 twin): an edit pointing a step's env at a
+    to (the twin): an edit pointing a step's env at a
     file the measuring step never wrote keeps this suite green while
     the gate passes on whatever is at the second path, which on a
     fresh runner is nothing at all.
@@ -116,7 +108,7 @@ def test_every_run_step_binds_MEASUREMENT_to_the_measurement_input():
 
 
 def test_speed_yml_is_gone():
-    # The fold (issue #515): one bench pass per ci-gate run, in the
+    # The fold: one bench pass per ci-gate run, in the
     # tests canary; a second workflow to run it again is a regression.
     assert not (WORKFLOWS / "speed.yml").exists()
 
@@ -170,8 +162,7 @@ def test_tests_job_measures_and_gates_on_every_event():
 def test_the_suite_measurement_upload_is_unique_repo_wide():
     # The bot (ratchet-push.yml) reads artifact names out of the
     # triggering run. Two uploads of one name in the same ci-gate run
-    # made that download a coin toss (issue #496); the fold (issue
-    # #515) leaves exactly ONE publisher per downloaded name. The names
+    # would make the download ambiguous: require one publisher per name. Names
     # are DERIVED from the download side — workflow against workflow,
     # no literal (fleet-rules, "Merging and CI"): rename both together
     # and this follows; rename one and the disagreement reds.
@@ -209,11 +200,6 @@ def test_the_canary_never_compares_two_checkouts():
                      "releases/latest"):
             assert gone not in text, (name, gone)
 
-
-# --- ratchet-push.yml (the bot side) -----------------------------------------
-
-
-# --- ratchet-push.yml (the bot side) -----------------------------------------
 
 def test_ratchet_push_job_tightens_from_the_artifact():
     doc = _load("ratchet-push.yml")
@@ -295,10 +281,8 @@ def test_ratchet_data_reads_are_guarded_on_artifact_presence():
 
 
 def test_the_bench_runner_pins_the_seed_interpreter():
-    # The budgets are exact instruction counts for ONE interpreter. The
-    # canary is both the gate and the record path now (issue #515), so
-    # its exact micro the seed was measured with is all that is left to
-    # pin (the node coverage pin's reason, issue #266).
+    # Budgets count instructions for one interpreter; gate and recording
+    # must use the same exact patch version.
     doc = _load("tests.yml")
     job = _job(doc, "pytest")
     setups = [step for step in _steps(job)

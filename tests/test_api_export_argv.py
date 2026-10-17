@@ -1,5 +1,3 @@
-"""The export argv builder's tests, split from test_api.py to keep that
-module under its size ceiling — relocation only, no assertion changed."""
 from __future__ import annotations
 
 import importlib.util
@@ -12,7 +10,6 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _load_plot_db_module(monkeypatch, request):
-    """Import plot module by path with helper modules isolated per test."""
     path = _REPO_ROOT / "scripts/plots/ccusage_plot_db.py"
     helper_names = ("ccusage_plot_render", "ccusage_plot_timeline")
     present_before = set(sys.modules).intersection(helper_names)
@@ -50,7 +47,7 @@ def test_build_export_argv_all_and_no_project():
 def test_build_export_argv_value_options_use_equals_form():
     """Every value-taking option the export passes rides in --opt=value
     form — a single argv element, so a dash-leading value can never be
-    re-read as an option (issue #380)."""
+    re-read as an option."""
     argv = api_export.build_export_argv("7d", "-root-claudit", "/tmp/out.png")
     assert "--output=/tmp/out.png" in argv
     assert "--period=7d" in argv

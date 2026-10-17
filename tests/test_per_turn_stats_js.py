@@ -1,6 +1,6 @@
 """src/per-turn-stats.js: the nearest-rank rule the context panel draws.
 
-Pins the rule verbatim (issue #644 extracted the function verbatim; the
+Pins the rule verbatim ( extracted the function verbatim; the
 pins keep it verbatim): median `arr[floor(n / 2)]`, percentile
 `arr[floor(n * q)]` over the per-turn values of every trace's seq, and
 `null` + count 0 for a turn no trace reaches.
