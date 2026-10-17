@@ -166,12 +166,17 @@ def _threshold_base_action():
         encoding='utf-8'), Loader=yaml.BaseLoader)
 
 
-@pytest.mark.parametrize('job_name', ['pytest', 'pytest-portable'])
-def test_threshold_base_action_runs_once_per_job_before_tests(job_name):
-    job = _workflow('tests.yml')['jobs'][job_name]
+@pytest.mark.parametrize('workflow,job_name,test_step', [
+    ('tests.yml', 'pytest', 'Run tests'),
+    ('tests.yml', 'pytest-portable', 'Run tests'),
+    ('test-data.yml', 'perturbed-suite', 'Perturb and test'),
+    ('test-data-explore.yml', 'perturbed-suite-explore', 'Perturb and test, per wall-clock seed'),
+])
+def test_threshold_base_action_runs_once_per_job_before_tests(workflow, job_name, test_step):
+    job = _workflow(workflow)['jobs'][job_name]
     steps = job['steps']
     resolvers = [step for step in steps
-                 if step.get('uses') == './.github/actions/thresholds-base']
+                 if step.get('uses') == '$/.github/actions/thresholds-base']
     assert len(resolvers) == 1
     resolver = resolvers[0]
     assert resolver['env'] == {
@@ -182,7 +187,7 @@ def test_threshold_base_action_runs_once_per_job_before_tests(job_name):
     }
     assert 'if' not in resolver
     assert steps.index(resolver) < next(i for i, step in enumerate(steps)
-                                        if step.get('name') == 'Run tests')
+                                        if step.get('name') == test_step)
     checkout = next(step for step in steps
                     if step.get('uses', '').startswith('actions/checkout@'))
     assert checkout['with']['fetch-depth'] == '0'

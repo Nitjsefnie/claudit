@@ -170,6 +170,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
 
+      # Rate/version mutations on master have no judged removal range.
+      # No base means no exemptions, including a snapshot awaiting re-seeding.
       - name: Run the suite against the new rates
         if: steps.moved.outputs.moved == 'true'
         run: python -m pytest tests/ -q --tb=short -ra

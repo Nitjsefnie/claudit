@@ -151,7 +151,8 @@ def _run_sharded(repo_root: Path, base_seed: int, total: int, jobs: int,
     """The iterations sharded across J children, each in its own clone
     of the tree; results merged in iteration order. An interrupted or
     crashed run takes every shard's process group down BEFORE the
-    snapshot tree is removed (issue #331)."""
+    snapshot tree is removed (issue #331). Snapshots have one commit:
+    an absent/unresolvable judged base grants no removal exemptions."""
     with tempfile.TemporaryDirectory(prefix="fuzz-test-data-") as tmp:
         pending: list[tuple[Path, Path, subprocess.Popen[bytes]]] = []
         try:

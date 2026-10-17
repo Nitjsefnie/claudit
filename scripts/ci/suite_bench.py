@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Measure one pytest run's cost in instructions, phase by phase.
 
+Inherits CLAUDIT_THRESHOLDS_BASE_REV; absent means no removal exemptions.
+
 The suite-cost gate's instrument (issue #452). The old gate compared
 WALL-CLOCK durations between two checkouts, A/B/A/B, against a pinned
 baseline release; a runner's speed varies by roughly a factor of two
