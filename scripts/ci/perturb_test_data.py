@@ -350,10 +350,11 @@ def _stamp_after(previous: str | None, candidate: datetime) -> str:
 def bump_constants(constants_path: Path, parser_version_path: Path) -> None:
     """Move each version constant up one, in place, same quoted style.
 
-    PARSER_VERSION lives in its own module since issue #986 — the hourly
-    pricing bot rewrites backend/constants.py for PRICING_VERSION, and a
-    parser version sharing that file conflicted with every bot commit —
-    so the perturbation follows the constant to its home.
+    The hourly pricing bot rewrites backend/constants.py for PRICING_VERSION,
+    so a PARSER_VERSION bump sharing that file shared the bot's changed file
+    and rebased on its hourly commits; the review's two isolated bumps merged
+    without conflict markers. PARSER_VERSION lives in its own module since
+    issue #986, so the perturbation follows the constant to its home.
     """
     _bump_names(parser_version_path, ("PARSER_VERSION",))
     _bump_names(constants_path, ("PRICING_VERSION", "MARKER_READER_VERSION"))
