@@ -216,6 +216,7 @@ def test_version_admitted_without_sites_or_markers_skips_tokens(
 # ---- Node, scan-property, coverage-list and lane guards -----------------
 
 _LIST = "scripts/ci/node_test_files.txt"
+_COVERAGE_GATE = ".github/actions/coverage-gate/action.yml"
 _WINDOW = "global." + "window"
 _SKIP = ('pytest.mark.skipif(shutil.which("node") is None, '
          'reason="node not available")')
@@ -227,6 +228,8 @@ _HELPER = ("import subprocess\ndef launch():\n"
 
 def _plant(root: Path, files: dict[str, str], listed: list[str]) -> None:
     for rel, text in {_LIST: "".join(f"{rel}\n" for rel in listed),
+                      _COVERAGE_GATE: (Path(__file__).resolve().parents[1]
+                                       / _COVERAGE_GATE).read_text(encoding="utf-8"),
                       **files}.items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(text, encoding="utf-8")

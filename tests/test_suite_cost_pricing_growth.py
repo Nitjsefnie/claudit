@@ -40,6 +40,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # loads the copy's bounded document and any late (in-window) injection
 # reads the copy's deployed document, which differs between the arms.
 BENCH_MODULES = ("suite_bench.py", "suite_phases.py", "suite_report.py",
+                 "tests_tree.py",
                  "thresholds.py", "thresholds_validate.py",
                  "suite_pricing_doc.json")
 # The committed document — the only tree file the check mutates in its
