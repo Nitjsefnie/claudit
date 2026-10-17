@@ -9,12 +9,13 @@ that ``write()`` publishes.
 """
 from __future__ import annotations
 
-import copy
-import importlib.util
+import importlib
 import json
+import pickle
 import subprocess
 import sys
 from decimal import Decimal
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -26,18 +27,9 @@ THRESHOLDS_PATH = REPO_ROOT / ".github" / "ci-thresholds.json"
 
 
 def _load(name="thresholds"):
-    """Import a scripts/ci module by path.
-
-    scripts/ci is not a package and deliberately has no __init__.py — it
-    holds standalone CI entry points, not an importable library.
-    """
-    path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+    """Import each CI module once, sharing its cached decode snapshots."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
+    return importlib.import_module(name)
 
 
 thresholds = _load()
@@ -70,28 +62,42 @@ def _reparse(shares=None):
     }
 
 
-def _document(measured="92.6", floor="91.1", baseline=None, reparse=None,
-              suite=None):
-    return {
+@cache
+def _document_bytes():
+    """An immutable synthetic seed; per-scenario mutations stay local."""
+    return pickle.dumps({
         "schema_version": 1,
         "coverage": {
-            "python": {
-                "measured": Decimal(measured),
-                "floor": Decimal(floor),
-            },
-            "javascript": {
-                "measured": Decimal("50.0"),
-                "floor": Decimal("48.5"),
-            },
+            "python": {"measured": Decimal("92.6"), "floor": Decimal("91.1")},
+            "javascript": {"measured": Decimal("50.0"), "floor": Decimal("48.5")},
         },
-        "reparse": _reparse() if reparse is None else reparse,
-        "module_size_baseline": baseline or {},
+        "reparse": _reparse(),
+        "module_size_baseline": {},
         "comment_share_baseline": {},
         "pylint_suppression_baseline": {},
-        "suite_cost": copy.deepcopy(SUITE_COST if suite is None else suite),
-    }
+        "suite_cost": SUITE_COST,
+    }, protocol=5)
 
 
+def _document(measured="92.6", floor="91.1", baseline=None, reparse=None,
+              suite=None):
+    doc = pickle.loads(_document_bytes())
+    doc["coverage"]["python"] = {"measured": Decimal(measured), "floor": Decimal(floor)}
+    doc["module_size_baseline"] = baseline or {}
+    if reparse is not None:
+        doc["reparse"] = reparse
+    if suite is not None:
+        doc["suite_cost"] = pickle.loads(pickle.dumps(suite, protocol=5))
+    return doc
+
+
+@pytest.fixture(scope="module")
+def committed_document():
+    """Read the real document once; these consumers only inspect it."""
+    return thresholds.load(THRESHOLDS_PATH)
+
+
+@cache
 def subprocess_committed_bytes():
     """The COMMITTED document's bytes, from git rather than the disk.
 
@@ -108,8 +114,7 @@ def subprocess_committed_bytes():
 
 def _written_document(tmp_path, **kwargs):
     target = tmp_path / "ci-thresholds.json"
-    payload = json.loads(json.dumps(_document(**kwargs), default=float))
-    target.write_text(json.dumps(payload), encoding="utf-8")
+    target.write_text(json.dumps(_document(**kwargs), default=float), encoding="utf-8")
     return target
 
 
@@ -127,11 +132,11 @@ def _thresholds_path(tmp_path, state):
     else:
         assert state == "present"
     target = tmp_path / "thresholds.json"
-    thresholds.write(target, data)
+    target.write_text(json.dumps(data, default=float), encoding="utf-8")
     return target
 
 
-def test_committed_document_loads(tmp_path):
+def test_committed_document_loads(tmp_path, committed_document):
     for state in [
         "committed",
         "present",
@@ -139,7 +144,8 @@ def test_committed_document_loads(tmp_path):
         "no-javascript",
         "no-coverage",
     ]:
-        doc = thresholds.load(_thresholds_path(tmp_path, state))
+        doc = (committed_document if state == "committed" else
+               thresholds.load(_thresholds_path(tmp_path, state)))
         assert doc["schema_version"] == 1
         for language in thresholds.COVERAGE_LANGUAGES:
             record = doc.get("coverage", {}).get(language)
@@ -426,19 +432,19 @@ def test_coverage_value_bounds():
         thresholds.coverage_value(Decimal("92"), "m")
 
 
-def test_committed_document_bytes_are_canonical(tmp_path):
+def test_committed_document_bytes_are_canonical(tmp_path, committed_document):
     # The COMMITTED bytes must be byte-identical to what write()
     # publishes for the same document — no hand-edited formatting
     # drift. The bytes come from git, not the working-tree file: a
     # Windows autocrlf checkout delivers CRLF on disk, and the pin has
     # to hold on every platform's checkout.
-    doc = thresholds.load(THRESHOLDS_PATH)
+    doc = committed_document
     target = tmp_path / "canonical.json"
     thresholds.write(target, doc)
     assert subprocess_committed_bytes() == target.read_bytes()
 
 
-def test_coverage_floor_cli_prints_floor(tmp_path):
+def test_coverage_floor_cli_prints_floor(tmp_path, capsys, committed_document):
     for flag, field in [
         ("--coverage-floor", "floor"),
         ("--coverage-measured", "measured"),
@@ -452,27 +458,21 @@ def test_coverage_floor_cli_prints_floor(tmp_path):
             # Committed readings may move or disappear; synthetic documents
             # exercise both CLI outcomes regardless of the current recording.
             path = _thresholds_path(tmp_path, state)
-            data = thresholds.load(path)
+            data = committed_document if state == "committed" else thresholds.load(path)
             recorded = data.get("coverage", {}).get("python")
-            result = subprocess.run(
-                [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
-                 flag, "python", "--thresholds", str(path)],
-                capture_output=True, text=True, check=True)
+            assert thresholds.main([flag, "python", "--thresholds", str(path)]) == 0
+            captured = capsys.readouterr()
             if recorded is None:
                 assert thresholds.coverage(data, "python") == (None, None)
-                assert result.stdout == ""
+                assert captured.out == ""
             else:
-                assert result.stdout == f'{recorded[field]:.1f}\n'
+                assert captured.out == f'{recorded[field]:.1f}\n'
 
 
-def test_check_cli_accepts_committed_document():
-    # No check=True: the return code is itself the assertion subject.
-    result = subprocess.run(  # pylint: disable=subprocess-run-check
-        [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
-         "--check", "--thresholds", str(THRESHOLDS_PATH)],
-        capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    assert "thresholds valid" in result.stdout
+def test_check_cli_accepts_committed_document(capsys):
+    assert thresholds.main(["--check", "--thresholds", str(THRESHOLDS_PATH)]) == 0
+    captured = capsys.readouterr()
+    assert "thresholds valid" in captured.out
 
 
 def test_check_cli_rejects_broken_document(tmp_path):
@@ -489,7 +489,7 @@ def test_check_cli_rejects_broken_document(tmp_path):
     assert "schema_version" in result.stderr
 
 
-def test_committed_suppression_member_loads(tmp_path):
+def test_committed_suppression_member_loads(tmp_path, committed_document):
     for state in [
         "committed",
         "present",
@@ -497,7 +497,8 @@ def test_committed_suppression_member_loads(tmp_path):
     ]:
         # Recorded suppression entries name production paths and carry
         # positive counts; the whole family may also be absent.
-        doc = thresholds.load(_thresholds_path(tmp_path, state))
+        doc = (committed_document if state == "committed" else
+               thresholds.load(_thresholds_path(tmp_path, state)))
         baseline = doc.get("pylint_suppression_baseline", {})
         if "pylint_suppression_baseline" not in doc:
             assert baseline == {}
@@ -507,7 +508,7 @@ def test_committed_suppression_member_loads(tmp_path):
             assert count > 0
 
 
-def test_committed_suite_cost_family_matches_the_committed_bytes():
+def test_committed_suite_cost_family_matches_the_committed_bytes(committed_document):
     # The committed document loads, and its suite_cost family — the one
     # property every consumer relies on — carries exactly the bench's
     # phases with every ceiling the calibration gap above its measured
@@ -515,7 +516,7 @@ def test_committed_suite_cost_family_matches_the_committed_bytes():
     #
     # The pin is on the DOCUMENT, so it asserts the family's readings
     # when they are recorded and accepts the valid absent-family shape.
-    doc = thresholds.load(THRESHOLDS_PATH)
+    doc = committed_document
     recorded = thresholds.suite_cost(doc)
     present = b'"suite_cost"' in subprocess_committed_bytes()
     assert (recorded != {}) is present, (

@@ -9,8 +9,7 @@ The cases cover forbidden moves and the bots' and features' allowed moves.
 """
 from __future__ import annotations
 
-import copy
-import importlib.util
+import importlib
 import json
 import pickle
 import subprocess
@@ -36,20 +35,8 @@ SUITE_COST = {
 
 
 def _load(name):
-    """Import a scripts/ci module by path.
-
-    scripts/ci is not a package and deliberately has no __init__.py — it
-    holds standalone CI entry points, not an importable library. The
-    directory itself goes on sys.path first, so the module's importlib
-    import of its siblings resolves.
-    """
-    path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+    """Reuse each CI module and its import-time tables across cases."""
+    return importlib.import_module(name)
 
 
 @cache
@@ -67,6 +54,16 @@ def _thresholds():
 
 def _guard():
     return _ci_modules()[2]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _shared_guard_parser():
+    """Build the real CLI grammar once; main still parses every scenario."""
+    guard = _guard()
+    parser = guard._parser()  # pylint: disable=protected-access
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(guard, "_parser", lambda: parser)
+        yield
 
 
 @pytest.fixture(scope="module", name="committed_thresholds",
@@ -104,25 +101,38 @@ def _reparse(shares=None):
     }
 
 
-def _document(baseline=None, suppression=None, reparse=None, suite=None):
-    return {
+@cache
+def _document_bytes():
+    """An immutable synthetic seed; every caller gets independent objects."""
+    return pickle.dumps({
         "schema_version": 1,
         "coverage": {
             "python": {"measured": 92.6, "floor": 91.1},
             "javascript": {"measured": 50.0, "floor": 48.5},
         },
-        "reparse": _reparse() if reparse is None else reparse,
-        "module_size_baseline": baseline if baseline is not None else {},
+        "reparse": _reparse(),
+        "module_size_baseline": {},
         "comment_share_baseline": {},
-        "pylint_suppression_baseline": (
-            suppression if suppression is not None else {}),
-        "suite_cost": copy.deepcopy(SUITE_COST if suite is None else suite),
-    }
+        "pylint_suppression_baseline": {},
+        "suite_cost": SUITE_COST,
+    }, protocol=5)
+
+
+def _document(baseline=None, suppression=None, reparse=None, suite=None):
+    doc = pickle.loads(_document_bytes())
+    for family, value in [("module_size_baseline", baseline),
+                          ("pylint_suppression_baseline", suppression),
+                          ("reparse", reparse)]:
+        if value is not None:
+            doc[family] = value
+    if suite is not None:
+        doc["suite_cost"] = pickle.loads(pickle.dumps(suite, protocol=5))
+    return doc
 
 
 def _written(tmp_path, doc, name):
     target = tmp_path / name
-    _thresholds().write(target, doc)
+    target.write_text(json.dumps(doc, default=float), encoding="utf-8")
     return target
 
 
@@ -139,7 +149,7 @@ def _guard_result(tmp_path, base, head, tracked=None):
 
 def test_committed_document_against_itself_is_clean(tmp_path, committed_thresholds):
     git_meta.require_own_git_metadata(REPO_ROOT)
-    committed = copy.deepcopy(committed_thresholds)
+    committed = pickle.loads(pickle.dumps(committed_thresholds, protocol=5))
     assert _guard_result(
         tmp_path, committed, pickle.loads(pickle.dumps(committed, protocol=5)),
         tracked={"backend/api.py": 986}) == 0
@@ -447,7 +457,7 @@ def test_reparse_remedy_is_printed_for_a_reparse_move(tmp_path, capsys):
 
 
 def _with_identity(suite, lines):
-    family = copy.deepcopy(suite)
+    family = pickle.loads(pickle.dumps(suite, protocol=5))
     family["tests_tree_lines"] = lines
     return family
 
@@ -489,19 +499,36 @@ def _git(root, *args):
         check=True, timeout=10).stdout.decode().strip()
 
 
+def _init_judged_tree(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-q")
+    _git(root, "config", "user.name", "Guard Test")
+    _git(root, "config", "user.email", "guard@example.invalid")
+    (root / "backend").mkdir()
+    for path in ("backend/kept.py", "backend/second.py"):
+        (root / path).write_text("pass\n", encoding="utf-8")
+        _git(root, "add", "--", path)
+    _git(root, "commit", "--allow-empty", "-qm", "feat: outside judged range")
+    _git(root, "branch", "pristine")
+
+
+@pytest.fixture(scope="module")
+def judged_path(tmp_path_factory):
+    """One scratch tree per module; the helper restores its saved commit."""
+    path = tmp_path_factory.mktemp("thresholds-judged")
+    _init_judged_tree(path)
+    return path
+
+
 def _judged_guard(tmp_path, monkeypatch, base, head, subjects, revs=None):
     """Reuse the tracked tree, judging only each scenario's new commits."""
     root = tmp_path / "repo"
     if not root.exists():
-        root.mkdir()
-        _git(root, "init", "-q")
-        _git(root, "config", "user.name", "Guard Test")
-        _git(root, "config", "user.email", "guard@example.invalid")
-        (root / "backend").mkdir()
-        for path in ("backend/kept.py", "backend/second.py"):
-            (root / path).write_text("pass\n", encoding="utf-8")
-            _git(root, "add", "--", path)
-        _git(root, "commit", "--allow-empty", "-qm", "feat: outside judged range")
+        _init_judged_tree(tmp_path)
+    # Only this disposable fixture tree is reset; its saved commit is the rollback.
+    _git(root, "reset", "--hard", "pristine")
+    _git(root, "clean", "-fd")
     # Prior scenarios' features and declarations must stay outside this range.
     base_rev = _git(root, "rev-parse", "HEAD")
     for subject in subjects:
@@ -523,7 +550,7 @@ def _raised_document(family="suite_cost", metric="bytecodes"):
     return head
 
 
-def test_feature_range_admits_budget_raise(tmp_path, monkeypatch):
+def test_feature_range_admits_budget_raise(judged_path, monkeypatch):
     for family, metric, subjects in [
         ("suite_cost", "bytecodes", ["feat: add a panel", "fix: polish"]),
         ("reparse", "bytecodes", ["fix: prepare", "feat: parse new events"]),
@@ -531,11 +558,17 @@ def test_feature_range_admits_budget_raise(tmp_path, monkeypatch):
         ("suite_cost", "bytecodes", ["feat(ci): measure a new path"]),
     ]:
         assert _judged_guard(
-            tmp_path, monkeypatch, _document(), _raised_document(family, metric),
+            judged_path, monkeypatch, _document(), _raised_document(family, metric),
             subjects) == 0
+        root = judged_path / "repo"
+        assert (root / "backend/kept.py").read_text(encoding="utf-8") == "pass\n"
+        assert not (root / "leaked.txt").exists()
+        assert _git(root, "rev-list", "--count", "pristine..HEAD") == str(len(subjects))
+        (root / "backend/kept.py").write_text("dirty\n", encoding="utf-8")
+        (root / "leaked.txt").write_text("untracked\n", encoding="utf-8")
 
 
-def test_non_feature_range_refuses_raise_and_names_remedy(tmp_path, monkeypatch, capsys):
+def test_non_feature_range_refuses_raise_and_names_remedy(judged_path, monkeypatch, capsys):
     for subject in [
         "fix: trim work",
         "chore: tidy",
@@ -548,7 +581,11 @@ def test_non_feature_range_refuses_raise_and_names_remedy(tmp_path, monkeypatch,
         "fix: keep one subject\x0bfeat: embedded feature",
     ]:
         assert _judged_guard(
-            tmp_path, monkeypatch, _document(), _raised_document(), [subject]) == 1
+            judged_path, monkeypatch, _document(), _raised_document(), [subject]) == 1
+        root = judged_path / "repo"
+        assert (root / "backend/kept.py").read_text(encoding="utf-8") == "pass\n"
+        assert not (root / "leaked.txt").exists()
+        assert _git(root, "rev-list", "--count", "pristine..HEAD") == "1"
         err = capsys.readouterr().err
         assert "trimming its own tests" in err
         assert "dropping redundant cases" in err
@@ -556,19 +593,19 @@ def test_non_feature_range_refuses_raise_and_names_remedy(tmp_path, monkeypatch,
         assert "deleting tests that repeat another test's assertions" in err
 
 
-def test_unproved_feature_range_refuses_raise(tmp_path, monkeypatch, capsys):
+def test_unproved_feature_range_refuses_raise(judged_path, monkeypatch, capsys):
     for revs in [
         [],
         ["--base-rev", "unknown-revision", "--head-rev", "HEAD"],
         ["--base-rev", "HEAD", "--head-rev", "HEAD"],
     ]:
         assert _judged_guard(
-            tmp_path, monkeypatch, _document(), _raised_document(),
+            judged_path, monkeypatch, _document(), _raised_document(),
             ["feat: add a panel"], revs) == 1
         assert "trimming its own tests" in capsys.readouterr().err
 
 
-def test_feature_raise_keeps_other_refusals(tmp_path, monkeypatch, capsys):
+def test_feature_raise_keeps_other_refusals(judged_path, monkeypatch, capsys):
     for other_move in [
         "coverage",
         "identity",
@@ -588,7 +625,7 @@ def test_feature_raise_keeps_other_refusals(tmp_path, monkeypatch, capsys):
             head["module_size_baseline"]["backend/api.py"] = 1486
             forbidden = "module_size_baseline.backend/api.py"
         assert _judged_guard(
-            tmp_path, monkeypatch, base, head, ["feat: add a panel"],
+            judged_path, monkeypatch, base, head, ["feat: add a panel"],
             ["--base-rev", "HEAD^", "--head-rev", "HEAD"]) == 1
         err = capsys.readouterr().err
         assert f"forbidden move: {forbidden}" in err
