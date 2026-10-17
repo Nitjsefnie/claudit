@@ -1,6 +1,6 @@
 --- a/lib/code-lines.js
 +++ b/lib/code-lines.js
-@@ -0,0 +1,171 @@
+@@ -0,0 +1,173 @@
 +// A lexical line classifier, deliberately independent of the coverage ranges.
 +// Keep physical offsets in CovSource; only statement emission uses this mask.
 +module.exports = function codeLines (source) {
@@ -93,15 +93,17 @@
 +        token += source[i]
 +        consume(true)
 +      } while (i < source.length && /[\w$\u0080-\uFFFF]/.test(source[i]))
-+      if ((token === 'function' || token === 'class') && state.last !== '.') {
++      const keyword = state.last !== '.' && state.last !== '?.'
++      if (keyword && (token === 'function' || token === 'class')) {
 +        state.constructs.push({
 +          statement: state.statement, parens: state.parens.length,
 +          brackets: state.brackets, braces: state.braces.length
 +        })
 +      }
-+      state.regex = expressionKeywords.has(token) || blockKeywords.has(token)
-+      state.statement = blockKeywords.has(token) || (state.statement && ['async', 'export', 'default'].includes(token))
-+      state.last = token
++      state.regex = keyword && (expressionKeywords.has(token) || blockKeywords.has(token))
++      state.statement = keyword && (blockKeywords.has(token) || (state.statement && ['async', 'export', 'default'].includes(token)))
++      // A member name must not become a control head when followed by parens.
++      state.last = keyword ? token : 'operand'
 +    } else {
 +      consume(true)
 +      if (c === '(') {
