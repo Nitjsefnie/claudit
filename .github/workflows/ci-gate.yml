@@ -1,8 +1,5 @@
 name: ci gate
 
-# One aggregate gate over every check this repository runs on a push or
-# pull request.
-#
 # WHY ONE WORKFLOW. Eleven independent check names could not be
 # required: a ruleset requires one context per name, and the gate
 # workflows narrowed by paths-ignore, so a documentation-only change
@@ -24,16 +21,10 @@ name: ci gate
 # scripts/ci/classify_changes.py.
 #
 # SUPERSESSION AND CANCELLATION. The concurrency group is one per pull
-# request, or per commit SHA on a push (issue #358): a newer push starts
-# its own run instead of cancelling the older one, so the ordinary
-# two-push supersession cancel cannot leave a stale aggregate behind —
-# before this, a bot push (the hourly pricing refresh, a dependabot
-# merge) landing while a master run was in flight cancelled it whole,
-# yet the aggregate's `if: always()` still ran it, folded the cancelled
-# legs, and recorded a red aggregate on the superseded commit, which
-# release.yml's waiter then refuses — a VERSION commit raced by a bot
-# push could not release. The legs keep their own groups, and the long
-# one — test-data — is per-SHA on a push (issues #366, #409): each
+# request, or per commit SHA on a push: cancelling an older push can
+# leave a red aggregate that release.yml must refuse.
+# The legs keep their own groups, and the long
+# one — test-data — is per-SHA on a push: each
 # commit carries its own run, so no push cancels or pending-supersedes
 # another's. The remaining legs keep
 # per-ref groups (the caller's ref), where concurrent master runs
@@ -54,15 +45,15 @@ name: ci gate
 # TRIGGER OWNERSHIP. The eleven gate workflows below are called as
 # reusable workflows; they keep `workflow_call`, their crons (audit
 # daily, codeql weekly) and `workflow_dispatch`, and they carry no
-# `push` or `pull_request` trigger any more — this file owns that
+# `push` or `pull_request` trigger — this file owns that
 # surface. Each callee keeps its own `permissions:` blocks and its
 # concurrency group (the latter governs its standalone dispatch runs).
 # release.yml, refresh-pricing.yml, secrets.yml, version-guard.yml,
 # pr-gate.yml and claim.yml are untouched and outside the aggregate.
 #
-# A FORK'S CODE RUNS IN THE LEGS, exactly as before the move: the legs
+# A FORK'S CODE RUNS IN THE LEGS: the legs
 # run on the merge ref with the caller's permissions. The suite-cost
-# bench lives in the tests canary since issue #515 and, like the suite
+# bench lives in the tests canary and, like the suite
 # itself, executes pull-request code on the pull_request trust model —
 # no secrets, read-only token.
 
@@ -72,25 +63,18 @@ on:
   push:
     branches: [master]
     paths-ignore:
-      # The ratchet bot's master commit touches only this data file and
-      # must not start the suite — the guarantee the gate workflows'
-      # own push triggers used to carry (PR #170), hosted here now.
+      # The ratchet bot's data-only master commit must not restart the suite.
       - '.github/ci-thresholds.json'
   workflow_dispatch:
 
-# Read-only at workflow level except where a leg says otherwise, and the
-# tests leg is read-only too: it runs the proposed tree, so it holds
-# nothing that can write (issue #560). Nothing here pushes (issue #479:
-# the ratchet push moved to the top-level ratchet-push.yml workflow — the
-# master-push deploy key's secret resolved empty inside the callee, and a
-# GITHUB_TOKEN push is rejected by the ruleset's required aggregate
-# check).
+# Read-only except where a leg says otherwise. Tests execute the proposed
+# tree and must hold no write token. The top-level ratchet-push.yml owns
+# pushing: an environment secret is unavailable to a workflow_call callee,
+# and GITHUB_TOKEN cannot bypass the required aggregate check.
 permissions:
   contents: read
 
 concurrency:
-  # One run per pull request or per pushed commit SHA. See the
-  # SUPERSESSION AND CANCELLATION block above.
   group: ci-gate-${{ github.event.pull_request.number
     || (github.event_name == 'push' && github.sha) || github.ref }}
   cancel-in-progress: true
@@ -104,7 +88,7 @@ jobs:
       # what the pulls/<n>/files read needs on a pull-request event;
       # actions: read is what the workflow-runs and run-jobs reads need
       # on a push, where the classifier walks back to the newest master
-      # commit whose gate legs executed (issue #208).
+      # commit whose gate legs executed.
       contents: read
       pull-requests: read
       actions: read
@@ -171,16 +155,16 @@ jobs:
     permissions:
       # The caller's grant CAPS what the callee can use, so this is
       # read-only: contents: read for the suite, which checks out and
-      # RUNS the proposed tree (issue #560). The informational
+      # RUNS the proposed tree. The informational
       # patch-coverage comment no longer needs a token from inside the
       # leg — the leg uploads the rendered body and the top-level
-      # coverage-comment.yml posts it (issue #129). The callee pushes
+      # coverage-comment.yml posts it. The callee pushes
       # nothing — the ratchet data is published by the top-level
-      # ratchet-push.yml workflow (issue #479); no secret is forwarded.
+      # ratchet-push.yml workflow; no secret is forwarded.
       contents: read
 
   test-data:
-    # The perturbed-data leg (issue #199): the full suite against a tree
+    # The perturbed-data leg: the full suite against a tree
     # whose rate rows and version constants a refresh-style perturbation
     # has moved — SV-TEST-DATA's second enforcement half. The verdict is
     # the perturbed suite's pass/fail; no coverage, no ratchet.
@@ -214,7 +198,6 @@ jobs:
     uses: $/.github/workflows/smoke.yml
 
   docker-smoke:
-    # Build the container image and smoke-run the compose stack (issue #941).
     needs: classify
     if: needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true' && needs.classify.outputs.setup_only != 'true'
     uses: $/.github/workflows/docker-smoke.yml
@@ -291,18 +274,8 @@ jobs:
           persist-credentials: false
 
       - name: Check no tracked file carries a merge-conflict marker
-        # A conflict marker is text that looks like prose in a Markdown
-        # file, so only a mechanical check can see it — the claim
-        # repository shipped one through three review rounds with every
-        # gate reading straight past it (claim#56). This is the one tree
-        # read every run gets: a docs-only pull request skips every leg,
-        # and this job runs `always()`, so a marker committed in a
-        # Markdown-only change is red here instead of reaching master. In
-        # this job rather than a new one: the aggregate is the required
-        # status context (`ci gate / aggregate`), and a new job would be
-        # a new context — which means editing the ruleset. Before the
-        # fold: a head failing this check must not fold a green verdict
-        # over a tree that was never clean.
+        # A conflict marker can look like Markdown prose to other gates. This
+        # check runs even on docs-only changes, which skip every gate leg.
         run: |
           # git grep exits 1 for "no match" and above 1 for an error it could
           # not run, and a guard that reads its own error as a clean tree is

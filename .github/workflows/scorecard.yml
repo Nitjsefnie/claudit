@@ -48,7 +48,6 @@ jobs:
     # Job-level, never workflow-level: upstream refuses to publish from a
     # workflow that declares write permissions above the job.
     permissions:
-      # The SARIF upload is what puts the findings in the Security tab.
       security-events: write
       # Scorecard signs its published result over OIDC, so a consumer can
       # verify the score came from this repository's own run.

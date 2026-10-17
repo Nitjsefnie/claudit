@@ -44,9 +44,6 @@ runs:
         echo "measured=true" >> "$GITHUB_OUTPUT"
 
     - name: Gate on the committed budgets
-      # The check's exit code IS the step's: a phase over its recorded
-      # ceiling fails the caller's job, naming the phase, the measured
-      # value and the ceiling.
       shell: bash
       env:
         MEASUREMENT: ${{ inputs.measurement }}

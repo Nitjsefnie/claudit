@@ -3,19 +3,12 @@
 # The cost of that choice is that pins go stale silently, and a stale pin is
 # how a fixed CVE stays exploitable. Dependabot pays that cost back — it is
 # the counterpart to audit.yml, which detects the problem but cannot fix it.
-#
-# Note the interaction with the repo's CI policy: pull_request builds run
-# unconditionally (there is no review gate — see tests.yml), so a Dependabot
-# PR gets a CI run the moment it opens and the suite's verdict is on the PR
-# before a human reads it.
-#
 # The npm entry below owns package.json + package-lock.json: the CI
 # toolchain only. The frontend
 # still has no npm dependency and no build step (see CONTRIBUTING.md and
 # eslint.yml) — that manifest is private, carries devDependencies only, and
-# nothing in the served app reads it. It exists because the pins used to sit
-# inside a workflow `run:` line, where no update mechanism can see them, and
-# the gate drifted onto an npm-deprecated eslint 8 release line (issue #361).
+# nothing in the served app reads it. Pins inside a workflow `run:` line
+# are invisible to update mechanisms.
 # A `dependencies` block here would be the bundler creep CONTRIBUTING.md
 # forbids; tests/test_js_toolchain.py fails if one appears.
 
@@ -27,7 +20,7 @@ updates:
   # the pip file fetcher reaches from here through its one-level walk of the
   # first-level subdirectories under the configured directory. A separate
   # /backend entry would double-own that file and open every backend bump
-  # twice (#164 and #165, issue #176) — there must be exactly one owner per
+  # twice — there must be exactly one owner per
   # requirements file.
   - package-ecosystem: pip # zizmor: ignore[dependabot-cooldown] -- Exact pins and weekly CI-tested updates; fixes need no extra delay.
     directory: "/"
@@ -71,7 +64,7 @@ updates:
       # and security updates are enabled here — so a toolchain CVE bump
       # would arrive one package per PR, leaving eslint, its plugin and
       # globals on a lockfile that does not install. The twin group below
-      # is what keeps the security bump atomic (issue #555).
+      # is what keeps the security bump atomic.
       js-toolchain-security:
         applies-to: security-updates
         patterns:
@@ -97,8 +90,7 @@ updates:
     # github/codeql-action/init and .../analyze are separate dependencies to
     # Dependabot, so ungrouped it files ONE HALF-BUMP PR PER PIN — and a tree
     # whose init and analyze pins disagree fails every CodeQL run at SARIF
-    # processing with "Error when processing the SARIF file" (issue #335:
-    # every action-pin bump PR since 4.37.7 went red). The group is what
+    # processing with "Error when processing the SARIF file". The group is what
     # keeps both pins in one atomic PR; the in-tree tripwire is
     # tests/test_ci_workflows.py.
     groups:
@@ -109,13 +101,10 @@ updates:
       # A group covers its own `applies-to` kind only, and the kind DEFAULTS
       # to version updates, so a version-updates group — explicit or by
       # default — is skipped by security updates entirely. They are enabled
-      # here (verified 2026-10-04 via
-      # `gh api repos/Nitjsefnie/claudit/automated-security-fixes`), so
-      # without the twin below a codeql-action CVE bump lands as one PR per
+      # here, so without the twin below a codeql-action CVE bump lands as one PR per
       # `uses:` line, which splits init and analyze across versions and turns
       # the security fix itself red at SARIF processing — the exact failure
-      # the group above exists to prevent (issue #555; the same shape as
-      # Nitjsefnie-Actions/claim PR #38 and pr-gate PR #29).
+      # the group above exists to prevent.
       actions-security:
         applies-to: security-updates
         patterns:

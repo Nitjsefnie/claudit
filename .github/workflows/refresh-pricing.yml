@@ -29,7 +29,7 @@ name: refresh-pricing
 # it suppressed — because a baseline read from the previous commit's message
 # would lose a suppressed line and re-emit it in the next commit. That file
 # is committed with the data, so a run that appends nothing publishes no
-# commit and does not move the baseline (issue #888).
+# commit and does not move the baseline.
 #
 # THE SUITE GATES THE PUSH. The suite runs in the keyless refresh job and
 # only a green run stages the tested data; the data travels to the push
@@ -127,8 +127,8 @@ jobs:
         run: |
           rc=0
           # The script reads and rewrites src/pricing_notices.json itself: the
-          # notice baseline that keeps a suppressed notice suppressed (issue
-          # #888). It is written only when the run appends.
+          # notice baseline that keeps a suppressed notice suppressed.
+          # It is written only when the run appends.
           python3 scripts/ci/refresh_provider_rates.py \
             --commit-msg "$RUNNER_TEMP/commit-msg.txt" \
             > "$RUNNER_TEMP/report.txt" 2> "$RUNNER_TEMP/refused.txt" || rc=$?

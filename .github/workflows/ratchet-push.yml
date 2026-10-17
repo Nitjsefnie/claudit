@@ -1,9 +1,8 @@
 name: ratchet push
 
-# The data-only push half of the CI ratchets, split out of tests.yml
-# (issue #479). A workflow_call callee cannot read an environment's
-# secret — the master-push deploy key resolved EMPTY inside the tests
-# leg — and the job token's push is rejected by the ruleset's required
+# The data-only push half of the CI ratchets. A workflow_call callee
+# cannot read an environment's secret, and the job token's push is
+# rejected by the ruleset's required
 # aggregate check, which only the deploy key's bypass clears. So the
 # push lives HERE, a top-level workflow where `environment:
 # master-push` resolves, keyed on the ci-gate run's completion.

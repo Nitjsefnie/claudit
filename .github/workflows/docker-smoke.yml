@@ -3,7 +3,7 @@ name: docker-smoke
 # Does the container image build, and does the compose stack boot and
 # serve on a runner that carries no configuration?
 #
-# The Dockerfile and compose.yaml (issues #941's first two halves) are
+# The Dockerfile and compose.yaml are
 # dead weight without a CI that exercises them: nothing else in this
 # repository builds the image, starts the digest-pinned Postgres with
 # its first-boot init, or reads the fixtures through the R2 client's
@@ -23,11 +23,10 @@ name: docker-smoke
 # nonzero listed count) — and teardown runs under `if: always()` so a
 # failed probe leaves no stack or volume behind on the runner.
 #
-# IMAGES COME FROM THE ACTIONS CACHE (issue #981). Both registry images
+# IMAGES COME FROM THE ACTIONS CACHE. Both registry images
 # the stack needs — compose.yaml's digest-pinned Postgres and the
-# Dockerfile's tag-pinned Python base — are anonymous public-ECR pulls,
-# and ECR's `toomanyrequests: Data limit exceeded` failed this leg before
-# anything was built. Both now arrive through .github/actions/cached-image
+# Dockerfile's tag-pinned Python base — can hit anonymous registry limits.
+# Both arrive through .github/actions/cached-image
 # (the Postgres one through postgres-image, the same entry the five
 # database workflows restore, which refresh-pricing's hourly master runs
 # keep warm). Every compose call adds .github/docker-smoke.compose.yaml,

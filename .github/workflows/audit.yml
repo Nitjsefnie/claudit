@@ -1,21 +1,12 @@
 name: audit
 
-# Dependency vulnerability gate: pip-audit resolves each requirements file
-# to its full transitive tree and checks every resolved version against the
-# PyPI advisory database and OSV.
-#
-# Resolution is the point, not a detail. Nothing in this repo pins
-# `starlette` — it arrives underneath `fastapi` — and when this gate was
-# written that transitive pin carried nine advisories that no direct reading
-# of a requirements file would ever have shown.
-#
 # WHY THE CRON IS THE IMPORTANT TRIGGER. Every other gate in this repo
 # answers "did this commit break something", so a push or pull request is
 # the natural trigger. This one answers "is a version we froze months ago
 # still safe", and that answer changes when a stranger publishes an
 # advisory, with no commit here to hang it on. An event-only audit would
 # report clean forever on an abandoned branch. The commit-side half is
-# now hosted by ci-gate.yml, which runs this workflow as a leg: it
+# hosted by ci-gate.yml, which runs this workflow as a leg: it
 # catches a bad pin at the moment it is introduced, while the diff is on
 # screen. The cron and workflow_dispatch stay here.
 #
@@ -28,8 +19,7 @@ name: audit
 # pip-audit is installed from requirements-pip-audit.txt rather than an
 # inline pin in a `run:` block: Dependabot's pip ecosystem reads manifest
 # files, never the pins inside a workflow, so an inline `pip-audit==X`
-# could only go stale unnoticed (issue #551: it sat un-updated while the
-# manifests it audits got Dependabot bumps).
+# could only go stale unnoticed.
 #
 # There is deliberately NO `python -m pip install --upgrade pip` here. The
 # unreviewed pip upgrade is an unaudited component — the very thing this
@@ -37,11 +27,8 @@ name: audit
 # reason; the runner's stock pip installs the pinned manifest.
 
 on:
-  # Trigger ownership moved to ci-gate.yml (issue #127): push and
-  # pull_request fire ci-gate, which calls this workflow as a leg.
-  # workflow_call is the leg's entry; the daily cron and
-  # workflow_dispatch stay here, where a run answers a question no
-  # commit asked.
+  # ci-gate.yml owns push and pull_request triggers. Standalone scheduled
+  # and dispatched runs keep this workflow's concurrency group.
   workflow_call:
   schedule:
     # Daily, not weekly. An advisory is actionable the day it lands, and
@@ -79,7 +66,7 @@ jobs:
       # The pip cache restores on every event but is saved only from a push
       # of master: `cache: pip` saves in a post-job step that runs after the
       # pull-request checkout, so untrusted code would write the cross-run
-      # cache a trusted run later installs from (issue #126). This job's
+      # cache a trusted run later installs from. This job's
       # only manifest is requirements-pip-audit.txt, so the key hashes that
       # file, and a pin bump starts a fresh cache entry.
       - name: Restore the pip cache
@@ -96,15 +83,15 @@ jobs:
       - name: Install pip-audit
         # From a manifest rather than an inline pin: Dependabot's pip
         # ecosystem reads manifest files, never a run: block, so an inline
-        # `pip-audit==X` could only go stale unnoticed (issue #551). No
-        # `--upgrade pip` either: it installed whatever bytes the index
-        # served, unpinned — an unaudited component ahead of the audit
+        # `pip-audit==X` could only go stale unnoticed. No
+        # `--upgrade pip` either: it would install whatever bytes the index
+        # serves, unpinned — an unaudited component ahead of the audit
         # gate itself. The runner's stock pip installs the manifest.
         run: python -m pip install -r requirements-pip-audit.txt
 
       # Saved here, not in a post-job step: the install above populated the
       # cache, and the gate keeps every event but a push of master from
-      # writing cross-run state (issue #126).
+      # writing cross-run state.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -124,8 +111,7 @@ jobs:
         # pip-audit resolves all --requirement files in ONE internal pip
         # dry-run, and a hash-pinned manifest beside an un-hashed one
         # flips that resolution into --require-hashes mode, which fails on
-        # the hashes the other manifests do not carry (observed on
-        # Nitjsefnie-Actions/pr-gate's first run of this gate).
+        # the hashes the other manifests do not carry.
         #
         # No --ignore-vuln entries at present. Each one added here must
         # carry a comment naming the advisory, why it is not fixable, and

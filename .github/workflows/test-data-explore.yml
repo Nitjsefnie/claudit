@@ -1,12 +1,12 @@
 name: test data explore
 
-# The daily explorer for the perturbed-data leg (issue #226): the gate
+# The daily explorer for the perturbed-data leg: the gate
 # leg runs three FIXED seeds so its verdict is deterministic, and the
 # fixed three sample one corner of the seed domain; this run draws
 # three wall-clock seeds a day and runs the same full suite per seed.
 # It is NOT a gate leg — ci-gate.yml is untouched — so a red explorer
 # means "look at this seed", never "block the push". The stamps are
-# decoupled from the seed (issue #227), so any drawn seed is safe
+# decoupled from the seed, so any drawn seed is safe
 # against the closed-window pins.
 
 on:
@@ -70,7 +70,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
 
       # The pip cache restores on every event but is saved only from a push
-      # of master (issue #126): no setup-python step owns the cache, and the
+      # of master: no setup-python step owns the cache, and the
       # save sits directly after the dependency install, below. This
       # workflow is never a push, so it restores-only; the gated save keeps
       # the shape every dependency-installing workflow shares.
@@ -106,7 +106,7 @@ jobs:
 
       # Saved here, not in a post-job step: the install above populated the
       # cache, and this workflow keeps every event but a push of master
-      # from writing cross-run state (issue #126) — which, on a
+      # from writing cross-run state — which, on a
       # schedule/dispatch-only workflow, is every run of it.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

@@ -1,5 +1,3 @@
-# Dev stack for claudit (issue #941): `docker compose up` and nothing else.
-#
 # Zero-config boot — no .env, no credentials, makes no outbound calls at run
 # time. Postgres runs as a container of its own with its own volume, and the
 # app ingests the committed fixtures/r2_mini mirror through the R2 client's
@@ -46,7 +44,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
-    # Host-side override for a box that already runs Postgres.
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
 
@@ -58,7 +55,6 @@ services:
     environment:
       CLAUDIT_DATABASE_URL_VIZ: ${CLAUDIT_DATABASE_URL_VIZ-${DATABASE_URL_VIZ-postgresql://postgres:postgres@db:5432/claudit}}
       CLAUDIT_DATABASE_URL_AUTH: ${CLAUDIT_DATABASE_URL_AUTH-${DATABASE_URL_AUTH-postgresql://postgres:postgres@db:5432/claudit_auth}}
-      # Guest login defaults on; set CLAUDIT_GUEST_LOGIN=0 to disable it.
       CLAUDIT_GUEST_LOGIN: ${CLAUDIT_GUEST_LOGIN:-1}
       # file:// mode against the fixtures mounted below: the mirror is test
       # data, not served code, so it is not COPYed into the image. For a real
@@ -104,8 +100,6 @@ services:
       CLAUDIT_HIDE_RATE_LIMITS: ${CLAUDIT_HIDE_RATE_LIMITS:-0}
     volumes:
       - ./fixtures:/opt/claudit/fixtures:ro
-    # Host-side override for a box already serving claudit or anything on
-    # 8000 — the image's port (EXPOSE 8000, the systemd unit's --port).
     ports:
       - "${CLAUDIT_HOST_PORT:-8000}:8000"
 

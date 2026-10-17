@@ -10,27 +10,22 @@ name: actionlint
 #   actionlint — is this workflow WELL-FORMED? Schema, expression syntax,
 #   context availability (`github.event.review` on a push event),
 #   `runs-on` labels, and shellcheck over every `run:` block, which is where
-#   most real bugs live. It found `for i in $(seq 1 30)` with an unused `i`
-#   in tests.yml on its first run here.
+#   most real bugs live.
 #
 #   zizmor — is this workflow SAFE? Script injection through `${{ }}` in a
 #   `run:` block, over-broad `permissions:`, credential persistence after
-#   checkout, unpinned action references. Its first run flagged 39 findings,
-#   14 of them high: every action was tag-pinned rather than hash-pinned,
-#   every checkout left the job token in .git/config, and no workflow
-#   declared permissions at all.
+#   checkout, unpinned action references.
 #
 # Both tools are pinned. actionlint is downloaded and checksum-verified
 # rather than trusted from the release page; zizmor installs through the
 # hash-pinned requirements-zizmor.txt with --require-hashes, which
 # Dependabot's root pip entry watches for version bumps — a version pin
-# inside a run: block is invisible to Dependabot and goes stale unnoticed
-# (issue #551: zizmor sat at 1.29.0 through two releases that way).
+# inside a run: block is invisible to Dependabot and goes stale unnoticed.
 # actionlint is in a supply-chain position worth defending: a linter that
 # runs before every other gate. It is the FORK build, not stock upstream,
-# for the `concurrency` `queue:` key (issue #541) and the `$/`
-# self-repository `uses:` syntax (issue #605) — see ACTIONLINT_REPO below.
-# Note what the fork costs that position: the checksum now attests bytes
+# for the `concurrency` `queue:` key and the `$/`
+# self-repository `uses:` syntax — see ACTIONLINT_REPO below.
+# Note what the fork costs that position: the checksum attests bytes
 # published by the same account that publishes the linter, so it defends
 # against a tampered download and not against a compromised publisher.
 # Stock upstream's checksum is the independent one, and it is what makes
@@ -42,11 +37,8 @@ name: actionlint
 # next one is the one nobody has thought about yet.
 
 on:
-  # Trigger ownership moved to ci-gate.yml (issue #127): push and
-  # pull_request fire ci-gate, which calls this workflow as a leg. The
-  # old paths allow-list went with the triggers: every non-docs run now
-  # lints the workflows, and a change to a workflow file is never
-  # docs-only, so actionlint runs whenever it can matter.
+  # ci-gate.yml owns push and pull_request triggers. Every non-docs run
+  # lints workflows; a workflow change is never docs-only.
   workflow_call:
   workflow_dispatch:
 
@@ -63,23 +55,11 @@ jobs:
     timeout-minutes: 15
 
     env:
-      # NOT stock rhysd/actionlint. The fork carries upstream
-      # rhysd/actionlint#654, which is the `concurrency` `queue:` key
-      # claim.yml uses (issue #541), and upstream rhysd/actionlint#732,
-      # which is GitHub's `$/` self-repository `uses:` syntax (issue
-      # #605). Stock 1.7.12 — the current upstream release, and what this
-      # gate ran until issue #541 — rejects the workflow with
-      # `unexpected key "queue" for "concurrency" section` and exits 1,
-      # and its workflow-call and action format checks reject `$/`. The
-      # inline `# actionlint: ignore` comment does not silence either, so
-      # both are unreachable without the patched build. Upstream's
-      # README names three escapes; this takes the patched build over an
-      # `-ignore` pattern because the fork is a strict superset (it still
-      # rejects a typo'd key, a `queue: max` beside `cancel-in-progress:
-      # true`, and an unrelated `timeout-minutes: 5m`) rather than a
-      # filtered subset of findings. Drop the pin back to stock and
-      # `queue:` comes out of claim.yml and the migrated `$/` refs go
-      # back to `./` (and their zizmor suppressions with them).
+      # The fork supports the `concurrency` `queue:` key and `$/` self-repository
+      # `uses:` syntax. Stock actionlint rejects both; an inline ignore cannot
+      # silence those schema errors. A patched build preserves unrelated checks,
+      # unlike filtering findings with `-ignore`. Returning to stock requires
+      # removing `queue:` and reverting `$/` refs to `./`.
       ACTIONLINT_REPO: Nitjsefnie-OSC/actionlint
       ACTIONLINT_VERSION: 1.7.12-queue.2
       # sha256 of actionlint_1.7.12-queue.2_linux_amd64.tar.gz, from the
@@ -98,7 +78,7 @@ jobs:
       # The pip cache restores on every event but is saved only from a push
       # of master: `cache: pip` saves in a post-job step that runs after the
       # pull-request checkout, so untrusted code would write the cross-run
-      # cache a trusted run later installs from (issue #126). This job's
+      # cache a trusted run later installs from. This job's
       # only manifest is requirements-zizmor.txt, so the key hashes that
       # file, and a pin bump starts a fresh cache entry.
       - name: Restore the pip cache
@@ -129,15 +109,15 @@ jobs:
         # --require-hashes verifies every artifact against the manifest's
         # sha256: a version pin alone still installs whatever artifact the
         # index serves for that version. There is deliberately NO
-        # `--upgrade pip` here: it installed whatever bytes the index
-        # served, unpinned — an unaudited component ahead of a gate that
+        # `--upgrade pip` here: it would install whatever bytes the index
+        # serves, unpinned — an unaudited component ahead of a gate that
         # audits supply-chain integrity. The runner's preinstalled pip is
         # far newer than --require-hashes needs.
         run: python -m pip install --require-hashes -r requirements-zizmor.txt
 
       # Saved here, not in a post-job step: the install above populated the
       # cache, and the gate keeps every event but a push of master from
-      # writing cross-run state (issue #126).
+      # writing cross-run state.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'

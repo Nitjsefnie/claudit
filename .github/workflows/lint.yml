@@ -1,6 +1,6 @@
 name: lint
 
-# Lint gate (issue #8): pylint + pycodestyle. Style is deliberately NOT
+# Lint gate: pylint + pycodestyle. Style is deliberately NOT
 # enforced (line-too-long off, max-line-length 10000) — this gate exists
 # for real defects, not formatting opinions. import-error and
 # no-name-in-module stay disabled in pylint on purpose: pyright (the
@@ -9,10 +9,6 @@ name: lint
 # test failure at a glance.
 
 on:
-  # Trigger ownership moved to ci-gate.yml (issue #127): push and
-  # pull_request fire ci-gate, which calls this workflow as a leg.
-  # workflow_call is the leg's entry; workflow_dispatch keeps a direct
-  # run possible.
   workflow_call:
   workflow_dispatch:
 
@@ -46,7 +42,7 @@ jobs:
       # The pip cache restores on every event but is saved only from a push
       # of master: `cache: pip` saves in a post-job step that runs after the
       # pull-request checkout, so untrusted code would write the cross-run
-      # cache a trusted run later installs from (issue #126).
+      # cache a trusted run later installs from.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -66,7 +62,7 @@ jobs:
 
       # Saved here, not in a post-job step: the install above populated the
       # cache, and the gate keeps every event but a push of master from
-      # writing cross-run state (issue #126).
+      # writing cross-run state.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'

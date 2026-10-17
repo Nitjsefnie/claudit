@@ -1,6 +1,6 @@
 name: test data
 
-# The perturbed-data gate leg (issue #199): the second half of
+# The perturbed-data gate leg: the second half of
 # SV-TEST-DATA's enforcement. ci-gate calls this workflow as a leg; it
 # perturbs the tree's test data (scripts/ci/perturb_test_data.py: every
 # rate row gains five appended entries — scaled whole by ×2.0, ×0.37,
@@ -13,9 +13,6 @@ name: test data
 # failure, on this tree, before it can fail a refresh bot's run.
 
 on:
-  # Trigger ownership stays with ci-gate.yml: no push or pull_request
-  # trigger of its own — workflow_call is the leg's entry;
-  # workflow_dispatch keeps a direct run possible.
   workflow_call:
   workflow_dispatch:
 
@@ -24,10 +21,10 @@ permissions:
 
 concurrency:
   # Push and pull_request runs arrive as ci-gate legs under the caller's
-  # event; a push leg keys on its own commit SHA (issue #409), so a newer
+  # event; a push leg keys on its own commit SHA, so a newer
   # master push never cancels or pending-supersedes an older commit's
   # leg — on a per-ref push group GitHub keeps at most one PENDING run,
-  # which a third concurrent push replaced. Direct dispatch runs queue
+  # which a third concurrent push replaces. Direct dispatch runs queue
   # on their ref.
   group: test-data-${{ github.event.pull_request.number
     || (github.event_name == 'push' && github.sha) || github.ref }}
@@ -38,13 +35,10 @@ jobs:
     name: perturbed suite (seed ${{ matrix.seed }})
     strategy:
       # Every seed's own verdict, not the first failure's: the seeds are
-      # independent trees (option A, the #456 ruling), and fail-fast's
+      # independent trees, and fail-fast's
       # cancellation would discard a seed that was still to report.
       fail-fast: false
       matrix:
-        # The three fixed seeds of issue #226, one job each — the
-        # measured case put the serial loop at ~16 minutes of suite
-        # wall, three seeds in parallel about -62%.
         seed: ["42", "1234567890", "1720000000"]
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -85,7 +79,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
 
       # The pip cache restores on every event but is saved only from a push
-      # of master (issue #126): no setup-python step owns the cache, and the
+      # of master: no setup-python step owns the cache, and the
       # save sits directly after the dependency install, below.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -119,7 +113,7 @@ jobs:
 
       # Saved here, not in a post-job step: the install above populated the
       # cache, and the gate keeps every event but a push of master from
-      # writing cross-run state (issue #126). One seed writes it — the
+      # writing cross-run state. One seed writes it — the
       # matrix's three jobs share a cache key, and three racing saves of
       # one key are not a thing to arbitrate.
       - name: Save the pip cache
@@ -137,19 +131,17 @@ jobs:
         # refresh bot's commit produces (rates moved, version constants
         # bumped), so the suite runs against data the repository
         # changes by design. Working-tree only — a fresh checkout runs
-        # it. The seeds are FIXED
-        # (issue #226): a wall-clock seed made the leg's verdict random
-        # — the same tree passing or failing with the day it ran on.
+        # it. Fixed seeds make the verdict deterministic.
         # Three absolute seeds — a historical one, a huge one, a
-        # mid-range one — run as three parallel matrix jobs (option A,
-        # issue #456): each job perturbs its own checkout and runs the
+        # mid-range one — run as three parallel matrix jobs: each job
+        # perturbs its own checkout and runs the
         # full suite once, so the leg's wall is one suite run instead of
         # three in sequence, and every seed's own exit is its job's. The
         # seeds stay independent trees, so the stamps being decoupled
-        # from the seed (issue #227) still holds. Before the perturb the
+        # from the seed still holds. Before the perturb the
         # bench restores the pristine pricing document, constants and
         # parser-version modules byte for byte; the attribution lands
-        # in this job's step summary (issue #456).
+        # in this job's step summary.
         run: |
           python scripts/ci/perturbed_leg_bench.py \
             --seed "${{ matrix.seed }}" \
