@@ -172,12 +172,19 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   merge-base..HEAD on a PR, the pushed range on a push; declarations do
   not replace review of the removal reason and measurement evidence.
 - An absent entry or family is seeded from its measurement on the next
-  master run: `ratchet.py` for coverage; `reparse_ratchet.py`'s tighten
+  full master run: `ratchet.py` for coverage; `reparse_ratchet.py`'s tighten
   path from the reparse measurement; `suite_ratchet.py --tighten` from
   the suite measurement through `ratchet-push.yml`; and the three
   baseline writers (`size_baseline.py`, `suppression_baseline.py`,
-  `comment_baseline.py`) with `--tighten` for their entries. Coverage
+  `comment_baseline.py`) with `--tighten` for their entries; coverage
   without a calibration still measures and reports, but gates no floor.
+  A thresholds-only change schedules no measurement; a valid removal
+  ships with the code change or subject deletion that justifies it, and
+  the only thresholds-only removal is an entry whose file is already
+  gone and needs no measurement.
+  The baseline checks honour an approved declared removal by exempting
+  exactly the declared path entries from the unrecorded default ceiling
+  until master's ratchet seeds the successor.
 - The direction guard also refuses lowered coverage, raised baseline
   entries, hand-added entries under the frozen core families or for
   unmeasured paths, and moved workload identity. Suite-cost and reparse
