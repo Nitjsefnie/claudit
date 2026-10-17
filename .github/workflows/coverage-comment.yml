@@ -2,11 +2,10 @@ name: coverage comment
 
 # Post or invalidate the patch-coverage comment after the ci-gate run.
 #
-# WHY THIS IS A SEPARATE WORKFLOW (issue #560). The `tests` leg of
+# WHY THIS IS A SEPARATE WORKFLOW. The `tests` leg of
 # ci-gate.yml checks out and EXECUTES the proposed tree, so that job
-# must not also hold a token that can write pull-request conversation —
-# it held `pull-requests: write`, read-only on a fork, so no fork ever
-# saw the readout. Only the RENDERED BODY crosses the boundary.
+# must not also hold a token that can write pull-request conversation.
+# A fork's token is read-only; only the RENDERED BODY crosses the boundary.
 #
 # THE DESTINATION DOES NOT CROSS IT. This is a workflow_run consumer of an
 # artifact a pull request produced, which is the classic artifact-poisoning
@@ -19,8 +18,7 @@ name: coverage comment
 #     tried to aim bot-authored text at another pull request;
 #   - the zip is fetched through the API into `$RUNNER_TEMP` and extracted
 #     by member NAME into a fresh directory outside the workspace, so no
-#     zip entry name can place a file outside it (CodeQL alert 13 /
-#     issue #939 retired `actions/download-artifact` here); only the two
+#     zip entry name can place a file outside it; only the two
 #     named files are read, and neither is ever executed, never `eval`'d,
 #     never interpolated into a shell. `body.md` reaches GitHub as a FILE
 #     argument (`-F body=@file`); `pr-number.txt` is compared as a string
@@ -35,11 +33,11 @@ name: coverage comment
 # `pull_request_target` is not the alternative: it would give a run of
 # proposed code the base repository's token and secrets — strictly worse.
 #
-# NOT A GATE. The readout is informational (issue #129): no check run,
+# NOT A GATE. The readout is informational: no check run,
 # no aggregate, absent from release_gate.py's gate events; its failures
 # redden only its own run, which nothing waits on.
 #
-# RETRIES (issue #763). Every `gh api` call in the `comment` job runs
+# RETRIES. Every `gh api` call in the `comment` job runs
 # behind `api_retry`, a bounded, spaced retry (three attempts, five then
 # ten seconds apart) that the job's first step writes once and every
 # consuming step sources — never copied per call. A retried attempt's
@@ -96,7 +94,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Issue #763: every `gh api` call in this job is retried a
+          # Every `gh api` call in this job is retried a
           # bounded number of times, spaced apart, so one malformed or
           # truncated API response neither reddens the run nor leaves the
           # pull request without its comment. The definition exists only
@@ -147,7 +145,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Issue #763: the shared retry written by the job's first step
+          # The shared retry written by the job's first step
           # wraps every `gh api` call below.
           . "$RUNNER_TEMP/api_retry.sh"
 
@@ -187,7 +185,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Issue #763: the shared retry wraps both `gh api` calls below.
+          # The shared retry wraps both `gh api` calls below.
           . "$RUNNER_TEMP/api_retry.sh"
 
           # Deliberately BEFORE the download: the destination is settled
@@ -295,7 +293,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Issue #763: the shared retry wraps both `gh api` calls below.
+          # The shared retry wraps both `gh api` calls below.
           . "$RUNNER_TEMP/api_retry.sh"
 
           case "${RUN_CONCLUSION:-}" in
@@ -356,8 +354,8 @@ jobs:
           rm -rf "$RUNNER_TEMP/coverage-artifact"
           mkdir -p "$RUNNER_TEMP/coverage-artifact"
 
-          # Issue #763 wraps the transfer; the id comes from the event
-          # run's own listing (issue #939: no actions/download-artifact).
+          # The shared retry wraps the transfer; the id comes from the event
+          # run's own listing (no actions/download-artifact).
           . "$RUNNER_TEMP/api_retry.sh"
           id="$(jq -rs 'map(select(.name == "diff-coverage-comment"
             and .expired == false))[0].id // empty' artifacts.json)"
@@ -387,7 +385,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Issue #763: the shared retry wraps the calls below.
+          # The shared retry wraps the calls below.
           . "$RUNNER_TEMP/api_retry.sh"
           ART_DIR="$RUNNER_TEMP/coverage-artifact"
 
@@ -435,7 +433,7 @@ jobs:
             cat "$ART_DIR/body.md"
           } > comment.md
 
-          # Bounded, spaced retry (issue #763). Every attempt RE-LISTS
+          # Bounded, spaced retry. Every attempt RE-LISTS
           # before acting, so a POST that landed despite reporting an
           # error is found by the next attempt's listing and PATCHed —
           # never duplicated. The POST is the one non-idempotent call, so

@@ -1,7 +1,7 @@
 name: version-guard
 
-# The tree VERSION must never name an already-published release (issue
-# #131). Between releases, master carries the next version with a `-dev`
+# The tree VERSION must never name an already-published release.
+# Between releases, master carries the next version with a `-dev`
 # suffix (`0.4.0-dev`); a release is the suffix being dropped, which is
 # when the tag `v<VERSION>` comes into existence. From that moment the
 # version string is spent: a later tree that still names it would ship
@@ -44,7 +44,7 @@ concurrency:
   # a newer master push starts its own guard instead of cancelling the
   # older commit's, whose conclusion must survive on its SHA —
   # release.yml's waiter refuses any commit carrying a non-passing
-  # check (issue #366). PR runs keep the per-number group and the
+  # check. PR runs keep the per-number group and the
   # cancel: a fresh PR commit supersedes the stale guard run.
   group: version-guard-${{ github.event.pull_request.number
     || (github.event_name == 'push' && github.sha) || github.ref }}

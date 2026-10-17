@@ -11,9 +11,9 @@ description: >-
 #
 #   measure ONCE, into a file the caller's ratchet step can read
 #     -> print the human report into the step summary (per-phase shares
-#        ride along as TELEMETRY; only the counts gate, issue #513)
+#        ride along as TELEMETRY; only the counts gate)
 #     -> upload the measurement as the reparse-measurement artifact
-#        (issue #710), the reparse seed's runner-measurement source; it
+#        (the reparse seed's runner-measurement source); it
 #        sits BEFORE the gate so a breach still lands, and runs whenever
 #        the action runs
 #     -> gate every phase against the committed count ceilings (nonzero

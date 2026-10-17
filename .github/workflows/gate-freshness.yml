@@ -11,7 +11,7 @@ name: gate freshness
 #
 # WHY. A head tested before a master gate-definer commit (especially a
 # ratchet tighten of .github/ci-thresholds.json) holds a stale green;
-# merging on it lands master red (issue #495). Each master push
+# merging on it lands master red. Each master push
 # re-publishes every open head, so a tighten flips the heads it
 # strands red within a run, and a pull_request_target event re-publishes
 # the event's own head when it pushes or is retargeted.

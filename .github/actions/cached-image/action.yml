@@ -22,7 +22,7 @@ inputs:
     required: true
 
 # One mechanism for every image CI must not fetch anonymously each run
-# (#970, #981): an exact-key restore; on a miss, three bounded pulls from
+# with an exact-key restore; on a miss, three bounded pulls from
 # the primary registry, then three from the mirror at the same reference;
 # then the tag and the save. Exact keys only: the archive is saved only
 # after a successful pull of ref or fallback-ref in this action, never

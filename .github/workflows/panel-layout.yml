@@ -1,18 +1,12 @@
 name: panel-layout
 
-# The rendered-layout guard (issue #631).
-#
-# Issue #630 — the Per-Session Context Growth comparison panel drawing its
-# legend over its own chart — reached a user with every other check green,
-# because nothing in this repository renders the dashboard in a browser.
-# The suite is Python plus node runs of the parser JavaScript; a legend
-# drawn over a plot is a question only a layout engine can answer, and
-# fonts, SVG text metrics, flex wrapping and viewport width all decide it.
+# Legend overlap depends on fonts, SVG text metrics, flex wrapping and
+# viewport width, so parser tests cannot catch it; a layout engine must.
 #
 # This leg answers that one question. `scripts/ci/panel_layout.mjs` serves
 # the REAL page — the same public/index.html, the same src/*.jsx, the same
 # in-browser Babel — against the frozen payload set in fixtures/layout/,
-# opens it in headless Chromium at three widths, and reads
+# opens it in headless Chromium at configured widths, and reads
 # getBoundingClientRect() for every region the panels mark with
 # `data-role`: each must lie inside its own panel, and no two may
 # intersect.
@@ -24,11 +18,9 @@ name: panel-layout
 # itself still has no build step (CONTRIBUTING.md).
 #
 # The pinned versions live in package.json, not here, so Dependabot sees
-# them (the reason eslint.yml's install line stopped pinning inline).
+# them; inline pins in a workflow are invisible to it.
 
 on:
-  # Trigger ownership sits with ci-gate.yml (issue #127): it calls this
-  # workflow as a leg. workflow_dispatch keeps a direct run possible.
   workflow_call:
   workflow_dispatch:
 
@@ -44,7 +36,7 @@ concurrency:
 
 jobs:
   panel-layout:
-    # The name IS the check-run name (issue #514).
+    # The name IS the check-run name.
     name: panel layout (headless Chromium, 4 widths)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -58,8 +50,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           # Pinned exactly, as every other version in this repo is: a tool
-          # release must never turn CI red on an unchanged commit (issue
-          # #361). Same value the eslint and tests legs run on.
+          # release must never turn CI red on an unchanged commit.
+          # Same value the eslint and tests legs run on.
           node-version: "24.17.0"
 
       - name: Install the JS toolchain from the lockfile
@@ -83,7 +75,7 @@ jobs:
         run: node scripts/ci/panel_layout.mjs
 
       - name: Sweep every panel's hover response
-        # The same REAL page and fixture set (issue #647): cold-load CLS,
+        # The same REAL page and fixture set: cold-load CLS,
         # a hover sweep over every marked bar/bucket/point asserting the
         # tooltip and the highlight, tooltip overflow, sweep-shift
         # attribution through src/perf.js, and the 2-vs-30+-models panel
@@ -95,10 +87,9 @@ jobs:
         run: node scripts/ci/panel_interactions.mjs
 
       - name: Check the rendered layout-consistency rules
-        # The same REAL page and fixture set (issue #772): one page load
-        # per width, every registered rule measured on it — today the
-        # vertical-gap rule (no two vertically adjacent sections or
-        # charts flush against each other, #772's missing-gap class) —
+        # The same REAL page and fixture set: one page load
+        # per width, every registered rule measured on it, including the
+        # vertical-gap rule (no vertically adjacent sections or charts flush) —
         # and then each rule's seeded red case, which must fire or the
         # run fails as a lying guard. New layout rules register in
         # scripts/ci/panel_layout_rules.mjs's RULES array and are covered
@@ -106,7 +97,7 @@ jobs:
         run: node scripts/ci/panel_layout_rules.mjs
 
       - name: Prove the sweep fails on one seeded violation per category
-        # #690: each Expected-Behavior bullet is only as good as the
+        # Each Expected-Behavior bullet is only as good as the
         # seeded violation that fails the sweep on it. The runner plants
         # one violation per category (a stripped panel, an unnamed sweep
         # shift, an unnamed cold-load shift), asserts exit 1 per seed,

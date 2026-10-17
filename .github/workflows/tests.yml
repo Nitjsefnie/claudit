@@ -1,8 +1,6 @@
 name: tests
 
 on:
-  # Trigger ownership moved to ci-gate.yml (issue #127): this file is
-  # called as a leg; workflow_dispatch keeps a direct run possible.
   workflow_call: {inputs: {comment_only: {description: "narrow the portable matrix", type: string, default: "false"}, thresholds_only: {description: "narrow to thresholds checks and calibration gates", type: string, default: "false"}}}
   workflow_dispatch:
 
@@ -13,32 +11,25 @@ permissions: {contents: read}
 concurrency:
   # ci-gate legs join this group under the caller's event: a
   # master-push leg occupies tests-refs/heads/master — ci-gate's
-  # per-SHA push groups (issue #358) make this queue what serializes
+  # per-SHA push groups make this queue what serializes
   # master runs — and PR legs cancel in progress. Dispatch queues by
   # ref. The ratchet push itself is serialized by ratchet-push.yml's
-  # own group since issue #479 moved it out of this callee.
+  # own group.
   group: tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pytest:
-    # The name IS the check-run name (issue #514); the job id stays.
+    # The name IS the check-run name; the job id stays.
     name: pytest + calibration gates (canary, pinned 3.13.14)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     permissions:
-      # Read-only, and nothing less would be: this job checks out and
-      # RUNS the proposed tree (issue #560). It used to carry
-      # `pull-requests: write` for the patch-coverage comment, which put
-      # a write-capable token in reach of every step between `pip
-      # install` and the suite — and on a fork the token is read-only
-      # anyway, so the comment failed there and no fork pull request ever
-      # saw the readout. The comment now crosses a boundary instead:
-      # this job uploads the rendered body, and the top-level
-      # coverage-comment.yml — which checks out nothing and runs no pull
-      # request code — posts it under a token that cannot touch the
-      # suite. The readout stays INFORMATIONAL either way (issue #129).
+      # Read-only: this job executes proposed code, so it must hold no write
+      # token. It uploads a rendered patch-coverage body for the separate
+      # coverage-comment.yml workflow, which runs no proposed code and owns
+      # the conversation token. The readout remains informational.
       contents: read
 
     env:
@@ -64,10 +55,8 @@ jobs:
         uses: $/.github/actions/postgres
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        # The exact micro the suite-cost seed was measured with: this
-        # job's bench both gates and feeds the tighten bot, and a
-        # runner-side drift to a cheaper 3.13.x would move the counts
-        # out from under the committed ceilings (issue #266's reason).
+        # Pin the interpreter micro: a cheaper 3.13.x could move instruction
+        # counts under committed ceilings and feed false tighten data.
         with:
           python-version: "3.13.14"
 
@@ -75,7 +64,7 @@ jobs:
         # The JavaScript coverage ratchet measures V8 block coverage, which
         # can shift across V8 minors; pin the EXACT node the seed was
         # measured with so a runner-side drift cannot move the measurement
-        # out from under the committed floor (issue #266).
+        # out from under the committed floor.
         with:
           node-version: "24.17.0"
 
@@ -89,7 +78,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
 
       # The pip cache restores on every event but is saved only from a
-      # push of master, never from a pull-request checkout (issue #126).
+      # push of master, never from a pull-request checkout.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -115,14 +104,12 @@ jobs:
           sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 postgresql-client-16
 
       - name: Install dependencies
-        # backend/requirements.txt already pins pytest, pytest-asyncio and
-        # httpx2; requirements-test.txt adds only the coverage toolchain.
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -r requirements-test.txt
 
       # Saved here, not in a post-job step, so the cache is written only
-      # from a master push (issue #126).
+      # from a master push.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -191,7 +178,7 @@ jobs:
           if-no-files-found: error
 
       - name: Patch coverage against the merge base
-        # Informational readout (issue #129): of the lines this pull
+        # Informational readout: of the lines this pull
         # request ADDED, which did the suite execute. PR-only, and
         # INFORMATIONAL BY DESIGN: no threshold, no gate; the module
         # exits 0 for any result it computed, even 0%.
@@ -209,7 +196,7 @@ jobs:
       - name: Stage the patch-coverage comment
         # The RENDERED BODY is the only thing that crosses into the
         # workflow that posts it; no token that can write pull-request
-        # conversation is live in this job (issue #560). `pr-number.txt`
+        # conversation is live in this job. `pr-number.txt`
         # travels beside it and is CHECKED, never obeyed, over there:
         # this artifact is produced by a run of the pull request's own
         # tests.yml, so its claim about which pull request it belongs to
@@ -230,7 +217,7 @@ jobs:
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' && inputs.thresholds_only != 'true' }}
         # A missing artifact is not this job's failure: coverage-comment.yml
         # reads its absence as "not measured" and refreshes the marker, and
-        # the readout is informational (issue #129).
+        # the readout is informational.
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: diff-coverage-comment
@@ -274,7 +261,7 @@ jobs:
 
       - name: Pylint suppression baseline
         # The same only-shrinks ratchet for inline complexity
-        # suppressions (issue #389): a file's count never rises past its
+        # suppressions: a file's count never rises past its
         # record; an unrecorded file stays at zero. Master tightens below.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
         run: python3 scripts/ci/suppression_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
@@ -282,7 +269,7 @@ jobs:
       - name: Threshold direction guard
         # Lowered coverage and raised baseline entries fail here; suite-cost
         # and reparse raises require a feat: or feat(scope): commit in the
-        # judged range (issue #1041). Runs on
+        # judged range. Runs on
         # pull_request (merge base) and push; dispatch skips -- the PR
         # is the gate.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && (github.event_name == 'pull_request' || github.event_name == 'push') }}
@@ -300,7 +287,7 @@ jobs:
             --base-rev "$base" --head-rev HEAD
 
       - name: Measure and gate the suite cost
-        # One bench pass per run (issue #515): the shared composite
+        # One bench pass per run: the shared composite
         # action measures the pinned fixture and holds every phase to
         # its committed ceiling -- speed.yml's gate, folded here.
         # Master pushes feed the same measurement to the tighten bot
@@ -329,7 +316,7 @@ jobs:
         # calibration — a pull request runs untrusted code and must not
         # be able to write it. The ratchets raise either coverage floor
         # and tighten the reparse phase bytecode counts (the per-phase
-        # shares are telemetry since #513 and nothing tightens them);
+        # shares are telemetry and nothing tightens them);
         # growth is never written here, the gates stay gates.
         id: ratchet
         if: ${{ !cancelled() && steps.pytest.outcome == 'success'
@@ -427,8 +414,6 @@ jobs:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
 
-      # Same event rule as the Linux job (issue #126); key carries the
-      # matrix python-version.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -448,7 +433,7 @@ jobs:
         run: python -m pip install --upgrade pip -r backend/requirements.txt -r requirements-test.txt
 
       # Saved here, not in a post-job step, so the cache is written only
-      # from a master push (issue #126).
+      # from a master push.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'

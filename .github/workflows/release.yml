@@ -1,24 +1,18 @@
 name: release
 
-# Cuts a GitHub release when, and only when, the root VERSION file changes
-# on the default branch. The version is the tag people install by; the
-# suite-cost gate keeps its own committed budgets and no longer benchmarks
-# against the release.
-#
 # WHY IT WAITS FOR THE OTHER GATES. A tag is the one artefact here that
 # outlives a mistake — you can force-push a branch, but a release people
 # have pulled is permanent, and cutting one from a red commit publishes
 # the breakage under a version number. So this job blocks on the gates
 # that vouch for the same SHA before it creates anything — which is not
 # every check run that happens to sit on it (see the wait step).
-# That wait is the job; the tagging is three lines.
 #
 # It deliberately does NOT bump VERSION itself. Deciding that a change is
 # a patch or a minor is a judgement about what changed, and a workflow
 # that guesses it would be wrong in exactly the cases that matter. Edit
 # VERSION in the commit that earns the bump; this reacts to that.
 #
-# DEV VERSIONS ARE SKIPPED (issue #131). Between releases, VERSION
+# DEV VERSIONS ARE SKIPPED. Between releases, VERSION
 # carries the next version with a `-dev` suffix (`0.4.0-dev`); a release
 # is the suffix being dropped, and VERSION is bumped to the next `-dev`
 # immediately after a release lands. Validation below accepts the
@@ -31,7 +25,6 @@ on:
   push:
     branches: [master]
     paths:
-      # The narrowest possible allow-list: this fires on one file.
       - 'VERSION'
   workflow_dispatch:
     inputs:
@@ -62,7 +55,7 @@ jobs:
       checks: read
       # Reading the EVENT and head SHA of the runs behind those results.
       # The wait judges a check run by the run that produced it, and the
-      # runs listing is the only place the event lives (issues #557, #579).
+      # runs listing is the only place the event lives.
       actions: read
 
     steps:
@@ -113,7 +106,7 @@ jobs:
         # deleted, so a wrongly created tag permanently blocks that version
         # string, and refusing before create is the only remedy.
         #
-        # BOTH PROBES FAIL CLOSED (issue #248), as version-guard.yml's do:
+        # BOTH PROBES FAIL CLOSED, as version-guard.yml's do:
         # a 404 is the only answer that proves absence; anything else
         # (auth, rate limit, 5xx, network) must not read as "the version
         # is free". The release probe goes through `gh api` rather than
@@ -155,15 +148,10 @@ jobs:
           SELF_JOB: ${{ github.job }}
           SELF_RUN_ID: ${{ github.run_id }}
           SELF_WORKFLOW_REF: ${{ github.workflow_ref }}
-        # Polls this commit's check runs until they have all completed,
-        # then requires every one of them to have passed.
-        #
         # WHICH checks is scripts/ci/release_gate.py's whole subject, and
         # it reads the workflow run that PRODUCED each check rather than
-        # the check's name — a name is not identity (issue #557 dropped
-        # every gate whose name began `release`), and a SHA is not a claim
-        # either (issue #579 judged the `claim` row an `issue_comment` run
-        # stamps on the default branch's tip). That module's docstring
+        # the check's name — a name is not identity, and an issue_comment run
+        # can stamp a row on the default branch's tip. That module's docstring
         # carries the rule and its fail-closed side; the call below is
         # deliberately dumb.
         #
@@ -174,7 +162,7 @@ jobs:
         #     race ahead and tag before CI has even been scheduled;
         #   - `cancelled` counts as failure. A cancelled run means a newer
         #     push superseded this SHA, which is not a commit to release;
-        #   - a VERDICT must exist among them (issue #247): every leg green
+        #   - a VERDICT must exist among them: every leg green
         #     is also what an all-skipped gate looks like, so the wait
         #     proceeds only when the ci gate's own `aggregate` check —
         #     completed, success, from the github-actions app — is among
@@ -238,7 +226,7 @@ jobs:
               exit 1
             fi
 
-            # Issue #247: the verdict is the proof the gates ran. All legs
+            # The verdict is the proof the gates ran. All legs
             # skipped reports the same all-green rows as all legs passed,
             # so proceed only when `aggregate` — completed, success, from
             # the github-actions app — is among them; anything less keeps

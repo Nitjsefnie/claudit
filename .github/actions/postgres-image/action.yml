@@ -10,8 +10,8 @@ outputs:
 # for the five database workflows; docker-smoke runs it as compose's db
 # service. compose.yaml carries the same digest for local use.
 # The digest stays reviewed because ratchet-push publishes its measurements.
-# ECR replaced Docker Hub after its anonymous pull limit (#885); a warm
-# cache also avoids ECR limits (#970). A cold miss retries ECR, then
+# A warm cache avoids anonymous registry pull limits.
+# A cold miss retries ECR, then
 # Google's mirror at the same digest, so an ECR limit does not prevent
 # warming the cache. The cache mechanism itself is cached-image's.
 # refresh-pricing runs hourly on master (its job refuses other refs and its

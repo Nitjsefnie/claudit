@@ -7,11 +7,10 @@ name: codeql
 # upstream cannot block an unrelated push.
 #
 # TRIGGERS MATCH THE OTHER GATES. The commit-side triggers are hosted by
-# ci-gate.yml now, which calls this workflow as a leg on every push and
+# ci-gate.yml, which calls this workflow as a leg on every push and
 # pull request; under that call the default checkout is the caller's
 # event commit — the branch tip on a master push, the merge ref on a
-# pull request — the same tree the direct triggers checked out, so
-# alerts land on exactly the tree that was analysed. (That checkout
+# pull request — so alerts land on the analysed tree. (That checkout
 # identity is also why this workflow runs as a leg rather than keeping
 # its own pull_request trigger: two surfaces checking one tree invite
 # them drifting apart.)
@@ -22,11 +21,8 @@ name: codeql
 # would never be applied to a file last touched last year.
 
 on:
-  # Trigger ownership moved to ci-gate.yml (issue #127): push and
-  # pull_request fire ci-gate, which calls this workflow as a leg.
-  # workflow_call is the leg's entry; the weekly cron and
-  # workflow_dispatch stay here, where a run answers a question no
-  # commit asked.
+  # ci-gate.yml owns push and pull_request triggers. Standalone scheduled
+  # and dispatched runs keep this workflow's concurrency group.
   workflow_call:
   schedule:
     # Wednesday 03:47 UTC. Off the hour and off Monday deliberately: the
@@ -40,8 +36,7 @@ concurrency:
   # and join this group under the caller's event, alongside the weekly
   # cron (grouped on refs/heads/master, never cancelled) and any
   # standalone dispatch on the same ref. Master-push legs of concurrent
-  # ci-gate runs queue here — ci-gate's own push groups are per-SHA
-  # (issue #358).
+  # ci-gate runs queue here — ci-gate's own push groups are per-SHA.
   group: codeql-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
