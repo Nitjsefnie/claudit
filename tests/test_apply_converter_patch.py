@@ -85,5 +85,6 @@ def test_surfaces_patch_stderr_for_invalid_patch_input(tmp_path):
     (tmp_path / 'patches/v8-to-istanbul+9.3.0.patch').write_text('invalid\n')
     result = _run(script)
     assert result.returncode != 0
-    assert 'garbage' in result.stderr.lower()
+    # patch(1) uses different wording on GNU and BSD (macOS).
+    assert result.stderr
     assert (target / 'lib/probe.js').read_text() == 'original\n'
