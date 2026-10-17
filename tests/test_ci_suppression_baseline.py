@@ -296,3 +296,28 @@ def test_committed_document_matches_tree(tmp_path, absent_family):
     found = suppression.violations(counts, baseline)
     assert not found["grown"], found["grown"]
     assert not found["over"], found["over"]
+
+
+@pytest.mark.parametrize("state", ["absent", "empty", "recorded"])
+def test_tighten_seeds_unrecorded_suppressions(tmp_path, monkeypatch, capsys, state):
+    thresholds = _thresholds()
+    module = _suppression_baseline()
+    data = _document()
+    measured = {"backend/new.py": 1, "backend/multiple.py": 3,
+                "backend/clean.py": 0}
+    expected = {"backend/new.py": 1, "backend/multiple.py": 3}
+    if state == "absent":
+        del data["pylint_suppression_baseline"]
+    elif state == "recorded":
+        data["pylint_suppression_baseline"] = {
+            "backend/shrunk.py": 4, "backend/grown.py": 1,
+            "backend/gone.py": 2, "backend/graduated.py": 2}
+        measured.update({"backend/shrunk.py": 2, "backend/grown.py": 3,
+                         "backend/graduated.py": 0})
+        expected.update({"backend/shrunk.py": 2, "backend/grown.py": 1})
+    target = tmp_path / "thresholds.json"
+    thresholds.write(target, data)
+    monkeypatch.setattr(module, "tracked_suppression_counts", lambda: measured)
+    assert module.main(["--tighten", "--thresholds", str(target)]) == 0
+    assert thresholds.load(target).get("pylint_suppression_baseline", {}) == expected
+    assert "seeded" in capsys.readouterr().out

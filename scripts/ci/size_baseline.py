@@ -121,7 +121,7 @@ def violations(sizes, baseline):
 
 
 def tightened(baseline, sizes):
-    """Return a lowered baseline mapping, or ``None`` when unchanged."""
+    """Lower or seed over-ceiling entries; return ``None`` if unchanged."""
     updated = dict(baseline)
     for rel, recorded in baseline.items():
         if rel not in sizes:
@@ -132,6 +132,8 @@ def tightened(baseline, sizes):
             del updated[rel]
         elif current < recorded:
             updated[rel] = current
+    updated.update({rel: count for rel, count in sizes.items()
+                    if rel not in baseline and count > ceiling_for(rel)})
     return updated if updated != baseline else None
 
 
@@ -157,7 +159,8 @@ def main(argv=None):
                 return 0
             data['module_size_baseline'] = updated
             thresholds.write(args.thresholds, data)
-            print('tightened the module size baseline')
+            print('tightened the module size baseline; '
+                  f'seeded {len(updated.keys() - baseline.keys())} entries')
             return 0
 
         found = violations(sizes, baseline)

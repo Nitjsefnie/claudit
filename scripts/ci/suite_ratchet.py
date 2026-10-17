@@ -275,22 +275,17 @@ def main(argv=None):
     args = _parser().parse_args(argv)
     try:
         counts = _phase_counts(args.seed or args.tighten)
-        if args.seed is not None:
-            data, _seeded_fresh = load_for_seed(args.thresholds)
-            identity = _identity(args.seed)
-            _check_tree_identity(args.seed, identity)
+        data = thresholds.load(args.thresholds)
+        if args.seed is not None or _family not in data:
+            artifact = args.seed or args.tighten
+            identity = _identity(artifact)
+            _check_tree_identity(artifact, identity)
             candidate = seed(data, counts, identity)
             thresholds.write(args.thresholds, candidate)
             for phase in PHASES:
                 print(f'seeded {phase} '
                       f'{candidate[_family][phase]["measured"]} {UNIT} '
                       f'(ceiling {candidate[_family][phase]["floor"]})')
-            return 0
-        data = thresholds.load(args.thresholds)
-        if not data.get(_family):
-            # No budget exists to tighten. Keep this a clean no-op
-            # rather than indexing an absent family.
-            print('no suite_cost budget recorded: nothing to tighten')
             return 0
         candidate = update(data, counts)
         if candidate is None:

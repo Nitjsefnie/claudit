@@ -109,29 +109,39 @@ def test_no_raise_within_hysteresis():
         assert ratchet.update(copy.deepcopy(doc), Decimal(measured), **options) is None
 
 
-def test_update_does_nothing_without_a_coverage_baseline():
+@pytest.mark.parametrize("language", ["python", "javascript"])
+@pytest.mark.parametrize("absent_family", [False, True])
+def test_update_seeds_absent_coverage(tmp_path, language, absent_family):
     ratchet = _ratchet()
+    thresholds = _thresholds()
     doc = _document()
-    del doc["coverage"]["python"]
+    if absent_family:
+        del doc["coverage"]
+    else:
+        del doc["coverage"][language]
+    updated = ratchet.update(doc, Decimal("50.0"), language=language)
+    assert updated is not None
+    target = tmp_path / "seeded.json"
+    thresholds.write(target, updated)
+    assert thresholds.coverage(thresholds.load(target), language) == (
+        Decimal("50.0"), Decimal("48.5"))
+    assert '"measured": 50.0' in target.read_text(encoding="utf-8")
 
-    assert ratchet.update(doc, Decimal("98.0")) is None
 
-
-def test_cli_reports_an_absent_coverage_baseline_without_raising(
-        tmp_path, capsys):
+@pytest.mark.parametrize("language", ["python", "javascript"])
+def test_cli_seeds_absent_coverage(tmp_path, capsys, language):
     thresholds = _thresholds()
     ratchet = _ratchet()
     target = _written(tmp_path)
     data = thresholds.load(target)
-    del data["coverage"]["python"]
+    del data["coverage"][language]
     thresholds.write(target, data)
-    before = target.read_bytes()
-
     assert ratchet.main([
-        "--measured", "98.0", "--thresholds", str(target)]) == 0
-
-    assert target.read_bytes() == before
-    assert "no Python coverage budget recorded" in capsys.readouterr().out
+        "--language", language, "--measured", "50.0",
+        "--thresholds", str(target)]) == 0
+    assert thresholds.coverage(thresholds.load(target), language) == (
+        Decimal("50.0"), Decimal("48.5"))
+    assert "seeded" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -382,7 +392,7 @@ def test_reparse_main_no_tighten_leaves_file_untouched(tmp_path, capsys):
     assert "nothing to tighten" in capsys.readouterr().out
 
 
-def test_reparse_main_without_a_family_is_a_clean_noop(tmp_path, capsys):
+def test_reparse_main_seeds_absent_family(tmp_path, capsys):
     thresholds = _thresholds()
     ratchet = _reparse_ratchet()
     target = _written(tmp_path)
@@ -390,15 +400,17 @@ def test_reparse_main_without_a_family_is_a_clean_noop(tmp_path, capsys):
     del data["reparse"]
     thresholds.write(target, data)
     measurement = _measurement_file(tmp_path, _readings("10.0"))
-    before = target.read_bytes()
-
     assert ratchet.main([
         "--measured-file", str(measurement),
         "--thresholds", str(target)]) == 0
-
-    assert target.read_bytes() == before
-    assert capsys.readouterr().out == (
-        "no reparse budget recorded: nothing to tighten\n")
+    loaded = thresholds.load(target)
+    assert thresholds.reparse(loaded) == {
+        phase: {metric: {"measured": Decimal("10.0"),
+                         "floor": Decimal("11.5")}
+                for metric in thresholds.REPARSE_METRICS}
+        for phase in thresholds.REPARSE_PHASES}
+    assert '"measured": 10.0' in target.read_text(encoding="utf-8")
+    assert "seeded" in capsys.readouterr().out
 
 
 def test_reparse_main_unreadable_measurement_fails(tmp_path, capsys):
