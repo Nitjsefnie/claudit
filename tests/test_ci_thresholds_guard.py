@@ -164,7 +164,7 @@ def test_removed_coverage_entry_fails(tmp_path, capsys, missing):
         del head["coverage"][missing]
 
     assert _guard_result(tmp_path, base, head) == 1
-    assert "forbidden move: coverage." in capsys.readouterr().err
+    assert "removed without a reason: coverage." in capsys.readouterr().err
 
 
 def test_coverage_raised_is_clean(tmp_path):
@@ -292,15 +292,14 @@ def test_bot_shaped_tighten_is_clean(tmp_path):
     assert _guard_result(tmp_path, base, head) == 0
 
 
-def test_entry_lowered_or_removed_is_clean(tmp_path):
+def test_entry_lowered_is_clean(tmp_path):
     base = _document(baseline={"backend/api.py": 986, "src/app.jsx": 1424})
-    head = _document(baseline={"backend/api.py": 950})
+    head = _document(baseline={"backend/api.py": 950, "src/app.jsx": 1424})
     assert _guard_result(tmp_path, base, head) == 0
 
 
-def test_removed_member_fails(tmp_path):
-    # Removing a baseline member the base carries is a forbidden guard
-    # move. Hand-place the absent shape so the guard compares it.
+def test_empty_family_removed_is_clean(tmp_path):
+    # An empty family carries no entries to remove.
     base = _document(baseline={"backend/api.py": 986})
     head = _document(baseline={"backend/api.py": 986})
     head.pop("pylint_suppression_baseline")
@@ -309,7 +308,7 @@ def test_removed_member_fails(tmp_path):
     head_path.write_text(
         json.dumps(head, indent=2, default=float), encoding="utf-8")
     assert _guard().main([
-        "--base", str(base_path), "--head", str(head_path)]) == 1
+        "--base", str(base_path), "--head", str(head_path)]) == 0
 
 
 def test_garbage_head_document_fails(tmp_path):
@@ -496,6 +495,10 @@ def _judged_guard(tmp_path, monkeypatch, base, head, subjects, revs=None):
     _git(root, "init", "-q")
     _git(root, "config", "user.name", "Guard Test")
     _git(root, "config", "user.email", "guard@example.invalid")
+    (root / "backend").mkdir()
+    for path in ("backend/kept.py", "backend/second.py"):
+        (root / path).write_text("pass\n", encoding="utf-8")
+        _git(root, "add", "--", path)
     _git(root, "commit", "--allow-empty", "-qm", "feat: outside judged range")
     base_rev = _git(root, "rev-parse", "HEAD")
     for subject in subjects:
@@ -578,3 +581,109 @@ def test_feature_raise_keeps_other_refusals(tmp_path, monkeypatch, capsys, other
     err = capsys.readouterr().err
     assert f"forbidden move: {forbidden}" in err
     assert "forbidden move: suite_cost.run." not in err
+
+
+BASELINE_VALUES = {
+    "module_size_baseline": 900, "pylint_suppression_baseline": 2,
+    "comment_share_baseline": [20, 100],
+}
+REMOVED_ENTRIES = ["coverage.python", "coverage.javascript", "suite_cost",
+                   "reparse", *BASELINE_VALUES]
+
+
+def _removal(entry):
+    base = _document()
+    if entry in BASELINE_VALUES:
+        base[entry] = dict.fromkeys(
+            ("backend/kept.py", "backend/second.py"), BASELINE_VALUES[entry])
+    head = copy.deepcopy(base)
+    if entry.startswith("coverage."):
+        del head["coverage"][entry.split(".")[1]]
+    else:
+        del head[entry]
+    return base, head
+
+
+@pytest.mark.parametrize("entry", REMOVED_ENTRIES)
+@pytest.mark.parametrize("kind", [None, "bug", "definition"])
+def test_removal_requires_reason(tmp_path, monkeypatch, capsys, entry, kind):
+    base, head = _removal(entry)
+    message = "fix: remove threshold"
+    if kind:
+        message += f"\n\nThresholds-Removed: {entry}={kind}"
+    result = _judged_guard(tmp_path, monkeypatch, base, head, [message])
+    entries = ([f"{entry}.{path}" for path in base[entry]]
+               if entry in BASELINE_VALUES else [entry])
+    errors = [line for line in capsys.readouterr().err.splitlines()
+              if line.startswith("forbidden move:")]
+    expected = ([] if kind else [
+        f"forbidden move: removed without a reason: {name}" for name in entries])
+    assert (result, errors) == (0 if kind else 1, expected)
+
+
+@pytest.mark.parametrize("family", BASELINE_VALUES)
+@pytest.mark.parametrize("value,allowed", [
+    ("", False), ("{entry}=bug", True), ("{entry}=definition", True),
+    ("{entry}.other=bug", False), ("{family}=bug", True),
+    ("{entry}=bug, other=typo", False), ("other, {entry}=bug", False),
+    ("{entry}=bug, =definition", False),
+    (" {entry} = bug , coverage.python = definition ", True),
+    ("{entry}=bug\nThresholds-Removed: invalid", True),
+])
+def test_tracked_path_removal_trailer(
+        tmp_path, monkeypatch, capsys, family, value, allowed):
+    base, head = _removal(family)
+    head[family] = {"backend/second.py": base[family]["backend/second.py"]}
+    entry = f"{family}.backend/kept.py"
+    trailer = value.format(entry=entry, family=family)
+    result = _judged_guard(tmp_path, monkeypatch, base, head, [
+        f"fix: remove entry\n\nThresholds-Removed:\t{trailer}"])
+    err = capsys.readouterr().err
+    assert (result, f"removed without a reason: {entry}" in err) == (
+        0 if allowed else 1, not allowed)
+    if not allowed:
+        assert all(part in err for part in (
+            "Thresholds-Removed:", "<entry>=<kind>", "bug", "definition",
+            "tracked", "path"))
+
+
+@pytest.mark.parametrize("family", BASELINE_VALUES)
+def test_gone_path_removal_needs_no_trailer(tmp_path, monkeypatch, family):
+    base = _document()
+    base[family] = {"backend/gone.py": BASELINE_VALUES[family]}
+    head = _document()
+    assert _judged_guard(tmp_path, monkeypatch, base, head, ["fix: delete file"]) == 0
+
+
+@pytest.mark.parametrize("revs", [
+    [], ["--base-rev", ""], ["--base-rev", " "],
+    ["--base-rev", "unknown-revision"],
+    ["--base-rev", "HEAD", "--head-rev", "HEAD"],
+])
+def test_unproved_removal_range_fails(tmp_path, monkeypatch, capsys, revs):
+    base, head = _removal("suite_cost")
+    assert _judged_guard(tmp_path, monkeypatch, base, head, [
+        "fix: remove\n\nThresholds-Removed: suite_cost=bug"], revs) == 1
+    assert "removed without a reason: suite_cost" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("family", ["suite_cost", "reparse", *BASELINE_VALUES])
+def test_removal_trailer_does_not_admit_readded_looser_value(
+        tmp_path, monkeypatch, capsys, family):
+    base, _ = _removal(family)
+    head = copy.deepcopy(base)
+    if family in BASELINE_VALUES:
+        head[family]["backend/kept.py"] = (
+            [30, 100] if family == "comment_share_baseline" else 1000)
+    else:
+        head = _raised_document(family)
+    assert _judged_guard(tmp_path, monkeypatch, base, head, [
+        f"fix: remove\n\nThresholds-Removed: {family}=definition",
+        "fix: re-add with looser value"]) == 1
+    assert "removed without a reason" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("entry", REMOVED_ENTRIES)
+def test_absent_family_seed_has_no_removal(tmp_path, entry):
+    head, base = _removal(entry)
+    assert _guard_result(tmp_path, base, head) == 0
