@@ -10,7 +10,7 @@ outgrown file moves code rather than growing a baseline entry
 (SV-CI-RATCHETS).
 
 A measurement is a small JSON document carrying TWO instruments over the
-same phases, and only one of them gates (issue #513):
+same phases, and only one of them gates:
 
 - ``bytecodes_<phase>`` — the phase's bytecode instructions per file, in
   thousands. Exact, so it needs no amplification and no tolerance, and
@@ -20,11 +20,10 @@ same phases, and only one of them gates (issue #513):
   TELEMETRY: it shows where the pass spends its CPU, and it is measured,
   printed and recorded like the count, but nothing compares it against
   the recorded share budgets. A proportion of a timed run is not a count
-  of work — its runner-to-runner spread (1.9-2.7 points, #500/#506) is
-  wider than the 1.5-point gap it would be judged against, and it moves
+  of work — its runner-to-runner spread can exceed the calibration gap,
+  and it moves
   when the corpus mix shifts between formats of different parse cost even
-  with no code path slower and every count under its own ceiling
-  (PR #512).
+  with no code path slower and every count under its own ceiling.
 
 Because the count is the only instrument the gate holds, an ABSENT count
 fails it (fail closed): without ``sys.monitoring`` the step would
@@ -53,7 +52,6 @@ if __package__:
 else:
     thresholds = importlib.import_module('thresholds')
 
-
 UNIT = thresholds.REPARSE_UNIT
 COUNT_UNIT = thresholds.REPARSE_COUNT_UNIT
 PHASES = thresholds.REPARSE_PHASES
@@ -66,7 +64,6 @@ NO_BUDGET_LINE = 'no reparse budget recorded'
 
 
 class Measurement(NamedTuple):
-    """One bench run: both instruments, phase by phase, over one corpus."""
     cpu_s: float
     files: int
     passes: int
@@ -138,7 +135,6 @@ def write_measurement(path, measurement: Measurement) -> None:
 
 
 def measurement_from_file(path) -> Measurement:
-    """Read a written measurement back, as the gate and ratchet see it."""
     try:
         data = json.loads(Path(path).read_text(encoding='utf-8'))
         if not isinstance(data, dict) or 'phases' not in data:
@@ -163,8 +159,6 @@ def measurement_from_file(path) -> Measurement:
         raise ValueError(f'cannot read the measurement: {error}') from None
 
 
-# --- the gate ----------------------------------------------------------------
-
 def _counted(measurement: Measurement, phase: str) -> Decimal | None:
     """A phase's counted cost, or None where the instrument was absent."""
     per_file = measurement.instruction_per_file
@@ -176,15 +170,15 @@ def _counted(measurement: Measurement, phase: str) -> Decimal | None:
 # member. The gate reads the enforced set through that constant rather
 # than spelling a metric, so widening the set cannot leave this loop
 # comparing a metric nobody chose; a member with no entry here refuses
-# rather than passing uncompared, which is the shape of the defect issue
-# #513 exists to close.
+# rather than passing uncompared.
+
 _GATED = {'bytecodes': (_counted, COUNT_UNIT)}
 
 
 def _over_budget(measurement: Measurement, floors: dict) -> list:
     """Every phase over a GATED recorded budget.
 
-    The bytecode count is the whole of the enforced set (issue #513), so
+    The bytecode count is the whole of the enforced set, so
     an absent count is listed by ``_uncounted`` and fails the gate with
     the reason the bench recorded — fail closed, never a silent pass on
     an instrument that never ran.
@@ -258,8 +252,6 @@ def summary_line(measurement: Measurement) -> str:
             + '; the share is telemetry, the count after it gates)')
 
 
-# --- reporting ---------------------------------------------------------------
-
 _REPORT_COLUMNS = ('phase', 'share', 'ms/file',
                    'bytecode_hundreds_per_file')
 _RIGHT_ALIGN = (False, True, True, True)
@@ -268,7 +260,7 @@ _RIGHT_ALIGN = (False, True, True, True)
 def _md_row(cells, widths) -> str:
     """One padded markdown row: the phase column flush left, the numeric
     columns flush right, so the CI job log keeps its columns aligned and
-    the table still renders pasted anywhere else (issue #490)."""
+    the table still renders pasted anywhere else."""
     return '| ' + ' | '.join(
         cell.rjust(width) if right else cell.ljust(width)
         for cell, width, right in zip(cells, widths, _RIGHT_ALIGN)) + ' |'

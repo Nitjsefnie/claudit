@@ -43,40 +43,32 @@ FetchEndpoints = Callable[[str], object]
 
 @dataclass(frozen=True)
 class LogRead:
-    """A model's validated series, or the reason its log is unavailable."""
-
     series: list[PriceSeries] | None
     reason: str | None
 
 
 @dataclass(frozen=True)
 class HostLog:
-    """A host's matched history, or the reason it must be sampled."""
-
     entries: list[dict] | None
     reason: str | None
 
 
 @dataclass(frozen=True)
 class HostSelection:
-    """Endpoint subset and histories selected for one listed host."""
     prefix: str
     endpoint_index: int
     series: list[PriceSeries]
 
 
 def fetch_models() -> object:
-    """Fetch OpenRouter's canonical model slugs."""
     return _fetch_json(MODELS_URL)
 
 
 def fetch_endpoints(model_id: str) -> object:
-    """Fetch one model's provider endpoints."""
     return _fetch_json(ENDPOINTS_URL.format(urllib.parse.quote(model_id, safe="/")))
 
 
 def fetch_listed_pricing(canonical_slug: str) -> object:
-    """Fetch one model's complete listed-pricing change log."""
     query = urllib.parse.urlencode({
         "permaslug": canonical_slug, "variant": "standard", "shape": "v4",
         "range": "all",
@@ -92,15 +84,12 @@ def _transient(exc: BaseException) -> bool:
 
 
 def _open(url: str):
-    """Issue one GET for `_fetch_json`; the seam tests fake in place of the
-    network."""
     request = urllib.request.Request(
         url, headers={"User-Agent": "claudit-refresh-provider-rates"})
     return urllib.request.urlopen(request, timeout=30)
 
 
 def _sleep(seconds: float) -> None:
-    """The backoff clock; tests replace this so no test ever really sleeps."""
     time.sleep(seconds)
 
 

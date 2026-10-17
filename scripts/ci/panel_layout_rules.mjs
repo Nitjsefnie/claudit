@@ -1,12 +1,4 @@
-// The rendered layout-consistency harness for the dashboard (issue #772).
-//
-// panel_layout.mjs answers whether each panel's regions fit inside it;
-// panel_interactions.mjs answers whether the panels respond. Neither asks
-// how the SECTIONS sit against each other, which is how issue #772
-// shipped: a class-less wrapper around the self-fetching panels took them
-// out of .dashboard's flex-gap context, and every section from Tool Usage
-// Ratio over Time downward rendered flush against its neighbour — with
-// every other check green, because nothing measured the gaps.
+// The rendered layout-consistency harness for the dashboard.
 //
 // This harness is the generic home for rules over the RENDERED page
 // layout: ONE page load per viewport width, every rule measured on that
@@ -64,8 +56,6 @@ const CONTAIN_TOL = 2;
 // wrappers report an all-zero rect) are dropped by the collector.
 export const COLLECT_SELECTOR =
   '[data-panel], [data-list-panel], .dashboard > *';
-
-// --- the vertical-gap classifier (pure; node tests pin it) -------------
 
 // Over `boxes` ([{ name, x, y, w, h }], viewport coords), return every
 // vertically adjacent pair — stacked, horizontally overlapping, neither
@@ -129,7 +119,7 @@ export function stackedPairs(boxes) {
   return out;
 }
 
-// ADJACENT stacked pairs only (#796): the FIRST stacked, non-contained
+// ADJACENT stacked pairs only: the FIRST stacked, non-contained
 // successor of each box in y-order, and the scan stops there. For the
 // sections this rule reads — boxes many pixels tall, sibling gaps at
 // or above the GAP_MIN floor — sorted-by-y nearest emission IS
@@ -171,7 +161,7 @@ export function gapViolations(boxes, minGap = GAP_MIN) {
   return stackedPairs(boxes).filter((p) => p.gap < minGap);
 }
 
-// The gap-consistency classifier (#796): every ADJACENT stacked pair of
+// The gap-consistency classifier: every ADJACENT stacked pair of
 // a flex-column stack sits at `expected` (the dashboard's own row gap)
 // plus the pair's own margins — flex adds the gap to whatever the
 // margins contribute, so the header's margin-bottom is legitimate while
@@ -187,7 +177,7 @@ export function gapConsistencyViolations(boxes, expected, tol = NOISE) {
     .filter((p) => Math.abs(p.gap - p.expected) > tol);
 }
 
-// The picker-underfill classifier (#808): fewer chips rendered than
+// The picker-underfill classifier: fewer chips rendered than
 // the measure row holds, WITH room for the next off-page chip, is the
 // fixed-small-page regression. `freeRoom` is pager-left minus the last
 // rendered chip's right edge; the chip column gap is subtracted first;
@@ -265,7 +255,7 @@ export function pickerPageGeometryViolations(pages, eps = NOISE) {
   return out;
 }
 
-// The panel-label rule's classifier (#826): a marked label text whose
+// The panel-label rule's classifier: a marked label text whose
 // box escapes its panel's box on either side is an overflow. One axis
 // of slack for rounding, like every geometry rule here. Violations
 // name the side and the distance.
@@ -288,8 +278,6 @@ export function labelOverflowViolations(labels, eps = NOISE) {
   return out;
 }
 
-// --- the in-page collectors --------------------------------------------
-
 // Every section and card box, zero-box elements (display:contents
 // wrappers report an all-zero rect) dropped. A function handed to
 // page.evaluate closes over nothing from this module, so the selector
@@ -297,10 +285,9 @@ export function labelOverflowViolations(labels, eps = NOISE) {
 //
 // Two notions, both structural and list-free:
 //   section — an effective flex item of .dashboard: a boxed direct
-//             child. The self-fetch wrapper is one since the #772 fix
-//             gave it display:flex column with its own 14px gap, so the
-//             wrapper is the section and the panels inside it are its
-//             cards;
+//             child. The self-fetch wrapper has display:flex column
+//             with its own 14px gap, so the wrapper is the section
+//             and the panels inside it are its cards;
 //   card    — the topmost element below its section on a marked
 //             element's ancestor chain. data-panel sits on the chart
 //             svg, and inner wrappers (the tooltip's position:relative
@@ -351,10 +338,10 @@ export const COLLECT_PROBE = (selector) => {
 // Per [data-panel] element: the panel's own box, its CARD box, and
 // every [data-role] region scoped to that card. The card is the
 // effective section of .dashboard holding the mark (a boxed direct
-// child; the wrapper is boxed since the #772 fix, so the panels inside
-// it stop their climb there): the chart svgs are display:block,
+// child; the wrapper is boxed, so the panels inside it stop their
+// climb there): the chart svgs are display:block,
 // so a boxed ancestor climb stops at the svg and never sees the legend
-// strips that are html siblings of it (#773). Sections only exist
+// strips that are html siblings of it. Sections only exist
 // inside .dashboard; without one, fall back to the nearest boxed
 // ancestor-or-self.
 export const PANELS_PROBE = () => {
@@ -405,8 +392,6 @@ export const PANELS_PROBE = () => {
   return { cards };
 };
 
-// --- the rules ----------------------------------------------------------
-
 // Seed for the vertical-gap rule's red proof: cancel the flex gap
 // between the LAST two direct sections of .dashboard that contain no
 // panel of their own (a containing wrapper is containment-skipped by
@@ -446,14 +431,14 @@ async function seedZeroGap(page) {
   });
 }
 
-// In-page (#796): the flex-column stacks of the page and their effective
+// In-page: the flex-column stacks of the page and their effective
 // boxed children, with the children's own vertical margins — the raw
 // material for gapConsistencyViolations. .dashboard is always the first
 // group; every boxed direct child that computes to flex column (the
-// self-fetch wrapper since #772) adds one more. The expected distance
+// self-fetch wrapper) adds one more. The expected distance
 // lives on the rule side: it is the dashboard's own row gap for EVERY
 // group, whatever the group's own gap says — a wrapper whose gap drifted
-// from the dashboard's is exactly the finding (#772's regression shape).
+// from the dashboard's is exactly the finding.
 const GAP_CONTAINERS_PROBE = () => {
   const dash = document.querySelector('.dashboard');
   if (!dash) return { error: 'no .dashboard on the page' };
@@ -487,11 +472,10 @@ const GAP_CONTAINERS_PROBE = () => {
   return { dashboardGap: dashGap, groups };
 };
 
-// Seed for the gap-consistency rule's red proof (#796): shrink the
+// Seed for the gap-consistency rule's red proof: shrink the
 // flex-column section's own gap to 4px — still above the vertical-gap
-// rule's 2px floor, so ONLY the consistency rule reads it — the drift
-// shape #772 shipped and #796 pins. A DOM injection on the fresh
-// reloaded page; no app change, no route.
+// rule's 2px floor, so ONLY the consistency rule reads it. A DOM
+// injection on the freshly reloaded page; no app change, no route.
 async function seedWrapperGap(page) {
   return page.evaluate(() => {
     const dash = document.querySelector('.dashboard');
@@ -514,14 +498,11 @@ async function seedWrapperGap(page) {
   });
 }
 
-// --- the legend-placement classifier (pure; node tests pin it) ---------
-//
 // Over owned chart groups — PANELS_OWNERSHIP_PROBE's output, one entry
 // per marked svg: { panel, plots: [box], legends: [{ label, ...box }] } —
 // return every legend that does not sit BELOW every plot of its own
-// chart. The dashboard convention is legend-under-chart (the comparison
-// panel's legend moved there for #630, the Tool Error Rate strips for
-// #773); a legend above its plot — or beside it, which the vertical test
+// chart. The dashboard convention is legend-under-chart; a legend above
+// its plot — or beside it, which the vertical test
 // also fails — is the outlier. A chart with no legend, or a legend with
 // no plot, checks nothing: conforming by having nothing to compare.
 export function legendBelowViolations(groups, eps = NOISE) {
@@ -543,7 +524,7 @@ export function legendBelowViolations(groups, eps = NOISE) {
   return out;
 }
 
-// The topmost plot of a multi-chart section (#797): the box with the
+// The topmost plot of a multi-chart section: the box with the
 // least y (ties keep the first). A section legend pairs against THIS
 // plot only — the convention the multichart rule holds is "not above
 // the section's charts", and a strip sitting under chart 1 of a stacked
@@ -557,7 +538,7 @@ export function topPlotBox(plots) {
 }
 
 // The multichart rule's wiring decision, extracted so the node tests
-// can pin it (#797): a SECTION group's legends pair against the
+// can pin it: a SECTION group's legends pair against the
 // section's TOPMOST plot only — a strip under chart 1 of a stacked grid
 // must not fire against chart 2 below it, which a union-of-plots box
 // would make it do. Mark-owned groups pass through unchanged. This is
@@ -573,7 +554,7 @@ export function pairSectionLegendsTop(groups) {
 // belongs to. A role inside a marked svg belongs to that svg; an html
 // legend strip belongs to the nearest ancestor holding EXACTLY ONE
 // marked svg — the chart card. An ancestor with two or more marked svgs
-// (a grid section of chart cards) owns the strip itself (#797): the
+// (a grid section of chart cards) owns the strip itself: the
 // group is flagged `section` with ALL its plots, and the shared run
 // pairs a section legend against the section's TOPMOST plot
 // (topPlotBox, on the node side — a function handed to page.evaluate
@@ -655,7 +636,7 @@ const legendBelowRun = async (ctx) => {
 
 // Seed for the legend rule's red proof: inject a marked legend strip as
 // the FIRST child of the first SINGLE-chart card — a section holding
-// exactly one marked panel — above its plot, the shape #773 shipped.
+// exactly one marked panel — above its plot.
 // A multi-chart section (the TimeSeries grid) owns no legend: its
 // strips are unattributable and the rule skips them, so the seed must
 // land where ownership attributes the strip to a chart. DOM injection
@@ -694,10 +675,10 @@ async function seedLegendAbovePlot(page) {
   });
 }
 
-// In-page (#797): every element in the dashboard that is shaped like the
+// In-page: every element in the dashboard that is shaped like the
 // legend strips but carries no tag — two or more direct-child labels
-// holding checkbox colour keys (the one shape every strip in src/ shares
-// since #474 made the checkbox the colour key) — with the tagged strips
+// holding checkbox colour keys (the shape every strip in src/ shares)
+// — with the tagged strips
 // and everything inside them excluded. A cluster anywhere in the
 // dashboard is legend-shaped enough to measure: the dashboard is the
 // chart surface, and the page chrome around it holds no checkboxes.
@@ -722,7 +703,7 @@ const UNTAGGED_LEGENDS_PROBE = () => {
   return { untagged };
 };
 
-// Seed for the untagged rule's red proof (#797): inject a strip shaped
+// Seed for the untagged rule's red proof: inject a strip shaped
 // like the real ones — checkbox colour-key rows — WITHOUT the tag, into
 // a single-chart card. The below-plot rules never see it (no data-role),
 // so this seed fires the tag rule alone.
@@ -764,7 +745,7 @@ async function seedUntaggedLegend(page) {
   });
 }
 
-// Seed for the multichart rule's red proof (#797): inject a TAGGED
+// Seed for the multichart rule's red proof: inject a TAGGED
 // legend strip as the first child of a section holding two or more
 // marked panels — above the section's charts, the shape the ownership
 // gap left unmeasured. The tag keeps the untagged rule quiet, so this
@@ -795,10 +776,8 @@ async function seedMultichartLegendAbovePlot(page) {
   });
 }
 
-// --- the project picker's rules (#774) ----------------------------------
-
 // The project picker strip: the one .project-picker that pages projects
-// (the range strip shares the class and is #755's). The marker is on the
+// (the range strip shares the class). The marker is on the
 // component's root; see src/picker.jsx.
 const PICKER_SEL = '.project-picker[data-picker="projects"]';
 
@@ -880,7 +859,7 @@ async function seedPickerShift(page) {
   }, PICKER_SEL);
 }
 
-// Seed for the after-paging overflow limb (#808): inject nothing up
+// Seed for the after-paging overflow limb: inject nothing up
 // front — arm a click listener that pushes wide chips into the
 // strip after every page turn, the shape of a pager whose later pages
 // overflow. The rule's own click detonates it.
@@ -1027,9 +1006,8 @@ async function seedPickerSelectedOverflow(page) {
   }, PICKER_SEL), 'project-picker-selected-fit seed');
 }
 
-// Seed for the label rule's red proof (#826): rewrite the first
-// marked label with the maintainer's reported label — the exact
-// string that overflows its box on the live dashboard. A DOM
+// Seed for the label rule's red proof: rewrite the first
+// marked label with a string that overflows its box. A DOM
 // injection; no app change, no route.
 async function seedLabelOverflow(page) {
   return page.evaluate(() => {
@@ -1041,7 +1019,7 @@ async function seedLabelOverflow(page) {
   });
 }
 
-// Seed for the picker's no-shift HEIGHT limb (#808): arm a one-shot
+// Seed for the picker's no-shift HEIGHT limb: arm a one-shot
 // resize listener that grows the strip's top padding — the padding
 // lives INSIDE the strip's box, so the row's height changes while the
 // seat below it (measured from the strip's bottom edge) does not.
@@ -1058,7 +1036,7 @@ async function seedPickerShiftHeight(page) {
   }, PICKER_SEL);
 }
 
-// Seed for the paging SEAT limb (#808): arm a one-shot click listener
+// Seed for the paging SEAT limb: arm a one-shot click listener
 // on the next control that grows the strip's margin — the margin is
 // OUTSIDE the strip's box, so the content below moves while the row's
 // height does not.
@@ -1076,7 +1054,7 @@ async function seedPickerPagingSeat(page) {
   }, PICKER_SEL);
 }
 
-// Seed for the paging POSITION limb (#808): arm a one-shot click
+// Seed for the paging POSITION limb: arm a one-shot click
 // listener that shifts the strip down. The strip and everything below
 // it move by the same amount, so the height and seat comparisons stay
 // equal — only the strip's own top catches this shape.
@@ -1095,7 +1073,7 @@ async function seedPickerPagingPosition(page) {
   }, PICKER_SEL);
 }
 
-// Seed for the underfill rule's red proof (#808): delete the last
+// Seed for the underfill rule's red proof: delete the last
 // rendered chip — the fixed-small-page shape, fewer chips than the
 // strip has room for — and keep it deleted across refits: the fit
 // pass re-renders the slice on resize, so a MutationObserver deletes
@@ -1120,7 +1098,7 @@ async function seedPickerUnderfill(page) {
   }, PICKER_SEL);
 }
 
-// Seed for the pinched rules' red proofs (#821): a stylesheet that
+// Seed for the pinched rules' red proofs: a stylesheet that
 // hides the strip's chips survives the re-render a refit causes (the
 // rules journey to a pinched width), which a per-node style mutation
 // would not.
@@ -1134,7 +1112,7 @@ async function seedPinchedHiddenChips(page) {
   });
 }
 
-// Seed for the pager-present limb (#821): remove the count span and
+// Seed for the pager-present limb: remove the count span and
 // keep it removed — the seed runs at the seat width, where every chip
 // fits and no pager renders at all, so an observer re-removes the
 // count wherever the refit re-renders it, and the pinched journey's
@@ -1153,7 +1131,7 @@ async function seedPinchedPagerMissing(page) {
   }, PICKER_SEL);
 }
 
-// Seed for the pager-sane limb (#821): rewrite the count to NaN after
+// Seed for the pager-sane limb: rewrite the count to NaN after
 // every click — the shape a raw-perPage pager would render. The
 // rewrite lands after React's own re-render (next frame), and the
 // rule's page turn detonates it.
@@ -1170,7 +1148,7 @@ async function seedPinchedPagerNaN(page) {
   }, PICKER_SEL);
 }
 
-// Seed for the pages-complete limb (#821): rewrite the LAST measure
+// Seed for the pages-complete limb: rewrite the LAST measure
 // row chip's text — the expected last project becomes one no page
 // shows, so the completeness comparison fails.
 async function seedPinchedAbsentLast(page) {
@@ -1182,7 +1160,7 @@ async function seedPinchedAbsentLast(page) {
   }, PICKER_SEL);
 }
 
-// The in-page underfill probe (#808): rendered chips, the measure
+// The in-page underfill probe: rendered chips, the measure
 // row's total, the room before the pager, and the narrowest off-page
 // chip's width.
 const UNDERFILL_PROBE = (sel) => {
@@ -1212,7 +1190,7 @@ const UNDERFILL_PROBE = (sel) => {
   };
 };
 
-// The in-page label-overflow probe (#826): every marked label text of
+// The in-page label-overflow probe: every marked label text of
 // every panel svg, beside its svg's own box.
 const LABEL_FITS_PROBE = () => {
   const labels = [];
@@ -1265,7 +1243,7 @@ const journeyBack = async (ctx) => {
 };
 
 // The pinched rules' journey: to a width no chip fits (the fit floors
-// at one), where the picker pages one project at a time (#821).
+// at one), where the picker pages one project at a time.
 const journeyPinched = async (ctx) => {
   await ctx.page.setViewportSize({ width: 220, height: 900 });
   await renderTurn(ctx.page);
@@ -1274,10 +1252,9 @@ const journeyPinched = async (ctx) => {
 // A pinched run measures at 220px, and the viewport is SHARED runner
 // state: every pinched run restores the rule's own width on the way
 // out, or every later rule measures the wrong width under its own
-// name (delta-review blocker on 456b467e). The narrow journeys are
-// the same hazard one family over — journeyNarrow's 0.6x width would
-// leak into every later rule the same way (whole-branch review on
-// 748be3af) — so every narrow-journey rule wraps in narrowRun too.
+// name. The narrow journeys are the same hazard one family over —
+// journeyNarrow's 0.6x width would leak into every later rule the same
+// way — so every narrow-journey rule wraps in narrowRun too.
 // A rule whose body measures at the restored width on its own (the
 // shift rules' round-trip limbs) keeps those inline steps; the
 // wrapper only guarantees the EXIT state.
@@ -1300,8 +1277,6 @@ const narrowRun = (run) => async (ctx) => {
 const NEXT_SEL = '.pp-nav[title="Next page"]';
 
 const PREV_SEL = '.pp-nav[title="Previous page"]';
-
-
 
 async function clickPickerPage(page, button, previous) {
   await page.click(button);
@@ -1574,8 +1549,7 @@ async function runPickerSelection(page, width, restorePicker = true) {
 // a rule that changes runner state (viewport size, the picker's page)
 // restores it on the way out — the shift rules page back to first,
 // the pinched rules restore the width, and nothing relies on rule
-// ORDER to be safe (the old keep-LAST comment did; order-dependent
-// safety is what the #808 split broke).
+// ORDER to be safe.
 export const RULES = [
   {
     id: 'vertical-gap',
@@ -2142,8 +2116,6 @@ export const RULES = [
   },
 ];
 
-// --- the runner ---------------------------------------------------------
-
 export async function runRules(ruleFilter, casesOnly = false) {
   if (casesOnly && ruleFilter) {
     throw new Error('--picker-cases cannot be combined with --rule');
@@ -2169,7 +2141,7 @@ export async function runRules(ruleFilter, casesOnly = false) {
       // panel_layout.mjs does — serve() alone 404s every /api path, and
       // a page fetching nothing renders only the self-fetch shells: the
       // rule would measure synthetic-preview chrome and call it the
-      // dashboard (#773).
+      // dashboard.
       await ctx.route('**/api/**', async (route) => {
         const path = new URL(route.request().url()).pathname;
         if (path === '/api/events') {

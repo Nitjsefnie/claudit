@@ -1,8 +1,7 @@
-// The static server the rendered dashboard guards share (issue #647).
+// The static server the rendered dashboard guards share.
 //
-// Extracted verbatim from scripts/ci/panel_layout.mjs so the interaction
-// sweep can serve the same REAL page — the same public/index.html, the
-// same src/*.jsx, the same in-browser Babel — against the same frozen
+// Shared so the layout and interaction guards serve the same REAL page:
+// the same public/index.html, the same src/*.jsx, the same in-browser Babel — against the same frozen
 // fixture dataset. Both guards read one copy of the /api path table, so
 // an endpoint the frontend starts fetching cannot be added to one guard
 // and forgotten in the other.
@@ -15,16 +14,14 @@ import { fileURLToPath } from 'node:url';
 export const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const FIXTURES = join(REPO, 'fixtures', 'layout');
 
-// The viewport widths both guards drive. Four: a desktop the panels were
-// designed at, a laptop where the grid reflows, and two phone widths
-// where every label is longest relative to the space it has. 320 is the
-// viewport issue #630 was reported at, where the panel's title ran off
-// the right edge and the legend's wrapped row fell off the bottom.
+// The viewport widths both guards drive: a desktop, a laptop where
+// the grid reflows, and two phone widths where every label is longest
+// relative to the space it has. The narrowest width checks that titles
+// and wrapped legends stay inside their panels.
 // Override locally with CLAUDIT_PANEL_LAYOUT_WIDTHS=1440,375.
 export const WIDTHS = (process.env.CLAUDIT_PANEL_LAYOUT_WIDTHS || '1440,1024,375,320')
   .split(',').map(Number).filter(n => n > 0);
 
-// Every /api path the frontend fetches, and the fixture that answers it.
 export const API = {
   '/api/dashboard': 'dashboard.json',
   '/api/context-growth/traces': 'ctx_traces.json',

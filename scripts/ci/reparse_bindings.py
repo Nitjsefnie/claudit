@@ -7,7 +7,7 @@ because they are about the LANGUAGE rather than about this repository:
 anywhere?", and ``unresolved`` answers "is there a call in here the reader
 knows nothing about?".
 
-The second is the fail-closed half (issue #503). A walker's completeness
+The second is the fail-closed half. A walker's completeness
 claim is a claim about a grammar, and `node.func` holds more than a Name:
 an Attribute, a Subscript, or a Call whose result is called back. The Name
 forms are the ones that could name a surface function and still slip

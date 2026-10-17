@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """The thresholds document's decoding and scalar validation.
 
-Split out of ``thresholds.py`` for the reason every split in this tree
-is made: the loader sat exactly on its 500-line production ceiling, and
-a recorded ceiling is never raised by hand (SV-CI-RATCHETS) — code
-moves, entries never rise. Everything here answers one question about
-one value — is this a number this family accepts, is this a path a
+Separate from ``thresholds.py`` to keep the loader below its 500-line
+production ceiling: a recorded ceiling is never raised by hand
+(SV-CI-RATCHETS) — code moves, entries never rise. Everything here answers
+one question about one value — is this a number this family accepts, is this a path a
 baseline entry may name — and knows nothing about the families
 themselves, which the loader names and checks.
 
@@ -221,7 +220,7 @@ def _checked_module_path(value):
 
 
 def suite_identity(value, name):
-    """The suite-cost seed's workload identity (issue #524): the
+    """The suite-cost seed's workload identity: the
     scanned tree's line count. A positive whole number — a Decimal
     that is integral passes, because decode parses every JSON number
     as Decimal."""

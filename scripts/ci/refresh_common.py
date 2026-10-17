@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Shared time, source-config, and version helpers for provider-rate tools."""
 from __future__ import annotations
 
 import re
@@ -16,7 +15,6 @@ def detection_stamp(now: datetime) -> str:
 
 
 def bump_pricing_version(text: str) -> str:
-    """Move PRICING_VERSION one past the value already in the constants file."""
     found = _PRICING_VERSION.findall(text)
     if len(found) != 1:
         raise RefreshError("backend/constants.py: expected exactly one PRICING_VERSION line")
@@ -36,7 +34,6 @@ def data_region(config: object) -> str | None:
 
 
 def sources(doc: dict) -> tuple[dict, str | None]:
-    """Return the tracked models and their endpoint data region."""
     config = doc.get("openrouter")
     tracked = config.get("models") if isinstance(config, dict) else None
     if not isinstance(tracked, dict) or not set(doc["providers"]) <= set(tracked):

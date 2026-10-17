@@ -1,13 +1,11 @@
-// The rendered interaction guard for the dashboard panels (issue #647).
+// The rendered interaction guard for the dashboard panels.
 //
 // scripts/ci/panel_layout.mjs answers whether the panels LAY OUT — the
 // boxes do not overlap and nothing escapes its panel. It cannot answer
 // whether the panels RESPOND: whether a bar highlights when the pointer
 // rests on its bottom row, whether the tooltip the hover summons stays
 // inside its own box, whether the page still moves around while the user
-// looks at it. Those are the defect classes that reached the maintainer
-// by eye on 2026-10-05 (#642, #643, #645, #646), and this guard pins the
-// CATEGORIES, not the cases:
+// looks at it. This guard pins those categories:
 //
 //   cold-cls        the sum of layout-shift scores on a cold load
 //                   exceeds 0.1 (web.dev's "poor" threshold);
@@ -17,37 +15,34 @@
 //                   bottom pixel row) must summon the panel's tooltip;
 //   hover-style     and must change the target's rendered style away
 //                   from its resting style, so the response is visible
-//                   on the element itself, panel to panel alike (#646);
+//                   on the element itself, panel to panel alike;
 //   tooltip-overflow a visible tooltip must stay inside the viewport
-//                   and must not scroll its own content (#642), and a
+//                   and must not scroll its own content, and a
 //                   rendered long-KEY row must wrap inside the box — the
-//                   probe mounts the real primitive with one (#701);
+//                   probe mounts the real primitive with one;
 //   other-region    every sweep-time layout shift must resolve to a
-//                   named region or panel through src/perf.js (#647
-//                   item 5) — `other` means 'outside the panel grid',
+//                   named region or panel through src/perf.js — `other` means 'outside the panel grid',
 //                   a real answer for a filter row and a wrong one for
 //                   a shifted bar;
 //   height-growth   no panel's height grows with the number of models:
 //                   the same payloads with 2 vs 30+ models must render
 //                   every panel at the same height within ±1px of
-//                   rendering noise (#652's general case, so a third
-//                   per-model grid cannot ship; #694's noise band) --
+//                   rendering noise, so a per-model grid cannot ship --
 //                   or stay under the absolute ceiling a panel declares
 //                   with data-max-h, the bounded treatment a capped
-//                   list takes (#651): shorter at 2 roles than at 30+
+//                   list takes: shorter at 2 roles than at 30+
 //                   is the design there, not growth.
 //
 // Hover targets are enumerated from the DOM, so a new panel is covered
 // automatically: every bar, bucket and point a panel makes interactive
 // carries `data-hover-target`. A panel that renders with data but none
-// is a `no-targets` finding — the sweep FAILS it (#690), so coverage is
-// never opt-in again. A panel that carries no interactive surface by
+// is a `no-targets` finding — the sweep FAILS it, so coverage is
+// never opt-in. A panel that carries no interactive surface by
 // design (a legend, a stat panel) declares `data-static-panel` — but
 // the declaration is listed, not free: STATIC_PANELS below names every
 // static panel the guard has reviewed, and a declaration off the list
-// is the `unlisted-static` finding (#834) — a data panel cannot exempt
-// itself, which is how 'Page performance' hid a data table behind the
-// declaration. A panel whose height is a per-entry LIST by design (one
+// is the `unlisted-static` finding — a data panel cannot exempt
+// itself. A panel whose height is a per-entry LIST by design (one
 // bar per row: Cost by Model, Tokens by Model) carries
 // `data-list-panel` and is exempt from height-growth, printed every
 // run like the ledger above.
@@ -69,7 +64,7 @@
 //
 // Bounds: the sweep hovers every marked target twice (centre, bottom
 // row) at every width, which is the guard's whole cost.
-// CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS defaults to 0 — unlimited (#834: a
+// CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS defaults to 0 — unlimited (a
 // cap that silently samples is a guard that checks less than it
 // claims). An explicit cap that BITES is the `unhovered-targets`
 // finding and fails the run; the knob is for local debugging only.
@@ -78,8 +73,6 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { API, FIXTURES, serve, WIDTHS } from './panel_server.mjs';
-
-// --- the KNOWN ledger -------------------------------------------------
 
 // Defects this guard FOUND on panels that predate it, each filed as its
 // own issue rather than fixed here — the same ledger shape panel_layout
@@ -91,7 +84,7 @@ export const FILED = [];
 
 // The static panels the guard has reviewed: a [data-panel] declaring
 // data-static-panel whose name is not listed here is the
-// `unlisted-static` finding (#834) — the declaration is not a
+// `unlisted-static` finding — the declaration is not a
 // self-service exemption. The one listed name is the heatmap's
 // aria-hidden gradient legend, which renders no data at all.
 export const STATIC_PANELS = ['Activity Heatmap — legend'];
@@ -105,7 +98,7 @@ export const KINDS = [
 ];
 
 // The matched LEDGER ENTRY (or null) — per entry, not per (issue, kind):
-// two entries may share both, as #651's two panels do, and a
+// two entries may share both, and a
 // liveness set keyed on the pair would call one twin's firing proof of
 // the other's. filedFor keeps the issue-only view for callers that do
 // not care which twin matched.
@@ -117,8 +110,7 @@ export function filedEntry(panel, kind) {
 }
 
 // The bounded branch's comparison, pure so the node tests can prove it
-// fires: the healthy page never breaches its own bound (the #651 card
-// renders 338px under its declared 364px), so a dead or flipped
+// fires: the healthy page never breaches its own bound, so a dead or flipped
 // comparison would green every run while enforcing nothing.
 export function breachesBound(h, bound) {
   return h > Number(bound);
@@ -128,8 +120,6 @@ export function filedFor(panel, kind) {
   const hit = filedEntry(panel, kind);
   return hit ? hit.issue : null;
 }
-
-// --- the height comparison (#694) --------------------------------------
 
 // The two height renders run in separate headless contexts, and
 // Chromium's sub-pixel box rounding is not reproducible between them:
@@ -143,18 +133,16 @@ export function heightsAgree(twoPx, manyPx) {
   return Math.abs(manyPx - twoPx) <= HEIGHT_NOISE_PX;
 }
 
-// --- payload variants: 2 vs 30+ models --------------------------------
-
 // Rewrites the frozen base payloads into the height check's two worlds.
 // A top-level array whose first row carries a string `model` (or
 // `agent_type`) field is keyed by that identity — `two` keeps the
 // list's first two identities' rows, `many` expands it to at least 30
 // distinct ones by cycling whole rows under suffixed names, so every
-// panel that reads models (or agent roles, the #651 case) reads them
+// panel that reads models or agent roles reads them
 // at both scales. The LAST expanded copy carries a deliberately
 // over-long identity: the hover sweep runs over this set, so the
 // tooltip-overflow assertion is exercised against the longest label
-// the page can render at every run (#642's probe).
+// the page can render at every run.
 //
 // PRECONDITION: a rewritten list is UNIFORM — every row carries the
 // list's identity field. A totals row without one would be dropped by
@@ -218,12 +206,10 @@ export function variantsFrom(base) {
   return { two: rewriteDoc(base, 'two'), many: rewriteDoc(base, 'many') };
 }
 
-// --- the in-page sweep -------------------------------------------------
-
 // The style channels a hover highlight moves. fill-opacity (0.3 -> 0.85
 // on a hovered time bar) and stroke (none -> white on a hovered hbar)
 // are the two treatments in the panels today; background-color is the
-// HTML-table rows' treatment (#834's Page performance rows). A new
+// HTML-table rows' treatment. A new
 // panel that highlights by another channel must add it here — and to
 // the restated lists in MARK and READ below — or the guard fails it.
 // Residual for row marks: elementFromPoint at a hovered table row
@@ -235,9 +221,7 @@ const STYLE_PROPS = ['fill', 'fill-opacity', 'opacity', 'stroke',
 
 const MAX_TARGETS = Number(process.env.CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS || '0');
 
-// --- the #690 seeded-violation hooks -----------------------------------
-
-// Each Expected-Behavior bullet of #690 has a seed that plants ONE
+// Each category has a seed that plants ONE
 // violation of its category and must turn the sweep red — proven red
 // locally and in panel-layout.yml's seeded step (driven by
 // scripts/ci/panel_interactions_seeds.mjs, which asserts exit 1 per
@@ -254,7 +238,7 @@ if (SEED && !SEEDS.includes(SEED)) {
 // The no-targets seed strips every mark from ONE rendered non-static
 // panel, the way a forgotten mark would leave it; the sweep then re-runs
 // MARK on the stripped page, so the finding fires through the count the
-// page itself reports (#835). Returns the number of marks it stripped.
+// page itself reports. Returns the number of marks it stripped.
 const STRIP = panelIdx => {
   const svg = document.querySelector(`[data-sw="${panelIdx}"]`);
   if (!svg) return -1;
@@ -353,7 +337,7 @@ const AIM = panelIdx => {
 };
 
 // Scrolls ONE target into view and returns the viewport-relative hover
-// points the pointer needs (#834): a mark below the fold is hovered,
+// points the pointer needs: a mark below the fold is hovered,
 // not dropped — its own scrollIntoView centres it first. `out` means
 // even its own scroll could not bring both hover points inside the
 // viewport (a mark taller than the viewport), which the sweep fails
@@ -371,9 +355,6 @@ const POSE = id => {
   return both ? { cx, cy, bottom } : { out: true };
 };
 
-// Reads the current response state for one hovered target: is the
-// panel's tooltip visible, does it overflow, did the target's own style
-// move off its resting snapshot?
 // The failing target's own geometry, for the finding line: a FAIL you
 // cannot place is a FAIL you cannot fix.
 const TARGET = ({ id }) => {
@@ -425,10 +406,10 @@ const READ = ({ id, panelIdx }) => {
 };
 
 // Hands the buffered shifts back, split into cold-load and sweep halves,
-// EVERY entry attributed through the real src/perf.js logic (#690): a
+// EVERY entry attributed through the real src/perf.js logic: a
 // cold-load shift's attribution is asserted exactly like a sweep
-// shift's — the cold load renders shift-free today (#643), so a shift
-// there is a defect to name, not a background hum to log.
+// shift's — a cold-load shift is a defect to name, not a background
+// hum to log.
 const SHIFTS = sweepStart => {
   const sweep = [];
   const cold = [];
@@ -450,7 +431,7 @@ const SHIFTS = sweepStart => {
   return { sweep, cold, coldSum };
 };
 
-// The #701 long-key probe: mounts the REAL DashTooltip primitive with a
+// The long-key probe: mounts the REAL DashTooltip primitive with a
 // row whose key is longer than the 280px tooltip box, inside a panel's
 // own positioned wrapper — the rendered case the sweep cannot reach,
 // because every key the live panels draw is a short fixed label. The
@@ -518,8 +499,8 @@ async function main() {
   const server = await serve();
   const browser = await chromium.launch();
   let failures = 0;
-  const findings = new Map();   // dedup key -> finding
-  const ledgerFired = new Set();   // the ENTRY objects that matched
+  const findings = new Map();
+  const ledgerFired = new Set();
   const record = (kind, panel, detail, width) => {
     const key = `${kind}|${panel}|${detail}`;
     const f = findings.get(key)
@@ -548,16 +529,10 @@ async function main() {
   };
 
   try {
-    // #843: widths run concurrently — the leg's wall time becomes the
-    // slowest width, not their sum. The shared browser multiplexes the
-    // contexts; the findings ledger and the failure count fold into the
-    // same single-threaded maps they always were, and the summary below
-    // reads them only after every width has landed.
     const runWidth = async width => {
-      // --- the height pass: the same payloads at 2 vs 30+ models ------
       // (skipped under a seed: the seeded run proves the sweep's
       // classifiers, and the two extra renders would double its cost
-      // for nothing — #843)
+      // for nothing)
       if (!SEED) {
         const heights = {};
         for (const set of ['two', 'many']) {
@@ -594,7 +569,7 @@ async function main() {
         // nearest [data-max-h] ancestor the page reported. A bounded
         // panel is judged against its ceiling in BOTH worlds and skips
         // the equality check -- a capped list is shorter at 2 roles than
-        // at 30+, and that is the design (#651), not growth.
+        // at 30+, and that is the design, not growth.
         const boundOf = new Map([...heights.two, ...heights.many]
           .map(([n, , , b]) => [n, b]).filter(([, b]) => b !== null));
         const lists = new Set([...heights.two, ...heights.many]
@@ -620,7 +595,7 @@ async function main() {
             width);
         }
         // The absolute bound, both worlds, every width: the ceiling a
-        // bounded panel declares is its own promise (#651). A breach
+        // bounded panel declares is its own promise. A breach
         // records like any finding; the ledger names no height-growth
         // entry today, so it fails the run.
         for (const [name, bound] of boundOf) {
@@ -643,11 +618,10 @@ async function main() {
 
       }
 
-      // --- the sweep pass ---------------------------------------------
       // Swept over the MANY variant, not the base fixtures: it carries
       // the expanded identity list, so the hovers read 30+ roles and —
-      // through the last copy's over-long identity (#642's overflow
-      // probe) — the longest labels the page can render.
+      // through the last copy's over-long identity — the longest
+      // labels the page can render.
       const ctx = await browser.newContext({
         viewport: { width, height: 1000 },
       });
@@ -674,7 +648,7 @@ async function main() {
           console.log(`SEED GONE   ${width}px  the no-targets seed found `
             + 'no rendered non-static panel with marks to strip');
         } else {
-          // #835: the count must come from the PAGE, not this node-side
+          // The count must come from the PAGE, not this node-side
           // copy: re-run the mark pass on the stripped page, so the
           // no-targets finding fires through the same count an unseeded
           // run reads. The registry resets first — a second MARK appends
@@ -720,8 +694,8 @@ async function main() {
             + 'mark(s) — no hover surface, nothing to hover');
         }
         let targets = hoverable;
-        // An explicit cap that BITES is a finding, never a silent sample
-        // (#834); the knob is for local debugging only. Even sampling
+        // An explicit cap that BITES is a finding, never a silent sample;
+        // the knob is for local debugging only. Even sampling
         // with both ends kept, so a debugging cap still narrows the
         // sweep without biasing it toward one end.
         if (MAX_TARGETS > 0 && targets.length > MAX_TARGETS) {
@@ -741,7 +715,7 @@ async function main() {
           }
         }
         for (const t of targets) {
-          // #834: every mark is hovered — its own scrollIntoView brings
+          // Every mark is hovered — its own scrollIntoView brings
           // it into the viewport first; `out` (a mark taller than the
           // viewport) fails rather than passes.
           const pose = await page.evaluate(POSE, t.id);
@@ -766,9 +740,6 @@ async function main() {
               READ, { id: t.id, panelIdx: pi });
             if (got.gone) break;
             if (!got.visible || !got.changed.length || got.overflow) {
-              // The diagnostics are failure-path work: two page
-              // round-trips per HOVER were half the sweep's per-target
-              // cost (#843); the healthy hover reads one.
               const where = `target #${t.id} ${point[0]} <${
                 await page.evaluate(TARGET, { id: t.id })}>${
                 await page.evaluate(TIPTXT, { panelIdx: pi }) || ''}`;
@@ -805,7 +776,7 @@ async function main() {
         await page.mouse.move(1, 1, { steps: 3 });
       }
       // The static list is a ledger: a listed name that rendered no
-      // panel is a dead entry the guard would carry forever (#834) —
+      // panel is a dead entry the guard would carry forever —
       // the same liveness the FILED ledger's stale check enforces.
       if (width === WIDTHS[0]) {
         const seen = new Set(panels.map(p => p.name));
@@ -829,11 +800,10 @@ async function main() {
         record('cold-cls', '(page)', `cold-load CLS ${coldSum.toFixed(3)}`,
           width);
       }
-      // #690: cold-load attribution is asserted, not logged — a shift the
+      // Cold-load attribution is asserted, not logged — a shift the
       // cold load cannot name is the same blindness a sweep shift's
-      // would be. The FILED ledger carries no catch-all for `other`
-      // (#642's entry left with its fix, and a pinned test bans the
-      // shape's return), so this finding fails the run.
+      // would be. The FILED ledger carries no catch-all for `other`,
+      // and a pinned test bans that shape, so this finding fails the run.
       const coldOthers = cold.filter(s => s.region === 'other'
         || s.region === null);
       if (coldOthers.length) {
@@ -844,8 +814,8 @@ async function main() {
           + 'still attached)', width);
       }
       if (sweep.length) {
-        // One finding per width: the shifts are one defect's symptoms
-        // (#642), and a line per shift value buries the run.
+        // One finding per width: the shifts are one defect's symptoms,
+        // and a line per shift value buries the run.
         const total = sweep.reduce((a, s) => a + s.v, 0);
         const attached = sweep.filter(s => s.attached).length;
         record('sweep-shift', '(sweep)',
@@ -862,7 +832,7 @@ async function main() {
         }
       }
 
-      // The rendered long-key case (#701): the sweep's real tooltips all
+      // The rendered long-key case: the sweep's real tooltips all
       // draw short fixed keys, so the probe mounts the real primitive
       // with a key longer than the box — the row must wrap inside it
       // under the same containment oracle the sweep reads. Run after the
@@ -888,13 +858,13 @@ async function main() {
       }
       await ctx.close();
     };
-    // #843: widths run concurrently, TWO at a time — the leg's wall time
+    // Widths run concurrently, TWO at a time — the leg's wall time
     // approaches two widths, not their four-wide sum, while every page
     // load still gets the CPU an in-browser Babel compile needs: at full
-    // four-wide parallelism the starved renders blew the selector wait
-    // and rendered no panels at all. The findings ledger and the failure
-    // count fold into the same single-threaded maps they always were,
-    // and the summary below reads them only after every width landed.
+    // four-wide parallelism starved renders can exceed the selector wait
+    // and render no panels at all. The findings ledger and the failure
+    // count fold into shared single-threaded maps, and the summary below
+    // reads them only after every width finishes.
     const queue = [...WIDTHS];
     await Promise.all(Array.from(
       { length: Math.min(2, queue.length) }, async () => {

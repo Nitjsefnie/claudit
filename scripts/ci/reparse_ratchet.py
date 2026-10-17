@@ -11,7 +11,7 @@ and leaves the file untouched. The yardsticks are the same 1.5 constants
 the coverage ratchet uses, in the bench's own unit (hundreds of
 bytecodes per file).
 
-Only the GATED instruments are tightened (issue #513), which is the
+Only the GATED instruments are tightened, which is the
 bytecode count alone. The per-phase share is telemetry — measured and
 recorded, compared against by nothing — and its runner-to-runner spread
 is wider than the gap a tighten would move, so chasing it would spend a
@@ -97,7 +97,7 @@ def tightenable(data, readings):
     ``readings`` is ``{phase: {metric: value}}``. A pair tightens when it
     beats its recorded value by more than the hysteresis — the same rule
     the coverage ratchet applies to a raise, with every comparison
-    reversed. Only the GATED metrics are read (issue #513): the share
+    reversed. Only the GATED metrics are read: the share
     rides along in every measurement, and nothing here moves it. A
     document without a reparse family carries no budget to tighten
     against, so this helper returns no moves. The CLI seeds an absent
@@ -203,8 +203,8 @@ def load_for_seed(path):
     the member gone, the one state seed() accepts.
     """
     data = json.loads(Path(path).read_text(encoding='utf-8'))
-    # PRESENCE, never emptiness, the loader's own rule (issue #703
-    # review): `"reparse": {}` is a family PRESENT and malformed — the
+    # PRESENCE, never emptiness, the loader's own rule:
+    # `"reparse": {}` is a family PRESENT and malformed — the
     # loader refuses it and the seed must not quietly replace it. A
     # falsy test would read the decoy as the absent family.
     if thresholds.REPARSE_FAMILY in data:

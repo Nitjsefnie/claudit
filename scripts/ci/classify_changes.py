@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
 """Classify docs-only, bot-data-only, comment-only, thresholds-only or setup-only runs.
 
-The gate workflows used to narrow documentation-only runs at the
-trigger, with `paths-ignore` on their push and pull_request events. A
-trigger filter cannot report: a docs-only change started no run at all,
-so those check names never appeared, and a required-check
-ruleset could never go green on such a pull request. ci-gate.yml starts
+ci-gate.yml starts
 on every push and pull request and narrows INSIDE the workflow instead:
 this script reads the run's changed paths and emits the class
 outputs, which condition the legs while the
@@ -20,9 +16,9 @@ A second class narrows the refresh bot's data: its hourly push stages
 EXACTLY `src/pricing.json`, `backend/constants.py` and
 `src/pricing_notices.json` — the appended rate entries, the
 PRICING_VERSION bump SV-RATE-REFRESH ships with them, and the notice
-baseline (#888). Every commit it produces is one of two exact sets:
+baseline. Every commit it produces is one of two exact sets:
 the pair when this run's carried notice set is unchanged, the triple
-when the baseline moved too (issue #932). The refresh job runs the
+when the baseline moved too. The refresh job runs the
 full suite against the new rates BEFORE pushing (refresh-pricing.yml's
 refresh job), so re-running the whole matrix on the bot's push
 re-verifies nothing. Constants must replace just one numeric
@@ -44,11 +40,10 @@ On a PUSH the changed set is read over the verified base rather than
 the push's own `before`: the newest ci-gate run on master whose
 conclusion is `success` and that executed at least one leg marks the
 last commit whose code the gate actually ran over. Classifying only
-the push's own before...sha let a docs-only push hide an unverified
-code push behind a green aggregate, when the code push's own run had
-been cancelled by the docs-only push seconds after it started — and a
-run that concluded `failure` or `timed_out` verified nothing either,
-so a docs-only push on top of failed code would otherwise narrow over
+the push's own before...sha would let a docs-only push hide unverified
+code behind a green aggregate if it cancels the code push's run. A run
+that concluded `failure` or `timed_out` verified nothing either, so a
+docs-only push on top of failed code would otherwise narrow over
 the very code that is failing. The base walk reads the workflow-runs
 and run-jobs endpoints, newest first; any failure over-runs to the
 full gate set.
@@ -87,7 +82,7 @@ BOT_CORE = frozenset({'src/pricing.json', 'backend/constants.py'})
 BOT_SIGNATURE = BOT_CORE | {'src/pricing_notices.json'}
 # Two shapes: every committing run writes all three files, but git
 # records only what differs, so an unchanged notices baseline commits
-# the pair alone; each shape is matched as a whole set (#932).
+# the pair alone; each shape is matched as a whole set.
 BOT_COMMIT_SHAPES = frozenset({BOT_CORE, BOT_SIGNATURE})
 
 # The comment-only class's shape: the suffixes the classifier can
@@ -160,8 +155,6 @@ def data_only(paths):
 
 
 def _espree_dir():
-    """The espree module dir the JS tokenizer requires from: the repo's
-    own node_modules, or ESPREE_DIR_ENV when set."""
     return sources.espree_dir()
 
 
@@ -324,7 +317,7 @@ def changed_paths(event, run):
                 and number.isdigit()):
             return None
         # As on the push path: a rename's old path counts beside its new
-        # one (issue #245).
+        # one.
         return _read(run, [
             'gh', 'api', '--paginate', '-H', 'Cache-Control: no-cache',
             f'repos/{repository}/pulls/{number}/files', '--jq',
@@ -423,7 +416,6 @@ def classify(event, run):
 
 
 def event_from_environment(environ):
-    """Build the `event` mapping from a process environment."""
     return {
         'name': environ.get('GITHUB_EVENT_NAME', ''),
         'repository': environ.get('GITHUB_REPOSITORY'),
@@ -437,7 +429,6 @@ write_outputs = thresholds.write_outputs
 
 
 def main():
-    """Classify this run and record the outputs. Returns an exit status."""
     event = event_from_environment(os.environ)
 
     def run(command):

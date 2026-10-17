@@ -9,9 +9,8 @@ master's --tighten drops one whose file is back under its ceiling or no
 longer exists.
 
 Scope is every tracked ``*.py`` under ``backend/``, ``scripts/`` and
-``tests/``, every tracked ``src/**/*.js`` and ``src/**/*.jsx`` file
-(issue #266: the shipped JavaScript front end joins the ratchet), and
-the shipped SQL, CSS and workflow-YAML sources (issue #393:
+``tests/``, every tracked ``src/**/*.js`` and ``src/**/*.jsx`` file,
+and the shipped SQL, CSS and workflow-YAML sources (
 ``backend/*.sql``, ``public/*.css`` and the ``.github/workflows/``
 YAML), plus the CI coverage converter.
 A ``tests/`` prefix is a test file (ceiling 700 lines); everything else is
@@ -99,7 +98,7 @@ def _in_src_scope(rel):
 
 def _in_family_scope(rel):
     """Whether a path is a shipped SQL, CSS or workflow-YAML source the
-    ratchet caps (#393). The thresholds document itself is data, not
+    ratchet caps. The thresholds document itself is data, not
     source, and stays outside."""
     return (rel == 'scripts/ci/js_coverage.mjs'
             or rel.startswith('backend/') and rel.endswith('.sql')

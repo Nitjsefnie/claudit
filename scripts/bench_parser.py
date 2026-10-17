@@ -61,7 +61,6 @@ def _run(checkout: Path, paths: list[str], timeout: int) -> list[dict]:
 
 def compare(checkout: Path, baseline: Path, paths: list[str],
             repeat: int, timeout: int) -> list[dict]:
-    """Warm both versions, then alternate their order on successive rounds."""
     expected = _run(baseline, paths, timeout)
     warm = _run(checkout, paths, timeout)
     _check_outputs(expected, warm)

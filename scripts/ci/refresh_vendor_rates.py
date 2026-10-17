@@ -12,8 +12,7 @@ output modality, are dropped silently before selection and auto-add.
 
 A catalog id under a listed prefix whose derived key is not yet tracked is
 ADDED to openrouter.models as ``{"id": <catalog id>, "vendor_host":
-<providerName of the selected endpoint>}`` — the same entry shape the
-issue-851 migration gave every tracked vendor row. The vendor pass WRITES
+<providerName of the selected endpoint>}``. The vendor pass WRITES
 NO RATES: the provider pass carries the (key, vendor_host) row from the
 NEXT hourly run, so a newly added model prices nothing for one run — the
 one-run pickup delay is the design, and resolve()'s bare path falls
@@ -88,7 +87,6 @@ import refresh_pricelog  # noqa: E402
 from backend import pricing  # noqa: E402
 from backend.pricing_document import expand_pricing_doc  # noqa: E402
 
-
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 
 
@@ -105,7 +103,6 @@ class VendorMove:
 
 @dataclass
 class VendorOutcome:
-    """One vendor pass: the moves, and what a human must read."""
     moves: list[VendorMove] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
     refusals: list[str] = field(default_factory=list)

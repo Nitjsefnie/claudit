@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 """Refuse a commit subject whose scope names a workflow but whose type is
-not `ci` (issue #556).
+not `ci`.
 
-The claim and pr-gate action repositories run this check on every pull
-request; this repository did not. A commit scope is prose no gate read,
-so the convention drifted: two merged `fix(tests)` commits use the tests
-workflow's name as a scope for suite fixes, which is exactly the
-ambiguity the shared-name rule exists to settle. The rule the check
+The rule the check
 reads lives in CONTRIBUTING.md (Commit subjects): a workflow's `name:`
 may be a scope only with type `ci` — `ci(tests)` changes the workflow,
 `fix(tests)` fixes the suite.
@@ -27,11 +23,7 @@ git's C-quoted display form for the path, the quoted entry misses the
 workflow-file filter, and the workflow silently leaves the set — a false
 green this gate exists not to give.
 
-Only the OUTGOING range origin/master..HEAD is examined. Already-merged
-history is what the check exists to stop repeating, not what it
-re-judges: the two fix(tests) commits above predate the rule and are the
-reason the `tests` scope is exempt by name rather than a violation to
-convert.
+Only the OUTGOING range origin/master..HEAD is examined.
 
 WHAT IT CANNOT SEE, and says so rather than guessing:
 
@@ -109,13 +101,11 @@ def git(root: Path, *arguments: str, what: str) -> str:
             f"{done.returncode}: {detail}")
     return done.stdout
 
-
-# --- reading the workflow names ----------------------------------------------
-#
 # The subset of YAML these workflows use for the one key this check
 # reads: a plain block mapping entry at column 0. Every other shape is
 # refused rather than guessed at, because a guessed name is either a
 # scope the rule should have caught or a refusal nobody asked for.
+
 
 MAPPING = re.compile(r"^(?P<key>[A-Za-z_][A-Za-z0-9_.-]*):(?:[ \t]+(?P<value>.*))?$")
 
@@ -236,9 +226,6 @@ def workflow_name_set(root: Path) -> set[str]:
     return names
 
 
-# --- the subjects -------------------------------------------------------------
-
-
 def fetch_base(root: Path) -> None:
     """Bring master in as it is NOW, not as the checkout left it.
 
@@ -263,6 +250,7 @@ def fetch_base(root: Path) -> None:
 # the rule requires. A type outside the convention is not this regex's
 # problem — the rule below flags any non-ci type on a workflow-name
 # scope, and a bad type is a defect under any scope.
+
 SUBJECT = re.compile(
     r"^(?P<type>[a-z]+)!?\((?P<scope>[^()\s]+)\)!?:\s?(?P<summary>\S.*)?$")
 

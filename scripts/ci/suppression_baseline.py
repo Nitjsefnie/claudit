@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check and tighten the inline pylint suppression baseline.
 
-A second only-shrinks baseline beside the module-size one (issue #389):
+A second only-shrinks baseline beside the module-size one:
 the per-file count of inline ``pylint: disable``/``disable-next``
 comments whose check list names a complexity check — any check starting
 ``too-many-`` — over tracked ``*.py`` under ``backend/`` and

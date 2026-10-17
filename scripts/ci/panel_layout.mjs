@@ -1,10 +1,4 @@
-// Headless-Chromium layout guard for the dashboard panels (issue #631).
-//
-// Nothing else in this suite renders the dashboard in a browser: the
-// tests are Python plus node runs of the parser JavaScript, so nothing
-// ever asks the browser where it put anything. That is how issue #630 —
-// the comparison panel's legend drawn over its own chart — reached a user
-// with every check green.
+// Headless-Chromium layout guard for the dashboard panels.
 //
 // So this drives the REAL page: the same public/index.html, the same
 // src/*.jsx, the same in-browser Babel, against a frozen fixture dataset
@@ -80,13 +74,12 @@ const PROBE = () => {
       };
     }).filter(r => r.w > 0 && r.h > 0);
 
-    // INSIDE each legend entry. Region-vs-region alone would miss #630's
-    // own shape: the model name, the swatch rule and the count label are
+    // INSIDE each legend entry. Region-vs-region alone would miss
+    // this shape: the model name, the swatch rule and the count label are
     // three parts of ONE marked entry, so their boxes live inside one
     // marked element and the pairwise pass skips them as an
-    // ancestor/descendant pair. That is the defect the maintainer saw —
-    // a 17-character model name running through the rule and into the
-    // count beside it — so it is asserted here, where it is visible.
+    // ancestor/descendant pair. Check the parts directly so a model name
+    // cannot run through its swatch rule into the count beside it.
     const within = [];
     for (const role of roles) {
       if (role.role !== 'legend') continue;

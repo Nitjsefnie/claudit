@@ -1,16 +1,9 @@
 #!/usr/bin/env python3
 """Measure the CPU work of one reparse pass over the mini fixture mirror.
 
-The maintainer's reparse lever (issue #436): the full reparse of a bucket
-is the app's biggest CPU consumer, its per-file cost has already moved
-2.5x once (motivation, not evidence — those were wall numbers taken on a
-shared box), and what keeps that lever honest is a deterministic
-per-file budget. This is that instrument, shaped by the performance
-field guide's findings rather than by a first instinct:
-
-- BUDGET CPU WORK, NEVER WALL (guide: "co-tenant load moved wall-clock
-  measurements by 2-4x without changing the work"). Everything timed
-  here is ``time.process_time()``. No wall-clock function appears in
+- BUDGET CPU WORK, NEVER WALL: co-tenant load can move wall-clock
+  measurements without changing the work. Everything timed here is
+  ``time.process_time()``. No wall-clock function appears in
   this file, and ``tests/test_reparse_bench.py`` pins that.
 
 - DECOMPOSE, THEN RATCHET EACH PHASE (guide: "a total ratchet reds on
@@ -19,19 +12,18 @@ field guide's findings rather than by a first instinct:
   calls — no reimplementation of the dispatch, no second copy of the
   parse to drift from the first.
 
-- TWO INSTRUMENTS, and only one of them gates (issue #513). Each phase's
+- TWO INSTRUMENTS, and only one of them gates. Each phase's
   SHARE of the run's own CPU shows where the pass spends its work, and it
   is printed, stored and reported — but nothing compares it against a
   recorded budget, because a proportion of a timed run is not a count of
-  work: its runner-to-runner spread measures 1.9-2.7 points against a
-  1.5-point gap (#500, #506), and it moves when the corpus MIX shifts
+  work: its runner-to-runner spread can exceed the calibration gap,
+  and it moves when the corpus MIX shifts
   between formats of different parse cost even with no code path slower
-  and every count under its own ceiling (PR #512). What the gate holds a
+  and every count under its own ceiling. What the gate holds a
   phase to is BYTECODE INSTRUCTIONS per file, counted with
   ``sys.monitoring``'s INSTRUCTION event
-  (``scripts/ci/reparse_phases``). A count is exact: the same tree
-  retired the same 295,703 bytecodes on every run measured here, on a
-  loaded machine, under any ``PYTHONHASHSEED``. That is the instrument
+  (``scripts/ci/reparse_phases``). A count is independent of machine
+  load. That is the instrument
   that holds the maintainer's own case, a uniform per-file slowdown, and
   the only one whose absence fails the gate rather than passing it.
 
@@ -67,16 +59,13 @@ field guide's findings rather than by a first instinct:
 
 - ONE RUN, NO STATISTICS. The timed region is one run of ``PASSES``
   passes divided by its own count: no minimum, median or repeat is taken.
-  ``WARMUP`` passes run before the clock starts, because the first passes
-  of a fresh interpreter cost about 15% more and an un-warmed reading
-  would price the interpreter rather than the parse. The amplification
-  is sized for the reported SHARE and ms/file, whose noise is the
-  machine's: a phase share spread about 2 points at 20000 passes and
-  about 0.5 at 60000. The counted run needs none of it — one pass is
-  already exact, which is what the gate reads — and takes twenty,
-  because the callback that makes a count exact costs about four times
-  the CPU it measures (measured on this corpus) and would distort every
-  time-based share if both ran in one region.
+  ``WARMUP`` passes run before the clock starts, because an un-warmed
+  reading would price interpreter startup rather than the parse. The
+  amplification steadies the reported SHARE and ms/file telemetry. The
+  counted run needs no amplification — one pass is already exact, which
+  is what the gate reads — and takes twenty. The counting callback has
+  CPU overhead that would distort time-based shares if both ran in one
+  region.
 
   python3 scripts/ci/reparse_bench.py                  # human report
   python3 scripts/ci/reparse_bench.py --machine        # key=value fields
@@ -106,8 +95,6 @@ else:
     reparse_phases = importlib.import_module('reparse_phases')
     reparse_report = importlib.import_module('reparse_report')
 
-# The reading's shape and every way it is written, printed and gated live
-# in the report module; this one measures.
 Measurement = reparse_report.Measurement
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -116,7 +103,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 MIRROR = ROOT / 'fixtures' / 'r2_mini'
 BUCKET = 'claude'
-# The parse-surface gate (issue #503), run beside the measurement it
+# The parse-surface gate, run beside the measurement it
 # qualifies: one counted pass over the corpus in a fresh child, no
 # amplification, so it is bounded by the corpus rather than by a budget.
 SURFACE_GATE = Path(__file__).resolve().with_name('reparse_surface.py')
@@ -135,19 +122,11 @@ COUNT_PASSES = reparse_phases.COUNT_PASSES
 # perf prices a whole process, so its cross-check runs a short pass of its
 # own rather than the amplified timed one.
 PERF_PASSES = 200
-# Fixed amplification, and the warm-up that precedes it. Chosen so the
-# reported share and ms/file stay readable run to run: measured on the
-# shared seeding box, four runs at 5000 passes spread a phase share over
-# about 2 points, four at 20000 over about 2, and four at 60000 over
-# about 0.5 — while the pass TOTAL moved 17% between the same runs,
-# which is why a share is the only time-based reading here and not a
-# total. Since issue #513 that spread gates nothing, so the number sets
-# how steady the TELEMETRY reads, not whether a run passes; the gate's
-# own instrument is the exact count, which needs no amplification at all.
-# 60000 passes is roughly 21 CPU seconds, about 3% of this job's budget.
+# Fixed amplification steadies the share and ms/file TELEMETRY; it
+# cannot affect whether a run passes. The gate's exact instruction count
+# needs no amplification. A share describes the run's distribution of CPU
+# work without treating a machine-dependent total as a gate.
 PASSES = 60000
-# 600 warm-up passes is past the knee: an un-warmed pass costs about 15%
-# more, while 2000 warm-up passes measure the same shares as 400.
 WARMUP_PASSES = 600
 PERF_TIMEOUT_S = 120
 # The surface gate is one counted pass over the corpus in a fresh child:
@@ -166,10 +145,8 @@ def _pin_corpus_env():
     # `as_uri()`, never an f-string. On Windows a path is `C:\\mirror`, and
     # f'file://{path}' then reads as the URL `file://C:\mirror` — a HOST named
     # C: with an EMPTY path, which r2._is_file_mode() hands the walk as the
-    # bucket root and it refuses ("bucket root '' is not a directory"). Every
-    # Windows leg of the matrix failed on exactly that before this line was
-    # as_uri(); r2.py's own comment on Windows file URLs names the shape
-    # (file:///C:/mirror/) and as_uri() is what produces it.
+    # bucket root and it refuses ("bucket root '' is not a directory").
+    # as_uri() produces the required Windows file URL (file:///C:/mirror/).
     os.environ['CLAUDIT_R2_ENDPOINT'] = MIRROR.as_uri()
     os.environ['CLAUDIT_R2_BUCKET'] = BUCKET
 
@@ -181,7 +158,6 @@ from backend import ingest_fetch, ingest_scan, r2  # noqa: E402
 
 
 class Entry(NamedTuple):
-    """One transcript of the fixed corpus, with its bytes already read."""
     key: str
     sidecar_key: str | None
     blob: bytes
@@ -249,8 +225,7 @@ def measure(entries: list[Entry], passes: int = PASSES,
 
     The instruction counts travel with the measurement rather than being
     derived from it: they come from a separate, much shorter counted run,
-    because the callback that makes a count exact costs about four times
-    the CPU it measures (measured on this corpus) and would distort every
+    because the counting callback's CPU overhead would distort every
     time-based share if both ran in one region.
     """
     if passes <= 0:
@@ -277,8 +252,6 @@ def measure(entries: list[Entry], passes: int = PASSES,
                        shares, instruction_counts, instruction_per_file,
                        instruction_note, perf_per_file, perf_note)
 
-
-# --- the instruction count ---------------------------------------------------
 
 def parse_perf_count(text: str) -> int | None:
     """The instruction count out of `perf stat -x,` output.
@@ -347,7 +320,7 @@ def _plain_child(scratch: Path, passes: int, warmup: int) -> Measurement:
 
 
 def check_surface() -> int:
-    """The parse-surface gate (issue #503), as a fresh child.
+    """The parse-surface gate, as a fresh child.
 
     Always a child, like the measurement: several of the surface's
     functions sit behind an ``lru_cache``, so a process that had already
@@ -363,7 +336,6 @@ def check_surface() -> int:
 
 def _child_measurement(path: Path, passes: int, warmup: int,
                        count_passes: int) -> Measurement:  # noqa: D401
-    """One child's whole reading: the timed pass and the counted pass."""
     entries = corpus()
     counts = reparse_phases.measure_counts(
         entries, run_pass, passes=count_passes)

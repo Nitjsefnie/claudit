@@ -1,15 +1,6 @@
 #!/usr/bin/env python3
 """How much of what a pull request ADDED is covered, and what it missed.
 
-The coverage ratchet next door reports one number for the whole tree, and
-that number barely moves: a pull request can add fifty uncovered lines to a
-well-covered codebase and the tree figure falls by a fraction of a point,
-which is inside the buffer the floor allows. The tree number answers whether
-the repository as a whole still is covered; only a patch figure answers
-whether the code in front of a reviewer was tested. This reports it: of the
-lines a change added that coverage considers executable, how many did the
-suites reach.
-
 It is deliberately NOT a gate. A refactor that moves code between files, a
 change that only deletes, and a fix whose test lives behind an optional
 dependency all produce a low patch figure for reasons a reviewer should
@@ -54,13 +45,11 @@ class InputError(ValueError):
 
 
 class Line(NamedTuple):
-    """One measured statement: times executed, and whether partially."""
     hits: int
     partial: bool
 
 
 class FileRow(NamedTuple):
-    """One changed file's added-line buckets in the readout table."""
     path: str
     covered: int
     partial: int
@@ -216,7 +205,6 @@ def added_lines(diff_text: str) -> dict[str, set[int]]:
             line_number += 1
             old_remaining -= 1
             new_remaining -= 1
-        # A `-` line exists only in the old file and moves nothing.
         if old_remaining == 0 and new_remaining == 0:
             in_hunk = False
     return added
@@ -281,7 +269,6 @@ def unmeasured_scope(
 
 
 def _ranges(numbers: list[int]) -> str:
-    """Collapse sorted line numbers into `3`, `5-9` spans for readability."""
     spans: list[list[int]] = []
     for number in sorted(numbers):
         if spans and number == spans[-1][1] + 1:
@@ -294,7 +281,6 @@ def _ranges(numbers: list[int]) -> str:
 
 def render(rows: list[FileRow], covered: int, partial: int, total: int,
            unmeasured: list[str] | tuple[str, ...] = ()) -> str:
-    """Render the markdown readout body."""
     out = ['### Patch coverage', '']
     if total == 0:
         if unmeasured:
@@ -344,7 +330,6 @@ def render(rows: list[FileRow], covered: int, partial: int, total: int,
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Read the coverage report and a diff; print the markdown body."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         '--coverage', required=True,

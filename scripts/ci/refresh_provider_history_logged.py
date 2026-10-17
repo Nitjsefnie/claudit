@@ -1,4 +1,3 @@
-"""Append token-log states and search-rate changes to provider histories."""
 from __future__ import annotations
 
 import copy
@@ -17,7 +16,6 @@ from backend.pricing_document import effective_rates
 
 @dataclass
 class _LogChange:
-    """Mutable state for one host's logged and search-rate append."""
     model: str
     host: str
     listing: Listing
@@ -44,7 +42,6 @@ def _append_token_states(change: _LogChange, additions: list[dict]) -> None:
 
 def _prepare_log_change(model: str, hosts: dict, host: str,
                         listing: Listing, entries: list[dict]) -> _LogChange:
-    """Build the history state after appending any new logged token states."""
     stored = hosts.get(host)
     history = list(_occurrences(stored, f"{model} via {host}")) if stored else []
     prior_length = len(history)

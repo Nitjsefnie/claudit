@@ -43,7 +43,7 @@ FAILED = 'failed'
 
 # The legs the data-only class still runs: lint and the boot-and-serve
 # check. Pinned in lockstep with the workflow by tests
-# (tests/test_workflow_ci_gate.py, issue #455).
+# (tests/test_workflow_ci_gate.py).
 CHEAP_LEGS = frozenset({'lint', 'smoke'})
 
 # The legs the comment-only class skips: the perturbed-data leg and the
@@ -131,7 +131,6 @@ def fold(needs):
 
 
 def decide(needs):
-    """Return (verdict, message). The message names the legs that decided."""
     ok, failures, missing, entries = fold(needs)
     if ok:
         if docs_only(needs):
@@ -166,7 +165,7 @@ def decide(needs):
                 f'classification ({joined}); the legs a comment cannot '
                 f'affect were skipped ({legs})')
         # One sentence, naming no legs: the per-leg results are the
-        # table's job (issue #517) -- the enumeration read twice.
+        # table's job -- avoid repeating the enumeration.
         return PASSED, f'all {len(entries)} legs passed'
     parts = []
     if failures:
@@ -177,7 +176,6 @@ def decide(needs):
 
 
 def render(needs, verdict, message):
-    """The markdown step summary: the verdict plus one row per leg."""
     lines = [
         '### ci gate',
         '',
@@ -222,7 +220,6 @@ def render(needs, verdict, message):
 
 
 def write_summary(path, text):
-    """Append the rendered summary where the step summary env names."""
     if not path:
         return
     with open(path, 'a', encoding='utf-8') as handle:
@@ -230,7 +227,6 @@ def write_summary(path, text):
 
 
 def main_with(needs, summary_path=None):
-    """The decision over an injected document, for tests and callers."""
     verdict, message = decide(needs)
     write_summary(summary_path or os.environ.get('GITHUB_STEP_SUMMARY'),
                   render(needs, verdict, message))

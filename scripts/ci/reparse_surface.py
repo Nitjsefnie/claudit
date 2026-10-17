@@ -3,7 +3,7 @@
 
 ``reparse_ast`` names what the pass CAN reach; this is the half that
 checks it DID, and the gate the reparse bench runs beside its own
-measurement (issue #503). A corpus that stopped exercising a parse path is
+measurement. A corpus that stopped exercising a parse path is
 a worse measurement than no measurement, because the number it produced no
 longer means what the bench says it means.
 
@@ -20,8 +20,7 @@ TWO CORPORA, TWO CLAIMS, and the gate makes both.
   over still carry every format?". This is checked here, not left to a
   test elsewhere: the samples duplicate all four formats, so a mirror that
   loses one leaves the union green while the number stops meaning what the
-  bench says it means. It is the exact regression issue #503 exists to
-  close, and the gate has to be the thing that catches it.
+  bench says it means. The gate has to catch that loss.
 
 - DENY BY DEFAULT. ``reparse_surface_allowlist.json`` is the only way out
   of a finding, it is a reviewed data file, and every entry carries a
@@ -88,13 +87,12 @@ def stale_allowlist(surface: dict, allowed: dict) -> list:
     return sorted(name for name in allowed if name not in surface)
 
 
-# --- the corpus the gate measures --------------------------------------------
-
 # The committed fixture SAMPLES, beside the mirror: one hand-crafted record
 # per parse behaviour, driven by tests/test_parse.py. The gate walks them
 # too, because they are the corpus that already exercises the Bash-churn
 # and edit shapes the mirror never carries — reusing them is cheaper than
 # inventing a second copy of each, and they are already reviewed.
+
 SURFACE_SAMPLES = ('parser', 'codex')
 
 
@@ -118,7 +116,7 @@ def corpus(base_entries, entry_type, root: Path = ROOT) -> list:
     for name in SURFACE_SAMPLES:
         for path in sorted((fixtures / name).rglob('*.jsonl')):
             key = path.relative_to(fixtures).as_posix()
-            # The issue-653 refusal fixture: it declares no model, so the
+            # The refusal fixture: it declares no model, so the
             # parse the gate measures refuses it and there is no surface
             # to score on a file ingest would fail. Its refusal is pinned
             # in tests/test_parse_codex.py.
@@ -214,6 +212,7 @@ def _phases():
 #: path, and the union below would still be green — the samples duplicate
 #: all four. So the gate makes the mirror's coverage a claim of its own
 #: rather than leaving it to one assertion elsewhere.
+
 SNIFFED_FORMATS = ('claude', 'codex', 'kimi-code', 'legacy')
 
 
@@ -233,7 +232,6 @@ def mirror_gap(mirror_entries) -> list:
 
 
 def report(missing, note: str = '', absent: list | None = None) -> str:
-    """The human line(s) for a gate run: what ran, what did not."""
     if note:
         return f'parse surface NOT MEASURED: {note}'
     absent = absent or []

@@ -51,7 +51,6 @@ _IGNORABLE = _IDENTITY[1:]
 
 @dataclass(frozen=True)
 class Listing:
-    """One listed endpoint, normalised to the table's shape."""
     tag: str
     identity: dict
     rates: dict
@@ -155,7 +154,6 @@ def listed_rows(model: str, payload: object, region: str | None, resolutions: di
 
 
 def _by_host(model: str, payload: object) -> dict[str, list[tuple[int, object]]]:
-    """The payload's endpoints (with their index), grouped by host."""
     by_host: dict[str, list[tuple[int, object]]] = {}
     for i, endpoint in enumerate(_endpoints_of(model, payload)):
         host = endpoint.get("provider_name") if isinstance(endpoint, dict) else None

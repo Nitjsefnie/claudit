@@ -17,8 +17,8 @@ in it and a hole reads as completeness.
 Two instruments, because each sees something the other cannot:
 
 - ``instrumented`` times the phases with ``time.process_time``. Wall
-  clock never appears: co-tenant load moved wall measurements 2-4x on
-  the deployment host without changing the work. Time is what makes a
+  clock never appears: co-tenant load can change wall measurements
+  without changing the work. Time is what makes a
   PHASE SHARE, which is scale-free inside one run — but a share cannot
   see the parse getting slower as a whole, because every phase grows
   together.
@@ -27,7 +27,7 @@ Two instruments, because each sees something the other cannot:
   ``sys.monitoring``'s INSTRUCTION event, which fires once per bytecode
   instruction the interpreter retires. A count is exact — the same tree
   retires the same number of bytecodes on a loaded machine and an idle
-  one, under any ``PYTHONHASHSEED`` (measured, not assumed) — so it is
+  one — so it is
   the instrument that catches a uniform slowdown, and it needs no
   amplification at all to be stable. It counts PYTHON BYTECODE
   instructions, not machine instructions: the two differ by the
@@ -51,7 +51,6 @@ if str(ROOT) not in sys.path:
 # pylint: disable-next=wrong-import-position
 from backend import agent_sidecar, parse  # noqa: E402
 
-# The phases of a pass, and the partition they make of a total.
 PHASES = ('sniff', 'parse_body', 'sidecar', 'residual')
 # A tool id nobody else holds: 0-2 are the debugger's, coverage's and the
 # profiler's, and 3 is the first of the ids the docs leave to third
@@ -77,7 +76,7 @@ class Counts(NamedTuple):
 
     ``executed`` names the parse-surface functions the run retired an
     instruction in, which is what the surface gate diffs the reachable set
-    against (issue #503). It is populated only when the caller supplies
+    against. It is populated only when the caller supplies
     the code-object table, and an empty one then means "nothing was
     looked for", never "nothing ran".
     """
@@ -106,8 +105,6 @@ def partition(total, sniff, parse_file, sidecar) -> dict:
         'residual': total - parse_file - sidecar,
     }
 
-
-# --- CPU time ----------------------------------------------------------------
 
 @contextlib.contextmanager
 def instrumented(totals: dict):
@@ -146,8 +143,6 @@ def _key(attribute):
     return {'sniff_format': 'sniff', 'parse_file': 'parse_file',
             'apply_agent_sidecar': 'sidecar'}[attribute]
 
-
-# --- instruction counts ------------------------------------------------------
 
 class InstructionCounter:
     """Count the bytecodes retired while a window is open.
@@ -263,7 +258,6 @@ class InstructionCounter:
         return self.value('total')
 
     def wrap(self, function, key: str):
-        """A wrapper counting ``function``'s bytecodes into ``key``."""
         def wrapper(*args, **kwargs):
             with self.window(key):
                 return function(*args, **kwargs)

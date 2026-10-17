@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Classify log-backed rows and sample generated histories that cannot load."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,7 +13,6 @@ from backend.pricing_document import effective_rates
 
 @dataclass
 class LogRows:
-    """One model's log-backed moves, refusals, and sampled rows."""
     moves: list[Any]
     sampled_rows: dict[str, Any]
     sampled: dict[str, str]

@@ -129,10 +129,9 @@ def _set_search_rate(entry: dict, rate: float) -> None:
 
 
 # The history floor (SV-RATE-REFRESH): the account's OpenRouter-lane
-# records begin here (ormeter's openrouter bucket's oldest record,
-# 2026-09-23T21:13:54Z, verified 2026-10-08), and provider rows price only
-# such records. Log states dated before the floor price nothing the meters
-# hold, so a first-seen row's import starts at the last state in force AT
+# records begin here, and provider rows price only such records. Log
+# states dated before the floor price nothing the meters hold, so a
+# first-seen row's import starts at the last state in force AT
 # the floor and the dropped levels are never imported.
 HISTORY_FLOOR = datetime(2026, 9, 23, tzinfo=timezone.utc)
 

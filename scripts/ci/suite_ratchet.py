@@ -36,7 +36,7 @@ tree the measurement names must be the tree the seed lands on, so the
 seed path checks the artifact's ``tests_tree_lines`` against the
 checkout it runs in and refuses a mismatch -- the only place a
 wrong-tree seed can still fail mechanically, since once a family
-exists the direction guard refuses the hand correction (issue #598).
+exists the direction guard refuses the hand correction.
 Apart from that check the data operations import nothing but the
 loader, so they stay free of the suite the bench measures.
 
@@ -74,10 +74,10 @@ _COUNTS = 'million_instructions'
 
 
 def _identity(path: Path):
-    """The measurement's workload identity, or None when it predates it.
+    """The measurement's workload identity, or None when absent.
 
     The seed writes it beside the budgets, binding them to the workload
-    they measured (SV-CI-RATCHETS, issue #524); the gate and the guard
+    they measured (SV-CI-RATCHETS); the gate and the guard
     read it back against exactly the reading that produced it.
     """
     try:
@@ -114,9 +114,8 @@ def _check_tree_identity(artifact: Path, identity) -> None:
     measurement whose recorded identity names another tree seeds
     budgets for a workload this tree does not present, and once a
     family exists the direction guard refuses the hand correction, so
-    the wrong-tree seed has to fail here, before it is committed
-    (issue #598). An artifact from before the identity existed carries
-    none and keeps the seed's pre-#524 shape: no field, no check.
+    the wrong-tree seed has to fail here, before it is committed. An
+    artifact without an identity writes no field and skips this check.
     """
     if identity is None:
         return
@@ -175,8 +174,7 @@ def seed(data, counts, identity=None):
     if _family in data:
         # PRESENCE, never emptiness: `"suite_cost": {}` is the family
         # PRESENT and malformed, and replacing it is the hand-raise's
-        # doorway whatever its (broken) shape (issue #705; the reparse
-        # writer carries the same test — issue #703).
+        # doorway whatever its (broken) shape.
         raise ValueError(
             f'{_family} is already recorded: seeding would overwrite '
             'recorded budgets. Remove the recorded family before '
@@ -206,7 +204,7 @@ def load_for_seed(path):
     absent, which is the one state seed() accepts.
     """
     data = json.loads(Path(path).read_text(encoding='utf-8'))
-    # PRESENCE, never emptiness, the loader's own rule (issue #705):
+    # PRESENCE, never emptiness, the loader's own rule:
     # `"suite_cost": {}` is a family PRESENT and malformed — the loader
     # refuses it and the seed must not quietly replace it. A falsy test
     # would read the decoy as the absent family.

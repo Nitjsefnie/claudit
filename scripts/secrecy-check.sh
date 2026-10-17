@@ -2,9 +2,6 @@
 # Fails if a forbidden literal appears in the tree or in committed history.
 # Literals come from .secrecy-literals (gitignored, one per line) and from
 # .env's CLAUDIT_DATABASE_URL_AUTH (and its deprecated name). Findings name commits and files, never the value.
-#
-#   scripts/secrecy-check.sh          tree + history
-#   scripts/secrecy-check.sh --tree   tree only
 
 set -uo pipefail
 

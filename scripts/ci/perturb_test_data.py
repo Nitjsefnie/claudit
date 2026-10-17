@@ -14,12 +14,12 @@ fresh * k, say) can flip. A zero rate becomes one under every factor,
 so every field differs. Every PROVIDER row's appended entries also
 carry the optional `web_search` rate (SV-RATE-REFRESH carries it
 forward), scaled off the row's previous one by its own seeded factor,
-so the leg exercises the shape a refresh appends (issue #900); a
+so the leg exercises the shape a refresh appends; a
 models-table row never carries it, the loader refusing the field
 there. The rows are processed in a seeded-shuffled
 order; the run seed is `int(now.timestamp())`, or the `--seed N`
 value. The seed drives the factors and the shuffle ONLY — never a
-`from` stamp (issue #227): the appended entries take their stamps from
+`from` stamp: the appended entries take their stamps from
 a global counter one second apart, based at the document's newest real
 rate stamp, so every appended stamp is after every real one whatever
 the seed — any seed is valid, which is what keeps the six closed-window
@@ -28,8 +28,7 @@ under every seed the leg can name. When NO entry in the document
 carries a `from`, there is nothing older to protect and the run
 instant is the base instead. The three version constants —
 PARSER_VERSION in backend/parser_version.py, PRICING_VERSION and
-MARKER_READER_VERSION in backend/constants.py (issue #986 split the
-parser version out) — move up one. A test that pins repository-managed
+MARKER_READER_VERSION in backend/constants.py — move up one. A test that pins repository-managed
 data then fails as a test failure on this tree, never as a broken
 refresh. The CI leg calls this script before pytest; the guard test
 tests/test_no_pinned_version_literals.py is the other half.
@@ -39,11 +38,8 @@ The pricing document is rewritten through the shared compact serializer
 validated through the same loader the backend uses — pricing.load_tables
 refuses a broken file before anything is written. Schedules and the
 openrouter section are untouched; provider_rates_fetched moves only as
-far as the appended stamps (issue #931). A second run appends a further
+far as the appended stamps. A second run appends a further
 five entries per row and moves the constants again.
-
-    python3 scripts/ci/perturb_test_data.py [--seed N] [--pricing PATH]
-        [--constants PATH] [--parser-version PATH]
 """
 from __future__ import annotations
 
@@ -92,7 +88,7 @@ def perturb_pricing(path: Path,
     row prices.
 
     The seed drives the factors and the row order ONLY — never a `from`
-    stamp (issue #227). The appended stamps come from a global counter
+    stamp. The appended stamps come from a global counter
     one second apart, based at the document's newest real rate stamp:
     it starts one second past that stamp and advances one second per
     appended entry (five per row now), so every appended stamp is after
@@ -133,7 +129,7 @@ def perturb_pricing(path: Path,
 def _append_rows(doc: dict, all_rows: list[tuple[str, list, bool]],
                  seed: int) -> datetime:
     """Append the five seeded entries to every row, then move the fetch
-    stamp to cover them (issue #931: no `from` postdates the fetch
+    stamp to cover them (no `from` postdates the fetch
     stamp). Returns the run's stamp base."""
     base = _newest_stamp(all_rows)
     if base is None:
@@ -162,7 +158,7 @@ def _append_rows(doc: dict, all_rows: list[tuple[str, list, bool]],
 
 def _bump_fetch_stamp(doc: dict, last_appended: str | None) -> None:
     """Move provider_rates_fetched to the last appended stamp when it
-    postdates it — the way a committing run does (issue #931)."""
+    postdates it — the way a committing run does."""
     stamped = doc.get("provider_rates_fetched")
     if last_appended is not None and (
             stamped is None
@@ -181,7 +177,6 @@ def _newest_stamp(rows: list[tuple[str, list, bool]]) -> datetime | None:
 
 
 def _parse_stamp(text: str) -> datetime:
-    """A `from` stamp as a UTC instant."""
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
@@ -202,7 +197,6 @@ def _rows(doc: dict) -> list[tuple[str, list, bool]]:
 
 def _shuffled(rows: list[tuple[str, list, bool]], seed: int
               ) -> list[tuple[str, list, bool]]:
-    """The rows in a seeded-shuffled order (the factors' own seed)."""
     order = list(rows)
     random.Random(seed).shuffle(order)
     return order
@@ -224,7 +218,7 @@ def _appended_specs(seed: int, row_key: str, newest: dict,
     (SV-RATE-REFRESH), scaled off the row's previous one by its own
     seeded factor — a zero rate becoming one, like every other field —
     so the leg exercises the shape a refresh appends. Every provider row
-    gains it, a superset of the live hosts that list one (issue #900).
+    gains it, a superset of the live hosts that list one.
     """
     previous_rates = effective_rates(newest)
     extra = (_search_rates(seed, row_key, newest) if may_search else {})
@@ -327,8 +321,8 @@ def _scaled(rate, factor: float):
 def _stamp_after(previous: str | None, candidate: datetime) -> str:
     """An appended entry's `from`: the counter value, never at or before
     the row's predecessor — the belt for a real stamp newer than the
-    counter, unchanged by the decoupling. The candidate is normalised
-    to UTC before formatting (issue #264): strftime renders the
+    counter. The candidate is normalised
+    to UTC before formatting: strftime renders the
     datetime's own wall time, and a literal-Z format over an
     offset-carrying counter would write offset-local wall time as Z —
     hours early — so an offset-spelled predecessor could reject the
@@ -350,18 +344,15 @@ def _stamp_after(previous: str | None, candidate: datetime) -> str:
 def bump_constants(constants_path: Path, parser_version_path: Path) -> None:
     """Move each version constant up one, in place, same quoted style.
 
-    The hourly pricing bot rewrites backend/constants.py for PRICING_VERSION,
-    so a PARSER_VERSION bump sharing that file shared the bot's changed file
-    and rebased on its hourly commits; the review's two isolated bumps merged
-    without conflict markers. PARSER_VERSION lives in its own module since
-    issue #986, so the perturbation follows the constant to its home.
+    PARSER_VERSION lives in its own module to avoid conflicts with the
+    hourly pricing bot's PRICING_VERSION writes to backend/constants.py.
+    The perturbation follows each constant to its home.
     """
     _bump_names(parser_version_path, ("PARSER_VERSION",))
     _bump_names(constants_path, ("PRICING_VERSION", "MARKER_READER_VERSION"))
 
 
 def _bump_names(path: Path, names: tuple[str, ...]) -> None:
-    """Move each named constant up one in `path`, same quoted style."""
     text = path.read_text(encoding="utf-8")
     for name in names:
         pattern = re.compile(rf'(?m)^({name}) = "(\d+)"$')
@@ -374,7 +365,6 @@ def _bump_names(path: Path, names: tuple[str, ...]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """The CI leg's entry point: perturb both files, print what moved."""
     parser = argparse.ArgumentParser(
         prog="perturb_test_data",
         description="Perturb the tree's test data: append five entries to "

@@ -1,4 +1,3 @@
-"""Burn-rate marker artists, legend handles and their shared styles."""
 from __future__ import annotations
 
 try:
@@ -6,7 +5,6 @@ try:
 except ImportError:
     Line2D = None
 
-# -- Burn rate constants --
 COLOR_LIMIT_HIT = "#ff3366"
 COLOR_WINDOW = "#ffffff"
 
@@ -28,7 +26,6 @@ MODEL_COLORS = {
 
 
 def _burn_draw_markers(ax, ctx, window_boundaries, limit_hits, show_rate_limits: bool = True):
-    """Window boundary lines + rate-limit hit markers."""
     for wb in window_boundaries:
         if wb < ctx["xlim_start"] or wb > ctx["xlim_end"]:
             continue
@@ -41,7 +38,6 @@ def _burn_draw_markers(ax, ctx, window_boundaries, limit_hits, show_rate_limits:
 
 
 def _burn_legend_handles(ctx, show_rate_limits: bool = True):
-    """One legend handle per token EMA, window marker, model and dot size."""
     if Line2D is None:
         raise RuntimeError("matplotlib is required to render plots")
     handles = []
