@@ -1,3 +1,4 @@
+// Usage: node scripts/ci/js_coverage.mjs <dump-directory> [--lines <floor>]
 import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { isAbsolute, resolve, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -40,15 +41,18 @@ function captures(directory, exclude) {
 }
 
 async function main() {
-  const { values } = parseArgs({
+  const { values, positionals } = parseArgs({
+    allowPositionals: true,
     options: {
-      'temp-directory': { type: 'string', default: process.env.NODE_V8_COVERAGE },
       'reports-dir': { type: 'string', default: 'coverage' },
       include: { type: 'string', default: 'src/**/*.js' },
       lines: { type: 'string' },
     },
   });
-  if (!values['temp-directory']) throw new Error('A V8 coverage temp directory is required');
+  const [directory] = positionals;
+  if (positionals.length !== 1 || !directory) {
+    throw new Error('Usage: node scripts/ci/js_coverage.mjs <dump-directory> [--lines <floor>]');
+  }
   const floor = values.lines === undefined ? undefined : Number(values.lines);
   if (floor !== undefined && (!Number.isFinite(floor) || floor < 0 || floor > 100)) {
     throw new Error('The line coverage floor must be between 0 and 100');
@@ -59,7 +63,7 @@ async function main() {
     relativePath: true, excludeNodeModules: true,
   });
   const map = libCoverage.createCoverageMap();
-  for (const script of captures(values['temp-directory'], exclude)) {
+  for (const script of captures(directory, exclude)) {
     const code = readFileSync(script.url, 'utf8');
     map.merge(await convert({
       code,

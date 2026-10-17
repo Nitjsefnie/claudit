@@ -509,7 +509,7 @@ def test_js_coverage_gate_still_reports_one_decimal() -> None:
     assert '--lines "$floor"' in run, (
         "the JavaScript coverage gate no longer checks itself against the "
         "committed javascript floor")
-    assert "node scripts/ci/js_coverage.mjs" in run
+    assert 'node scripts/ci/js_coverage.mjs "$NODE_V8_COVERAGE"' in run
     assert "--include 'src/**/*.js'" in run
     assert step.get("env", {}).get("NODE_V8_COVERAGE") == (
         "${{ runner.temp }}/v8-coverage")

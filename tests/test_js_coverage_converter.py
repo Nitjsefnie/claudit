@@ -27,7 +27,7 @@ def _capture(root, name, *args):
 
 def _report(root, *args):
     return subprocess.run(
-        ["node", str(CONVERTER), '--temp-directory', str(root / 'v8'), *args],
+        ["node", str(CONVERTER), str(root / 'v8'), *args],
         cwd=root, check=False, capture_output=True, text=True, timeout=30)
 
 
@@ -89,12 +89,13 @@ class TestConverter:
         assert result.stderr
         assert _summary(tmp_path) == before
 
-    def test_uses_the_capture_directory_environment(self, tmp_path):
+    def test_requires_the_capture_directory_argument_even_with_node_environment(self, tmp_path):
         _write(tmp_path, 'src/main.js', 'const value = 1;\n')
         _capture(tmp_path, 'src/main.js')
         result = subprocess.run(
             ["node", str(CONVERTER)], cwd=tmp_path,
             env={**os.environ, 'NODE_V8_COVERAGE': str(tmp_path / 'v8')},
             check=False, capture_output=True, text=True, timeout=30)
-        assert result.returncode == 0, result.stderr
-        assert _summary(tmp_path)['total']['lines']['pct'] == 100
+        assert result.returncode != 0
+        assert 'Usage:' in result.stderr
+        assert not (tmp_path / 'coverage/coverage-summary.json').exists()
