@@ -25,8 +25,8 @@ def _layout(root: Path, version: str = '9.3.0') -> tuple[Path, Path]:
     patch = ''
     for name in ['probe.js', 'other.js']:
         (target / 'lib' / name).write_text('original\n')
-        patch += (f'--- a/node_modules/v8-to-istanbul/lib/{name}\n'
-                  f'+++ b/node_modules/v8-to-istanbul/lib/{name}\n'
+        patch += (f'--- a/lib/{name}\n'
+                  f'+++ b/lib/{name}\n'
                   '@@ -1 +1 @@\n-original\n+patched\n')
     (patches / 'v8-to-istanbul+9.3.0.patch').write_text(patch)
     return script, target

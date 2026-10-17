@@ -13,7 +13,7 @@ EXPECTED_VERSION = '9.3.0'
 
 def _patch(target: Path, text: str, *, reverse: bool = False,
            dry_run: bool = True) -> subprocess.CompletedProcess[str]:
-    command = ['patch', '--batch', '--forward', '-p3', '-d', str(target)]
+    command = ['patch', '--batch', '--forward', '-p1', '-d', str(target)]
     if reverse:
         command.append('--reverse')
     if dry_run:
