@@ -21,10 +21,13 @@ rule no longer depends on review:
   addition under the frozen core, or for a path no ratchet measures, is
   a hand-add and fails.
 
-Removals and lowers are the bots' own direction and pass, as does the
-one-time seed of a family the base predates and a cost family's
-removal. Size and suppression seeds have separate committed-tree tests.
-Comment shares permit reductions until master tightens.
+An entry's removal requires a ``Thresholds-Removed: <entry>=<kind>``
+trailer in the judged range, with kind ``bug`` or ``definition``, unless
+it is a path-typed baseline entry whose subject is no longer tracked.
+A bare baseline family name declares every entry in that family.
+Lowers and the one-time seed of a family the base predates pass. Size
+and suppression seeds have separate committed-tree tests. Comment
+shares permit reductions until master tightens.
 
 The guard runs from the tree under test, like every other gate step: it
 shares the steps' threat model, closing the accidental and
@@ -77,6 +80,12 @@ BASELINE_REMEDY = (
 SUITE_COST_REMEDY = (
     'A suite cost budget is never raised by hand without a feat: or '
     'feat(scope): commit in the judged range. ' + NON_FEATURE_REMEDY)
+REMOVAL_REMEDY = (
+    'Declare removals in the judged range with Thresholds-Removed: '
+    '<entry>=<kind>[, <entry>=<kind>], where kind is bug or definition. '
+    'Use the full entry name or a bare baseline family name. A path-typed '
+    'baseline entry needs no declaration when its subject path is no longer '
+    'a tracked file.')
 
 # A stand-in for a member the base predates, so a base missing it still
 # validates: it is never compared against (the family is not in
@@ -157,7 +166,6 @@ def _coverage_moves(base, head):
         if before is None:
             continue
         if after is None:
-            moves.append(f'coverage.{language}: removed')
             continue
         for field in ('measured', 'floor'):
             if after[field] < before[field]:
@@ -175,10 +183,9 @@ def _suite_cost_moves(base, head, established, feature_present):
     range, a downward one is the tighten. The workload identity
     (``tests_tree_lines``, issue #524) binds a seed to the workload it
     measured and arrives with a new family's seed. On an established
-    family, an added or changed identity is a hand-edit and fails; a
-    family the HEAD omits
-    is the sanctioned delete and leaves with the family wholesale. A
-    family the base predates carries no record, so the change
+    family, an added or changed identity is a hand-edit and fails;
+    removal is checked separately. A family the base predates carries
+    no record, so the change
     introducing one is its seed and not a move at all.
     """
     if thresholds.SUITE_COST_FAMILY not in established:
@@ -242,8 +249,6 @@ def _baseline_moves(base, head, established):
     for member in thresholds.BASELINE_MEMBERS:
         before = base.get(member, {})
         if member not in head:
-            if member in established:
-                moves.append(f'{member}: removed')
             continue
         after = head[member]
         if before == after:
@@ -270,12 +275,76 @@ def _baseline_moves(base, head, established):
     return moves
 
 
-def forbidden_moves(base, head, established, feature_present=False):
+def _removed_declarations(base_rev: str | None, head_rev: str) -> set[str]:
+    """One bounded history read; a malformed trailer line admits nothing."""
+    if not base_rev or not base_rev.strip():
+        return set()
+    try:
+        proc = subprocess.run(
+            ['git', '-C', str(Path(__file__).resolve().parents[2]),
+             'log', '--format=%B', f'{base_rev}..{head_rev}'],
+            capture_output=True, check=False, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if proc.returncode != 0:
+        return set()
+    declarations = set()
+    for line in proc.stdout.decode('utf-8', 'replace').split('\n'):
+        match = re.fullmatch(r'Thresholds-Removed:[ \t]*(.*)', line)
+        if not match:
+            continue
+        entries = set()
+        for token in match[1].split(','):
+            entry, separator, kind = (part.strip() for part in token.partition('='))
+            if not separator or not entry or kind not in ('bug', 'definition'):
+                break
+            entries.add(entry)
+        else:
+            declarations.update(entries)
+    return declarations
+
+
+def _subject_gone(path: str) -> bool:
+    """Only git's unmatched-path status proves the subject is untracked."""
+    try:
+        proc = subprocess.run(
+            ['git', '-C', str(Path(__file__).resolve().parents[2]),
+             'ls-files', '--error-unmatch', '--', path],
+            capture_output=True, check=False, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 1
+
+
+def _removal_moves(base, head, established, declarations):
+    """One refusal per removed entry lacking either permitted reason."""
+    removed = []
+    for language in base.get('coverage', {}):
+        if language not in head.get('coverage', {}):
+            entry = f'coverage.{language}'
+            if entry not in declarations:
+                removed.append(entry)
+    for family in (thresholds.SUITE_COST_FAMILY, thresholds.REPARSE_FAMILY):
+        if family in established and not head.get(family) and family not in declarations:
+            removed.append(family)
+    for family in thresholds.BASELINE_MEMBERS:
+        for path in base.get(family, {}):
+            entry = f'{family}.{path}'
+            if (path not in head.get(family, {})
+                    and entry not in declarations and family not in declarations
+                    and not _subject_gone(path)):
+                removed.append(entry)
+    return [f'removed without a reason: {entry}' for entry in removed]
+
+
+def forbidden_moves(base, head, established, feature_present=False,
+                    removal_declarations: set[str] | frozenset[str] = frozenset()):
     """Return the data's forbidden moves from base to head, labelled."""
     return (_coverage_moves(base, head)
             + _reparse_moves(base, head, established, feature_present)
             + _suite_cost_moves(base, head, established, feature_present)
-            + _baseline_moves(base, head, established))
+            + _baseline_moves(base, head, established)
+            + _removal_moves(base, head, established, removal_declarations))
 
 
 def _has_feature_commits(base_rev: str | None, head_rev: str) -> bool:
@@ -315,12 +384,15 @@ def main(argv=None):
         base, established = _load_base(args.base)
         moves = forbidden_moves(
             base, head, established,
-            feature_present=_has_feature_commits(args.base_rev, args.head_rev))
+            feature_present=_has_feature_commits(args.base_rev, args.head_rev),
+            removal_declarations=_removed_declarations(args.base_rev, args.head_rev))
         if not moves:
             print('no forbidden threshold moves')
             return 0
         for move in moves:
             print(f'forbidden move: {move}', file=sys.stderr)
+        if any(move.startswith('removed without a reason:') for move in moves):
+            print(REMOVAL_REMEDY, file=sys.stderr)
         if any(move.startswith(f'{thresholds.REPARSE_FAMILY}.')
                for move in moves):
             print(REPARSE_REMEDY, file=sys.stderr)
