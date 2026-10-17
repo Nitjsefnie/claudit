@@ -81,8 +81,8 @@
       8358
     ],
     ".github/workflows/refresh-pricing.yml": [
-      5352,
-      11887
+      5302,
+      11824
     ],
     ".github/workflows/release.yml": [
       5059,
@@ -101,16 +101,16 @@
       3528
     ],
     ".github/workflows/test-data-explore.yml": [
-      1836,
-      4267
+      1888,
+      4524
     ],
     ".github/workflows/test-data.yml": [
-      3113,
-      5422
+      2987,
+      5501
     ],
     ".github/workflows/tests.yml": [
-      6746,
-      17836
+      5870,
+      16566
     ],
     ".github/workflows/types.yml": [
       1200,
@@ -589,8 +589,8 @@
       10948
     ],
     "scripts/ci/fuzz_sharding.py": [
-      4020,
-      8961
+      3989,
+      8930
     ],
     "scripts/ci/fuzz_test_data.py": [
       4401,
@@ -633,12 +633,12 @@
       15249
     ],
     "scripts/ci/perturbed_leg_bench.py": [
-      3275,
-      10511
+      3223,
+      10459
     ],
     "scripts/ci/ratchet.py": [
-      837,
-      3223
+      637,
+      3057
     ],
     "scripts/ci/refresh_alternation.py": [
       1009,
@@ -701,60 +701,56 @@
       10678
     ],
     "scripts/ci/reparse_ratchet.py": [
-      5251,
-      10754
+      4475,
+      9719
     ],
     "scripts/ci/reparse_report.py": [
-      4356,
-      11319
+      3926,
+      10879
     ],
     "scripts/ci/reparse_surface.py": [
       4973,
       9498
     ],
-    "scripts/ci/reseed.py": [
-      6666,
-      8731
-    ],
     "scripts/ci/size_baseline.py": [
-      1614,
-      5154
+      1594,
+      6015
     ],
     "scripts/ci/smoke.py": [
       3518,
       10478
     ],
     "scripts/ci/suite_bench.py": [
-      7888,
-      13774
+      7653,
+      13473
     ],
     "scripts/ci/suite_phases.py": [
       4729,
       7746
     ],
     "scripts/ci/suite_ratchet.py": [
-      6142,
-      11209
+      4853,
+      9617
     ],
     "scripts/ci/suite_report.py": [
-      3432,
-      10048
+      3187,
+      9978
     ],
     "scripts/ci/suppression_baseline.py": [
-      1593,
-      4860
+      1617,
+      5830
     ],
     "scripts/ci/thresholds.py": [
-      7848,
-      17833
+      5483,
+      14846
     ],
     "scripts/ci/thresholds_guard.py": [
-      5198,
-      11553
+      4705,
+      12806
     ],
     "scripts/ci/thresholds_validate.py": [
-      4254,
-      9971
+      2679,
+      7581
     ],
     "scripts/ci/version_guard.py": [
       2353,
@@ -1148,29 +1144,9 @@
       7996,
       19274
     ],
-    "tests/test_ci_reseed.py": [
-      8287,
-      23733
-    ],
-    "tests/test_ci_reseed_reparse.py": [
-      5986,
-      19314
-    ],
-    "tests/test_ci_reseed_walk_depth.py": [
-      4613,
-      16340
-    ],
-    "tests/test_ci_thresholds.py": [
-      2948,
-      16052
-    ],
     "tests/test_ci_thresholds_guard.py": [
-      5091,
-      20372
-    ],
-    "tests/test_ci_thresholds_reparse.py": [
-      1734,
-      8202
+      4014,
+      19601
     ],
     "tests/test_ci_workflows.py": [
       7064,
@@ -1241,8 +1217,8 @@
       1522
     ],
     "tests/test_db_marker_parity.py": [
-      2756,
-      4603
+      2515,
+      4372
     ],
     "tests/test_db_pool_errors.py": [
       1472,
@@ -1369,8 +1345,8 @@
       4790
     ],
     "tests/test_js_toolchain.py": [
-      10336,
-      20357
+      10308,
+      21473
     ],
     "tests/test_key_layout.py": [
       2482,
@@ -1677,8 +1653,8 @@
       18615
     ],
     "tests/test_reparse_ci_wiring.py": [
-      3247,
-      8633
+      3246,
+      8632
     ],
     "tests/test_reparse_count.py": [
       2181,
@@ -1689,8 +1665,8 @@
       11025
     ],
     "tests/test_reparse_seed.py": [
-      1776,
-      7816
+      1389,
+      7228
     ],
     "tests/test_reparse_surface.py": [
       5933,
@@ -1785,20 +1761,20 @@
       11261
     ],
     "tests/test_suite_bench.py": [
-      5620,
-      19913
+      5625,
+      19939
     ],
     "tests/test_suite_ci_wiring.py": [
-      4714,
-      11565
+      4194,
+      10583
     ],
     "tests/test_suite_cost_pricing_growth.py": [
       2802,
-      6257
+      6273
     ],
     "tests/test_suite_ratchet.py": [
-      3752,
-      15194
+      3423,
+      17394
     ],
     "tests/test_teammate_agent_type.py": [
       2389,
@@ -1894,7 +1870,7 @@
     ],
     "tests/test_workflow_patch_coverage.py": [
       5821,
-      17210
+      17989
     ],
     "tests/test_workflow_pg_client_install.py": [
       2630,
