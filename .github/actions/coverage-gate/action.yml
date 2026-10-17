@@ -1,0 +1,69 @@
+name: Coverage gate
+description: Gate a recorded coverage floor while measuring uncalibrated JavaScript.
+
+inputs:
+  language:
+    description: 'Coverage language to gate: python or javascript.'
+    required: true
+
+outputs:
+  js_measured:
+    description: 'JavaScript line coverage, measured even without a recorded floor.'
+    value: ${{ steps.jscov.outputs.js_measured }}
+
+runs:
+  using: composite
+  steps:
+    - name: Python coverage gate
+      if: inputs.language == 'python'
+      shell: bash
+      # A RATCHET, not a target: the floor is committed data, seeded
+      # 1.5 under the measured coverage that recorded it; master
+      # raises it past the hysteresis, never lowers it.
+      run: |
+        floor="$(python3 scripts/ci/thresholds.py --coverage-floor python)"
+        if [ -z "$floor" ]; then
+          echo "no coverage.python calibration recorded — seeded on master"
+        else
+          python -m coverage report "--fail-under=${floor}" --precision=1
+        fi
+
+    - name: JavaScript coverage gate
+      id: jscov
+      if: inputs.language == 'javascript'
+      shell: bash
+      # The front-end half of the same ratchet (issue #266):
+      # NODE_V8_COVERAGE captures every node subprocess this step's
+      # pytest run spawns, and c8 folds them over src/**/*.js — the
+      # files node actually executes (.jsx panels are outside it).
+      env:
+        NODE_V8_COVERAGE: ${{ runner.temp }}/v8-coverage
+      run: |
+        rm -rf "$NODE_V8_COVERAGE" && mkdir -p "$NODE_V8_COVERAGE"
+        # The measured set is scripts/ci/node_test_files.txt — one
+        # `tests/…` path per line — not a hand list: the file is pinned
+        # by tests/test_js_toolchain.py to equal
+        # grep -lF '["node"' tests/*.py, so a node-executing test file
+        # outside the list fails the suite instead of its exercised
+        # paths quietly staying outside the measurement (issue #433).
+        # The word split IS the invocation — one path per line becomes
+        # one pytest argument:
+        # shellcheck disable=SC2046
+        python -m pytest $(cat scripts/ci/node_test_files.txt) -q --no-header
+        floor="$(python3 scripts/ci/thresholds.py --coverage-floor javascript)"
+        if [ -z "$floor" ]; then
+          echo "no coverage.javascript calibration recorded — seeded on master"
+          npx --no-install c8 report --temp-directory "$NODE_V8_COVERAGE" \
+            --reporter=text --reporter=json-summary --include 'src/**/*.js'
+          floor_label="not recorded"
+        else
+          npx --no-install c8 report --temp-directory "$NODE_V8_COVERAGE" \
+            --reporter=text --reporter=json-summary \
+            --include 'src/**/*.js' --check-coverage --lines "$floor"
+          floor_label="${floor}%"
+        fi
+        js_measured="$(node -e 'console.log(
+          require("./coverage/coverage-summary.json").total.lines.pct.toFixed(1))')"
+        echo "js_measured=${js_measured}" >> "$GITHUB_OUTPUT"
+        echo "JavaScript coverage measured ${js_measured}% " \
+          "against floor ${floor_label}"

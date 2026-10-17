@@ -79,11 +79,15 @@ if str(ROOT) not in sys.path:
 
 if __package__:
     # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import suite_phases, suite_report, thresholds
+    from . import suite_phases, suite_report, tests_tree, thresholds
 else:
     thresholds = importlib.import_module('thresholds')
     suite_phases = importlib.import_module('suite_phases')
     suite_report = importlib.import_module('suite_report')
+    tests_tree = importlib.import_module('tests_tree')
+
+# Preserve the bench counter for existing callers.
+_tests_tree_lines = tests_tree._tests_tree_lines  # pylint: disable=protected-access
 
 # The committed fixture list, and the repo whose test files it names.
 FIXTURE = Path(__file__).resolve().parent / 'suite_bench_files.txt'
@@ -175,23 +179,6 @@ def warm_bytecode_caches(fixture: list[Path], repo_root: Path) -> None:
         args, cwd=str(repo_root), env=env,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         check=False)
-
-
-def _tests_tree_lines(repo_root: Path) -> int:
-    """The scanned tree's size: the workload identity the seed binds to.
-
-    The fixture's tree-scanning tests (the db-marker derivation, the
-    version-literal guard, the scratch-DB scan) walk ``tests/``
-    recursively, and their cost is per-line over that set: a change to
-    the tree's content moves the counts with no fixture, interpreter or
-    machine change (issue #524's series). A tree with no ``tests/`` has
-    no scanned workload and records an honest 0.
-    """
-    root = repo_root / 'tests'
-    if not root.is_dir():
-        return 0
-    return sum(len(path.read_bytes().splitlines())
-               for path in sorted(root.rglob('*.py')))
 
 
 def measure(fixture: list[Path], repo_root: Path) -> Measurement:

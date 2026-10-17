@@ -54,9 +54,10 @@ from pathlib import Path
 
 if __package__:
     # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import thresholds
+    from . import tests_tree, thresholds
 else:
     thresholds = importlib.import_module('thresholds')
+    tests_tree = importlib.import_module('tests_tree')
 
 # The checkout holding this script: the tree a seed lands on, and the
 # root the bench's tree-line counter walks. Not the --thresholds path,
@@ -97,16 +98,10 @@ def _tree_identity() -> int:
     """The working tree's ``tests_tree_lines``, as the bench computes it.
 
     The anchor is this checkout (``REPO_ROOT``), the tree the seed lands
-    on. Lazy ``suite_bench`` import: the data operations stay free of
-    the bench's import surface -- pulling it in would import pytest --
-    and only the CLI's seed mode needs the counter.
+    on. The shared counter imports only the standard library, so the
+    writer needs none of the bench's pytest dependencies.
     """
-    if __package__:
-        # pylint: disable-next=relative-beyond-top-level,no-name-in-module,import-outside-toplevel
-        from . import suite_bench
-    else:
-        suite_bench = importlib.import_module('suite_bench')
-    return suite_bench._tests_tree_lines(  # pylint: disable=protected-access
+    return tests_tree._tests_tree_lines(  # pylint: disable=protected-access
         REPO_ROOT)
 
 

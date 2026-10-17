@@ -31,9 +31,9 @@ SEEDING is the writer path for an absent family (issue #703):
 ``--seed MEASUREMENT`` writes the committed family from a runner
 measurement's per-phase readings, both metrics, only onto a document
 the family is absent from, and refuses over a recorded family.
-The seed is the second reviewed gate-definer; a counts-less measurement
-is refused rather than seeded, because an unmeasured instrument must
-never enter the document as a number.
+Master's tighten path seeds an absent family directly from that run's
+measurement; a counts-less measurement is refused rather than seeded,
+because an unmeasured instrument must never enter the document as a number.
 
 A separate file from ``ratchet.py`` on purpose: the two move opposite
 ways, and one module with two directions would make every reader ask
