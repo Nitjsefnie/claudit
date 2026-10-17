@@ -113,17 +113,38 @@ def _written_document(tmp_path, **kwargs):
     return target
 
 
-def test_committed_document_loads():
-    doc = thresholds.load(THRESHOLDS_PATH)
+def _thresholds_path(tmp_path, state):
+    if state == "committed":
+        return THRESHOLDS_PATH
+    data = _document()
+    data["pylint_suppression_baseline"] = {"scripts/ci/example.py": 1}
+    if state in ("no-python", "no-javascript"):
+        del data["coverage"][state.removeprefix("no-")]
+    elif state == "no-coverage":
+        del data["coverage"]
+    elif state == "no-suppression":
+        del data["pylint_suppression_baseline"]
+    else:
+        assert state == "present"
+    target = tmp_path / "thresholds.json"
+    thresholds.write(target, data)
+    return target
+
+
+@pytest.mark.parametrize("state", [
+    "committed", "present", "no-python", "no-javascript", "no-coverage",
+])
+def test_committed_document_loads(tmp_path, state):
+    doc = thresholds.load(_thresholds_path(tmp_path, state))
     assert doc["schema_version"] == 1
-    record = doc["coverage"]["python"]
-    assert isinstance(record["measured"], Decimal)
-    assert isinstance(record["floor"], Decimal)
-    assert record["floor"] == record["measured"] - GAP
-    js_record = doc["coverage"]["javascript"]
-    assert isinstance(js_record["measured"], Decimal)
-    assert isinstance(js_record["floor"], Decimal)
-    assert js_record["floor"] == js_record["measured"] - GAP
+    for language in thresholds.COVERAGE_LANGUAGES:
+        record = doc.get("coverage", {}).get(language)
+        if record is None:
+            assert thresholds.coverage(doc, language) == (None, None)
+            continue
+        assert isinstance(record["measured"], Decimal)
+        assert isinstance(record["floor"], Decimal)
+        assert record["floor"] == record["measured"] - GAP
 
 
 def test_javascript_coverage_language_accepted(tmp_path):
@@ -429,15 +450,24 @@ def test_committed_document_bytes_are_canonical(tmp_path):
     pytest.param("--coverage-floor", "floor", id="floor"),
     pytest.param("--coverage-measured", "measured", id="measured"),
 ])
-def test_coverage_floor_cli_prints_floor(flag, field):
-    # The value comes from the committed document — the
-    # seed moves; the CLI's contract does not.
-    recorded = thresholds.load(THRESHOLDS_PATH)["coverage"]["python"]
+@pytest.mark.parametrize("state", [
+    "committed", "present", "no-python", "no-coverage",
+])
+def test_coverage_floor_cli_prints_floor(tmp_path, flag, field, state):
+    # Committed readings may move or disappear; synthetic documents
+    # exercise both CLI outcomes regardless of the current recording.
+    path = _thresholds_path(tmp_path, state)
+    data = thresholds.load(path)
+    recorded = data.get("coverage", {}).get("python")
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
-         flag, "python", "--thresholds", str(THRESHOLDS_PATH)],
+         flag, "python", "--thresholds", str(path)],
         capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == f'{recorded[field]:.1f}'
+    if recorded is None:
+        assert thresholds.coverage(data, "python") == (None, None)
+        assert result.stdout == ""
+    else:
+        assert result.stdout == f'{recorded[field]:.1f}\n'
 
 
 def test_check_cli_accepts_committed_document():
@@ -464,12 +494,14 @@ def test_check_cli_rejects_broken_document(tmp_path):
     assert "schema_version" in result.stderr
 
 
-def test_committed_suppression_member_loads():
-    # The committed document carries the suppression baseline, and every
-    # seed is a positive count a production file really has.
-    doc = thresholds.load(THRESHOLDS_PATH)
-    baseline = doc["pylint_suppression_baseline"]
-    assert baseline, "the suppression baseline seeded empty"
+@pytest.mark.parametrize("state", ["committed", "present", "no-suppression"])
+def test_committed_suppression_member_loads(tmp_path, state):
+    # Recorded suppression entries name production paths and carry
+    # positive counts; the whole family may also be absent.
+    doc = thresholds.load(_thresholds_path(tmp_path, state))
+    baseline = doc.get("pylint_suppression_baseline", {})
+    if "pylint_suppression_baseline" not in doc:
+        assert baseline == {}
     for path, count in baseline.items():
         assert path.startswith(("backend/", "scripts/"))
         assert not path.startswith("tests/")

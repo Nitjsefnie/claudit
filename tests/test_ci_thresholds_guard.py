@@ -69,8 +69,11 @@ def _guard():
     return _ci_modules()[2]
 
 
-@pytest.fixture(scope="module", name="committed_thresholds")
-def _committed_thresholds():
+@pytest.fixture(scope="module", name="committed_thresholds",
+                params=["committed", "absent"])
+def _committed_thresholds(request):
+    if request.param == "absent":
+        return _thresholds().normalise({"schema_version": 1})
     return _thresholds().load(THRESHOLDS_PATH)
 
 
@@ -252,24 +255,20 @@ def test_suppression_entry_raised_fails(tmp_path):
     assert _guard_result(tmp_path, base, head) == 1
 
 
-def test_bot_shaped_raise_is_clean(tmp_path, committed_thresholds):
+def test_bot_shaped_raise_is_clean(tmp_path):
     # The load-bearing compatibility constraint: a synthetic bot commit —
     # ratchet.py's raise, measured and floor moving up together — must
-    # keep passing the guard. The head values derive from the loaded
-    # committed document at run time: the ratchet raising the committed
-    # calibration past any hardcoded pair is the mechanism working, and
-    # this test must stay green as it moves (SV-TEST-DATA — never pin
-    # repository-managed data).
-    base = copy.deepcopy(committed_thresholds)
+    # keep passing the guard. A complete synthetic document supplies the
+    # calibrations independently of which languages are recorded today.
+    base = _document()
     head = pickle.loads(pickle.dumps(base, protocol=5))
     for lang in ("python", "javascript"):
         measured = min(
             round(float(base["coverage"][lang]["measured"]) + 0.5, 1),
             100.0)
         # A raise must stay inside the loader's domain (values above 100.0
-        # are refused) and stay a raise: the clamp's tripwire reds loudly
-        # in the far-future case where the committed measured is already
-        # at the ceiling, instead of passing vacuously on a no-op head.
+        # are refused) and stay a raise: the assertion rejects a vacuous
+        # no-op if the synthetic measurement reaches the ceiling.
         assert measured > float(base["coverage"][lang]["measured"])
         head["coverage"][lang] = {
             "measured": measured,
@@ -278,21 +277,18 @@ def test_bot_shaped_raise_is_clean(tmp_path, committed_thresholds):
     assert _guard_result(tmp_path, base, head) == 0
 
 
-def test_bot_shaped_tighten_is_clean(tmp_path, committed_thresholds):
+def test_bot_shaped_tighten_is_clean(tmp_path):
     # The other bot shape: --tighten follows shrunk files down and drops
     # a graduated entry; the suppression tighten does the same for counts.
-    # The moved entries are picked from the loaded document at run time
-    # (SV-TEST-DATA — a hardcoded key or value breaks when the ratchet
-    # graduates the file or tightens the count past it).
-    base = copy.deepcopy(committed_thresholds)
+    # Synthetic entries keep these moves exercised when the committed
+    # families have no entries or are absent entirely.
+    base = _document(
+        baseline={"backend/shrunk.py": 900, "tests/graduated.py": 900},
+        suppression={"backend/shrunk.py": 2})
     head = pickle.loads(pickle.dumps(base, protocol=5))
-    sized = sorted(head["module_size_baseline"])
-    assert len(sized) >= 2
-    head["module_size_baseline"][sized[0]] -= 1
-    del head["module_size_baseline"][sized[1]]
-    suppressed = sorted(head["pylint_suppression_baseline"])
-    assert suppressed
-    head["pylint_suppression_baseline"][suppressed[0]] -= 1
+    head["module_size_baseline"]["backend/shrunk.py"] -= 1
+    del head["module_size_baseline"]["tests/graduated.py"]
+    head["pylint_suppression_baseline"]["backend/shrunk.py"] -= 1
     assert _guard_result(tmp_path, base, head) == 0
 
 
