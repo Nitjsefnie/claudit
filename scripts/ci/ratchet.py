@@ -49,20 +49,18 @@ def read_calibration(data, language='python'):
 
 
 def update(data, measured, language='python'):
-    """Return an updated document, or ``None`` when no raise is justified.
+    """Seed an absent calibration or raise it; return ``None`` if unchanged.
 
-    Optional absent families stay absent while the coverage calibration
+    Other absent families stay absent while the coverage calibration
     is revalidated and updated.
     """
     candidate = thresholds.normalise(data)
     measured = _measurement(measured)
     recorded_measured, _floor = read_calibration(candidate, language)
-    if recorded_measured is None:
+    if (recorded_measured is not None
+            and measured - recorded_measured <= RAISE_HYSTERESIS):
         return None
-    should_raise = measured - recorded_measured > RAISE_HYSTERESIS
-    if not should_raise:
-        return None
-    candidate['coverage'][language] = {
+    candidate.setdefault('coverage', {})[language] = {
         'measured': measured,
         'floor': measured - CALIBRATION_GAP,
     }
@@ -88,9 +86,6 @@ def main(argv=None):
         data = thresholds.load(args.thresholds)
         measured = _measurement(args.measured)
         floor = read_calibration(data, args.language)[1]
-        if floor is None:
-            print(f'no {label} coverage budget recorded: nothing to raise')
-            return 0
         candidate = update(data, measured, language=args.language)
         if candidate is None:
             print(f'{label} coverage {measured:.1f}% justifies no raise '
@@ -98,8 +93,12 @@ def main(argv=None):
             return 0
         thresholds.write(args.thresholds, candidate)
         new_floor = candidate['coverage'][args.language]['floor']
-        print(f'raised the {label} coverage floor {floor:.1f} -> '
-              f'{new_floor:.1f} (measured {measured:.1f}%)')
+        if floor is None:
+            print(f'seeded the {label} coverage floor {new_floor:.1f} '
+                  f'(measured {measured:.1f}%)')
+        else:
+            print(f'raised the {label} coverage floor {floor:.1f} -> '
+                  f'{new_floor:.1f} (measured {measured:.1f}%)')
     except (OSError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 1

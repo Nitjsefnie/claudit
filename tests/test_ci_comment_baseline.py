@@ -166,3 +166,26 @@ def test_deleted_entry_passes_pr_and_master_tighten_removes_it(tmp_path, monkeyp
     assert module.main(args) == 0
     assert module.main([*args, '--tighten']) == 0
     assert thresholds.comment_share_baseline(thresholds.load(target)) == {}
+
+
+@pytest.mark.parametrize('state', ['absent', 'empty', 'recorded'])
+def test_tighten_seeds_above_limit_pairs(tmp_path, monkeypatch, state):
+    module = policy()
+    data = {'schema_version': 1, 'comment_share_baseline': {}}
+    measured = {'new.py': (31, 200), 'at.py': (15, 100),
+                'under.py': (14, 100), 'empty.py': (0, 0)}
+    expected = {'new.py': [31, 200]}
+    if state == 'absent':
+        del data['comment_share_baseline']
+    elif state == 'recorded':
+        data['comment_share_baseline'] = {
+            'shrunk.py': [30, 100], 'grown.py': [20, 100],
+            'gone.py': [20, 100], 'graduated.py': [20, 100]}
+        measured.update({'shrunk.py': (25, 100), 'grown.py': (21, 100),
+                         'graduated.py': (15, 100)})
+        expected.update({'shrunk.py': [25, 100], 'grown.py': [20, 100]})
+    target = tmp_path / 'thresholds.json'
+    thresholds.write(target, data)
+    monkeypatch.setattr(module.comment_share, 'measure_files', lambda _root: measured)
+    assert module.main(['--tighten', '--thresholds', str(target)]) == 0
+    assert thresholds.comment_share_baseline(thresholds.load(target)) == expected

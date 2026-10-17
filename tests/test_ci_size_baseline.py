@@ -338,3 +338,29 @@ def test_committed_family_seeds_match_tree_and_only_over_ceiling(
             assert size_baseline.violations(
                 {rel: sizes[rel]}, baseline)["over"] == expected
     # --tighten graduated tests.yml; under-ceiling files need no seed.
+
+
+@pytest.mark.parametrize("state", ["absent", "empty", "recorded"])
+def test_tighten_seeds_over_ceiling_files(tmp_path, monkeypatch, capsys, state):
+    thresholds = _thresholds()
+    module = _size_baseline()
+    data = _document()
+    measured = {"backend/new.py": 501, "tests/new.py": 701,
+                "backend/at.py": 500, "tests/at.py": 700,
+                "backend/under.py": 499}
+    expected = {"backend/new.py": 501, "tests/new.py": 701}
+    if state == "absent":
+        del data["module_size_baseline"]
+    elif state == "recorded":
+        data["module_size_baseline"] = {
+            "backend/shrunk.py": 900, "backend/grown.py": 600,
+            "backend/gone.py": 800, "backend/graduated.py": 800}
+        measured.update({"backend/shrunk.py": 750, "backend/grown.py": 650,
+                         "backend/graduated.py": 500})
+        expected.update({"backend/shrunk.py": 750, "backend/grown.py": 600})
+    target = tmp_path / "thresholds.json"
+    thresholds.write(target, data)
+    monkeypatch.setattr(module, "tracked_sizes", lambda: measured)
+    assert module.main(["--tighten", "--thresholds", str(target)]) == 0
+    assert thresholds.module_size_baseline(thresholds.load(target)) == expected
+    assert "seeded" in capsys.readouterr().out

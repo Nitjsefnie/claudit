@@ -44,6 +44,8 @@ def tightened(baseline: dict[str, list[int]],
         current = measured.get(path)
         if current is not None and above(current, TARGET):
             updated[path] = recorded if above(current, recorded) else list(current)
+    updated.update({path: pair for path, pair in entries(measured).items()
+                    if path not in baseline})
     return updated
 
 

@@ -222,3 +222,14 @@ def test_the_modes_are_exclusive_and_one_is_required():
     with pytest.raises(SystemExit):
         reparse_ratchet.main([
             "--seed", "/dev/null", "--measured-file", "/dev/null"])
+
+
+def test_tighten_refuses_counts_less_seed_without_writing(tmp_path, capsys):
+    document = _write(tmp_path, _document(reparse=False))
+    measurement = _write_measurement(tmp_path / "m.json", counted=False)
+    before = document.read_bytes()
+    assert reparse_ratchet.main([
+        "--measured-file", str(measurement),
+        "--thresholds", str(document)]) == 1
+    assert document.read_bytes() == before
+    assert "no bytecode count" in capsys.readouterr().err

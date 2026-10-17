@@ -258,9 +258,9 @@ def seed(data, readings):
 def main(argv=None):
     args = _parser().parse_args(argv)
     try:
-        if args.seed is not None:
-            data, _seeded_fresh = load_for_seed(args.thresholds)
-            readings = _seed_readings(args.seed)
+        data = thresholds.load(args.thresholds)
+        if args.seed is not None or thresholds.REPARSE_FAMILY not in data:
+            readings = _seed_readings(args.seed or args.measured_file)
             candidate = seed(data, readings)
             thresholds.write(args.thresholds, candidate)
             for phase in thresholds.REPARSE_PHASES:
@@ -272,14 +272,7 @@ def main(argv=None):
                       f'(measured {record["share"]["measured"]} / '
                       f'{record["bytecodes"]["measured"]})')
             return 0
-        data = thresholds.load(args.thresholds)
         recorded = read_calibration(data)
-        if not recorded:
-            # No budget exists to tighten. Keep this a clean no-op
-            # rather than indexing an absent family.
-            print(f'no {thresholds.REPARSE_FAMILY} budget recorded: '
-                  'nothing to tighten')
-            return 0
         readings = _readings(args.measured_file)
         candidate = update(data, readings)
         if candidate is None:

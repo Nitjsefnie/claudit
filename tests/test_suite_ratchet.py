@@ -217,18 +217,42 @@ def test_tighten_never_raises(tmp_path):
     assert target.read_text(encoding="utf-8") == before
 
 
-def test_tighten_without_a_family_is_a_clean_noop(tmp_path, capsys):
+@pytest.mark.parametrize("identity", [None, 41234])
+def test_tighten_seeds_absent_family(tmp_path, capsys, monkeypatch, identity):
+    thresholds = _thresholds()
     ratchet = _ratchet()
     target = _written(tmp_path, _seeded_document())
     measurement = _measurement_file(tmp_path, COUNTS)
-    before = target.read_bytes()
-
+    payload = json.loads(measurement.read_text(encoding="utf-8"))
+    if identity is not None:
+        payload["tests_tree_lines"] = identity
+    measurement.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(ratchet, "_tree_identity", lambda: 41234)
     assert ratchet.main([
         "--tighten", str(measurement), "--thresholds", str(target)]) == 0
+    loaded = thresholds.load(target)
+    assert thresholds.suite_cost(loaded) == {
+        "collection": {"measured": Decimal("12.5"), "floor": Decimal("14.0")},
+        "run": {"measured": Decimal("304.9"), "floor": Decimal("306.4")},
+        "residual": {"measured": Decimal("6.3"), "floor": Decimal("7.8")}}
+    assert loaded["suite_cost"].get("tests_tree_lines") == identity
+    assert '"floor": 14.0' in target.read_text(encoding="utf-8")
+    assert "seeded" in capsys.readouterr().out
 
+
+def test_tighten_seed_refuses_wrong_tree(tmp_path, capsys, monkeypatch):
+    ratchet = _ratchet()
+    target = _written(tmp_path, _seeded_document())
+    measurement = _measurement_file(tmp_path, COUNTS)
+    payload = json.loads(measurement.read_text(encoding="utf-8"))
+    payload["tests_tree_lines"] = 41234
+    measurement.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(ratchet, "_tree_identity", lambda: 63211)
+    before = target.read_bytes()
+    assert ratchet.main([
+        "--tighten", str(measurement), "--thresholds", str(target)]) == 1
     assert target.read_bytes() == before
-    assert capsys.readouterr().out == (
-        "no suite_cost budget recorded: nothing to tighten\n")
+    assert "63211" in capsys.readouterr().err
 
 
 def test_tighten_refuses_a_counts_less_measurement(tmp_path):

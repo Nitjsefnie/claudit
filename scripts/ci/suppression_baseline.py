@@ -75,7 +75,7 @@ def tracked_suppression_counts(root=ROOT):
 
     Every tracked production file is listed, zero counts included, so
     the violation classes can tell a graduated file (tracked, back to
-    zero) from a missing one (untracked, entry deleted by hand).
+    zero) from a missing one (untracked, removed by master's --tighten).
     """
     listed = subprocess.run(
         ['git', '-C', str(root), 'ls-files', '-z', '*.py'],
@@ -113,7 +113,7 @@ def violations(counts, baseline):
 
 
 def tightened(baseline, counts):
-    """Return a lowered baseline mapping, or ``None`` when unchanged."""
+    """Lower or seed suppression entries; return ``None`` if unchanged."""
     updated = dict(baseline)
     for rel, recorded in baseline.items():
         if rel not in counts:
@@ -124,6 +124,8 @@ def tightened(baseline, counts):
             del updated[rel]
         elif current < recorded:
             updated[rel] = current
+    updated.update({rel: count for rel, count in counts.items()
+                    if rel not in baseline and count >= _UNRECORDED_LIMIT})
     return updated if updated != baseline else None
 
 
@@ -141,7 +143,7 @@ def main(argv=None):
     args = _parser().parse_args(argv)
     try:
         data = thresholds.load(args.thresholds)
-        baseline = data['pylint_suppression_baseline']
+        baseline = data.get('pylint_suppression_baseline', {})
         counts = tracked_suppression_counts()
         if args.tighten:
             updated = tightened(baseline, counts)
@@ -151,7 +153,8 @@ def main(argv=None):
                 return 0
             data['pylint_suppression_baseline'] = updated
             thresholds.write(args.thresholds, data)
-            print('tightened the pylint suppression baseline')
+            print('tightened the pylint suppression baseline; '
+                  f'seeded {len(updated.keys() - baseline.keys())} entries')
             return 0
 
         found = violations(counts, baseline)
