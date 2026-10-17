@@ -19,6 +19,8 @@ SOURCE = """function run(flag) {
 }
 run(true);
 """
+FUNCTION_EXPRESSION_SOURCE = SOURCE.replace(
+    "  if (flag)", "  const quotient = function () {} / 2;\n  if (flag)")
 
 
 def _line_percentage(directory: Path, source: str) -> float:
@@ -36,14 +38,17 @@ def _line_percentage(directory: Path, source: str) -> float:
 
 
 @pytest.mark.skipif(not C8.exists(), reason="c8 is installed in the JS gate only")
-@pytest.mark.parametrize("insertion", [
-    "  // first\n  // second\n  // third\n",
-    "\n\n\n",
-    "  /* first\n     second\n     third */\n",
-], ids=["line-comments", "blank-lines", "block-comment"])
-def test_js_coverage_ignores_non_code_lines(tmp_path: Path, insertion: str) -> None:
-    """Adding non-code lines to the executed arm must leave 6/8 covered."""
-    with_lines = SOURCE.replace("    return 1;", insertion + "    return 1;")
-    baseline = _line_percentage(tmp_path / "baseline", SOURCE)
+@pytest.mark.parametrize("source,needle,insertion,expected", [
+    (SOURCE, "  if (flag) {\n", "  // first\n  // second\n  // third\n", 75.0),
+    (SOURCE, "  if (flag) {\n", "\n\n\n", 75.0),
+    (SOURCE, "  if (flag) {\n", "  /* first\n     second\n     third */\n", 75.0),
+    (FUNCTION_EXPRESSION_SOURCE, " / 2;", " /* start\n comment only\n*/", 77.77),
+], ids=["line-comments", "blank-lines", "block-comment", "function-expression"])
+def test_js_coverage_ignores_non_code_lines(
+    tmp_path: Path, source: str, needle: str, insertion: str, expected: float,
+) -> None:
+    """Non-code additions preserve the baseline's executable-line coverage."""
+    with_lines = source.replace(needle, needle + insertion)
+    baseline = _line_percentage(tmp_path / "baseline", source)
     variant = _line_percentage(tmp_path / "variant", with_lines)
-    assert baseline == variant == 75.0
+    assert baseline == variant == expected
