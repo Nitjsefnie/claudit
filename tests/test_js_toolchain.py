@@ -66,6 +66,7 @@ WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 # `test_the_lockfile_is_committed_and_matches_the_manifest`'s job.
 EXPECTED_DEV_TOOLS = (
     "playwright",
+    "patch-package",
     "c8",
     "eslint",
     "eslint-plugin-react",

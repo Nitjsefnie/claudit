@@ -170,14 +170,15 @@
 # own CI job; it is node, not python, and nothing else under scripts/ci
 # is.
 !/scripts/ci/*.mjs
-# Vendored coverage converter and its reproducible upstream patch.
-!/scripts/ci/vendor/
-/scripts/ci/vendor/*
-!/scripts/ci/vendor/v8-to-istanbul-9.3.0-claudit1.tgz
-!/scripts/ci/vendor/v8-to-istanbul-9.3.0-comment-lines.patch
 !/scripts/plots/
 /scripts/plots/*
 !/scripts/plots/*.py
+
+# ---- patches/ — dependency fixes applied after npm install ----------------
+!/patches/
+/patches/*
+!/patches/*.patch
+!/patches/README.md
 
 # ---- src/ — React JSX modules served at /src/* -----------------------------
 !/src/
