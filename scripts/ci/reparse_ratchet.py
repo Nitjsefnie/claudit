@@ -100,8 +100,8 @@ def tightenable(data, readings):
     reversed. Only the GATED metrics are read (issue #513): the share
     rides along in every measurement, and nothing here moves it. A
     document without a reparse family carries no budget to tighten
-    against: tightening nothing is the whole answer, and the CLI says
-    so.
+    against, so this helper returns no moves. The CLI seeds an absent
+    family from the measurement instead of using this tighten path.
     """
     candidate = thresholds.normalise(data)
     if thresholds.REPARSE_FAMILY not in candidate:

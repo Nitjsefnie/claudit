@@ -46,12 +46,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the thresholds loader's re-seed walk
-          # (scripts/ci/reseed.py) reads up to _MAX_VISITS commits of
-          # ancestry for the suite-cost re-seed marker, and a marker
-          # may sit on the BASE side of the merge or anywhere under a
-          # master tip — no fixed depth carries it (issue #582).
-          fetch-depth: 0
+          # Restores use the checked-out HEAD, not ancestry; the suite
+          # needs no history, so the default shallow checkout suffices.
           persist-credentials: false
 
       - name: Start cached Postgres
