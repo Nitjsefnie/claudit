@@ -17,9 +17,7 @@ runs:
     - name: Python coverage gate
       if: inputs.language == 'python'
       shell: bash
-      # A RATCHET, not a target: the floor is committed data, seeded
-      # 1.5 under the measured coverage that recorded it; master
-      # raises it past the hysteresis, never lowers it.
+      # Ratchet: master raises the recorded floor past 1.5 hysteresis.
       run: |
         floor="$(python3 scripts/ci/thresholds.py --coverage-floor python)"
         if [ -z "$floor" ]; then
@@ -32,22 +30,13 @@ runs:
       id: jscov
       if: inputs.language == 'javascript'
       shell: bash
-      # The front-end half of the same ratchet (issue #266):
-      # NODE_V8_COVERAGE captures every node subprocess this step's
-      # pytest run spawns, and c8 folds them over src/**/*.js — the
-      # files node actually executes (.jsx panels are outside it).
+      # c8 folds node subprocess coverage over src/**/*.js, excluding JSX.
       env:
         NODE_V8_COVERAGE: ${{ runner.temp }}/v8-coverage
       run: |
         rm -rf "$NODE_V8_COVERAGE" && mkdir -p "$NODE_V8_COVERAGE"
-        # The measured set is scripts/ci/node_test_files.txt — one
-        # `tests/…` path per line — not a hand list: the file is pinned
-        # by tests/test_js_toolchain.py to equal
-        # grep -lF '["node"' tests/*.py, so a node-executing test file
-        # outside the list fails the suite instead of its exercised
-        # paths quietly staying outside the measurement (issue #433).
-        # The word split IS the invocation — one path per line becomes
-        # one pytest argument:
+        # test_js_toolchain.py pins this list to node-using tests (#433).
+        # Split each listed path into a pytest argument.
         # shellcheck disable=SC2046
         python -m pytest $(cat scripts/ci/node_test_files.txt) -q --no-header
         floor="$(python3 scripts/ci/thresholds.py --coverage-floor javascript)"
