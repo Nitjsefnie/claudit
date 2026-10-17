@@ -12,7 +12,7 @@
 // sharing the page's global scope with parser-lanes.js, whose same-named
 // top-level function declarations are non-configurable global properties.
 // A global lexical declaration (const/let) of such a name is a SyntaxError
-// that kills this file before its first statement runs (issue #780) - a
+// that kills this file before its first statement runs - a
 // top-level var lands on that same global property instead and cannot
 // collide. Guarded by tests/test_classic_script_scope.py, which
 // instantiates every classic script index.html loads in one realm.
@@ -21,13 +21,8 @@ var laneInt = window.laneInt;
 var laneToIso = window.laneToIso;
 var laneUsageMeta = window.laneUsageMeta;
 var lanePairToolEvents = window.lanePairToolEvents;
-// --------------------------------------------------------------------------
 // The Kimi model ladder — backend/parse_kimi.py, verbatim
-// --------------------------------------------------------------------------
 
-// 2026-06-11 22:30:35 UTC  k2-6 -> k2-7-code; 2026-07-16 14:45:55 UTC the
-// earliest observed k3 usage.record (that rung only applies to records with
-// no wire model string).
 const LANE_MODEL_CUTOFF_EPOCH = 1781217035;
 const LANE_K3_CUTOFF_EPOCH = 1784213155;
 // Only ids that identify a pricing model on their own; "kimi-for-coding"
@@ -53,10 +48,6 @@ function laneModelFor(wireModel, epochSec) {
   if (epochSec < LANE_K3_CUTOFF_EPOCH) return 'kimi-k2-7-code';
   return 'kimi-k3';
 }
-
-// --------------------------------------------------------------------------
-// Legacy kimi-cli wire format — backend/parse_kimi.parse_legacy
-// --------------------------------------------------------------------------
 
 function parseLaneLegacy(blob) {
   const lines = String(blob).split(/\r?\n/);
@@ -102,7 +93,6 @@ function parseLaneLegacy(blob) {
       events.push({ line: lineNum, type: 'user_message', ts: tsIso, detail: String(userInput) });
       continue;
     }
-    // TurnEnd: a bookkeeping boundary the Inspector has no row for.
     if (msgType === 'TurnEnd') continue;
     if (msgType === 'ContentPart') {
       if (payload.type === 'text') {
@@ -168,10 +158,6 @@ function parseLaneLegacy(blob) {
   return { events, meta };
 }
 
-// --------------------------------------------------------------------------
-// kimi-code wire format — backend/parse_kimi.parse_kimi_code
-// --------------------------------------------------------------------------
-
 function laneKcParseToolCall(tc) {
   if (!laneIsPlainObject(tc) || tc.type !== 'function') return { name: '', args: null, id: '' };
   const id = tc.id || '';
@@ -217,7 +203,7 @@ function parseLaneKimiCode(blob, opts) {
   const events = [];
   const meta = [];
   const fileKey = (opts && opts.fileKey) || '';
-  let firstEventTs = null; // epoch seconds
+  let firstEventTs = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];

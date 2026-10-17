@@ -12,10 +12,6 @@
 // object) parses untouched. A shape the scan cannot spell-check past (a
 // leading zero, a bare minus) bails it silently and JSON.parse names
 // that shape.
-//
-// Split from src/pricing-loader.js — whose module size is a ratcheted
-// ceiling. The browser loads this file ahead of the loader by index.html's
-// tag order; node requires it from the loader.
 (function () {
   const _pricingError = (detail) => new Error(`pricing.json: ${detail}`);
 
@@ -30,8 +26,6 @@
       while (pos < n && ' \t\n\r'.includes(text[pos])) pos++;
     };
 
-    // The decoded string literal at pos (pos sits on the opening quote), or
-    // null when malformed — malformed input bails the scan.
     const readString = () => {
       let j = pos + 1;
       let out = '';
@@ -53,16 +47,15 @@
             j += 2;
           }
         } else if (c < ' ') {
-          return null;                 // a raw control character: not JSON
+          return null;
         } else {
           out += c;
           j++;
         }
       }
-      return null;                     // unterminated
+      return null;
     };
 
-    // The raw number token at pos, pos advanced past it.
     const readNumber = () => {
       const start = pos;
       if (text[pos] === '-') pos++;
@@ -79,10 +72,6 @@
       return text.slice(start, pos);
     };
 
-    // After a complete value: consume the ',' (more members/elements follow)
-    // or the container's closer (pop, repeat for the parent). Sets `dead`
-    // when the scan ends — root value completed, or a malformed tail that
-    // JSON.parse will name.
     let dead = false;
     const finishValue = () => {
       for (;;) {
@@ -102,15 +91,15 @@
     const first = text[pos];
     if (first === '{') stack.push({ obj: true, key: null, window: false, path: [] });
     else if (first === '[') stack.push({ obj: false, schedule: false, path: [], index: 0 });
-    else return;                       // a scalar root: nothing to check
+    else return;
     pos++;
 
     for (;;) {
       skipWs();
-      if (pos >= n || !top()) return;  // truncated, or complete
+      if (pos >= n || !top()) return;
       const t = top();
       const c = text[pos];
-      if (c === (t.obj ? '}' : ']')) {  // an empty container
+      if (c === (t.obj ? '}' : ']')) {
         pos++;
         stack.pop();
         finishValue();
@@ -118,19 +107,18 @@
         continue;
       }
       if (t.obj) {
-        if (c !== '"') return;         // an object key must be a string
+        if (c !== '"') return;
         const key = readString();
         if (key === null) return;
         t.key = key;
         skipWs();
         if (text[pos] !== ':') return;
         pos++;
-        skipWs();                      // whitespace between ':' and the value
-      } else if (c === ',') {          // the next element of an array
+        skipWs();
+      } else if (c === ',') {
         pos++;
         continue;
       }
-      // A value position:
       const path = [...t.path, t.obj ? t.key : t.index];
       const v = text[pos];
       if (v === '{') {
@@ -169,7 +157,7 @@
       } else if (v === 'n' && text.startsWith('null', pos)) {
         pos += 4;
       } else {
-        return;                        // unexpected; JSON.parse names it
+        return;
       }
       finishValue();
       if (dead) break;

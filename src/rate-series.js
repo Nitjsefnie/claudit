@@ -1,14 +1,3 @@
-// The Tool Error Rate panel's numeric core, as plain JS (issue #652).
-//
-// The rate sequences and their EMA are the part of the panel a test can
-// reach without a browser — the JSX around them is not — so the math
-// lives here, node-runnable, and the panel calls it. Everything below
-// works on one model's grouped data, the shape the panel's `byModel`
-// memo builds:
-//
-//   { buckets: sorted bucket timestamps (ms),
-//     perBucketTool: Map<ts, Map<tool, {n_total, n_error}>>,
-//     totalsByTool: Map<tool, n_total> }
 (function () {
   // Bucket-wise rate sequences per series key: the aggregate over ALL
   // tools under '__AGG__', one entry per visible tool, and the fold of
@@ -52,9 +41,6 @@
     return perKey;
   }
 
-  // Exponential moving average over each sequence in place, first point
-  // carried (no warm-up): ema[0] = rate[0], then
-  // ema[i] = a * rate[i] + (1 - a) * ema[i-1].
   function emaSeries(perKey, alpha) {
     for (const [k, arr] of perKey) {
       if (!arr.length) continue;
@@ -68,10 +54,6 @@
     return perKey;
   }
 
-  // The panel's `drawn` memo, hoisted here so the rate logic stays
-  // node-testable and the JSX stays layout-only (#690 moved it: the
-  // panel file sat one line under its size ceiling and an outgrown
-  // rework moves code into a new module).
   function drawnLines(models, selModels, byModel, visibleTools,
       otherTools, otherKey) {
     const out = [];

@@ -1,7 +1,6 @@
 const { useState } = React;
 const BRAND = window.BRAND || {};
 
-// Range controls shared by the dashboard routes.
 function RangePicker({ active, onChange }) {
   const presets = [
     { label: '24h',  value: '1d'   },
@@ -103,7 +102,6 @@ function TopBar({ route, setRoute, isGuest, backendOn, range, project }) {
     </header>
   );
 }
-
 
 window.ExportButton = ExportButton;
 window.TopBar = TopBar;

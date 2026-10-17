@@ -1,21 +1,8 @@
-// ──────────────────────────────────────────────────────────────────────
-// Cost by Agent Type — bounded, side by side (#651).
-//
-// The pre-#651 panel stacked two full-width embedded HBars under one
-// header and grew one row per distinct agent role — 1662×1860px at 25
-// roles, taller with every new role. The pair now sits side by side
-// like its Cost/Tokens by Model siblings (a dash-grid-2 inside the
-// card; it stacks under 768px like every other dash-grid-2), and each
-// list is capped: the roles past the fold fold into one aggregate
-// `other` row, and the header's toggle expands the full list (click
-// again to collapse).
-//
-// The card declares data-max-h: the #647 interaction guard checks a
+// The card declares data-max-h: the interaction guard checks a
 // panel that declares a bound against that ABSOLUTE ceiling in both of
 // its payload worlds (2 roles vs 30+), instead of the equal-heights
 // equality every unbounded panel owes — a capped list is shorter at 2
 // roles than at 30+, and that is the design, not a regression.
-//
 // The `general-purpose` bar is NOT a claim that those sessions were
 // dispatched as general-purpose agents. It is where every transcript
 // with no role recorded lands (see parse.resolve_agent_type) — a plain
@@ -23,10 +10,7 @@
 // subagent transcript predating Claude Code 2.1.126 all read the same
 // in the file. The subtitle says so, because a bar this large silently
 // meaning "unattributed" would be read as a measurement.
-// ──────────────────────────────────────────────────────────────────────
 const humanFmt_X = window.humanFmt;
-// 8 visible rows: 7 kept + the aggregate `other` row whenever the
-// roster outgrows the list.
 const MAX_VISIBLE = 8;
 // HBar's svg stands 32 + rows*36 + 18 tall — 338px at the cap, and
 // that svg height is what the guard measures against this attribute.
@@ -38,9 +22,6 @@ function CostByAgentPanel({ models, project, range, nonce }) {
   const [rows, setRows] = React.useState([]);
   const [total, setTotal] = React.useState(0);
   const [totalTokens, setTotalTokens] = React.useState(0);
-  // Per-panel model filter, same convention as ToolUsagePanel and
-  // CostByContextPanel: drill into one model without disturbing the
-  // other panels.
   const [activeModel, setActiveModel] = React.useState('');
   const [expanded, setExpanded] = React.useState(false);
 

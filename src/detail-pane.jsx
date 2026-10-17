@@ -1,5 +1,3 @@
-// Detail pane: rich rendering of selected event.
-
 function EventDetail({ event, dense }) {
   if (!event) {
     return (
@@ -84,13 +82,11 @@ function ToolCallDetail({ event }) {
   const result = event.paired_result;
 
   let body;
-  // Bash + any wrapper tool that takes a `command` (Monitor, BashOutput, etc.)
   const isCommandLike = typeof input.command === 'string';
   if (name === 'Bash' || (isCommandLike && name !== 'Edit' && name !== 'Write' && name !== 'Read' && name !== 'Grep' && name !== 'TodoWrite')) {
     const timeoutLabel = input.timeout != null
       ? `${input.timeout}ms`
       : (input.timeout_ms != null ? `${input.timeout_ms}ms` : null);
-    // Render any "extra" fields that aren't the well-known ones
     const known = new Set(['command', 'description', 'timeout', 'timeout_ms', 'run_in_background', 'persistent']);
     const extras = Object.keys(input).filter(k => !known.has(k));
     body = (
@@ -202,13 +198,8 @@ function ToolResultDetail({ event }) {
   );
 }
 
-// External-resource references found inside an event body:
-// - subagent task notifications (links to data/subagents/agent-<id>.jsonl)
-// - tool-results sidecar files (data/tool-results/<id>.<ext>)
-// - bare agent-<id> mentions
 function RefsBlock({ refs }) {
   if (!refs || !refs.length) return null;
-  // Group by kind
   const byKind = {};
   for (const r of refs) {
     if (!byKind[r.kind]) byKind[r.kind] = [];

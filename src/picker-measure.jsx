@@ -1,4 +1,3 @@
-// Natural chip widths and a pager core that exists even on a single page.
 window.PickerMeasure = function PickerMeasure({ list, active, digits }) {
   const count = '0'.repeat(digits);
   return <div className="pp-measure" aria-hidden="true" style={{

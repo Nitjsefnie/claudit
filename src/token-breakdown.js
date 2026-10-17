@@ -1,7 +1,6 @@
 // The Token Breakdown decomposition (SV-COST-SPLIT): a pure fold over
 // dashboard events, priced per record exactly as pricing.compute_cost
-// stores it — long-context meter and per-search cost included (issue
-// #879) — so the panel's bars always sum to the stored totals they
+// stores it — long-context meter and per-search cost included — so the panel's bars always sum to the stored totals they
 // decompose. Mirrors backend/api_common.py's fold. Plain JS on window,
 // loaded before app.jsx.
 window.computeTokenBreakdown = function computeTokenBreakdown(events) {

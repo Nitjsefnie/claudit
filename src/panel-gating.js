@@ -1,20 +1,10 @@
-// Which Overview panels have anything to draw, moved out of app.jsx so
-// that file does not grow (issue #436). No React and no fetch glue: each
-// is a plain function of its arguments, so it belongs here rather than
-// in the shell that happens to call it today.
-//
-// Relocation only -- each function is the one app.jsx already held,
-// behaviour for behaviour; only the surrounding spacing differs. The
-// call sites stay in app.jsx and read the globals below.
 (function () {
   // Which of the four token panels to draw.
-  //
   // A panel whose series is zero in every bucket is noise: it occupies a
   // grid cell to say nothing. The backend already decided this and sent
   // `token_types`, so mirror that when it is present rather than
   // second-guessing it; the synthetic preview has no such list, so fall
   // back to summing the events.
-  //
   // Cache Create is the one panel that is not 1:1 with a wire field — it
   // plots cache_5m + cache_1h — so it survives if EITHER half did.
   function tokenPanels(events, tokenTypes) {
@@ -48,9 +38,6 @@
     return events.some(e => (e[key] || 0) !== 0);
   }
 
-  // Session and window-boundary folding over dashboard events (#643:
-  // moved out of app.jsx for the same reason as the two functions above —
-  // that file sits exactly at its size ceiling and code only moves out).
   // 30-min gap = new session; 5-hour gap = window boundary.
   function computeSessions(events) {
     if (!events.length) return { sessions: [], windowBoundaries: [] };

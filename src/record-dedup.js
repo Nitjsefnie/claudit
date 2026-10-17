@@ -1,29 +1,28 @@
 // Cross-file record dedup — the browser half of the canonical winner rule
-// (SV-CANONICAL-FLAG, issues #529 and #687). A forked Codex rollout replays
-// its parent's history in its leading lines: under #653 those copies are
-// attributed (the fork's first declared model), and under #687 a replayed
+// (SV-CANONICAL-FLAG). A forked Codex rollout replays
+// its parent's history in its leading lines: those copies are
+// attributed (the fork's first declared model), and a replayed
 // copy is marked isReplay and loses to an original of the same uuid,
 // whatever the model and the key order. This module mirrors that rule for
 // the browser's directory / multi-load mode, where several files are parsed
 // through one shared `seenUuids` map.
-//
 // Contract, in parse order per line with a uuid — the seen value is the
 // standing winner's RANK, LOWER WINS (mirrors recompute_canonical's
 // ORDER BY <replay-last>, <unattributed-last>, file_key, line_num, with
 // arrival order standing in for file_key):
-//   prev absent                    -> keep, record the verdict
-//   rank > prev, or rank == prev   -> skip (standing copy outranks or ties)
-//   rank < prev                    -> keep: this copy REPLACES the standing one
+// prev absent -> keep, record the verdict
+// rank > prev, or rank == prev -> skip (standing copy outranks or ties)
+// rank < prev -> keep: this copy REPLACES the standing one
 // parseTranscript stamps every entry it emits for a uuid-bearing line with
 // that line's uuid + model + isReplay and retracts the masked copies itself
-// at end of parse (#562): a stamp is MASKED when its own rank loses to the
+// at end of parse: a stamp is MASKED when its own rank loses to the
 // uuid's final verdict — the loser of the canonical vote, whose entries
 // must leave the output. A requestId merge that folded a surviving
 // fragment's usage into a superseded line's entry re-points that entry to
-// the surviving line at retraction (#568), so the uuid's one usage entry
+// the surviving line at retraction, so the uuid's one usage entry
 // survives, attributed to the winner. After all loads a caller
 // concatenating several files' outputs finishes the job with dropMasked
-// (#563) — the cross-call drop is module code, not a contract the caller
+// — the cross-call drop is module code, not a contract the caller
 // has to reimplement; the same rank test, judged on the stamps retract
 // left on the entries.
 (function () {
@@ -34,8 +33,6 @@
       && model !== '<synthetic>';
   }
   function modelOf(obj) {
-    // A raw transcript line names the model inside message; a parsed
-    // entry and a stamp carry it at top level.
     const msg = obj.message;
     if (msg && typeof msg === 'object' && typeof msg.model === 'string') {
       return msg.model;
@@ -50,8 +47,6 @@
     return (obj.isReplay === true ? 2 : 0) + (isAttributed(modelOf(obj)) ? 0 : 1);
   }
 
-  // Decide one uuid-carrying line: 'skip' or 'keep'. `seen` is the shared
-  // Map uuid -> standing winner's rank.
   window.recordDedup = {
     decide: function (seen, obj, line, stamps) {
       if (!seen || typeof obj.uuid !== 'string' || !obj.uuid) return 'keep';
@@ -67,13 +62,13 @@
           isReplay: obj.isReplay === true,
           // The parser's requestId merge key (parser.js's merge-key shape):
           // retract re-points a merged entry to a surviving line of the
-          // SAME key only (issue #568), never across API calls.
+          // SAME key only, never across API calls.
           req: obj.requestId || (mid ? 'msg:' + mid : '') });
       }
       return 'keep';
     },
 
-    // End-of-parse retraction (issue #562): drop every entry whose line's
+    // End-of-parse retraction: drop every entry whose line's
     // stamp is masked — the superseded copy's events leave together with
     // its assistant_usage meta — and stamp every surviving entry with its
     // line's uuid + model, so the caller's cross-call dropMasked can judge
@@ -85,7 +80,7 @@
           if (!e) continue;
           let s = stamps.get(e.line);
           if (e.type === 'assistant_usage' && maskedBy(seen, s) && s.req) {
-            // issue #568: a requestId merge folded a surviving fragment's
+            // a requestId merge folded a surviving fragment's
             // usage into this superseded line's entry. The entry belongs
             // to a surviving line of the SAME merge key -- prefer the
             // entry's own uuid's winner; re-point, never drop. (An empty
@@ -113,7 +108,7 @@
       }
     },
 
-    // Cross-call drop (issue #563): drop entries a later parse call
+    // Cross-call drop: drop entries a later parse call
     // replaced. An entry with no uuid (never deduped — the NULL-uuid rows
     // are always canonical) and an entry whose uuid is absent from `seen`
     // (a single-load parse's output, where no dedup ran) are kept.
@@ -125,7 +120,7 @@
       return list;
     },
 
-    // The Claude path's per-file tail (issue #795): a compaction sidecar
+    // The Claude path's per-file tail: a compaction sidecar
     // replays the main file's tool_use blocks under new line uuids, so
     // the line-uuid dedup cannot catch them. The same winner rule keyed
     // on tool_use_id decides per tool_call/agent_spawn event, and the
@@ -149,7 +144,7 @@
       return events;
     },
 
-    // Tool-call identity (issue #766): the same winner rule keyed on
+    // Tool-call identity: the same winner rule keyed on
     // tool_use_id — the canonical pass's tool_uses partition (mirrors
     // ingest_rollup_state.py's PARTITION BY tool_use_id with the same
     // replay-last, unattributed-last order). The CALL owns the identity

@@ -1,19 +1,3 @@
-// The Session Burn Rate panel — a scatter of sessions (dot area scaled by
-// context at session end) under per-series EMA lines of tokens per hour.
-//
-// Split out of dashboard-charts.jsx (#634/#635): the phone-width layout
-// fixes this module carries grew the source file past its committed size
-// entry, and the size ratchet's rule is that an outgrown file moves code
-// into a new module. Nothing about the panel changed but where it lives
-// (the same split as context-growth-comparison.jsx, #630) — except the
-// two fixes themselves:
-//
-//   * Two-line heading (#635), elided by fitText: the old single centred
-//     line was ~608px and overflowed both panel edges below 375px.
-//   * The legend packs BEFORE the plot box is sized (#634): padB is one
-//     16px band per legend row, so a five-row legend at phone width no
-//     longer slides its lower rows up across the x-tick labels.
-//
 // Shared values are captured at module scope under _B names: the
 // text/babel scripts share one global lexical scope, so a plain `TH_B`
 // would collide with dashboard-charts.jsx's own (the reason the
@@ -25,9 +9,8 @@ const fmtDate_B = window.fmtDate;
 const timeTicksUTC_B = window.timeTicksUTC;
 const Tooltip_B = window.Tooltip;
 const useChartA11y_B = window.useChartA11y;
-// --- Burn rate panel ---
 function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propRange, windowBoundaries, hideRateLimits = false }) {
-  // Issue #943: every rate-limit surface below reads THIS binding, so an
+  // every rate-limit surface below reads THIS binding, so an
   // empty list suppresses them all; when false the raw prop passes through.
   hideRateLimits = hideRateLimits || !window.featureOn('rate_limits');
   const limitHits = hideRateLimits ? [] : (rawLimitHits || []);
@@ -89,18 +72,13 @@ function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propR
     if (lo === Infinity || lo === hi) return propRange;
     return { start: lo, end: hi };
   })();
-  // Top is the two-line heading (#635): the bold name, then the dimmed
+  // Top is the two-line heading: the bold name, then the dimmed
   // dates+counts subtitle at baseline 30, so padT clears both. Bottom is
   // the x-tick labels plus the legend, packed before the plot box is
   // sized (the packing sits after `series`): padB is one 16px band per
   // legend row.
-  // padL sized from the measured y labels, not fixed at 60. Labels are
-  // end-anchored at padL - 8 and the rotated "Tokens per hour…" caption
-  // occupies roughly x 8..22, so the widest label needs padL - 8 - width to
-  // stay clear of it; +40 keeps ~10px. At the old fixed 60 the current
-  // widest tick ("100K", 25.6px) left only 4.4px — the same shape as the
-  // 100M/cumulative collision on the right gutter, one character from
-  // breaking.
+  // End-anchored y labels must clear the rotated caption at x 8..22;
+  // measured label width plus 40 leaves roughly 10px between them.
   const padR = 30, padT = 40;
   const padL = Math.min(
     Math.max(60, w * 0.2),
@@ -163,12 +141,11 @@ function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propR
     cr:     { color: '#44bbbb', label: 'Cache Read',   vals: ema(sessionData.map(s => s.cr_per_h)) },
   };
 
-  // The legend is packed BEFORE the plot box is sized (#634): padB below
+  // The legend is packed BEFORE the plot box is sized: padB below
   // is one 16px band per packed legend row, and the panel div grows by the
   // same rows, so a legend that wraps to five rows at phone width grows
   // the panel downward instead of sliding its lower rows up into the plot
-  // and across the x-tick labels. Same arithmetic the JSX used to run
-  // inline; it moved up here so the pad it sizes exists before plotH.
+  // and across the x-tick labels. Compute the pad before plotH uses it.
   const legendAdvUsed = legendAdv || 6.4;
   const LEGEND_SWATCH = 20, LEGEND_GAP = 6, LEGEND_ROW = 16;
   const { legendPlaced, legendRows } = window.burnRateLegend(
@@ -177,12 +154,8 @@ function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propR
   const plotW = Math.max(10, w - padL - padR);
   const plotH = Math.max(10, h - padT - padB);
 
-  // The heading's second line (#635): the dates and counts, dimmed under
-  // the bold name. Elided by fitText where even the subtitle is wider
-  // than the panel — the single centred line this replaces was ~608px and
-  // overflowed both panel edges at 375 and 320px. Its advance is the
-  // measured legend advance (both are 10px monospace), never a predicted
-  // one.
+  // Elide the subtitle to fit the panel, using the measured legend
+  // advance because both are 10px monospace.
   const burnSub = `${fmtDate_B(range.start, {day:true})} – ${fmtDate_B(range.end, {day:true})}, ${new Date(range.end).getUTCFullYear()} UTC  |  `
     + `${sessions.length.toLocaleString()} sessions, ${events.reduce((s,e)=>s+(e.requests==null?1:e.requests),0).toLocaleString()} requests`;
 
@@ -239,7 +212,6 @@ function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propR
 
   const xTicks = timeTicksUTC_B(range.start, range.end);
 
-  // Find nearest session dot to cursor
   function onMove(e) {
     const rect = ref.current.getBoundingClientRect();
     const mx = e.clientX - rect.left;
@@ -253,7 +225,6 @@ function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propR
       const d = Math.hypot(sx - mx, sy - my);
       if (d < bestD) { bestD = d; best = s; }
     }
-    // Also check rate limits (vertical bands)
     let nearLimit = null;
     for (const lh of limitHits) {
       const lx = xScale(lh.ts);
@@ -279,16 +250,15 @@ function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propR
         const dense = densified[k];
         for (const p of dense) {
           const px = xScale(p.ts);
-          if (Math.abs(px - mx) > 30) continue; // cheap reject
+          if (Math.abs(px - mx) > 30) continue;
           const py = yScale(p.val);
           const d = Math.hypot(px - mx, py - my);
           if (d < bestSeriesD) { bestSeriesD = d; bestSeriesKey = k; bestPoint = p; }
         }
       }
       // Prefer line over dot when line is significantly closer — but
-      // never over a pointer aimed inside the nearest dot's own disc
-      // (#690): the swept bottom row grazes the dense 320px EMA curves,
-      // and an EMA tip there left the aimed-at dot unlit.
+      // never over a pointer aimed inside the nearest dot's own disc:
+      // dense EMA curves can graze a dot the pointer is aimed at.
       const dotD = best ? Math.hypot(xScale(best.mid)-mx, yScale(best.cost_per_h_x100)-my) : 1e9;
       if (bestSeriesKey && bestSeriesD < 14 && bestSeriesD < dotD - 4
           && !(best && dotD <= dotRBest + 2)) {
@@ -359,7 +329,7 @@ function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propR
     <div ref={ref} style={{
       background: TH_B.bgAxes, border: `1px solid ${TH_B.border}`,
       borderRadius: 4, padding: 0,
-      // The panel grows one legend row tall per wrapped legend row (#634):
+      // The panel grows one legend row tall per wrapped legend row:
       // the legend band lives entirely below the plot, so the wrapped
       // rows expand the panel instead of the legend sliding into it.
       height: 380 + (legendRows - 1) * LEGEND_ROW, position: 'relative',
@@ -399,7 +369,7 @@ function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propR
             stroke={TH_B.grid} strokeOpacity="0.25" />
         ))}
         {sessionData.map((s, i) => {
-          // One mark per printed pixel (#690): stacked sessions share one
+          // One mark per printed pixel: stacked sessions share one
           // dot on screen; only the topmost carries the mark.
           const pxKey = `${Math.round(xScale(s.mid))},${
             Math.round(yScale(s.cost_per_h_x100))}`;
@@ -407,15 +377,14 @@ function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propR
           dotSeen.add(pxKey);
           // Scale dot AREA by ctx-at-end-of-session (100k → 25 pts²,
           // 1M → 250). When ctxEnd is null (empty ctx_turns), render a
-          // fixed small open circle: the old durH × 60 fallback collapsed
-          // every subagent-only session to a meaningless size.
+          // fixed small open circle: duration cannot stand in for context.
           const ctxKnown = s.ctxEnd != null;
           const areaPts2 = ctxKnown
             ? Math.min(Math.max(s.ctxEnd / 4000, 25), 250)
-            : 16; // r ≈ 4 px sentinel for ctx-unknown
+            : 16;
           const r = Math.sqrt(areaPts2);
           // The named session lights this dot when the two plot to the
-          // same pixel (twins differ sub-pixel, #690).
+          // same pixel (twins differ sub-pixel).
           const named = tip && tip.sessionIdx != null
             ? sessionData[tip.sessionIdx] : null;
           const isAimed = named != null
@@ -460,9 +429,9 @@ function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propR
           transform={`rotate(-90 18 ${padT + plotH/2})`}>Tokens per hour (EMA) / 100 × Cost per hour</text>
 
         {/* Legend entries come from the packing that ran above, next to
-            the pad it sizes (#634): one 16px band per wrapped row. The
-            cumulative per-entry advance and the 16px row are that block's;
-            the swatch/gap/spacing constants moved up with it. */}
+            the pad it sizes: one 16px band per wrapped row. The
+            cumulative per-entry advance and the 16px row use the same
+            swatch, gap and spacing constants as the packing. */}
         <g transform={`translate(${padL + 20}, ${h - 22 - (legendRows - 1) * LEGEND_ROW})`}>
           {legendPlaced.map(it => (
             <g data-role="legend" key={it.key} transform={`translate(${it.at}, ${it.row * LEGEND_ROW})`}>

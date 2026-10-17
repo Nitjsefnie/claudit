@@ -1,17 +1,15 @@
-// Event row + detail rendering helpers for the Claude Code transcript visualizer.
-
 const TOOL_COLORS = {
-  Bash:    'oklch(0.78 0.13 60)',   // amber
-  Read:    'oklch(0.72 0.10 230)',  // blue
-  Edit:    'oklch(0.72 0.13 145)',  // green
-  Write:   'oklch(0.72 0.14 145)',  // green
-  Grep:    'oklch(0.72 0.10 280)',  // violet
+  Bash:    'oklch(0.78 0.13 60)',
+  Read:    'oklch(0.72 0.10 230)',
+  Edit:    'oklch(0.72 0.13 145)',
+  Write:   'oklch(0.72 0.14 145)',
+  Grep:    'oklch(0.72 0.10 280)',
   Glob:    'oklch(0.72 0.10 280)',
-  Agent:   'oklch(0.78 0.15 25)',   // red-orange
+  Agent:   'oklch(0.78 0.15 25)',
   Task:    'oklch(0.78 0.15 25)',
   WebFetch:'oklch(0.72 0.10 200)',
   WebSearch:'oklch(0.72 0.10 200)',
-  TodoWrite:'oklch(0.75 0.08 100)', // muted yellow
+  TodoWrite:'oklch(0.75 0.08 100)',
 };
 
 const TYPE_META = {
@@ -32,7 +30,6 @@ function shortTime(ts) {
 }
 
 function toolGlyph(name) {
-  // Single character per tool for the timeline column
   const map = {
     Bash: '$', Read: '☰', Edit: '✎', Write: '✎',
     Grep: '⌕', Glob: '⌕', Agent: '✦', Task: '✦',
@@ -96,8 +93,6 @@ function eventOneLine(e) {
   return (e.detail || '').replace(/\s+/g, ' ');
 }
 
-// Compact diff renderer for Edit tool calls. Splits old/new on lines and
-// emits a unified-diff-style block.
 function renderEditDiff(input) {
   const oldLines = (input.old_string || '').split('\n');
   const newLines = (input.new_string || '').split('\n');

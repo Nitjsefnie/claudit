@@ -1,4 +1,3 @@
-// Greedy project-page boundaries and the strip measurements they use.
 (function (global) {
   'use strict';
 

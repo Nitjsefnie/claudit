@@ -5,20 +5,10 @@ const TH_X       = window.dashboardTheme;
 const COL_X      = window.dashboardCol;
 const humanFmt_X = window.humanFmt;
 
-
-// ──────────────────────────────────────────────────────────────────────
-// Per-Session Context Growth panel
-// ──────────────────────────────────────────────────────────────────────
-
-// The y axis is the observed peak with headroom, through the rule every
-// context panel shares (issue #648). There is no per-model cap table:
-// the one that lived here named ten Claude models and fell back to a
-// name rule for the rest, so it drew a cap line below the data of any
-// model added after it was written. See src/ctx-axis.js.
+// The observed peak plus headroom covers new models without a per-model
+// cap table. Every context panel shares src/ctx-axis.js.
 
 function buildSessionTurns(events) {
-  // Group events by session_id, sort by turn_index (real turn boundaries
-  // computed in txToDashData) or ts as fallback, and emit per-turn ctx sizes.
   const bySess = new Map();
   for (const e of events) {
     const sid = e.session_id || 'unknown';
@@ -64,7 +54,6 @@ function buildSessionTurns(events) {
 // prepends + appends a virtual point half-a-bucket past each end with
 // LINEARLY EXTRAPOLATED values (slope from the two adjacent points)
 // so the rendered line/band fully covers the bucket extent.
-//
 // `valueKeys` lists the numeric fields to extrapolate. `log = true`
 // extrapolates in log10 space (right for latency / response chars
 // where the y-axis is log). `min` clamps the extrapolated value
@@ -102,14 +91,13 @@ function extendBucketSeries(points, halfMs, valueKeys, options) {
   return [projFirst, ...points, projLast];
 }
 
-// Canonicalize backend model strings (e.g. "claude-opus-4-7-20251101") to
-// the key used by `window.modelColors` ("claude-opus-4-7"). The VENDOR PREFIX
-// IS KEPT (#472) — only the snapshot/variant suffix folds, and it names the
+// Canonicalize backend model ids with a -YYYYMMDD snapshot suffix to
+// the bare key used by `window.modelColors`. The VENDOR PREFIX
+// IS KEPT — only the snapshot/variant suffix folds, and it names the
 // same model.
 function shortModelName(m) {
   if (!m) return 'unknown';
   let s = String(m).toLowerCase();
-  // Strip trailing [variant] tag (e.g. "claude-fable-5[1m]"), then -YYYYMMDD date
   s = s.replace(/\[[^\]]*\]$/, '');
   s = s.replace(/-\d{8}$/, '');
   return s;
@@ -118,12 +106,8 @@ function shortModelName(m) {
 function ContextGrowthPanel({ events, realSessions, project, range, nonce }) {
   const ref = React.useRef(null);
   const [w, setW] = React.useState(1200);
-  // The panel fetches its own traces (issue #644): they left the
-  // /api/dashboard payload — 82% of its gzip for one panel of ~30 —
-  // and this panel now fetches /api/context-growth/traces like the
-  // other self-fetching panels. `null` while the fetch is in flight;
-  // [] after a failure, which selects the same fallback paths as the
-  // old empty-array prop did.
+  // Fetch traces separately so one panel does not inflate /api/dashboard.
+  // null means in flight; [] after failure selects the fallback paths.
   const [traces, setTraces] = React.useState(null);
 
   React.useEffect(() => {
@@ -139,7 +123,7 @@ function ContextGrowthPanel({ events, realSessions, project, range, nonce }) {
           { credentials: 'same-origin' })
       .then(r => r.json())
       // Defer the per-model transform out of the commit that lands the
-      // fetch (issue #838): building the groups for every trace blocked
+      // fetch: building the groups for every trace blocked
       // the frame the response arrived on. window.deferred runs the
       // callback on an idle callback (or the next macrotask).
       .then(b => window.deferred.run(b.traces || [], setTraces))
@@ -157,7 +141,6 @@ function ContextGrowthPanel({ events, realSessions, project, range, nonce }) {
     // dominant model. This makes models that only appear in sub-agent
     // calls (auto-compact, prompt-suggestion) visible in the panel
     // even when no main session JSONL exists.
-    //
     // Index shift: backend turns are 0-indexed (first response = t0).
     // Re-index to 1-based and prepend an implicit (turn 0, ctx 0)
     // origin so every trace — including single-turn sub-agent calls
@@ -169,16 +152,11 @@ function ContextGrowthPanel({ events, realSessions, project, range, nonce }) {
         if (!t.turns || !t.turns.length) continue;
         const key = shortModelName(t.model);
         if (dropKey(key)) continue;
-        // turns arrives as a flat array of ctx values; the turn index is
-        // the position (it used to be sent as a redundant `t` field).
         const seq = [
           { t: 0, ctx: 0 },
           ...t.turns.map((ctx, i) => ({ t: i + 1, ctx })),
         ];
         if (!out[key]) out[key] = [];
-        // No id: only `seq` is ever read off these, and carrying the
-        // file_key meant ~100 chars of string per trace across 8.9k
-        // traces for a field nothing rendered.
         out[key].push({ seq });
       }
       return out;
@@ -211,8 +189,6 @@ function ContextGrowthPanel({ events, realSessions, project, range, nonce }) {
     return m;
   }, [events, realSessions, traces]);
 
-  // Models present, sorted by session count desc. This drives both the
-  // checkbox row and the per-model sub-panels.
   const models = React.useMemo(() =>
     Object.entries(byModel)
       .map(([m, ss]) => ({ model: m, count: ss.length }))
@@ -224,8 +200,6 @@ function ContextGrowthPanel({ events, realSessions, project, range, nonce }) {
   // through realSessions arrival" bug — the default tracks current
   // models without needing a reset effect.
   const [overrides, setOverrides] = React.useState({});
-  // Top 2 by session count, through the shared rule (src/model-select
-  // .js) — the same default the Tool Error Rate panel resolves.
   const sel = React.useMemo(
     () => window.modelSelect.topDefaultSelection(models, overrides, 2),
     [models, overrides]);
@@ -235,16 +209,13 @@ function ContextGrowthPanel({ events, realSessions, project, range, nonce }) {
   }
 
   // The ONE chart takes the card's own measured width. There are no
-  // per-model cells any more (#649): the panel is header + checkbox row
+  // per-model cells: the panel is header + checkbox row
   // + one comparison chart, so its height does not grow with models.
   const cmpW = w;
   const cmpH = 240;
 
-  // Models actually drawn in the comparison overlay.
   const cmpModels = models.filter(m => sel.has(m.model));
 
-  // The per-session traces are a drawing MODE behind the breakdown, off
-  // by default (#649 point 4).
   const [showSessions, setShowSessions] = React.useState(false);
 
   return (
@@ -297,7 +268,7 @@ function ContextGrowthPanel({ events, realSessions, project, range, nonce }) {
 }
 
 // Reusable tooltip primitive (the original Tooltip lives in a closure; expose ours).
-// Like Tooltip above: flips at the viewport edges, moves by transform, remounts per row (#642).
+// Like Tooltip above: flips at the viewport edges, moves by transform, remounts per row.
 function DashTooltip({ tip }) {
   const ref = React.useRef(null);
   const [pos, setPos] = React.useState({ x: 0, y: 0, ready: false });
@@ -331,7 +302,7 @@ function DashTooltip({ tip }) {
   return (
     <div ref={ref} className="chart-tooltip" style={style}>
       <div key={tip.title + ':' + (tip.lines || []).join(';')}>
-        {/* remounts per row — reflowing the old rows would shift (#642) */}
+        {/* remounts per row — reflowing the old rows would shift */}
         {tip.title && (
           <div className="chart-tooltip-title" style={{ color: tip.accent || undefined }}>
             {tip.title}
@@ -374,12 +345,9 @@ const _OTHER_COLOR = '#5a627a';
 // Aggregate + top-3 tools by n_total over the visible range.
 // Numerator = n_error, denominator = n_total over settled calls
 // (is_error IS NOT NULL); unmatched calls excluded by the API.
-// Shared by every legend checkbox row in this file -- the model, tool
-// and series pickers. The checkbox IS the colour key and carries the
-// on/off state itself, so a row shows its colour once: the separate 10px
-// swatch doubled it, and beside it the 24px box was the largest thing in
-// an 11px row (#474). SC 2.5.8 rides its SPACING exception instead --
-// each legend container's '14px 14px' holds row centres 27px apart.
+// The checkbox is the colour key and on/off state, avoiding a duplicate
+// swatch. SC 2.5.8 uses its spacing exception: each legend container's
+// '14px 14px' holds row centres 27px apart.
 // A drawing-mode toggle (the sessions traces, the per-tool lines) — a
 // BUTTON, not a checkbox row: it gates how the chart is drawn, it is not
 // a series picker with a colour key, so it is deliberately not a
@@ -416,9 +384,6 @@ function ToolUsagePanel({ models, project, range, nonce }) {
   const [tip, setTip] = React.useState(null);
   const [data, setData] = React.useState([]);
   const [bucketMs, setBucketMs] = React.useState(86_400_000);
-  // Per-panel model filter — separate from any global picker so the
-  // user can drill into "what does opus-4-7 use Bash for?" without
-  // affecting other panels.
   const [activeModel, setActiveModel] = React.useState('');
 
   React.useEffect(() => {
@@ -440,7 +405,6 @@ function ToolUsagePanel({ models, project, range, nonce }) {
       .catch(err => console.error('tool-usage fetch failed', err));
   }, [project, range, activeModel, nonce]);
 
-  // Dedup model list by short name for the select.
   const modelOpts = React.useMemo(() => {
     const grouped = {};
     for (const m of models || []) {
@@ -454,12 +418,9 @@ function ToolUsagePanel({ models, project, range, nonce }) {
 
   const TOP_N = 7;
 
-  // 1) Pivot data into a Map<bucketTs, Map<tool, count>> + bucket totals.
-  // 2) Compute per-tool overall count.
-  // 3) Determine "promoted" tools: top-N at any single bucket.
   const { buckets, perBucket, totalsByTool, promoted } = React.useMemo(() => {
-    const perBucket = new Map();      // ts -> Map<tool, n>
-    const totalsByTool = new Map();   // tool -> total n across all buckets
+    const perBucket = new Map();
+    const totalsByTool = new Map();
     for (const r of data || []) {
       const t = Date.parse(r.ts);
       if (isNaN(t)) continue;
@@ -469,7 +430,6 @@ function ToolUsagePanel({ models, project, range, nonce }) {
       totalsByTool.set(r.tool, (totalsByTool.get(r.tool) || 0) + r.n);
     }
     const buckets = [...perBucket.keys()].sort((a, b) => a - b);
-    // Per-bucket top-N → union → promoted set.
     const promoted = new Set();
     for (const ts of buckets) {
       const entries = [...perBucket.get(ts).entries()].sort((a, b) => b[1] - a[1]);
@@ -478,7 +438,6 @@ function ToolUsagePanel({ models, project, range, nonce }) {
     return { buckets, perBucket, totalsByTool, promoted };
   }, [data]);
 
-  // Sorted promoted-tool list (largest overall first → big bands at bottom).
   const promotedList = React.useMemo(
     () => [...promoted].sort((a, b) => (totalsByTool.get(b) || 0) - (totalsByTool.get(a) || 0)),
     [promoted, totalsByTool]
@@ -505,7 +464,6 @@ function ToolUsagePanel({ models, project, range, nonce }) {
   function toggle(k) {
     setOverrides(prev => ({ ...prev, [k]: !sel.has(k) }));
   }
-  // Bands actually drawn (in stacking order, largest at bottom).
   const bands = [...sel].filter(k => k !== '__OTHER__')
     .sort((a, b) => (totalsByTool.get(b) || 0) - (totalsByTool.get(a) || 0));
   const showOther = otherTools.length > 0 && sel.has('__OTHER__');
@@ -575,7 +533,6 @@ function ToolUsagePanel({ models, project, range, nonce }) {
     return { ts: buckets, shares, other, totalCalls };
   }, [buckets, perBucket, bands, showOther, otherTools, bucketMs]);
 
-  // Geometry
   const padL = 56, padR = 30, padT = 16, padB = 30;
   const h = 320;
   const plotW = Math.max(20, w - padL - padR);
@@ -628,9 +585,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
     return out;
   }, [grid, bands, showOther, liveIdx, plotW, plotH, tMin, tMax]);
 
-  // Y-axis ticks at 0/25/50/75/100%.
   const yTicks = [0, 0.25, 0.5, 0.75, 1.0];
-  // X-axis: adaptive labels.
   const xTicks = (isFinite(tMin) && isFinite(tMax)) ? window.timeTicksUTC(tMin, tMax) : [];
 
   function onMove(e) {
@@ -642,7 +597,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
     }
     if (!grid.ts.length) { setTip(null); return; }
     // Snap to nearest bucket on x.
-    // Snap to the nearest bucket that HAS data (#690): the hit columns
+    // Snap to the nearest bucket that HAS data: the hit columns
     // are built over the same real buckets as the snap.
     let bIdx = 0, bestD = 1e9;
     for (const i of realLive) {
@@ -650,7 +605,6 @@ function ToolUsagePanel({ models, project, range, nonce }) {
       if (d < bestD) { bestD = d; bIdx = i; }
     }
     const cursorFrac = 1 - (my - padT) / plotH;
-    // Identify which band the cursor is in (bottom-up cumulative).
     let cum = 0, hovered = null;
     for (const t of bands) {
       const sh = grid.shares.get(t)[bIdx];
@@ -822,7 +776,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
               fill={layer.color} fillOpacity="0.85" stroke="none" />
           ))}
 
-          {/* Hit rects, one per (bucket, band) datum (#690): the datum
+          {/* Hit rects, one per (bucket, band) datum: the datum
               lights when the tooltip snaps to it. */}
           {realLive.map((bi, k) => {
             // Voronoi columns centred on each bucket's x: a hover at a
@@ -878,10 +832,6 @@ function ToolUsagePanel({ models, project, range, nonce }) {
   );
 }
 
-// ──────────────────────────────────────────────────────────────────────
-// Cost by Context Size — where the money goes across the window
-// ──────────────────────────────────────────────────────────────────────
-
 // COL is keyed by SERIES NAME, not indexed — COL_X[0] is undefined, and
 // an SVG rect with fill=undefined renders BLACK while a path with
 // stroke=undefined renders nothing at all. Name the keys.
@@ -889,7 +839,6 @@ function ToolUsagePanel({ models, project, range, nonce }) {
 // does it (dashboard-charts.jsx:404-423): bars at fillOpacity 0.3 (0.85
 // on hover) and the cumulative line in the SAME hue, made legible by a
 // soft white halo underneath rather than by a second colour.
-//
 // That treatment dissolves the problem the earlier versions kept
 // failing at. A line in a contrasting hue has to beat the bars on
 // lightness AND stay visible on the dark surface, which nothing does
@@ -908,11 +857,6 @@ const BAR_OPACITY_HOVER = 0.85;
 // tests/test_panel_wiring.py against this implementation, and a second
 // copy would drift out from under those guards.
 
-// app.jsx renders the tokens and the cost variants of this panel side by
-// side; both draw from ONE endpoint response. The shared in-flight fetch
-// that de-duplicates them lives in src/cost-by-context.js (moved out for
-// issue #839 so a plain-JS test can drive it through node).
-
 function CostByContextPanel({ models, project, range, nonce, measure }) {
   const isTokens = measure === 'tokens';
   const ref = React.useRef(null), svgRef = React.useRef(null);
@@ -920,8 +864,6 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
   const [tip, setTip] = React.useState(null);
   const [data, setData] = React.useState([]);
   const [meta, setMeta] = React.useState({ bucket_width: 50000, bucket_max: 1000000, total_cost_usd: 0, total_tokens: 0 });
-  // Per-panel model filter, same convention as ToolUsagePanel: drill into
-  // one model without disturbing the other panels.
   const [activeModel, setActiveModel] = React.useState('');
 
   React.useEffect(() => {
@@ -1008,23 +950,19 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
     return pts.join(' L ');
   }, [bars, bw, plotW, plotH]);
 
-  // The headline the panel exists to give: the share of spend above the
-  // context size where the cumulative curve crosses 50%.
   const medianEdge = React.useMemo(() => {
     for (const b of bars) if (b.cum >= 0.5) return b.edge;
     return null;
   }, [bars]);
 
   const fmtTok = t => (t >= 1000 ? `${Math.round(t / 1000)}k` : String(t));
-  // The measure's own formatter, used for the y-axis, the tooltip and
-  // the total badge alike so all three read in the same unit.
   const fmtUsd = v => (isTokens
     ? humanFmt_X(v)
     : (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(v < 10 ? 2 : 0)}`));
 
   // Hit-test in the <svg>'s frame: padT/plotH are svg coordinates, and the
   // container's rect carries the header block above the svg, so comparing
-  // across the frames parked the active band a header-height high (#645).
+  // across the frames parked the active band a header-height high.
   // The tip still positions in container coordinates — its offsetParent.
   function onMove(e) {
     if (!ref.current || !svgRef.current) return;
@@ -1196,8 +1134,6 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
     </div>
   );
 }
-
-
 
 window.ContextGrowthPanel = ContextGrowthPanel;
 window.DashTooltip = DashTooltip;

@@ -1,10 +1,8 @@
-// One row per model for the Overview's Cost/Tokens by Model panels (#936).
-//
+// One row per model for the Overview's Cost/Tokens by Model panels.
 // Both panels are fed a {label: value} map keyed the way app.jsx's
 // modelProviderLabel builds labels — "model · host" where a record named
 // its serving host, the bare model where it named none — and leave with
 // the rows HBar draws.
-//
 // By default rows sharing a model id collapse to ONE row: the summed
 // value, today's descending sort on that sum, today's share-of-panel
 // labels. The collapsed row carries the host rows it stands for (`parts`),
@@ -12,14 +10,7 @@
 // its hover breaks down. A model with one surviving row is not a group:
 // it comes back exactly as it arrived — bare id or "model · host", no
 // parts, so nothing on that row changes.
-//
-// Kept out of app.jsx and dashboard-charts.jsx because both sit on their
-// recorded size entries (.github/ci-thresholds.json; entries only ever
-// move down), and it is the half the suite can actually execute — node
-// drives this module directly in tests/test_model_group_wiring.py,
-// because nothing here renders React.
 (function () {
-  // The label space, verbatim from app.jsx's modelProviderLabel.
   const HOST_SEP = ' · ';
 
   function hostOf(label) {
@@ -50,7 +41,7 @@
           label: g.parts.length > 1 ? g.model : g.parts[0].label,
           value: g.value,
           // A host-split row has no fixedColors entry of its own, so each
-          // row carries its MODEL's colour (see app.jsx's old modelColor).
+          // row carries its MODEL's colour.
           color: (window.modelColors || {})[g.model],
         };
         if (g.parts.length > 1) {
@@ -60,13 +51,9 @@
       });
   }
 
-  // What HBar renders: the grouped rows collapsed (the default), or
-  // today's per-host rows — one flat list, globally descending on value —
-  // once the panel's box is checked. Flattening re-sorts rather than
-  // leaving each model's hosts stacked in place, so the checked panel
-  // reads as today's descending-sort semantics (stable on exact ties);
-  // an exact tie spanning two models can still order differently from
-  // the pre-#936 flat fold, which broke ties by label-map insertion.
+  // Collapsed model rows are the default. Checking the panel's box
+  // flattens per-host rows and re-sorts globally by value, keeping
+  // exact ties stable rather than stacking each model's hosts.
   function shown(rows, open) {
     if (!open) return rows;
     const flat = [];

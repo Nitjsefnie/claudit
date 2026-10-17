@@ -1,12 +1,8 @@
-// The Tool Error Rate panel — ONE chart (issue #652), not a sub-panel
+// The Tool Error Rate panel — ONE chart, not a sub-panel
 // per model.
-//
-// Moved out of dashboard-charts-extra.jsx into its own module: that file
-// sits at its measured size entry, and an outgrown rework moves code
-// into a new module (the #659 pattern). The per-model sub-panels are
-// gone — model checkboxes pick the models drawn, and the panel's height
-// no longer grows with the model count.
-//
+// Its own module keeps dashboard-charts-extra.jsx within the size ratchet.
+// Model checkboxes select the series in one fixed-height chart, so
+// adding models does not grow a grid of sub-panels.
 // Each checked model adds its AGGREGATE error-rate EMA (α=0.15) line in
 // its own colour, always. The per-tool toggle (showPerTool, off by
 // default) adds the tools picked in the tool picker (top-3 by calls plus
@@ -21,7 +17,6 @@ const TH_X = window.dashboardTheme;
 // holds more tools than patterns. Indexed only inside the toolDash map.
 const TOOL_DASHES = ['', '4,3', '1,3', '7,3', '2,4', '5,2'];
 
-// The per-tool picker's Other entry key and its dim swatch colour.
 const PROBE_CHARS = '0123456789abcdefghij';
 const OTHER = '__OTHER__';
 const _OTHER_COLOR = '#5a627a';
@@ -31,7 +26,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
   const [w, setW] = React.useState(1200);
   const [data, setData] = React.useState([]);
   const [bucketMs, setBucketMs] = React.useState(86400000);
-  // The chart's height is a constant (#652 point 5), whatever the model
+  // The chart's height is a constant, whatever the model
   // count: header + checkbox rows + one fixed-height chart.
   const h = 240;
   // Cap visible per-tool checkboxes; the rest collapse into a single
@@ -49,8 +44,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
   // Measured advance of the legend's 9.5px monospace, read off a fixed
   // probe string parked off-canvas. The comparison panel measures its
   // advances the same way and for the same reason: a predicted advance
-  // is what let a 17-character model name run through its neighbour
-  // (issue #630).
+  // can let long model names overlap their neighbours.
   const legRef = React.useRef(null);
   const [adv, setAdv] = React.useState(0);
   React.useLayoutEffect(() => {
@@ -71,9 +65,6 @@ function ToolErrorRatePanel({ project, range, nonce }) {
       .catch(err => console.error('tool-error-rate fetch failed', err));
   }, [project, range, nonce]);
 
-  // Group buckets by short model name: each model gets its sorted
-  // bucket timestamps, a Map<ts, Map<tool, {n_total, n_error}>> and a
-  // Map<tool, n_total>.
   const byModel = React.useMemo(() => {
     const out = {};
     for (const r of (data || [])) {
@@ -103,8 +94,6 @@ function ToolErrorRatePanel({ project, range, nonce }) {
     return out;
   }, [data]);
 
-  // Models present, sorted by settled calls (the n_total sum) desc — the
-  // checkbox order and the top-2 default's ranking.
   const models = React.useMemo(() => {
     return Object.entries(byModel)
       .map(([m, v]) => {
@@ -115,9 +104,6 @@ function ToolErrorRatePanel({ project, range, nonce }) {
       .sort((a, b) => b.total - a.total);
   }, [byModel]);
 
-  // Tool inventory for the picker: the union of every model's totals,
-  // sorted by calls desc. The visible top-N and the Other collapse
-  // follow ToolUsagePanel's shape.
   const toolEntries = React.useMemo(() => {
     const totals = new Map();
     for (const v of Object.values(byModel)) {
@@ -146,9 +132,6 @@ function ToolErrorRatePanel({ project, range, nonce }) {
     }, 0),
     [otherTools, byModel]);
 
-  // The two checked sets, both through the shared selection rule with
-  // the user's overrides layered on top (#652 point 1; src
-  // /model-select.js).
   const [modelOverrides, setModelOverrides] = React.useState({});
   const selModels = React.useMemo(
     () => window.modelSelect.topDefaultSelection(models, modelOverrides, 2),
@@ -165,14 +148,10 @@ function ToolErrorRatePanel({ project, range, nonce }) {
     if (hasOther) entries.push({ model: OTHER, count: otherTotal });
     return entries;
   }, [visibleTools, hasOther, otherTotal, byModel]);
-  // Default: top-3 tools by calls plus Other (unless unchecked) — the
-  // sub-panel's default, with Aggregate no longer a picker entry.
   const selTools = React.useMemo(
     () => window.modelSelect.topDefaultSelection(
       toolPickerEntries, { [OTHER]: true, ...toolOverrides }, 3),
     [toolPickerEntries, toolOverrides]);
-  // The per-tool drawing toggle — a drawing MODE, not a series, so it is
-  // the toggle chip rather than a checkbox in a picker row (#652 point 3).
   const [showPerTool, setShowPerTool] = React.useState(false);
 
   function toggleModel(m) {
@@ -182,17 +161,12 @@ function ToolErrorRatePanel({ project, range, nonce }) {
     setToolOverrides(prev => ({ ...prev, [k]: !selTools.has(k) }));
   }
 
-  // Per-model drawn lines for the checked models; the rate math comes
-  // from src/rate-series.js (plain JS, node-testable).
   const drawn = React.useMemo(
     () => window.rateSeries.drawnLines(models, selModels, byModel, visibleTools, otherTools, OTHER),
     [models, selModels, byModel, visibleTools, otherTools]);
 
-  // The union bucket list the tip snaps across (#690) — the hit columns' index space.
   const hitBuckets = [...new Set(drawn.flatMap(d => byModel[d.model].buckets))].sort((a, b) => a - b);
 
-  // Y axis: 0 → max EMA across the DRAWN lines (aggregate always; picked
-  // tools when the toggle is on), +10% headroom, floored off 0.
   const yMax = React.useMemo(() => {
     let m = 0;
     for (const d of drawn) {
@@ -205,8 +179,6 @@ function ToolErrorRatePanel({ project, range, nonce }) {
     return Math.max(m * 1.1, 0.001);
   }, [drawn, showPerTool, selTools]);
 
-  // X domain: the union of every CHECKED model's buckets, padded one
-  // bucket so the last line reaches its full width.
   const xMin = React.useMemo(() => {
     let lo = 0;
     for (const d of drawn) {
@@ -246,7 +218,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
 
   // One dash pattern per tool, keyed by the DISPLAY label from the
   // PICKER position — checked or not. The line loop and the legend both
-  // read this one map (#682); a second index site is the drift again.
+  // read this one map; a second index site is the drift again.
   const toolDash = React.useMemo(() => Object.fromEntries(
     toolPickerEntries.map((k, ti) =>
       [labelFor(k.model), TOOL_DASHES[ti % TOOL_DASHES.length]])),
@@ -254,10 +226,9 @@ function ToolErrorRatePanel({ project, range, nonce }) {
 
   // The per-tool lines are drawn in the MODEL's colour, so the legend
   // that distinguishes them is the dash pattern: one per checked tool,
-  // from the shared toolDash map (its picker position, #682). Shown only
-  // while the toggle is on (#652 point 3). Packed by the measured
-  // advance, like every legend on these panels — a predicted advance is
-  // how a 17-character name ran through its neighbour (issue #630).
+  // from the shared toolDash map (its picker position). Shown only
+  // while the toggle is on. Packed by the measured
+  // advance, like every legend on these panels, so long labels fit.
   const toolLegend = React.useMemo(() => {
     if (!showPerTool) return { rows: [] };
     const picked = toolPickerEntries.filter(e => selTools.has(e.model));
@@ -278,7 +249,6 @@ function ToolErrorRatePanel({ project, range, nonce }) {
       setTip(null); return;
     }
     if (!drawn.length) { setTip(null); return; }
-    // Snap to the nearest bucket centre across the checked models.
     let best = null;
     for (const d of drawn) {
       const md = byModel[d.model];
@@ -353,8 +323,8 @@ function ToolErrorRatePanel({ project, range, nonce }) {
       )}
 
       {/* Model checkbox strip — BELOW the chart, like every other
-          panel's legend (#773): order 99 paints it after the chart; each
-          checkbox IS its model's colour key (#474). */}
+          panel's legend: order 99 paints it after the chart; each
+          checkbox IS its model's colour key. */}
       {models.length > 0 && (
         <div data-role="legend" style={{
           padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
@@ -377,7 +347,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
       )}
 
       {/* Tool picker strip: top-3 tools by calls plus Other, below the
-          chart with the models strip (#773). */}
+          chart with the models strip. */}
       {models.length > 0 && (
         <div data-role="legend" style={{
           padding: '8px 14px', borderTop: `1px solid ${TH_X.border}`,
@@ -397,7 +367,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
         </div>
       )}
 
-      {/* The ONE chart (#652). The svg grows only when the dashed tool
+      {/* The ONE chart. The svg grows only when the dashed tool
           legend below it wraps; both are independent of the model
           count. */}
       {models.length > 0 && (
@@ -475,7 +445,7 @@ function ToolErrorRatePanel({ project, range, nonce }) {
               </g>
             )}
 
-            {/* Hit columns per union bucket (#690): the lift is the position indicator and the mark. */}
+            {/* Hit columns per union bucket: the lift is the position indicator and the mark. */}
             {hitBuckets.map((ts, i) => <rect data-hover-target="" key={'h' + i}
               x={xs(ts)} y={padT} width={xs(ts + bucketMs) - xs(ts)}
               height={plotH} fill="#fff"

@@ -3,7 +3,6 @@
 // structured events (user/assistant/tool_call/tool_result/thinking/
 // agent_spawn) plus meta events (assistant_usage, system,
 // queue-operation, attachment).
-//
 // Lane transcripts (Codex rollouts, the two Kimi wire formats) are parsed
 // by src/parser-lanes.js, which emits the same shapes; parseTranscript
 // sniffs the format and delegates. One rate table only — src/pricing.json,
@@ -13,7 +12,7 @@
 // only when the Claude parser needs usage normalization.
 
 // A user text that OPENS with an XML tag is harness-injected data, not a
-// prompt (issue #213) — deny-by-default, so an unknown future harness tag
+// prompt — deny-by-default, so an unknown future harness tag
 // is excluded without a parser change; only wrappers around human text
 // are kept (<pasted_content> wraps a human paste, which IS a prompt).
 // Mirrors backend/parse.py:_is_prompt_text (SV-PARSER-SPEC). A text failing
@@ -69,16 +68,9 @@ window.parseTranscript = function parseTranscript(text, opts) {
   const seenUuids = (opts && opts.seenUuids) || null;
   const dedupStamps = new Map();
 
-  // Sniff a tool_result / user_message body for off-disk references:
-  // - <task-notification>…<output-file>…</output-file>…</task-notification>
-  //   pointing at a sibling agent-<id>.jsonl (subagent transcript)
-  // - tool-results/<id>.<ext> paths (sidecar tool output files)
-  // - bare agent-<id> references
-  // Returns an array of { kind, ... } records or [] if none found.
   function detectRefs(text) {
     if (!text || typeof text !== 'string') return [];
     const refs = [];
-    // Task notifications (subagent finished / event)
     const taskRe = /<task-notification>([\s\S]*?)<\/task-notification>/g;
     let m;
     while ((m = taskRe.exec(text)) !== null) {
@@ -95,7 +87,6 @@ window.parseTranscript = function parseTranscript(text, opts) {
         event: event || '',
       });
     }
-    // Sidecar tool-result files
     const fileRe = /(?:^|[^a-zA-Z0-9._-])(tool-results\/[A-Za-z0-9._-]+\.[a-zA-Z]+)/g;
     while ((m = fileRe.exec(text)) !== null) {
       refs.push({ kind: 'tool_result_file', path: m[1] });
@@ -119,7 +110,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
       return;
     }
     if (!Array.isArray(content)) return;
-    // ONE user_message per record (issue #215): any gate-passing text
+    // ONE user_message per record: any gate-passing text
     // block or image block makes the record one prompt, mirroring
     // backend parse.py's per-record count. An image inside a
     // tool_result below is result payload and never joins the detail.
@@ -140,8 +131,6 @@ window.parseTranscript = function parseTranscript(text, opts) {
         } else {
           resultText = String(raw ?? '');
         }
-        // Detect referenced sidecar files / subagent links inside the
-        // result text (out-of-band attachments that live outside the JSONL).
         const refs = detectRefs(resultText);
         events.push({
           line: lineNum, type: 'tool_result', ts,
@@ -208,14 +197,12 @@ window.parseTranscript = function parseTranscript(text, opts) {
     }
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) continue;
 
-    // Cross-file dedup (directory / multi-load mode): the winner rule, the
-    // stamps and the retraction live in record-dedup.js (#529, #562, #563).
     if (seenUuids && typeof obj.uuid === 'string' && obj.uuid
         && window.recordDedup.decide(seenUuids, obj, i + 1, dedupStamps) === 'skip') {
       continue;
     }
 
-    // An offset-less ISO timestamp is UTC (issue #376, mirrors parse_common._to_dt): unstamped, Date.parse reads the viewer's zone.
+    // An offset-less ISO timestamp is UTC (mirrors parse_common._to_dt): unstamped, Date.parse reads the viewer's zone.
     let ts = obj.timestamp || '';
     if (typeof ts === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(ts)) ts += 'Z';
     const msgType = obj.type || '';
@@ -230,7 +217,6 @@ window.parseTranscript = function parseTranscript(text, opts) {
       const content = obj.content || '';
       const subtype = obj.subtype || '';
       meta.push({ line: i + 1, type: 'system', ts, subtype, content, raw: obj });
-      // Detect rate-limit hits from system content
       const lower = (content + ' ' + subtype).toLowerCase();
       if (lower.includes('rate limit') || lower.includes('rate_limit') || lower.includes('429')) {
         meta.push({ line: i + 1, type: 'rate_limit', ts, content, raw: obj });
@@ -267,21 +253,19 @@ window.parseTranscript = function parseTranscript(text, opts) {
         const mergeKey = reqId || (typeof m.id === 'string' && m.id ? `msg:${m.id}` : '');
         const ev = {
           line: i + 1, type: 'assistant_usage', ts,
-          model: m.model || null, // model-less: null, the backend refuses the file (issue #688)
+          model: m.model || null, // model-less: null, the backend refuses the file
           // The serving host (OpenRouter only). Mirrors parse._provider.
           provider: (typeof m.provider === 'string' && m.provider.trim()) || null,
           requestId: reqId,
           uuid: obj.uuid || '',
           sessionId: obj.sessionId || '',
-          // The meter decision (issue #765), recomputed after a streaming
+          // The meter decision, recomputed after a streaming
           // merge below — mirrors parse._project_record.
           long_context: window.longContextFlagFor(m.model, usage),
           web_search_requests: window.parserUsage.searchRequests(usage),
           usage: { ...usage },
         };
         if (mergeKey && seenReq.has(mergeKey)) {
-          // Recursive max merge — handles streaming where output_tokens is
-          // reported incrementally, plus nested cache_creation dict.
           const existing = seenReq.get(mergeKey);
           existing.usage = window.parserUsage.mergeUsageMax(
             existing.usage, usage);
@@ -300,13 +284,13 @@ window.parseTranscript = function parseTranscript(text, opts) {
     }
   }
 
-  // The provider-neutral cache-write split (issue #842), over this file's
+  // The provider-neutral cache-write split, over this file's
   // assistant_usage entries in order — mirrors the backend's
   // resolve_cache_writes (SV-PARSER-SPEC), before the cross-file dedup.
   if (window.resolveCacheWrites) window.resolveCacheWrites(meta);
 
-  // Tool-call dedup (issue #795): the Claude path's tail of the codex
-  // lane's seenToolIds contract (issue #766) — a compaction sidecar
+  // Tool-call dedup: the Claude path's tail of the codex
+  // lane's seenToolIds contract — a compaction sidecar
   // replays the main file's tool_use blocks under new line uuids, so the
   // line-uuid dedup cannot catch them. The tail is module code in
   // record-dedup.js: decide per call event against the shared map, then
@@ -318,9 +302,7 @@ window.parseTranscript = function parseTranscript(text, opts) {
   const seenToolIds = (opts && opts.seenToolIds) || null;
   if (seenToolIds && window.recordDedup)
     window.recordDedup.dedupToolCalls(events, seenToolIds);
-  // Retract the masked dedup copies before the batch pass judges the survivors.
   if (seenUuids) window.recordDedup.retract(events, meta, dedupStamps, seenUuids);
-  // Annotate parallel batches: consecutive tool calls < 2s apart
   const toolEvs = events.filter(e => e.type === 'tool_call' || e.type === 'agent_spawn');
   if (toolEvs.length) {
     const batches = [[toolEvs[0]]];
@@ -339,7 +321,6 @@ window.parseTranscript = function parseTranscript(text, opts) {
     }
   }
 
-  // Link tool_call <-> tool_result
   const callMap = new Map();
   for (const e of events) {
     if ((e.type === 'tool_call' || e.type === 'agent_spawn') && e.tool_use_id) {
@@ -368,8 +349,6 @@ window.computeSessionStats = function (events, meta) {
     toolCounts: {},
     models: new Set(),
     fresh: 0, create: 0, read: 0, output: 0, eph5: 0, eph1h: 0,
-    // The provider-neutral cache-write total (issue #842), summed from
-    // each record's parse-time cache_write.
     write: 0,
     webSearchRequests: 0,
     turns: 0,
@@ -429,16 +408,15 @@ window.computeSessionStats = function (events, meta) {
       mant |= 1n << 52n;
       exp = rawExp - 1075;
     }
-    const scaled = mant * 1000000n; // value * 1e6 before the 2^exp shift
+    const scaled = mant * 1000000n;
     let q;
     if (exp >= 0) {
-      q = scaled << exp; // an exact integer: nothing fractional to drop
+      q = scaled << exp;
     } else {
       const den = 2n ** BigInt(-exp);
       q = scaled / den;
       const r = scaled % den;
       const twice = r * 2n;
-      // More than half rounds up; an exact tie rounds to even.
       if (twice > den || (twice === den && (q & 1n) === 1n)) q += 1n;
     }
     return (neg ? -1 : 1) * Number(q) / 1e6;
@@ -457,8 +435,6 @@ window.computeSessionStats = function (events, meta) {
     const eph1h = (u.cache_creation && u.cache_creation.ephemeral_1h_input_tokens) || 0;
     stats.fresh += f; stats.create += cc; stats.read += cr; stats.output += o;
     stats.eph5 += eph5; stats.eph1h += eph1h;
-    // The neutral cache-write split (issue #842); 0 when a parser did not
-    // attach it (a bare parser.js load with no parser-cache-write.js).
     stats.write += m.cache_write || 0;
 
     const r = rate(m.model || '', m.ts, m.provider);

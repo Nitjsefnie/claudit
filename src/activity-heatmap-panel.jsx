@@ -1,15 +1,5 @@
-// ---------------------------------------------------------------------------
-// Activity Heatmap — weekday × hour grid in Europe/Prague local time.
 // DST handling lives in the backend (Postgres AT TIME ZONE); this panel
 // only renders the dow/hour cells it is given.
-//
-// Moved out of dashboard-charts-extra.jsx into its own module: that file
-// sits at its measured size entry, and an outgrown rework moves code
-// into a new module (the #652/#659 pattern). #690's marks live here:
-// every cell, Σ margin and the corner total is a `data-hover-target`
-// whose hovered member takes a white stroke, so the interaction sweep
-// hovers the grid's buckets like any bar panel's bars.
-// ---------------------------------------------------------------------------
 const TH_X = window.dashboardTheme;
 const COL_X = window.dashboardCol;
 const humanFmt_X = window.humanFmt;
@@ -45,7 +35,6 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
       .catch(err => console.error('activity-heatmap fetch failed', err));
   }, [project, range, activeModel, nonce]);
 
-  // Dedup model list by short name for the select (same as ToolUsagePanel).
   const modelOpts = React.useMemo(() => {
     const grouped = {};
     for (const m of models || []) {
@@ -66,7 +55,7 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
   const mspec = _HEAT_METRICS.find(m => m.key === activeMetric) || _HEAT_METRICS[0];
 
   const { byCell, maxVal, rowTotals, colTotals, grand, rowMax, colMax } = React.useMemo(() => {
-    const byCell = new Map();               // dow*100+hour -> cell
+    const byCell = new Map();
     let maxVal = 0;
     const zero = () => ({ requests: 0, output_tokens: 0, cost_usd: 0 });
     const rowTotals = Array.from({ length: 7 }, zero);
@@ -88,7 +77,7 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
   }, [cells, activeMetric]);
 
   // Geometry — 25 columns × 8 rows (24 hours + Σ, 7 days + Σ), label gutters left + top.
-  // cellW floors at 2, not 8 (#636): 8 engaged at a 320px viewport; 2
+  // cellW floors at 2, not 8: 8 engaged at a 320px viewport; 2
   // engages only below the ~162px panel where pads+gaps outrun the grid.
   const padL = 44, padR = 14, padT = 24, padB = 10, gap = 2;
   const SUM_GAP = 8;

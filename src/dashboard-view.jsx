@@ -3,8 +3,6 @@ const { useState, useMemo, useEffect } = React;
 function TokenBreakdownPanel({ events }) {
   const [activeModel, setActiveModel] = useState('');
 
-  // Model options derived from the events actually present (already short
-  // names via backendDashToShape), ordered by cost desc.
   const modelOpts = useMemo(() => {
     const byModel = {};
     for (const e of events) {
@@ -25,10 +23,6 @@ function TokenBreakdownPanel({ events }) {
   // nothing. Drop the bar instead; the token bar above is unaffected.
   const hasCost = costRows.some(r => r.cost > 0);
 
-  // One bordered card (matching the sibling "Cost by Model" card) so the
-  // shared model filter visibly belongs to the whole Token Breakdown panel
-  // — the two bars are the same data sorted by tokens vs by cost, so a
-  // single picker drives both.
   return (
     <div style={{
       background: 'var(--bg-card)', border: '1px solid var(--border)',
@@ -69,22 +63,20 @@ function TokenBreakdownPanel({ events }) {
 }
 
 function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashNonce, dashFetch, Stat }) {
-  // `synth` is null until /api/dashboard lands. Render anyway: the four
-  // backend panels below each fetch their OWN endpoint on mount, and gating
-  // the whole component on dashboard data made those four requests wait for
-  // it — a measured 6.9s, turning a parallel fan-out into a serial chain.
+  // Render while `synth` is null so self-fetching panels can request
+  // their endpoints in parallel with /api/dashboard.
   const hasData = !!synth;
   // The fetch state, not the data: an empty or failed range has still
-  // resolved, and the sections below show their own states then (#394).
+  // resolved, and the sections below show their own states then.
   const dashLoading = dashFetch.status === window.dashboardFetch.LOADING;
   const independentReady = hasData || !dashLoading;
-  // The invisible reservation below is for the FIRST load only (#643): a
+  // The invisible reservation below is for the FIRST load only: a
   // later range change re-enters LOADING while the previous range's
   // sections are on screen, and hiding those would blank the page on
   // every filter switch.
   const everLoaded = React.useRef(false);
   useEffect(() => { if (!dashLoading) everLoaded.current = true; }, [dashLoading]);
-  // Issue #436: the page is USABLE once the request RESOLVES, an empty range
+  // the page is USABLE once the request RESOLVES, an empty range
   // included -- a deploy with no data would otherwise never leave pre-paint.
   // The JOURNEY still closes only on a data-bearing READY: an empty one, or a
   // failed one over stale `synth`, would report a page that rendered nothing.
@@ -137,8 +129,6 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
       t.linesAdded += e.lines_added || 0; t.linesDeleted += e.lines_deleted || 0;
       const label = window.modelProviderLabel(e.model, e.provider);
       byModel[label] = (byModel[label] || 0) + e.cost_usd;
-      // Every token the model processed, whichever cache tier it came
-      // from: the measure Cost by Model prices, before the rate.
       tokensByModel[label] = (tokensByModel[label] || 0) + e.input_tokens + e.output_tokens + e.cache_create + e.cache_read;
     }
     t.total = t.input + t.output + t.cc + t.cr;
@@ -153,17 +143,10 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   // backend already applied to each returned point.
   const binMs = window.dashboardBinMs(range, bucketS);
 
-  // One row per model by default (#936): rows sharing a model id collapse
-  // to their summed value, sorted desc, each coloured by its model (a
-  // host-split row has no fixedColors entry of its own). The module drops
-  // zero rows first, exactly as the flat fold did; the panel's single
-  // checkbox flips the grouped rows back to today's per-host rows.
   const costByModel = window.modelGroup.group(totals.byModel);
   // Share of the charted total, not of `totals.cost`: the rows above drop
   // zero-cost models, so summing them is what makes the labels add to 100%.
   const costByModelTotal = costByModel.reduce((a, r) => a + r.value, 0);
-  // Same shape as Cost by Model, measured in tokens: a free lane
-  // (bonsai at $0) is invisible on the cost bar and visible here.
   const tokensByModel = window.modelGroup.group(totals.tokensByModel);
   const tokensByModelTotal = tokensByModel.reduce((a, r) => a + r.value, 0);
 
@@ -187,13 +170,9 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
     .map(r => ({ label: r.project, value: r.total_tokens, color: window.dashboardCol.totalTokens }));
 
   const totalCostStr = window.humanFmt(totals.cost, true);
-  // Whether anything in the range cost money at all. A free lane
-  // (llamameter: bonsai-2-27b at $0) charts zeros on every cost
-  // surface, so each one is dropped rather than drawn empty.
   const hasCost = totals.cost > 0;
   const sharedCostEnabled = ['usage_timeseries', 'model_comparison', 'summary'].some(window.featureOn);
 
-  // Loading/empty/error are told apart by the state, not the shape (#394).
   const summary = window.dashboardFetch.summary(dashFetch, hasData);
   return (
     <div className="dashboard" data-perf-region="panel_grid">
@@ -229,7 +208,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
       {hasData && (<>
       {/* Read by src/perf.js walking UP from a shifted node: a Layout
           Instability entry names the elements that moved, so the nearest
-          marked ancestor is the region it is attributed to (#436). */}
+          marked ancestor is the region it is attributed to. */}
       <div className="dash-grid" data-perf-region="panel_grid">
         {window.featureOn('usage_timeseries') && panels.input && (
         <window.TimeSeriesPanel title="Input Tokens"  events={events} valueKey="input_tokens"
@@ -353,9 +332,9 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         </div>
       )}
       {/* Self-fetching panels: mounted regardless of dashboard data, and
-          BELOW every data-gated block (#643); its sections stack with
-          .dashboard's own 14px flex gap (#772) — a plain block wrapper
-          holds its content out of the gap context, flush.  Each fills
+          BELOW every data-gated block; its sections stack with
+          .dashboard's own 14px flex gap — a plain block wrapper
+          holds its content out of the gap context, flush. Each fills
           when its own response lands; until the first /api/dashboard
           resolves they lay out at final heights, painting nothing. */}
       {backendOn && (
@@ -379,7 +358,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         </div>
       )}
 
-      {/* Self-fetching like the four above, operator-only (#629). */}
+      {/* Self-fetching like the four above, operator-only. */}
       {backendOn && window.IS_OPERATOR && window.featureOn('page_performance') && (
         <div className="dash-resp">
           {/* No `project`: a beacon carries none. */}
@@ -424,6 +403,5 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
     </div>
   );
 }
-
 
 window.Dashboard = Dashboard;

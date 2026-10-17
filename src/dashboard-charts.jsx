@@ -1,6 +1,3 @@
-// Dashboard chart components — interactive SVG (with hover tooltips).
-// Six time-series cards, two horizontal bars, and the burn-rate panel.
-
 // CSS-var resolver so the chart theme follows the stylesheet.
 // Evaluated once at module-load — sufficient for a single-theme app.
 const cssVar = (name, fallback) => {
@@ -31,27 +28,27 @@ const COL = {
   cacheReadTokens:   'oklch(0.72 0.14 25)',
   totalTokens:       'oklch(0.78 0.14 245)',
   costUSD:           cssVar('--gold', 'oklch(0.85 0.14 90)'),
-  linesAdded:        'oklch(0.75 0.16 155)',  // green — insertions
+  linesAdded:        'oklch(0.75 0.16 155)',
   linesDeleted:      'oklch(0.68 0.19 15)',   // red — deletions (positive series)
 };
 
 // --- Model colours
 // Hand-picked colours, keyed on the canonical name shortModelName produces
-// (vendor prefix included, #472). Anything else — a new lane, a new
-// generation — used to fall to the '#888', so two unknowns were one grey.
+// (vendor prefix included). Unknown models need distinct fallback colours
+// so a new lane or generation does not collapse into one grey series.
 const MODEL_COLOR_TABLE = {
-  'claude-fable-5-1':   'oklch(0.84 0.12 318)',  // light orchid — current top tier
-  'claude-fable-5':     'oklch(0.78 0.17 330)',  // magenta
-  'claude-opus-5':      'oklch(0.72 0.18 350)',  // deep rose — current Opus
-  'claude-opus-4-8':    'oklch(0.70 0.17 5)',    // rose
-  'claude-opus-4-7':    'oklch(0.72 0.16 25)',   // coral
-  'claude-opus-4-6':    'oklch(0.78 0.14 55)',   // amber
-  'claude-opus-4-5':    'oklch(0.85 0.14 90)',   // gold
-  'claude-sonnet-5':    'oklch(0.75 0.15 275)',  // indigo
-  'claude-sonnet-4-6':  'oklch(0.78 0.14 245)',  // blue
-  'claude-sonnet-4-5':  'oklch(0.72 0.16 305)',  // violet
-  'claude-haiku-4-5':   'oklch(0.78 0.14 175)',  // teal — matches --accent
-  '<synthetic>':        'oklch(0.65 0.02 260)',  // neutral
+  'claude-fable-5-1':   'oklch(0.84 0.12 318)',
+  'claude-fable-5':     'oklch(0.78 0.17 330)',
+  'claude-opus-5':      'oklch(0.72 0.18 350)',
+  'claude-opus-4-8':    'oklch(0.70 0.17 5)',
+  'claude-opus-4-7':    'oklch(0.72 0.16 25)',
+  'claude-opus-4-6':    'oklch(0.78 0.14 55)',
+  'claude-opus-4-5':    'oklch(0.85 0.14 90)',
+  'claude-sonnet-5':    'oklch(0.75 0.15 275)',
+  'claude-sonnet-4-6':  'oklch(0.78 0.14 245)',
+  'claude-sonnet-4-5':  'oklch(0.72 0.16 305)',
+  'claude-haiku-4-5':   'oklch(0.78 0.14 175)',
+  '<synthetic>':        'oklch(0.65 0.02 260)',
 };
 
 // FNV-1a over the key: cheap, deterministic, and spreads adjacent ids
@@ -141,15 +138,13 @@ function fmtDate(ts, opts = {}) {
 }
 
 // Adaptive UTC x-axis ticks: months when the span is wide, day starts
-// for medium spans, hours for narrow ones. Month-only ticks (the old
-// behavior in every panel) left the x-axis completely unlabeled on the
-// 24h / 7d / 30d range presets. Returns [{ts, label}].
+// for medium spans, hours for narrow ones so short ranges keep labels.
+// Returns [{ts, label}].
 function timeTicksUTC(start, end) {
   const HOUR = 3600_000, DAY = 24 * HOUR;
   const span = Math.max(1, end - start);
   const ticks = [];
   if (span >= 80 * DAY) {
-    // Month starts, thinned to ≤ ~12 labels.
     const all = [];
     const d = new Date(start);
     let m = d.getUTCMonth(), y = d.getUTCFullYear();
@@ -164,7 +159,6 @@ function timeTicksUTC(start, end) {
       ticks.push({ ts: all[i], label: fmtDate(all[i], { month: true }) });
     }
   } else if (span >= 3 * DAY) {
-    // Day starts.
     const stepDays = span > 50 * DAY ? 7 : span > 25 * DAY ? 4 : span > 12 * DAY ? 2 : 1;
     const d0 = new Date(start);
     let t = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
@@ -173,7 +167,6 @@ function timeTicksUTC(start, end) {
       t += stepDays * DAY;
     }
   } else {
-    // Hour marks.
     const stepH = span > 36 * HOUR ? 6 : span > 18 * HOUR ? 3 : span > 8 * HOUR ? 2 : 1;
     let t = Math.ceil(start / (stepH * HOUR)) * (stepH * HOUR);
     while (t <= end) {
@@ -185,7 +178,6 @@ function timeTicksUTC(start, end) {
   return ticks;
 }
 
-// Human label for a bin width ("5m", "6h", "1d") — used by axis legends.
 function binMsLabel(ms) {
   if (ms < HOUR_MS) return (ms / 60_000) + 'm';
   if (ms < 24 * HOUR_MS) return (ms / HOUR_MS) + 'h';
@@ -196,7 +188,7 @@ const HOUR_MS = 3600_000;
 // --- Tooltip primitive (positioned in container, follows the cursor) ---
 // Flips left/up when it would overflow the viewport right/bottom edges;
 // moves by `transform: translate`, never left/top — a transform move is
-// outside Layout Instability, so following the cursor shifts nothing (#642).
+// outside Layout Instability, so following the cursor shifts nothing.
 function Tooltip({ tip }) {
   const ref = React.useRef(null);
   const [pos, setPos] = React.useState({ x: 0, y: 0, ready: false });
@@ -206,7 +198,6 @@ function Tooltip({ tip }) {
     const w = el.offsetWidth, h = el.offsetHeight;
     const parentRect = el.offsetParent ? el.offsetParent.getBoundingClientRect() : { left: 0, top: 0 };
     const margin = 8;
-    // Default: lower-right of cursor
     let x = tip.x + 12, y = tip.y + 12;
     const absRight  = parentRect.left + x + w, absBottom = parentRect.top  + y + h;
     if (absRight  > window.innerWidth  - margin) x = tip.x - w - 12;
@@ -231,7 +222,7 @@ function Tooltip({ tip }) {
   return (
     <div ref={ref} className="chart-tooltip" style={style}>
       <div key={tip.title + ':' + (tip.lines || []).join(';')}>
-        {/* remounts per row — reflowing the old rows would shift (#642) */}
+        {/* remounts per row — reflowing the old rows would shift */}
         {tip.title && (
           <div className="chart-tooltip-title" style={{ color: tip.accent || undefined }}>
             {tip.title}
@@ -306,7 +297,7 @@ function timeBinIndexAtX(bins, range, padL, plotW, x) {
       || (index === bins.length - 1 && ts === bin.end)));
 }
 
-// --- Accessible chart names (issue #117) ---
+// --- Accessible chart names ---
 // A chart panel svg is an IMAGE to assistive technology: role="img",
 // named with the panel title plus a one-line summary DERIVED FROM THE
 // DATA the panel already holds. A hardcoded count would go stale the
@@ -315,12 +306,11 @@ function timeBinIndexAtX(bins, range, padL, plotW, x) {
 // carry as text), a visually-hidden element rendered BESIDE the svg
 // carries the longer description and the svg's aria-describedby points
 // at it.
-//
 // useChartA11y returns { label, descId, descText }. Call sites write
 // role="img" aria-label={a11y.label} aria-describedby={a11y.descId} on
 // the svg (React omits the describedby attribute when descId is
 // undefined) and, when descText is set, a
-//   <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
+// <span className="sr-only" id={a11y.descId}>{a11y.descText}</span>
 // next to it. The id comes from React.useId(), never the title:
 // TimeSeriesPanel/HBar mount once per metric and a panel family can
 // mount two instances of itself, so title-derived ids collide.
@@ -333,7 +323,6 @@ function useChartA11y(title, summary, description) {
   };
 }
 
-// --- Time-series panel ---
 function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, binMs }) {
   const ref = React.useRef(null), svgRef = React.useRef(null);
   const [size, setSize] = React.useState({ w: 600, h: 280 });
@@ -364,17 +353,10 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
   }, []);
 
   const { w, h } = size;
-  // padR is the right gutter: it holds the cumulative-axis labels (start-
-  // anchored at padR - 6 from the edge) and the rotated "cumulative" title
-  // whose box sits at w-21..w-9. At the old 50 the labels had 23px before
-  // the title and "100M" is exactly 23.0px wide, so wider values collided.
+  // Fit right-axis labels between the plot and rotated cumulative title.
   const padR = 70, padT = 28, padB = 28;
-  // The left gutter holds the rotated "per <bin>" caption (box 8..20 once
-  // anchored at x=17) and then the y labels, end-anchored at padL - 6. So
-  // the widest label needs padL - 6 - width >= 26 to keep a 6px gap from the
-  // caption. At a fixed 50 that held for "10M" but not for "$500.00", which
-  // renders 40.3px wide and ended up 3.7px from the panel edge — measured,
-  // not estimated, for the same reason as HBar below.
+  // On the left, padL - 6 - label width must stay >= 26 to leave a 6px
+  // gap from the rotated caption. Use rendered widths, as HBar does.
   const padL = Math.min(
     Math.max(60, w * 0.25),
     Math.max(50, Math.ceil(yLabelPx) + 32)
@@ -388,7 +370,7 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
   const maxBin = Math.max(1, ...bins.map(b => b.sum));
   // Cumulative line — start anchored at (range.start, 0) so the line
   // visually originates at the left edge of the plot, not at the end
-  // of the first bin (the previous behavior left a leading gap).
+  // of the first bin, which would leave a leading gap.
   const maxCum = Math.max(1, total);
 
   const xScale = ts => timeX(ts, range, padL, plotW);
@@ -418,7 +400,7 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
   // Mouse tracking — hit-test in the <svg>'s frame: padT/plotH are svg
   // coordinates and the container's rect carries the panel's 1px border,
   // so comparing across the frames parked the active band 1px high and
-  // killed the plot's bottom row (#645). The tip positions in container
+  // killed the plot's bottom row. The tip positions in container
   // coordinates — its offsetParent is the container.
   function onMouseMove(e) {
     const rect = ref.current.getBoundingClientRect(), srect = svgRef.current.getBoundingClientRect();
@@ -428,7 +410,7 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
     const idx = timeBinIndexAtX(bins, range, padL, plotW, sx);
     if (idx < 0) { setTip(null); return; }
     const b = bins[idx];
-    const cum = cumPts[idx + 1];  // +1 to skip the leading (range.start, 0) anchor
+    const cum = cumPts[idx + 1];
     const bar = timeBarRect(b, range, padL, plotW);
     setTip({
       x: mx, y: my, idx, cx: bar.x + bar.width / 2,
@@ -478,7 +460,7 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
           points={cumPts.map(p => `${xScale(p.ts)},${yCum(p.v)}`).join(' ')}
           stroke={color} strokeWidth="2" fill="none" />
 
-        {/* Hover crosshair, snapped to the hovered bucket's centre (#646). */}
+        {/* Hover crosshair, snapped to the hovered bucket's centre. */}
         {tip && (
           <line x1={tip.cx} x2={tip.cx} y1={padT} y2={padT + plotH}
             stroke={color} strokeOpacity="0.4" strokeWidth="1" strokeDasharray="2,3" />
@@ -522,10 +504,8 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
         {(() => {
           const totalStr = `Total: ${humanFmt(total, isCurrency)}`;
           const boxW = Math.ceil(totalStr.length * window.monoAdvancePx(11)) + 16;
-          // Top-LEFT corner of the plot, the mirror of the old
-          // `w - padR - boxW - 6`: same 6px inset from the gutter, same
-          // padT + 2 top. The cumulative line is lowest at the left, so
-          // the badge now sits where it is least likely to collide.
+          // The cumulative line is lowest at the left, so its badge
+          // belongs in the plot's top-left corner to minimise collisions.
           const boxX = padL + 6;
           return (
             <g>
@@ -547,7 +527,6 @@ function TimeSeriesPanel({ title, events, valueKey, color, isCurrency, range, bi
   );
 }
 
-// --- Horizontal bar chart ---
 function HBar({ title, rows, totalForPct, fmt, partFmt, fixedColors, embedded, listPanel = false, groupByModel }) {
   const ref = React.useRef(null);
   const [w, setW] = React.useState(600);
@@ -556,13 +535,9 @@ function HBar({ title, rows, totalForPct, fmt, partFmt, fixedColors, embedded, l
   const [mouse, setMouse] = React.useState({ x: 0, y: 0 });
   const [labelPx, setLabelPx] = React.useState(0);
 
-  // Measure the labels as they actually render instead of predicting their
-  // width from a font metric. A detached probe disagreed with the real thing
-  // — it resolved the generic monospace face (6.489px/char) rather than the
-  // 7.041px/char this dashboard's CSS applies via letter-spacing — and the
-  // wrong figure then sat in a cache for the page's lifetime. This runs
-  // before paint, so the corrected padding never shows up as a visible
-  // reflow, and it self-corrects if the font or CSS ever changes.
+  // Measure rendered labels: detached probes miss the dashboard's CSS
+  // letter-spacing. Run before paint to avoid a visible padding reflow
+  // and remeasure when the font or CSS changes.
   React.useLayoutEffect(() => {
     if (!ref.current) return;
     let m = 0;
@@ -580,14 +555,12 @@ function HBar({ title, rows, totalForPct, fmt, partFmt, fixedColors, embedded, l
     return () => ro.disconnect();
   }, []);
 
-  // #936: a groupByModel mount passes ONE row per model (app.jsx grouped
+  // a groupByModel mount passes ONE row per model (app.jsx grouped
   // them); its single header checkbox swaps the whole panel for today's
   // per-host rows, and a collapsed row's hover lists each host's share of
   // the model total. Every other mount passes its rows through untouched.
   const shown = groupByModel ? window.modelGroup.shown(rows, open) : rows;
 
-  // Rows render on a 36px pitch from padT — size the SVG to exactly
-  // that (the old 40 + rows*44 left ~8px of dead space per row).
   const h = 32 + shown.length * 36 + 18;
   // Left pad fits the widest label. Labels are end-anchored at padL - 8, so
   // +20 buys that 8px plus a 12px margin to the panel edge. labelPx is the
@@ -619,8 +592,6 @@ function HBar({ title, rows, totalForPct, fmt, partFmt, fixedColors, embedded, l
     return {
       x: mouse.x, y: mouse.y, title: r.label, accent: c,
       lines: [
-        // #936: a collapsed multi-host row lists each host's share of the
-        // MODEL total; the module returns [] for every other row.
         ...window.modelGroup.hostLines(r, partFmt || humanFmt),
         ['value',    fmt ? fmt(r) : humanFmt(r.value)],
         ['% of bar', total > 0 ? ((r.value / total) * 100).toFixed(2) + '%' : '0%'],
@@ -667,10 +638,9 @@ function HBar({ title, rows, totalForPct, fmt, partFmt, fixedColors, embedded, l
           );
         })}
       </svg>
-      {/* #936: ONE control per panel, parked over the header band's right
+      {/* ONE control per panel, parked over the header band's right
           edge (the title is centred). Gated on groupByModel AND on there
-          being a model to split, so a single-host lane's panel still
-          renders exactly as it did before the grouping shipped. */}
+          being a model to split, so single-host panels need no control. */}
       {groupByModel && rows.some(r => r.parts) && (
         <label data-model-group-toggle="" style={{
           position: 'absolute', top: 5, right: 8, display: 'flex',
@@ -704,7 +674,7 @@ function HBar({ title, rows, totalForPct, fmt, partFmt, fixedColors, embedded, l
 const VBAR_LABEL_ANGLE = 35;  // degrees; matches rotate(-35 ...) below
 const VBAR_LABEL_FS = 10;     // px; matches the label <text> fontSize
 const VBAR_LABEL_LINE_H = VBAR_LABEL_FS * 1.2;
-const VBAR_LABEL_Y = 10;      // anchor offset below the x axis
+const VBAR_LABEL_Y = 10;
 
 // Hard-wrap into lines of at most maxChars — wrapping, never truncation:
 // every character of the label survives on some line. Separator-aware:
@@ -732,8 +702,6 @@ function wrapAxisLabel(label, maxChars) {
   return lines;
 }
 
-// Vertical space below the anchor consumed by one wrapped label: the max
-// over its lines of (rotated line step + rotated line length).
 function axisLabelDepthPx(lines, charPx, lineH, angleDeg) {
   const rad = angleDeg * Math.PI / 180;
   const sin = Math.sin(rad), cos = Math.cos(rad);
@@ -754,8 +722,6 @@ function axisLabelMaxChars(slot, padL, charPx, angleDeg) {
   return Math.max(1, Math.floor(capPx / charPx));
 }
 
-// Bottom padding: anchor offset + deepest wrapped label + one
-// line-height of descent/clearance below the deepest baseline point.
 function vbarPadB(rows, slot, padL, charPx) {
   const maxChars = axisLabelMaxChars(slot, padL, charPx, VBAR_LABEL_ANGLE);
   let depth = 0;
@@ -883,7 +849,6 @@ function VBar({ title, rows, fmt, fixedColors, embedded }) {
     </div>
   );
 }
-
 
 window.TimeSeriesPanel = TimeSeriesPanel;
 window.HBar = HBar;

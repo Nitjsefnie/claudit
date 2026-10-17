@@ -21,7 +21,7 @@
 // list rates for the tier, never a dated promotion. The generation is the
 // highest-versioned key of the family in the MERGED view (models-table
 // keys and tracked vendor bare keys — the claude families live in the
-// tracked table since the vendor migration), so a new model row moves its
+// tracked table), so a new model row moves its
 // family's fallback with no second edit. Ties keep table order. Mirrors
 // pricing._latest.
 const _VERSIONED_KEY = /^claude-([a-z]+)-(\d+(?:-\d+)*)$/;
@@ -57,14 +57,14 @@ const _TIER_FALLBACKS = [
   [/sonnet/, _latestKey(['sonnet'])],
   [/haiku/, _latestKey(['haiku'])],
 ];
-// A dated snapshot suffix ('-20250514') is the same model; a short version
+// A dated snapshot suffix ('-YYYYMMDD') is the same model; a short version
 // suffix ('-9') or mode suffix ('-fast') is a DIFFERENT model.
 const _SNAPSHOT_SUFFIX = /^-?\d{6,8}$/;
 
 function _normaliseModel(model) {
   let m = String(model || '').trim().toLowerCase();
   if (!m) return '';
-  const i = m.indexOf('claude');   // strip provider/region routing prefix
+  const i = m.indexOf('claude');
   if (i > 0) m = m.slice(i);
   return m.replace(/\./g, '-');
 }
@@ -217,7 +217,7 @@ window.rateForModel = function rateForModel(model, ts, provider) {
   return window.resolveModelRate(model, ts, provider).rates;
 };
 
-// ─── the long-context meter (issue #765) ────────────────────────────────
+// ─── the long-context meter ────────────────────────────────
 // Per-model membership and thresholds: pricing.json's long_context_models
 // and long_context_meters, both set by pricing-loader.js; a member without
 // an entry keeps the meter's global default (window.LONG_CONTEXT_THRESHOLD,

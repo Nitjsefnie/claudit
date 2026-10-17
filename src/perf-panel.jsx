@@ -1,15 +1,6 @@
-// Page performance readout (issue #436) — the browser half of the
+// Page performance readout — the browser half of the
 // journey, layout-stability and blocking telemetry that src/perf.js
 // beacons, read back from /api/web-metrics.
-//
-// Modelled on ReplyLatencyPanel: a self-fetching panel taking
-// { range, nonce }, fetching its own endpoint with
-// credentials: 'same-origin', mounted alongside the other backend panels
-// so its request goes out in parallel with /api/dashboard rather than
-// waiting for it.
-//
-// Three properties of the data shape what is drawn here.
-//
 // `series` is the POOLED range-level readout and `buckets` the same grain
 // one display bucket at a time. `exact` is true only on the live pass;
 // on the rollup pass `series` is an n-weighted blend of per-bucket
@@ -17,28 +8,24 @@
 // approximation as a measurement. Nothing here re-derives a value from
 // what it was given — a browser-side average of values is a value nobody
 // measured.
-//
 // src/perf.js never beacons a part it did not time, so a MISSING row is
 // real information, not a zero: an unmeasured part renders as an em
 // dash. The observed metrics are read as the sums they are — a
 // cumulative layout shift is a sum of shift values, and blocking time is
 // a sum of task durations.
-//
 // And an unmeasured range is not an empty one: with no series the panel
 // renders nothing at all, the way every cost surface is gated on there
 // being cost in view. Zeros here would say "we never measured this" in
 // the visual language of "we measured nothing wrong".
-//
-// Since #834 the journey rows answer hover: the row under the pointer
+// The journey rows answer hover: the row under the pointer
 // highlights and the shared tooltip names the journey's measured parts.
 // The readout stays a readout — the tooltip reads the same series rows
 // the table renders, never a re-derived value — and the panel carries
-// no static declaration any more: a static declaration on a panel that
+// no static declaration: a static declaration on a panel that
 // renders data fails the sweep.
 
 const { useState, useEffect } = React;
 
-// Milliseconds read the way ReplyLatencyPanel reads seconds.
 function perfMs(v) {
   if (v == null || typeof v !== 'number' || !isFinite(v)) return '—';
   if (v < 1) return v.toFixed(2) + ' ms';
@@ -74,8 +61,7 @@ function WebMetricsPanel({ range, nonce }) {
   const [tip, setTip] = useState(null);
 
   useEffect(() => {
-    // `range` only. A `project=` was appended here and silently ignored —
-    // /api/web-metrics has no project filter, because a browser beacon
+    // `range` only: /api/web-metrics has no project filter because a beacon
     // carries no project: the client is a page, not a session on a project.
     // A parameter the server drops is worse than no parameter, since the
     // URL claims a narrowing the answer does not have.
@@ -86,7 +72,6 @@ function WebMetricsPanel({ range, nonce }) {
   }, [range, nonce]);
 
   const series = (body && body.series) || [];
-  // true only on the live pass; the rollup pass blends per-bucket values.
   const exact = !!(body && body.exact);
   const since = (body && body.since) || '';
   // F2 disclosure. Guests are deliberately IN this population -- the host
@@ -108,13 +93,11 @@ function WebMetricsPanel({ range, nonce }) {
   const rowFor = (metric, part) =>
     series.find(r => r.metric === metric && r.part === part) || null;
 
-  // The observed metrics are sums, read from each row's own `total`.
   const rowsOf = metric => series.filter(r => r.metric === metric);
   const sumTotal = metric => rowsOf(metric)
     .reduce((s, r) => s + (r.total || 0), 0);
   const countOf = metric => rowsOf(metric)
     .reduce((s, r) => s + (r.n || 0), 0);
-  // Breakdown by region and by phase, over whatever groups the data has.
   const groups = (metric, key) => {
     const by = {};
     for (const r of rowsOf(metric)) {
@@ -156,11 +139,6 @@ function WebMetricsPanel({ range, nonce }) {
   const header = ['journey', 'samples', 'p50 total', 'p75 total',
                   'p50 fetch', 'p75 fetch', 'p50 client', 'p75 client'];
 
-  // #834: the journey rows answer hover. The row under the pointer
-  // highlights (background-color, a channel the sweep reads) and the
-  // shared tooltip names the journey's measured parts — the same rows
-  // rowFor reads for the table, never a re-derived value. Pointing
-  // anywhere else on the panel clears it.
   const onMove = e => {
     const tr = e.target.closest('tr[data-journey]');
     if (!tr) { setTip(null); return; }

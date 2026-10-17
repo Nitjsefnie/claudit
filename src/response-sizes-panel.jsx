@@ -1,4 +1,3 @@
-// ──────────────────────────────────────────────────────────────────────
 // Response Sizes panel — visible-text-character daily-bucketed time
 // series per model. Each line = that model's daily median chars in
 // `text` content blocks; dashed line = p90. Log y-axis (response sizes
@@ -6,13 +5,6 @@
 // output_tokens silently includes thinking, and per-model thinking
 // shares vary 0.7%–25% — token-based percentiles would conflate
 // "longer responses" with "more thinking".
-//
-// Moved out of dashboard-charts-extra.jsx into its own module (#690):
-// that file sits at its measured size entry, and an outgrown rework
-// moves code into a new module (the #652/#659 pattern). #690's marks
-// live here: one hit circle per DISTINCT median position, so models
-// plotting the same median at the same ts stay one reachable dot.
-// ──────────────────────────────────────────────────────────────────────
 const TH_X = window.dashboardTheme;
 // Render-time bindings into the shared modules (load order puts
 // dashboard-charts-extra.jsx first; these resolve at first render).
@@ -43,7 +35,6 @@ function ResponseSizesPanel({ data, bucketS }) {
     return () => ro.disconnect();
   }, []);
 
-  // Build per-model series (sorted by ts ascending). Drop <synthetic>.
   const series = React.useMemo(() => {
     const drop = (k) => k === '<synthetic>' || k === 'synthetic';
     const out = new Map();
@@ -70,7 +61,6 @@ function ResponseSizesPanel({ data, bucketS }) {
     return result;
   }, [data, bucketS]);
 
-  // All models on by default, user can toggle any off.
   const [overrides, setOverrides] = React.useState({});
   const sel = React.useMemo(() => {
     const s = new Set(series.map(m => m.key));
@@ -84,7 +74,6 @@ function ResponseSizesPanel({ data, bucketS }) {
   }
   const visible = series.filter(m => sel.has(m.key));
 
-  // X-domain: union of all visible timestamps. Y-domain: log of p90 max.
   let tMin = Infinity, tMax = -Infinity, yMaxRaw = 1;
   for (const s of visible) {
     for (const p of s.points) {
@@ -115,11 +104,9 @@ function ResponseSizesPanel({ data, bucketS }) {
   const xScale = ts => padL + ((ts - tMin) / Math.max(1, tMax - tMin)) * plotW;
   const yScale = v => padT + plotH - ((Math.log10(Math.max(yMin, v)) - logYMin) / (logYMax - logYMin)) * plotH;
 
-  // Y-axis decade ticks.
   const yTicks = [];
   for (let p = Math.ceil(logYMin); p <= Math.floor(logYMax); p++) yTicks.push(Math.pow(10, p));
 
-  // X-axis: adaptive labels (UTC).
   const xTicks = window.timeTicksUTC(tMin, tMax);
 
   function onMove(e) {
@@ -147,10 +134,9 @@ function ResponseSizesPanel({ data, bucketS }) {
       const firstX = xScale(pts[0].ts);
       const lastX  = xScale(pts[pts.length - 1].ts);
       if (mx < firstX - 2 || mx > lastX + 2) continue;
-      // Find the segment whose x-range contains mx.
       let i = 0;
       // <= so the scan lands ON the point when the cursor sits at its
-      // exact x (the hit circles hover their own centres, #690).
+      // exact x (the hit circles hover their own centres).
       while (i < pts.length - 1 && xScale(pts[i + 1].ts) <= mx) i++;
       const a = pts[i];
       const b = pts[Math.min(i + 1, pts.length - 1)];
@@ -166,7 +152,7 @@ function ResponseSizesPanel({ data, bucketS }) {
       const p90 = lerpLog(a.p90, b.p90);
       const n   = Math.round(a.n + t * (b.n - a.n));
       const py = yScale(p50);
-      const d = Math.abs(py - my);  // X is exactly at cursor, so just Y distance
+      const d = Math.abs(py - my);
       if (d < bestD) {
         bestD = d;
         bestKey = s.key;
@@ -175,8 +161,6 @@ function ResponseSizesPanel({ data, bucketS }) {
     }
     if (!best || bestD > 32) { setTip(null); return; }
     const fmt = window.humanFmt;
-    // model/bi key the point's own hit circle (#690): the datum the tip
-    // snapped to lights up.
     setTip({
       x: mx, y: my, cx: xScale(best.ts),
       model: bestKey, bi: best.bi,
@@ -262,7 +246,7 @@ function ResponseSizesPanel({ data, bucketS }) {
             );
           })}
 
-          {/* Hit circles, one per DISTINCT median position (#690):
+          {/* Hit circles, one per DISTINCT median position:
               invisible at rest, the dot under the pointer lights. The
               lighting keys on the CURSOR sitting inside the dot — models
               tie at the same median (the tip names whichever series won

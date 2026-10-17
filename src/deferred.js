@@ -1,11 +1,3 @@
-// Defer a non-urgent transform out of the commit that produced it
-// (issue #838). The Per-Session Context Growth panel fetches its own
-// traces and then builds per-model groups over every trace — a transform
-// that ran in the same commit that landed the fetch and blocked the frame.
-// Routing the result through this helper moves the transform to an idle
-// callback (or the next macrotask where requestIdleCallback is absent), so
-// the fetch's commit stays cheap.
-//
 // Plain JS on purpose — no React, no JSX — so node can execute it and
 // tests/test_deferred_js.py drives the real thing. The browser globals it
 // touches (requestIdleCallback / cancelIdleCallback / setTimeout /

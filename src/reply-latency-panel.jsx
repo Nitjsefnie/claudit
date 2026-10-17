@@ -1,17 +1,3 @@
-// ──────────────────────────────────────────────────────────────────────
-// Reply Latency panel — per-(bucket, model) p10–p90 band + median line,
-// plus scatter dots for top-1% slowest + bottom-1% fastest replies
-// per bucket (when bucket_n >= 100). Log y-axis (latency 0.5s–400s).
-//
-// Moved out of dashboard-charts-extra.jsx into its own module: that file
-// sits at its measured size entry, and an outgrown rework moves code
-// into a new module (the #652/#659 pattern). #690's marks live here:
-// every median point is a `data-hover-target` — an invisible hit circle
-// that lights at the datum when the panel's tooltip snaps to it — and
-// since #834 every outlier dot is one too (it lights the same way), so
-// the interaction sweep hovers every point the panel draws, not just
-// its bars.
-// ──────────────────────────────────────────────────────────────────────
 const TH_X = window.dashboardTheme;
 // Render-time bindings into the shared modules (load order puts
 // dashboard-charts-extra.jsx first; these resolve at first render).
@@ -47,7 +33,6 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
       .catch(err => console.error('reply-latency fetch failed', err));
   }, [project, range, activeModel, nonce]);
 
-  // Per-model series for the bands.
   const series = React.useMemo(() => {
     const drop = k => k === '<synthetic>' || k === 'synthetic';
     const out = new Map();
@@ -76,7 +61,6 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
     return arr;
   }, [bands, bucketMs]);
 
-  // All models on by default; uncheck individually.
   const [overrides, setOverrides] = React.useState({});
   const sel = React.useMemo(() => {
     const s = new Set(series.map(m => m.key));
@@ -90,7 +74,6 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
   }
   const visible = series.filter(m => sel.has(m.key));
 
-  // Outlier dots filtered by visible models too.
   const visibleKeys = React.useMemo(() => new Set(visible.map(s => s.key)), [visible]);
   const visibleOutliers = React.useMemo(
     () => outliers
@@ -110,7 +93,6 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
     return [...seen.values()];
   }, [visibleOutliers]);
 
-  // Dedup model list for the model select.
   const modelOpts = React.useMemo(() => {
     const grouped = {};
     for (const m of models || []) {
@@ -122,7 +104,6 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
       .sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ key: k, n }));
   }, [models]);
 
-  // Geometry. Y log-scale, range from 0.1s to max p90 (clamped >= 10s).
   let tMin = Infinity, tMax = -Infinity, yMaxRaw = 1;
   for (const s of visible) {
     for (const p of s.points) {
@@ -152,11 +133,9 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
   const xScale = ts => padL + ((ts - tMin) / Math.max(1, tMax - tMin)) * plotW;
   const yScale = v => padT + plotH - ((Math.log10(Math.max(yMin, v)) - logYMin) / (logYMax - logYMin)) * plotH;
 
-  // Y decade ticks.
   const yTicks = [];
   for (let p = Math.ceil(logYMin); p <= Math.floor(logYMax); p++) yTicks.push(Math.pow(10, p));
 
-  // X adaptive labels.
   const xTicks = (isFinite(tMin) && isFinite(tMax)) ? window.timeTicksUTC(tMin, tMax) : [];
 
   function fmtSecs(s) {
@@ -175,7 +154,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
     }
     // Try outlier dots first (small targets, but exact times). The scan
     // runs over the PLOTTED dots — what is drawn is what answers — and
-    // the winning dot's index rides the tip (#834): the marked dot
+    // the winning dot's index rides the tip: the marked dot
     // lights when it is the datum the tooltip snapped to, the visible
     // response the interaction sweep reads on the dot itself.
     let bestO = null, bestOD = 1e9, bestOI = -1;
@@ -204,7 +183,6 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
       });
       return;
     }
-    // Else: nearest median line (interpolated).
     let best = null, bestD = 1e9, bestKey = null;
     for (const s of visible) {
       const pts = s.points;
@@ -214,7 +192,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
       if (mx < firstX - 2 || mx > lastX + 2) continue;
       let i = 0;
       // <= so the scan lands ON the point when the cursor sits at its
-      // exact x (the hit circles hover their own centres, #690): the
+      // exact x (the hit circles hover their own centres): the
       // interpolation is continuous across the boundary, so only the
       // index changes.
       while (i < pts.length - 1 && xScale(pts[i + 1].ts) <= mx) i++;
@@ -239,8 +217,6 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
       }
     }
     if (!best || bestD > 32) { setTip(null); return; }
-    // model/bi key the point's own hit circle (#690): the datum the tip
-    // snapped to lights up.
     setTip({
       x: mx, y: my, cx: xScale(best.ts),
       model: bestKey, bi: best.bi,
@@ -347,7 +323,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
           })}
 
           {/* Outlier dots (top/bottom 1%) — marked hover targets like
-              the median hit circles (#834): the sweep hovers every point
+              the median hit circles: the sweep hovers every point
               the panel draws, and the dot under the pointer lights
               (stroke + fill) when the tip snaps to it. */}
           {plottedOutliers.map((o, i) => {
@@ -359,7 +335,7 @@ function ReplyLatencyPanel({ project, range, nonce, models }) {
               stroke={lit ? '#fff' : 'none'} />;
           })}
 
-          {/* Hit circles, one per DISTINCT median position (#690):
+          {/* Hit circles, one per DISTINCT median position:
               invisible at rest, the dot under the pointer lights. The
               lighting keys on the CURSOR sitting inside the dot — models
               tie at the same median (the tip names whichever series won

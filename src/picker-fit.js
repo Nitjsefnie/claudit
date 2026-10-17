@@ -1,13 +1,3 @@
-// Shared picker fit arithmetic and the retained legacy strip reader (#774).
-//
-// `fitCount` supplies the arithmetic used by picker-pages.js to pack
-// each measured suffix. ProjectPicker in picker.jsx calls that module's
-// `computePages`, with control sizing supplied by picker-space.js.
-// `computeFit` is the legacy fixed-prefix DOM reader, retained for its
-// node regression coverage; it does not drive the current component.
-// scripts/ci/panel_layout_rules.mjs checks the shipped layout in a browser.
-//
-// Plain JS, no React: node drives this file (tests/test_picker_fit_js.py).
 (function (global) {
   'use strict';
 
@@ -37,12 +27,10 @@
   // reserves. Returns null for an absent or zero-width strip, else
   // 0..len. Current per-page packing and the one-chip floor live in
   // picker-pages.js; only legacy regression tests call this reader.
-  //
   // Chip widths come from the hidden measure row (.pp-measure), not the
   // real chips: the real strip renders only the fitted slice, so its own
   // widths would shrink the fit to itself — a resize wider could never
   // grow the page back.
-  //
   // The pager reserve is the RENDERED pager's nav buttons + count, jump
   // excluded. The jump is reserved from the measure row's replica
   // whenever the replica exists (a project is selected): if the reserve
@@ -72,11 +60,8 @@
     const allW = allChip ? widthOf(allChip) : 0;
 
     const room0 = Math.max(0, inner - allW - gap);
-    if (fitCount(room0, widths, gap, 0) >= len) return len; // no pager ever
+    if (fitCount(room0, widths, gap, 0) >= len) return len;
 
-    // The legacy reader reserves only the existing pager's core, excluding
-    // its jump. The active reader can also use the hidden core replica;
-    // this retained reader predates that geometry path.
     const pager = strip.querySelector('.pp-pager');
     let core = 0;
     if (pager) {

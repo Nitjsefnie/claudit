@@ -8,8 +8,6 @@
 //      next boundary as that turn's context size = input + cache_create + cache_read.
 //   5. Drop turns with zero or implausible context (API refusals / interrupts
 //      or cumulative counters above MAX_PLAUSIBLE_CTX).
-//
-// Renders: a sparkline-style chart of input over turns, plus a dense table.
 
 function computeTurnStats(tx) {
   const allLines = [];
@@ -36,7 +34,6 @@ function computeTurnStats(tx) {
   }
   allLines.sort((a, b) => a.line - b.line);
 
-  // Walk: each user_text starts a new turn; collect usages until next user_text.
   const turns = [];
   // Usage before the first user prompt belongs to a leading turn. Leaving an
   // empty turn here has no effect when the file starts with a user prompt.
@@ -51,7 +48,6 @@ function computeTurnStats(tx) {
   }
   if (cur && cur.usages.length) turns.push(cur);
 
-  // Reduce each turn to its LAST usage; compute context = input + cc + cr.
   const rows = [];
   let prevInput = null;
   for (let i = 0; i < turns.length; i++) {
@@ -97,9 +93,6 @@ function ContextGrowthView({ tx }) {
     );
   }
 
-  // The dominant model, for the summary stat. There is no cap derived
-  // from it any more: the axis comes from the observed peak, through the
-  // same rule the dashboard panels use (issue #648, src/ctx-axis.js).
   const counts = {};
   for (const r of rows) counts[r.model] = (counts[r.model] || 0) + 1;
   let dom = '', max = 0;
@@ -179,8 +172,6 @@ function SummaryStat({ label, value }) {
 
 function shortModel(m) {
   if (!m) return '?';
-  // Canonical name shared with the dashboard ("claude-fable-5[1m]" →
-  // "claude-fable-5"). The old regex here only knew opus/sonnet/haiku.
   return window.shortModelName ? window.shortModelName(m) : m;
 }
 

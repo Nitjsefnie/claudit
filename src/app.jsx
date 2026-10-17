@@ -1,15 +1,10 @@
-// App shell, dashboard requests, and the transcript Inspector.
-
 const { useState, useEffect, useMemo, useRef, useId } = React;
 
-// One effect run owns one request (issue #179, #182): whichever
-// response landed LAST used to win, so a slow stale response could
-// overwrite a fresher one. mintRunSignal pairs the run's
-// AbortController with an isCurrent() check: the fetch carries the
-// signal, every handler reads isCurrent() first so a superseded run
-// applies nothing -- and is not a failure, abort is cancellation -- and
-// the returned abort is the effect's cleanup, killing the superseded
-// request when the deps re-fire.
+// One effect run owns one request so a slow stale response cannot
+// overwrite a fresher one. mintRunSignal pairs an AbortController with
+// an isCurrent() check: every handler checks the run before applying a
+// result. Abort is cancellation, not failure, and the effect's cleanup
+// aborts the superseded request when the dependencies change.
 function mintRunSignal() {
   const ctrl = new AbortController();
   return {
@@ -62,14 +57,13 @@ function makeTranscriptLoader({ fetchText, parse, onStart, onSuccess, onError })
 }
 
 function App() {
-  const [storedRoute, setRoute] = useState('dashboard'); // dashboard | sessions | session
-  const [tx, setTx] = useState(null); // parsed transcript {events, meta, stats}
+  const [storedRoute, setRoute] = useState('dashboard');
+  const [tx, setTx] = useState(null);
   const [transcriptError, setTranscriptError] = useState('');
   const [, setFilename] = useState('');
   const [synth, setSynth] = useState(null);
   const [useSynth, setUseSynth] = useState(true);
   const [backendDash, setBackendDash] = useState(null);
-  // The request's own state, tracked apart from its data (#394).
   const [dashFetch, setDashFetch] = useState(() => window.dashboardFeaturesOn()
     ? window.dashboardFetch.start() : window.dashboardFetch.loaded());
   const [projects, setProjects] = useState(null);
@@ -87,7 +81,7 @@ function App() {
   // Bumped by the SSE listener on `ingest_done`; declared up here because
   // the projects fetch below lists it as a dependency.
   const [dashNonce, setDashNonce] = useState(0);
-  // Live region (issue #117): refreshMsg is what the polite region
+  // Live region: refreshMsg is what the polite region
   // announces; refreshRef holds the pending what-changed line the SSE
   // handler stashed, consumed by the dashboard refetch that completes
   // it. null = nothing pending.
@@ -99,7 +93,6 @@ function App() {
     transcriptLoaderRef.current = makeTranscriptLoader({
       fetchText: fetchTranscriptText,
       parse: text => {
-        // Network wait over; parsing is the client half of the split.
         window.perf.closeFetch('inspector_open');
         const { events, meta } = window.parseTranscript(text);
         const stats = window.computeSessionStats(events, meta);
@@ -130,18 +123,13 @@ function App() {
     });
   }
 
-  // Synthetic data is the no-backend demo dataset. When a backend is
-  // configured its numbers are thrown away the moment /api/dashboard
-  // lands — but not before the whole panel set has rendered once from
-  // them, so the first paint was a full throwaway chart pass showing
-  // fabricated figures. Only generate it when it is actually the
-  // data source.
+  // Generate synthetic data only for the no-backend demo, so a configured
+  // backend never paints fabricated figures while its request is in flight.
   useEffect(() => {
     if (backendOn || !window.dashboardFeaturesOn()) return;
     setSynth(window.generateSyntheticData());
   }, [backendOn]);
 
-  // Identity probe — drives guest-mode UI gating.
   useEffect(() => {
     if (!backendOn) return;
     fetch('/api/me', { credentials: 'same-origin' })
@@ -160,7 +148,7 @@ function App() {
   // or a full reload.
   useEffect(() => {
     if (!backendOn || isGuest || !window.featureOn('project_picker')) return;
-    // Each run owns its request through mintRunSignal (issue #182), the
+    // Each run owns its request through mintRunSignal, the
     // same guard the dashboard refetch uses: a superseded project list
     // must not overwrite a fresher one.
     const run = mintRunSignal();
@@ -178,8 +166,6 @@ function App() {
     return run.abort;
   }, [backendOn, isGuest, activeRange, dashNonce]);
 
-  // Model list — distinct raw model strings + counts. Frontend dedups
-  // by canonical name (e.g. claude-opus-4-7-20251101 → claude-opus-4-7).
   useEffect(() => {
     if (!backendOn) return;
     if (!window.modelFeaturesOn()) return;
@@ -192,7 +178,7 @@ function App() {
   // Fetch dashboard whenever the active project / range / nonce change.
   // `dashNonce` is a counter bumped by the SSE listener below to trigger
   // a re-fetch without changing project/range. Each run owns its request
-  // through mintRunSignal (issue #179), so a slow stale response can no
+  // through mintRunSignal, so a slow stale response can no
   // longer land after a fresher one and overwrite it. An aborted run is
   // not a failure — it applies nothing and leaves the pending
   // announcement line for the run that replaced it; a real failure
@@ -273,7 +259,7 @@ function App() {
       <window.TopBar route={route} setRoute={setRoute} isGuest={isGuest} backendOn={backendOn} range={activeRange} project={activeProject} />
       {/* The page's one main landmark: the pickers and every route's
           content sit inside it; the topbar and the live region stay
-          outside (issue #447). */}
+          outside. */}
       <main id="main">
         {backendOn && !isGuest && window.featureOn('project_picker') && (
           <window.ProjectPicker
@@ -304,7 +290,7 @@ function App() {
           ? <><div className="page-head"><h1>Inspector</h1></div><div className="err">{transcriptError}</div></>
           : <SessionView tx={tx} />)}
       </main>
-      {/* Live region for the SSE ingest_done refresh (issue #117).
+      {/* Live region for the SSE ingest_done refresh.
           Mounted here, outside the panel tree, so no re-render can
           unmount it; polite + atomic so it never interrupts or steals
           focus; text set only after the refetch it announces lands. */}
@@ -322,16 +308,14 @@ function Stat({ label, value, highlight, warn }) {
   );
 }
 
-// Transcript presentation
-
 function SessionView({ tx }) {
   const [selected, setSelected] = useState(0);
   const [filter, setFilter] = useState({ user: true, asst: true, think: true, tool: true, result: true });
   const [search, setSearch] = useState('');
   const [dense, setDense] = useState(false);
-  const [view, setView] = useState('timeline'); // timeline | ctx
+  const [view, setView] = useState('timeline');
   const viewId = useId();
-  // Issue #436: the Inspector journey ends when the transcript is on
+  // the Inspector journey ends when the transcript is on
   // screen. Keyed on the transcript itself — a new object per load — so
   // a re-render cannot re-close a closed journey. Above the `if (!tx)`
   // return below, as hooks must be.
@@ -368,7 +352,7 @@ function SessionView({ tx }) {
     return true;
   });
 
-  // The transcript listbox's one clamped index (issue #364): the detail
+  // The transcript listbox's one clamped index: the detail
   // row, the selected row, the arrow moves and the active option ALL
   // derive from it, so after a search or filter shrinks the timeline
   // under the stored index they still agree — on the last visible row —
@@ -400,7 +384,6 @@ function SessionView({ tx }) {
     }
   };
 
-  // data-perf-region: the Inspector's region, as named on the grid above.
   return (
     <div className="session-view" data-perf-region="inspector">
       <div className="page-head"><h1>Inspector</h1></div>
