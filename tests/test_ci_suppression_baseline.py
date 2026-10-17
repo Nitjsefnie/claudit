@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from tests import git_meta
+from tests.thresholds_history import stub_history
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 
@@ -172,25 +173,24 @@ def test_violations_clean_tree_needs_no_entries():
         {"backend/small.py": 0}, {}).values())
 
 
-def _history(monkeypatch, module, trailer):
-    def read_range(argv, **kwargs):
-        assert argv == ['git', '-C', str(REPO_ROOT), 'log', '--format=%B', 'base..HEAD']
-        assert kwargs == {'capture_output': True, 'check': False, 'timeout': 10}
-        return subprocess.CompletedProcess(argv, 0, trailer.encode())
-    monkeypatch.setattr(module.subprocess, 'run', read_range)
-
-
-@pytest.mark.parametrize('entry,status', [
-    ('pylint_suppression_baseline.backend/api.py', 0),
-    ('pylint_suppression_baseline', 0),
-    ('', 1),
-    ('pylint_suppression_baseline.backend/other.py', 1),
+@pytest.mark.parametrize('entry,recorded,sibling,status', [
+    ('pylint_suppression_baseline.backend/api.py', True, False, 0),
+    ('pylint_suppression_baseline', True, False, 0),
+    ('', True, False, 1),
+    ('pylint_suppression_baseline.backend/other.py', True, False, 1),
+    ('pylint_suppression_baseline', True, True, 1),
+    ('pylint_suppression_baseline.backend/api.py', False, False, 1),
 ])
-def test_declared_removal_check(tmp_path, monkeypatch, capsys, entry, status):
+def test_declared_removal_check(tmp_path, monkeypatch, capsys, entry, recorded, sibling, status):
     module = _suppression_baseline()
     target = _written(tmp_path)
-    monkeypatch.setattr(module, 'tracked_suppression_counts', lambda: {'backend/api.py': 2})
-    _history(monkeypatch, module, f'Thresholds-Removed: {entry}=bug')
+    measured = {'backend/api.py': 2}
+    if sibling:
+        measured['backend/new.py'] = 2
+    monkeypatch.setattr(module, 'tracked_suppression_counts', lambda: measured)
+    base = {'schema_version': 1, 'pylint_suppression_baseline':
+            {'backend/api.py': 3} if recorded else {}}
+    stub_history(monkeypatch, module, REPO_ROOT, f'Thresholds-Removed: {entry}=bug', base)
     assert module.main(['--thresholds', str(target),
                         '--base-rev', 'base', '--head-rev', 'HEAD']) == status
     captured = capsys.readouterr()
@@ -199,6 +199,9 @@ def test_declared_removal_check(tmp_path, monkeypatch, capsys, entry, status):
         assert '2' in captured.out
     else:
         assert 'over:' in captured.err
+        if sibling:
+            assert 'backend/new.py' in captured.err
+            assert 'declared-removed: backend/api.py' in captured.out
 
 
 def test_declaration_does_not_exempt_recorded_statuses():
@@ -324,7 +327,7 @@ def test_committed_document_matches_tree(tmp_path, absent_family):
         thresholds.write(path, data)
     doc = thresholds.load(path)
     baseline = doc.get("pylint_suppression_baseline", {})
-    if "pylint_suppression_baseline" not in doc:
+    if absent_family:
         assert baseline == {}
         assert suppression.violations(
             {"backend/unrecorded.py": 1}, baseline)["over"] == {
@@ -333,11 +336,12 @@ def test_committed_document_matches_tree(tmp_path, absent_family):
     counts = suppression.tracked_suppression_counts()
     for rel, recorded in baseline.items():
         assert counts.get(rel, 0) <= recorded, f"grown entry for {rel}"
-    removed = suppression.thresholds_removed.declared(
-        os.environ.get('CLAUDIT_THRESHOLDS_BASE_REV'), 'HEAD', REPO_ROOT)
+    exempt = suppression.thresholds_removed.exempt_paths(
+        os.environ.get('CLAUDIT_THRESHOLDS_BASE_REV'), 'HEAD', REPO_ROOT,
+        'pylint_suppression_baseline', baseline, counts)
     found = suppression.violations(
         counts, baseline,
-        declared_removed=removed.paths('pylint_suppression_baseline', counts))
+        declared_removed=exempt)
     assert not found["grown"], found["grown"]
     assert not found["over"], found["over"]
 
@@ -363,8 +367,8 @@ def test_tighten_seeds_unrecorded_suppressions(tmp_path, monkeypatch, capsys, st
     thresholds.write(target, data)
     monkeypatch.setattr(module, "tracked_suppression_counts", lambda: measured)
     if state == 'declared-removal':
-        _history(monkeypatch, module, 'Thresholds-Removed: pylint_suppression_baseline=definition')
         base = dict(data, pylint_suppression_baseline={'backend/new.py': 4, 'backend/multiple.py': 4})
+        stub_history(monkeypatch, module, REPO_ROOT, 'Thresholds-Removed: pylint_suppression_baseline=definition', base)
         removed = module.thresholds_removed.declared('base', 'HEAD', REPO_ROOT)
         assert not importlib.import_module('thresholds_guard').forbidden_moves(
             base, data, set(thresholds.BASELINE_MEMBERS), removal_declarations=removed)
@@ -372,3 +376,42 @@ def test_tighten_seeds_unrecorded_suppressions(tmp_path, monkeypatch, capsys, st
     assert module.main(["--tighten", "--thresholds", str(target)]) == 0
     assert thresholds.load(target).get("pylint_suppression_baseline", {}) == expected
     assert "seeded" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('entry,recorded', [
+    ('pylint_suppression_baseline', True),
+    ('pylint_suppression_baseline.backend/api.py', True),
+    ('pylint_suppression_baseline.backend/api.py', False),
+])
+def test_committed_removal_is_limited_to_base_entries(tmp_path, monkeypatch, entry, recorded):
+    module = _suppression_baseline()
+    target = _written(tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], 'THRESHOLDS_PATH', target)
+    monkeypatch.setattr(sys.modules[__name__], '_suppression_baseline', lambda: module)
+    monkeypatch.setattr(git_meta, 'require_own_git_metadata', lambda _root: None)
+    removed_only = {'backend/api.py': 1}
+
+    def consume(measured):
+        monkeypatch.setattr(module, 'tracked_suppression_counts', lambda: measured)
+        test_committed_document_matches_tree(tmp_path, False)
+
+    base = {'schema_version': 1, 'pylint_suppression_baseline':
+            {'backend/api.py': 4} if recorded else {}}
+    stub_history(monkeypatch, module, REPO_ROOT, f'Thresholds-Removed: {entry}=definition', base)
+    for head_absent in (False, True):
+        if head_absent:
+            data = _document()
+            del data['pylint_suppression_baseline']
+            _thresholds().write(target, data)
+        monkeypatch.setenv('CLAUDIT_PERTURBED_DATA', '1')
+        monkeypatch.delenv('CLAUDIT_THRESHOLDS_BASE_REV', raising=False)
+        with pytest.raises(AssertionError, match='backend/api.py'):
+            consume(removed_only)
+        monkeypatch.setenv('CLAUDIT_THRESHOLDS_BASE_REV', 'base')
+        if recorded:
+            consume(removed_only)
+            with pytest.raises(AssertionError, match='backend/new.py'):
+                consume(dict(removed_only, **{'backend/new.py': 1}))
+        else:
+            with pytest.raises(AssertionError, match='backend/api.py'):
+                consume(removed_only)

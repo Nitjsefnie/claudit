@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import subprocess
 import sys
 from functools import cache
 from pathlib import Path
@@ -18,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from tests import git_meta
+from tests.thresholds_history import stub_history
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 
@@ -109,16 +109,17 @@ def _written(tmp_path, baseline=None):
     return target
 
 
-@pytest.fixture(params=["committed", "absent"], name="baseline_document")
-def _baseline_document(request, tmp_path):
+@pytest.fixture(params=["committed", "absent"], name="baseline_case")
+def _baseline_case(request, tmp_path):
+    """Document plus provenance: only the synthetic absence skips tree checks."""
     thresholds = _thresholds()
     if request.param == "committed":
-        return thresholds.load(THRESHOLDS_PATH)
+        return thresholds.load(THRESHOLDS_PATH), False
     data = _document()
     del data["module_size_baseline"]
     target = tmp_path / "absent.json"
     thresholds.write(target, data)
-    return thresholds.load(target)
+    return thresholds.load(target), True
 
 
 def test_ceiling_rule():
@@ -155,25 +156,24 @@ def test_violations_clean_tree_has_no_entries():
     assert not any(size_baseline.violations(sizes, {}).values())
 
 
-def _history(monkeypatch, module, trailer):
-    def read_range(argv, **kwargs):
-        assert argv == ['git', '-C', str(REPO_ROOT), 'log', '--format=%B', 'base..HEAD']
-        assert kwargs == {'capture_output': True, 'check': False, 'timeout': 10}
-        return subprocess.CompletedProcess(argv, 0, trailer.encode())
-    monkeypatch.setattr(module.subprocess, 'run', read_range)
-
-
-@pytest.mark.parametrize('entry,status', [
-    ('module_size_baseline.backend/api.py', 0),
-    ('module_size_baseline', 0),
-    ('', 1),
-    ('module_size_baseline.backend/other.py', 1),
+@pytest.mark.parametrize('entry,recorded,sibling,status', [
+    ('module_size_baseline.backend/api.py', True, False, 0),
+    ('module_size_baseline', True, False, 0),
+    ('', True, False, 1),
+    ('module_size_baseline.backend/other.py', True, False, 1),
+    ('module_size_baseline', True, True, 1),
+    ('module_size_baseline.backend/api.py', False, False, 1),
 ])
-def test_declared_removal_check(tmp_path, monkeypatch, capsys, entry, status):
+def test_declared_removal_check(tmp_path, monkeypatch, capsys, entry, recorded, sibling, status):
     module = _size_baseline()
     target = _written(tmp_path)
-    monkeypatch.setattr(module, 'tracked_sizes', lambda: {'backend/api.py': 656})
-    _history(monkeypatch, module, f'Thresholds-Removed: {entry}=bug')
+    measured = {'backend/api.py': 656}
+    if sibling:
+        measured['backend/new.py'] = 656
+    monkeypatch.setattr(module, 'tracked_sizes', lambda: measured)
+    base = {'schema_version': 1, 'module_size_baseline':
+            {'backend/api.py': 900} if recorded else {}}
+    stub_history(monkeypatch, module, REPO_ROOT, f'Thresholds-Removed: {entry}=bug', base)
     assert module.main(['--thresholds', str(target),
                         '--base-rev', 'base', '--head-rev', 'HEAD']) == status
     captured = capsys.readouterr()
@@ -182,6 +182,9 @@ def test_declared_removal_check(tmp_path, monkeypatch, capsys, entry, status):
         assert '656' in captured.out
     else:
         assert 'over:' in captured.err
+        if sibling:
+            assert 'backend/new.py' in captured.err
+            assert 'declared-removed: backend/api.py' in captured.out
 
 
 def test_declaration_does_not_exempt_recorded_statuses():
@@ -307,13 +310,13 @@ def test_tracked_sizes_cover_src_javascript(real_tracked_sizes):
     assert "src/pricing.json" not in sizes
 
 
-def test_committed_document_matches_tree(real_tracked_sizes, baseline_document):
+def test_committed_document_matches_tree(real_tracked_sizes, baseline_case):
     thresholds = _thresholds()
     size_baseline = _size_baseline()
-    doc = baseline_document
+    doc, synthetic_absence = baseline_case
     baseline = thresholds.module_size_baseline(doc)
     sizes = real_tracked_sizes
-    if "module_size_baseline" not in doc:
+    if synthetic_absence:
         assert baseline == {}
         assert size_baseline.violations(
             {"backend/unrecorded.py": 501}, baseline)["over"] == {
@@ -323,18 +326,19 @@ def test_committed_document_matches_tree(real_tracked_sizes, baseline_document):
         # Master's --tighten follows a shrink down; a PR need not update
         # thresholds to record the intermediate size.
         assert sizes.get(rel, 0) <= recorded, f"grown entry for {rel}"
-    removed = size_baseline.thresholds_removed.declared(
-        os.environ.get('CLAUDIT_THRESHOLDS_BASE_REV'), 'HEAD', REPO_ROOT)
+    exempt = size_baseline.thresholds_removed.exempt_paths(
+        os.environ.get('CLAUDIT_THRESHOLDS_BASE_REV'), 'HEAD', REPO_ROOT,
+        'module_size_baseline', baseline, sizes)
     found = size_baseline.violations(
-        sizes, baseline, declared_removed=removed.paths('module_size_baseline', sizes))
+        sizes, baseline, declared_removed=exempt)
     assert not found["grown"], found["grown"]
     assert not found["over"], found["over"]
 
 
-def test_committed_baseline_seeds_only_over_ceiling_files(baseline_document):
+def test_committed_baseline_seeds_only_over_ceiling_files(baseline_case):
     size_baseline = _size_baseline()
     thresholds = _thresholds()
-    doc = baseline_document
+    doc, _ = baseline_case
     baseline = thresholds.module_size_baseline(doc)
     if "module_size_baseline" not in doc:
         assert baseline == {}
@@ -362,21 +366,21 @@ def test_tracked_sizes_cover_sql_css_and_workflow_yaml(real_tracked_sizes):
 
 
 def test_committed_family_seeds_match_tree_and_only_over_ceiling(
-        real_tracked_sizes, baseline_document):
+        real_tracked_sizes, baseline_case):
     # Each seeded family entry is at least the file's real line count, and a
     # family seed exists only where the ceiling alone cannot gate (the
     # file is over ceiling); under-ceiling files in a new family need no
     # entry. Pairs with test_committed_baseline_seeds_only_over_ceiling.
     thresholds = _thresholds()
     size_baseline = _size_baseline()
-    doc = baseline_document
+    doc, _ = baseline_case
     baseline = thresholds.module_size_baseline(doc)
     if "module_size_baseline" not in doc:
         assert baseline == {}
     sizes = real_tracked_sizes
-    removed = size_baseline.thresholds_removed.declared(
-        os.environ.get('CLAUDIT_THRESHOLDS_BASE_REV'), 'HEAD', REPO_ROOT)
-    exempt = removed.paths('module_size_baseline', sizes)
+    exempt = size_baseline.thresholds_removed.exempt_paths(
+        os.environ.get('CLAUDIT_THRESHOLDS_BASE_REV'), 'HEAD', REPO_ROOT,
+        'module_size_baseline', baseline, sizes)
     for rel in ("backend/schema.sql", "public/app.css"):
         if rel in baseline:
             assert sizes.get(rel, 0) <= baseline[rel]
@@ -411,8 +415,8 @@ def test_tighten_seeds_over_ceiling_files(tmp_path, monkeypatch, capsys, state):
     thresholds.write(target, data)
     monkeypatch.setattr(module, "tracked_sizes", lambda: measured)
     if state == 'declared-removal':
-        _history(monkeypatch, module, 'Thresholds-Removed: module_size_baseline=definition')
         base = dict(data, module_size_baseline={'backend/new.py': 900, 'tests/new.py': 900})
+        stub_history(monkeypatch, module, REPO_ROOT, 'Thresholds-Removed: module_size_baseline=definition', base)
         removed = module.thresholds_removed.declared('base', 'HEAD', REPO_ROOT)
         assert not importlib.import_module('thresholds_guard').forbidden_moves(
             base, data, set(thresholds.BASELINE_MEMBERS), removal_declarations=removed)
@@ -420,3 +424,36 @@ def test_tighten_seeds_over_ceiling_files(tmp_path, monkeypatch, capsys, state):
     assert module.main(["--tighten", "--thresholds", str(target)]) == 0
     assert thresholds.module_size_baseline(thresholds.load(target)) == expected
     assert "seeded" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('entry,recorded', [
+    ('module_size_baseline', True),
+    ('module_size_baseline.backend/api.py', True),
+    ('module_size_baseline.backend/api.py', False),
+])
+def test_committed_removal_is_limited_to_base_entries(tmp_path, monkeypatch, entry, recorded):
+    module = _size_baseline()
+    data = _document()
+    removed_only = {'backend/api.py': 501}
+
+    def consume(measured):
+        test_committed_document_matches_tree(measured, (data, False))
+
+    base = {'schema_version': 1, 'module_size_baseline':
+            {'backend/api.py': 900} if recorded else {}}
+    stub_history(monkeypatch, module, REPO_ROOT, f'Thresholds-Removed: {entry}=definition', base)
+    for head_absent in (False, True):
+        if head_absent:
+            data.pop('module_size_baseline')
+        monkeypatch.setenv('CLAUDIT_PERTURBED_DATA', '1')
+        monkeypatch.delenv('CLAUDIT_THRESHOLDS_BASE_REV', raising=False)
+        with pytest.raises(AssertionError, match='backend/api.py'):
+            consume(removed_only)
+        monkeypatch.setenv('CLAUDIT_THRESHOLDS_BASE_REV', 'base')
+        if recorded:
+            consume(removed_only)
+            with pytest.raises(AssertionError, match='backend/new.py'):
+                consume(dict(removed_only, **{'backend/new.py': 501}))
+        else:
+            with pytest.raises(AssertionError, match='backend/api.py'):
+                consume(removed_only)

@@ -11,6 +11,7 @@ tests/test_ci_suppression_baseline.py
 tests/test_ci_thresholds.py
 tests/test_ci_thresholds_cache.py
 tests/test_ci_thresholds_guard.py
+tests/test_ci_thresholds_removed.py
 tests/test_ci_thresholds_reparse.py
 tests/test_reparse_gate.py
 tests/test_reparse_seed.py

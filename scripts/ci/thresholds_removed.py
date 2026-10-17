@@ -1,6 +1,7 @@
 """Declared threshold removals from one bounded judged-range history read."""
 from __future__ import annotations
 
+import importlib
 import re
 import subprocess
 from collections.abc import Iterable
@@ -12,13 +13,13 @@ BASELINE_FAMILIES = frozenset({
 
 
 class Declarations(frozenset[str]):
-    """Exact entry tokens, with bare baseline families expanded over candidates."""
+    """Exact entry tokens or bare baseline-family declarations."""
 
-    def paths(self, family: str, candidates: Iterable[str]) -> set[str]:
-        """Return declared paths of a baseline family within the measured set."""
+    def paths(self, family: str, removed_entries: Iterable[str]) -> set[str]:
+        """Select declared paths from a supplied set of removed entries."""
         if family not in BASELINE_FAMILIES:
             return set()
-        return {path for path in candidates
+        return {path for path in removed_entries
                 if family in self or f'{family}.{path}' in self}
 
 
@@ -48,3 +49,25 @@ def declared(base_rev: str | None, head_rev: str, root: Path) -> Declarations:
         else:
             declarations.update(entries)
     return Declarations(declarations)
+
+
+def exempt_paths(base_rev: str | None, head_rev: str, root: Path,
+                 family: str, head_entries: Iterable[str],
+                 candidates: Iterable[str]) -> set[str]:
+    """Exempt only measured, declared entries actually removed since base."""
+    declarations = declared(base_rev, head_rev, root)
+    if not declarations or family not in BASELINE_FAMILIES:
+        return set()
+    try:
+        proc = subprocess.run(
+            ['git', '-C', str(root), 'show', f'{base_rev}:.github/ci-thresholds.json'],
+            capture_output=True, check=False, timeout=10)
+        if proc.returncode != 0:
+            return set()
+        thresholds = importlib.import_module(
+            'scripts.ci.thresholds' if __package__ else 'thresholds')
+        base = thresholds.normalise(thresholds.validate.decode(proc.stdout))
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return set()
+    removed_entries = set(base.get(family, {})) - set(head_entries)
+    return declarations.paths(family, removed_entries) & set(candidates)
