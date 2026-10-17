@@ -174,12 +174,6 @@
 /scripts/plots/*
 !/scripts/plots/*.py
 
-# ---- patches/ — dependency fixes applied after npm install ----------------
-!/patches/
-/patches/*
-!/patches/*.patch
-!/patches/README.md
-
 # ---- src/ — React JSX modules served at /src/* -----------------------------
 !/src/
 /src/*

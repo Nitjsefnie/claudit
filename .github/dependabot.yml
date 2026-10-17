@@ -10,7 +10,7 @@
 # before a human reads it.
 #
 # The npm entry below owns package.json + package-lock.json: the CI
-# toolchain (eslint, eslint-plugin-react, c8, globals) and nothing else. The frontend
+# toolchain only. The frontend
 # still has no npm dependency and no build step (see CONTRIBUTING.md and
 # eslint.yml) — that manifest is private, carries devDependencies only, and
 # nothing in the served app reads it. It exists because the pins used to sit
@@ -43,7 +43,7 @@ updates:
       - dependencies
 
   # The CI toolchain only: eslint (the JS lint gate), eslint-plugin-react and
-  # globals (what eslint.config.mjs reads), c8 (the JS coverage fold). One
+  # globals and the AST coverage tools. One
   # grouped PR per run, for the same reason the actions entry is grouped — a
   # toolchain that half-moves is a lockfile that does not install, and the
   # grouping keeps eslint, its plugin and its config's `globals` dependency

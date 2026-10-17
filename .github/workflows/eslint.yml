@@ -1,6 +1,6 @@
 name: eslint
 
-# Frontend lint gate (issue #8): eslint over src/*.js and src/*.jsx.
+# JavaScript lint gate: browser sources and the CI coverage converter.
 #
 # The app deliberately has NO bundler and NO build step — React is loaded
 # via in-browser Babel, and the src files are classic browser scripts that
@@ -78,4 +78,4 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: eslint
-        run: npx --no-install eslint 'src/**/*.js' 'src/**/*.jsx'
+        run: npx --no-install eslint 'src/**/*.js' 'src/**/*.jsx' scripts/ci/js_coverage.mjs

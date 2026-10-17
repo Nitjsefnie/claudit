@@ -27,7 +27,7 @@ readable off the command text (SV-BASH-CHURN).
 - **Backend**: Python 3.13+, FastAPI, Uvicorn, psycopg3 (pooled)
 - **Frontend**: React 18 from CDN, in-browser Babel, vanilla JS/JSX —
   no webpack, vite or npm install. The root `package.json` holds the
-  **CI toolchain only** (eslint, eslint-plugin-react, c8, globals —
+  **CI toolchain only** (eslint, eslint-plugin-react, AST coverage, globals —
   devDependencies, nothing served), so the eslint gate can be pinned
   somewhere Dependabot sees
 - **Database**: PostgreSQL — `claudit` for app data, an external auth

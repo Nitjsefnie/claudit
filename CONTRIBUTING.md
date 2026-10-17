@@ -55,7 +55,7 @@ The rules that reject the most patches, in order:
 Do not "helpfully" add a bundler, an npm dependency, or a build step. The
 frontend transpiles in the browser on purpose; that is a design decision,
 not an oversight. The root `package.json` is the **CI toolchain only** —
-eslint, eslint-plugin-react, c8, `globals`, devDependencies and nothing
+eslint, eslint-plugin-react, AST coverage, `globals`, devDependencies and nothing
 else, installed with `npm ci` and read by nothing the app serves. Adding a
 runtime `dependencies` block there is the creep this paragraph forbids.
 
@@ -258,7 +258,10 @@ pinned toolchain. Coverage is a self-raising ratchet, not a target, and
 it covers both shipped source families. The python measurement is the
 full pytest run (`--cov=backend`); the javascript measurement runs the
 node-executing tests under `NODE_V8_COVERAGE` and folds the result with
-c8 over `src/**/*.js` — the files node actually executes. The `.jsx`
+`scripts/ci/js_coverage.mjs` over `src/**/*.js` — the files node actually
+executes, with the existing default test exclusions. It uses
+ast-v8-to-istanbul with Acorn and writes the Istanbul JSON summary; its
+`--lines` option checks the unrounded line percentage against the floor. The `.jsx`
 panels sit outside that boundary (node parses no JSX, and the tests
 exercise them only through eval'd fragments, which V8 attributes to the
 eval, not the source file), so extending coverage to them means a real

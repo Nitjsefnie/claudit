@@ -357,7 +357,7 @@ def test_tracked_sizes_cover_sql_css_and_workflow_yaml(real_tracked_sizes):
     # source, and stays outside.
     sizes = real_tracked_sizes
     for rel in ("backend/schema.sql", "public/app.css",
-                ".github/workflows/tests.yml"):
+                ".github/workflows/tests.yml", "scripts/ci/js_coverage.mjs"):
         assert rel in sizes, f"{rel} is outside the size ratchet"
         actual = (REPO_ROOT / rel).read_text(
             encoding="utf-8").splitlines()
