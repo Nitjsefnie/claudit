@@ -1,61 +1,22 @@
-"""The reprice pass: recompute rate-derived stored state (issue #193).
+"""Recompute rate-derived stored state without R2 access or reparsing.
 
-A rate change must rePRICE stored records instead of re-parsing every
-R2 object: this pass recomputes each stale row's cost from its OWN
-stored token columns — no R2 access, no reparse. A row is stale when
-its stored pricing_version differs from constants.PRICING_VERSION (NULL
-counts as stale), and persist-time stamping (backend/ingest_persist.py)
-keeps freshly written rows non-stale.
+Staleness is a pricing-version mismatch (NULL included). Preserve rows
+whose integer version is newer than this binary. Derive cost, meter
+flag and factor provenance from each row's own stored columns.
 
-The pass recomputes RATE-DERIVED STORED STATE keyed off pricing_version
-staleness: cost_usd AND records_price.long_context (a rate-derived flag,
-issue #194). For the meter's models the flag is a pure function of
-stored columns, and it rides the SAME selection as the cost. The
-per-row update is assembled in one place (_record_updates), so a flag
-column rides the same selection, guard and keyset as the cost.
+Classify stale model/provider pairs once and restamp matching complete
+fingerprints set-wise. Fingerprints cover rate inputs and pricing/reprice
+logic, proving recomputation is identity. Skip the keyset scan when
+that restamp covered every counted stale row.
 
-Batching (issue #339): REPRICE_BATCH rows per transaction, keyset-
-paginated on (file_id, line_num), one commit per batch — a failure's
-blast radius is one batch, and OFFSET pagination (which would rescan)
-is never used. Each batch's rows are written SET-BASED: a row whose
-recomputed state equals its stored state is only re-stamped with the
-current PRICING_VERSION (one UPDATE joining unnest() over the batch's
-keys), and a row whose cost or long-context flag moved is written by
-one UPDATE ... FROM unnest(...) carrying the batch's recomputed values.
-Neither write re-states one row per statement: a batch's rows cost
-at most two UPDATE statements however large REPRICE_BATCH is, so the
-hourly PRICING bumps that move no stored pair's rates issue O(batches)
-statements instead of one UPDATE per row.
+Remaining rows use (file_id, line_num) keyset batches, one transaction
+and at most two set-based UPDATEs per batch: unchanged restamps and
+changed values. Advance past guard skips; never OFFSET-scan. Committed
+batches survive failure and the next run converges.
 
-Pair-qualified staleness (issue #351): before the keyset loop, one
-GROUP BY scan classifies the stale (model, provider) pairs — counting
-each pair's stale rows (issue #400) — and ONE set-based UPDATE restamps
-every stale row whose stored rate_fingerprint
-equals its pair's current fingerprint — the fingerprint covers every
-rate input resolve() consults plus the source of the pricing modules
-and of this pass (rate_fingerprint.hashed_modules), so the recomputation
-for those rows is the identity and reading them into Python would spend
-~20us per row advancing a marker. The keyset loop
-then sees only rows whose pair's rate data moved (or whose version
-spelling the SQL guard cannot prove safe), reads them, recomputes,
-and stamps the current fingerprint beside the version; when the
-restamp covered every counted row the loop is skipped outright, since
-its terminating SELECT would otherwise walk the entire PK index only
-to prove emptiness (issue #400).
-
-The return count is rows whose rate-derived data CHANGED — the restamp
-advances the staleness marker without touching user-visible state, so
-the ingest's promote_full, response-cache invalidation and ingest_done
-broadcast (which key on this count) fire only when repricing moved a
-cost or a flag. Rows written, changed or merely restamped, still all
-carry the current version on success.
-
-Rollback guard, mirroring ingest._stored_version_is_newer (issue #118):
-a stored pricing_version that parses as an int and is GREATER than
-constants.PRICING_VERSION was priced by a NEWER build, and updating it
-would clobber pricing this binary cannot reproduce. Such rows are never
-updated — they are counted, logged, and the keyset advances past them.
-"""
+Return only rows whose rate-derived data changed, so marker-only
+restamps do not trigger full rebuild, cache invalidation or broadcast.
+All written rows receive the current version and pair fingerprint."""
 from __future__ import annotations
 
 import logging
@@ -75,9 +36,9 @@ log = logging.getLogger("claudit.ingest")
 # it (monkeypatch the module attribute).
 REPRICE_BATCH = 20_000
 
-# All three of the pass's writes land on records_price (#959 R4): a bump
-# rewrites only the sidecar's narrow pages (HOT, #350), never records.
-# INNER JOIN: a records row without its price row is not a candidate.
+# All writes target records_price: repricing rewrites narrow sidecar
+# pages with HOT updates, never records. INNER JOIN excludes records
+# without a price row.
 _SELECT_SQL = """
     SELECT r.file_id, r.line_num, dm.value, r.fresh_tokens,
            r.cache_creation_tokens, r.cache_read_tokens, r.output_tokens,
@@ -95,11 +56,9 @@ _SELECT_SQL = """
      LIMIT %s
 """
 
-# A batch's unchanged rows: only the staleness marker moved, so one
-# statement advances it for the whole set. Issue #351: the rate
-# fingerprint rides the same write, so a row restamped by the keyset
-# path carries the fingerprint of the data its cost was priced
-# under — provable clean set-based next run. Dim FK ids (#959).
+# Restamp unchanged rows in one statement, advancing version and rate
+# fingerprint together so the next run can prove them clean set-wise.
+# Both stamps are dim FK ids.
 _SQL_RESTAMP = """
     UPDATE records_price rp
        SET pricing_version_id = %s, rate_fingerprint_id = d.f
@@ -124,15 +83,10 @@ _SQL_REPRICE = """
 """
 
 
-# Phase A's classification: the stale (model, provider) pairs, each
-# with its stale-row count (issue #400) — few rows, one GROUP BY scan
-# over two narrow columns (measured 0.66-1.4 s at 1.375M rows in
-# every staleness state probed). The count lets reprice_stale skip
-# the keyset loop outright when the clean restamp covered every stale
-# row: the loop's terminating SELECT otherwise walks the entire PK
-# index just to prove no rows remain (3.6 s at production shape, up
-# to 66.9 s under load). Dims resolve the texts (#959); staleness and
-# the pair's join both ride records_price.
+# Classify stale model/provider pairs and count each pair in one
+# GROUP BY. If clean restamping covers all counted rows, skip the
+# keyset scan that would traverse the PK just to prove emptiness.
+# Resolve texts through dims; staleness and pair joins use records_price.
 _SQL_STALE_PAIRS = """
     SELECT dm.value, COALESCE(dp.value, ''), count(*)
       FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num
@@ -141,16 +95,13 @@ _SQL_STALE_PAIRS = """
      WHERE rp.pricing_version_id IS DISTINCT FROM %s GROUP BY 1, 2
 """
 
-# Phase A clean-restamps rows with the current pair fingerprint and complete
-# meter provenance: pricing inputs and logic fingerprint to an identity
-# recomputation. Legacy metered rows without pairs use the keyset path to fill
-# them. Only 1-9 digit versions <= V enter SQL; odd spellings and newer rows
-# remain for Python's rollback guard (the 9-digit bound avoids int4 overflow);
-# the digit test guards the cast inside a CASE; texts read back through their
-# dims (#959). cand AS MATERIALIZED fences the small side: loose in a FROM
-# list the planner priced this statement's coherence predicates at ~45 rows
-# of 1.79M and nested records_price inside the pair loop (19+ minutes measured
-# on the mirror before the fence); fenced, every join order left is linear.
+# Clean-restamp only matching fingerprints with complete meter
+# provenance; incomplete pairs go through the keyset path. SQL accepts
+# only 1-9 digit versions <= V, with the cast inside CASE to avoid int4
+# overflow; Python guards other spellings and newer versions.
+# cand AS MATERIALIZED fences the small side: underestimated coherence
+# predicates otherwise permit quadratic nested loops over records_price.
+# Read texts through dims.
 _SQL_CLEAN_RESTAMP = """
     WITH cand AS MATERIALIZED (
       SELECT r.file_id, r.line_num, r.provider_id, d.p, d.f
@@ -172,7 +123,7 @@ _SQL_CLEAN_RESTAMP = """
 
 
 class _StaleRow(NamedTuple):
-    """One stale row's stored columns (#959: file_id keyset, dim TEXTs)."""
+    """One stale row's stored columns: file_id keyset and dimension texts."""
 
     file_id: int
     line_num: int
@@ -201,8 +152,7 @@ def _stored_pricing_version_is_newer(stored: str | None,
 
     A value that does not parse as an int cannot be shown newer, so the
     ordinary staleness decision applies — exactly the rule
-    ingest._stored_version_is_newer applies to parser_version (issue
-    #118): a rollback's older binary must not rewrite rows it cannot
+    ingest._stored_version_is_newer applies to parser_version: a rollback's older binary must not rewrite rows it cannot
     write whole.
     """
     if stored is None:
@@ -218,7 +168,7 @@ def _record_updates(row: _StaleRow) -> dict:
 
     Members recompute their threshold flag. Non-members keep NULL/FALSE;
     a stored TRUE is checked against the global threshold to unbill lapsed
-    members (issue #833). The provider does not affect flag derivation.
+    members. The provider does not affect flag derivation.
     One resolution supplies token and web-search rates. A flagged row also
     stores its effective meter pair, preserving provenance across batches.
     """
@@ -230,8 +180,8 @@ def _record_updates(row: _StaleRow) -> dict:
                         > pricing.long_context_threshold(row.model))
     elif row.long_context:
         # A non-member's stored TRUE can only be the Codex path's
-        # threshold test (issue #194) — or a lapsed member's leftover,
-        # which keeps over-billing (issue #833). Re-deriving that test
+        # threshold test or a lapsed member's leftover
+        # flag that would keep over-billing. Re-deriving that test
         # is the one non-member rule every format's reparse prices
         # identically: the row unbills below the global threshold and a
         # genuinely above-threshold Codex row keeps its meter.
@@ -264,23 +214,19 @@ def _record_updates(row: _StaleRow) -> dict:
         "long_context": long_context,
         "long_context_input_mult": input_mult,
         "long_context_output_mult": output_mult,
-        # Retire the legacy note-derived fee column without dropping it;
-        # new prices come from web_search_requests times the row's rate.
+        # Clear the note-derived fee column: bill web_search_requests at the
+        # record's rate instead, preserving the column for storage compatibility.
         "request_fee_usd": None,
         "pricing_version": constants.PRICING_VERSION,
     }
 
 
 def _row_is_unchanged(row: _StaleRow, updates: dict) -> bool:
-    """Whether recomputing the row yielded its stored state, so only the
-    staleness marker needs advancing. Also imported unchanged by the
-    frozen differential — see _record_updates.
+    """Whether stored state equals recomputation, requiring only restamping.
 
-    The stored cost is NUMERIC(12,6): the old pass wrote
-    round(cost, 6) into it, and reading that value back through
-    float() yields the same double the round produced, so the equality
-    is exact for every row this pass (or its predecessor) wrote.
-    """
+    The frozen differential imports this unchanged beside _record_updates.
+    Cost is stored as NUMERIC(12,6); round(cost, 6) read back through float
+    produces the same double, so equality is exact for persisted values."""
     return (float(row.cost_usd) == updates["cost_usd"]
             and row.long_context == updates["long_context"]
             and row.long_context_input_mult
@@ -303,13 +249,13 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
     the rollback guard, so the pass always terminates and a guard skip
     never spins. The loop runs only while rows remain after Phase A's
     clean restamp: when the restamp covered every stale row the pairs
-    scan counted, the loop is skipped outright (issue #400).
+    scan counted, the loop is skipped outright.
 
     should_stop, when given, is consulted at the top of every batch
     iteration: a truthy return — or an exception it raises — unwinds the
     pass via IngestAborted. Batches already committed persist, the
     interrupted batch never opens, and the next run converges (the
-    ingest stop contract, issue #103 — no new recovery logic). ingest
+    ingest stop contract). ingest
     passes its _check_shutdown, which raises; direct and test callers
     pass nothing, which prices the whole table in one go.
 
@@ -318,7 +264,7 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
     commit) accumulate across
     batches and must account for the measured total — the gap is the
     unattributed residue. Python CPU time rides the same line. A
-    skipped loop leaves only the pairs/clean marks (issue #400).
+    skipped loop leaves only the pairs/clean marks.
     """
     ph = timing.Phases("reprice", logger=log, account=True) \
         if timing.TIMING_ON else None
@@ -335,9 +281,9 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
     clean = 0
     after_key: tuple[int, int] = (-1, 0)
     try:
-        # Phase A (issue #351): classify the stale (model, provider)
+        # Phase A: classify the stale (model, provider)
         # pairs — few rows, one GROUP BY scan that also counts each
-        # pair's stale rows (issue #400) — then restamp, in ONE
+        # pair's stale rows — then restamp, in ONE
         # set-based statement, every stale row whose stored fingerprint
         # still equals its pair's current fingerprint: the fp covers
         # every rate input resolve() consults plus the pricing modules'
@@ -372,15 +318,10 @@ def reprice_stale(should_stop: Callable[[], bool | None] | None = None  # pylint
         if ph is not None:
             marks["pairs"] = fp_done - t0
             marks["clean"] = time.perf_counter() - fp_done
-        # Issue #400: when the clean restamp covered every stale row the
-        # scan counted (clean == stale_total), no stale row remains and
-        # the loop's first SELECT would walk the entire PK index only to
-        # prove emptiness — measured 3.6 s at production shape, up to
-        # 66.9 s under load. The skip is exact: every row the SQL set
-        # cannot restamp — a pair whose fingerprint moved, a NULL or
-        # oddly-spelled version (NULL ~ regex is not TRUE), a plain-digit
-        # version above the binary's, or a digit run past int4 — leaves
-        # clean < stale_total, and the loop runs exactly as before.
+        # When clean == stale_total, no stale row remains: skip the PK scan
+        # that would only prove emptiness. Changed fingerprints, NULL/odd
+        # versions, newer versions and digit runs past int4 leave clean below
+        # the count and therefore take the guarded keyset path.
         while clean != stale_total:
             if should_stop is not None and should_stop():
                 outcome = "aborted"

@@ -1,16 +1,9 @@
-"""Session token mint/verify + FastAPI auth middleware.
+"""Session tokens and FastAPI auth middleware.
 
-Password hashes are looked up in the external auth DB by `user_id`
-(that DB is READ-ONLY from this application). Each real user's
-web-session secret and a per-user generation counter live in claudit's
-OWN database, in the `user_session` table (backend/schema.sql) — issue
-#94 moved them out of the shared users table so claudit never writes to
-the auth DB. The row also stores a fingerprint of the auth-DB password
-hash and salt. Resolution checks the current auth-DB credential through
-a 60-second cache, so deleted users and changed credentials are revoked
-within that window; rows from before the fingerprint migration are
-invalid until login rebinds them. Guest tokens are signed with a
-process-local secret and have no row anywhere; they die on restart.
+The external auth DB is read-only; claudit's user_session holds each user's
+secret, generation and credential fingerprint. Deleted users and
+changed credentials revoke through a <=60-second auth cache; unbound rows are
+invalid until login. Guest secrets are process-local and die on restart.
 """
 from __future__ import annotations
 
@@ -43,7 +36,6 @@ _USER_CONFIG_CACHE_MAX_KEYS = 1024
 
 
 def set_session_cookie(response: Response, token: str) -> None:
-    """Issue a session cookie with the application's complete flag contract."""
     response.set_cookie(
         SESSION_COOKIE_NAME,
         token,
@@ -56,11 +48,9 @@ def set_session_cookie(response: Response, token: str) -> None:
 
 
 def parse_session_token(token: str):
-    """Split a token into (user_id, issued_at, nonce, sig, generation).
+    """Parse a five-part token into user_id, issued_at, nonce, sig, generation.
 
-    Five parts — the pre-generation 4-part shape (obsolete since
-    #108) is rejected — or None for anything malformed.
-    """
+    Return None for any malformed token, including a four-part token."""
     parts = token.split(".")
     if len(parts) != 5:
         return None
@@ -123,10 +113,10 @@ def get_or_create_session_row(
     """Return (secret, generation) for a real user, inserting a fresh
     secret at generation 0 on the user's first login. Re-login with the
     same fingerprint preserves the secret and generation; a changed or
-    previously NULL fingerprint rotates the secret and bumps generation.
+    NULL fingerprint rotates the secret and bumps generation.
 
     The row lives in claudit's own DB (user_session, backend/schema.sql)
-    — never in the shared auth DB (issue #94).
+    — never in the shared auth DB.
     """
     with db.viz_conn() as c:
         row = c.execute(
@@ -168,7 +158,7 @@ def load_session_row(
 
 
 def bump_session_generation(user_id: int) -> None:
-    """Invalidate every session token a real user holds (issue #108):
+    """Invalidate every session token a real user holds:
     verification requires the token's generation to equal the stored one,
     and this raises the stored one by one."""
     with db.viz_conn() as c:
@@ -193,7 +183,7 @@ def load_user_config(user_id: int) -> dict | None:
 
 # Key for the credential fingerprint's HMAC — a fixed domain separator,
 # not a secret: the fingerprint is a change-detection tag over material
-# that is already a PBKDF2 output (issue #237).
+# that is already a PBKDF2 output.
 _FP_KEY = b"claudit credential fingerprint v1"
 
 
@@ -228,7 +218,6 @@ def _prune_user_config_cache(now: float) -> None:
 
 
 def remember_user_config(user_id: int, config: dict | None) -> None:
-    """Cache a freshly loaded auth config for the current login binding."""
     now = time.time()
     cached_config = dict(config) if config is not None else None
     _USER_CONFIG_CACHE[user_id] = (
@@ -263,18 +252,11 @@ OPERATOR_KEY = "web_operator"
 
 
 def is_operator(user_id: int) -> bool:
-    """Is this user an operator, per their auth DB's `users.config`?
+    """Operator capability from the auth DB's users.config; default deny.
 
-    Absent a row, absent a key, or anything but a JSON boolean `true` — all
-    deny. The `is True` is load-bearing rather than taste: JSON hands
-    `{"web_operator": "false"}` to Python as a TRUTHY string, so a
-    truthiness test would grant operator rights on a row that says no.
-
-    `GUEST_USER_ID` is refused before the config is read. A guest has no row
-    in that table today, so this would fall out by itself — but "a guest is
-    never an operator" is a property of the model, not of the auth DB's
-    current contents.
-    """
+    Only JSON boolean true grants access: a string "false" is truthy in
+    Python and must not grant rights. Deny GUEST_USER_ID before reading
+    config: guest refusal must hold independently of auth-DB contents."""
     if user_id == GUEST_USER_ID:
         return False
     config = _cached_user_config(user_id)
@@ -324,7 +306,7 @@ def check_origin(request: Request) -> bool:
     return False
 
 
-# /favicon.ico is public so the icon loads before any sign-in (#448):
+# /favicon.ico is public so the icon loads before any sign-in:
 # the browser fetches it on the sign-in page too.
 _AUTH_PUBLIC_PATHS = {
     "/health", "/login", "/logout", "/login/guest", "/favicon.ico",
@@ -332,7 +314,6 @@ _AUTH_PUBLIC_PATHS = {
 
 
 def _admin_denied(request: Request) -> Response | None:
-    """Admin-token + origin gate for /admin/*; None means allowed."""
     token = request.headers.get("x-admin-token", "")
     expected = getenv("CLAUDIT_ADMIN_TOKEN", "")
     if not expected or not hmac.compare_digest(
@@ -347,7 +328,6 @@ def _admin_denied(request: Request) -> Response | None:
 
 
 def _unauthenticated(path: str) -> Response:
-    """APIs get a JSON 401; page loads get bounced to /login."""
     if path.startswith("/api/"):
         return JSONResponse(
             {"ok": False, "error": "Unauthorized"}, status_code=401
@@ -380,7 +360,6 @@ def _guest_denied(request: Request) -> Response | None:
 
 
 def _session_denied(request: Request) -> Response | None:
-    """Origin + session-cookie + guest gate; None means allowed."""
     if not check_origin(request):
         return Response("Forbidden (cross-origin)", status_code=403)
     cookie = request.cookies.get(SESSION_COOKIE_NAME, "")
@@ -390,7 +369,7 @@ def _session_denied(request: Request) -> Response | None:
     request.state.user_id = user_id
     request.state.is_guest = user_id == GUEST_USER_ID
     # Resolved here, beside the other two, so every route reads the same
-    # session off the same place (issue #629). It reuses the config cache the
+    # session off the same place. It reuses the config cache the
     # credential check above just populated, so a real user pays no extra
     # lookup and a guest never reaches the auth DB at all.
     request.state.is_operator = is_operator(user_id)

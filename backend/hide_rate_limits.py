@@ -15,7 +15,6 @@ def is_truthy(value: str) -> bool:
 
 
 def __getattr__(name: str) -> bool:
-    """Expose the old module constant from the resolved startup config."""
     if name != "HIDE_RATE_LIMITS":
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     config_module = import_module("backend.flags")
@@ -23,5 +22,4 @@ def __getattr__(name: str) -> bool:
 
 
 def __dir__() -> list[str]:
-    """Include the compatibility constant in module introspection."""
     return sorted((*globals(), "HIDE_RATE_LIMITS"))

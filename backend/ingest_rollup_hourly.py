@@ -13,7 +13,6 @@ _SOURCE_TABLES = {"r": "records", "tu": "tool_uses"}
 
 
 def _phase_scope(scope: Scope | None) -> Scope | None:
-    """Use an explicit scope, or the active ingest's scope."""
     return scope if scope is not None else current_scope()
 
 
@@ -25,7 +24,6 @@ def _valid_hours(scope: Scope) -> tuple[list[str], list[datetime]]:
 
 def _merged_candidate_intervals(
         scope: Scope) -> tuple[list[str], list[datetime], list[datetime]]:
-    """Merge widened UTC timestamp ranges per project."""
     by_project: dict[str, list[tuple[datetime, datetime]]] = {}
     for project_id, hour in scope.dirty_hours:
         if hour is None:
@@ -74,7 +72,6 @@ def _scope_filter(source_alias: str, scope: Scope | None) -> tuple[str, dict]:
 
 def _scoped_source(source_alias: str, scope: Scope | None
                    ) -> tuple[str, str, dict]:
-    """Build index-driven candidates for a scoped hourly aggregate."""
     source_table = _SOURCE_TABLES[source_alias]
     price_join = (
         " LEFT JOIN records_price rp ON rp.file_id = r.file_id"
@@ -131,7 +128,7 @@ def _delete_scope(conn, table: str, scope: Scope | None) -> dict:
         return {}
     params = {"projects": projects, "hours": hours}
     # Scope keys stay TEXT project ids (the scope's own vocabulary);
-    # the rollups store proj_id (#959), so the pairs resolve through
+    # the rollups store proj_id, so the pairs resolve through
     # projects here — one join over a handful of pairs.
     conn.execute(
         f"""DELETE FROM {table} t
@@ -147,7 +144,6 @@ def _delete_scope(conn, table: str, scope: Scope | None) -> dict:
 
 def _run_hourly(table: str, insert_sql: str, source_alias: str,
                 scope: Scope | None, params: dict | None = None) -> int:
-    """Replace a full table or dirty project/hour keys in one transaction."""
     if scope is not None and not scope.full and not _valid_hours(scope)[0]:
         return 0
     values = dict(params or {})
@@ -172,7 +168,7 @@ def _run_hourly(table: str, insert_sql: str, source_alias: str,
 def ensure_sessions() -> None:
     """Insert every stored file's (project, session) into `sessions`.
 
-    usage_rollup's grain is ses_id since #959, so the rows must exist
+    usage_rollup's grain is ses_id, so the rows must exist
     before any rollup row can reference one. `files` is small, so the
     DISTINCT pass beats threading a per-file upsert through persist.
 
@@ -200,14 +196,11 @@ def ensure_sessions() -> None:
 
 
 def ensure_agent_type_dims() -> None:
-    """files.agent_type stays TEXT (#959 keeps the small files table
-    plain); agent_rollup stores its dim id, so every stored value is
-    inserted before the build joins dim_agent_type.
+    """Insert stored files.agent_type TEXT values before joining their dim ids.
 
-    Same allocation rule as `ensure_sessions`: the anti-join keeps
-    already-stored values away from the INSERT, so a rebuild spends one
-    dim id per value it introduces and none per value it re-reads (DO
-    UPDATE there also locked the row on every rebuild)."""
+    The anti-join keeps existing values away from INSERT, so DEFAULT
+    nextval spends no id on a conflict. DO NOTHING protects the concurrent
+    race without locking every existing row as DO UPDATE would."""
     with db.viz_conn() as conn:
         conn.execute(
             """
@@ -222,7 +215,6 @@ def ensure_agent_type_dims() -> None:
 
 
 def rebuild_rollup(scope: Scope | None = None) -> int:
-    """Rebuild usage_rollup from canonical records."""
     scope = _phase_scope(scope)
     ensure_sessions()
     written = _run_hourly(
@@ -263,7 +255,6 @@ def rebuild_rollup(scope: Scope | None = None) -> int:
 
 
 def rebuild_tool_rollup(scope: Scope | None = None) -> int:
-    """Rebuild tool usage and churn totals from canonical tool calls."""
     scope = _phase_scope(scope)
     written = _run_hourly(
         "tool_rollup",
@@ -292,7 +283,6 @@ def rebuild_tool_rollup(scope: Scope | None = None) -> int:
 
 
 def rebuild_tool_error_rollup(scope: Scope | None = None) -> int:
-    """Rebuild settled tool failures by hour, project, model and kind."""
     scope = _phase_scope(scope)
     written = _run_hourly(
         "tool_error_rollup",
@@ -317,7 +307,6 @@ def rebuild_tool_error_rollup(scope: Scope | None = None) -> int:
 
 
 def rebuild_dispatch_rollup(scope: Scope | None = None) -> int:
-    """Rebuild dispatch counts from canonical tool calls."""
     scope = _phase_scope(scope)
     written = _run_hourly(
         "dispatch_rollup",
@@ -342,7 +331,6 @@ def rebuild_dispatch_rollup(scope: Scope | None = None) -> int:
 
 
 def rebuild_dispatch_brief_rollup(scope: Scope | None = None) -> int:
-    """Rebuild counts and prompt lengths for dispatched briefs."""
     scope = _phase_scope(scope)
     written = _run_hourly(
         "dispatch_brief_rollup",
@@ -368,7 +356,6 @@ def rebuild_dispatch_brief_rollup(scope: Scope | None = None) -> int:
 
 
 def rebuild_ctx_cost_rollup(scope: Scope | None = None) -> int:
-    """Rebuild context-size cost bins from canonical records."""
     scope = _phase_scope(scope)
     written = _run_hourly(
         "ctx_cost_rollup",
@@ -402,7 +389,6 @@ def rebuild_ctx_cost_rollup(scope: Scope | None = None) -> int:
 
 
 def rebuild_agent_rollup(scope: Scope | None = None) -> int:
-    """Rebuild canonical request totals by the file's resolved agent role."""
     scope = _phase_scope(scope)
     ensure_agent_type_dims()
     written = _run_hourly(

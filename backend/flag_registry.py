@@ -6,8 +6,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class CollectionSpec:
-    """Stored fields and rollups owned by one collection switch."""
-
     key: str
     env: str
     record_fields: tuple[str, ...] = ()
@@ -22,8 +20,6 @@ class CollectionSpec:
 
 @dataclass(frozen=True)
 class FeatureSpec:
-    """One display/API feature and any exclusive collection requirements."""
-
     key: str
     env: str
     collection_dependencies: tuple[str, ...] = ()

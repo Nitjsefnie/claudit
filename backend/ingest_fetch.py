@@ -1,10 +1,6 @@
-"""Bounded object fetch and per-file parsing for the ingest pool.
+"""Bounded object fetch, per-file parsing and fetch/persist pipelines.
 
-Also owns the ingest run's cooperative-abort state and the bounded
-fetch+parse and persist pipelines (issue #309): the fetch machinery,
-the pools, and the per-file unit callables live together so this module
-stays leaf-ward of `ingest`, which imports and re-exports these names
-to keep its established call surface.
+Keep worker machinery leaf-ward of ingest, which re-exports its established seams.
 """
 from __future__ import annotations
 
@@ -39,7 +35,7 @@ log = logging.getLogger("claudit.ingest")
 TRANSIENT_FETCH_ERRORS = (OSError, BotoCoreError, ClientError)
 CORRUPT_PAYLOAD_ERRORS = (lzma.LZMAError, EOFError)
 
-# The pool child's per-file stage accumulator (issue #662): parse_wire
+# The pool child's per-file stage accumulator: parse_wire
 # plants a dict here before calling the parse unit, and fetch_and_parse
 # writes this file's child work into it — the channel is per-thread, so
 # the parse_call seam stays a picklable module-level callable. Each
@@ -92,7 +88,7 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
                     collection: CollectionPolicy | None = None) -> dict:
     """Fetch and parse one object without opening a database connection.
 
-    `stages` books this file's child work (issue #662): the main fetch
+    `stages` books this file's child work: the main fetch
     wall, the xz inflate it paid (popped from r2's per-thread stamp), the
     parse, and the sidecar fetch when one runs. It is inert when None —
     every caller but the timed pool child, which plants the accumulator
@@ -100,10 +96,10 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
     the dict through.
 
     `etag`/`size` carry the listing identity for the deploy's disk blob
-    cache (issue #684): when the cache is enabled they are forwarded to
+    cache: when the cache is enabled they are forwarded to
     the fetch callable, whose cache-aware shape is fetch(key, etag, size)
     — r2.get_object answers a hit without the GET. Without them, or with
-    the cache off, the original fetch(key) shape is spoken. The sidecar
+    the cache off, use fetch(key). The sidecar
     fetch stays etag-less either way: it rides one joined etag with its
     transcript, and refetching a tiny sidecar costs the round trip alone.
     """
@@ -129,7 +125,7 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
             and fetch_started is not None):
         now = time.perf_counter()
         stages["child_parse"] = now - parse_started
-        # Issue #680: the GET span carries the .xz inflate get_object ran
+        # The GET span carries the .xz inflate get_object ran
         # in-call (stamped on this thread); pop it first and book the GET
         # as span minus inflate, so child_fetch and child_decompress are
         # disjoint slices.
@@ -177,7 +173,7 @@ def pipeline_threads(todo: list[tuple], parser_version: str,
         check_shutdown()
         if start:
             # Between persist batches: a full reparse reclaims its
-            # per-file dead rows before the next batch inserts (issue #959).
+            # per-file dead rows before the next batch inserts.
             batch_vacuum.maybe(reparsed)
         for (obj, proj, stored), parsed, exc in resolve(
             todo[start:start + chunk],
@@ -219,8 +215,7 @@ def fetch_parse_persist(todo: list[tuple], parser_version: str,
     Two pipelines, chosen by parse_process_count(): 1 = the in-process
     thread pipeline (the GIL serialises the pure-Python parse; the test
     suite pins this), >1 = the process pool (the parse is real CPU work,
-    so process workers scale with cores where threads actively regress —
-    measured 1.63x slower than serial at 16 threads). Both share the
+    so process workers can execute in parallel). Both share the
     unit of work, the failure booking, and the per-file transaction
     boundary; the equality test pins their DB state together. Chunking
     bounds memory; each chunk's persist drain runs while the next
@@ -264,7 +259,7 @@ def fetch_parse_persist(todo: list[tuple], parser_version: str,
             if current.last_parse_done is not None:
                 parse_wall = current.last_parse_done - fetch_parse_started
                 current.phases.mark("fetch_parse", parse_wall)
-                # Issue #662: the pool wall's parts, emitted as breakdown
+                # The pool wall's parts, emitted as breakdown
                 # figures so the sum/gap accounting stays wall-only.
                 _emit_fetch_parse_parts(current.phases, current)
                 current.phases.mark(
@@ -289,11 +284,11 @@ def parse_wire(item: tuple, parse_call: Callable,
     the item (a module-level attr of an importable module); the child
     inherits preloaded modules and touches no database state.
 
-    With `timed` (the run carries a timing context, issue #662), the unit
+    With `timed` (the run carries a timing context), the unit
     plants the stage accumulator the parse unit's fetch_and_parse writes
     into, returns (parsed, stages) — the per-file child work — and always
     clears the accumulator. Without it, the bare parsed dict, the shape
-    the persist submission has always expected.
+    persist submission expects.
     """
     obj, _proj, _stored = item
     if not timed:
@@ -328,11 +323,11 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
     Phase accounting: fetch_parse is the wall until the last parse
     completion, persist the drain after it — disjoint, so the TIMING
     line's sum never exceeds its total. With a timing context in force,
-    the wall's parts are also accumulated onto the run (issue #662):
+    the wall's parts are also accumulated onto the run:
     the child work parse_wire's stage dicts report, summed across the
     children; the persist work persist_seconds already sums; and this
     thread's two blocking points — waiting on parse results and draining
-    persists while the next chunk parses (issue #680: the post-loop drain
+    persists while the next chunk parses (the post-loop drain
     runs after the wall closes, so it is booked to persist instead) — so
     one reparse's line says where its time went. The parts
     are breakdown figures (mark_part), never phases in the sum.
@@ -351,7 +346,7 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
     def drain(persist_futures: dict, stored_by_key: dict,
               in_wall: bool = True) -> None:
         nonlocal inserted, reparsed
-        # In-wall drains only (issue #680): the post-loop drain runs after
+        # In-wall drains only: the post-loop drain runs after
         # last_parse_done closes the fetch_parse wall, so its blocking is
         # persist-phase time and must not enter wait_persist.
         drain_started = (time.perf_counter()
@@ -399,7 +394,7 @@ def pipeline_pool(todo: list[tuple], parser_version: str,
                     drain(*pending)
                     # Between persist batches: a full reparse reclaims
                     # its per-file dead rows before the next drain
-                    # inserts into them (issue #959); the new chunk's
+                    # inserts into them; the new chunk's
                     # parses are already running underneath.
                     batch_vacuum.maybe(reparsed)
                 pending = None

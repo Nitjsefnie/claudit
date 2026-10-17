@@ -1,30 +1,14 @@
-"""The per-(model, provider) rate fingerprint (issue #351).
+"""Per-(model, provider) price-derivation fingerprint.
 
-A reprice whose PRICING_VERSION bump moved no stored pair's rate data
-restamps those rows without recomputing them: the pass compares each
-stale row's stored ``records.rate_fingerprint`` against the CURRENT
-fingerprint of its pair and lets SQL restamp the rows that agree, so
-the read-and-recompute half of the pass costs O(changed pairs). The
-soundness contract — equal fingerprints imply equal prices for every
-(tokens, web_search_requests, ts, long_context) on the pair — holds because
-the digest covers every input pricing.resolve() consults: the rate tables'
-consulted rows, the resolution's outcome (fold, key, tier, default), the
-parser's source that produces stored search counts, the pricing modules'
-source AND the reprice pass's own source, whose
-``_record_updates`` is part of the derivation (the long-context
-re-derivation rule and the unsplit arithmetic live there) — so an
-edited entry, a correction, a schedule change, a logic change in the
-pricing modules or in the pass itself all change it (issue #377).
-All ts-dependence lives in the windows/schedules/start fields; rows of
-a pair with equal fingerprints price identically at every timestamp.
+Equal fingerprints must imply equal prices for every token/search count,
+timestamp and long-context flag, so unchanged pairs may be restamped without
+recomputation. Hash all inputs resolve consults: selected rate data, resolution
+outcome, schedules/windows, parser source producing search counts, pricing
+source, and reprice source deriving meters and unsplit arithmetic.
 
-The structure is versioned by ``_STRUCTURE_VERSION``: changing its
-shape bumps it, which invalidates every stored fingerprint at once
-(conservative recompute) without touching PRICING_VERSION.
-
-Every table is read through the ``pricing`` module attribute namespace
-at CALL time — ``pricing.MODEL_RATES``, never a from-import local — so
-the tests can patch tables exactly as they patch them for resolve().
+Changing the structure requires a _STRUCTURE_VERSION bump, invalidating every
+stored fingerprint. Read tables through pricing attributes at call time so
+patches affect resolve and its fingerprint identically.
 """
 from __future__ import annotations
 
@@ -88,7 +72,6 @@ def clear_fingerprint_cache() -> None:
 
 
 def _rates(rates: dict | None) -> list[float] | None:
-    """Token rates plus the optional per-search rate, or None."""
     return (None if rates is None else
             [rates[f] for f in RATE_FIELDS]
             + [rates.get("web_search", 0.0)])
@@ -104,7 +87,6 @@ def _windows(windows: pricing_load.Windows | None) -> list[list]:
 
 def _schedule(
         schedule: list[pricing_load.ScheduleWindow] | None) -> list[list] | None:
-    """Schedule windows as [sorted(days) | None, start, end, rates]."""
     if schedule is None:
         return None
     return [[sorted(days) if days is not None else None, start, end,
@@ -197,7 +179,7 @@ def _document(model: str, provider: str | None) -> dict:
         "norm": norm,
         "free": pricing._is_free(model, norm),  # pylint: disable=protected-access
         # The reprice pass's meter re-derivation consults membership and
-        # complete per-model entries (issue #878), so a data-only edit to
+        # complete per-model entries, so a data-only edit to
         # any threshold or factor moves every pair's fingerprint.
         "metered": sorted(pricing.LONG_CONTEXT_MODELS),
         "meter_entries": sorted(pricing.LONG_CONTEXT_METERS.items()),

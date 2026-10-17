@@ -9,7 +9,6 @@ from backend.ingest_walk import _stored_version_is_newer
 
 
 def existing_files() -> dict:
-    """file_key → (etag, parser version, normalized disabled collection keys)."""
     with db.viz_conn() as conn:
         return {
             key: (etag, version, tuple(stamp or ()))
@@ -30,7 +29,6 @@ def needs_reparse(stored: tuple | None, etag: str, parser_version: str,
 
 def collect_wires(wires: list, existing: dict, parser_version: str,
                   collection: CollectionPolicy, track: Callable) -> tuple:
-    """Plan classified wires using the same project-tracking seam as the host."""
     listed = newer = 0
     seen_keys: set[str] = set()
     seen_projects: dict[str, dict] = {}

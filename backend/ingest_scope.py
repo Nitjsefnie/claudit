@@ -12,7 +12,7 @@ import psycopg
 
 from backend import constants, db, flags, parser_version, uuid_split
 
-# records.uuid is the split column set (issue #959 task 8): the affected
+# records.uuid is the split column set: the affected
 # identities a run captures are the REBUILT texts, so the equality probes
 # downstream (ingest_rollup_state) match on the same reconstruction.
 _UUID_TEXT = uuid_split.uuid_text_sql("r")
@@ -100,12 +100,10 @@ _CURRENT_TOKEN: ContextVar[Token[Scope | None] | None] = ContextVar(
 
 
 def current_scope() -> Scope | None:
-    """Return the active run's scope, if an ingest is in progress."""
     return _CURRENT_SCOPE.get()
 
 
 def finish_scope() -> Scope | None:
-    """Restore the scope context and return its final value for timing."""
     token = _CURRENT_TOKEN.get()
     scope = _CURRENT_SCOPE.get()
     if token is not None:
@@ -205,7 +203,6 @@ def mark_complete() -> None:
 
 def capture_contributions(scope: Scope, conn: psycopg.Connection,
                           file_keys: set[str]) -> dict[str, Contribution]:
-    """Read records and tool-use contributions for files in two bulk queries."""
     contributions = {file_key: Contribution() for file_key in file_keys}
     if not file_keys:
         return contributions
@@ -241,7 +238,6 @@ def capture_contributions(scope: Scope, conn: psycopg.Connection,
 
 def capture_and_add(scope: Scope, conn: psycopg.Connection,
                     file_keys: set[str]) -> dict[str, Contribution]:
-    """Capture a live contribution and add it to the run's dirty scope."""
     contributions = capture_contributions(scope, conn, file_keys)
     scope.add_contributions(contributions, file_keys)
     return contributions
@@ -249,7 +245,6 @@ def capture_and_add(scope: Scope, conn: psycopg.Connection,
 
 def add_alias_move_contributions(
         scope: Scope, moved_files: dict[str, tuple[str, str]]) -> None:
-    """Add post-fold target keys and source keys for every moved file."""
     moved_keys = set(moved_files)
     with db.viz_conn() as conn:
         contributions = capture_and_add(

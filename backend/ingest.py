@@ -9,7 +9,7 @@ record). Cross-file uuid dedup resolves at ingest into records.is_canonical; rea
 Reparse trigger per FILE: missing row, changed etag, parser version or
 collection policy — never a NEWER stored parser_version: an older binary's
 ingest rewrites each file's rows with its own column list, which would
-NULL every column the older binary does not know (issue #118). Orphan
+NULL every column the older binary does not know. Orphan
 files (R2 key gone) are deleted. CASCADE drops records.
 
 Per-session work spans TWO transactions:
@@ -47,7 +47,7 @@ from backend.ingest_runs import (  # noqa: F401  (re-export)  # pylint: disable=
     failed_public_keys, failure_summary, sweep_stale_runs,
 )
 # The listing scan (split for size; the tests reach these through ingest)
-# and the lock-loss guard the bounded steps consult (issue #374).
+# and the lock-loss guard the bounded steps consult.
 from backend.ingest_scan import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
     _Wire, _fetch_marker, _resolve_project_paths, _scan_objects,
 )
@@ -62,8 +62,8 @@ from backend.ingest_timing import (  # noqa: F401  (re-export)
 from backend.ingest_walk import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
     _stored_version_is_newer, _track_project, _track_walked_project,
 )
-# Re-exported so `ingest.recompute_canonical(...)` and friends keep
-# resolving after the split; _rebuild_derived_state calls them.
+# Re-export canonical helpers for ingest callers and test patch seams;
+# _rebuild_derived_state resolves them through this module.
 from backend.ingest_rollups import (  # noqa: F401  (re-export)
     purge_suppressed, rebuild_agent_rollup, rebuild_ctx_cost_rollup,
     rebuild_dispatch_brief_rollup, rebuild_dispatch_rollup,
@@ -79,7 +79,7 @@ from backend.project_aliases import rekey_folded_projects
 # These imports preserve the existing `backend.ingest` call surface.
 from backend.ingest_warm import WARM_RANGES, warm_common  # noqa: F401  (re-export)  # pylint: disable=unused-import
 from backend.ingest_progress import _set_progress, progress_snapshot  # noqa: F401  (re-export)  # pylint: disable=unused-import
-# Orphan sweeps moved to their own module; re-exported so the bare-name
+# Re-export orphan sweeps so the bare-name
 # callers above and any test patching `backend.ingest._delete_orphans`
 # keep resolving through this module's globals.
 from backend.ingest_orphans import (  # noqa: F401  (re-export)
@@ -88,21 +88,15 @@ from backend.ingest_orphans import (  # noqa: F401  (re-export)
 
 log = logging.getLogger("claudit.ingest")
 
-# Only one ingest at a time. The hourly cron fires regardless of whether a
-# previous run is still going, and a full reparse (PARSER_VERSION bump) takes
-# ~40min — so a cron landed on top of a startup reparse and both walked the
-# whole bucket: duplicate R2 GETs, duplicate parses, competing writes, and two
-# sets of rollup rebuilds. The second run also built its todo list before the
-# first had committed anything, so it redid work already done. Non-blocking:
-# a skipped run is correct behaviour, not an error — the next hourly tick
-# picks up whatever is left.
+# Permit one ingest at a time: hourly ticks can overlap startup or a
+# full reparse, duplicating GETs, parses, writes and rollup rebuilds.
+# A second run's todo can also predate the first run's commits. Acquire
+# non-blockingly: skipping is correct, and the next tick resumes work.
 _RUN_LOCK = threading.Lock()
 
-# Cooperative abort (issue #103): a SIGTERM during a run used to wait out
-# the whole ingest until systemd SIGKILLed mid-run. Lifespan teardown sets
-# this event; a run checks it between bounded steps and unwinds via
-# IngestAborted. Per-file transactions are atomic, so the DB stays
-# convergent: derived state is left stale and rebuilt by the next run.
+# Lifespan teardown requests cooperative abort. Bounded steps raise
+# IngestAborted instead of waiting for SIGKILL. Atomic per-file writes
+# leave derived state convergent: the next successful run rebuilds it.
 _SHUTDOWN = threading.Event()
 
 
@@ -124,8 +118,9 @@ def clear_shutdown() -> None:
 
 
 def _check_shutdown() -> None:
-    """Raise IngestAborted if shutdown was requested or the db-wide ingest
-    lock was lost (bounded steps only; issues #103, #374)."""
+    """Raise IngestAborted on requested shutdown or lost db-wide lock.
+
+    Consult only at bounded steps."""
     if _SHUTDOWN.is_set():
         raise IngestAborted("shutdown requested")
     ingest_lockwatch.check_lock_alive()
@@ -137,7 +132,7 @@ def _shutdown_cancel(exc: BaseException) -> bool:
     The bounded steps cannot fire while a run sits inside one long
     single-statement phase — the clean restamp, a rollup rebuild — so
     lifespan teardown cancels the pool's in-flight statements after
-    asking the run to stop (issue #372). The driver surfaces the server's
+    asking the run to stop. The driver surfaces the server's
     cancel as QueryCanceled; with the shutdown request in force that
     cancel IS the abort arriving, and the run closes as aborted, not
     fatal.
@@ -173,7 +168,6 @@ def _run_lock_nonblocking():
 
 
 def _skip(trigger: str, reason: str) -> dict:
-    """The skip dict for a run that declines to start; no run row."""
     return {"skipped": True, "reason": reason, "trigger": trigger}
 
 
@@ -215,7 +209,6 @@ def wait_for_run(timeout: float) -> bool:
 
 
 def _existing_files() -> dict:
-    """Compatibility seam for the stored-file policy snapshot."""
     return ingest_collection.existing_files()
 
 
@@ -319,7 +312,7 @@ def _rebuild_derived_state() -> int:
         ("latency_rollup", rebuild_latency_rollup),
         ("ctx_cost_rollup", rebuild_ctx_cost_rollup),
         ("agent_rollup", rebuild_agent_rollup),
-        # Issue #436: the only phase reading a table no other phase writes.
+        # The only phase reading a table no other phase writes.
         ("web_metrics_rollup", rebuild_web_metrics_rollup),
     )
     disabled = collection_rollups.disabled_rollups(flags.CONFIG.collection)
@@ -347,7 +340,7 @@ def _rebuild_derived_state() -> int:
     if scope is not None:
         scope.check_dirty_threshold(scope.dirty_files)
         scope.check_latency_null()
-    # Post-ingest VACUUM (issue #959): outside every transaction, once
+    # Post-ingest VACUUM: outside every transaction, once
     # the rollup rebuild has finished — before the run closes, so
     # finished_at still marks the run's work as complete. The run's own
     # stop guard is consulted inside; a failure is booked as a summary
@@ -362,7 +355,7 @@ def _walk_and_persist(parser_version_value: str,
                       ) -> tuple[int, int, int, int, int, int, int]:
     """The fallible body of a run: list, fetch+parse+persist, orphan sweep.
 
-    Returns the six walk counts plus the lane re-key's moved-file count (#370).
+    Returns the six walk counts plus the lane re-key's moved-file count.
     Exceptions propagate to run_ingest_locked, which books them as the
     run-level `fatal` — except IngestAborted, which closes the run as
     aborted.
@@ -455,17 +448,16 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         ingest_vacuum.begin_run()
         listed = inserted = reparsed = deleted = vanished = newer = changed = lane_moved = 0
         # Per-object failures (qualified key, message). Counted in `error`,
-        # whose public /health surface cannot carry keys (issue #253).
+        # whose public /health surface cannot carry keys.
         # Retained for `_record_failure` logs and the authenticated
         # `failed_keys` response field after SSE serialization. They do not
-        # gate the run: one dropped connection out of 9,213 files is still
-        # a retry pending, not a failed run.
+        # gate the run: an object failure is a pending retry, not a failed run.
         failed: list[tuple[str, str]] = []
         # A whole-run exception, which DOES gate the post-passes below.
         fatal = None
-        # A shutdown request honoured mid-run (issue #103). Like `fatal`, it
+        # A shutdown request honoured mid-run. Like `fatal`, it
         # gates the post-passes; unlike it, the row closes saying "aborted".
-        # The cause rides the IngestAborted message (issue #374).
+        # The cause rides the IngestAborted message.
         aborted = False
         abort_msg = "shutdown requested"
 
@@ -487,11 +479,9 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
                 trigger)
             aborted = True
         else:
-            # Full exception details go to the logs; only a static
-            # type-bearing message is stored and served by public /health,
-            # so a key embedded in exception text cannot cross the boundary
-            # (issue #253). The logged traceback retains the original
-            # message and cause chain.
+            # Log full exception details, but store only a static type-bearing
+            # message for public /health. Object keys in exceptions must not cross
+            # that boundary; logs retain the original message and cause chain.
             log.exception("ingest (%s): fatal, run aborted", trigger)
             fatal = f"{type(e).__name__}: details are in the server log"
 
@@ -511,7 +501,7 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
     else:
         err = failure_summary(failed)
 
-    # The rebuild runs BEFORE the run is closed (issue #42): finished_at is
+    # The rebuild runs BEFORE the run is closed: finished_at is
     # the signal that the rollups and canonical flags now describe what
     # THIS run persisted, so a reader that waits on it never lands on the
     # previous run's aggregates. Gated on `fatal` and `aborted`, NOT on
@@ -547,7 +537,7 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
                 fatal = f"{type(e).__name__}: details are in the server log"
                 err = fatal
 
-    changed += lane_moved  # a lane re-key (#370) counts at the gate like a derived phase
+    changed += lane_moved  # a lane re-key counts at the gate like a derived phase
 
     with _timed_step("close_run"):
         finished = datetime.now(timezone.utc)
@@ -569,12 +559,11 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
             "error": err,
         }
 
-    # Data changed: mark the response cache stale, then notify connected SSE
-    # clients so the dashboard re-fetches. invalidate(), not clear(): entries
-    # stay servable while stale (clear() dropped every reader onto the 8s+
-    # uncached path; the refetch refreshes them in the background). The gate
-    # adds the derived-state count (issues #256, #341): a reprice-, purge- or
-    # alias-fold-only run changes stored data without touching a file. Threadsafe; aborted runs skip.
+    # On data change, mark cache entries stale and notify SSE clients to
+    # refetch; invalidate preserves servable values and refreshes them in
+    # the background. Count derived-only changes too: reprice, purge and
+    # alias folds change stored data without touching files. Threadsafe;
+    # aborted runs skip.
     if fatal is None and not aborted and any((inserted, reparsed, deleted, changed)):
         with _timed_step("notify"):
             cache.response_cache.invalidate()
@@ -588,8 +577,7 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
         _set_progress(phase="idle", done=0, total=0)
         # Authenticated triage only (/admin/ingest response). The broadcast
         # above serializes eagerly (json.dumps inside broadcast_threadsafe),
-        # so these fields never reach the guest-visible SSE payload (issue
-        # #253 and constraint 1); ingest_runs.error is count-only at the
+        # so these fields never reach the guest-visible SSE payload; ingest_runs.error is count-only at the
         # source. Keep these assignments here to preserve that boundary.
         summary["failed_keys"] = failed_public_keys(failed)
         if (vacuum_warning := ingest_vacuum.take_warning()) is not None:
@@ -605,7 +593,6 @@ def _run_ingest_locked(trigger: str) -> dict:  # pylint: disable=too-many-locals
 def _fetch_and_parse(key: str, sidecar_key: str | None = None,
                      etag: str | None = None, size: int | None = None, *,
                      collection: CollectionPolicy | None = None) -> dict:
-    """Run the extracted parser while preserving the patched fetch callback."""
     return ingest_fetch.fetch_and_parse(key, sidecar_key, _fetch_with_retry,
                                         parse.parse_file, etag=etag, size=size,
                                         collection=collection)

@@ -111,9 +111,8 @@ def _tool_error_rate_sql(bucket_s: int, project: str | None,
     tu.ts >= %s (already in `args`), then project, then model.
     """
     if bucket_s >= 3600:
-        # n_rated/n_error already encode "is_error IS NOT NULL"; dm.value
-        # <> '' drops rows stored before tool_uses.model existed, exactly
-        # as the live path below does.
+        # n_rated/n_error encode is_error IS NOT NULL; exclude empty model
+        # text exactly as the live path does.
         proj_filter = ""
         if project:
             proj_filter = "AND pj.project_id = %s"

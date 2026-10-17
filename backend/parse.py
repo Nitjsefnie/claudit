@@ -1,13 +1,9 @@
-"""JSONL → per-file (records list + ctx_turns array).
+"""Parse one JSONL into records and context turns.
 
-Each call processes ONE jsonl with within-file requestId max-merge
-(message.id where a line has no requestId — see _merge_key).
-Cross-file uuid dedup is handled separately by ingest. Cost is
-precomputed using pricing.MODEL_RATES; semantic or rate changes
-require a PARSER_VERSION bump to invalidate stored results.
-
-_LineWalk collects per-file state; helpers project records and ctx_turns.
-"""
+Max-merge within-file requests by requestId, falling back to message.id.
+Ingest resolves cross-file uuid dedup. Precompute costs through pricing;
+parser-semantic changes require PARSER_VERSION invalidation, rate changes
+use PRICING_VERSION. _LineWalk collects state for projection helpers."""
 from __future__ import annotations
 
 from collections import Counter
@@ -38,20 +34,11 @@ from backend.parse_projection import project_records
 from backend.reply_timing import GenerationTiming, ReplyTiming, failed_attempt
 
 
-# A `type:"assistant"` record with isApiErrorMessage=True and
-# error="rate_limit" IS an account-cap hit unless its text matches one
-# of these. Matching the exceptions (a deny-list) rather than the
-# wanted wordings is deliberate: the cap wording has already moved
-# twice ("You're out of extra usage" → "You've hit your weekly limit"
-# 2026-08 → "You've hit your session limit" 2026-09), and an allow-list
-# stops counting SILENTLY when it moves again, whereas a missed
-# exception over-counts visibly. Every entry below was found by
-# enumerating each distinct error/text pair in the live corpus, not
-# guessed:
-#   "temporarily limiting"  transient per-minute 429 (n=32)
-#   "request rejected (429)" per-request 429 from a proxy lane (n=1)
-#   "currently unavailable"  model availability, mislabelled
-#                            error="rate_limit" (n=4)
+# An assistant isApiErrorMessage with error=rate_limit is an account-cap
+# hit unless its text matches an exception below. Deny-list transient
+# 429s and model-availability errors: an allow-list silently misses a
+# changed cap wording, while a missed exception over-counts visibly.
+# Proxy per-request 429s are not account-cap hits either.
 _TRANSIENT_RATE_LIMIT_MARKERS = (
     "server is temporarily limiting requests",
     "request rejected (429)",
@@ -135,7 +122,7 @@ class _LineWalk:
         self.seen_request: dict[str, dict] = {}
         self.records_in_order: list[dict] = []
         self.user_text_lines: list[int] = []
-        # Per-prompt timestamps (issue #214), index-aligned with
+        # Per-prompt timestamps, index-aligned with
         # user_text_lines: a range's prompt total counts per own ts.
         self.user_text_ts: list[str | None] = []
         self.rate_limit_hits: list[dict] = []
@@ -191,12 +178,12 @@ class _LineWalk:
             if mutate_anchor:
                 self.reply_timing.anchor(_to_dt(ts_str))
             return
-        # Keep prompt_count and prompt_ts index-aligned (issue #214).
+        # Keep prompt_count and prompt_ts index-aligned.
         self._count_prompt(line_num, ts_str, mutate_anchor)
 
     def _count_prompt(self, line_num: int, ts_str: str,
                       mutate_anchor: bool) -> None:
-        """Book ONE prompt: the count line, the #214 timestamp and the
+        """Book ONE prompt: the count line, its timestamp and the
         reply-latency anchor land together, once per counted record.
         Injected text anchors separately without booking a prompt."""
         self.user_text_lines.append(line_num)
@@ -275,9 +262,9 @@ class _LineWalk:
     def _handle_user_blocks(self, blocks, line_num: int, ts_str: str,
                             mutate_anchor: bool) -> None:
         """List-content records: tool-result bookkeeping per block, then
-        ONE prompt decision per record (issue #215). A record counts
+        ONE prompt decision per record. A record counts
         once when any top-level block is human — a text block passing
-        the #213 gate, or an image block. An image inside a tool_result
+        the prompt gate, or an image block. An image inside a tool_result
         is result payload, never a prompt. An interrupt marker still
         clears the latency anchor without counting the record. Injected
         text also anchors, but never counts or splits a context turn."""
@@ -346,7 +333,7 @@ class _LineWalk:
             "uuid": obj.get("uuid") or None,
             "request_id": req_id,
             "ts": ts_str,
-            "model": msg.get("model") or None,  # no placeholder: parse_file refuses a None model (issue #688)
+            "model": msg.get("model") or None,  # no placeholder: parse_file refuses a None model
             "usage": dict(usage),
             "text_chars": text_chars,
             "reply_latency_s": reply_latency_s,
@@ -429,29 +416,13 @@ def _provider(msg: dict) -> str | None:
 
 
 def resolve_agent_type(walk: _LineWalk) -> str:
-    """The agent type one transcript ran as. Never None.
+    """Per-file agent role, never None.
 
-    Two disjoint signals carry it, in precedence order:
-
-    1. ``attributionAgent`` on assistant records — a dispatched agent.
-       Present from Claude Code 2.1.126 onward. The mode is taken rather
-       than the first value purely as a guard; no sampled file carried
-       more than one distinct value.
-    2. ``{"type": "agent-setting", "agentSetting": ...}`` — a session
-       started with the CLI's ``--agent`` flag. Disjoint from (1) in
-       every file sampled: a transcript carries one or the other.
-
-    A file matching neither is attributed to DEFAULT_AGENT_TYPE. That
-    bucket is genuinely mixed and cannot be split: the transcript records
-    which role profile was selected, never who selected it, so a plain
-    lead, a lead started with an explicit ``--agent`` flag, and a
-    pre-2.1.126 subagent are indistinguishable here.
-
-    The answer is per-FILE: a transcript is homogeneous — files carrying
-    ``isSidechain`` records carry nothing else (verified across 88 such
-    files, zero non-sidechain assistant records among them), so a
-    top-level agent session and a lead never share one file.
-    """
+    Prefer the mode of assistant attributionAgent values, then the
+    agent-setting profile selected with --agent, else DEFAULT_AGENT_TYPE.
+    Role profiles do not identify who selected them, so the fallback can
+    mix leads and unattributed subagents. Attribution is per file rather
+    than per record; sidechain and lead conversations have separate files."""
     if walk.attribution_agents:
         return canonical_agent_type(walk.attribution_agents.most_common(1)[0][0])
     return canonical_agent_type(walk.agent_setting) if walk.agent_setting else DEFAULT_AGENT_TYPE
@@ -502,7 +473,7 @@ def _parse_claude(file_key: str, blob: bytes, collection: CollectionPolicy = ALL
         # Substantive user prompts (instrumentation and interrupt markers
         # excluded), whether or not a usage-bearing reply followed.
         "prompt_count": len(walk.user_text_lines) if walk.collect.file_extras else None,
-        # Per-prompt ts, stored on files (issue #214); ingest-side only —
+        # Per-prompt ts, stored on files; ingest-side only —
         # the browser parser has no range concept and needs no counterpart.
         "prompt_ts": walk.user_text_ts,
         # Every model that answered in this file, BEFORE ingest purges
@@ -517,16 +488,13 @@ def _parse_claude(file_key: str, blob: bytes, collection: CollectionPolicy = ALL
 
 
 def parse_file(file_key: str, blob: bytes, *, collection: CollectionPolicy = ALL_COLLECTIONS_ON) -> dict:
-    """Parse one JSONL in any supported format, max-merging requestIds.
+    """Parse supported JSONL formats into the shared per-file result shape.
 
-    sniff_format names the format: a Claude transcript takes this
-    module's own path (_parse_claude); a Codex or Kimi one is parsed by
-    codexmeter's ported parser and projected onto claudit's row shape by
-    parse_lanes.to_claudit. Returns records, ctx_turns, turn_count,
-    prompt_count, models, rate_limit_hits, tool_uses and agent_type
-    either way, plus ``agent_type_in_band`` (whether the transcript named
-    its role itself), which agent_sidecar.apply_agent_sidecar reads.
-    """
+    sniff_format chooses _parse_claude or the Codex/Kimi lane parser;
+    parse_lanes.to_claudit projects lane rows. Return records, ctx_turns,
+    turn_count, prompt_count, models, rate_limit_hits, tool_uses and
+    agent_type, plus agent_type_in_band for agent_sidecar classification.
+    Claude requests max-merge by requestId."""
     fmt = sniff_format(blob)
     parsed = (_parse_claude(file_key, blob, collection) if fmt == "claude" else
               to_claudit(LANE_PARSERS[fmt](file_key, blob, collection=collection),

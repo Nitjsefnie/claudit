@@ -60,28 +60,14 @@ TOKEN_TYPE_FIELDS = (
 
 
 def drop_zero_token_types(entries: list[dict]) -> list[dict]:
-    """Hide token types whose total is zero across the data in view.
+    """Hide only token types whose total is zero over the whole response.
 
-    ZERO-SUPPRESSION AT THE PRESENTATION LAYER, NOT OMISSION AT THE DATA
-    LAYER. The column exists, the value is stored, the rate is wired.
-    What this spares a viewer is a panel that reads zero in every bucket
-    on screen.
+    Retain stored columns, values and rates; suppression is presentation
+    only. Per-entry suppression would make series flicker between buckets.
+    A nonzero total restores the field automatically.
 
-    Not hypothetical: this same codebase is deployed as glmmeter over the
-    `zai` bucket, where cache_creation, eph5 and eph1h are 0 across all
-    90,316 canonical records, so Cache Create and the whole Prompt-Cache
-    TTL Split render permanently flat there.
-
-    The decision is per RESPONSE, over the summed totals, not per entry:
-    suppressing per entry would make a series flicker in and out between
-    buckets. The day a request lands with a real value for one of these
-    it reappears on its own -- no migration, no backfill, no change here.
-
-    FRONTEND MIRROR: src/app.jsx must treat every TOKEN_TYPE_FIELDS key
-    as optional and render whichever arrive, rather than naming them one
-    by one. A consumer that adds two suppressed keys together gets NaN,
-    not 0.
-    """
+    src/app.jsx must treat TOKEN_TYPE_FIELDS as optional and render the
+    keys present. Adding absent keys produces NaN, not zero."""
     totals = {
         f: sum(int(e.get(f) or 0) for e in entries)
         for f in TOKEN_TYPE_FIELDS
@@ -148,7 +134,7 @@ def _fold_hourly(hourly_rows) -> tuple[list, list, list]:
 
 
 def _attach_churn(hourly: list, churn_rows) -> None:
-    """Fold per-bucket line churn onto the hourly entries (issue #10).
+    """Fold per-bucket line churn onto the hourly entries.
 
     Churn is bucketed per hour, NOT per model, so — like session_count —
     it is attributed to the first model row of each hour only: the
@@ -212,8 +198,6 @@ def _fold_tokens_by_project(rows) -> list:
 
 
 def _session_entry(row, ctx_end: dict) -> dict:
-    """One sessions-panel entry, with ctx_at_end folded in from the
-    per-session ctx-end map."""
     (sid, st, et, reqs, inp, out, cc, cr, cost, dom, models_used) = row
     # null (not 0) when ctx_turns is empty so the UI can flag the dot
     # as "ctx unknown" instead of silently falling back to a synthetic
@@ -236,8 +220,6 @@ def _session_entry(row, ctx_end: dict) -> dict:
 
 
 def _fold_sessions(sessions_rows, ctx_end: dict) -> list:
-    """Per-session aggregates, with ctx_at_end folded in from the
-    per-session ctx-end map."""
     return [
         _session_entry(row, ctx_end) for row in sessions_rows
     ]
@@ -259,7 +241,6 @@ def _fold_rate_limits(rl_rows) -> list:
 
 def _dashboard_build(rows: dict, rng: str, project: str | None,
                      bucket_s: int) -> dict:
-    """Fold the raw panel rows into the response payload."""
     hourly, cost_by_model, cost_by_model_provider = _fold_hourly(rows["hourly"])
     _attach_churn(hourly, rows["churn"])
     drop_zero_token_types(hourly)
@@ -286,18 +267,11 @@ def _dashboard_build(rows: dict, rng: str, project: str | None,
         "subagent_only_sessions": int(file_counts_row[3] or 0),
         "total_prompts": int(file_counts_row[4] or 0),
         "total_turns": int(file_counts_row[5] or 0),
-        # `turns` is a FLAT array of ctx values, positionally indexed.
-        # It used to be [{"t": i, "ctx": n}, ...] where `t` was just the
-        # array index the consumer re-derived anyway — ~20 bytes per turn
-        # instead of ~6, repeated across 54k turns. session_id/is_main are
-        # dropped too: they are only used server-side above (to fold in
-        # ctx_turns) and no consumer reads them off the wire.
-        # The per-file ctx traces moved to /api/context-growth/traces
-        # (issue #644): they were 82% of this payload's gzip (1.83 MB of
-        # a 2.36 MB body at range=all) while drawing one panel of ~30.
-        # The session fold above reads only each main file's LAST turn,
-        # through api_ctx_growth.ctx_end_rows — the full trace query is
-        # never run here (issue #838).
+        # turns is a positionally indexed flat array; timestamps add no
+        # information. session_id/is_main are server-only fold inputs. Full
+        # traces belong to /api/context-growth/traces, keeping the shared
+        # payload small. This fold needs only each main file's last turn and
+        # reads api_ctx_growth.ctx_end_rows without running full trace SQL.
         "response_sizes": [
             {
                 "ts": _iso(bucket),

@@ -11,14 +11,12 @@ CACHE_WRITE_FIELDS = ("create_5m", "create_1h")
 
 
 def effective_rates(rates: dict) -> dict:
-    """Return the complete five-rate vector, defaulting cache writes to fresh."""
     fresh = rates["fresh"]
     return {field: rates.get(field, fresh) if field in CACHE_WRITE_FIELDS
             else rates[field] for field in RATE_FIELDS}
 
 
 def omit_default_rates(rates: dict) -> dict:
-    """Copy rates while omitting cache-write values equal to fresh."""
     out = dict(rates)
     if "fresh" not in out:
         return out
@@ -29,7 +27,6 @@ def omit_default_rates(rates: dict) -> dict:
 
 
 def effective_schedule(schedule: list | None) -> list | None:
-    """Return schedule windows with every cache-write rate made explicit."""
     if schedule is None:
         return None
     return [{**window, "rates": effective_rates(window["rates"])}
@@ -43,7 +40,6 @@ def _walk_histories(doc: dict):
 
 
 def expand_pricing_doc(doc: dict) -> dict:
-    """Copy a document into its complete in-memory rate and timestamp shape."""
     out = (decode_pricing_doc(doc) if "_format" in doc
            else copy.deepcopy(doc))
     for history in _walk_histories(out):
@@ -57,7 +53,6 @@ def expand_pricing_doc(doc: dict) -> dict:
 
 
 def compact_pricing_doc(doc: dict) -> dict:
-    """Copy a document, omitting cache tiers and leading null timestamps."""
     out = (decode_pricing_doc(doc) if "_format" in doc
            else copy.deepcopy(doc))
     for history in _walk_histories(out):
@@ -75,7 +70,6 @@ def compact_pricing_doc(doc: dict) -> dict:
 
 
 def _serialize_provider_map(providers: dict, indent: int = 2) -> str:
-    """Indent model/host maps, keeping each complete storage row on one line."""
     fields = []
     for key, value in sorted(providers.items()):
         if isinstance(value, dict):
@@ -91,7 +85,6 @@ def _serialize_provider_map(providers: dict, indent: int = 2) -> str:
 
 
 def serialize_pricing_doc(doc: dict) -> str:
-    """Serialize storage rows compactly within the sorted, indented document."""
     stored = encode_pricing_doc(compact_pricing_doc(doc))
     fields = []
     for key, value in sorted(stored.items()):
@@ -151,7 +144,7 @@ def check_compact_shape(doc: dict, decoded: dict | None = None) -> None:
 
 def check_dual_pin_tags(openrouter: dict) -> None:
     """Refuse a key pinned in BOTH resolve tables whose tag sets differ
-    (SV-RATE-DATA, issue #931): the vendor pin and the tracked entry's
+    (SV-RATE-DATA): the vendor pin and the tracked entry's
     own pins name one endpoint, so when both sides carry tags they must
     agree. A pin without a tag (cheapest/ignore shapes) is not compared,
     nor is `why`, which legitimately differs between the two tables.

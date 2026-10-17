@@ -1,10 +1,8 @@
-"""The pricing.json loader (SV-RATE-DATA): every rate table, checked.
+"""Validate src/pricing.json once at import (SV-RATE-DATA).
 
-Read ``src/pricing.json`` once at import, refusing invalid rows by name.
-``backend/pricing.py`` re-exports the tables and resolves rates; the browser
-mirror is ``src/pricing-loader.js``. ``load_tables`` also accepts synthetic
-documents from the refresh script and tests.
-"""
+pricing re-exports tables and resolves rates; src/pricing-loader.js mirrors
+validation. load_tables accepts synthetic refresh/test documents and names
+invalid rows in refusals."""
 from __future__ import annotations
 
 import json
@@ -54,7 +52,7 @@ class RateTables(TypedDict):
     DEFAULT_RATES: dict
     # Derived membership: every key in LONG_CONTEXT_METERS is a member.
     LONG_CONTEXT_MODELS: frozenset[str]
-    # The meter's per-model entries (issue #878): member key -> threshold
+    # The meter's per-model entries: member key -> threshold
     # and optional input/output factors, overriding global defaults.
     LONG_CONTEXT_METERS: dict[str, dict]
 
@@ -180,7 +178,7 @@ def _history(entries: list[dict], where: str, may_begin: bool = False,
     The first entry's ``from`` is null — the row covers all of time —
     unless `may_begin`, where it may instead name the instant the row
     begins; start is that instant, else None. `fetched` bounds every
-    dated entry; a predecessor-equal entry is refused (#931, #930).
+    dated entry; a predecessor-equal entry is refused.
     Mirrored by _checkHistory.
     """
     entries, owners = (flatten_provider_history(entries, where, _instant) if may_begin
@@ -263,7 +261,7 @@ def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[s
     tracked = openrouter.get("models")
     if not isinstance(tracked, dict):
         raise ValueError("pricing.json: openrouter.models is missing")
-    # A key pinned in BOTH resolve tables must agree on its tag (#931).
+    # A key pinned in BOTH resolve tables must agree on its tag.
     check_dual_pin_tags(openrouter)
     bare: dict[str, str] = {}
     hosts: dict[str, str] = {}
@@ -301,11 +299,11 @@ def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[s
 def _default_rates(model_rates: dict, vendor_bare: dict[str, str],
                    vendor_hosts: dict[str, str],
                    provider_rates: dict) -> dict:
-    """The default estimate's rates: the merged view's claude-opus-4-7
-    row — the models-table row when the key names one, else its tracked
-    vendor row's list price (the migration's new location for the claude
-    families). A document naming neither refuses: there is no honest
-    default without one, so both loaders refuse (SV-RATE-DATA)."""
+    """Default estimate from the merged view's claude-opus-4-7 list rate.
+
+    Prefer its models-table row, else its tracked vendor row. Refuse a
+    document with neither: both loaders require a real default row
+    (SV-RATE-DATA)."""
     rates = model_rates.get("claude-opus-4-7")
     if rates is None:
         tracked = vendor_bare.get("claude-opus-4-7")
@@ -411,8 +409,7 @@ DATED_RATES = _TABLES["DATED_RATES"]
 # write price when it is nonzero, the input rate otherwise.
 PROVIDER_RATES = _TABLES["PROVIDER_RATES"]
 PROVIDER_DATED_RATES = _TABLES["PROVIDER_DATED_RATES"]
-# The instant a provider row first applies, for a host first seen after the
-# table was seeded; before it, a record from that host prices by the model.
+# Provider-row start: earlier requests from that host use model rates.
 PROVIDER_STARTS = _TABLES["PROVIDER_STARTS"]
 # Weekly UTC schedules, per provider row, by the index of the history entry
 # that carries one. A schedule's windows are not rate epochs: see
@@ -424,7 +421,7 @@ RATE_EPOCHS = _TABLES["RATE_EPOCHS"]
 # keys or tracked keys, the shape SV-RATE-ESTIMATES' comparison needs.
 # pricing re-exports it.
 LONG_CONTEXT_MODELS = _TABLES["LONG_CONTEXT_MODELS"]
-# The meter's per-model entries (issue #878): a member key's threshold
+# The meter's per-model entries: a member key's threshold
 # and optional factors, each overriding its global default. pricing
 # re-exports them.
 LONG_CONTEXT_METERS = _TABLES["LONG_CONTEXT_METERS"]

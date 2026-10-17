@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 @dataclass
 class _ParseState:
-    """Shared per-file lane state."""
     file_key: str
     collection: CollectionPolicy = field(default=ALL_COLLECTIONS_ON, kw_only=True)
     collect: ParseCollection = field(init=False)
@@ -43,8 +42,6 @@ class _ParseState:
 
 @dataclass
 class _CodexState(_ParseState):
-    """Codex state."""
-
     prev_usage: dict | None = None
     web_search_requests: int = 0
     model: str | None = None

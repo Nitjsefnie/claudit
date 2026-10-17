@@ -39,7 +39,6 @@ _PATH_RE = re.compile(r"\.[A-Za-z0-9_]{1,8}$")
 
 
 def _looks_like_path(token: str, windows: bool = False, *, windows_roots: bool = True) -> bool:
-    """True when a bare operand is plausibly a filename."""
     if not token or token.startswith("-"):
         return False
     if token in (".", "..", "*"):
@@ -55,7 +54,6 @@ def _looks_like_path(token: str, windows: bool = False, *, windows_roots: bool =
 
 
 def _operand_paths(name: str, args: list[str], windows: bool = False) -> list[str]:
-    """File operands of one command, minus flags and pattern operands."""
     if name == "sed":
         return [p for p in sed_parts(args)[1] if literal_path(p)]
     pending_pattern = 1 if name in PATTERN_CMDS else 0

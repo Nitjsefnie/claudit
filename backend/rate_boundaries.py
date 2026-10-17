@@ -7,7 +7,6 @@ from backend import pricing
 
 
 def _as_utc(value: datetime) -> datetime:
-    """Normalize a stored instant before ordering or returning it."""
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
@@ -20,8 +19,7 @@ def rate_boundaries(model: str, provider: str | None) -> list[datetime]:
     vendor bare-form match and the ordered provider-id folds. When a
     provider row has a start, model-only dated windows still matter before
     it; after that start the provider row takes precedence — the model's
-    windows being, for a tracked vendor key, the vendor row's own (the
-    models table no longer holds the vendor families). Weekly schedules
+    windows being, for a tracked vendor key, the vendor row's own. Weekly schedules
     repeat and therefore add no boundary.
     """
     norm = pricing._normalise(model)  # pylint: disable=protected-access

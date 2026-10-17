@@ -1,11 +1,8 @@
-"""How many times a heredoc body runs, read off the loops around it.
+"""Literal-loop repeat counts for heredoc bodies.
 
-A heredoc inside `for x in a b c; do … done` is written once per
-iteration. When the word list is literal the count is in the command
-text, so it can be recovered without running anything — the rule
-bash_churn keeps for everything else. Split out of bash_churn so that
-module stays one concern: what a body writes, not how often.
-"""
+A literal for-list exposes the iteration count without execution.
+Nonliteral loops stay unknown; bash_churn determines body writes,
+while this module determines how often the body runs."""
 from __future__ import annotations
 
 import math
@@ -15,7 +12,7 @@ from backend.bash_literals import ShellWord, _fold_fd
 
 # A stdin-close token: an optional fd prefix before `<&`. The fd is read
 # by VALUE (via `_fold_fd`), so `0<&` / `00<&` are fd 0 like the bare
-# `<&` that `_split_heredocs` writes as its heredoc marker (#917).
+# `<&` that `_split_heredocs` writes as its heredoc marker.
 _STDIN_CLOSE = re.compile(r"([0-9]*)(<&)")
 
 # Words after which the next word is in command position again.

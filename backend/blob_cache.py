@@ -1,20 +1,13 @@
-"""The disk blob cache for unchanged R2 objects (issue #684).
+"""Best-effort disk blob cache for unchanged R2 objects.
 
-A PARSER_VERSION bump changes the parser, not the objects, yet every
-full reparse re-fetched the whole bucket one GET at a time per parse
-child — and the GET round-trips were ~70% of a run's parse-process
-time. Enabled per deploy by `CLAUDIT_R2_BLOB_CACHE` (a directory), the cache
-lets a reparse read those bytes from the meter's own disk instead.
-Entries are keyed by the bucket-qualified key and the listing etag —
-the same identity the reparse decision already trusts (SV-FILES-
-RECORDS) — and hold the object's RAW (compressed) bytes, so a hit
-still pays the xz inflate the GET would have: the r2 inflate stamps
-it, and the TIMING child stages stay truthful.
+A parser change does not change objects: reuse their bytes across
+reparses to avoid repeated GETs. CLAUDIT_R2_BLOB_CACHE selects the
+directory. Bucket-qualified keys and listing etags define identity
+(SV-FILES-RECORDS). Store raw compressed bytes so cache hits still pay
+and stamp inflate work exactly as GETs do.
 
-Every failure is best-effort: an OSError anywhere reads as a miss, a
-failed store is logged and dropped, and prune() never raises. A cache
-that cannot work must cost nothing beyond one hash per fetch.
-"""
+Read failures are misses; failed stores are logged and dropped; prune
+never raises. An unusable cache must cost only one hash per fetch."""
 from __future__ import annotations
 
 
@@ -31,13 +24,12 @@ log = logging.getLogger("claudit.blob_cache")
 _ENV = "CLAUDIT_R2_BLOB_CACHE"
 #: Size cap prune() enforces; invalid values fall back to the default.
 _CAP_ENV = "CLAUDIT_R2_BLOB_CACHE_MAX_BYTES"
-#: The default size cap: sized to hold a compressed corpus of a few GB
-#: whole, so a fully populated bucket never prunes between reparses.
+#: The cap holds a compressed bucket across reparses, avoiding prune
+#: churn when the whole corpus fits.
 DEFAULT_CAP_BYTES = 4 * 1024 ** 3
 
 
 def enabled() -> bool:
-    """Whether the deploy named a cache directory."""
     return bool(getenv(_ENV, "").strip())
 
 
@@ -48,7 +40,7 @@ def _root() -> str:
 def _log_safe(value: object) -> str:
     """`value` with control characters (C0, DEL, C1) dropped.
 
-    A key can carry text from a user query param (issue #940), so an
+    A key can carry text from a user query param, so an
     unfiltered CR/LF in it would forge extra log lines.
     """
     return "".join(

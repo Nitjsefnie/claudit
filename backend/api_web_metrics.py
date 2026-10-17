@@ -1,34 +1,10 @@
-"""The `/api/metrics` beacon sink and the `/api/web-metrics` readout.
+"""HTTP beacon sink and web-metrics readout; vocabulary and caps live in web_metrics.
 
-Two routes, deliberately thin. The sink's decisions all live in
-`backend.web_metrics` (the closed vocabulary, the clamps, the caps); this
-module is the HTTP shape around them.
-
-The readout forks on ONE question — does the requested range FIT the raw
-working set? — and the answer decides everything. If it does, the range is
-read from `web_metrics` outright and is exact. If it does not, it is read
-from stored buckets PLUS the raw tail those buckets do not yet cover, and the
-result is a blend; `exact: false` in the payload says so, and the panel says
-it on its face. What the blend costs is written out at `_pool`.
-
-Auth is `session.auth_middleware` by path prefix, not a decorator (see
-`backend/api.py`), which is what makes the sink's two gates free:
-
-* **Same-origin.** `check_origin` runs on every non-GET/HEAD/OPTIONS request,
-  so a beacon POST is refused cross-origin exactly like `/login` is.
-* **A session.** Also the middleware, and deliberately NOT relaxed here: an
-  open unauthenticated write endpoint on a dashboard is not a trade worth
-  making for a few rows of telemetry. A guest session qualifies, and
-  `_guest_denied` leaves both routes alone, because a beacon names a journey
-  and not a project, a session or a file — there is nothing in the payload
-  for a guest to reach.
-
-The READOUT is gated anyway, and by a different question (#629): it is the
-site's own engineering telemetry — journey timings, layout shift, long
-tasks, beacon counts — not product data an ordinary user should read, so
-`web_metrics_route` serves it to operators only. The sink is untouched:
-beacons keep arriving from every session, guests included, and keep being
-stored, which is what makes the operator's readout worth having.
+Ranges fitting the raw working set read it exactly. Wider ranges blend stored
+buckets with the uncovered raw tail and report exact: false (see _pool).
+Session middleware requires authentication and same-origin POSTs. Guests may
+submit beacons, which name no project/session/file; the engineering readout is
+operator-only, while collection continues for every session.
 """
 from __future__ import annotations
 
@@ -91,7 +67,7 @@ def _write(user_id: int, beacons: list[tuple]) -> int:
 def web_metrics_route(
     request: Request, rng: str = Query("7d", alias="range"),
 ) -> dict:
-    """The operator gate, then the readout (#629).
+    """The operator gate, then the readout.
 
     The split is the same one `/api/dashboard` and `/api/cache` already
     draw, and for the same reason: this handler is per-request and
@@ -144,13 +120,9 @@ def web_metrics_readout(
     # fold stored, and one named function is what lets a test pin both.
     now = web_metrics.utcnow()
     since, bucket_s = now - delta, _bucket_seconds(delta)
-    # The fork is by whether the range FITS the raw window, not by bucket
-    # width. Width was the older test and it chose wrong: a four-day range
-    # folds to a 15-minute bucket, is not a stored width, and was therefore
-    # served from 54 hours of raw rows for a 96-hour question — clamped, with
-    # the answer describing a third of the range it was asked about. A range
-    # the raw table cannot cover is served from the rollup plus its tail,
-    # whatever width it happens to fold to.
+    # Choose raw reads only when the range fits RAW_KEEP_S, regardless
+    # of bucket width. A fine-grained range can still exceed raw retention
+    # and must then use stored buckets plus their uncovered raw tail.
     if delta.total_seconds() <= web_metrics.RAW_KEEP_S:
         return _series_live(rng, bucket_s, since, now)
     return _series_from_rollup(rng, _stored_width(bucket_s), since)
@@ -251,22 +223,13 @@ def _stored_width(requested: int) -> int:
 
 
 def _series_from_rollup(rng: str, bucket_s: int, since: datetime) -> dict:
-    """Stored buckets UNION the raw tail, then pooled (see `_pool`).
+    """Union stored buckets with the uncovered raw tail, then pool.
 
-    The rollup holds only CLOSED buckets, and a bucket closes when its span
-    has passed — so the newest beacons, and everything since the last fold,
-    are in `web_metrics` and in no bucket yet. Reading the rollup ALONE
-    drops them, and the drop is not subtle: a wider range selects more stored
-    buckets and still reports FEWER beacons than a narrower one, and the
-    default `all` view served 42 of 240 on a ten-day corpus. That is what a
-    cross-model review of this branch found, and it contradicted a claim in
-    this module's own header.
-
-    So the tail is unioned back in, from the end of the newest stored bucket
-    to now. The union is a blend — a stored bucket's percentile beside a live
-    percentile over a different population — which is what `exact: false` has
-    always meant, and the reason the flag exists.
-    """
+    Rollups contain only closed buckets. Newest beacons and arrivals
+    since the last fold remain raw; omitting them makes wider ranges
+    report fewer beacons than narrower ones. Union from the end of the
+    newest stored bucket to now. Stored percentiles mixed with live
+    percentiles cover different populations, so report exact: false."""
     now = web_metrics.utcnow()
     with db.viz_conn() as conn:
         rows = conn.execute(
@@ -309,11 +272,9 @@ def _series_from_rollup(rng: str, bucket_s: int, since: datetime) -> dict:
               FROM src GROUP BY 1, 2, 3, 4, 5
              ORDER BY bucket, metric, part, region, phase
             """), (tail_from,)).fetchall()
-    # `since` is the OLDEST data this answer actually rests on, not the
-    # window that was asked for: a range the rollup cannot reach is served
-    # from whatever history exists, and the panel shows the difference. The
-    # previous version echoed the requested window, which is the exact lie
-    # `since` was added to prevent.
+    # since names the oldest data actually used, not the requested
+    # window. When stored history cannot reach the range, report the
+    # available span so the panel can show the difference.
     served = [r[0] for r in rows] or [tail_from]
     oldest = min(served) - timedelta(seconds=bucket_s / 2)
     return _assemble(rng, bucket_s, list(rows) + list(tail),

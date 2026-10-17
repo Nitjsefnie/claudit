@@ -36,9 +36,6 @@ db.load_dotenv(str(_REPO_ROOT / ".env"))
 from backend import api, agent_types, api_export, constants, events, ingest, login, r2, session  # noqa: E402
 from backend import branding, flags  # noqa: E402
 from backend.feature_payloads import features_script  # noqa: E402
-# /health lives in ingest_progress (its readout module) since the cache
-# block joined the response (issue #641); app.py was at the module-size
-# ceiling and could not grow it.
 from backend.ingest_progress import health  # noqa: E402
 # pylint: enable=wrong-import-position
 
@@ -66,16 +63,13 @@ async def lifespan(fastapi_app: FastAPI):
     db.apply_schema()
     db.schema_check()
     validate_bucket_config()
-    # Sweep the export tmp files a crashed process left behind (issue
-    # #441): the graceful reap (#363) runs at teardown only, which a
-    # SIGKILL bypasses. Aged past any live render's lifetime, so a live
-    # export in a tmp-sharing process is never touched. Runs before the
-    # scheduler books the startup ingest — the same startup pass.
+    # Sweep aged export tmp files before startup ingest. SIGKILL bypasses
+    # the graceful teardown reap; the age bound protects live renders in
+    # processes sharing tmp.
     api_export.sweep_stale_exports()
     events.set_loop(asyncio.get_running_loop())
 
     sched = BackgroundScheduler(daemon=True, timezone="UTC")
-    # Hourly maintenance.
     sched.add_job(
         lambda: ingest.run_ingest(trigger="cron"),
         "cron", minute=15,
@@ -92,49 +86,38 @@ async def lifespan(fastapi_app: FastAPI):
 
     yield
 
-    # Abort any in-flight ingest cooperatively (issue #103): the run stops
+    # Abort any in-flight ingest cooperatively: the run stops
     # at its next bounded step, closes its ingest_runs row as aborted, and
     # skips the rebuild, the broadcast and the warm — the next successful
     # run rebuilds all derived state. Signalled FIRST, before anything
     # that can spend time: the reap below is dead time for the run, and a
     # run told to stop at once is already unwinding while it runs, rather
-    # than starting to unwind after it (issue #414).
+    # than starting to unwind after it.
     ingest.request_shutdown()
     # A run stuck inside a long single-statement phase cannot reach a
-    # bounded step (issue #372), so cancel the statements in flight: the
+    # bounded step, so cancel the statements in flight: the
     # driver raises QueryCanceled, which the run classifies as the abort.
     db.cancel_viz_queries()
-    # Reap live export renders (issue #363): uvicorn cancels the
-    # in-flight export task at the graceful-shutdown deadline and then
-    # re-raises the captured SIGTERM right after lifespan shutdown, so
-    # the handler's own cleanup races process death and can lose. This is
-    # the one teardown uvicorn waits for — so it draws from the stop budget
-    # like every other term, and as a WHOLE rather than per live child: it
-    # runs ahead of the bounded wait, and a per-child bound is drawn once
-    # per child (issue #414). It runs immediately after the abort, keeping
-    # only the two statements that can be skipped by a raising neighbour
-    # between `yield` and it (the #363 guarantee), and the reap itself is
-    # bounded, so nothing it does can strand the wait behind it.
+    # Reap live renders during the lifespan shutdown uvicorn awaits:
+    # export-task cleanup can lose the race to SIGTERM. One shared deadline
+    # bounds all children, preserving the subsequent ingest wait's budget.
+    # Run immediately after abort and cancellation, so a raising neighbour
+    # cannot skip the reap or strand the wait behind it.
     await api_export.reap_live_renders(constants.SHUTDOWN_RENDER_REAP_S)
     # Wake SSE generators so uvicorn's graceful-shutdown drains immediately
     # instead of waiting for the (never-ending) heartbeat response.
     events.signal_shutdown()
     sched.shutdown(wait=False)
-    # Bounded so the abort's unwind (one fetch chunk + one final DB txn,
-    # normally sub-second) plus uvicorn's own graceful window and the reap
-    # above stays inside the unit's TimeoutStopSec: the wait is DERIVED
-    # from all three, so it cannot be sized past what is left of the stop
-    # budget. A wait beyond it lost the race to systemd's SIGKILL every
-    # time, and the fallback below never ran (issue #410).
-    # Revoke the request only when the wait succeeded: with a straggler
-    # still unwinding past the timeout, revoking would let it run to
-    # completion instead of aborting at its next bounded step.
+    # Derive the ingest wait from the stop budget after uvicorn's graceful
+    # window and the render reap, leaving time for the fallback row close
+    # before systemd SIGKILL. Revoke abort only after a successful wait:
+    # revoking with a straggler would let it complete rather than abort.
     if ingest.wait_for_run(constants.SHUTDOWN_RUN_WAIT_S):
         # Nothing can start a run in this process any more, so a shutdown
         # never outlives the teardown it belongs to.
         ingest.clear_shutdown()
     else:
-        # The fallback behind the bounded wait (issue #372): close the
+        # The fallback behind the bounded wait: close the
         # open run's row, so the stop never leaves finished_at NULL. The
         # wait is sized to fit before systemd's SIGKILL, so this write
         # lands and the straggler it outlasted is what gets killed: the
@@ -152,10 +135,8 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
-    # /api/dashboard at range=all returns a multi-MB payload. Starlette's
-    # JSONResponse runs jsonable_encoder over that whole structure and
-    # then stdlib json.dumps — measured at 475ms + 257ms.
-    # orjson serialises the same payload in 11ms.
+    # Use orjson for large dashboard payloads to avoid JSONResponse's
+    # recursive jsonable_encoder pass and stdlib serialization cost.
     default_response_class=ORJSONResponse,
 )
 
@@ -178,9 +159,7 @@ class _SelectiveGZip(GZipMiddleware):
 
 
 # The document policy both HTML surfaces get, instantiated per response
-# with a fresh nonce. Measured against the real sign-in and dashboard
-# pages loading under it with zero violations and panels rendering
-# (issue #384):
+# with a fresh nonce:
 # - script-src: unpkg.com carries the pinned, SRI-hashed React,
 #   ReactDOM and Babel builds (SRI pins their bytes independently of the
 #   host allowance); /src/* is 'self'; every <script> tag the dashboard
@@ -203,7 +182,7 @@ class _SelectiveGZip(GZipMiddleware):
 #   fetches of the text/babel scripts are all same-origin.
 # - img-src 'self': favicons and panel images; no data: URIs are used.
 # - default-src 'none', base-uri 'none', form-action 'self' and
-#   frame-ancestors 'none' are the deny-by-default floor (#369).
+#   frame-ancestors 'none' are the deny-by-default floor.
 _CSP_TEMPLATE = (
     "default-src 'none'; "
     "script-src 'self' https://unpkg.com 'nonce-{nonce}'; "
@@ -218,7 +197,7 @@ _CSP_TEMPLATE = (
 
 
 class _SecurityHeaders:
-    """Full document CSP, framing protection and nosniff (#369, #384).
+    """Full document CSP, framing protection and nosniff.
 
     The document policy (_CSP_TEMPLATE, instantiated with a fresh
     per-response nonce) plus framing protection (``X-Frame-Options:
@@ -230,7 +209,7 @@ class _SecurityHeaders:
     costs nothing, and it stops a MIME-confused response from being
     reinterpreted as script or style. Headers are only filled in when
     absent, so an endpoint's own security headers and the PNG export's
-    Content-Disposition are never clobbered. Added OUTSIDE the auth
+    Content-Disposition are never clobbered. Placed OUTSIDE the auth
     middleware: the 302 that middleware generates itself for an
     unauthenticated page load never passes an inner layer, so an inner
     placement would miss it, and the nonce it stashes in
@@ -267,14 +246,10 @@ class _SecurityHeaders:
         return wrapped_send
 
 
-# The origin was serving /api/dashboard uncompressed — ~3.2 MB per cold
-# request, which the CDN then had to pull in full before it could
-# compress and serve it on. The body is JSON and compresses ~5x.
-# minimum_size skips the many small responses (/api/me, /api/models)
-# where framing would cost more than it saves. compresslevel 6 (issue
-# #644: the default 9 spent 107 ms of event-loop CPU per dashboard
-# response — mid-fan-out it delayed every concurrent response — for
-# ~2.5% fewer bytes than 6).
+# Compress large JSON responses at the origin so the CDN need not
+# fetch full uncompressed bodies. minimum_size skips small responses
+# where framing costs more than it saves. Level 6 limits event-loop CPU
+# without spending the default level 9's cost for a small size gain.
 app.add_middleware(_SelectiveGZip, minimum_size=1024, compresslevel=6)
 app.middleware("http")(session.auth_middleware)
 # Added LAST so it is the outermost middleware: the auth middleware's
@@ -283,17 +258,12 @@ app.middleware("http")(session.auth_middleware)
 app.add_middleware(_SecurityHeaders)
 app.include_router(login.router)
 app.include_router(api.router)
-# /health lives in ingest_progress (its readout module) since the cache
-# block joined the response (issue #641); app.py was at the module-size
-# ceiling and could not grow it.
 app.get("/health")(health)
 
 
 @app.post("/admin/ingest")
-# A plain def, not async: FastAPI then runs the handler on its threadpool,
-# so the blocking pipeline never occupies the event loop and the service
-# keeps answering (/health, /api/*, SSE) for the length of the run
-# (issue #101). An `async def` here reintroduces the stall.
+# Use a synchronous handler so FastAPI runs blocking ingest in its
+# threadpool and keeps health, API and SSE responsive throughout the run.
 def admin_ingest() -> dict:
     return ingest.run_ingest(trigger="manual")
 
@@ -306,14 +276,12 @@ async def root_index(request: Request) -> Response:
     # this origin for /api/* fetches. IS_GUEST and IS_OPERATOR ride the
     # same shot, so the FIRST React render already hides the
     # guest-restricted UI and the operator-only page-performance panel
-    # instead of flashing them before /api/me resolves (#629).
+    # instead of flashing them before /api/me resolves.
     is_guest = bool(getattr(request.state, "is_guest", False))
     is_operator = bool(getattr(request.state, "is_operator", False))
-    # Branding rides the same injection: the page's one brand source is
-    # window.BRAND {name, title, description} — from CLAUDIT_APP_NAME /
-    # CLAUDIT_APP_TITLE / CLAUDIT_APP_DESCRIPTION, defaults = today's strings. `</` is
-    # JS-escaped (see branding.script_json); title/meta below are
-    # html-escaped instead, being real HTML contexts.
+    # Inject one brand source, window.BRAND {name, title, description},
+    # from the CLAUDIT_APP_* settings and their defaults. script_json
+    # JS-escapes </; title/meta take HTML escaping at their own contexts.
     brand_js = f"window.BRAND = {branding.script_json(branding.brand())};"
     html = html.replace(
         "<script>window.BACKEND_URL = window.BACKEND_URL || '';</script>",
@@ -355,14 +323,10 @@ async def root_index(request: Request) -> Response:
     return HTMLResponse(html)
 
 
-# A script ELEMENT's open tag is a `<script` outside any element's
-# content; inside one it is raw text that ends at the first end tag
-# (issue #439). Both patterns carry the word-boundary so `<scriptx` —
-# not a script element, and a shape no template should emit — is left
-# alone. The end tag admits what a browser admits: anything up to the
-# tag's own `>` is an attribute list to it, so `</script/>` and
-# `</script foo="1">` close the element as surely as `</script>` does,
-# and missing one leaves the NEXT element without its nonce.
+# A script element opener is outside element content; content ends
+# at the first closing script tag. Word boundaries exclude scriptx.
+# Allow browser-valid closing attributes, including / and foo="1":
+# missing an admitted close would leave the next element without a nonce.
 _SCRIPT_OPEN_RE = re.compile(r"<script\b", re.IGNORECASE)
 _SCRIPT_CLOSE_RE = re.compile(r"</script\b[^>]*>", re.IGNORECASE)
 
@@ -374,7 +338,7 @@ def _nonce_script_elements(html: str, nonce: str) -> str:
     content, where a brand value carrying the literal text `<script`
     survives ``branding.script_json`` (it cannot close the tag) and
     would receive the attribute's raw quotes inside a JS string
-    literal — a SyntaxError that stops every page load (#439). The
+    literal — a SyntaxError that stops every page load. The
     window.BRAND payload rides an inline script, so walking the raw
     text of each element is what keeps it out of reach.
 
@@ -418,7 +382,7 @@ async def root_css() -> Response:
 async def root_favicon() -> Response:
     """The tab icon: public (a browser fetches it before any sign-in);
     img-src 'self' admits the same-origin fetch, and no data: URI can
-    stand in for it (issue #448)."""
+    stand in for it."""
     return FileResponse(
         str(_PUBLIC / "favicon.ico"),
         media_type="image/x-icon",

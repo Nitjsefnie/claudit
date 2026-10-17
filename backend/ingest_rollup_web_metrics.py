@@ -1,71 +1,18 @@
-"""Web-metrics percentile rollups: one stored row per CLOSED display bucket.
+"""Closed, whole web-metrics percentile buckets; no dirty-file scope.
 
-The only thing that distinguishes this pass from the seven hour-keyed rollups
-in `ingest_rollup_hourly` is where its source rows come from. `usage_rollup`
-and its siblings are derived from `records` and scoped by the run's dirty
-hours; these are derived from `web_metrics`, which no ingest phase writes, so
-there is no dirty-file scope to narrow by. The scope is the retention window
-instead, and it is bounded: the raw table is pruned to
-`web_metrics.RAW_KEEP_S` and beacons are a few rows per page view.
+Source rows are beacons, never records, so scope is the bounded raw retention
+window. Store one row per display width because percentiles do not compose;
+total does compose, for cumulative shift and long-task totals.
 
-**A bucket is stored whole, and only a fold that saw more of it may revise
-it.** The fold that CLOSES a bucket writes it; the next finds it and leaves it
-alone. Everything below is that one rule seen from three sides.
+Only closed buckets read in full may be stored or revised. Partial windows
+would permanently freeze tail-only percentiles. RAW_KEEP_S includes TWO widest
+bucket widths plus a fold interval so a newly closed bucket is fully readable.
+For stalled folds, read back to the oldest surviving beacon and still refuse
+incomplete spans. DELETE and INSERT must use the same span bound
+so deletion cannot discard a bucket the INSERT cannot rebuild.
 
-*Why closed, and not "rebuild the window".* A bucket is a percentile over a
-population, so it is only a fact once the population has stopped changing. An
-open bucket is rewritten on every pass with a strictly larger population and a
-reader sees a number move under them. Worse — and this is the defect a review
-caught on the first version of this pass — a fold that reached back over
-beacons the prune had already taken rebuilt each bucket from a strictly
-narrower slice, so every stored percentile ended up describing the bucket's
-LAST HOUR, at every width, permanently. The 6-, 12- and 24-hour rollups were
-keeping a third, a quarter and under a quarter of their beacons.
-
-*Why the raw table outlives the horizon, by TWO widths.* A bucket becomes
-complete at exactly the instant its last beacon is pruned, so a raw table
-pruned AT the horizon never has a closable bucket's rows on the fold that
-closes it. One width of slack is not enough either, and that was the second
-version of this defect: a closed bucket `[s, s+W)` starts after
-`now - 2W`, so a read window one width back leaves the newest
-closing bucket's oldest beacons outside it — the fold stores it short, and
-NOTHING repairs it, because the window advances with `now` and a bucket the
-window has cut off stays cut off. Three skipped hourly folds were enough to
-strand the 24-hour bucket, the width the default `all` view reads, with 22 of
-its 24 beacons, silently and permanently. Hence
-`RAW_KEEP_S = 2 * widest bucket + fold interval`, which makes a
-partial read of a closed bucket impossible at every fold that HAPPENS.
-
-*Why the fold still checks the span it read (issue #475).* Two widths is
-arithmetic about folds that run, and it says nothing about a pass that does
-NOT run: the window advances with `now` while the beacons stay put, so a fold
-stalled longer than the thirty hours between `now - RAW_KEEP_S` and a
-bucket's start resumes with its window inside that bucket, stores its tail,
-and `DO NOTHING` freezes the short row beside whole ones for ever. So the
-span is checked, not assumed — a bucket the window did not cover is not
-stored at all — and the window reaches back to the oldest beacon on the
-table while a stalled pass has left the working set wider than nominal, so
-the refusal is rare and a later pass usually stores the bucket whole.
-
-*Why the DELETE and the INSERT share one expression.* A bucket is either
-stored whole or not at all. If the delete bound and the insert filter were
-computed differently, one fold would delete a bucket the insert could not fully
-rebuild — the same data loss, one bucket to the left.
-
-Percentiles do not compose, so one row is stored per display-bucket width,
-matching `latency_rollup` and for the same reason. `total` is the one stored
-column that composes, and it is what the layout-shift and long-task readouts
-need: a cumulative layout shift is a sum of shift values, not a percentile of
-them.
-
-What this pass does NOT hold is the newest beacons: a bucket closes only
-once its span has passed, so everything since the last fold is in the raw
-table and in no bucket yet. That is not a gap either — `/api/web-metrics`
-unions the raw tail back in — but the union is a BLEND of a stored bucket's
-percentile with a live one over a different population, so it is reported
-with `exact: false` and the panel says so on its face. A range the raw working
-set covers outright is served from the raw table alone and IS exact. Both
-facts are the reader's, in `backend/api_web_metrics.py`.
+The readout unions uncovered raw beacons with stored buckets, labels the blend
+exact: false, and uses raw rows alone when the requested range fits.
 """
 from __future__ import annotations
 
@@ -106,7 +53,7 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> tuple[int, int]:
       marker distinguishing the two and `DO NOTHING` never revises, so a tail
       would sit in the history for ever looking like a fact. Refusing is the
       honest half of the rule; `web_metrics.fold_read_from` is the half that
-      keeps the refusal rare (issue #475).
+      keeps the refusal rare.
     * **The DELETE bound is the same expression as the INSERT's filter.** A
       bucket is either stored whole or not at all, and the two cannot
       disagree about which.
@@ -164,25 +111,16 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> tuple[int, int]:
 
 
 def _refused(conn, bucket_width: int, horizon, read_from) -> int:
-    """How many buckets of this width the span bound turned away.
+    """Count buckets of this width refused by the span bound.
 
-    A refusal is the rule working, so it is not an error -- but silence about
-    it is what the issue this closes objected to: a bucket missing from the
-    stored history looks identical to one that never had a beacon. The count
-    is what makes it legible in `/health`'s log tail.
+    Log the count in /health so absent stored buckets are distinguishable
+    from buckets with no beacons. A refusal is expected, not an error.
 
-    Scoped to the one-width slice that can hold a refused bucket at all,
-    `[read_from, read_from + W)`, rather than the whole working set. A bucket
-    is refused iff its START `s` is below `read_from`, and a bucket that can
-    still hold a beacon has rows inside its own span `[s, s + W)` -- so it
-    has to STRADDLE `read_from`, and the rows that show it are the ones at or
-    after it. (A bucket entirely below the window has no surviving rows at
-    all: the prune deletes below the cutoff, which is never earlier than the
-    window, so nothing of it can still be on the table.) That makes this an
-    index range one bucket width wide, not a second pass over the retention
-    window. The closed-bucket predicate rides along so the count stays honest
-    if the horizon ever moves.
-    """
+    A refused bucket starts below and overlaps read_from; its surviving
+    beacons lie in [read_from, read_from + W). Entirely older buckets have
+    no surviving rows because pruning is never earlier than read_from.
+    Scan that one-width beacon range rather than the full working set;
+    keep the closed-bucket predicate if the horizon changes."""
     row = conn.execute(
         db.sql_text(f"""
         SELECT COUNT(DISTINCT to_timestamp(
@@ -215,7 +153,7 @@ def rebuild_web_metrics_rollup() -> int:
         # pass left the working set wider than its nominal width, and it is
         # deliberately NOT what the prune below deletes at: pruning at the
         # fold's own read window would pin the working set at its widest and
-        # the next pass would read just as far again, for ever (issue #475).
+        # the next pass would read just as far again, for ever.
         read_from = web_metrics.fold_read_from(conn, now)
         for bucket_width in LATENCY_BUCKETS:
             stored, turned_away = _fold(conn, bucket_width, horizon,

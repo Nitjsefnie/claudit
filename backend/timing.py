@@ -18,22 +18,12 @@ TIMING_ON = getenv("CLAUDIT_TIMING", "").lower() not in ("", "0", "false", "no")
 _CLAUDIT_LOGGER = logging.getLogger("claudit")
 
 if not _CLAUDIT_LOGGER.handlers:
-    # Operational INFO — the reprice summary, the rollback-guard skip
-    # count, rekey and eviction notices (issue #378) — must reach the
-    # service log without any flag. uvicorn configures its own loggers
-    # and leaves the root logger at WARNING, so a bare log.info() here
-    # would go nowhere. Attach our own handler rather than depending on
-    # someone else's logging config.
+    # Operational INFO reaches the service log without a flag. Uvicorn
+    # leaves the root logger at WARNING, so attach a handler to claudit,
+    # the parent of both API and ingest loggers.
     #
-    # Attached to the "claudit" PARENT, not "claudit.api": ingest logs
-    # under "claudit.ingest" and was silently discarded, so
-    # recompute_canonical / rebuild_* / warm_common reported nothing and
-    # the one place that says what the warmer is doing was invisible.
-    #
-    # CLAUDIT_TIMING gates only the TIMING lines themselves (Phases.done
-    # returns early without it); the logger's handler and level are not
-    # part of that gate. Propagation stays at its default, so a root
-    # handler (pytest's caplog) still sees every record.
+    # CLAUDIT_TIMING gates only timing lines, not the handler or level.
+    # Keep default propagation so root handlers such as caplog see records.
     _handler = logging.StreamHandler()
     _handler.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
     _CLAUDIT_LOGGER.addHandler(_handler)
@@ -41,15 +31,11 @@ if not _CLAUDIT_LOGGER.handlers:
 
 
 class Phases:
-    """Collect labelled phase timings and log them as a single line.
+    """Log phase walls and breakdown-only work on one timing line.
 
-    `mark` records a phase wall that counts into the account line's sum;
-    `mark_part` records a BREAKDOWN-ONLY figure (issue #662: the pool
-    pipeline's fetch_parse parts are work summed across children and
-    threads, which may exceed the run's wall, so it must not enter the
-    sum/gap accounting). Parts print after the phase marks, before the
-    tail.
-    """
+    mark contributes to sum/gap; mark_part does not, because summed child
+    and thread work can exceed elapsed wall time. Print parts after phase
+    marks and before the tail."""
 
     __slots__ = ("_name", "_marks", "_parts", "_t0", "_logger", "_account")
 

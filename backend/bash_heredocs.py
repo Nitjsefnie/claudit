@@ -16,7 +16,7 @@ from backend.bash_dash_c import _PYTHON_STDIN
 # forms (`2>`, `2>&1`, `2&>`) out; the second admits the fd-1 STDOUT
 # spellings (`1>`, `1>>`, `1>|`, `1>& file`, and their zero-padded forms
 # `01>` — leading zeros are insignificant, so `0*1` reads the fd by
-# VALUE) — fd 1 IS stdout, where a heredoc body lands (#819, #857) — and
+# VALUE) — fd 1 IS stdout, where a heredoc body lands — and
 # the digit only reads as an fd when it STARTS the token, so a
 # word-adjacent one (`f1>`) stays a word; `21>` and friends stay blocked,
 # and any all-digits or `-` `>&` target is filtered as a descriptor by
@@ -36,7 +36,6 @@ _NULL_SINKS = ("/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty")
 
 
 def _writes_to_a_file(context: str) -> bool:
-    """True when this heredoc's body lands in a file verbatim."""
     if _TEE.search(context):
         return True
     if not _CAT.search(context):
@@ -48,7 +47,6 @@ def _writes_to_a_file(context: str) -> bool:
 
 
 def heredoc_context_kind(context: str) -> str | None:
-    """Classify an opener context with churn's existing precedence."""
     if _PATCH.search(context):
         return "patch"
     if _PYTHON_STDIN.search(context):

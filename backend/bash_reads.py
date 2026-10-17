@@ -1,34 +1,15 @@
-"""Read TARGETS recovered from a Bash command's TEXT.
+"""Read targets and whole/slice intake recovered from Bash command text.
 
-The sibling of `bash_churn`: that module asks what a command WROTE, this
-one asks what it put INTO the transcript. Under bypass permissions most
-file reading goes through Bash rather than the `Read` tool — measured
-over the live corpus, `grep`/`sed`/`cat`/`head`/`tail` account for
-~138k path-bearing calls — so a reader that only understands `Read`
-sees almost none of the intake.
+Bash reads must count alongside Read-tool calls. Target paths alone
+cannot determine intake: grep and cat may name the same file while
+only cat reads it whole. A whole classification survives only when no
+pipeline stage narrows output; cat f | grep x is a slice.
 
-Two questions, and the second is why `kind` exists:
-
-  target(s)  which file(s) this call named, absolute where a `cd` in the
-             same command line makes that resolvable.
-  kind       `whole` when the command emits the file entire, `slice`
-             when any stage narrows it.
-
-Conflating those INVERTS the metric. `grep -n foo big.py` and
-`cat big.py` both name one file; only the second put the file in
-context. Score them alike and the frugal grep-then-narrow workflow
-reads as more wasteful than one indiscriminate `cat`, which is
-backwards. So a `whole` classification survives only when NOTHING in
-the pipeline narrows it: `cat f | grep x` is a slice.
-
-Only paths the command text names outright are returned; churn estimates
-do not manufacture target paths. A path built at runtime — `glob.glob(...)`,
-`$1`, an unexpanded `*.py` — yields nothing rather than a guess. A
-variable ASSIGNED in the same command (`S=/tmp/s && cat > $S/f.py`) is
-text, not runtime, and is expanded. Reads performed by an interpreter
-body are not this module's business; the paths a python body opens for
-WRITING are, and come from `bash_churn.python_write_paths`.
-"""
+Return only paths named literally or expanded from assignments in the
+same command. Runtime paths, positional variables and globs yield
+nothing rather than a guess. Resolve paths against textual cwd changes.
+Interpreter reads belong elsewhere; interpreter writes come from
+bash_churn.python_write_paths."""
 from __future__ import annotations
 
 import posixpath
@@ -88,7 +69,7 @@ def _strip_env_prefix(segment: list[str], env: dict[str, str | None],
     rejects, never a command that runs, so `export cat f.py` refuses the
     whole segment (None) instead of reading `cat` as the command word.
     Its option flags (`local -r`, `declare -rx`, `--`) are transparent
-    (#770): skipped like the builtin, so a chained assignment behind
+   : skipped like the builtin, so a chained assignment behind
     them still carries into the capture's inner scan.
     """
     idx = 0
@@ -223,7 +204,6 @@ class _Scan:
             bucket.append(resolved)
 
     def record_targets(self, targets: list[str]) -> None:
-        """Book paths a command put on disk as write targets."""
         for path in targets:
             self.add(self.writes, path)
 
@@ -272,7 +252,7 @@ class _Scan:
         its arithmetic command, whose `>` compares rather than
         redirects. Its tail redirect still books its write: bash opens
         the file before the (failing) evaluation, though the compound
-        itself stays unmodelled (issue #785).
+        itself stays unmodelled.
         An expression carrying an unmatched `)` — or an undoubled close —
         never balances, and bash re-lexes and RUNS the construct as
         nested subshells; the general body scan below models exactly
@@ -352,7 +332,6 @@ class _Scan:
 
     def command_effects(self, name: str, operands: list[str],
                         redirected: list[str], inputs: list[str]) -> None:
-        """Classify a command after redirection syntax has been separated."""
         if name in ("sed", "cp", "install", "mv", "mkdir", "mktemp", "git") or name in WRITE_TARGET_COMMANDS:
             # Preserve positions and unknown words; dropping an unresolved
             # option value would shift the following file into its place.
@@ -417,7 +396,6 @@ def scan(command: str, cwd: str = "") -> tuple[str | None, list[str],
 
 
 def scan_command(command: BashCommand, cwd: str = "") -> tuple[str | None, list[str], list[str]]:
-    """Read/write access using the syntax already parsed for this Bash call."""
     if not command.command or len(command.command) > MAX_COMMAND_CHARS:
         return None, [], []
     state = _Scan(cwd)

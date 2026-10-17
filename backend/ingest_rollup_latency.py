@@ -13,7 +13,6 @@ log = logging.getLogger("claudit.ingest")
 
 
 def _overlapping_bucket_starts(hour: datetime, width: int) -> list[datetime]:
-    """Return epoch buckets intersecting the widened dirty-hour interval."""
     start = hour.astimezone(timezone.utc)
     end = start + timedelta(hours=2)
     bucket_s = floor(start.timestamp() / width) * width
@@ -27,7 +26,6 @@ def _overlapping_bucket_starts(hour: datetime, width: int) -> list[datetime]:
 
 def _bucket_keys(scope: Scope, width: int
                  ) -> tuple[list[str], list[datetime], list[datetime]]:
-    """Expand dirty local hours to every overlapping epoch bucket key."""
     project_buckets = {
         (project_id, bucket)
         for project_id, hour in scope.dirty_hours
@@ -42,7 +40,6 @@ def _bucket_keys(scope: Scope, width: int
 
 
 def rebuild_latency_rollup(scope: Scope | None = None) -> int:
-    """Replace all latency buckets, or complete buckets touched by this run."""
     scope = scope if scope is not None else current_scope()
     incremental = scope is not None and not scope.full
     if scope is not None and not scope.full:
@@ -51,7 +48,7 @@ def rebuild_latency_rollup(scope: Scope | None = None) -> int:
     written = 0
     with db.viz_conn() as conn:
         conn.execute("SET LOCAL work_mem = '128MB'")
-        # The reserved all-projects row (project_id '', #959's R8) is
+        # The reserved all-projects row (project_id '') is
         # schema state, but a wholesale DELETE FROM projects takes it —
         # re-seed before any proj_id = 0 insert can violate the FK.
         # WHERE NOT EXISTS: when the row stands (every rebuild but the

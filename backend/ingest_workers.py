@@ -1,9 +1,7 @@
-"""Worker concurrency knobs and process hygiene for the ingest pipelines.
+"""Ingest concurrency configuration and process hygiene.
 
-Split out of `ingest_fetch` for the module-size ratchet; `ingest_fetch`
-re-exports these names so the established call surface — `ingest`'s
-seam re-exports and the tests' monkeypatch seams — keeps resolving.
-Configuration imports stay leaf-ward of `ingest_fetch`.
+Keep configuration imports leaf-ward of ingest_fetch, which re-exports these
+names for ingest's established seams and test monkeypatches.
 """
 from __future__ import annotations
 
@@ -29,7 +27,7 @@ def parse_pool(max_workers: int, service_pid: int) -> ProcessPoolExecutor:
 
     The service's complete current environment travels in initargs,
     not the server's environment snapshot. CPython's private server PID
-    identifies the actual OS parent for the #373 orphan race check.
+    identifies the actual OS parent for the orphan race check.
     Startup CONFIG/export settings stay frozen: parse units receive the
     service's current CollectionPolicy in the pickled call; feature flags
     and export settings are consumed only by the service, never a worker.
@@ -67,15 +65,11 @@ def worker_count() -> int:
 
 
 def parse_process_count() -> int:
-    """Parse-process concurrency of the process-pool pipeline.
+    """Parse-process concurrency; 1 selects the in-process thread pipeline.
 
-    The parse is pure-Python CPU work, so the in-process thread pool is
-    GIL-serialised — and measured on the private restore (issue #309), 16
-    threads regressed parse wall 1.63x against a serial run. Process
-    children get real parallelism. Unset or unparseable -> auto =
-    min(8, max(1, cpu//2)); an explicit integer is honoured, clamped to
-    >= 1; CLAUDIT_INGEST_PARSE_PROCESSES=1 is the in-process pipeline.
-    """
+    The parse is Python CPU work, so threads serialize under the GIL;
+    processes provide parallelism. Auto is min(8, max(1, cpu//2)); explicit
+    integers are honored with a floor of 1."""
     auto = min(8, max(1, (os.cpu_count() or 4) // 2))
     raw = getenv("CLAUDIT_INGEST_PARSE_PROCESSES", "").strip()
     if not raw:
@@ -105,7 +99,7 @@ def persist_thread_count() -> int:
 
 def parse_worker_init(parent_pid: int, service_pid: int | None = None,
                       environment: dict[str, str] | None = None) -> None:
-    """Keep a parse worker from outliving its server or service (#373).
+    """Keep a parse worker from outliving its server or service.
 
     Workers reset inherited handlers, arm PDEATHSIG on the forkserver,
     and verify both the OS parent and multiprocessing's service sentinel.

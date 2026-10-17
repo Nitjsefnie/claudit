@@ -7,7 +7,6 @@ from backend.ctx_input import usage_ctx_input
 
 
 class _UsageTokens(NamedTuple):
-    """Token counts used by the row projection and cost calculation."""
     fresh: int
     create: int
     read: int
@@ -20,7 +19,6 @@ class _UsageTokens(NamedTuple):
 
 
 def _usage_tokens(usage: dict) -> _UsageTokens:
-    """Read token counts from an event's decoded usage object."""
     fresh = int(usage.get("input_tokens", 0) or 0)
     create = int(usage.get("cache_creation_input_tokens", 0) or 0)
     read = int(usage.get("cache_read_input_tokens", 0) or 0)

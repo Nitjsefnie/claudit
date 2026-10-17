@@ -1,55 +1,18 @@
-"""Object key → (project, session, is_main): the one place that knows
-where a transcript lives in the bucket.
+"""Object key to (project, session, is_main) and transcript/sidecar pairing.
 
-Two layouts share this bucket:
+Claude: <project-slug>/<session>/<stem>.jsonl[.xz], at least three segments;
+is_main iff stem == session. Windows drive-- slugs case-fold; POSIX slugs do not.
+Lane: sessions/<project>/<session>/wire.jsonl[.xz], with subagent wires at
+subagents/<id>/wire.jsonl[.xz] and project.json markers at depth three.
 
-Claude Code (claudit's own, unchanged — the exact derivation ingest
-used to inline in _collect_todo and _persist):
+The sessions/ subtree belongs exclusively to lanes: non-wire files never fall
+through to Claude classification. A lane session named test is scratch data,
+including its subagents, and classifies as neither transcript nor sidecar. POSIX slugs start with -, drive slugs with a letter plus --;
+neither equals sessions.
 
-  <project-slug>/<session>/<stem>.jsonl[.xz]
-      project = segment 0, session = segment 1,
-      is_main = stem == session
-      (the project id is canonical: a Windows slug — a drive letter
-      followed by '--' — is case-folded, canonical_project_id)
-
-  Subagent sidecars are simply files whose stem differs from the
-  session id (e.g. .../subagents/agent-x.jsonl.xz), so they fall out
-  as is_main=False without a rule of their own.
-
-Lane (codexmeter / kimimeter, ported from codexmeter's _scan_r2 and
-_plan_work):
-
-  sessions/<project>/<session>/wire.jsonl[.xz]
-  sessions/<project>/<session>/subagents/<id>/wire.jsonl[.xz]
-  sessions/<project>/project.json            (display-path marker)
-
-  One session shape is never a real session (issue #650): a lane
-  session named exactly `test` — the kimi-code test suite archives its
-  scratch runs under sessions/<hash>/test/, subagents included — is no
-  transcript and no sidecar: classify() and sidecar_stem() answer None
-  for the whole subtree, so the walk never lists it and the orphan
-  sweep deletes any rows already stored there.
-
-Subagent meta.json sidecars (both layouts) sit beside the transcript
-they describe and name the role it was dispatched as; transcript_stem()
-and sidecar_stem() pair the two:
-
-  <dir>/agent-<id>.meta.json[.xz]            beside agent-<id>.jsonl[.xz]
-  sessions/<p>/<s>/subagents/<id>/meta.json[.xz]   beside its wire
-
-The sessions/ subtree BELONGS to the lane layout: inside it only
-wire.jsonl[.xz] and the depth-3 project.json marker are recognised, and
-everything else — Kimi writes context.jsonl and state.json beside every
-wire — classifies as None. Filing those under a project literally named
-`sessions` is the mis-mapping this module exists to prevent, and no
-real Claude project slug collides: slugs derive from absolute paths and
-so always start with `-`. Outside sessions/ the Claude rule accepts any
-.jsonl[.xz] key of three or more segments, codexmeter's depth floor for
-its foreign (Claude-layout) transcripts.
-
-classify() takes an OBJECT key with no bucket segment; stored file keys
-are bucket-qualified (`<bucket>/<object-key>`, several buckets per
-deploy) and r2.split_key() strips the bucket before these rules run.
+Claude agent-<id>.meta.json[.xz] pairs with the adjacent agent transcript;
+lane subagents/<id>/meta.json[.xz] pairs with that directory's wire.
+classify takes object keys only; r2.split_key strips the stored bucket prefix.
 """
 from __future__ import annotations
 
@@ -73,7 +36,7 @@ _CLAUDE_MIN_SEGMENTS = 3
 # A lane wire key is sessions/<project>/<session>/wire.jsonl at minimum.
 _LANE_MIN_SEGMENTS = 4
 # A lane session named exactly this is a test-suite scratch session, not
-# a real one (issue #650): the kimi-code test suite archives its runs
+# a real one: the kimi-code test suite archives its runs
 # under a session named `test` inside a hash-named project, and those
 # transcripts carry no usage -- classify() answers None for the whole
 # subtree, so the ingest walk never lists them and the orphan sweep
@@ -82,8 +45,6 @@ _LANE_TEST_SESSION = "test"
 
 
 class KeyInfo(NamedTuple):
-    """The per-file identity the schema derives from an object key."""
-
     project_id: str
     session_id: str
     is_main: bool
@@ -153,7 +114,6 @@ def lane_project_id(project_id: str, marker_path: str | None) -> str:
 
 
 def in_lane_tree(key: str) -> bool:
-    """Whether `key` lies in the lane layout's sessions/ subtree."""
     return key.split("/", 1)[0] == LANE_ROOT
 
 
@@ -193,8 +153,6 @@ def _classify_claude(parts: list[str]) -> KeyInfo | None:
 
 
 def _jsonl_stem(basename: str) -> str | None:
-    """The basename minus its .jsonl[.xz] suffix, or None when it has
-    neither — ingest's _jsonl_suffix_len, turned inside out."""
     for suffix in _JSONL_SUFFIXES:
         if basename.endswith(suffix):
             return basename[:-len(suffix)]

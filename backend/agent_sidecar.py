@@ -1,12 +1,6 @@
-"""Agent-sidecar classification: what a transcript's meta.json sidecar means.
+"""Agent-sidecar classification; this module parses no transcript.
 
-Split out of backend/parse.py, which sat exactly at pylint's 1000-line
-gate -- the same seam ingest_rollups.py was split along. Nothing here
-parses a transcript: the module owns sidecar classification -- the role
-a sidecar names (sidecar_agent_role), whether it marks a named teammate,
-and the teammate_name apply_agent_sidecar records for the ingest-time
-join (ingest_rollups.resolve_teammate_agent_types) to resolve against
-the lead's dispatch.
+Owns role, teammate marking and teammate_name for the ingest-time dispatch join.
 """
 from __future__ import annotations
 
@@ -37,13 +31,11 @@ def _is_teammate(meta: dict) -> bool:
 
 
 def _teammate_candidate(meta: dict) -> bool:
-    """An older release wrote a teammate's sidecar as ONLY {"agentType": X}
-    -- no name, no taskKind, no toolUseId. Not a verdict: the same shape
-    could be a plain subagent's role marker, so the parsed role STANDS and
-    the ingest-time join (resolve_teammate_agent_types) decides whether the
-    session's lead dispatched an Agent call named X. A toolUseId (a plain
-    subagent named after its dispatch), any taskKind (the writer marks the
-    kinds it knows), and a fork's isFork keep an ordinary role marker."""
+    """An agentType-only sidecar may name a teammate or an ordinary role.
+
+    Preserve the parsed role until resolve_teammate_agent_types checks
+    whether the lead dispatched an Agent call named X. toolUseId, any
+    taskKind or isFork keeps an ordinary role marker."""
     return ("name" not in meta and "toolUseId" not in meta
             and "taskKind" not in meta and not meta.get("isFork")
             and isinstance(meta.get("agentType"), str)
@@ -91,7 +83,7 @@ def apply_agent_sidecar(parsed: dict, sidecar: bytes, key: str) -> dict:
     ``attributionAgent``. A teammate's sidecar also
     sets ``teammate_name``, which ingest joins to the lead's dispatch; the
     role stored here stands only when no dispatch joins. An agentType-only
-    sidecar (an older release's teammate) is stored the same way, as a
+    sidecar is stored the same way, as a
     candidate the join decides, its role still standing meanwhile. Mutates
     and returns `parsed`.
     """

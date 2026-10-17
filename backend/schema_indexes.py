@@ -14,10 +14,9 @@ if TYPE_CHECKING:
 
 
 # Fixed SQL only: configuration selects a branch, never an identifier.
-# records.turn_flags is an INT4 flag MASK on this branch (#959 ruling
-# R5), and Postgres has no default GIN operator class for integer — a
-# GIN over it cannot be built, so the turn_context analysis index is
-# absent here (tests/test_dims_migration.py pins that it stays gone).
+# turn_flags is an INT4 mask. Postgres has no default integer GIN operator
+# class, so no turn_context GIN index can be built; migration tests pin
+# its absence.
 _ANALYSIS_INDEXES = (
     (
         "context_intake",
@@ -33,13 +32,11 @@ _ANALYSIS_INDEXES = (
 
 
 def analysis_index_sql(collection: CollectionPolicy) -> str:
-    """The three analytical CREATE-or-DROP statements in stable order."""
     return "\n".join(create if collection.enabled(key) else drop
                      for key, create, drop in _ANALYSIS_INDEXES)
 
 
 def compile_schema(static_sql: str, collection: CollectionPolicy) -> str:
-    """Static bytes plus policy SQL, executed and hashed as one script."""
     return static_sql + "\n" + analysis_index_sql(collection)
 
 

@@ -1,10 +1,7 @@
-"""Line churn for a command given as an ARGV ARRAY.
+"""ARGV-array command churn, including Codex monitor calls.
 
-Ported from codexmeter's bash_churn for Codex's `monitor` calls, whose
-command is `command: ["bash", "-lc", "..."]` rather than a `cmd` string,
-so the shell payload has to be found positionally. The churn itself is
-read by backend.bash_churn's own scanners, so the estimates stay
-claudit's (SV-BASH-CHURN).
+Finds the positional shell payload and delegates to bash_churn's scanners
+so estimates follow SV-BASH-CHURN.
 """
 from __future__ import annotations
 

@@ -100,7 +100,6 @@ def resolve_config(
     collection_specs: tuple[CollectionSpec, ...] = COLLECTION_SPECS,
     feature_specs: tuple[FeatureSpec, ...] = FEATURE_SPECS,
 ) -> Config:
-    """Resolve one environment snapshot against the declarative registries."""
     collections = tuple(collection_specs)
     features = tuple(feature_specs)
     _validate_specs(collections, "collection")

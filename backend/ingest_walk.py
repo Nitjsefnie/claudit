@@ -85,7 +85,7 @@ def _stored_version_is_newer(stored, parser_version: str) -> bool:
     A rollback must not let the older binary's ingest rewrite rows it
     cannot write whole: _persist DELETEs and re-INSERTs each file's rows
     with its own column list, silently NULLing every column it does not
-    know (issue #118). A stored value that does not parse as an int
+    know. A stored value that does not parse as an int
     cannot be shown newer, so the ordinary reparse decision applies.
     """
     if stored is None:

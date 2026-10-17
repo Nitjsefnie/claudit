@@ -14,8 +14,8 @@ def _delete_orphans(seen_keys: set[str]) -> int:
     """Drop files rows whose R2 key is gone. CASCADE drops records.
 
     Each deleted row's cached transcript bytes are evicted after the
-    delete commits (issue #269): the cache is keyed by
-    cache.transcript_key(file_key, r2_etag) (issue #375), so a deleted
+    delete commits: the cache is keyed by
+    cache.transcript_key(file_key, r2_etag), so a deleted
     transcript must not stay readable from the cache.
     """
     _set_progress(phase="orphans")
@@ -61,14 +61,13 @@ def _delete_orphan_projects() -> int:
     """Drop project rows no file references any more.
 
     A project id that moved under its files leaves the old row behind
-    with nothing pointing at it — the Windows case-fold re-keys every
-    pre-53 mixed-case row onto the folded id, the lane slug rekey moves
+    with nothing pointing at it — the Windows case-fold re-keys mixed-case rows onto the folded id, the lane slug rekey moves
     a hash's files onto its marker slug, and a wiped subtree cascades
     its files away. /api/projects already hides a usage-less project;
     deleting keeps the table itself honest instead of only the read.
     Runs every ingest, after the orphan-file sweep.
 
-    The reserved row (project_id '', issue #959's R8) is exempt: no file
+    The reserved row (project_id '') is exempt: no file
     ever references it — it IS the all-projects rollup grain's '' — so
     the not-exists test above would delete it every run and take
     latency_rollup's all-projects rows down its FK cascade with it.

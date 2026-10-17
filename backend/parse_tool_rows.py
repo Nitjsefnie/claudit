@@ -25,31 +25,17 @@ def _line_count(s: str) -> int:
 
 
 def _tool_churn(name: str, tool_input: dict) -> tuple[int, int]:
-    """(lines_added, lines_deleted) for one edit/write tool CALL.
+    """Attempted edit/write churn from call arguments, not result prose.
 
-    Derived from the call ARGUMENTS, not the tool result: the result's
-    text is a bare confirmation ("The file ... has been updated
-    successfully"), and while ~80% of results also carry a structured
-    toolUseResult diff, 20% carry none — the call args are the one
-    source present on every call (verified over the full corpus:
-    27,045 Edit + 8,365 Write, all with old/new payloads). Two
-    separate POSITIVE series per issue #10 — deletions are NOT
-    encoded as negative additions.
+    Arguments carry old/new content reliably; structured result diffs are
+    optional. Added and deleted counts are separate positive series.
+    Edit/Write use this path; Bash uses BashCommand.churn scanners for
+    literal heredocs, patches and replacements, returning zero whenever
+    execution would be required to know the count.
 
-    Two names reach this: `Edit` and `Write` (no MultiEdit /
-    NotebookEdit rows exist in the corpus at all). A Bash call never
-    does — Bash carries the bulk of it, and its caller hands the
-    command to `BashCommand.churn()`, backed by the same
-    `backend.bash_churn` scanners that recover from the command text
-    what only running it would otherwise tell: heredoc bodies written
-    to a file, inline patch hunks, literal python replacements — and 0
-    for everything that needs the command to be RUN to know.
-    Edit's old/new are diffed (`replace_churn`): repeated context is not churn.
-    Known approximations: an Edit with replace_all=true is counted
-    once (the call does not say how many occurrences exist), and a
-    Write overwriting an existing file counts its old content as 0
-    deletions (the call does not carry it).
-    """
+    replace_churn excludes repeated context. replace_all counts one
+    occurrence because the call does not say how many exist. A Write's
+    prior contents are absent, so overwrites record zero deletions."""
     if name == "Edit":
         return replace_churn(
             str(tool_input.get("old_string", "") or ""),
@@ -121,12 +107,10 @@ def _content_metrics(msg: dict, cwd: str = "", collect: ParseCollection = ALL_PA
 
 
 def _tool_use_row(idx: int, blk: dict, cwd: str, collect: ParseCollection = ALL_PARSE_COLLECTION) -> dict | None:
-    """One tool_use content block -> its pending tool_uses row.
+    """Build one pending tool row, or None for a nameless tool_use block.
 
-    None for a nameless block. Split out of _content_metrics because
-    every per-call column derived here is another local in a function
-    whose job is only to walk the content list.
-    """
+    Keep per-call column derivation separate from the content-list walk
+    so new columns do not inflate that walk's local-variable count."""
     name = str(blk.get("name", "") or "")
     if not name:
         return None

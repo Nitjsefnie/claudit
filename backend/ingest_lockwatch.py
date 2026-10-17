@@ -1,19 +1,9 @@
-"""Liveness guard for the db-wide ingest advisory lock (issue #374).
+"""Session-scoped ingest advisory lock and liveness guard.
 
-The advisory lock is session-scoped: the server releases it when the
-holding connection dies. `_db_run_lock` opens that connection once and
-trusts it for the whole run, so a session the server ends mid-run (a
-pg_terminate_backend, a database restart) left the run going WITHOUT the
-lock — and a second instance on the same database could then start a
-concurrent ingest, the exact failure the lock exists to prevent (issue
-#102). The run's bounded steps consult this guard, and unwind via
-IngestAborted with "lost ingest lock", which the run row records.
-
-The lock itself lives here too — `_db_run_lock` below takes it on its
-dedicated connection and arms this guard for the whole run — so the lock
-and its liveness guard share one module. `backend.ingest` re-exports
-`_db_run_lock` and `_INGEST_LOCK_KEY`, keeping the established call
-surface (`ingest._db_run_lock(...)`, `ingest._INGEST_LOCK_KEY`) intact.
+A lost connection releases the lock; the next guard check at a bounded step
+raises IngestAborted, potentially after another instance acquires it.
+The dedicated connection holds and probes the lock. ingest re-exports
+_db_run_lock and _INGEST_LOCK_KEY for the established call surface.
 """
 from __future__ import annotations
 
@@ -42,13 +32,11 @@ _holder: dict = {"conn": None, "key": None}
 
 
 def hold(conn, key: int) -> None:
-    """Arm the guard with the lock connection for the run in flight."""
     _holder["conn"] = conn
     _holder["key"] = key
 
 
 def release() -> None:
-    """Disarm the guard on every exit path through the run body."""
     _holder["conn"] = None
     _holder["key"] = None
 
@@ -81,24 +69,15 @@ def check_lock_alive() -> None:
 
 @contextmanager
 def _db_run_lock() -> Iterator[bool]:
-    """Try the db-wide ingest advisory lock on a DEDICATED connection.
+    """Try the db-wide ingest advisory lock on a dedicated connection.
 
-    `ingest._RUN_LOCK` serialises one process; two app instances sharing
-    one database still ran their ingests concurrently (issue #102: two
-    runs 2.4 ms apart, one rollup rebuild UniqueViolation, two
-    ingest_runs rows). pg_try_advisory_lock is session-scoped, so the
-    server releases it when the holding connection dies — a crashed
-    instance can never leave the ingest locked.
+    A process-local lock cannot serialize app instances sharing one DB.
+    The server releases this session lock when its connection dies, so
+    crashes never strand it. Close the dedicated connection in finally
+    on every exit path; a pooled connection must never retain the lock.
 
-    The connection exists ONLY to hold the lock: opened here, closed in
-    the outer finally on every exit path (success, fatal error, and any
-    abort unwinding through the yield), so no pooled connection ever
-    returns to the pool with the lock still held.
-
-    Yields False when another instance holds it — a skipped run is correct
-    behaviour, not an error. A connect failure propagates, the same as
-    today's behaviour when the database is down.
-    """
+    Yield False when another instance owns it: skipping is correct, not
+    an error. Connection failures propagate as database failures."""
     conn = psycopg.Connection.connect(
         require_env("CLAUDIT_DATABASE_URL_VIZ"), autocommit=True)
     try:
@@ -113,7 +92,7 @@ def _db_run_lock() -> Iterator[bool]:
         finally:
             release()
             if acquired:
-                # Issue #154: the unlock must never mask the body's error;
+                # The unlock must never mask the body's error;
                 # the swallow leaves no stale lock either way — the expected
                 # failure is the lock session dying mid-run, where the
                 # server releases a session-scoped advisory lock at session

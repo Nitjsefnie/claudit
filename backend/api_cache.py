@@ -1,10 +1,4 @@
-"""GET /api/cache — per-model and per-session prompt-cache totals.
-
-The endpoint body is broken
-into _cache_canon_source (shared WHERE fragment), _cache_queries (the
-four queries) and _session_total (the cross-model fold) so no single
-function trips the locals gate.
-"""
+"""GET /api/cache: per-model and per-session prompt-cache totals."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -38,20 +32,16 @@ class _CacheQueryResults(NamedTuple):
 
 def _cache_canon_source(project: str | None, model: str | None,
                         since: datetime) -> tuple[str, list]:
-    """The shared FROM/WHERE fragment for the four cache queries.
+    """Shared FROM/WHERE fragment for the four cache queries.
 
-    Dedup used to be a CTE prefixed onto each query, so Postgres re-ran
-    the whole DISTINCT ON — the single most expensive step — FOUR times
-    per request (measured: 19s at range=all). It is now resolved at
-    ingest into records.is_canonical (ingest.recompute_canonical), so
-    each query just filters a boolean.
-    """
+    Dedup is resolved at ingest into records.is_canonical, so each query
+    filters a boolean instead of repeating an expensive DISTINCT ON."""
     proj_filter = ""
     model_filter = ""
     canon_args: list[Any] = [since]
     if project:
-        # Join `files` for the project and the public file_key: since
-        # #959 only files carries file_key, the join is unambiguous.
+        # Join files for the project and public file_key; only files carries
+        # file_key, so the join is unambiguous.
         proj_filter = "AND f.project_id = %s"
         canon_args.append(project)
     if model:
@@ -70,7 +60,6 @@ def _cache_canon_source(project: str | None, model: str | None,
 
 
 def _rate_pair_inputs(c, ph: Phases) -> _RatePairInputs:
-    """Read the rollup's distinct pairs and encode their own boundaries."""
     pairs = ph.execute(
         "rate_pairs", c,
         """SELECT DISTINCT dm.value, dp.value
@@ -78,7 +67,7 @@ def _rate_pair_inputs(c, ph: Phases) -> _RatePairInputs:
              JOIN dim_model dm ON dm.id = u.model_id
              JOIN dim_provider dp ON dp.id = u.provider_id""",
     ).fetchall()
-    # NULL is not masked as `unknown` (issue #653): ingest refuses a file
+    # NULL is not masked as `unknown`: ingest refuses a file
     # whose rows name no model, so a NULL here would mean that refusal
     # was bypassed; resolve() prices an empty id at the fallback rates.
     pairs = [(model, provider or "") for model, provider in pairs]
@@ -97,12 +86,11 @@ def _rate_pair_inputs(c, ph: Phases) -> _RatePairInputs:
 
 def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) \
         -> _CacheQueryResults:
-    """Read pair boundaries, then run the per-model and top-10 queries."""
     pair_inputs = _rate_pair_inputs(c, ph)
 
     epoch_expr, epoch_params = rate_epoch_sql("r.ts")
     # The rate-band join lands before WHERE: pair_model is the dim's
-    # TEXT (#959), so it matches the supplied pairs' text exactly.
+    # TEXT, so it matches the supplied pairs' text exactly.
     per_model_source = canon_src.replace(
         "WHERE (r.ts >= %s OR r.ts IS NULL)",
         "LEFT JOIN rate_boundaries AS rate_bounds "
@@ -197,7 +185,6 @@ def _cache_queries(c, ph: Phases, canon_src: str, canon_args: list) \
 
 
 def _session_total(per_model: list) -> dict:
-    """The per_model shape, summed across models."""
     session_total = {
         "turns": sum(m["turns"] for m in per_model),
         "fresh": sum(m["fresh"] for m in per_model),
@@ -264,7 +251,7 @@ def cache_view(
                      that named no serving host,
         session_total: {same shape, plus cost_buckets, summed across
                      per_model} -- the only entry carrying cost_buckets;
-                     per_model / per_model_provider omit it (issue #916),
+                     per_model / per_model_provider omit it,
         top_output: [{ts, line, request_id, model, output, c_read,
                       c_create_1h, c_create_5m, fresh, cost, file_key}],
         top_cache_create: [...],
@@ -289,7 +276,7 @@ def cache_view(
     per_model_provider = fold_per_model_provider(
         query_results.per_model_rows, pair_bounds=query_results.pair_bounds)
     # session_total SUMS per_model[].cost_buckets, so build it first; then
-    # strip the decomposition from the two arrays (issue #916) — no
+    # strip the decomposition from the two arrays — no
     # frontend file reads it there (only session_total.cost_buckets is
     # rendered). The fold helpers keep building it for their own callers.
     session_total = _session_total(per_model)
@@ -333,7 +320,7 @@ def cache_view_route(
     The cached body always carries file_key on every top-request row,
     shared by all callers. Guests get a copied payload with file_key
     removed from those rows; the dict comprehensions preserve the cached
-    object intact for later non-guest hits (issue #244)."""
+    object intact for later non-guest hits."""
     payload = cache_view(rng=rng, project=project, model=model)
     if bool(getattr(request.state, "is_guest", False)):
         row_lists = ("top_output", "top_cache_create", "top_cache_read")

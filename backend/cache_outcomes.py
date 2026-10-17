@@ -1,13 +1,7 @@
-"""The response cache's outcome counters (issue #641).
+"""Response-cache cumulative and inter-invalidate outcome counters.
 
-The production evidence for the slow-open split: a count cannot be moved
-by load, so the journal line each invalidate() emits — the outcomes of
-one inter-ingest window — and the cumulative readout in /health answer
-"where do opens wait" without a deploy. Split out of cache.py for the
-module-size ratchet.
-
-Outcomes are counted on the cache instance, so the tests' swapped-in
-instances carry their own counters and never bleed into the singleton.
+Counters belong to cache instances so swapped test instances cannot bleed
+into the singleton. Invalidate logs its window; /health exposes totals.
 """
 from __future__ import annotations
 
@@ -33,7 +27,7 @@ class OutcomeCounters:
     orders invalidate() before warm_common() — so a run's own warm
     outcomes are counted into the FOLLOWING window; windows are
     inter-invalidate intervals, labeled by the invalidate that closes
-    them (issue #641 review).
+    them.
     """
 
     def __init__(self) -> None:
@@ -52,7 +46,6 @@ class OutcomeCounters:
             return {k: self._total.get(k, 0) for k in OUTCOME_KEYS}
 
     def take_window(self) -> dict[str, int]:
-        """Return and zero the since-last-invalidate window."""
         with self._guard:
             window, self._window = self._window, Counter()
             return {k: window.get(k, 0) for k in OUTCOME_KEYS}

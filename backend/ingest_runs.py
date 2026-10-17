@@ -1,10 +1,6 @@
-"""The ingest_runs row lifecycle: open at run start, close at run end.
+"""ingest_runs row lifecycle: open at run start, close at run end.
 
-Split out of ingest.py for size: a change adding net lines to a file the
-module-size baseline pins pays for it by moving a cohesive piece into a
-new module, and the run row's INSERT and final UPDATE are that piece.
-`backend.ingest` re-exports both so `ingest._open_run(...)` and
-`ingest._close_run(...)` keep resolving for callers.
+ingest re-exports _open_run and _close_run for existing callers.
 """
 from __future__ import annotations
 
@@ -20,7 +16,7 @@ log = logging.getLogger("claudit.ingest")
 _ABORT_ERROR = "aborted: shutdown requested"
 
 # The ingest_runs.error text the run-start sweep closes a crash leftover
-# with (issue #440). Same "aborted: ..." family as _ABORT_ERROR, but a
+# with. Same "aborted: ..." family as _ABORT_ERROR, but a
 # distinct value: /health must let an operator tell "died without a
 # graceful stop" from "stopped cleanly".
 _STALE_ERROR = "aborted: previous run died without closing (crash)"
@@ -29,7 +25,7 @@ _STALE_ERROR = "aborted: previous run died without closing (crash)"
 def failure_summary(failed: list[tuple[str, str]]) -> str | None:
     """Count failed objects for `ingest_runs.error`.
 
-    This text feeds the unauthenticated /health endpoint (issue #253), so
+    This text feeds the unauthenticated /health endpoint, so
     names must not cross that boundary. Failed keys stay in the
     `_record_failure` log and the admin-only `failed_keys` summary.
     """
@@ -46,7 +42,6 @@ def failed_public_keys(failed: list[tuple[str, str]]) -> list[str]:
 
 
 def _open_run(started: datetime, trigger: str) -> int:
-    """Insert the ingest_runs row, returning its id."""
     with db.viz_conn() as c, c.cursor() as cur:
         cur.execute(
             "INSERT INTO ingest_runs (started_at, trigger) VALUES (%s, %s) "
@@ -66,9 +61,9 @@ def _close_run(run_id: int, finished: datetime, listed: int, reparsed: int,
     """Write the final counters onto the ingest_runs row.
 
     `newer` counts the files this run declined to reparse because their
-    stored parser_version is newer than this binary's own (the issue #118
+    stored parser_version is newer than this binary's own (the
     rollback guard). Persisted so /health can show a rollback in progress
-    without trawling the logs (issue #161).
+    without trawling the logs.
     """
     with db.viz_conn() as c, c.cursor() as cur:
         cur.execute(
@@ -82,15 +77,11 @@ def _close_run(run_id: int, finished: datetime, listed: int, reparsed: int,
 
 
 def close_open_run(err: str = _ABORT_ERROR) -> bool:
-    """Close an open run's row as aborted — the fallback behind lifespan
-    teardown's bounded wait (issue #372).
+    """Close a still-open run as aborted after teardown's bounded wait.
 
-    A run stuck inside one long single-statement phase cannot reach a
-    bounded step, so a stop that outlives the wait used to exit leaving
-    finished_at NULL (the audit's live rows). Only a still-open row is
-    written: the run thread's own close, either side of this one, wins.
-    Returns whether this call closed the row.
-    """
+    A long statement may outlive cooperative abort steps. Write only a
+    still-open row, so the run thread's own close wins on either side.
+    Return whether this call closed the row."""
     run_id = ingest_progress.progress_snapshot().get("run_id")
     if run_id is None:
         return False
@@ -111,8 +102,7 @@ def sweep_stale_runs() -> int:
     Called at the top of a run that holds the db-wide advisory lock
     (ingest._db_run_lock): the server releases that lock the moment the
     holding connection dies, so an open row under it proves the process
-    that opened it is gone — the SIGKILL shape the graceful paths (#103,
-    #372) can never close behind. No host/pid columns are needed: the
+    that opened it is gone — the SIGKILL shape the graceful paths  can never close behind. No host/pid columns are needed: the
     lock is the liveness proof. One set-based UPDATE; returns how many
     rows it closed. The lock also serialises runs, so a row the current
     run thread will close itself cannot exist at sweep time.
@@ -129,13 +119,13 @@ def sweep_stale_runs() -> int:
 
 
 def _open_run_swept(trigger: str) -> tuple[datetime, int]:
-    """Sweep crash leftovers, then book this run's row (issue #440).
+    """Sweep crash leftovers, then book this run's row.
 
     Called in place of _open_run at the top of a run that holds the
     db-wide advisory lock (ingest._db_run_lock): the server releases the
     lock the moment the holding connection dies, so an open row under it
     proves the process that opened it is gone — the SIGKILL shape the
-    graceful paths (#103, #372) can never close behind. No host/pid
+    graceful paths  can never close behind. No host/pid
     columns are needed: the lock is the liveness proof. `started` is
     taken AFTER the sweep, so the booked row starts when the run itself
     does, and the sweep provably landed before the booking.

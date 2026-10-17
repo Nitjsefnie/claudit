@@ -1,9 +1,4 @@
-"""Live ingest progress, for /health.
-
-Split out of ingest.py for size: issue #154's unlock guard adds net
-lines to a file the module-size baseline pins, and growth there is paid
-by moving a cohesive piece into a new module.
-"""
+"""Live ingest progress and cache/pool readouts for /health."""
 from __future__ import annotations
 
 import logging
@@ -46,10 +41,6 @@ def _set_progress(**kw) -> None:
 
 
 def health() -> Response:
-    """The /health handler. Moved verbatim out of app.py when the cache
-    readout joined the response (issue #641); app.py was at the
-    module-size ceiling and could not grow it."""
-
     last_ingest = None
     try:
         with db.viz_conn() as c:
@@ -61,8 +52,8 @@ def health() -> Response:
             if row:
                 error = r2.redact(row[7])
                 if error:
-                    # Net for rows stored by older builds; new rows are
-                    # count-only at the source.
+                    # Sanitize persisted error text defensively; public health errors
+                    # must stay count-only even when stored rows contain object keys.
                     error = re.sub(
                         r"(?s)^(\d+ objects? failed after retries):.*", r"\1", error)
                 last_ingest = {
@@ -81,7 +72,7 @@ def health() -> Response:
         log.exception("health: database query failed")
         # A status-code monitor (curl -fsS, an LB probe) never parses the
         # body, so failing only in the body reads as healthy to it. 503
-        # carries the same JSON fields (issue #104).
+        # carries the same JSON fields.
         return JSONResponse(
             status_code=503,
             content={
@@ -120,19 +111,14 @@ def health() -> Response:
         # /health is failing, so it must not be the field that goes missing.
         "version": constants.VERSION,
         "parser_version": parser_version.PARSER_VERSION,
-        # Cache-outcome counters and pool gauges (issue #641): the
-        # slow-open split and the requests-queued-on-the-ingest
-        # hypothesis, readable from production without a deploy.
+        # Expose cache outcomes and pool gauges for production diagnosis of
+        # slow opens and requests queued during ingest.
         "cache": cache_readout(),
         "now": datetime.now(timezone.utc).isoformat(),
     })
 
 
 def cache_readout() -> dict:
-    """Cache-outcome counters and the viz-pool gauges, the readout the
-    slow-open investigation (issue #641) reads from production: a count
-    cannot be moved by load, and the pool gauges answer the
-    requests-queued-on-the-ingest hypothesis directly."""
     return {
         "outcomes": cache.response_cache.outcomes(),
         "pool": db.viz_pool_statistics(),

@@ -20,28 +20,15 @@ _KIMI_DISPATCH_TOOLS = ("Agent",)
 
 
 def _edit_churn(tool_name: str, args: dict) -> tuple[int, int]:
-    """(lines_added, lines_deleted) for ONE file-mutating tool call.
+    """Attempted (lines_added, lines_deleted) for one file-mutating tool call.
 
-    The wire's tool RESULT carries no diff — an Edit result is a prose
-    string like "Replaced 1 occurrence in <path>" — so the counts are
-    derived from the call's ARGS. Verified against the R2 corpus
-    (2026-07, ~300 files sampled): the file-mutating tools come in
-    exactly these shapes, two per wire format:
-
-      kimi-code  Edit  {path, old_string, new_string}   (163/163 calls)
-                 Write {path, content, mode?}
-      legacy     StrReplaceFile {path, edit: {old, new} | [{old, new}, ...]}
-                 WriteFile      {path, content, mode?}
-
-    A Write's deleted count is unknowable — the args carry only the new
-    content, not what was overwritten — so Writes contribute added lines
-    only (append mode and fresh files are the common case anyway). Every
-    other tool returns (0, 0).
-
-    The counts describe the ATTEMPT: a call whose result is an error
-    changed nothing, and _resolve_tool_errors zeroes its churn once the
-    result's is_error is known.
-    """
+    Results carry prose confirmations, so derive churn from arguments:
+    kimi-code Edit uses path/old_string/new_string and Write path/content;
+    legacy StrReplaceFile uses path/edit (one object or a list), and
+    WriteFile path/content. Writes may include mode, but carry no prior
+    content, so their deleted count is unknowable and stays zero. Other
+    tools return (0, 0). Settling an errored result zeroes the attempt's
+    churn because it changed nothing."""
     if tool_name == "Edit":
         return (
             _line_count(args.get("new_string")),

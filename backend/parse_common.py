@@ -1,15 +1,8 @@
-"""Parse machinery shared by every transcript format.
+"""Format-independent per-file state, turns and record/tool builders.
 
-The per-file mutable state, the turn bookkeeping, the record/tool-call
-builders and the ctx_turns derivation are format-independent: a Kimi
-StatusUpdate, a kimi-code usage.record and a Codex token_count all produce the same billing row, and all three formats bracket their requests into turns the same way. Only the field NAMES differ, and that difference is
-what each format module owns.
-
-Splitting these out is what keeps a format module readable, and what lets
-backend/parse_codex.py exist without importing backend/parse.py — the cycle that a shared-helpers-live-with-the-Kimi-parser layout would create.
-
-Nothing here knows a format. A function that has to ask which format it is looking at belongs in that format's module instead.
-"""
+Lane parsers supply field mappings and produce the same billing rows.
+Keep format decisions in their lane modules to avoid an import cycle
+between the entry-point parser and shared machinery."""
 from __future__ import annotations
 
 import re
@@ -29,15 +22,10 @@ if TYPE_CHECKING:
 
 
 def iter_lines(blob: bytes) -> Iterator[bytes]:
-    """The file's lines, one at a time, with splitlines' CR / LF / CRLF semantics.
+    """Yield lines lazily with splitlines CR/LF/CRLF semantics.
 
-    Both callers used to stream LF files through BytesIO and fall back
-    to blob.splitlines() for anything carrying a CR -- an eager copy of
-    every line of the file into one list. A Windows checkout writes CRLF
-    fixtures, so that fallback was the common case there. This yields
-    the same lines without the list: CRLF is one separator, a lone CR is
-    a separator, and the trailing fragment yields only when non-empty.
-    """
+    Treat CRLF as one separator and lone CR as a separator; yield a trailing
+    fragment only if non-empty. Avoid an eager list copy for CRLF files."""
     if b"\r" not in blob or blob.count(b"\r") == blob.count(b"\r\n"):
         yield from map(bytes.rstrip, BytesIO(blob), repeat(b"\r\n"))
         return
@@ -67,7 +55,7 @@ def iter_lines(blob: bytes) -> Iterator[bytes]:
 
 def _to_dt(s: str | float | None):
     """Every format's timestamp parser; numbers are epoch seconds.
-    A timestamp without a UTC offset is UTC (issue #376) — the same
+    A timestamp without a UTC offset is UTC — the same
     instant must reach pricing and the driver alike."""
     if not s:
         return None
@@ -140,7 +128,7 @@ def _consume_reply_latency(st: _ParseState, ts: datetime | None) -> float | None
     line -- and at this record's own ts only when the turn produced no
     assistant event before it. A turn's first billing record can land far
     later than its first output (a cumulative counter that stays flat
-    while the model works), so ending there measured the whole response.
+    while the model works), so ending there would measure the whole response.
 
     The anchor is consumed either way: one reply latency per turn,
     attributed to its first billing record. A negative gap is dropped.
@@ -172,7 +160,7 @@ def _append_tool_use(st: _ParseState, line_num: int, ts: datetime | None,
                      dispatch: tuple | None = None) -> None:
     """Append one tool call row.
 
-    `model` is required (issue #653); the Kimi callers pass None for
+    `model` is required; the Kimi callers pass None for
     _attribute_tool_models to overwrite. `dispatch` is a dispatching
     call's (agent_type, agent_model, prompt_chars, brief_ref); None otherwise.
     """
@@ -397,7 +385,7 @@ def _finish_parse(st: _ParseState, end_line: int | None = None) -> dict:
         "prompt_count": len(st.turns) if st.collect.file_extras else None,
         # Each one's own begin timestamp, index-aligned with prompt_count
         # — stored on files so /api/dashboard counts a range's prompts
-        # per own timestamp (issue #214). Ingest-side only: the browser
+        # per own timestamp. Ingest-side only: the browser
         # parser has no range concept and needs no counterpart.
         "prompt_ts": [
             t["begin_ts"].isoformat() if t["begin_ts"] else None
@@ -410,7 +398,7 @@ def _finish_parse(st: _ParseState, end_line: int | None = None) -> dict:
 
 
 def resolve_cache_writes(records: list[dict]) -> None:
-    """Set each record's provider-neutral cache-write count (issue #842).
+    """Set each record's provider-neutral cache-write count.
 
     A request's input splits into three neutral categories on every lane:
     read from cache (``cache_read_tokens``), written to cache

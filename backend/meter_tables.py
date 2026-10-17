@@ -1,10 +1,7 @@
-"""The grouped long-context meter table, checked.
+"""Validate grouped long-context meters and fold to complete model entries.
 
-``long_context_meters`` groups model keys by threshold and carries optional
-per-model factors. The loader folds it to the complete per-model entries
-used by pricing and repricing; the JSON does not keep a second membership
-list.
-"""
+Threshold groups carry optional per-model factors; pricing and repricing
+share the folded table. Reject a separate membership list."""
 from __future__ import annotations
 
 import math
@@ -28,7 +25,7 @@ def _long_context_meters(doc: dict) -> dict[str, dict]:
 
 
 def _meter_groups(doc: dict) -> list:
-    """Read the grouped meter field and reject the retired membership shape."""
+    """Read the grouped meter field and reject the separate membership-list shape."""
     if "long_context_models" in doc:
         raise ValueError(
             "pricing.json: long_context_models is removed; use long_context_meters")

@@ -1,20 +1,8 @@
-"""The identity rows `_persist` writes per file (issue #959).
+"""Per-file identity writes without spending surrogate ids on existing rows.
 
-Both statements here used to be one `INSERT ... ON CONFLICT ... DO
-UPDATE` each. That shape is wrong for an id: a tuple's DEFAULT nextval
-(`projects.proj_id`, `files.file_id`) fires while the tuple is formed,
-BEFORE the unique index reports the conflict, so re-persisting a file
-the store already held spent a project id, a file id and — through the
-same pattern in `dims` — a dim id per value, on every run. The id space
-is a surrogate (Task 7 narrows it to SMALLINT: 32767 values), so an
-allocation must spend one value only on a row it actually inserts, and
-`DO UPDATE` must not lock a row the writer was not changing.
-
-The shape is therefore: read whether the row exists; insert only if it
-does not (`ON CONFLICT DO NOTHING` for the race against a concurrent
-writer of the same key); merge the stored metadata with an UPDATE in
-every other case — the same expressions the DO UPDATE body carried, so
-the stored row ends up identical either way.
+DEFAULT nextval runs before conflict detection; DO UPDATE also locks unchanged
+rows. Read first, insert absent rows with ON CONFLICT DO NOTHING for races,
+and merge existing metadata by UPDATE.
 """
 from __future__ import annotations
 
@@ -136,21 +124,17 @@ def upsert_project(cur, proj: dict[str, Any]) -> None:
             proj,
         )
         if inserted.rowcount:
-            return  # our own row already carries the incoming metadata
-    # Stored row (or a concurrent writer's, which we lost the insert to):
-    # merge into it exactly as the old DO UPDATE body did.
+            return  # Our row already carries incoming metadata.
+    # Merge incoming metadata into an existing row or a concurrent insert winner.
     cur.execute(_PROJECT_MERGE, proj)
 
 
 def upsert_file(cur, payload: dict[str, Any]) -> int:
-    """Insert the file row when absent, else refresh its metadata.
+    """Insert an absent file or refresh stored metadata, returning its file_id.
 
-    Returns the row's `file_id` — the fact tables' FK and the reason the
-    old statement carried RETURNING. The metadata columns (etag, parse
-    time, ctx turns, models ...) are refreshed on every persist of a
-    stored key, which is what a reparse means; only the id allocation
-    moves out of that statement's way.
-    """
+    Facts need the surrogate FK. Reparse refreshes etag, parse time,
+    context turns and models on every persist; allocate ids only for
+    missing rows to avoid spending sequence values on conflicts."""
     row = cur.execute(_FILE_ID, payload).fetchone()
     if row is None:
         inserted = cur.execute(_FILE_INSERT, payload).fetchone()

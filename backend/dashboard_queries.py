@@ -9,7 +9,6 @@ from backend.feature_payloads import hourly_enabled
 
 
 def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
-    """Run the enabled dashboard queries against one connection."""
     hourly_rows = []
     if hourly_enabled(flags.CONFIG):
         hourly_rows = ph.execute(
@@ -215,9 +214,9 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
 
     # Per-session context-at-end for the session fold below. This is NOT
     # the panel's trace query: the panel fetches
-    # /api/context-growth/traces itself (issue #644), so the dashboard
+    # /api/context-growth/traces itself, so the dashboard
     # runs only the last turn of each main file — all ctx_at_end needs —
-    # instead of the full per-file trace SQL (issue #838).
+    # instead of the full per-file trace SQL.
     _t_ctx = time.perf_counter()
     ctx_end = (api_ctx_growth.ctx_end_rows(c, *src["file_args"])
                if flags.CONFIG.features["burn_rate"] else {})

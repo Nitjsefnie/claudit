@@ -1,11 +1,7 @@
-"""Per-item outcome pairing and failure booking for the ingest pools.
+"""Per-item ingest outcomes and failure booking, shared by pools and listing scan.
 
-Split out of backend.ingest_fetch for the module-size baseline when the
-blob cache (issue #684) joined the fetch unit. The pools and the listing
-scan resolve callables over items the same way — each item pairs with
-its result OR its exception, and a failed item is booked without
-aborting the run — so the shared mechanics live here, leaf-ward of
-`ingest`, which re-exports these names to keep its call surface.
+Pair each item with its result or exception without aborting for item failures.
+Keep this leaf-ward of ingest, which re-exports the established call surface.
 """
 from __future__ import annotations
 
@@ -34,7 +30,6 @@ class FatalFetchError(Exception):
 
 
 def is_missing(exc: BaseException) -> bool:
-    """Whether a fetch error says the object no longer exists."""
     if isinstance(exc, FileNotFoundError):
         return True
     if isinstance(exc, ClientError):

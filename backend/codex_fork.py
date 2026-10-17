@@ -1,18 +1,9 @@
-"""The head of a Codex rollout: model declarations, fork detection, replay marking.
+"""Codex rollout head: first model, fork detection and replay boundary.
 
-Three facts come off the file's head: which model the file FIRST declares
-(the model in force where a fork cut — the inherited settings — which
-attributes the replayed prefix, issue #653), whether the file is a forked
-rollout whose leading lines replay its parent's history (issue #687), and
-the line where that replay ends (the fork's own first model declaration).
-The replayed rows are marked `is_replay` so the canonical winner ranks a
-replayed copy below an original of the same uuid, whatever the key order
-(SV-CANONICAL-FLAG): a child spawned with its own model must not win its
-parent's history from it.
-
-Entry point is backend.parse_codex.parse, which opens with head_scan()
-and closes with mark_replay(). The browser mirror is the codex section
-of src/parser-codex.js (SV-PARSER-SPEC).
+The first declared model attributes the inherited prefix. A fork's
+history before its own first declaration is replayed and ranks
+below an original of the same uuid (SV-CANONICAL-FLAG). parse_codex calls
+head_scan then mark_replay; src/parser-codex.js mirrors it (SV-PARSER-SPEC).
 """
 from __future__ import annotations
 
@@ -23,7 +14,6 @@ from backend.parse_common import _nonempty_str
 
 
 def _line_at(blob: bytes, pos: int) -> tuple[bytes, int, int]:
-    """The line spanning byte `pos`, as (raw bytes, start, end-exclusive)."""
     start = blob.rfind(b"\n", 0, pos) + 1
     end = blob.find(b"\n", pos)
     if end < 0:
@@ -74,14 +64,14 @@ def head_scan(blob: bytes) -> tuple[str | None, bool, int | None]:
     emits a turn_context, so the leading records have no model in front
     of them. The replay is the parent's history and the first declaration
     is the model the parent had in force at the fork point — the
-    inherited settings — so it attributes the prefix (issue #653). None
+    inherited settings — so it attributes the prefix. None
     when the file declares no model at all: nothing derives the model in
     force, and the file is refused rather than stored as `unknown`.
 
     The fork flag comes off the first session_meta (first one wins, the
     same head rule the parse loop applies to the thread id), and the
     first declaration's line is the replay boundary — records on earlier
-    lines are the parent's history journalled in this file (issue #687).
+    lines are the parent's history journalled in this file.
     """
     is_fork = _fork_flag(blob)
 

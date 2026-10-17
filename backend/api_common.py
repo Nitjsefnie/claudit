@@ -1,10 +1,6 @@
-"""Shared helpers for the read endpoints (issue #8 module split).
+"""Shared read-endpoint helpers, kept here to avoid import cycles.
 
-api.py grew past pylint's 1000-line module gate, so the endpoint groups
-moved into backend/api_{export,dashboard,sessions,cache}.py. Everything
-two or more of them need lives here so the split does not create import
-cycles: the dated-rate fold, the range and bucket pickers, and the ISO
-serialiser.
+Owns the dated-rate fold, range and bucket pickers, and ISO serialisation.
 """
 from __future__ import annotations
 
@@ -21,7 +17,6 @@ from backend.timing import Phases, TIMING_ON  # noqa: F401  (re-export)  # pylin
 log = logging.getLogger("claudit.api")
 
 
-# --- dated-rate helpers ---------------------------------------------------
 # cost_total always comes from SUM(cost_usd) — the per-record cost computed
 # at ingest against that record's own timestamp. cost_buckets, by contrast,
 # is re-derived from summed tokens, so each record must be grouped by the
@@ -60,7 +55,6 @@ def epoch_ts(index: int) -> datetime | None:
 def _pair_epoch_ts(index: int, model: str, provider: str | None,
                    pair_bounds: Mapping[tuple[str, str], list[datetime]]) \
         -> datetime | None:
-    """Return the representative instant from the boundary array SQL used."""
     if index < 0:
         return None
     key = (model, provider or "")
@@ -156,7 +150,6 @@ def _accumulate_model_row(
 
 def _model_entry(acc: dict, model: str, provider: str | None,
                  by_provider: bool) -> dict:
-    """Return the fold entry for one model row, creating it when needed."""
     key = (model, provider) if by_provider else model
     if key not in acc:
         acc[key] = _empty_model_entry(model)
@@ -167,7 +160,6 @@ def _model_entry(acc: dict, model: str, provider: str | None,
 
 def _row_bucket_details(
         row) -> tuple[int, float, bool, tuple[float, float] | None]:
-    """Read the stored cost and optional search and meter columns."""
     # The API query includes the nullable search-count sum between token
     # totals and stored cost. Accept the prior in-memory test tuple shape.
     has_search_count = len(row) >= 15
@@ -190,7 +182,6 @@ def _row_bucket_details(
 
 
 class _PricedRow(NamedTuple):
-    """One folded row's model, tokens, and rate resolution."""
     model: str
     provider: str | None
     tokens: dict
@@ -200,8 +191,7 @@ class _PricedRow(NamedTuple):
 def _model_row_pricing(
         row, pair_bounds: Mapping[tuple[str, str], list[datetime]]) \
         -> _PricedRow:
-    """Resolve one aggregate row from its pair and SQL epoch index."""
-    # NULL is not masked here (issue #653): a stored model is never the
+    # NULL is not masked here: a stored model is never the
     # string `unknown`, and a NULL would mean ingest's refusal missed a
     # file — passing it through prices at the fallback rates, flagged
     # estimated, instead of renaming the hole.
@@ -322,7 +312,7 @@ def _parse_range(s: str) -> timedelta:
     accepts the day count, the subtraction then runs past datetime.min)
     raises the same 400 the unknown-suffix branch raises, naming the bad
     parameter, so a malformed query value cannot escape any endpoint as a
-    500 (issues #112, #262).
+    500.
     """
     if s == "all":
         return datetime.now(timezone.utc) - _EPOCH

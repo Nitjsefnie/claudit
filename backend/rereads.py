@@ -1,7 +1,6 @@
-"""The is_reread resolution (SV-CONTEXT-INTAKE), moved out of parse.py —
-which sat exactly at its module-size entry — into its own module. Walked
-in line order over ONE jsonl: a file boundary is where the context this
-measures restarts."""
+"""Per-jsonl is_reread resolution (SV-CONTEXT-INTAKE).
+Walk in line order; file boundaries restart the measured context.
+"""
 from __future__ import annotations
 
 from backend.target_paths import target_key

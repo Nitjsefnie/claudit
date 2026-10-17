@@ -1,30 +1,8 @@
-"""Flag name <-> INT4 bit for ``records.turn_flags`` (issue #959, R5).
+"""Stable INT4 flag bits: append in declaration order, never move stored bits.
 
-``backend/turn_flags.py`` is the vocabulary's source of truth — the
-``FLAG_*`` constants it declares are the names a transcript window can
-produce. This module owns the one thing that module must not: the bit
-ASSIGNMENT stored in the database. The parser keeps emitting the sorted
-name list (fixtures pin that record shape); ``ingest_persist`` converts
-it with :func:`flags_to_mask` on the way into the INT4 column, and any
-reader decodes with :func:`mask_to_flags`. ``tests/test_turn_flag_bits.py``
-fails if a vocabulary flag has no bit or a bit has no flag.
-
-Why a mask: one INT4 per row instead of a TEXT[] of names — the column
-compacts like the rest of the row, and no query filters on it (the GIN
-index went out with #958; there is no named query needing a replacement).
-
-EXPANSION PATH (>31 flags): a signed INT4 carries bits 0..30, so
-:data:`MAX_FLAGS` is 31 and the vocabulary has headroom below it. Adding
-a flag means appending its bit HERE, in declaration order (bits already
-stored must never move), and nothing else — the vocabulary test above
-forces it. The 32nd flag cannot be represented: before the vocabulary
-can grow past 31, ``records.turn_flags`` needs a widening migration
-(widen the column to BIGINT and move the bit table with it, or replace
-the column with a per-flag join table). :func:`flags_to_mask` refuses to
-encode a mask the column could not hold, and :func:`mask_to_flags`
-refuses to decode bits no flag claims, so neither direction degrades
-silently if that migration is skipped.
-"""
+turn_flags owns names; parsers retain name lists and storage encodes/decodes
+masks. Signed INT4 permits bits 0..30: widen/migrate before a 32nd flag.
+Reject out-of-range masks and unknown bits loudly."""
 from __future__ import annotations
 
 from collections.abc import Iterable

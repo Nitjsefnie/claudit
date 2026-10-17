@@ -1,11 +1,6 @@
-"""Lane-project identity: the stored hash->project_id mapping, the
-resolution rule, and the migration-stall rekey.
+"""Lane project marker -> stored id -> hash resolution and stale-id rekey.
 
-Split out of ingest.py when that module crossed pylint's 1000-line
-budget; the functions move as one concern: the stored mapping a
-marker-failed run falls back to, the marker->stored->hash resolution
-the walk uses, and the rekey that moves stored rows when a run's
-marker resolution disagrees with what is stored.
+The stored mapping preserves project identity when a marker fetch fails.
 """
 from __future__ import annotations
 
@@ -73,14 +68,11 @@ def preferred_stored_id(ids: dict[str, int]) -> str:
 
 def resolve_lane_project(lane_hash: str, marker_path: str | None,
                          stored_lane: dict[str, str]) -> str:
-    """The id a file classified under lane hash `lane_hash` lands under
-    this run: a marker path read THIS RUN wins (the path's canonical
-    project id — key_layout.project_slug, case-folded when it names a
-    Windows directory), else the stored mapping keeps the id a previous
-    marker run chose, folded through the same canonical form so a
-    mixed-case id stored by a previous parser version resolves onto the
-    folded id this run, else the bare hash (legacy Kimi has no marker; a
-    never-stored hash has nothing to keep)."""
+    """Resolve a lane hash by current marker path, then stored mapping, then hash.
+
+    Canonicalize marker and stored ids through project_slug, including
+    Windows case folding. Legacy Kimi has no marker; a never-stored hash
+    has no mapping to preserve."""
     if marker_path is not None:
         return key_layout.canonical_project_id(
             key_layout.project_slug(marker_path))
@@ -90,36 +82,26 @@ def resolve_lane_project(lane_hash: str, marker_path: str | None,
 
 def rekey_stale_lane_projects(project_paths: dict[str, str],
                               stored_lane: dict[str, str]) -> int:
-    """Re-key stored files whose hash->project mapping moved under them.
+    """Re-key files when a lane hash's marker mapping changes independently of etag.
 
-    The reparse gate keys on etag+parser_version, so a project whose
-    slug id was chosen on a run LATER than its files' last reparse (a
-    marker failure on the migration run, then a marker-OK run with no
-    new bytes) would sit hash-keyed until each file's etag changed, and
-    the first per-file reparse after that would list the directory under
-    TWO project ids. Files are stored per key with a project_id column,
-    so the move is a direct UPDATE: upsert the folded marker project row first
-    (the FK needs it, carrying the marker path as display_name and the
-    moved files' real first/last seen), move every sessions/<hash>/ row,
-    then drop the old id's project row unless other files still
-    reference it (a split hash keeps its other side). The destination is
-    the marker slug resolved through the alias chain to its fixed point:
-    repeat the first-match lookup until no pattern matches, stop before
-    a revisited id, and cap the walk at eight hops. A marker-failed run
-    re-keys nothing - it has no project_paths entry. Returns the number
-    of files moved.
-    """
+    Without this pass, a successful marker read after a failed one would
+    leave unchanged files under the hash and reparsed files under the
+    slug. Insert the destination project first for its FK, preserving
+    marker display path and moved files' first/last seen. Move every
+    sessions/<hash>/ row, then drop the source only if unreferenced.
+
+    Resolve the marker slug through first-match aliases, stopping at an
+    unmatched id, before a revisit, or after eight hops. A marker-failed
+    run has no project_paths entry and re-keys nothing. Return moved files."""
     moved = 0
     with db.viz_conn() as c, c.cursor() as cur:
         for lane_hash, raw_marker_path in project_paths.items():
             # The path is marker content: strip NUL before it derives the
             # slug AND the display_name, so neither text column sees the
-            # byte (issue #673).
+            # byte.
             marker_path = _strip_nul(raw_marker_path)
-            # The folded canonical id: a marker path naming a Windows
-            # directory keys the project lowercase, and a stored
-            # mixed-case id from a previous parser version compares
-            # unequal to it — which is what triggers the rekey below.
+            # Windows marker paths canonicalize to lowercase. A stored mixed-case
+            # id compares unequal and must re-key to the folded destination.
             slug = key_layout.canonical_project_id(
                 key_layout.project_slug(marker_path))
             target_id = project_aliases.resolve_chain(c, slug)

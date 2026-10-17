@@ -1,51 +1,15 @@
-"""Codex rollout JSONL → per-file (records list + ctx_turns array).
+"""Parse Codex rollout JSONL into the shared per-file records/turns shape.
 
-~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl, one JSON object per
-line, each {timestamp, type, payload}. `type` is one of session_meta,
-turn_context, event_msg, response_item, world_state, compacted,
-inter_agent_communication_metadata; event_msg and response_item carry a
-second discriminator in payload.type.
+parse_file detects the lane. Read flat events and item_completed envelopes;
+FileChange/AgentMessage carry churn/text, while CommandExecution duplicates
+response_item tool calls and must not count twice.
 
-TWO SPELLINGS OF THE SAME EVENTS. Codex 2026-08-18 rewrapped part of the
-event_msg set as `item_completed` envelopes discriminated by `item.type`,
-and stopped emitting the flat spelling: patch_apply_end became a FileChange
-item and agent_message an AgentMessage item. Files before and after that
-line are both in the corpus and neither mixes the two, so both spellings are
-read — see _codex_item_completed. The rest of the event_msg set
-(token_count, task_started, task_complete, turn_aborted,
-thread_settings_applied) was not rewrapped.
-
-Entry point is backend.parse.parse_file, which detects the format and calls
-parse() here. The return shape is identical to the Kimi parsers' — see
-parse_file's docstring, which is the contract for all three.
-
-FOUR PROPERTIES MAKE THE OBVIOUS TOKEN SUM WRONG. Each is a measured
-correction, not defensive coding. Figures are from the 51 rollout files on
-this box on 2026-08-05, holding 30,249 token_count events; that corpus is
-live, so the counts date rather than pin:
-
-1. info.total_token_usage is a MONOTONIC CUMULATIVE counter, and a forked
-   thread INHERITS its parent's running total. 8 of the 51 files open with
-   43M-70M tokens already on the clock. Summing per-file finals inflates the
-   corpus by 1.15x. _codex_token_count therefore differences consecutive
-   snapshots and never trusts one total; the first snapshot's baseline is
-   recovered as total - last, so the inherited head never enters a delta.
-2. Duplicate token_count events repeat the previous last_token_usage
-   verbatim — 1,360 of the 30,249 here, in runs of up to 4; the reference
-   parser reports a run of 47 in its own corpus. Summing last_token_usage
-   double-counts. Differencing drops them for free: a non-advancing
-   snapshot yields a delta of zero, which is skipped.
-3. cached_input_tokens is a SUBSET of input_tokens, not an addend, as is
-   cache_write_input_tokens. Observed cache rates run 90-98%, so adding
-   instead of subtracting overstates fresh input by ~40x.
-4. token_count payloads carry NO model field and NO agent id, while one
-   session mixes models and folds subagent usage into the same counter. The
-   model comes from the most recent turn_context / thread_settings_applied
-   record preceding the token_count line.
-
-The logic is ported from a standalone CLI parser over the same format,
-which was validated against a 46-file corpus.
-"""
+Difference cumulative token snapshots. Recover the first baseline as
+total - last so fork-inherited usage is excluded; skip non-advancing
+duplicates. Cached input and cache writes are subsets of input, not addends.
+Token events carry no model: use turn_context/thread_settings_applied and
+attribute replayed prefixes from the first declaration. Cross-file request
+identity must survive replay; ingest handles canonical dedup (SV-PARSER-SPEC)."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -94,40 +58,23 @@ def _codex_first_declared_model(blob: bytes) -> str | None:
 
     The first declaration is the model the parent had in force at the
     fork point - the inherited settings - so it attributes a fork's
-    replayed prefix (issue #653). The scan, and the fork/replay facts
-    read beside it, live in backend/codex_fork (issue #687).
+    replayed prefix. The scan, and the fork/replay facts
+    read beside it, live in backend/codex_fork.
     """
     return head_scan(blob)[0]
 
 
 def _codex_record_uuid(st: _CodexState, cumulative: dict,
                        line_num: int) -> str:
-    """Cross-file identity for ONE request.
+    """Request identity shared by every file replaying the same thread history.
 
-    THE FIFTH TRAP, and the one that only bites once records from several
-    files are summed. A resumed or forked rollout REPLAYS its parent's
-    history into its own file, so the same request is journalled in many
-    files: across the 51 local rollouts, 28,889 per-file records represent
-    only 12,945 distinct requests, and one session id spans 39 files.
-    Aggregating those per-file rows without dedup over-counts by ~2.2x.
+    Use thread id and cumulative-counter position: replay reproduces both.
+    A file_key/line identity cannot dedup resumed or forked rollouts, and
+    summing their per-file records counts the same requests repeatedly.
+    Ingest resolves this uuid to one is_canonical row.
 
-    codexmeter already solved this — `records.uuid` plus `is_canonical`,
-    resolved by ingest.recompute_canonical(), which keeps exactly one row
-    per uuid. What that mechanism needs from a parser is a uuid that is
-    IDENTICAL across every file replaying a given request, which
-    "<file_key>:<line>" can never be.
-
-    A request is identified by the position it advanced its thread's
-    cumulative counter to: the counter is monotonic within a thread, and a
-    replay reproduces the same readings. Measured over the local corpus,
-    3,806 keys repeat across files and exactly ONE of them carries
-    conflicting usage, so collapsing them is safe to ~0.03%.
-
-    Falls back to the per-file identity when the file declares no
-    session_meta — a mid-file window rather than a whole rollout. Such a
-    fragment has no thread identity to share, so per-file is the honest
-    answer; it just cannot dedup against anything.
-    """
+    Without session_meta, a fragment has no shared thread identity and
+    falls back to its per-file key; it cannot dedup across files."""
     if not st.session_id:
         return f"{st.file_key}:{line_num}"
     return f"{st.session_id}:{cumulative['total_tokens']}"
@@ -156,14 +103,10 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
     if not advancing and not st.web_search_requests:
         return  # Trap 2: duplicate token_count, or a non-advancing snapshot.
 
-    # Trap 3: cached and cache-write inputs are SUBSETS of input_tokens.
-    # cache_write is its own billed bucket, NOT part of fresh: Codex charges
-    # a cache write at 1.25x uncached input, so folding it into fresh
-    # underbills it and folding it into cached overbills by 10x. It reads 0
-    # across the whole local corpus, which is a property of the models that
-    # corpus used and not of the format — the field is real and billable
-    # (codex-rs/protocol/src/protocol.rs declares and sums it), so it is
-    # counted and carried on its own.
+    # Cached and cache-write input are subsets of input_tokens. Keep
+    # cache writes in their own billed bucket: folding into fresh underbills
+    # writes, while folding into cached uses the wrong rate. The field is
+    # billable even when a transcript reports zero writes.
     total_in = max(0, delta["input_tokens"])
     read = max(0, delta["cached_input_tokens"])
     create = max(0, delta["cache_write_input_tokens"])
@@ -174,7 +117,7 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
 
     # The long-context meter is a property of the model's rate card, not of
     # the plan that served the request — every record is billed as if it
-    # were an API call (issue #194), so a subscription rollout above the
+    # were an API call, so a subscription rollout above the
     # threshold bills the meter exactly as an API-key one does.
     _append_usage_record(
         st, line_num, ts,
@@ -192,16 +135,10 @@ def _codex_token_count(st: _CodexState, line_num: int, ts: datetime | None,
 
 def _codex_rate_limit(st: _CodexState, line_num: int, ts: datetime | None,
                       payload: dict) -> None:
-    """Book a rate-limit hit, if this token_count reports one.
+    """Book any non-null reported rate-limit condition, collapsing repeats.
 
-    UNVERIFIED AGAINST REAL DATA: rate_limit_reached_type and
-    spend_control_reached are present on all 30,249 token_count payloads in
-    the local corpus and null on every one of them (peak primary utilisation
-    28%), so no hit has ever been observed. The fields are read by name; the
-    VALUE a hit carries is unknown, so any non-null is booked and rendered
-    with str(). A condition holds across many consecutive token_count events,
-    so consecutive repeats collapse into one hit.
-    """
+    The field values are not constrained to a known hit vocabulary, so
+    retain str(value) for display rather than guessing its encoding."""
     rl = as_dict(payload.get("rate_limits"))
     kind = rl.get("rate_limit_reached_type")
     if not kind and not rl.get("spend_control_reached"):
@@ -243,31 +180,23 @@ def _codex_session_role(payload: dict) -> str | None:
 
 def _codex_item_completed(st: _CodexState, line_num: int,
                           ts: datetime | None, payload: dict) -> None:
-    """Route one item_completed to the handler for its item type.
+    """Route item_completed by item.type alongside flat event spellings.
 
-    Codex 2026-08-18 rewrapped several event_msg payloads as `item_completed`
-    envelopes discriminated by `item.type`, and stopped emitting the flat
-    ones. The two spellings are disjoint per file — no file among the 287 on
-    this box holds both — so handling each is not double counting.
-
-    Only the two items that carry measured quantities are read here, plus
-    Reasoning, which counts nothing but is model output: like its
-    response_item/reasoning twin it can open the turn's reply, ending the
-    reply-latency window. CommandExecution restates the
-    response_item/custom_tool_call that _codex_tool_call already books;
-    counting it too would double every tool row. UserMessage,
-    SubAgentActivity, ContextCompaction, Extension, ImageView and
-    CollabAgentToolCall have no counterpart in the old event_msg set and
-    are not counted by either spelling.
-    """
+    Flat and enveloped spellings are disjoint per file, so reading both
+    does not duplicate FileChange churn or AgentMessage text.
+    Read FileChange/AgentMessage quantities and Reasoning output, which
+    can end reply latency without counting usage. CommandExecution repeats
+    a response_item tool call, so counting it doubles tool rows.
+    UserMessage, SubAgentActivity, ContextCompaction, Extension, ImageView
+    and CollabAgentToolCall have no flat-event counterpart and count
+    nothing in either spelling."""
     item = as_dict(payload.get("item"))
     itype = item.get("type")
     clock = st.lane_generation
     if clock is not None and itype in ("AgentMessage", "Reasoning"):
         clock.response_line(ts)
     if itype == "FileChange":
-        # `status` replaces patch_apply_end's boolean `success`; the only
-        # other value observed on an item is "failed".
+        # FileChange status expresses success as completed, not a boolean.
         _codex_patch(st, line_num, ts, item.get("status") == "completed",
                      item.get("changes"), payload.get("turn_id"))
     elif itype == "AgentMessage":
@@ -304,9 +233,8 @@ def _codex_event_msg(st: _CodexState, ptype: str, line_num: int,
     elif ptype == "agent_message":
         if st.lane_generation is not None:
             st.lane_generation.response_line(ts)
-        # event_msg/agent_message is a SUPERSET of response_item/message with
-        # role=assistant (every one of 496 distinct assistant texts sampled
-        # appears in both), so only this side is counted.
+        # event_msg/agent_message includes response_item/message assistant
+        # text. Count only this side to avoid duplicate output.
         st.text_chars_since_turn += len(str(payload.get("message") or ""))
         _mark_assistant_event(st, ts)
     elif ptype == "agent_reasoning":
@@ -377,11 +305,9 @@ def _codex_dispatch(st: _CodexState, rtype: str, line_num: int,
         # head. Anything later belongs to a replayed parent.
         if st.session_id is None and payload.get("session_id"):
             st.session_id = str(payload["session_id"])
-        # The role is the first NON-EMPTY one among the session_metas of
-        # THIS thread (same `id` as the first). A fork replays its
-        # parent's session_meta after its own: in the corpus a forked
-        # subagent with no role of its own would otherwise take its
-        # parent's (1 of 158 multi-session_meta rollouts, 2026-09-24).
+        # Take the first non-empty role only from this thread's session_meta
+        # (same id as its first). Forks replay parent session_meta too; that
+        # parent role must not become the fork's role.
         thread_id = _nonempty_str(payload.get("id"))
         if not st.thread_seen:
             st.thread_seen = True

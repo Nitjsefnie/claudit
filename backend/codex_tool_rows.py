@@ -20,38 +20,29 @@ if TYPE_CHECKING:
 # collapse every shell command, patch and plan update into one bucket.
 _CODEX_API_RE = re.compile(r"tools\.([A-Za-z_][A-Za-z_0-9]*)\s*\(")
 
-# A record keeps the model id the transcript names (issue #471): the parser
-# relabels nothing and falls back to nothing. An id pricing.json has no row
-# for prices through the fallback and surfaces as estimated_rate
-# (SV-RATE-ESTIMATES) — a visible estimate beats an invented attribution.
-# That failure mode is why: the old substring map RELABELLED any unmapped id
-# (gpt-6.1-sol read as gpt-5.6-sol at twice its price; Astra shipped as Sol
-# for weeks until it got a row), hiding every new model from the dashboard
-# until a code change listed it.
+# Keep the transcript's model id; never relabel or invent a fallback.
+# Unknown pricing rows surface as estimated_rate (SV-RATE-ESTIMATES),
+# so new models stay visible instead of silently taking another price.
 #
-# The only rewrites are spelling: case-folding and the corpus's missing
-# separator (gpt5.6-sol -> gpt-5.6-sol, a real turn_context spelling), which
-# the stored id should spell the way the corpus canonically does. The digit
-# class is spelled [0-9], never \d: Python's \d matches Unicode Nd digits
-# where the JS mirror's \d matches ASCII only, so \d would make the two
-# runtimes disagree on a non-ASCII spelling (SV-PARSER-SPEC).
+# Only normalize case and the missing separator (gpt5.6-sol -> gpt-5.6-sol).
+# Use [0-9], never \d: Python accepts Unicode Nd digits, while the JS
+# mirror accepts ASCII only (SV-PARSER-SPEC).
 _CODEX_SEPARATED = re.compile(r"^gpt(?=[0-9.])")
 
 # A tool result whose first line starts with one of these is a failure. The
 # payload carries no status field of its own.
 _CODEX_FAILURE_HEADS = ("Script failed", "collab spawn failed")
 
-# function_call names that dispatch a subagent. Both spellings are in the
-# corpus: the prefixed one in older rollouts.
+# Both bare and prefixed function_call names can dispatch subagents.
 _CODEX_DISPATCH_TOOLS = ("spawn_agent", "multi_agent_v1__spawn_agent")
 
 
 def _codex_model(raw: str | None) -> str | None:
     """Model string in force -> the stored model id.
 
-    Spelling normalisation only (issue #471); never a relabelling. None
+    Spelling normalisation only; never a relabelling. None
     when the string in force names nothing: the file is then refused
-    (issue #653) rather than stored under an `unknown` placeholder.
+    rather than stored under an `unknown` placeholder.
     """
     lowered = (raw or "").strip().lower()
     if not lowered:
@@ -60,7 +51,6 @@ def _codex_model(raw: str | None) -> str | None:
 
 
 def _codex_output_text(payload: dict) -> str:
-    """Flatten a *_call_output payload into one string."""
     out = payload.get("output")
     if isinstance(out, str):
         return out
@@ -92,14 +82,11 @@ def _diff_churn(diff: object) -> tuple[int, int]:
 
 
 def _change_churn(change: dict) -> tuple[int, int]:
-    """(lines_added, lines_deleted) for one entry of a patch's `changes`.
+    """(lines_added, lines_deleted) for one patch changes entry.
 
-    Only an `update` carries a unified_diff. An `add` and a `delete` carry
-    the whole file body under `content` instead, and reading unified_diff
-    alone books them at zero — 1,355 of the 3,084 changes on the reference
-    corpus (2026-08-20..25) are one of those two, so it is not an edge case.
-    A pure rename is an `update` whose unified_diff is absent: no line moved.
-    """
+    Updates carry unified_diff; adds/deletes carry the whole content, so
+    reading only unified_diff would miss their churn. A pure rename is an
+    update without unified_diff and moves no lines."""
     if change.get("unified_diff") is not None:
         return _diff_churn(change.get("unified_diff"))
     lines = len(str(change.get("content") or "").splitlines())
@@ -181,28 +168,14 @@ def _codex_tool_result(st: _CodexState, payload: dict) -> None:
 
 def _codex_patch(st: _CodexState, line_num: int, ts: datetime | None,
                  ok: bool, changes: object, turn_id: object) -> None:
-    """Attribute one applied patch's line churn.
+    """Attribute applied-patch churn from flat events or FileChange envelopes.
 
-    Called for both spellings of the same event — the `patch_apply_end`
-    event_msg, and the `FileChange` item of the `item_completed` event_msg
-    that replaced it (see _codex_item_completed). The caller resolves the
-    success flag and the changes map; everything below is common to both.
-
-    A patch does NOT share a call_id namespace with the tool calls (0 of
-    1,727 patch call_ids matched one in the old spelling, 0 of 2,623
-    FileChange item ids in the new — both carry "exec-<uuid>"), so the churn
-    is carried back onto the most recent apply_patch call of the SAME turn.
-    One exec can apply several patches; they sum onto that call.
-
-    Where no such call exists in this file the patch came from a subagent,
-    whose tool calls the parent rollout does not record (522 of the 524
-    unattributable patches in the local corpus sit in files with
-    sub_agent_activity). Those get a row of their own rather than being
-    dropped: the work happened, and this file is the only record of it.
-
-    A failed patch changed nothing, so it contributes no churn — the same
-    rule _resolve_tool_errors applies to a rejected edit.
-    """
+    The caller supplies success and changes for either spelling. Patch
+    ids do not share tool-call identity: attach churn to the most recent
+    apply_patch call of the SAME turn, summing multiple patches per exec.
+    Without such a call, retain a separate row: parent rollouts can carry
+    subagent patch events without the subagent's tool calls. Failed
+    patches contribute zero, as rejected edits do."""
     added = deleted = 0
     if ok and isinstance(changes, dict):
         for change in changes.values():
