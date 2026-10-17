@@ -23,7 +23,7 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   Never lower a floor by hand, for any reason.
 - Python measures the full pytest run (`--cov=backend`). JavaScript
   runs the node-executing tests under `NODE_V8_COVERAGE`, folded with
-  c8 over `src/**/*.js` — the files node executes. `.jsx` panels are
+  `scripts/ci/js_coverage.mjs` over `src/**/*.js` — the files node executes. `.jsx` panels are
   outside it: node parses no JSX, and parity tests' eval'd fragments
   are attributed to the eval. Each language gates against its own
   floor in `tests.yml`.
