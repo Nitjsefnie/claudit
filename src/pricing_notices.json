@@ -34,6 +34,7 @@
     "deepseek-v4-1-flash via BaseTen: rule-resolved (bare namespace): took the bare namespace endpoint 'baseten' over service tiers 'baseten/fast'",
     "deepseek-v4-1-flash via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-1-flash via Fireworks: rule-resolved (data region): the global data region leaves 'fireworks'; dropped 'fireworks/us'",
+    "deepseek-v4-1-flash-1017 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-flash-0731 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "deepseek-v4-flash-0731 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
     "deepseek-v4-pro via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba/fp8'; dropped 'alibaba/fp8/us-east-1'",
@@ -174,12 +175,6 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-1-flash via OpenInference; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-1-flash-1017 via InferenceNet; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-flash via Baidu; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-flash via Relace; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-flash-0731 via Relace; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for glm-5-3-flash via Relace; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba",
     "tag 'alibaba/prime' names neither a known region nor a quantization: glm-5-3 via Alibaba",
@@ -190,8 +185,8 @@
     "tag 'baseten/us/fast' names neither a known region nor a quantization: glm-5-2 via BaseTen, glm-5-3 via BaseTen",
     "tag 'decart/fast' names neither a known region nor a quantization: glm-5-2 via Decart",
     "tag 'deepinfra/fp4/flex' names neither a known region nor a quantization: glm-4-6 via DeepInfra, glm-4-7 via DeepInfra, glm-5-2 via DeepInfra",
-    "tag 'deepinfra/fp8/flex' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra",
-    "tag 'deepinfra/fp8/priority' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra",
+    "tag 'deepinfra/fp8/flex' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra",
+    "tag 'deepinfra/fp8/priority' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra",
     "tag 'fireworks/fast' names neither a known region nor a quantization: glm-5-3 via Fireworks, kimi-k3 via Fireworks",
     "tag 'inference-net/fast' names neither a known region nor a quantization: kimi-k3 via InferenceNet",
     "tag 'mistral/zdr' names neither a known region nor a quantization: glm-5-2 via Mistral, glm-5-3 via Mistral",
@@ -307,21 +302,14 @@
     "deepseek-v4-1-flash": {
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints at one current price",
-      "DeepSeek": "endpoint schedule",
-      "OpenInference": "no matching log state"
+      "DeepSeek": "endpoint schedule"
     },
     "deepseek-v4-1-flash-1017": {
-      "DeepSeek": "endpoint schedule",
-      "InferenceNet": "no matching log state"
-    },
-    "deepseek-v4-flash": {
-      "Baidu": "no matching log state",
-      "Relace": "no matching log state"
+      "DeepSeek": "endpoint schedule"
     },
     "deepseek-v4-flash-0731": {
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints selected",
-      "Relace": "no matching log state",
       "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-pro-0813": {
@@ -339,7 +327,6 @@
     },
     "glm-5-3-flash": {
       "BaseTen": "2 endpoints at one current price",
-      "Relace": "no matching log state",
       "Sail Research": "2 endpoints at one current price"
     },
     "gpt-5-4": {
