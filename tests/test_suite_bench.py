@@ -5,8 +5,8 @@ tmp_path (its own conftest.py, not the repo's), because the bench
 re-execs itself for PYTHONHASHSEED and measures in-process pytest runs:
 exactly the path CI takes. The cases pin the partition (every phase
 counted, residual never negative), determinism across hash seeds, the
-gate's fail-closed behaviour on a counts-less measurement, and that no
-wall-clock value can reach a gating decision.
+gate's fail-closed behaviour on a counts-less measurement, and that
+wall-clock values never gate.
 """
 from __future__ import annotations
 

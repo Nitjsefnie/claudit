@@ -1,9 +1,7 @@
 """Sharded runs of the SV-TEST-DATA fuzzer.
 
-Split out of scripts/ci/fuzz_test_data.py (issue #331) so the sharded
-run could own its teardown: an interrupted parent used to leave the
-snapshot tree in the system temp directory and every shard child
-running. The module-size ceiling left no room in the fuzzer itself.
+Split from scripts/ci/fuzz_test_data.py (issue #331) to own teardown:
+interrupted parents clean up snapshot trees and shard children.
 
 A shard child runs in its own session (start_new_session), so the
 parent owns each shard's whole process subtree: one killpg reaches the

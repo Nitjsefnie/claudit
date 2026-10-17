@@ -3,7 +3,7 @@
 The bench is a gate, and a gate nothing pins is a gate a later PR can
 delete without a red build. Every assertion here is about the SHAPE --
 which event runs it, what it measures, what it gates, and who may write the
-recorded numbers -- because those are the four things a refactor moves and
+recorded numbers -- because those are the things a refactor moves and
 none of them is the bench's arithmetic, which `test_reparse_bench.py` owns.
 
 The review corpus is blunt about this line: `ci/2026-08-28-derive-the-gate-

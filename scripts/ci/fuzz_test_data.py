@@ -7,10 +7,9 @@ each entry one second after its row's newest instant. Offset spellings
 exercise issue #264; the written document uses canonical JSON layout.
 A seeded chance also adds one model or provider-host row under the
 reserved `zz-fuzz-local/<seeded-suffix>` namespace. Existing-row appends
-simulate the refresh bot. New rows stay in this namespace because a REAL
-model addition is a maintainer edit that updates tests in the same commit;
-SV-TEST-DATA's own invariant is against unannounced moves, a boundary this
-branch records deliberately. No real data or live test uses this namespace.
+simulate the refresh bot. New rows use this namespace because real
+model additions update tests in the same commit; SV-TEST-DATA guards
+unannounced moves. No real data or live test uses this namespace.
 
 The backend loader validates each document before the full suite runs.
 Failures save the document as `fuzz-fail-<i>.json` and report the seed,

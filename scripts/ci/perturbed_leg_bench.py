@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Attribute the perturbed-data CI leg's cost, phase by phase (issue #456).
 
-The perturbed-data leg ran for ~16-22 minutes per ci-gate run with
-nothing recording where the time went. This bench is the leg's
-instrument: it keeps the pristine pricing document, constants module
+The bench keeps the pristine pricing document, constants module
 and parser-version module in memory, and per fixed seed it restores
 them byte for byte, runs the perturbation in-process (phase
 ``perturb``), then runs the suite as the leg runs it — a pytest
