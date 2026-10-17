@@ -4,12 +4,13 @@ import copy
 import importlib
 import json
 import shlex
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 import yaml
+
+from tests.thresholds_history import stub_history
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts' / 'ci'))
@@ -44,27 +45,25 @@ def test_tighten_lowers_drops_and_never_raises():
         'lower.py': [25, 100], 'rise.py': [20, 100]}
 
 
-def _history(monkeypatch, module, trailer):
-    def read_range(argv, **kwargs):
-        assert argv == ['git', '-C', str(ROOT), 'log', '--format=%B', 'base..HEAD']
-        assert kwargs == {'capture_output': True, 'check': False, 'timeout': 10}
-        return subprocess.CompletedProcess(argv, 0, trailer.encode())
-    monkeypatch.setattr(module.subprocess, 'run', read_range)
-
-
-@pytest.mark.parametrize('entry,status', [
-    ('comment_share_baseline.backend/api.py', 0),
-    ('comment_share_baseline', 0),
-    ('', 1),
-    ('comment_share_baseline.backend/other.py', 1),
+@pytest.mark.parametrize('entry,recorded,sibling,status', [
+    ('comment_share_baseline.backend/api.py', True, False, 0),
+    ('comment_share_baseline', True, False, 0),
+    ('', True, False, 1),
+    ('comment_share_baseline.backend/other.py', True, False, 1),
+    ('comment_share_baseline', True, True, 1),
+    ('comment_share_baseline.backend/api.py', False, False, 1),
 ])
-def test_declared_removal_check(tmp_path, monkeypatch, capsys, entry, status):
+def test_declared_removal_check(tmp_path, monkeypatch, capsys, entry, recorded, sibling, status):
     module = policy()
     target = tmp_path / 'thresholds.json'
     thresholds.write(target, {'schema_version': 1, 'comment_share_baseline': {}})
-    monkeypatch.setattr(module.comment_share, 'measure_files',
-                        lambda _root: {'backend/api.py': (20, 100)})
-    _history(monkeypatch, module, f'Thresholds-Removed: {entry}=bug')
+    measured = {'backend/api.py': (20, 100)}
+    if sibling:
+        measured['backend/new.py'] = (20, 100)
+    monkeypatch.setattr(module.comment_share, 'measure_files', lambda _root: measured)
+    base = {'schema_version': 1, 'comment_share_baseline':
+            {'backend/api.py': [30, 100]} if recorded else {}}
+    stub_history(monkeypatch, module, ROOT, f'Thresholds-Removed: {entry}=bug', base)
     assert module.main(['--thresholds', str(target),
                         '--base-rev', 'base', '--head-rev', 'HEAD']) == status
     captured = capsys.readouterr()
@@ -72,7 +71,10 @@ def test_declared_removal_check(tmp_path, monkeypatch, capsys, entry, status):
         assert 'declared-removed: backend/api.py' in captured.out
         assert '(20, 100)' in captured.out
     else:
-        assert 'backend/api.py:' in captured.err
+        assert 'backend/' in captured.err
+        if sibling:
+            assert 'backend/new.py' in captured.err
+            assert 'declared-removed: backend/api.py' in captured.out
 
 
 def test_declaration_does_not_exempt_recorded_rise():
@@ -230,8 +232,8 @@ def test_tighten_seeds_above_limit_pairs(tmp_path, monkeypatch, state):
     thresholds.write(target, data)
     monkeypatch.setattr(module.comment_share, 'measure_files', lambda _root: measured)
     if state == 'declared-removal':
-        _history(monkeypatch, module, 'Thresholds-Removed: comment_share_baseline=definition')
         base = dict(data, comment_share_baseline={'new.py': [40, 100]})
+        stub_history(monkeypatch, module, ROOT, 'Thresholds-Removed: comment_share_baseline=definition', base)
         removed = module.thresholds_removed.declared('base', 'HEAD', ROOT)
         assert not guard.forbidden_moves(
             base, data, set(thresholds.BASELINE_MEMBERS), removal_declarations=removed)

@@ -116,8 +116,8 @@ def violations(counts, baseline,
 
 
 def _check(counts, baseline, base_rev, head_rev):
-    removed = thresholds_removed.declared(base_rev, head_rev, ROOT)
-    exempt = removed.paths('pylint_suppression_baseline', counts) - baseline.keys()
+    exempt = thresholds_removed.exempt_paths(
+        base_rev, head_rev, ROOT, 'pylint_suppression_baseline', baseline, counts)
     for rel in sorted(exempt):
         if counts[rel] >= _UNRECORDED_LIMIT:
             print(f'declared-removed: {rel} ({counts[rel]} suppressions '

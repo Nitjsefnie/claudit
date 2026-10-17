@@ -124,8 +124,8 @@ def violations(sizes, baseline,
 
 
 def _check(sizes, baseline, base_rev, head_rev):
-    removed = thresholds_removed.declared(base_rev, head_rev, ROOT)
-    exempt = removed.paths('module_size_baseline', sizes) - baseline.keys()
+    exempt = thresholds_removed.exempt_paths(
+        base_rev, head_rev, ROOT, 'module_size_baseline', baseline, sizes)
     for rel in sorted(exempt):
         if sizes[rel] > ceiling_for(rel):
             print(f'declared-removed: {rel} ({sizes[rel]} lines above '

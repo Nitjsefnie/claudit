@@ -83,8 +83,9 @@ def main(argv: list[str] | None = None) -> int:
                 thresholds.write(args.thresholds, data)
             print(f'{len(updated)} comment-share entries recorded')
             return 0
-        removed = thresholds_removed.declared(args.base_rev, args.head_rev, args.root)
-        exempt = removed.paths('comment_share_baseline', measured) - baseline.keys()
+        exempt = thresholds_removed.exempt_paths(
+            args.base_rev, args.head_rev, args.root,
+            'comment_share_baseline', baseline, measured)
         for path in sorted(exempt):
             if above(measured[path], TARGET):
                 print(f'declared-removed: {path} ({measured[path]} above '
