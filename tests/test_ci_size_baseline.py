@@ -2,9 +2,9 @@
 
 A recorded number is never raised by hand and no entry is ever added by
 hand: growth is fixed by moving code into a new module. The cases below
-pin the ceiling rule, the four violation classes, the tighten direction
-(only ever down or gone) and the committed document's agreement with the
-actual tree.
+pin the ceiling rule, the four reported statuses, the tighten direction
+(only ever down or gone) and the committed document's shrink-tolerant
+agreement with the actual tree.
 """
 from __future__ import annotations
 
@@ -158,6 +158,7 @@ def test_violations_clean_tree_has_no_entries():
                  {"backend/grown.py": 750}, id="shrunk"),
     pytest.param({"tests/graduated.py": 900}, {"tests/graduated.py": 400},
                  {}, id="graduated"),
+    pytest.param({"backend/gone.py": 600}, {}, {}, id="missing"),
     pytest.param({"backend/grown.py": 500}, {"backend/grown.py": 550},
                  None, id="growth"),
     pytest.param({"backend/same.py": 900}, {"backend/same.py": 900},
@@ -191,6 +192,22 @@ def test_main_check_fails_on_growth(tmp_path, capsys, monkeypatch):
     captured = capsys.readouterr()
     assert "grown" in captured.err
     assert "never raised by hand" in captured.err
+
+
+def test_main_check_reports_missing_and_graduated_without_failing(
+        tmp_path, capsys, monkeypatch):
+    size_baseline = _size_baseline()
+    target = _written(tmp_path, baseline={
+        "backend/missing.py": 600,
+        "backend/graduated.py": 900,
+    })
+    monkeypatch.setattr(size_baseline, "tracked_sizes",
+                        lambda: {"backend/graduated.py": 500})
+    assert size_baseline.main(["--thresholds", str(target)]) == 0
+    captured = capsys.readouterr()
+    assert "missing" in captured.err
+    assert "graduated" in captured.err
+    assert "--tighten" in captured.err
 
 
 def test_main_tighten_rewrites(tmp_path, capsys, monkeypatch):
@@ -261,12 +278,12 @@ def test_committed_document_matches_tree(real_tracked_sizes, baseline_document):
                 "backend/unrecorded.py": (501, 500)}
         return
     for rel, recorded in baseline.items():
-        assert sizes[rel] == recorded, f"stale entry for {rel}"
+        # Master's --tighten follows a shrink down; a PR need not update
+        # thresholds to record the intermediate size.
+        assert sizes.get(rel, 0) <= recorded, f"grown entry for {rel}"
     found = size_baseline.violations(sizes, baseline)
     assert not found["grown"], found["grown"]
     assert not found["over"], found["over"]
-    assert not found["missing"], found["missing"]
-    assert not found["graduated"], found["graduated"]
 
 
 def test_committed_baseline_seeds_only_over_ceiling_files(baseline_document):
@@ -301,7 +318,7 @@ def test_tracked_sizes_cover_sql_css_and_workflow_yaml(real_tracked_sizes):
 
 def test_committed_family_seeds_match_tree_and_only_over_ceiling(
         real_tracked_sizes, baseline_document):
-    # Each seeded family entry equals the file's real line count, and a
+    # Each seeded family entry is at least the file's real line count, and a
     # family seed exists only where the ceiling alone cannot gate (the
     # file is over ceiling); under-ceiling files in a new family need no
     # entry. Pairs with test_committed_baseline_seeds_only_over_ceiling.
@@ -314,7 +331,7 @@ def test_committed_family_seeds_match_tree_and_only_over_ceiling(
     sizes = real_tracked_sizes
     for rel in ("backend/schema.sql", "public/app.css"):
         if rel in baseline:
-            assert sizes[rel] == baseline[rel]
+            assert sizes.get(rel, 0) <= baseline[rel]
             assert baseline[rel] > size_baseline.ceiling_for(rel)
         else:
             expected = {rel: (sizes[rel], 500)} if sizes[rel] > 500 else {}

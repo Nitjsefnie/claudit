@@ -5,8 +5,8 @@ The mutable policy state is the ``module_size_baseline`` member of
 ``.github/ci-thresholds.json``. A recorded number is never raised by hand
 and no entry is ever added by hand: relocate the code into a new module,
 or shrink the file. A stale entry goes away rather than being kept:
---tighten drops one whose file is back under its ceiling, and an entry
-naming a file that is gone is deleted by hand.
+master's --tighten drops one whose file is back under its ceiling or no
+longer exists.
 
 Scope is every tracked ``*.py`` under ``backend/``, ``scripts/`` and
 ``tests/``, every tracked ``src/**/*.js`` and ``src/**/*.jsx`` file
@@ -53,9 +53,8 @@ GROWTH_REMEDY = (
     'A recorded number is never raised by hand and no entry is ever added '
     'by hand: relocate the code into a new module, or shrink the file.')
 STALE_ENTRY_REMEDY = (
-    'A stale entry goes away rather than being kept: --tighten drops one '
-    'whose file is back under its ceiling, and an entry naming a file '
-    'that is gone is deleted by hand.')
+    'A stale entry goes away rather than being kept: master\'s --tighten '
+    'drops one whose file is back under its ceiling or no longer exists.')
 REMEDY_FOR = {
     'grown': GROWTH_REMEDY,
     'over': GROWTH_REMEDY,
@@ -126,6 +125,7 @@ def tightened(baseline, sizes):
     updated = dict(baseline)
     for rel, recorded in baseline.items():
         if rel not in sizes:
+            del updated[rel]
             continue
         current = sizes[rel]
         if current <= ceiling_for(rel):
@@ -164,6 +164,7 @@ def main(argv=None):
         if not any(found.values()):
             print(f'{len(sizes)} tracked modules within the size policy')
             return 0
+        failed = bool(found['grown'] or found['over'])
         remedies = []
         for kind in ('grown', 'over', 'missing', 'graduated'):
             detail = found[kind]
@@ -173,7 +174,7 @@ def main(argv=None):
                     remedies.append(REMEDY_FOR[kind])
         for remedy in remedies:
             print(remedy, file=sys.stderr)
-        return 1
+        return int(failed)
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 1
