@@ -161,6 +161,41 @@ def _threshold_commands(tmp_path):
         fake.chmod(0o755)
 
 
+def _threshold_base_action():
+    return yaml.load((ROOT / '.github/actions/thresholds-base/action.yml').read_text(
+        encoding='utf-8'), Loader=yaml.BaseLoader)
+
+
+@pytest.mark.parametrize('job_name', ['pytest', 'pytest-portable'])
+def test_threshold_base_action_runs_once_per_job_before_tests(job_name):
+    job = _workflow('tests.yml')['jobs'][job_name]
+    steps = job['steps']
+    resolvers = [step for step in steps
+                 if step.get('uses') == './.github/actions/thresholds-base']
+    assert len(resolvers) == 1
+    resolver = resolvers[0]
+    assert resolver['env'] == {
+        'REPO': '${{ github.repository }}',
+        'BASE_REF': '${{ github.event.pull_request.base.ref }}',
+        'EVENT': '${{ github.event_name }}',
+        'BEFORE': '${{ github.event.before }}',
+    }
+    assert 'if' not in resolver
+    assert steps.index(resolver) < next(i for i, step in enumerate(steps)
+                                        if step.get('name') == 'Run tests')
+    checkout = next(step for step in steps
+                    if step.get('uses', '').startswith('actions/checkout@'))
+    assert checkout['with']['fetch-depth'] == '0'
+    assert steps.index(checkout) < steps.index(resolver)
+    assert 'needs' not in job
+    assert all('case "$EVENT"' not in step.get('run', '') for step in steps)
+    action = _threshold_base_action()
+    assert action['runs']['using'] == 'composite'
+    assert len(action['runs']['steps']) == 1
+    assert action['runs']['steps'][0]['shell'] == 'bash'
+    assert '${{' not in action['runs']['steps'][0]['run']
+
+
 @pytest.mark.skipif(os.name == 'nt', reason='the canary runs under POSIX Bash')
 @pytest.mark.parametrize('event,status,expected', [
     ('pull_request', 0, 'a' * 40), ('push', 0, 'a' * 40),
@@ -168,9 +203,7 @@ def _threshold_commands(tmp_path):
 ])
 def test_threshold_base_resolved_before_tests_and_shared(event, status, expected, tmp_path):
     steps = _workflow('tests.yml')['jobs']['pytest']['steps']
-    resolver = next(step for step in steps if step.get('id') == 'threshold_base')
-    assert steps.index(resolver) < next(i for i, step in enumerate(steps)
-                                        if step.get('id') == 'pytest')
+    resolver = _threshold_base_action()['runs']['steps'][0]
     _threshold_commands(tmp_path)
     exported, calls = tmp_path / 'env', tmp_path / 'calls'
     env = dict(os.environ, PATH=f'{tmp_path}{os.pathsep}{os.environ["PATH"]}',

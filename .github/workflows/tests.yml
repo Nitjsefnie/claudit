@@ -81,27 +81,12 @@ jobs:
 
       - name: Resolve the threshold base
         id: threshold_base
+        uses: ./.github/actions/thresholds-base
         env:
           REPO: ${{ github.repository }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
-        run: |
-          base=
-          case "$EVENT" in
-            pull_request)
-              git fetch --no-tags "https://github.com/${REPO}.git" "refs/heads/${BASE_REF}"
-              base="$(git merge-base HEAD FETCH_HEAD)" ;;
-            push)
-              resolver_status=0
-              base="$(python3 scripts/ci/threshold_base.py "$BEFORE" .github/ci-thresholds.json)" || resolver_status=$?
-              if [ "$resolver_status" -eq 3 ]; then
-                base=
-              elif [ "$resolver_status" -ne 0 ]; then
-                exit "$resolver_status"
-              fi ;;
-          esac
-          printf 'CLAUDIT_THRESHOLDS_BASE_REV=%s\n' "$base" >> "$GITHUB_ENV"
 
       # The pip cache restores on every event but is saved only from a
       # push of master, never from a pull-request checkout (issue #126).
@@ -423,9 +408,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Shared full-history policy: ancestry consumers run in the
-          # canary job (the direction guard's judged-range reads and
-          # the patch-coverage merge-base).
+          # Full history lets each cell resolve the judged range for
+          # declared-removal exemptions in the committed-tree tests.
           fetch-depth: 0
           # No step in this job pushes; persist-credentials: false keeps
           # the job token out of .git/config for any later step to reuse.
@@ -434,6 +418,15 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
+
+      - name: Resolve the threshold base
+        id: threshold_base
+        uses: ./.github/actions/thresholds-base
+        env:
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
 
       # Same event rule as the Linux job (issue #126); key carries the
       # matrix python-version.

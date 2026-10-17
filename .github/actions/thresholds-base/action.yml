@@ -1,0 +1,24 @@
+name: Thresholds base
+description: Resolve the judged threshold base once per job and export it to later steps.
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the threshold base
+      shell: bash
+      run: |
+        base=
+        case "$EVENT" in
+          pull_request)
+            git fetch --no-tags "https://github.com/${REPO}.git" "refs/heads/${BASE_REF}"
+            base="$(git merge-base HEAD FETCH_HEAD)" ;;
+          push)
+            resolver_status=0
+            base="$(python3 scripts/ci/threshold_base.py "$BEFORE" .github/ci-thresholds.json)" || resolver_status=$?
+            if [ "$resolver_status" -eq 3 ]; then
+              base=
+            elif [ "$resolver_status" -ne 0 ]; then
+              exit "$resolver_status"
+            fi ;;
+        esac
+        printf 'CLAUDIT_THRESHOLDS_BASE_REV=%s\n' "$base" >> "$GITHUB_ENV"
