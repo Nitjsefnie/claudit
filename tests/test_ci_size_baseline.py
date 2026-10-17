@@ -107,6 +107,18 @@ def _written(tmp_path, baseline=None):
     return target
 
 
+@pytest.fixture(params=["committed", "absent"], name="baseline_document")
+def _baseline_document(request, tmp_path):
+    thresholds = _thresholds()
+    if request.param == "committed":
+        return thresholds.load(THRESHOLDS_PATH)
+    data = _document()
+    del data["module_size_baseline"]
+    target = tmp_path / "absent.json"
+    thresholds.write(target, data)
+    return thresholds.load(target)
+
+
 def test_ceiling_rule():
     size_baseline = _size_baseline()
     assert size_baseline.ceiling_for("tests/test_x.py") == 700
@@ -236,12 +248,18 @@ def test_tracked_sizes_cover_src_javascript(real_tracked_sizes):
     assert "src/pricing.json" not in sizes
 
 
-def test_committed_document_matches_tree(real_tracked_sizes):
+def test_committed_document_matches_tree(real_tracked_sizes, baseline_document):
     thresholds = _thresholds()
     size_baseline = _size_baseline()
-    doc = thresholds.load(THRESHOLDS_PATH)
-    baseline = doc["module_size_baseline"]
+    doc = baseline_document
+    baseline = thresholds.module_size_baseline(doc)
     sizes = real_tracked_sizes
+    if "module_size_baseline" not in doc:
+        assert baseline == {}
+        assert size_baseline.violations(
+            {"backend/unrecorded.py": 501}, baseline)["over"] == {
+                "backend/unrecorded.py": (501, 500)}
+        return
     for rel, recorded in baseline.items():
         assert sizes[rel] == recorded, f"stale entry for {rel}"
     found = size_baseline.violations(sizes, baseline)
@@ -251,11 +269,17 @@ def test_committed_document_matches_tree(real_tracked_sizes):
     assert not found["graduated"], found["graduated"]
 
 
-def test_committed_baseline_seeds_only_over_ceiling_files():
+def test_committed_baseline_seeds_only_over_ceiling_files(baseline_document):
     size_baseline = _size_baseline()
     thresholds = _thresholds()
-    doc = thresholds.load(THRESHOLDS_PATH)
-    for rel, recorded in doc["module_size_baseline"].items():
+    doc = baseline_document
+    baseline = thresholds.module_size_baseline(doc)
+    if "module_size_baseline" not in doc:
+        assert baseline == {}
+        assert size_baseline.violations(
+            {"tests/unrecorded.py": 701}, baseline)["over"] == {
+                "tests/unrecorded.py": (701, 700)}
+    for rel, recorded in baseline.items():
         assert recorded > size_baseline.ceiling_for(rel)
 
 
@@ -275,17 +299,25 @@ def test_tracked_sizes_cover_sql_css_and_workflow_yaml(real_tracked_sizes):
     assert ".github/ci-thresholds.json" not in sizes
 
 
-def test_committed_family_seeds_match_tree_and_only_over_ceiling(real_tracked_sizes):
+def test_committed_family_seeds_match_tree_and_only_over_ceiling(
+        real_tracked_sizes, baseline_document):
     # Each seeded family entry equals the file's real line count, and a
     # family seed exists only where the ceiling alone cannot gate (the
     # file is over ceiling); under-ceiling files in a new family need no
     # entry. Pairs with test_committed_baseline_seeds_only_over_ceiling.
     thresholds = _thresholds()
     size_baseline = _size_baseline()
-    doc = thresholds.load(THRESHOLDS_PATH)
-    baseline = doc["module_size_baseline"]
+    doc = baseline_document
+    baseline = thresholds.module_size_baseline(doc)
+    if "module_size_baseline" not in doc:
+        assert baseline == {}
     sizes = real_tracked_sizes
     for rel in ("backend/schema.sql", "public/app.css"):
-        assert sizes[rel] == baseline[rel]
-        assert baseline[rel] > size_baseline.ceiling_for(rel)
+        if rel in baseline:
+            assert sizes[rel] == baseline[rel]
+            assert baseline[rel] > size_baseline.ceiling_for(rel)
+        else:
+            expected = {rel: (sizes[rel], 500)} if sizes[rel] > 500 else {}
+            assert size_baseline.violations(
+                {rel: sizes[rel]}, baseline)["over"] == expected
     # --tighten graduated tests.yml; under-ceiling files need no seed.

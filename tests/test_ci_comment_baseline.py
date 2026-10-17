@@ -73,9 +73,11 @@ def test_invalid_entry_refused(entry):
         thresholds.normalise(data)
 
 
-def test_section_is_optional_and_paths_safe():
-    data = thresholds.load()
-    del data['comment_share_baseline']
+@pytest.mark.parametrize('absent_family', [False, True])
+def test_section_is_optional_and_paths_safe(absent_family):
+    data = (thresholds.normalise({'schema_version': 1})
+            if absent_family else thresholds.load())
+    data.pop('comment_share_baseline', None)
     assert 'comment_share_baseline' not in thresholds.normalise(data)
     data['comment_share_baseline'] = {'../x.py': [20, 100]}
     with pytest.raises(ValueError):

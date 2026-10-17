@@ -94,14 +94,13 @@ def _field_set(expected, optional):
 
 
 def required_fields(value, expected, name, labels, optional=()):
-    """Every expected field present and nothing beside them.
+    """Require expected keys and allow only expected or optional keys.
 
     ``labels`` names the family in the message, so a refusal inside the
     suite-cost family reads "suite cost run: missing measured" rather
-    than a bare field path. ``optional`` names fields that may be absent
-    or present. A field listed there is validated like every other
-    present field — an empty object is malformed, not absent, and is
-    refused.
+    than a bare field path. ``optional`` names keys that may be absent
+    or present. This helper checks key membership; callers validate the
+    values those keys carry.
     """
     if not isinstance(value, dict):
         raise ValueError(f'{name} must be an object')

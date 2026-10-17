@@ -21,18 +21,14 @@ count is a count, so the 1.5-unit (1.5M-instruction) gap prices
 INTERPRETER AND LIBRARY DRIFT, not measurement noise -- there is none.
 A 3.13.x micro release, or a pinned pytest patch release, can move a
 hot path's bytecode count by more than the gap; the interpreter is
-pinned to the exact micro version in the workflows that run the bench,
+pinned to the exact micro version in the workflows that run the bench.
 A legitimately moved workload (fixture list or interpreter pin) uses
 the seed path to replace the old counts with a RUNNER measurement.
 
-That measurement must be of the tree master will hold once the seed
-lands, the seed change's own edits included: the seed PR's own run on
-the commit carrying its final code and tests while its changes are
-open, or — once they have merged — the newest in-window master commit
-whose run measured, a leg-skipping push carrying none. The tree must
-not change between that run and the merge, this seed's own thresholds
-write excepted, and the recorded identity is never corrected by hand
-to fit another tree (SV-CI-RATCHETS).
+That measurement must be of the final tree the seed lands on, the seed
+change's own edits included. The tree must not change between that run
+and the merge, this seed's own thresholds write excepted. The recorded
+identity is never corrected by hand to fit another tree (SV-CI-RATCHETS).
 
 A separate file from ``ratchet.py`` on purpose: the two move opposite
 ways. The seed binds the budgets to the workload they measured: the

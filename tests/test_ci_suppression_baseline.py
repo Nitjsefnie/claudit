@@ -14,6 +14,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 from tests import git_meta
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
@@ -240,7 +242,8 @@ def test_main_tighten_noop_explains(tmp_path, capsys, monkeypatch):
     assert "no file's count dropped" in capsys.readouterr().out
 
 
-def test_committed_document_matches_tree():
+@pytest.mark.parametrize("absent_family", [False, True])
+def test_committed_document_matches_tree(tmp_path, absent_family):
     # The committed baseline records each production file's CURRENT
     # count: every entry equals the file's real suppression-line count,
     # and no file sits outside the baseline. This is the truth pin the
@@ -248,8 +251,20 @@ def test_committed_document_matches_tree():
     git_meta.require_own_git_metadata(REPO_ROOT)
     thresholds = _thresholds()
     suppression = _suppression_baseline()
-    doc = thresholds.load(THRESHOLDS_PATH)
-    baseline = doc["pylint_suppression_baseline"]
+    path = THRESHOLDS_PATH
+    if absent_family:
+        data = _document()
+        del data["pylint_suppression_baseline"]
+        path = tmp_path / "absent.json"
+        thresholds.write(path, data)
+    doc = thresholds.load(path)
+    baseline = doc.get("pylint_suppression_baseline", {})
+    if "pylint_suppression_baseline" not in doc:
+        assert baseline == {}
+        assert suppression.violations(
+            {"backend/unrecorded.py": 1}, baseline)["over"] == {
+                "backend/unrecorded.py": (1, 1)}
+        return
     counts = suppression.tracked_suppression_counts()
     for rel, recorded in baseline.items():
         assert counts.get(rel, 0) == recorded, f"stale entry for {rel}"
