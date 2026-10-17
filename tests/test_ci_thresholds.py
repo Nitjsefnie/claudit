@@ -333,22 +333,25 @@ def test_optional_families_round_trip_without_reappearing(tmp_path):
     assert loaded == normalised == {"schema_version": 1}
 
 
-@pytest.mark.parametrize("mutate,match", [
+@pytest.mark.parametrize("mutate,absent_family,match", [
     pytest.param(lambda doc: doc.update(suite_cost={}),
-                 "missing suite cost phase", id="empty-suite-cost"),
+                 "reparse", "missing suite cost phase",
+                 id="empty-suite-cost"),
     pytest.param(lambda doc: doc.update(reparse={}),
-                 "missing reparse CPU phase", id="empty-reparse"),
+                 "suite_cost", "missing reparse CPU phase",
+                 id="empty-reparse"),
     pytest.param(lambda doc: doc["coverage"]["python"].update(floor=90.0),
-                 "gap must be 1.5", id="coverage-wrong-gap"),
+                 "suite_cost", "gap must be 1.5", id="coverage-wrong-gap"),
     pytest.param(lambda doc: doc["coverage"].update(
         python={"measured": 92.6}),
-        "missing.*floor", id="malformed-coverage-record"),
+        "reparse", "missing.*floor", id="malformed-coverage-record"),
 ])
 def test_present_but_malformed_optional_data_is_refused(
-        tmp_path, mutate, match):
+        tmp_path, mutate, absent_family, match):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
     mutate(payload)
+    del payload[absent_family]
     target.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ValueError, match=match):
