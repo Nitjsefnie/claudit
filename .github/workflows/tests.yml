@@ -52,9 +52,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the patch-coverage merge-base walk and the
-          # thresholds loader's re-seed walk (scripts/ci/reseed.py,
-          # issue #582) both read ancestry a shallow clone lacks.
+          # Full history: patch coverage reads the merge-base; the
+          # direction guard reads git log base..head for
+          # Thresholds-Removed trailers and feat: subjects.
           fetch-depth: 0
           # No step in this job pushes; persist-credentials: false keeps
           # the job token out of .git/config for any later step to reuse.
@@ -152,12 +152,22 @@ jobs:
             --coverage-measured javascript)"
           js_floor="$(python3 scripts/ci/thresholds.py \
             --coverage-floor javascript)"
+          if [ -n "$floor" ]; then
+            python_recorded="measured ${recorded_measured}% / floor ${floor}%"
+          else
+            python_recorded="not recorded"
+          fi
+          if [ -n "$js_floor" ]; then
+            javascript_recorded="measured ${js_measured}% / floor ${js_floor}%"
+          else
+            javascript_recorded="not recorded"
+          fi
           {
             echo '### Coverage'
             echo
             echo "Recorded ratchet (from .github/ci-thresholds.json):" \
-              "python measured ${recorded_measured}% / floor ${floor}%," \
-              "javascript measured ${js_measured}% / floor ${js_floor}%"
+              "python ${python_recorded}," \
+              "javascript ${javascript_recorded}"
             echo
             python -m coverage report --format=markdown --precision=1
           } >> "$GITHUB_STEP_SUMMARY"
@@ -232,7 +242,11 @@ jobs:
         # raises it past the hysteresis, never lowers it.
         run: |
           floor="$(python3 scripts/ci/thresholds.py --coverage-floor python)"
-          python -m coverage report "--fail-under=${floor}" --precision=1
+          if [ -z "$floor" ]; then
+            echo "no coverage.python calibration recorded — seeded on master"
+          else
+            python -m coverage report "--fail-under=${floor}" --precision=1
+          fi
 
       - name: Install the JS toolchain from the lockfile
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
@@ -267,14 +281,22 @@ jobs:
           # shellcheck disable=SC2046
           python -m pytest $(cat scripts/ci/node_test_files.txt) -q --no-header
           floor="$(python3 scripts/ci/thresholds.py --coverage-floor javascript)"
-          npx --no-install c8 report --temp-directory "$NODE_V8_COVERAGE" \
-            --reporter=text --reporter=json-summary \
-            --include 'src/**/*.js' --check-coverage --lines "$floor"
+          if [ -z "$floor" ]; then
+            echo "no coverage.javascript calibration recorded — seeded on master"
+            npx --no-install c8 report --temp-directory "$NODE_V8_COVERAGE" \
+              --reporter=text --reporter=json-summary --include 'src/**/*.js'
+            floor_label="not recorded"
+          else
+            npx --no-install c8 report --temp-directory "$NODE_V8_COVERAGE" \
+              --reporter=text --reporter=json-summary \
+              --include 'src/**/*.js' --check-coverage --lines "$floor"
+            floor_label="${floor}%"
+          fi
           js_measured="$(node -e 'console.log(
             require("./coverage/coverage-summary.json").total.lines.pct.toFixed(1))')"
           echo "js_measured=${js_measured}" >> "$GITHUB_OUTPUT"
           echo "JavaScript coverage measured ${js_measured}% " \
-            "against floor ${floor}%"
+            "against floor ${floor_label}"
 
       - name: Reparse CPU gate
         id: reparse
@@ -437,11 +459,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the thresholds loader's re-seed walk reads up
-          # to _MAX_VISITS commits for the re-seed marker, which may sit
-          # on the BASE side of the merge or under a master tip — no
-          # fixed depth carries it (issue #582). This job runs the
-          # suite, so it reads the loader.
+          # Full history: retain ancestry for the direction guard's
+          # git log base..head reads of Thresholds-Removed trailers
+          # and feat: subjects, and the patch-coverage merge-base.
           fetch-depth: 0
           # No step in this job pushes; persist-credentials: false keeps
           # the job token out of .git/config for any later step to reuse.

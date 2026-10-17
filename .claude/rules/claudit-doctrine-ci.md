@@ -77,16 +77,11 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   than a phase, and needs a counter facility a hosted runner may
   refuse. When an instrument is unavailable the bench prints NOT
   MEASURED with the reason — an absent measurement must never read as
-  a passing one. Never raise a floor by hand, for any reason. A
-  parse-semantics change that legitimately spends the headroom takes
-  the reparse family's own sanctioned re-seed — the delete under
-  `[reparse-re-seed]`, then a runner-measured seed of the final tree,
-  exactly the suite-cost path — and while the family is absent the
-  reparse gate prints `no reparse budget — re-seed in flight` and exits
-  0 (issue #698). Every run that wrote its measurement uploads it as the
-  `reparse-measurement` workflow artifact — the runner-measurement
-  source a reparse seed is fed through `reparse_ratchet.py --seed`, the
-  way `suite-measurement` feeds the suite-cost seed.
+  a passing one. Budget raises require a judged feature commit under
+  the direction guard's rule below. Every run that wrote its measurement
+  uploads it as the `reparse-measurement` workflow artifact. An absent
+  family gates no recorded budget; master seeds it from that run's
+  measurement through `reparse_ratchet.py`'s tighten path.
 - Module size (`module_size_baseline`): every tracked `*.py` under
   `backend/`, `scripts/`, `tests/`, every tracked `src/**/*.js(x)`, and
   the shipped SQL, CSS and workflow-YAML families (`backend/*.sql`,
@@ -116,7 +111,7 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   pytest and the JS toolchain install, on comment-only changes too.
   On master pushes only, `--tighten` lowers entries and drops deleted or
   at/below-15% files, through `thresholds.write`. `--seed` introduces the
-  section once from the measured tree. No re-seed marker applies.
+  section once from the measured tree.
 - Suite cost (`suite_cost`): per-phase instruction counts (millions of
   bytecode instructions, one decimal; phases `collection`, `run`,
   `residual`) of ONE pytest pass over the pinned fixture
@@ -134,13 +129,12 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   `src/pricing.json`), so a data-only refresh cannot move the gate;
   `tests/test_suite_cost_pricing_growth.py` fails when the measured
   phases move with rows appended to the deployed document (issue
-  #840). Seeded via the loader's writer
-  (`suite_ratchet.py --seed`, only when the member is absent) FROM A
-  RUNNER MEASUREMENT — the environment the gate and the master-push
-  record path share; `residual` is environment-sensitive, so a
-  non-runner seed would gate runners red; tightened by the master-push
-  bot (`suite_ratchet.py --tighten`, past the 1.5 hysteresis, both
-  fields, never raised). The interpreter micro is pinned in the
+  #840). Seeded and tightened FROM A RUNNER MEASUREMENT by the
+  master-push bot (`suite_ratchet.py --tighten`, past the 1.5 hysteresis
+  for existing budgets, both fields, never raised). The gate and the
+  master-push record path share that environment; `residual` is
+  environment-sensitive, so a non-runner seed would gate runners red.
+  The interpreter micro is pinned in the
   workflows that run the bench. The budgets are BOUND TO THE WORKLOAD
   THEY MEASURED: the fixture's tree-scanning tests (the db-marker
   derivation, the version-literal guard, the scratch-DB scan) spend
@@ -151,138 +145,44 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   it beside the budgets when its reading carries it; the gate names a
   drifted identity when a phase breaches instead of reading it as
   slowness, and the guard refuses a hand-moved identity on an
-  established family — the sanctioned re-seed, measured on the tree
-  the seed describes, is the only writer. Sanctioned RE-SEED: when the recorded
-  workload legitimately changes — the fixture list, the interpreter
-  pin, the code the pinned tests execute, or the scanned tree's
-  content (issue #524: the day's 345.9→348.6 step was #518's +643 test
-  lines moving the scans, not a runner change) — the re-seed path lands
-  as TWO reviewed gate-definers, never one. The first deletes the stale member under
-  the commit-message marker `[suite-cost-re-seed]`
-  (`scripts/ci/reseed.py`) — the only way `thresholds.load` accepts a
-  family-absent document; the suite-cost gate then prints `no suite_cost
-  budget — re-seed in flight` and exits 0, and the guard reads the
-  removal as legal. Each cost family's re-seed runs under its OWN
-  marker — suite_cost under `[suite-cost-re-seed]`, reparse under
-  `[reparse-re-seed]` — the same bounded walk, fail closed, one probe
-  per family: a marker buys that family's ABSENCE only, never a raised
-  budget and never another family's absence (issue #698). The second
-  seeds the new counts through the family's own writer —
-  `suite_ratchet.py --seed` for suite_cost, `reparse_ratchet.py
-  --seed` for reparse — FROM A RUNNER MEASUREMENT, cited by run id in
-  the PR body, never hand-derived.
-  Against a base that predates the family, those entries are a
-  brand-new member's seed. `thresholds_guard.py` refuses an established
-  budget's raise except a measured suite_cost or reparse raise when the
-  judged commits carry a `feat:` or `feat(<scope>):` subject (issue #1041).
-  Hand-derived raises and every other upward move stay forbidden;
-  suite_cost's workload identity remains seed-only. Changes that cannot
-  use the feature admission, or that change the identity, take this
-  re-seed path: the delete and seed are separate commits, and the
-  delete's message carries the marker. The marker's scope is that delete —
-  the seed commit does not carry it, and it is the commit that restores
-  the family; a restoring document is valid either way. Every helper
-  that re-validates a loader-produced document asks the same verdict
-  the loader asked (`thresholds.verdict()`); `normalise` takes it as a
-  required argument, so no helper can read strict by omission.
+  established family. A fresh seed binds the budgets to the measured
+  tree; a breach never licenses moving the recorded identity.
+- Any entry or family may be removed in a PR for exactly two reasons:
 
-  **The measuring run measured the tree master will hold once the seed
-  lands, the seed change's own edits included.** A budget binds to the
-  tree it was measured on, so a measured tree master does not hold
-  records numbers no later run reproduces — and the recorded identity
-  catches the resulting drift only when it lies in `tests/` — while the
-  guard admits no hand correction of either, so the repair is another
-  delete+seed pair.
-  Two properties of the run decide it, both read off the canary: the
-  run RAN the tests leg (a docs-only or bot-data push skips that leg and
-  carries no artifact), and the bench RAN (its step is gated on the
-  suite and the JS coverage having succeeded, so a run whose suite
-  failed carries no measurement either). Which run carries both follows
-  from whether the window's changes have merged, not from choice:
+  1. What it measures is gone from the tree: its file, test or family
+     was deleted, renamed, split or merged. A successor is seeded fresh.
+  2. The recorded number is wrong or no longer comparable: a fixed
+     measurement bug, or a tool, tool-version or counting change that
+     redefines the metric. Show before and after numbers on the SAME tree.
 
-  - They have MERGED: the `suite-measurement` artifact of the newest
-    commit the window takes whose ci-gate run RAN the tests leg. A
-    pricing-bot or docs-only push skips it, so the LAST commit is not
-    always a usable source. The measured tree must equal master's tree
-    at the seed, apart from `.github/ci-thresholds.json` and
-    documentation-only paths; when a commit outside those landed after
-    the newest measuring run, take a fresh measurement of the final
-    tree by dispatching ci-gate (`gh workflow run ci-gate.yml --ref
-    master`) — a `workflow_dispatch` run reads no changed paths, so it
-    runs the full gate set, the tests leg and its `suite-measurement`
-    artifact included.
-  - They are still OPEN — the canary went red on a pull request, which
-    includes the seed PR itself: that same artifact from the seed PR's
-    OWN ci-gate run on the commit carrying its FINAL CODE AND TESTS,
-    the last push before the data-only one. So the seed change lands
-    its code and tests, waits for that run, seeds from its artifact,
-    and regenerates the family in a later push touching nothing but
-    `.github/ci-thresholds.json`. That later run is the CHECK, not the
-    source: it must be green and name no workload-identity drift, and
-    it is the first run to read the seeded identity back. Its own
-    values cannot come from its own run — they must exist before the
-    seed commit is written — so the source is always an earlier run.
-
-  Both sources are measured BEFORE the merge: the artifact is retained
-  for a day, and for a seed change touching ONLY
-  `.github/ci-thresholds.json` a master push is path-ignored by
-  ci-gate, so no master run exists afterwards to re-measure against.
-
-  The measured tree MUST NOT CHANGE between the measuring run and the
-  merge; the seed's own write of `.github/ci-thresholds.json`, and
-  documentation-only paths, are the only permitted differences. `tests/`
-  is the part of that tree the recorded identity detects
-  (`tests_tree_lines`), but the budgets bind to every
-  line the pinned tests execute — a pricing bot's `src/pricing.json` and
-  `backend/constants.py` reach them through `tests/conftest.py` — so a
-  code line landing after the measuring run invalidates it the same way.
-  When the tree did change, the source is a fresh run of the FINAL tree;
-  recorded numbers are never adjusted to fit.
-
-  **The window is bounded.** `reseed._MAX_VISITS` caps each first-parent
-  lineage at ten visits. HEAD is checked first; at a merge HEAD, each
-  parent starts its own lineage with a full budget, last parent first
-  (the pull request's head on a GitHub merge ref). The merge commit and
-  the base side cannot spend the pull request lineage's budget, and the
-  base lineage still gets its own ten visits. Linear history counts HEAD
-  within its ten visits. A family-present or unreadable commit ends its
-  lineage. Shared commits are read once and their cached verdicts are
-  applied on each lineage; plain commits still lead to their first
-  parent. A lineage that exhausts its budget contributes no marker; if
-  none declares, the walk fails CLOSED and the family-absent document is
-  gated as any other is.
-
-  **Closing a window is not re-opening one.** Two separate facts, and
-  the next re-seed needs both: the walk reached a family-present commit
-  — the window this marker opened is closed, so the delete's marker can
-  never exempt a later family-absent document — and a NEW marked delete
-  precedes the new seed. A seed already on master supplies the first;
-  the second is a fresh pair, never the standing one re-used.
+  A breach is never a reason: over a cost budget, trim tests; under a
+  coverage floor, add tests. The before/after numbers are review evidence
+  in the seat's report to the manager, never the PR body or PR comments.
 - The direction guard (`scripts/ci/thresholds_guard.py`, a step in
-  `tests.yml`) makes the never-rules mechanical: on every PR and master
-  push it compares the data against the base document and fails on a
-  lowered coverage value, a raised entry, or
-  an added entry under the frozen core families (the Python and `src/`
-  JavaScript scope the size ratchet had when the guard landed) or for
-  an unmeasured path. Suite-cost and reparse budget raises require a
-  subject starting with `feat:` or `feat(scope):` in the judged commits:
-  merge-base..HEAD on a PR, the pushed range on a push. Missing,
-  unreadable or empty ranges prove no feature and refuse raises.
-  Non-feature breaches are
-  answered by trimming their own tests: dropping redundant cases,
-  merging parametrisations, deleting tests that repeat another test's
-  assertions; growth, refactors and fixes do not remove, reshape or
-  re-seed budgets. The feature exception admits numeric budget raises
-  only; workload identity changes remain seed-only and every other
-  refusal stands. What also stays legal is the bots' move set
-  — a raise, a tighten, a brand-new member's entries — plus a new
-  measured family's one-time seed and a cost family's REMOVAL, the
-  latter admitted only on a commit carrying that family's own re-seed
-  marker (`[suite-cost-re-seed]` for suite_cost, `[reparse-re-seed]`
-  for reparse). A marker buys the absence, never a raised budget;
-  only the judged feature subjects admit raises. Size and suppression
-  seeds are pinned by committed-tree tests on the same merge ref; comment shares permit
-  reductions until master tightens.
+  `tests.yml`) enforces the mechanically checkable removal rule: a removed
+  entry whose subject still exists is refused unless the judged range
+  carries a `Thresholds-Removed: <entry>=<bug|definition>` trailer naming
+  it. Tokens are exact; a bare family name declares that family's entries.
+  Path-typed baseline entries whose file is gone need no declaration.
+  Coverage languages, `suite_cost` and `reparse` always need one.
+  Missing or unreadable history fails closed. The judged range is
+  merge-base..HEAD on a PR, the pushed range on a push; declarations do
+  not replace review of the removal reason and measurement evidence.
+- An absent entry or family is seeded from its measurement on the next
+  master run: `ratchet.py` for coverage; `reparse_ratchet.py`'s tighten
+  path from the reparse measurement; `suite_ratchet.py --tighten` from
+  the suite measurement through `ratchet-push.yml`; and the three
+  baseline writers (`size_baseline.py`, `suppression_baseline.py`,
+  `comment_baseline.py`) with `--tighten` for their entries. Coverage
+  without a calibration still measures and reports, but gates no floor.
+- The direction guard also refuses lowered coverage, raised baseline
+  entries, hand-added entries under the frozen core families or for
+  unmeasured paths, and moved workload identity. Suite-cost and reparse
+  budget raises require a subject starting with `feat:` or `feat(scope):`
+  in the judged range. Missing, unreadable or empty ranges prove no
+  feature and refuse raises. The feature exception admits numeric cost
+  budget raises only; every other refusal stands. The bots' coverage
+  raises, cost and baseline tightens, and measured seeds remain legal.
 - Coverage numbers carry exactly one decimal (`92.0`, never `92` or
   `92.00`) — what the ratchet writes, `coverage --precision=1`
   measures and the JS gate's `toFixed(1)` reads. The document is
