@@ -1,5 +1,5 @@
 name: Thresholds base
-description: Resolve the judged threshold base once per job and export it to later steps.
+description: Resolve the judged threshold base once per job and export it to later steps. Events without a judged range export empty (no removal exemptions).
 
 runs:
   using: composite

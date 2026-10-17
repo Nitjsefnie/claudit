@@ -120,6 +120,7 @@ def _suite_phase(pytest_args: list[str]) -> dict:
     proc = subprocess.run(
         [sys.executable, "-m", "pytest", *pytest_args],
         cwd=str(REPO_ROOT), check=False,
+        # Inherit the caller's judged base; absent means no removal exemptions.
         env=dict(os.environ, CLAUDIT_PERTURBED_DATA="1"))
     child_cpu = _children_cpu()
     return {

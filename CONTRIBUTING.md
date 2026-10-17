@@ -191,6 +191,12 @@ python3 -m pytest tests/test_pricing.py -v
 python3 -m pytest tests/ -q -m "not db" # portable subset — no database needed
 ```
 
+Local suite commands inherit `CLAUDIT_THRESHOLDS_BASE_REV`. Without it,
+committed-tree checks grant no removal exemptions. To test a declared
+removal before master re-seeds, set it to the intended local judged base
+(e.g. `CLAUDIT_THRESHOLDS_BASE_REV=$(git merge-base HEAD origin/master)`).
+An unreadable base or range also grants no exemptions.
+
 The portable subset needs no database, but a handful of its tests read
 the tree's own git metadata (the module-size baseline and Dependabot
 coverage counts discover files with `git ls-files`; the thresholds

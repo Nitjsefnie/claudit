@@ -81,7 +81,7 @@ jobs:
 
       - name: Resolve the threshold base
         id: threshold_base
-        uses: ./.github/actions/thresholds-base
+        uses: $/.github/actions/thresholds-base
         env:
           REPO: ${{ github.repository }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -421,7 +421,7 @@ jobs:
 
       - name: Resolve the threshold base
         id: threshold_base
-        uses: ./.github/actions/thresholds-base
+        uses: $/.github/actions/thresholds-base
         env:
           REPO: ${{ github.repository }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}

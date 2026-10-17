@@ -46,8 +46,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Restores use the checked-out HEAD, not ancestry; the suite
-          # needs no history, so the default shallow checkout suffices.
+          # Committed-tree tests read the judged range for declared-removal
+          # exemptions; the resolver needs history to find the merge-base.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Start cached Postgres
@@ -56,6 +57,17 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
+
+      # Schedule/dispatch has no judged removal range: the resolver exports
+      # an empty base, so committed-tree checks grant no exemptions. These
+      # runs exercise data changes, and master seeds removals in its gate run.
+      - name: Resolve the threshold base
+        uses: $/.github/actions/thresholds-base
+        env:
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
 
       # The pip cache restores on every event but is saved only from a push
       # of master (issue #126): no setup-python step owns the cache, and the

@@ -174,7 +174,8 @@ def run_suite(repo_root: Path) -> tuple[int, str]:
     """The full suite, as the perturbed CI leg runs it. The environment
     passes through to the pytest child unchanged — the private-Postgres
     variables among them — so nothing about the database is hardcoded
-    here. Returns (exit code, combined output)."""
+    here. A supplied CLAUDIT_THRESHOLDS_BASE_REV passes through; absent
+    means no removal exemptions. Returns (exit code, combined output)."""
     proc = subprocess.run(
         [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=short",
          "-ra"],
