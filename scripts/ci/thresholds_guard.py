@@ -2,7 +2,7 @@
 """Fail when the CI ratchet data moves backwards by hand.
 
 The bots raise coverage calibrations and tighten shrunk files and
-counts. Feature commits may raise measured cost budgets (issue #1041).
+counts. Feature commits may raise measured cost budgets.
 This guard pins the DIRECTION of every change a pull request or master
 push makes to ``.github/ci-thresholds.json``, so the never-raise/never-lower
 rule no longer depends on review:
@@ -15,9 +15,9 @@ rule no longer depends on review:
 - a baseline entry is never raised;
 - an entry is added only when it seeds a brand-new member, or — for a
   member the base already carries — when its path lies OUTSIDE the
-  frozen core families (the Python and src/ JavaScript scope the size
-  ratchet had when this guard landed) AND inside the measured set, the
-  one-time family seed of a reviewed gate-definer change (#393). An
+  frozen core families (the Python and src/ JavaScript scope) AND
+  inside the measured set, the
+  one-time family seed of a reviewed gate-definer change. An
   addition under the frozen core, or for a path no ratchet measures, is
   a hand-add and fails.
 
@@ -56,10 +56,9 @@ else:
     thresholds_removed = importlib.import_module('thresholds_removed')
 
 
-# The size ratchet's original families, frozen at the guard's landing:
-# an ADDED baseline entry on one is a hand-add (the audit's exploit — a
-# new big file seeding its own entry), whatever it claims. Future
-# measured families seed outside this list (#393's did).
+# The size ratchet's frozen core families: an ADDED baseline entry on
+# one is a hand-add, so a new big file cannot seed its own entry. New
+# measured families seed outside this list.
 CORE_PREFIXES = ('backend/', 'scripts/', 'tests/')
 
 COVERAGE_REMEDY = (
@@ -119,7 +118,7 @@ def _load_base(path):
 
     Returns the normalised document and the members its bytes actually
     carried — a member the base predates is a brand-new one, and its
-    entries are the introducing change's seed (#389's is). The base is
+    entries are the introducing change's seed. The base is
     master's (or the parent's) committed data — trusted bytes — so the
     strict duplicate-key/non-finite checks are not re-run here; every
     structural rule still goes through normalise.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refuse a tree VERSION that names an already-published release (issue #131).
+"""Refuse a tree VERSION that names an already-published release.
 
 WHY THIS EXISTS. Between releases, master carries `VERSION` naming the
 next release with a `-dev` suffix (`0.4.0-dev`). A tree version that names
@@ -35,7 +35,7 @@ from typing import NamedTuple
 BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 
 # Mirror classify_changes.py's BOT_CORE / BOT_SIGNATURE / BOT_COMMIT_SHAPES
-# (#932) locally: version-guard.yml needs this script to stay standalone.
+# locally: version-guard.yml needs this script to stay standalone.
 BOT_CORE = frozenset({"src/pricing.json", "backend/constants.py"})
 BOT_SIGNATURE = BOT_CORE | {"src/pricing_notices.json"}
 BOT_COMMIT_SHAPES = frozenset({BOT_CORE, BOT_SIGNATURE})

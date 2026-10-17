@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# House formatting chain (issue #8), run in this order:
+# House formatting chain, run in this order:
 #   autoflake (remove unused imports/variables) -> isort (sort imports)
 #   -> autopep8 (format, aggressive).
 #

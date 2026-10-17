@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Attribute the perturbed-data CI leg's cost, phase by phase (issue #456).
+"""Attribute the perturbed-data CI leg's cost, phase by phase.
 
 The bench keeps the pristine pricing document, constants module
 and parser-version module in memory, and per fixed seed it restores
@@ -16,20 +16,18 @@ leg always has.
 Per the v9 measurement doctrine this is TELEMETRY, never a gate: the
 leg's verdict is the perturbed suite's pass/fail, never its duration,
 and nothing here is compared against a committed budget. The wall
-numbers are diagnostic — the size decision they feed (issue #456) is
-about CI minutes, and a sub-second phase is the only honest witness to
-the ~21 minutes beside it. Container startup and dependency install
+numbers are diagnostic because the size decision concerns CI minutes. Container startup and dependency install
 live outside this bench's window: GitHub records those per step, and
 the bench names that in its report instead of pretending to measure
 what it does not run.
 
 The measurement records the workload identity ``tests_tree_lines``
-(the tests/*.py line total, the same #524 identity the suite-cost bench
+(the tests/*.py line total, the same identity the suite-cost bench
 binds its budgets to) beside the phases, so a later reading of the
 summary names the workload the numbers describe.
 
-The seeds are the caller's policy — the leg's three fixed seeds
-(issue #226) are spelled in the workflow, not here. A run's
+The seeds are the caller's policy — the leg's three fixed seeds are
+spelled in the workflow, not here. A run's
 per-seed phases are also written as JSON with ``--measurement``.
 
     python3 scripts/ci/perturbed_leg_bench.py --seed 42 [--seed S ...]
@@ -69,8 +67,6 @@ TELEMETRY_NOTE = (
 DEFAULT_PRICING = REPO_ROOT / "src" / "pricing.json"
 DEFAULT_CONSTANTS = REPO_ROOT / "backend" / "constants.py"
 DEFAULT_PARSER_VERSION = REPO_ROOT / "backend" / "parser_version.py"
-# The leg's exact suite invocation, as the workflow ran it before this
-# bench owned the loop.
 DEFAULT_PYTEST_ARGS = ["tests/", "-q", "--tb=short", "-ra"]
 
 
@@ -85,7 +81,6 @@ def run_seed(pristine_pricing: bytes, pristine_constants: bytes,
              pristine_parser_version: bytes, pricing_path: Path,
              constants_path: Path, parser_version_path: Path, seed: int,
              pytest_args: list[str]) -> SeedRun:
-    """Restore the tree, perturb, run the suite; time both phases."""
     pricing_path.write_bytes(pristine_pricing)
     constants_path.write_bytes(pristine_constants)
     parser_version_path.write_bytes(pristine_parser_version)
@@ -199,7 +194,7 @@ def _fmt(seconds: Decimal | float) -> str:
 
 def _tests_tree_lines(repo_root: Path) -> int:
     """The scanned tree's size: the workload identity the numbers
-    describe (the #524 identity, the same reading suite_bench binds its
+    describe (the same reading suite_bench binds its
     budgets to). A tree with no tests/ records an honest 0."""
     root = repo_root / "tests"
     if not root.is_dir():
@@ -209,7 +204,6 @@ def _tests_tree_lines(repo_root: Path) -> int:
 
 
 def report(measurement: dict) -> str:
-    """The human report: per-seed phases, totals, the instrument named."""
     lines = [
         f"perturbed leg attribution over {len(measurement['seeds'])} "
         f"seed(s), pytest args: "
@@ -239,7 +233,6 @@ def report(measurement: dict) -> str:
 
 
 def summary_markdown(measurement: dict) -> str:
-    """The step-summary markdown: the per-seed phase table and totals."""
     lines = [
         "### Perturbed leg attribution", "",
         "| seed | phase | wall_s | cpu_s | exit_code |",

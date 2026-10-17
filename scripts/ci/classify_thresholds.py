@@ -1,4 +1,3 @@
-"""Emit classifier outputs."""
 from __future__ import annotations
 
 
@@ -16,7 +15,6 @@ def unreadable_or_thresholds(paths: list[str] | None):
 
 
 def write_outputs(path, documentation, data, comment, thresholds, setup, reason):
-    """Append flags and reason."""
     if not path:
         return
     with open(path, 'a', encoding='utf-8') as handle:

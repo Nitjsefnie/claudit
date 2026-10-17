@@ -12,17 +12,13 @@ EXPLICIT. Files named by hand. Two kinds:
 
 - Gate parameters the extraction also finds, held by hand anyway so
   their presence never depends on a spelling surviving in a workflow
-  text: the ratchet data — the correction at this set's core, since a
-  tighten raises what the gates demand of the same source tree even
-  though it touches nothing in any pull request's diff (issue #495) —
+  text: the ratchet data — a tighten raises what the gates demand of
+  the same source tree even though it touches nothing in any pull
+  request's diff —
   the scanner config, the five requirements files the audit, test and
-  lint legs install from or audit (issue #551 added the two CI-tool
-  manifests; a manifest's presence in the set must not depend on a
-  spelling surviving in a workflow text), the JS lockfile the
-  eslint and JS-tokenizer steps pin their tool versions from (issue
-  #844 names it in ci-gate.yml), and the container leg's CI-only
-  Compose override, which decides the image its db service runs
-  (issue #981).
+  lint legs install from or audit, the JS lockfile the eslint and
+  JS-tokenizer steps pin their tool versions from, and the container
+  leg's CI-only Compose override, which decides the image its db service runs.
 - Gate parameters read by tool DISCOVERY, invisible to the extraction:
   bare `pylint` / `pycodestyle` / `pyright` / `eslint` load
   `.pylintrc` / `setup.cfg` / `pyrightconfig.json` /
@@ -42,11 +38,11 @@ reason:
   at run time), so no leg's verdict depends on the file's content; the
   bot's commit touches it alongside the data file.
 - `backend/parser_version.py` — the parser version is read at run time
-  and never pinned by the suite (issue #986 moved it out of
-  constants.py); the perturbed-data leg perturbs and restores it, so
+  and never pinned by the suite; the perturbed-data leg perturbs and
+  restores it, so
   like the constants file no leg's verdict depends on its content.
 - `src/pricing_notices.json` — the same bot's notice baseline, written
-  by the refresh run itself (issue #888). Like the data file, no leg's
+  by the refresh run itself. Like the data file, no leg's
   verdict depends on its content and the bot's push is gate-silent.
 
 THE EXTRACTION. Over-broad on purpose: it tokenizes workflow texts for
@@ -77,7 +73,7 @@ FAMILIES = (
 # Files held by hand: gate parameters whose presence in the set must
 # not depend on a spelling surviving in a workflow text, plus the four
 # tool-discovery configs the extraction cannot see. The JS lockfile is
-# here since issue #844: ci-gate's JS-tokenizer step pins espree from
+# here because ci-gate's JS-tokenizer step pins espree from
 # it, so a lockfile move can change what the JS gates install.
 EXPLICIT = (
     ".github/ci-thresholds.json",

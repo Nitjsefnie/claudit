@@ -9,12 +9,6 @@ the head lacks is gate-defining. The check is advisory until a ruleset
 requires it — that is an operator question (the require-ci-aggregate
 ruleset); the deliverable is the publisher.
 
-THE INCIDENT SHAPE. A head tested before a master gate-definer commit
-(especially a ratchet tighten) holds a stale green; merging on it
-lands master red (issue #495). This check makes the staleness visible
-and blockable: each master push re-publishes every open head, so a
-tighten flips the heads it strands red within a workflow run.
-
 TRIGGERS. The workflow runs on every master push (all-heads mode) and
 on pull_request_target events (single-PR mode), filtered to the base
 branch it protects. A `.github/ci-thresholds.json`-only tighten commit
@@ -68,8 +62,6 @@ def _hex40(value):
     return (isinstance(value, str) and len(value) == 40
             and all(char in _HEX40 for char in value))
 
-
-# --- the compare ------------------------------------------------------------
 
 def missing_commit_files(run_git, master_tip, head_sha):
     """(sha, changed paths) for every master commit the head lacks.
@@ -176,8 +168,6 @@ def ensure_head_objects(run_git, heads, repository):
                   f"they will compare unreadable: {exc}", file=sys.stderr)
 
 
-# --- gh reads ---------------------------------------------------------------
-
 def _read(argv):
     """One `gh api` call: stdout, or a QueryError naming the failure."""
     try:
@@ -215,8 +205,6 @@ def _open_pulls(repository):
     return payload
 
 
-# --- publishing -------------------------------------------------------------
-
 def publish_check(run_gh, repository, sha, conclusion, title, summary):
     """One check run, completed, on the head SHA."""
     run_gh(["gh", "api", "--method", "POST",
@@ -241,8 +229,6 @@ def publish_with_retry(run_gh, repository, sha, conclusion, title, summary):
             last = error
     raise last  # type: ignore[misc]
 
-
-# --- selection --------------------------------------------------------------
 
 def scannable(head):
     """Whether this run judges the head: on the base branch, usable SHA."""
@@ -280,10 +266,7 @@ def heads_for_run(env, pulls):
     return [head for head in heads if scannable(head)]
 
 
-# --- the summary ------------------------------------------------------------
-
 def write_summary(path, stale, scanned):
-    """The step summary naming the heads whose check went red and why."""
     if not path:
         return
     lines = [
@@ -304,10 +287,7 @@ def write_summary(path, stale, scanned):
         handle.write("\n".join(lines) + "\n")
 
 
-# --- the run ----------------------------------------------------------------
-
 def _load_trigger_set():
-    """The sibling trigger-set module, loaded the scripts/ci way."""
     path = Path(__file__).with_name("gate_trigger_set.py")
     spec = importlib.util.spec_from_file_location("gate_trigger_set", path)
     assert spec and spec.loader

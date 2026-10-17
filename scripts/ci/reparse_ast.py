@@ -1,20 +1,10 @@
 #!/usr/bin/env python3
 """Which functions a reparse pass can reach, read off the source AST.
 
-The reparse bench (``reparse_bench.py``) measures the CPU of one pass over
-the committed fixture mirror. Its corpus is the instrument's whole world:
-a regression in a parse path no fixture reaches moves no number in either
-direction. ``fixtures/r2_mini`` held only Claude-layout transcripts, so
-every Codex and Kimi path, the lane key layout and the lane role mapping
-were invisible to the gate (issue #503). This module is the first half of
-that fix — it names what the pass CAN reach, so the second half
-(``reparse_surface``) can insist the corpus DID.
-
 - THE SURFACE IS AN AST WALK, NOT A LIST. Roots are ``parse.parse_file``,
   ``parse_lanes.sniff_format`` and ``agent_sidecar.apply_agent_sidecar`` —
   the three callables the pass is made of — and the walk follows every
   call it can resolve, transitively, into ``PARSE_SURFACE_MODULES``.
-  Hand-maintaining that list is what let the gap open in the first place.
 
 - A FUNCTION IS THE UNIT, not a line. A function the corpus reaches is
   covered in whatever proportion its own lines are; one it never reaches is
@@ -118,8 +108,6 @@ def _is_def(node: ast.AST) -> TypeGuard[ast.FunctionDef | ast.AsyncFunctionDef]:
     """
     return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
 
-
-# --- per-module facts, each a pure read of one file's AST --------------------
 
 def _trees(root: Path) -> dict:
     """Every surface module's parsed AST. A missing or unreadable module
@@ -263,8 +251,6 @@ def _imports(tree: ast.Module) -> dict:
 
 
 class _Facts:
-    """One surface module's functions, its names' origins, and its calls."""
-
     def __init__(self, module: str, tree: ast.Module, defined: dict,
                  containers: dict):
         self.module = module

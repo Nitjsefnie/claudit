@@ -64,13 +64,13 @@ carries its (key, vendor_host) row from the next hourly run. One report,
 one PRICING_VERSION bump, one commit.
 
 pricing_notices.json beside the pricing document holds the last committing
-run's full rendered notice set (issue #888). Identical lines are omitted;
+run's full rendered notice set. Identical lines are omitted;
 new or changed lines appear. The baseline includes suppressed lines to
 prevent alternating reappearance. Missing, unreadable or malformed files
 suppress nothing. Quiet runs publish no commit and leave the baseline.
 
-The vanished-host set and the sampled classifications are standing state
-(issue #933): they never enter the commit body. The run's own stdout
+The vanished-host set and the sampled classifications are standing
+state: they never enter the commit body. The run's own stdout
 report keeps both blocks, and a committing run records them in the same
 state file beside the notices (keys ``vanished`` and ``sampled``), so a
 vanished set or a classification that changes shows as a diff of that
@@ -146,7 +146,6 @@ def _fetch(fetch: Fetch, model: str, source: object) -> object:
 
 @dataclass
 class Result:
-    """A run's outcome: the file it would write, and what it reports."""
     doc: dict
     moves: list[Move]
     vanished: list[tuple[str, str]]
@@ -157,7 +156,6 @@ class Result:
 
 @dataclass
 class ModelResult:
-    """One model's entries and report details for a refresh run."""
     moves: list[Move]
     vanished: list[tuple[str, str]]
     refusals: list[str]
@@ -167,7 +165,6 @@ class ModelResult:
 
 @dataclass(frozen=True)
 class RefreshContext:
-    """Shared inputs for the models in one refresh run."""
     doc: dict
     fetch: Fetch
     region: str | None
@@ -177,7 +174,6 @@ class RefreshContext:
 
 @dataclass
 class ListedModel:
-    """One model's endpoint rows before log classification."""
     payload: object
     rows: dict[str, Listing]
     refused: dict[str, str]
@@ -262,7 +258,6 @@ def refresh(doc: dict, fetch: Fetch, stamp: str,
 
 def _refresh_models(context: RefreshContext, tracked: dict,
                     logs: dict, catalog: set[str] | None) -> Result:
-    """Collect each tracked model's changes, refusals, and notices."""
     result = Result(context.doc, [], [], [], [], {})
     for model, source in tracked.items():
         # Every model is fetched even after one is refused, so a red run
@@ -295,13 +290,13 @@ def _refusals(result: Result, outcome) -> list[str]:
 
 def _notices_path(pricing_path: Path) -> Path:
     """The committed state file beside the pricing document it describes:
-    the last run's carried notice lines (issue #888) and its standing
-    vanished/sampled state (issue #933)."""
+    the last run's carried notice lines and its standing
+    vanished/sampled state."""
     return pricing_path.with_name("pricing_notices.json")
 
 
 def _published_notices(pricing_path: Path) -> frozenset[str]:
-    """The notice lines the last committing run carried (issue #888).
+    """The notice lines the last committing run carried.
 
     That run's FULL rendered notice set — the lines it showed and the lines
     it suppressed — because the baseline must not move when a run suppresses
@@ -322,10 +317,11 @@ def _published_notices(pricing_path: Path) -> frozenset[str]:
 
 
 def _write_state(pricing_path: Path, lines: list[str], result: Result) -> None:
-    """Record what this run carried, for the next run's notice baseline
-    (issue #888), and the standing vanished/sampled state beside it
-    (issue #933): both blocks the commit body dropped, queryable and
-    diffable in the state file instead of re-printed every run."""
+    """Record this run's notice baseline and standing vanished/sampled state.
+
+    Both blocks stay queryable and diffable in the state file instead of
+    being re-printed in every commit body.
+    """
     _notices_path(pricing_path).write_text(
         json.dumps({"notices": sorted(set(lines)),
                     "sampled": sampled_state(result.sampled),
@@ -343,9 +339,8 @@ def _carried_notices(result: Result, outcome) -> list[str]:
 def _report_body(stamp: str, result: Result, outcome, previous,
                  *, standing: bool = True) -> str:
     """The provider report, with the vendor section appended when it has
-    anything to say; ``previous`` drops a notice line already published
-    (issue #888), ``standing=False`` drops the vanished/sampled blocks
-    for the commit body (issue #933)."""
+    anything to say; ``previous`` drops a notice line already published,
+    ``standing=False`` drops the vanished/sampled blocks for the commit body."""
     body = report(stamp, result, result.doc["openrouter"]["models"], previous,
                   standing=standing)
     if outcome is not None and (outcome.moves or outcome.refusals or outcome.notices):
@@ -374,9 +369,9 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
     except RefreshError as exc:
         print(f"refresh_provider_rates: {exc}", file=sys.stderr)
         return 1
-    # The notice baseline (issue #888) is read ONCE, before this run
+    # The notice baseline is read ONCE, before this run
     # rewrites it: the stdout report keeps every block, while the commit
-    # body drops the standing vanished/sampled ones (issue #933), which
+    # body drops the standing vanished/sampled ones, which
     # are recorded in the state file instead.
     previous = _published_notices(pricing_path)
     print(_report_body(stamp, result, outcome, previous))

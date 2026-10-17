@@ -4,7 +4,7 @@
 Each iteration restores a clean baseline, appends five independently
 drawn non-negative fields to a seeded nonempty subset of rows, and stamps
 each entry one second after its row's newest instant. Offset spellings
-exercise issue #264; the written document uses canonical JSON layout.
+exercise instant normalisation; the document uses canonical JSON layout.
 A seeded chance also adds one model or provider-host row under the
 reserved `zz-fuzz-local/<seeded-suffix>` namespace. Existing-row appends
 simulate the refresh bot. New rows use this namespace because real
@@ -25,7 +25,7 @@ the same suite. Non-regular entries under `tests/` refuse sharding.
 An interrupted run unwinds through the cleanup path: SIGTERM, SIGINT or
 SIGHUP raises SystemExit(128 + signum), so the baseline restore and the
 snapshot-tree removal run, and every shard's whole process group is taken
-down before the tree goes (issue #331).
+down before the tree goes.
 """
 from __future__ import annotations
 
@@ -69,9 +69,9 @@ NEW_ROW_CHANCE = 0.25
 RESERVED_NAMESPACE = "zz-fuzz-local/"
 NEW_ROW_NOTE = "sv-test-data fuzz: reserved new row"
 # The five fields draw INDEPENDENTLY and uniformly from this pool:
-# zero, one, ordinary magnitudes, and the repr-awkward floats the #263
-# repros and the #232 tolerance sweep turn on. An entry may keep an
-# int: the loader takes both, and json renders 0 and 0.0 distinctly.
+# zero, one, ordinary magnitudes, and repr-awkward floats. An entry
+# may keep an int: the loader takes both, and json renders 0 and 0.0
+# distinctly.
 VALUE_POOL = (
     0, 1.0, 0.1, 0.25, 2.0, 3.5, 12.0, 60.0, 750.0,
     0.06974999999999999, 2.9999999999999996, 1e-4, 12345.6789,
@@ -81,7 +81,6 @@ VALUE_POOL = (
 
 def fuzz_iteration(repo_root: Path, iteration: int, base_seed: int,
                    artifact_dir: Path) -> dict:
-    """Restore, perturb, validate and run one iteration."""
     restore_baseline(repo_root)
     pricing_path = repo_root / PRICING_REL
     doc = json.loads(pricing_path.read_text(encoding="utf-8"))
@@ -144,8 +143,6 @@ def iteration_rng(base_seed: int, iteration: int) -> random.Random:
 
 
 def restore_baseline(repo_root: Path) -> None:
-    """`git checkout -- src/pricing.json`: whatever the previous
-    iteration appended is gone; the tracked document is the baseline."""
     _git(repo_root, "checkout", "--", PRICING_REL.as_posix())
 
 
@@ -185,7 +182,7 @@ def run_suite(repo_root: Path) -> tuple[int, str]:
 def _compact(entry: dict) -> dict:
     """The stored spelling (SV-RATE-DATA): a cache write equal to fresh
     is omitted — a present equal pair is a hand edit the loaders refuse
-    at the raw-file boundary (issue #931)."""
+    at the raw-file boundary."""
     for field in ("create_5m", "create_1h"):
         if entry.get(field) == entry.get("fresh"):
             entry.pop(field, None)
@@ -198,7 +195,7 @@ def _appended_entry(entries: list[dict], doc_max: datetime | None,
     draws, stamped one second past the row's floor instant, stored
     compactly. The draw retries while the compact entry would equal its
     predecessor but for `from`, so the generator can never emit the
-    no-op the loaders refuse (issue #930)."""
+    no-op the loaders refuse."""
     instant = _floor_instant(entries, doc_max) + timedelta(seconds=1)
     predecessor = _compact({k: v for k, v in _occurrences(entries)[-1].items()
                             if k != "from"})
@@ -245,7 +242,7 @@ def _maybe_add_new_row(doc: dict, doc_max: datetime | None,
 def _bump_fetch_stamp(doc: dict) -> None:
     """Move provider_rates_fetched to the document's newest `from`, the
     way a committing refresh run does: no dated entry may postdate the
-    fetch stamp that recorded the document (issue #931)."""
+    fetch stamp that recorded the document."""
     newest = _max_real_stamp(_rows(doc))
     if newest is None:
         return
@@ -257,9 +254,9 @@ def _bump_fetch_stamp(doc: dict) -> None:
 
 def _spell(instant: datetime, rng: random.Random) -> str:
     """The appended stamp: Z, or — a quarter of the time, seeded — the
-    same later instant re-spelled with a ±HH:MM offset (issue #264's
-    normalisation: the offset spelling carries the instant, never the
-    offset-local wall time mislabeled)."""
+    same later instant re-spelled with a ±HH:MM offset. The offset
+    spelling carries the instant, never the
+    offset-local wall time mislabeled."""
     if rng.random() < OFFSET_CHANCE:
         hours, minutes = rng.choice(OFFSET_POOL)
         return instant.astimezone(
@@ -289,8 +286,6 @@ def _choose_rows(rows: list[tuple[str, list]], rng: random.Random
 
 
 def _rows(doc: dict) -> list[tuple[str, list]]:
-    """Every rate row as (row key, entry list): models first, then
-    hosts — the perturber's own row shape."""
     rows = list(doc["models"].items())
     for model, hosts in doc["providers"].items():
         rows.extend((f"{model} via {host}", entries)
@@ -299,7 +294,6 @@ def _rows(doc: dict) -> list[tuple[str, list]]:
 
 
 def _parse_stamp(text: str) -> datetime:
-    """A `from` stamp as a UTC instant."""
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
@@ -320,8 +314,6 @@ def _max_real_stamp(rows: list[tuple[str, list]]) -> datetime | None:
 
 
 def _print_failure(result: dict) -> None:
-    """The failure report: iteration, seed and its derivation, the row
-    keys touched, the artifact, and the pytest tail."""
     print(f"fuzz: FAIL at iteration {result['iteration']} "
           f"(seed {result['seed']}, derivation "
           f"{result['seed']}:{result['iteration']})")

@@ -3,31 +3,21 @@
 
 Inherits CLAUDIT_THRESHOLDS_BASE_REV; absent means no removal exemptions.
 
-The suite-cost gate's instrument (issue #452). The old gate compared
-WALL-CLOCK durations between two checkouts, A/B/A/B, against a pinned
-baseline release; a runner's speed varies by roughly a factor of two
-between jobs, so the ratio measured the runners as much as the code.
-This bench replaces that with a committed instruction-count ratchet:
-
 - A COUNT IS EXACT FOR ONE (TREE CONTENT, INTERPRETER, LIBRARY SET),
   AND THE BENCH ESTABLISHES THE STATE IT MEASURES UNDER. ``sys.monitoring``'s
   INSTRUCTION event fires once per bytecode the interpreter retires;
   the same tree under the same interpreter and libraries retires the
-  same count -- issue #524's series drew exact repeats across the
-  runner fleet and a 12-vCPU box on identical trees (box-vs-runner
-  within 0.5M in ``run``, residual 6.4 = 6.4), through a clean library
-  set. THE LIBRARY SET IS PART OF THE STATE: the box's site-packages
-  carries extra pytest plugins that tax every test, so a local reading
+  same count. THE LIBRARY SET IS PART OF THE STATE: extra pytest
+  plugins tax every test, so a local reading
   comparable with the runners' comes from a venv holding exactly
   ``backend/requirements.txt`` + ``requirements-test.txt``.
   The state includes the tree's BYTECODE CACHES: the interpreter
   compiles a module the first time it imports it and loads the cached
-  bytecode after that, and the two cost about as much again, so the
-  same tree reads 29.1M instructions at collection cold and 14.2M warm.
+  bytecode after that, so cache state changes collection costs.
   One pass over the pinned fixture (``suite_bench_files.txt``), no
   statistics, one collect-only warm-up pass BEFORE the counted window,
   ``PYTHONHASHSEED=0`` by re-exec: repeated runs in one state are
-  identical (five-run probes, two seed values).
+  identical.
   WHAT THE COUNT IS NOT INDEPENDENT OF IS THE TREE CONTENT the pinned
   tests scan: the fixture's tree-scanning tests spend per-line over
   ``tests/``, so a tests/-tree change moves the counts with no fixture,
@@ -91,7 +81,6 @@ else:
 # Preserve the bench counter for existing callers.
 _tests_tree_lines = tests_tree._tests_tree_lines  # pylint: disable=protected-access
 
-# The committed fixture list, and the repo whose test files it names.
 FIXTURE = Path(__file__).resolve().parent / 'suite_bench_files.txt'
 _ONE_PLACE = Decimal('0.1')
 # pytest exit codes a usable run may return: 0 all passed, 1 tests
@@ -103,8 +92,6 @@ _QUANTUM = _ONE_PLACE
 # compile/load split outside the counted window, so the child's own
 # warm-up pass would only repeat it.
 WARMED_ENV = 'CLAUDIT_SUITE_BENCH_WARMED'
-# The reading's shape lives in the report module; this alias is what
-# the annotations name, exactly as reparse_bench does.
 Measurement = suite_report.Measurement
 
 
@@ -144,15 +131,8 @@ def warm_bytecode_caches(fixture: list[Path], repo_root: Path) -> None:
 
     A count must not depend on what the checkout arrived with. The
     interpreter compiles a module the first time it imports it and
-    loads the cached bytecode after that, and the compile costs about
-    as much again as the load: the same tree measured 29.1M
-    instructions at collection with no caches present and 14.2M with
-    them. Before #499 the two call sites did not agree on that -- the
-    leg's bench measured a fresh checkout while the canary's measured
-    after the suite had run in the same working tree -- so the gate
-    read one number and the tighten bot wrote the other into the
-    committed budgets, leaving a ceiling no run could satisfy
-    (issue #496).
+    loads the cached bytecode after that, so the gate and the tighten
+    bot need the same cache state to produce comparable counts.
 
     So the bench establishes the state rather than inheriting it: one
     collect-only pass compiles the fixture's modules, and pytest writes
@@ -260,8 +240,7 @@ def _reexec_with_deterministic_hash_seed(argv) -> None:
     run, and pytest walks sets in several places. Re-exec makes the run
     deterministic by construction; the measurement records the
     interpreter's own confirmation (``sys.flags.hash_randomization``),
-    and the determinism probe over the real fixture (five runs, two
-    seed values, identical counts) proves it empirically.
+    confirming the seed used by the counted child.
 
     The child also runs with PYTHONDONTWRITEBYTECODE: a gate that
     wrote ``__pycache__`` into the checkout would dirty the tree, and
@@ -277,7 +256,7 @@ def _reexec_with_deterministic_hash_seed(argv) -> None:
     env = dict(os.environ, PYTHONHASHSEED='0', PYTHONDONTWRITEBYTECODE='1',
                # The parent already warmed the tree before handing over;
                # saying so keeps the child from paying for a second
-               # collect-only pass it does not need (issue #496).
+               # collect-only pass it does not need.
                **{WARMED_ENV: '1'})
     # The child's streams are inherited on purpose (its report is
     # the run's output), so only its exit code is read back.
@@ -315,8 +294,7 @@ def _load_bounded_document() -> None:
     """Load the pricing tables from the bounded bench document.
 
     The counted run's conftest imports ``backend.pricing``, whose
-    import-time parse of ``src/pricing.json`` scaled with the document
-    (issue #872: a data-only refresh breached the residual ceiling). The
+    import-time parse of ``src/pricing.json`` scales with the document. The
     bench loads the committed bounded ``suite_pricing_doc.json`` HERE —
     in the counted child, before any counted window opens — and rebinds
     every loaded table on both pricing modules, so the measured workload

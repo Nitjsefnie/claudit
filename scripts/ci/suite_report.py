@@ -90,7 +90,6 @@ class Measurement(NamedTuple):
 
 
 def measurement_json(measurement: Measurement) -> dict:
-    """The measurement in the shape the file carries."""
     return {
         'instrument': measurement.instrument,
         'unit': UNIT,
@@ -287,7 +286,6 @@ def summary_line(counts: dict) -> str:
 
 
 def report(measurement: Measurement) -> str:
-    """The human report: phases, counts, the CPU telemetry beside them."""
     lines = [
         f'suite bench over {measurement.tests} tests '
         f'({measurement.fixture}):',
@@ -312,7 +310,6 @@ def report(measurement: Measurement) -> str:
 
 
 def summary_markdown(measurement: Measurement, verdict=None) -> str:
-    """The step-summary markdown: the phase table and the verdict."""
     lines = ['### Suite cost', '',
              '| phase | ' + UNIT + ' | process_time_s |',
              '| --- | --- | --- |']

@@ -1,4 +1,4 @@
-"""Full-timeline figure rendering for ccusage_plot_db.py (issue #8 split).
+"""Full-timeline figure rendering for ccusage_plot_db.py.
 
 The six binned metric panels, the cost-by-model and token-breakdown
 summary panels, and plot_timeline itself. Shared theme constants and the
@@ -33,7 +33,6 @@ def _tz_label(tz):
     if not tz:
         return "UTC"
     label = str(tz)
-    # Shorten IANA names for display
     for alias, iana in TZ_ALIASES.items():
         if iana == str(tz):
             return alias
@@ -44,7 +43,6 @@ def _pick_bin(span_h: float):
     """Snap the bar width to a clean interval targeting ~120 bars."""
     TARGET_BARS = 120
     bin_seconds = max(60, span_h * 3600 / TARGET_BARS)
-    # Snap to a clean interval
     clean_intervals = [
         (60, "per 1min"), (120, "per 2min"), (300, "per 5min"),
         (600, "per 10min"), (900, "per 15min"), (1800, "per 30min"),
@@ -63,12 +61,10 @@ def _pick_bin(span_h: float):
 
 
 def _timeline_ctx(events, tz) -> dict:
-    """Shared per-render values: display timestamps, labels, bin width."""
     if tz:
         timestamps = [e["timestamp"].astimezone(tz) for e in events]
     else:
         timestamps = [e["timestamp"] for e in events]
-    # Determine time span and bin size
     span_h = (
         (timestamps[-1] - timestamps[0]).total_seconds() / 3600
         if len(timestamps) > 1
@@ -86,7 +82,6 @@ def _timeline_ctx(events, tz) -> dict:
 
 
 def _timeline_figure():
-    """The 4x2 metric grid plus the full-width burn-rate row."""
     if plt is None or gridspec is None:
         raise RuntimeError("matplotlib is required to render plots")
     fig = plt.figure(figsize=(18, 26))
@@ -100,7 +95,7 @@ def _timeline_figure():
 
 
 def _feature_figure(disabled: Collection[str]) -> tuple:
-    """Compact only the enabled panels; default geometry uses the old path."""
+    """Compact only the enabled panels; default geometry uses the full layout."""
     if not any(key in disabled for key in DRAWABLE_FEATURES):
         return _timeline_figure()
     if plt is None or gridspec is None:
@@ -121,10 +116,8 @@ def _feature_figure(disabled: Collection[str]) -> tuple:
 
 
 def _timeline_header(fig, events, ctx, tz, highlight, show_summary=True):
-    """Suptitle (plan/version) + subtitle (range, calls, cost)."""
     display_tz = tz if tz else timezone.utc
     timestamps = ctx["timestamps"]
-    # Actual date range from data
     first_ts = (
         timestamps[0]
         if timestamps[0].tzinfo
@@ -137,7 +130,6 @@ def _timeline_header(fig, events, ctx, tz, highlight, show_summary=True):
     )
     date_range_str = f"{first_ts.strftime('%b %d %H:%M')} – {last_ts.strftime('%b %d %H:%M')} {ctx['tz_label']}"
 
-    # Get plan and version info
     plan_name, claude_version = get_claude_info()
 
     title_parts = ["Claude Code Usage"]
@@ -199,7 +191,6 @@ def _cumulative(values):
 
 
 def _adaptive_xaxis(ax, span_h, fmt_tz):
-    """Locator/formatter picked by the visible time span."""
     if mdates is None:
         raise RuntimeError("matplotlib is required to render plots")
     if span_h <= 6:
@@ -224,7 +215,6 @@ def _adaptive_xaxis(ax, span_h, fmt_tz):
 
 
 def _plot_metric_panel(ax, ctx, events, title, key, is_currency, highlight, tz):
-    """One binned metric panel + cumulative line on a secondary axis."""
     style_axes(ax)
     timestamps = ctx["timestamps"]
     values = [e[key] for e in events]
@@ -239,7 +229,6 @@ def _plot_metric_panel(ax, ctx, events, title, key, is_currency, highlight, tz):
         color=color, alpha=0.3, align="edge", zorder=3,
     )
 
-    # Cumulative line on secondary y-axis
     cumulative = _cumulative(values)
     ax2 = ax.twinx()
     ax2.plot(timestamps, cumulative, color="#ffffff", alpha=0.15, linewidth=4, zorder=4)
@@ -281,7 +270,6 @@ def _plot_metric_panel(ax, ctx, events, title, key, is_currency, highlight, tz):
 
 
 def _plot_cost_by_model(ax_summary, events):
-    """Horizontal bar chart of total cost per model."""
     style_axes(ax_summary)
     stats: dict[str, list] = {}
     for e in events:
@@ -326,7 +314,6 @@ def _plot_cost_by_model(ax_summary, events):
 
 
 def _plot_token_breakdown(ax_breakdown, events):
-    """Horizontal bar chart of token totals by category."""
     style_axes(ax_breakdown)
     token_categories = [
         ("Input", "inputTokens", COLORS["inputTokens"]),
@@ -369,7 +356,6 @@ def _plot_token_breakdown(ax_breakdown, events):
 
 
 def _plot_panels(axes, ctx, events, highlight, tz, disabled_features=()):
-    """Draw only enabled metric, model and token panels."""
     remaining = iter(axes)
     if 'usage_timeseries' not in disabled_features:
         for title, key, is_currency in CHARTS:
@@ -404,7 +390,6 @@ def plot_timeline(events, period_str, output_path, tz=None, highlight=None,
 
     _plot_panels(axes, ctx, events, highlight, tz, disabled_features)
 
-    # -- Burn rate panel --
     if ax_burn is not None:
         style_axes(ax_burn)
         sessions = build_sessions(events)

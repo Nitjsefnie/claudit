@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""The records.uuid type gate and its corpus scan (issue #959, task 8).
+"""The records.uuid type gate and its corpus scan.
 
-R6's one-column verdict — ``uuid`` type only if EVERY value casts, else
-the column stays TEXT — is superseded by the PM's split mandate:
 ``records`` stores the identity in a three-slot split
 (``uuid_col UUID`` / ``seq INT4`` / ``fallback TEXT``, classified once
 at persist by ``backend/uuid_split.py``), so a value that refuses a
 bare uuid cast is never coerced and never lost — it lands in ``seq`` or
 ``fallback`` and rebuilds byte-identically on read. This tool remains
-the CLASSIFIER's evidence pass: ``gate()`` still reports which values
+the CLASSIFIER's evidence pass: ``gate`` still reports which values
 refuse the cast (the cast evidence behind the split), ``split_counts``
 reports every distinct value's slot plus the pure/split coexistence
 that decides how the winner rule may group, and
@@ -21,7 +19,7 @@ PG's OWN rendering, so one disagreement would be a stored-text change.
 cast as the predicate over the full-corpus mirror and the fixtures —
 one parse pass, because only the parser's output is what would be
 stored. The same pass reports each per-row measure column's observed
-bounds, the corpus evidence behind ruling R7's INT4 narrowing.
+bounds to verify its INT4 storage range.
 
 SV-FULL-CORPUS: run against a mirror OUTSIDE the tree pointed at with
 R2_ENDPOINT=file://..., never the live database or the session tree.
@@ -51,7 +49,7 @@ from backend import key_layout, parse, r2, uuid_split  # noqa: E402  pylint: dis
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 FIXTURES_ROOT = REPO_ROOT / "fixtures"
 
-# Per-row measure columns ruled to INT4 (R7); bounds prove no value
+# Per-row measure columns stored as INT4; bounds prove no value
 # reaches 2^31-1. Mirrors the lists ingest_persist guards.
 RECORD_MEASURES = (
     "fresh_tokens", "cache_creation_tokens", "cache_read_tokens",
@@ -63,7 +61,7 @@ INT4_MAX = (1 << 31) - 1
 
 
 class GateResult(NamedTuple):
-    """The R6 verdict: convert only when every distinct value casts."""
+    """Whether every distinct value is UUID-castable."""
 
     convert: bool
     failures: tuple[str, ...]   # distinct, input order, verbatim as stored
@@ -71,12 +69,12 @@ class GateResult(NamedTuple):
 
 
 class SplitCounts(NamedTuple):
-    """The split classification of a value set (task 8's evidence).
+    """The split classification of a value set.
 
     ``coexistence`` holds the heads stored BOTH as a pure uuid and with
     a counter — the evidence for the partition decision: those heads are
     exactly the ones a partition keyed on ``uuid_col`` alone would merge
-    into one winner group where the old TEXT rule kept two.
+    into one winner group despite their distinct identities.
     """
 
     distinct: dict[str, int]    # per slot: distinct values
@@ -85,8 +83,6 @@ class SplitCounts(NamedTuple):
 
 
 class _Part(NamedTuple):
-    """One worker's slice: uuids and bounds on success, the error otherwise."""
-
     kind: str
     uuids: tuple[str, ...]
     non_str: tuple[str, ...]
@@ -97,12 +93,10 @@ class _Part(NamedTuple):
 
 def gate(values: Iterable[str],
          cast: Callable[[str], bool]) -> GateResult:
-    """Decide the uuid column's type from every value the parser stores.
+    """Report whether every distinct stored value casts, with verbatim refusals.
 
-    One refusal keeps the column TEXT and is reported verbatim. An empty
-    scan converts nothing: no evidence is not evidence. ``cast`` is
-    injected — the scan passes PostgreSQL's uuid cast, the tests pass a
-    predicate that pins each branch.
+    An empty scan reports convert=False: no evidence is not evidence.
+    Inject PostgreSQL's uuid cast for scans or a test predicate.
     """
     seen: set[str] = set()
     failures: list[str] = []
@@ -118,7 +112,7 @@ def gate(values: Iterable[str],
 
 
 def split_counts(values: Iterable[str]) -> SplitCounts:
-    """Classify every value into its storage slot (task 8's evidence).
+    """Classify every value into its storage slot.
 
     Uses the SHIPPED classifier (backend/uuid_split.split_uuid), so the
     corpus counts describe the code the ingest actually runs. Totals
@@ -214,7 +208,6 @@ def _read_key(key: str) -> bytes:
 
 
 def _parse_job(job: tuple[str, str]) -> _Part:
-    """Worker: parse one file, return its uuids, bounds and any failure."""
     kind, name = job
     try:
         if kind == "r2":
@@ -282,12 +275,10 @@ END;
 $$ LANGUAGE plpgsql
 """
 
-
 _INSERT_VALUES = "INSERT INTO uuid_vals (v) VALUES (%s)"
 
 
 def _insert_values(conn, values: list[str]) -> None:
-    """Batch-load the distinct values into the temp cast table."""
     batch: list[tuple[str, ...]] = []
     with conn.cursor() as cur:
         for value in values:
@@ -320,7 +311,6 @@ def pg_uuid_failures(values: set[str]) -> set[str]:
 def _collect(workers: int) -> tuple[list[str], set[str],
                                     dict[str, list[int]], list[str],
                                     int, int]:
-    """Parse every job in a fork pool, then merge the workers' slices."""
     jobs = _jobs()
     print(f"scan jobs={len(jobs)} workers={workers}", flush=True)
     ctx = multiprocessing.get_context("fork")
@@ -337,8 +327,7 @@ def _report_scan(errors: list[str], non_str: set[str]) -> None:
 
 
 def _report_verdict(result: GateResult, sample: int) -> None:
-    # R6's one-column conversion is superseded by task 8's split: this
-    # line reports WHICH values refuse a bare uuid cast — exactly the
+    # This line reports WHICH values refuse a bare uuid cast — exactly the
     # ones the split stores in seq/fallback instead of losing.
     verdict = ("SPLIT: every distinct value would cast"
                if result.convert else
@@ -410,10 +399,8 @@ def main(argv: list[str] | None = None) -> int:
     failing = pg_uuid_failures(set(uuids))
     result = gate(uuids, lambda value: value not in failing)
     if non_str:
-        # A non-string uuid could not be stored as text either (the old
-        # TEXT column's bind would have been rejected too): the split
-        # classifies text, so report these and let the write fail as it
-        # always did — corpus scan: zero of them.
+        # The split classifies text, so report non-string values and
+        # let the write fail rather than coercing an invalid identity.
         result = result._replace(convert=False)
     _report_verdict(result, args.sample)
     _report_split(split_counts(uuids),

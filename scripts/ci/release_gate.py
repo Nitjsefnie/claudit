@@ -6,21 +6,20 @@ to tag. "The gates that vouch for the commit" is the whole content of this
 module: a check run sitting on a SHA is NOT by itself evidence that CI
 ran for that SHA, and two shapes of noise make it a bad one.
 
-  - A NAME is not identity. The waiter used to drop every check whose name
-    started with `release`, meaning to drop its own job and in fact
-    dropping any gate that ever grows that prefix (issue #557).
+  - A NAME is not identity. Dropping every check whose name starts with
+    `release` would drop any gate that grows that prefix, not just this job.
   - A SHA is not a claim either. An `issue_comment` workflow runs against
     the DEFAULT BRANCH TIP — GitHub sets that run's head SHA to master's
     last commit — so a `/claim` anywhere in the repository publishes a
-    `claim` check run on master's head, and a red one refused a release
-    cut from that very commit (issue #579).
+    `claim` check run on master's head; a red one must not refuse a release
+    cut from that commit.
 
 So identity comes from the workflow run that PRODUCED each check run: its
 `head_sha` and its triggering `event`. A row is judged when the run that
 produced it was triggered for this commit by an event that creates CI for
 a commit's sake — a push or a pull request — plus a manual dispatch of a
 workflow that also gates this commit. Every other trigger answers a question no
-commit asked, and is skipped: `issue_comment` (#579), `pull_request_target`
+commit asked, and is skipped: `issue_comment`, `pull_request_target`
 — pr-gate.yml has no other trigger and a gate-closed PR concludes its run
 `failure` — `schedule`, `workflow_run`, and a dispatch of a workflow that
 never gates.
@@ -50,7 +49,7 @@ one exception is this job's own, excluded by exact job name when its run
 id is unreadable — a row the waiter cannot place must not make it wait on
 itself, and an exact name is not a prefix. And absence of a gate is
 caught on the other side of the filter, not here — the wait step still
-requires ci-gate's own `aggregate` verdict (issue #247), which no amount
+requires ci-gate's own `aggregate` verdict, which no amount
 of dropping rows can manufacture.
 
   python3 scripts/ci/release_gate.py --sha <sha> --self-run-id <id> \\

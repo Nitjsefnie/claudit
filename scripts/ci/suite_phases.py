@@ -26,10 +26,8 @@ Two instruments:
   one, and the re-exec with ``PYTHONHASHSEED=0`` holds set-iteration
   order fixed, which is the one input left to hash order (pytest walks
   sets in several places). Across machine families the counts are not
-  portable: within one family the observed wobble is <=0.2M, while
-  ``residual`` reads ~2.4M higher on a GitHub runner than on this
-  benchmark box (the session-level code outside the wrapped phases is
-  environment-sensitive), which is why the budgets are seeded from a
+  portable: session-level code outside the wrapped phases is
+  environment-sensitive, which is why the budgets are seeded from a
   runner measurement.
 - ``ProcessTimeSink`` accumulates ``time.process_time()`` per phase.
   It is the portable fallback when no ``sys.monitoring`` is available,
@@ -191,8 +189,6 @@ class ProcessTimeSink:
             self.phases[key] += time.process_time() - start
             self._stack.pop()
 
-
-# --- the pytest plugin -------------------------------------------------------
 
 class SuitePhasePlugin:
     """Partition a pytest run by hookwrappers.

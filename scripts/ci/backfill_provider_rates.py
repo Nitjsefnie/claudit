@@ -174,7 +174,6 @@ def _render(as_of: str, reports: dict[str, list[str]]) -> str:
 
 @dataclass
 class ModelListing:
-    """Endpoint rows and log matches for one model's backfill pass."""
     payload: object
     rows: dict[str, hourly.Listing]
     refused: dict[str, str]
@@ -184,7 +183,6 @@ class ModelListing:
 
 @dataclass(frozen=True)
 class BackfillContext:
-    """Shared inputs for rewriting all tracked provider rows."""
     source_doc: dict
     result: dict
     region: str | None

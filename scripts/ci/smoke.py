@@ -84,7 +84,7 @@ def provision() -> None:
 
     # The auth DB is external in production and this repo owns no schema
     # for it. schema_check() requires exactly what the login lookup
-    # reads — users.user_id as an integer (issue #368) and users.config
+    # reads — users.user_id as an integer and users.config
     # as JSONB — so that is exactly what gets built, and nothing more: a
     # richer fake would drift from the real table without anyone noticing.
     log(f"giving {AUTH_DB} the minimal shape the login lookup reads")
@@ -152,7 +152,7 @@ def post_no_redirect(url: str) -> tuple:
 
     The middleware refuses a mutating request whose Origin does not match
     Host, and a bare urllib POST carries none — so an Origin-less client
-    gets 403 from every login route (issue #136). A browser never sends
+    gets 403 from every login route. A browser never sends
     such a request: a form POST always carries Origin. Derive it from the
     URL, scheme://netloc, so this client presents the same-origin page it
     acts for.
@@ -352,9 +352,8 @@ def main() -> int:
         log("all checks passed")
         return 0
     finally:
-        # Issue #87: the drop used to sit at the end of the success path
-        # only, so a run that failed after provisioning left its databases
-        # for the stale sweep (six hours). Drop on every exit path;
+        # Drop on every exit path so failed runs leave no databases
+        # waiting for the stale sweep (six hours);
         # --keep-databases is the debugging escape hatch. A cleanup
         # failure is logged, never allowed to mask the primary failure or
         # change the exit code.

@@ -45,7 +45,6 @@ def _git(target: Path, *args: str) -> None:
 
 
 def interrupt_signals() -> list[int]:
-    """The interrupt signals this platform has, in teardown order."""
     return [sig for sig in (getattr(signal, name, None)
                             for name in INTERRUPT_SIGNAL_NAMES)
             if sig is not None]
@@ -54,9 +53,8 @@ def interrupt_signals() -> list[int]:
 def install_interrupt_handlers() -> Callable[[], None]:
     """Route the interrupt signals through SystemExit(128 + signum) so
     main's `finally` cleanup — the pricing baseline restore, the
-    snapshot-tree removal — runs on an interrupted run, where SIGTERM's
-    default disposition killed the process with no unwinding at all
-    (issue #331).
+    snapshot-tree removal — runs on an interrupted run; SIGTERM's
+    default disposition kills the process without unwinding.
 
     The interrupt signals are UNBLOCKED first: a shard child inherits
     the parent's blocked spawn-window mask across fork/exec, and a
@@ -264,7 +262,6 @@ def _snapshot_collection_root(source: Path, dest: Path) -> None:
 
 
 def _shard_refusal(path: Path, repo_root: Path) -> str:
-    """Format the refused path as a repository-relative POSIX path."""
     display_path = (path.relative_to(repo_root).as_posix()
                     if path.is_relative_to(repo_root)
                     else path.absolute().as_posix())

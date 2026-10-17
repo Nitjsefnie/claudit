@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Format hourly OpenRouter provider-rate refresh reports and commit messages."""
 from __future__ import annotations
 
 import argparse
@@ -52,7 +51,6 @@ def _sampled_host(host: str, reason: str) -> str:
 
 
 def _sampled_text(sampled: dict[str, str]) -> str:
-    """Group sampled hosts that share the same display reason."""
     groups: dict[str, list[str]] = {}
     for host, reason in sorted(sampled.items()):
         groups.setdefault(_sampled_reason(reason), []).append(host)
@@ -104,7 +102,6 @@ def notice_lines(notices: list[str]) -> list[str]:
 
 
 def vanished_state(vanished: list[tuple[str, str]]) -> dict[str, list[str]]:
-    """Sort vanished hosts by model for the notice-state file."""
     state: dict[str, list[str]] = {}
     for model, host in vanished:
         state.setdefault(model, []).append(host)
@@ -113,7 +110,7 @@ def vanished_state(vanished: list[tuple[str, str]]) -> dict[str, list[str]]:
 
 def sampled_state(sampled: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
     """Each sampled host's recorded classification: the short display
-    reason the report's sampled line groups by (issue #933), so a changed
+    reason the report's sampled line groups by, so a changed
     classification shows as a diff of the state file. A model with no
     sampled hosts leaves no empty entry behind."""
     return {model: {host: _sampled_reason(reason)
@@ -122,7 +119,7 @@ def sampled_state(sampled: dict[str, dict[str, str]]) -> dict[str, dict[str, str
 
 
 def _visible(lines: list[str], previous: frozenset[str]) -> list[str]:
-    """Drop a rendered line the baseline already carried (issue #888).
+    """Drop a rendered line the baseline already carried.
 
     A line the previous run published — shown or suppressed — is not
     repeated; a line that is new, or that changed, is not in the baseline
@@ -155,7 +152,6 @@ def _move_text(move: Move) -> str:
 
 
 def _search_move_text(move: Move, off: str) -> str:
-    """Format an independently sampled search-rate move."""
     old_search = move.old.get("web_search", 0.0) if move.old else 0.0
     log_count = max(0, move.entries_appended - 1)
     history = (f"; retained {log_count} token-history entries"
@@ -168,7 +164,6 @@ def _search_move_text(move: Move, off: str) -> str:
 
 def _logged_move_text(move: Move, new, old_rates: dict | None,
                       search: str | None, off: str) -> str:
-    """Format a log-backed move with multiple history entries or search."""
     count = move.entries_appended
     unit = "entry" if count == 1 else "entries"
     if move.old is None:
@@ -190,7 +185,6 @@ def _logged_move_text(move: Move, new, old_rates: dict | None,
 
 
 def _new_move_text(move: Move, new, windows: str, off: str) -> str:
-    """Format a newly tracked listing."""
     rates = ", ".join(f"{field} {new.rates[field]!r}" for field in _RATE_FIELDS)
     search = new.rates.get("web_search", 0.0)
     if search:
@@ -200,7 +194,6 @@ def _new_move_text(move: Move, new, windows: str, off: str) -> str:
 
 def _changed_move_text(move: Move, new, old_rates: dict | None,
                        off: str) -> str:
-    """Format changes to an existing endpoint's stored listing."""
     assert move.old is not None
     assert old_rates is not None
     moved = [f"{field} {old_rates[field]!r} → {new.rates[field]!r}"
@@ -226,9 +219,9 @@ def report(stamp: str, result: Result, tracked: dict,
     """Render moves, sampled coverage, vanished rows, and notices.
 
     A notice line the baseline already carried is omitted; an empty
-    ``previous`` renders every notice (issue #888). ``standing=False``
+    ``previous`` renders every notice. ``standing=False``
     drops the vanished and sampled blocks — the standing state the commit
-    body leaves to the recorded JSON keys (issue #933) — together with any
+    body leaves to the recorded JSON keys — together with any
     model section left empty by the drop; the run's own stdout report
     renders with the default, ``standing=True``."""
     lines = [f"OpenRouter provider rates, detected {stamp}"]
@@ -261,7 +254,6 @@ def report(stamp: str, result: Result, tracked: dict,
 
 
 def commit_message(result: Result, body: str, vendor=None) -> str:
-    """Build the hourly pricing commit message around the report."""
     changed = sum(1 for move in result.moves if move.old is not None)
     added = len(result.moves) - changed
     counts = [f"{changed} changed" if changed else "",
@@ -284,7 +276,6 @@ def commit_message(result: Result, body: str, vendor=None) -> str:
 
 
 def arguments(argv: list[str] | None) -> argparse.Namespace:
-    """Parse the hourly refresh's command-line options."""
     parser = argparse.ArgumentParser(
         description="Append moved OpenRouter provider rates to src/pricing.json.")
     parser.add_argument("--dry-run", action="store_true",
@@ -299,7 +290,7 @@ def vendor_report(stamp: str, vendor,
     """Render the vendor pass's section of the hourly report.
 
     ``previous`` is the same published-notice set ``report`` takes: a vendor
-    notice line unchanged since the last commit is omitted (issue #888)."""
+    notice line unchanged since the last commit is omitted."""
     lines = [f"Vendor tracked table, detected {stamp}"]
     if not (vendor.moves or vendor.refusals or vendor.notices):
         lines.append("no first-party vendor moved")

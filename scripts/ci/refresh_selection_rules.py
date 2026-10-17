@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolution-free endpoint selection for one host's listed prices (#877).
+"""Resolution-free endpoint selection for one host's listed prices.
 
 Explicit resolve entries keep precedence. Otherwise multiple prices resolve
 by offering shape or continuity with stored token rates:
@@ -47,7 +47,6 @@ _ORDER = ("read", "fresh", "output")
 
 @dataclass(frozen=True)
 class RegionSelection:
-    """A host's listings after the data-region decision."""
     listings: list[Listing]
     chosen: Listing | None
     notice: str | None

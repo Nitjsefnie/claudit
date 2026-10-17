@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 """Plot Claude Code usage by reading the claudit Postgres DB.
 
-A database-backed rewrite that shares an ancestor with ccusage_plot.py
-(upstream nhz-io/ccusage-plot), with the JSONL walker swapped for a
-`claudit` SELECT — uses backend/parse.py's already-deduped + cost-priced
-`records` rows. DSN comes from CLAUDIT_DATABASE_URL_VIZ in the env or .env at the
+Uses backend/parse.py's already-deduped + cost-priced `records` rows. DSN comes from CLAUDIT_DATABASE_URL_VIZ in the env or .env at the
 repo root.
 
-All matplotlib rendering lives in ccusage_plot_render.py (issue #8 split):
+All matplotlib rendering lives in ccusage_plot_render.py:
 this module is the DB + CLI half and stays importable without matplotlib.
 It runs both as a script (sys.path[0] is this directory, so the plain
 `ccusage_plot_render` import resolves) and as an importlib-loaded module
@@ -40,7 +37,7 @@ from ccusage_plot_timeline import plot_timeline  # noqa: E402
 from backend.env_config import getenv_with_dotenv, warn_deprecated_env  # noqa: E402
 # pylint: enable=wrong-import-position
 
-# The identity rebuild comes from the one definition (issue #959 task 8):
+# The identity rebuild comes from the one definition:
 # records.uuid is the split column set, so DISTINCT ON keys on the same
 # reconstruction the ingest's winner rule groups by.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -66,7 +63,6 @@ def _resolve_db_url(cli_url: str | None) -> str:
 
 
 def _row_to_event(row) -> dict:
-    """One records-table row → the event dict the panels consume."""
     ts, model, fresh, out, cc, cr, e5, e1h, cost = row
     unsplit = max(0, int(cc) - int(e5) - int(e1h))
     return {
@@ -237,7 +233,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _resolve_date_range(args, tz):
-    """Resolve --from, --to, -p combinations into (start, end, label)."""
     now = datetime.now(timezone.utc)
     date_from = args.date_from
     date_to = args.date_to
@@ -251,22 +246,18 @@ def _resolve_date_range(args, tz):
         sys.exit(1)
 
     if has_from and has_to:
-        # Explicit range
         start = parse_datetime(date_from, tz)
         end = parse_datetime(date_to, tz)
         period_label = f"{date_from}_to_{date_to}"
     elif has_from and has_period:
-        # Start date + period forward
         start = parse_datetime(date_from, tz)
         end = start + parse_period(period)
         period_label = f"{date_from}+{period}"
     elif has_from:
-        # From date to now
         start = parse_datetime(date_from, tz)
         end = now
         period_label = f"{date_from}_to_now"
     elif has_to and has_period:
-        # Period ending at date
         end = parse_datetime(date_to, tz)
         start = end - parse_period(period)
         period_label = f"{period}_to_{date_to}"
@@ -274,17 +265,14 @@ def _resolve_date_range(args, tz):
         print("Error: --to requires either --from or -p.", file=sys.stderr)
         sys.exit(1)
     elif has_period:
-        # Period back from now
         start = now - parse_period(period)
         end = now
         period_label = period
     elif args.all:
-        # All history
         start = None
         end = None
         period_label = "all"
     else:
-        # Default: last 24h
         start = now - timedelta(hours=24)
         end = now
         period_label = "24h"
@@ -312,7 +300,7 @@ def main():
 
     if not events:
         print(f"No API calls found for {period_label}.", file=sys.stderr)
-        # Exit 3 = no data (issue #445), distinct from 1 (genuine failure)
+        # Exit 3 = no data, distinct from 1 (genuine failure)
         # and 2 (argparse), so GET /api/export maps it to a 4xx instead of
         # serving "no data" as a server fault.
         sys.exit(3)

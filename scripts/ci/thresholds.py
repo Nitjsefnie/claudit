@@ -27,10 +27,8 @@ if str(Path(__file__).resolve().parent) not in sys.path:
 # pylint: disable-next=import-outside-toplevel
 validate = importlib.import_module('thresholds_validate')
 
-# The moved validators, re-bound here so every existing caller and test
-# keeps spelling them as they always have (thresholds.coverage_value and
-# so on): the split moved WHERE a value is judged, not its name. The
-# annotations are load-bearing: the sibling is reached by importlib,
+# The validators are exposed here for callers (thresholds.coverage_value
+# and so on). The annotations are load-bearing: the sibling is reached by importlib,
 # which is untyped, and a bare alias would leave every value here an
 # unconstrained Any.
 _Number = Callable[[object, str], Decimal]
@@ -57,8 +55,8 @@ _SCHEMA_VERSION = 1
 COVERAGE_LANGUAGES = ('python', 'javascript')
 # The unit the reparse bench records for a phase share (scripts/ci/
 # reparse_bench.py): the phase's percent of one reparse pass's own CPU
-# work. Telemetry since issue #513 — still measured, still stored, no
-# longer compared against anything (see REPARSE_GATED_METRICS).
+# work. Telemetry: measured and stored, never compared against anything
+# (see REPARSE_GATED_METRICS).
 REPARSE_UNIT = 'percent_of_pass_cpu'
 # The gated instrument's unit: hundreds of bytecode instructions per
 # file, counted with sys.monitoring's INSTRUCTION event. Exact, so it
@@ -74,13 +72,12 @@ REPARSE_FAMILY = 'reparse'
 # a share shows where the pass spends its CPU, which is worth having
 # beside the gate's own number.
 REPARSE_METRICS = ('bytecodes', 'share')
-# The instruments the gate and the ratchet act on — bytecodes alone
-# (issue #513). A share is a PROPORTION of a timed run, not a count of
-# work, and it fails as a gate twice over: its runner-to-runner spread
-# measures 1.9-2.7 points against the 1.5-point gap it would be compared
-# against (#500, #506), and it moves when the corpus MIX shifts between
+# The instruments the gate and the ratchet act on — bytecodes alone.
+# A share is a PROPORTION of a timed run, not a count of work, and fails
+# as a gate twice over: runner-to-runner spread can exceed the calibration
+# gap, and it moves when the corpus MIX shifts between
 # formats of different parse cost even with no code path slower and
-# every count under its own ceiling (PR #512). The measurement doctrine's
+# every count under its own ceiling. The measurement doctrine's
 # own principle settles it: counters gate, derived proportions do not.
 # The share members STAY in the document, carrying the reading they
 # recorded, and the loader and the direction guard keep treating them as
@@ -107,7 +104,7 @@ SUITE_COST_PHASES = ('collection', 'run', 'residual')
 # count of the scanned tree (tests/*.py), which the fixture's
 # tree-scanning tests spend per-line over. A change to that tree moves
 # the counts with no fixture or interpreter change, so a budget without
-# it describes a workload no run can confirm (issue #524).
+# it describes a workload no run can confirm.
 SUITE_COST_IDENTITY = 'tests_tree_lines'
 SUITE_COST_UNIT = 'million_instructions'
 _SUITE_COST_FIELDS = ('measured', 'floor')
@@ -135,7 +132,7 @@ _FIELD_LABELS = {
 
 def _required_fields(value: object, expected: tuple[str, ...], name: str,
                      optional: tuple[str, ...] = ()) -> None:
-    """The moved field check, with this module's family labels."""
+    """The field check, with this module's family labels."""
     return validate.required_fields(
         value, expected, name, _FIELD_LABELS, optional)
 
@@ -224,7 +221,7 @@ def _reparse(family):
     """Validate the reparse bench's per-phase calibrations.
 
     Two records per phase — a percent share of the pass's own CPU, which
-    is telemetry since issue #513, and the bytecode count the gate holds
+    is telemetry, and the bytecode count the gate holds
     a phase to — each with its gap ABOVE the measured value, because a
     cost's floor is the ceiling it may be exceeded by. Writing it the
     coverage way round (floor = measured - gap) would put the ceiling

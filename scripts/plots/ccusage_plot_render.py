@@ -32,7 +32,6 @@ COLOR_LIMIT_HIT = markers.COLOR_LIMIT_HIT
 COLOR_WINDOW = markers.COLOR_WINDOW
 Line2D = markers.Line2D
 
-# -- Theme colors --
 BG_DARK = "#1a1a2e"
 BG_AXES = "#16213e"
 BORDER = "#2a2a4a"
@@ -55,7 +54,6 @@ EMA_ALPHA = 0.15
 BUCKET_MINUTES = 30
 BUCKET_THRESHOLD = 20
 
-# Chart definitions: (title, key, is_currency)
 CHARTS = [
     ("Input Tokens", "inputTokens", False),
     ("Output Tokens", "outputTokens", False),
@@ -228,7 +226,6 @@ def _get_plan_from_credentials():
 
 
 def get_claude_info():
-    """Get subscription type and version from the claude CLI, with credentials.json fallback."""
     plan = ""
     version = ""
     try:
@@ -282,7 +279,6 @@ def add_highlight_bands(ax, timestamps, start_hour, end_hour, tz):
         return
     display_tz = tz if tz else timezone.utc
 
-    # Save current x-axis limits before adding spans
     xlim = ax.get_xlim()
 
     dates_seen = set()
@@ -438,11 +434,6 @@ def detect_shifts(ema_values, sessions, lookback=10, threshold=2.0):
     return clustered
 
 
-# ---------------------------------------------------------------------------
-# Session burn rate panel
-# ---------------------------------------------------------------------------
-
-
 def _burn_emas(sessions, visible, token_keys):
     """Per-token EMAs over all sessions (shift detection) and over the
     visible subset (display, with an alpha adapted to the count)."""
@@ -511,22 +502,18 @@ def _burn_context(sessions, view_start, view_end):
 
 
 def _burn_draw_series(ax, ctx, events):
-    """Session dots, per-token EMA lines, and (narrow views) bucket lines."""
     visible = ctx["visible"]
 
-    # Session dots
     sizes = [min(max(s["dur_h"] * 60, 25), 250) for s in visible]
     ax.scatter(ctx["timestamps"], ctx["out_rates"], s=sizes, c=ctx["colors"], alpha=0.5,
                edgecolors="white", linewidths=0.3, zorder=6)
 
-    # EMA lines
     for key in ctx["token_keys"]:
         style = BURN_TOKEN_STYLES[key]
         ax.plot(ctx["timestamps"], ctx["display_emas"][key], color=style["color"],
                 alpha=style["alpha"], linewidth=style["lw"], zorder=8,
                 label=style["label"])
 
-    # Intra-session bucket lines (narrow views)
     if len(visible) <= BUCKET_THRESHOLD and events:
         buckets = build_buckets(events, visible)
         if len(buckets) > len(visible):
@@ -563,7 +550,6 @@ def _burn_draw_shifts(ax, ctx):
 
 
 def _burn_style_axes(ax, ctx):
-    """Log y-scale, limits, spines, formatters and the adaptive x-axis."""
     if mdates is None or ticker is None:
         raise RuntimeError("matplotlib is required to render plots")
     all_visible_rates = []
@@ -623,7 +609,6 @@ def _burn_title(ax, ctx, window_boundaries):
 
 def plot_burn_rate(ax, events, sessions, window_boundaries, limit_hits,
                    view_start=None, view_end=None, show_rate_limits: bool = True):
-    """Render the session burn rate panel onto the given axes."""
     ctx = _burn_context(sessions, view_start, view_end)
     if ctx is None:
         ax.set_visible(False)
