@@ -120,9 +120,8 @@ def test_committed_document_carries_a_record_for_every_reparse_phase():
 
 def test_reparse_reader_returns_every_phase_and_metric():
     # The reader and the committed bytes must agree about the family in
-    # both states: the phases mid-window (issue #698), where the reader
-    # returns {} and nothing further is pinned, and the full shape
-    # everywhere else.
+    # both states: an absent family, where the reader returns {} and
+    # nothing further is pinned, and a present family with the full shape.
     doc = thresholds.load(THRESHOLDS_PATH)
     records = thresholds.reparse(doc)
     present = b'"reparse"' in subprocess_committed_bytes()
@@ -223,8 +222,7 @@ def test_reparse_cli_prints_one_phase_metric(metric):
 def test_reparse_cli_refuses_an_unknown_phase(tmp_path):
     # A written synthetic document, not the committed one: the pin is
     # the CLI's unknown-phase refusal, which must not depend on the
-    # committed document carrying a budget (it does not, mid-window —
-    # issue #698).
+    # committed document carrying a budget; the family may be absent.
     target = _written_document(tmp_path)
     result = subprocess.run(  # pylint: disable=subprocess-run-check
         [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
