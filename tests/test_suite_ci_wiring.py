@@ -305,28 +305,3 @@ def test_the_bench_runner_pins_the_seed_interpreter():
               if (step.get("uses") or "").startswith("actions/setup-python")]
     assert len(setups) == 1
     assert setups[0]["with"]["python-version"] == "3.13.14"
-
-
-def _depth_other_than_default(checkout):
-    """Whether this checkout names a fetch-depth other than the default.
-
-    actions/checkout fetches depth 1 when ``fetch-depth`` is absent, so
-    an ABSENT key IS the default's shallowness rather than an exemption
-    from a depth contract. The contract for the legs that run the suite
-    (full history or at least the re-seed walk's bound, issue #582) is
-    pinned in tests/test_ci_reseed_walk_depth.py; this predicate keeps
-    the absent-key branch exercised.
-    """
-    depth = (checkout.get("with") or {}).get("fetch-depth")
-    return depth is not None and int(depth) != 1
-
-
-def test_the_depth_predicate_reads_an_absent_key_as_the_default():
-    # Without this, the `depth is None` branch has no other exercise
-    # (every leg spells fetch-depth today), so a mutant treating an
-    # absent key as an exemption would survive.
-    assert not _depth_other_than_default({})
-    assert not _depth_other_than_default({"with": {"fetch-depth": "1"}})
-    assert not _depth_other_than_default({"with": {}})
-    assert _depth_other_than_default({"with": {"fetch-depth": "2"}})
-    assert _depth_other_than_default({"with": {"fetch-depth": "0"}})

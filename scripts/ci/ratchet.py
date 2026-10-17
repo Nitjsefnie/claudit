@@ -48,19 +48,17 @@ def read_calibration(data, language='python'):
     return thresholds.coverage(data, language)
 
 
-def update(data, measured, language='python', reseed_in_flight=None):
+def update(data, measured, language='python'):
     """Return an updated document, or ``None`` when no raise is justified.
 
-    ``reseed_in_flight`` defaults to the tree's own verdict, like every
-    other re-validation of a document another helper produced: a suite
-    cost budget mid-re-seed is no reason to refuse to RAISE a coverage
-    calibration, and reading strict here would redden the master-only
-    ratchet step on every push for as long as the re-seed is in flight.
+    Optional absent families stay absent while the coverage calibration
+    is revalidated and updated.
     """
-    declared = thresholds.verdict(reseed_in_flight)
-    candidate = thresholds.normalise(data, declared)
+    candidate = thresholds.normalise(data)
     measured = _measurement(measured)
     recorded_measured, _floor = read_calibration(candidate, language)
+    if recorded_measured is None:
+        return None
     should_raise = measured - recorded_measured > RAISE_HYSTERESIS
     if not should_raise:
         return None
@@ -68,7 +66,7 @@ def update(data, measured, language='python', reseed_in_flight=None):
         'measured': measured,
         'floor': measured - CALIBRATION_GAP,
     }
-    return thresholds.normalise(candidate, declared)
+    return thresholds.normalise(candidate)
 
 
 def _parser():
@@ -90,6 +88,9 @@ def main(argv=None):
         data = thresholds.load(args.thresholds)
         measured = _measurement(args.measured)
         floor = read_calibration(data, args.language)[1]
+        if floor is None:
+            print(f'no {label} coverage budget recorded: nothing to raise')
+            return 0
         candidate = update(data, measured, language=args.language)
         if candidate is None:
             print(f'{label} coverage {measured:.1f}% justifies no raise '

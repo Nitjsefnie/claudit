@@ -11,12 +11,10 @@ validate = importlib.import_module('thresholds_validate')
 
 
 @functools.lru_cache(maxsize=8)
-def _snapshot(raw: bytes, normalise: Callable, flags: tuple[bool, bool], context_state: str) -> bytes:
-    data = normalise(validate.decode(raw), validate.ReseedVerdict(*flags))
+def _snapshot(raw: bytes, normalise: Callable, context_state: str) -> bytes:
+    data = normalise(validate.decode(raw))
     return pickle.dumps(data, protocol=5)
 
 
-def normalise_bytes(raw: bytes, normalise: Callable, declared: object) -> dict:
-    admitted = validate.admitted(declared, ('suite_cost', 'reparse'))
-    flags = admitted['suite_cost'], admitted['reparse']
-    return pickle.loads(_snapshot(raw, normalise, flags, repr(getcontext())))
+def normalise_bytes(raw: bytes, normalise: Callable) -> dict:
+    return pickle.loads(_snapshot(raw, normalise, repr(getcontext())))

@@ -17,11 +17,9 @@ something outside the tree.
 """
 from __future__ import annotations
 
-import importlib
 import functools
 import json
 from decimal import Decimal, InvalidOperation
-from typing import NamedTuple
 
 _INVALID_PATH_CHARS = set('<>:"|?*')
 _DEVICE_NAMES = {
@@ -100,11 +98,10 @@ def required_fields(value, expected, name, labels, optional=()):
 
     ``labels`` names the family in the message, so a refusal inside the
     suite-cost family reads "suite cost run: missing measured" rather
-    than a bare field path. ``optional`` names fields that MAY be
-    absent and MAY be present: the re-seed tolerance lets the
-    suite-cost family go missing, and when it is present it is validated
-    like any other family — an empty object is a malformed family, not
-    an absent one, and is refused either way.
+    than a bare field path. ``optional`` names fields that may be absent
+    or present. A field listed there is validated like every other
+    present field — an empty object is malformed, not absent, and is
+    refused.
     """
     if not isinstance(value, dict):
         raise ValueError(f'{name} must be an object')
@@ -253,69 +250,3 @@ def _comment_pair(first, second, name):
     if total == 0 or comments > total or comments * 100 <= total * 15:
         raise ValueError(f'{name} must have a share above 15% and at most 100%')
     return comments, total
-
-
-class ReseedVerdict(NamedTuple):
-    """One tree's per-family re-seed answer (reseed.py).
-
-    The fields ARE the two re-seedable families, in the order the
-    re-seed module's ``in_flight`` names them: a field's truth is that
-    family's marker being read in the bounded walk, which admits THAT
-    family's absence and no other's — the shape the loader takes, and
-    what a caller states explicitly when it means to pin the verdict.
-    """
-
-    suite_cost: bool
-    reparse: bool
-
-
-def admitted(reseed_in_flight, families):
-    """Which of ``families`` the verdict admits the absence of.
-
-    A ``ReseedVerdict`` answers per family, by its own field. A bare
-    bool is the legacy single-family spelling — the shape every caller
-    predating the second marker spelled — and maps True to the FIRST
-    family only, False to strict. Anything else is the caller
-    forgetting the verdict: a refusal naming the one named way to ask.
-    """
-    if isinstance(reseed_in_flight, ReseedVerdict):
-        return {family: bool(getattr(reseed_in_flight, family))
-                for family in families}
-    if isinstance(reseed_in_flight, bool):
-        return {family: (family == families[0] and reseed_in_flight)
-                for family in families}
-    raise ValueError(
-        'reseed_in_flight must be a thresholds_validate.ReseedVerdict '
-        f'(or the legacy single-family bool), not '
-        f'{type(reseed_in_flight).__name__}: ask thresholds.verdict() '
-        'for the tree answer')
-
-
-def verdict(reseed_in_flight=None):
-    """The re-seed verdict to validate under: asked of the TREE unless a
-    caller states one.
-
-    This and ``load`` are the only places the tree is consulted, and
-    every helper that re-validates a document another helper produced
-    asks through here. ``normalise`` takes NO default for exactly that
-    reason: with one, a helper two calls deep could silently read strict
-    while its caller read the tree, and a document the loader accepted
-    would be refused one frame lower -- on the master-only ratchet step,
-    on every push.
-
-    The answer is the per-family ``ReseedVerdict``: one probe per
-    re-seedable family (reseed.py), each its own bounded walk.
-    """
-    if reseed_in_flight is not None:
-        return reseed_in_flight
-    # Imported HERE rather than at module scope: reseed shells out to
-    # git, and every consumer of this loader — the reparse bench among
-    # them, whose measured bytecode counts are the gate's own
-    # instrument —
-    # would otherwise carry a module that reads a commit message to
-    # answer a question it never asks.
-    # pylint: disable-next=import-outside-toplevel
-    reseed = importlib.import_module('reseed')
-    return ReseedVerdict(
-        suite_cost=reseed.in_flight(family=reseed.SUITE_COST_FAMILY),
-        reparse=reseed.in_flight(family=reseed.REPARSE_FAMILY))

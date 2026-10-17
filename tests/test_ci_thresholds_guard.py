@@ -55,23 +55,18 @@ def _load(name):
 @cache
 def _ci_modules():
     """Load the sibling modules once, in dependency order at first use."""
-    reseed = _load("reseed")
     thresholds = _load("thresholds")
     size_baseline = _load("size_baseline")
     guard = _load("thresholds_guard")
-    return reseed, thresholds, size_baseline, guard
-
-
-def _reseed():
-    return _ci_modules()[0]
+    return thresholds, size_baseline, guard
 
 
 def _thresholds():
-    return _ci_modules()[1]
+    return _ci_modules()[0]
 
 
 def _guard():
-    return _ci_modules()[3]
+    return _ci_modules()[2]
 
 
 @pytest.fixture(scope="module", name="committed_thresholds")
@@ -154,6 +149,19 @@ def test_coverage_lowered_fails(tmp_path):
     head = _document()
     head["coverage"]["python"] = {"measured": 90.0, "floor": 88.5}
     assert _guard_result(tmp_path, base, head) == 1
+
+
+@pytest.mark.parametrize("missing", ["python", "javascript", "coverage"])
+def test_removed_coverage_entry_fails(tmp_path, capsys, missing):
+    base = _document()
+    head = _document()
+    if missing == "coverage":
+        del head["coverage"]
+    else:
+        del head["coverage"][missing]
+
+    assert _guard_result(tmp_path, base, head) == 1
+    assert "forbidden move: coverage." in capsys.readouterr().err
 
 
 def test_coverage_raised_is_clean(tmp_path):
@@ -295,9 +303,8 @@ def test_entry_lowered_or_removed_is_clean(tmp_path):
 
 
 def test_removed_member_fails(tmp_path):
-    # The loader refuses a document missing a required member, so a
-    # wholesale member deletion goes red before the guard compares;
-    # write() would refuse the bytes, so hand-place them.
+    # Removing a baseline member the base carries is a forbidden guard
+    # move. Hand-place the absent shape so the guard compares it.
     base = _document(baseline={"backend/api.py": 986})
     head = _document(baseline={"backend/api.py": 986})
     head.pop("pylint_suppression_baseline")
@@ -350,25 +357,6 @@ def test_suite_cost_tightened_is_clean(tmp_path, family, path, measured, floor):
     assert _guard_result(tmp_path, base, head) == 0
 
 
-def test_suite_cost_removed_needs_the_redeclare_marker(tmp_path):
-    # The loader refuses a document missing the member, so a wholesale
-    # deletion goes red at load; write() would refuse the bytes, so the
-    # hand-placed shape goes straight through the guard's --head. The
-    # ONE exception is the sanctioned re-seed's delete (issue #502),
-    # which the loader admits only on a commit carrying the marker — so
-    # the verdict follows THIS tree's own declaration.
-    base = _document()
-    head = _document()
-    del head["suite_cost"]
-    base_path = _written(tmp_path, base, "base.json")
-    head_path = tmp_path / "head.json"
-    head_path.write_text(json.dumps(head, indent=2), encoding="utf-8")
-    declared = _reseed().in_flight(REPO_ROOT)
-    assert _guard().main([
-        "--base", str(base_path),
-        "--head", str(head_path)]) == (0 if declared else 1)
-
-
 def test_suite_cost_introduced_against_a_predating_base_is_clean(tmp_path):
     # A base predating the family carries no suite_cost record: the
     # change introducing one is its seed, not a move (the #389 shape).
@@ -403,8 +391,8 @@ def test_reparse_family_unchanged_is_clean(tmp_path):
 def test_reparse_family_seed_is_clean(tmp_path, overrides):
     # The one-time seed: a base that predates the family carries no
     # record, so the change that introduces one is not a move at all.
-    # The base's bytes are placed directly — the writer would refuse a
-    # document missing a required member.
+    # Place the base's bytes directly to model a document predating the
+    # reparse family.
     base = _document()
     base.pop("reparse")
     base_path = tmp_path / "base.json"
@@ -427,26 +415,6 @@ def test_suite_cost_added_to_established_base_fails(tmp_path):
     head_path.write_text(json.dumps(head, indent=2), encoding="utf-8")
     assert _guard().main([
         "--base", str(base_path), "--head", str(head_path)]) == 1
-
-
-def test_removed_reparse_member_fails(tmp_path):
-    # Deleting the family would leave the bench with no floors at all.
-    # The loader refuses such a head OUTSIDE the family's own re-seed
-    # window (issue #698: the [reparse-re-seed] marker, reseed.py), so
-    # the bytes are hand-placed; the verdict follows THIS tree's own
-    # declaration, exactly as the suite-cost removal above it does.
-    base = _document()
-    head = _document()
-    head.pop("reparse")
-    base_path = _written(tmp_path, base, "base.json")
-    head_path = tmp_path / "head.json"
-    head_path.write_text(json.dumps(head, indent=2, default=float),
-                         encoding="utf-8")
-    declared = _reseed().in_flight(
-        REPO_ROOT, family=_thresholds().REPARSE_FAMILY)
-    assert _guard().main([
-        "--base", str(base_path), "--head", str(head_path)]) == (
-        0 if declared else 1)
 
 
 def test_main_prints_the_suite_cost_remedy(tmp_path, capsys):
@@ -495,10 +463,7 @@ def _with_identity(suite, lines):
 ])
 def test_suite_cost_identity_moved_fails(tmp_path, base_identity, head_identity):
     # The workload identity is the seed's binding to the workload it
-    # measured (issue #524): only the sanctioned re-seed writes it, and
-    # that path deletes the family first — the marker's commit is the
-    # one whose base lacks the family, so the identity always arrives as
-    # part of a new family's seed. On an established family, a moved
+    # measured (issue #524). On an established family, a moved
     # identity is a hand-edit and fails.
     base = (_document() if base_identity is None else
             _document(suite=_with_identity(SUITE_COST, base_identity)))
@@ -508,14 +473,12 @@ def test_suite_cost_identity_moved_fails(tmp_path, base_identity, head_identity)
 
 
 def test_new_family_seed_carrying_the_identity_is_clean(tmp_path):
-    # The sanctioned re-seed's seed commit: the base predates the family
-    # (the marker's delete), so the family and its identity arrive
-    # together and are not a move at all.
+    # The base predates the family, so the family and its identity
+    # arrive together and are not a move at all.
     base = _document()
     base.pop("suite_cost")
     head = _document(suite=_with_identity(SUITE_COST, 40000))
-    # The base is family-absent, the one document shape the writer only
-    # publishes on a marker commit; its bytes are placed directly, as
+    # The base is family-absent; its bytes are placed directly, as
     # test_new_member_seeded_is_clean does.
     base_path = tmp_path / "base.json"
     base_path.write_text(json.dumps(base, default=float), encoding="utf-8")

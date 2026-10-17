@@ -86,9 +86,8 @@ def _document(suite=None):
         "comment_share_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": copy.deepcopy(suite) if suite is not None else None,
-        # The loader requires EVERY top-level family, so a synthetic
-        # suite_cost document must also carry a valid reparse family. It
-        # is inert here — nothing in this module reads it.
+        # The reparse family is inert here — nothing in this module
+        # reads it.
         "reparse": {
             phase: {
                 metric: {"measured": 10.0, "floor": 11.5}
@@ -143,11 +142,9 @@ def test_seed_refuses_when_the_member_exists(tmp_path, capsys):
 
 def test_an_empty_family_is_present_and_refuses_the_seed(tmp_path):
     # The decoy a falsy test admits: `"suite_cost": {}` is the family
-    # PRESENT and malformed (the loader refuses its shape — see the
-    # empty-family decoy pins in test_ci_reseed.py), and a seed that
-    # read emptiness as the absent family would replace it without the
-    # marked delete — the hand-raise's doorway (issue #705; PR #704
-    # fixed the reparse writer's twin,
+    # PRESENT and malformed (the loader refuses its shape), and a seed
+    # that reads emptiness as an absent family would replace it
+    # (issue #705; PR #704 fixed the reparse writer's twin,
     # tests/test_reparse_seed.py's empty-family test).
     ratchet = _ratchet()
     data = _seeded_document()
@@ -156,7 +153,7 @@ def test_an_empty_family_is_present_and_refuses_the_seed(tmp_path):
         ratchet.seed(data, COUNTS)
     # load_for_seed hands a PRESENT family to the loader, whose own
     # shape refusal fires before any seed could: a different message,
-    # the same outcome — no replace without the marked delete.
+    # the same outcome — a malformed family cannot be replaced.
     decoy = tmp_path / "decoy.json"
     decoy.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="missing suite cost"):
@@ -173,7 +170,7 @@ def test_seed_writes_canonical_bytes(tmp_path):
     assert text == json.dumps(
         json.loads(text), indent=2, sort_keys=True) + "\n"
     assert thresholds.load(target) == thresholds.normalise(
-        thresholds.load(target), False)
+        thresholds.load(target))
 
 
 def test_tighten_moves_both_fields_past_the_hysteresis(tmp_path):
@@ -218,6 +215,20 @@ def test_tighten_never_raises(tmp_path):
         ["--tighten", str(_measurement_file(tmp_path, dearer)),
          "--thresholds", str(target)]) == 0
     assert target.read_text(encoding="utf-8") == before
+
+
+def test_tighten_without_a_family_is_a_clean_noop(tmp_path, capsys):
+    ratchet = _ratchet()
+    target = _written(tmp_path, _seeded_document())
+    measurement = _measurement_file(tmp_path, COUNTS)
+    before = target.read_bytes()
+
+    assert ratchet.main([
+        "--tighten", str(measurement), "--thresholds", str(target)]) == 0
+
+    assert target.read_bytes() == before
+    assert capsys.readouterr().out == (
+        "no suite_cost budget recorded: nothing to tighten\n")
 
 
 def test_tighten_refuses_a_counts_less_measurement(tmp_path):
@@ -273,10 +284,8 @@ def test_seed_then_tighten_on_the_committed_document_round_trips(
     # seed-refusal and tighten paths, keeps canonical bytes: the bot's
     # writes are the loader's writes.
     #
-    # The sanctioned re-seed (issue #502) deletes the family for one
-    # commit, so this seeds it into the tmp copy when it is absent rather
-    # than skipping: the property under test is the round trip, and it
-    # holds on the delete commit too.
+    # The family may be absent, so seed it into the temporary copy when
+    # needed rather than skipping the round-trip property.
     thresholds = _thresholds()
     ratchet = _ratchet()
     target = tmp_path / "ci-thresholds.json"
@@ -284,7 +293,7 @@ def test_seed_then_tighten_on_the_committed_document_round_trips(
         subprocess_committed_bytes())
     if thresholds.suite_cost(thresholds.load(target)) == {}:
         # The fallback seed carries the identity, so the positive
-        # assertion below holds on the delete-commit shape too (the
+        # assertion below also covers an absent-family document (the
         # sibling test at test_seed_carries_the_workload_identity pins
         # the writer half). The tree identity matches the counter the
         # seed consults, so the seed is accepted (issue #598).
@@ -353,8 +362,8 @@ def test_seed_carries_the_workload_identity(tmp_path, monkeypatch):
 def test_seed_refuses_a_measurement_from_another_tree(
         tmp_path, capsys, monkeypatch, measured_lines, current_lines):
     # The identity check is the seed half of SV-CI-RATCHETS' binding
-    # (issue #598): the sanctioned re-seed measures the FINAL tree, so an
-    # artifact whose tests_tree_lines names another tree is refused,
+    # (issue #598): the seed measures the FINAL tree, so an artifact
+    # whose tests_tree_lines names another tree is refused,
     # naming both counts, and the committed document is untouched.
     ratchet = _ratchet()
     target = _written(tmp_path, _seeded_document())

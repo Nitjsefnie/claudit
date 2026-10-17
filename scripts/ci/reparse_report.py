@@ -60,10 +60,9 @@ PHASES = thresholds.REPARSE_PHASES
 _OVER_BUDGET_REMEDY = (
     'A reparse phase is over its recorded budget: make that phase '
     'cheaper. A recorded budget is never raised by hand.')
-# The pass-through's own line, in the gate's voice when a re-seed
-# window leaves nothing to compare against — the reparse family's own
-# marker (reseed.py, issue #698), mirroring the suite gate's line.
-NO_BUDGET_LINE = 'no reparse budget — re-seed in flight'
+# The no-budget line, in the gate's voice when the family is absent,
+# mirroring the suite gate's line.
+NO_BUDGET_LINE = 'no reparse budget recorded'
 
 
 class Measurement(NamedTuple):
@@ -210,8 +209,8 @@ def _over_budget(measurement: Measurement, floors: dict) -> list:
 
 def _uncounted(measurement: Measurement) -> list:
     """Every phase the count never reached, labelled — the fail-closed
-    half of the gate, kept separate so it fails even inside a re-seed
-    window, where the pass-through is about the BUDGET only."""
+    half of the gate, kept separate so it fails regardless of whether a
+    budget is recorded."""
     reason = measurement.instruction_note
     return [f'{phase}: NOT MEASURED'
             f'{f" ({reason})" if reason else ""}'
@@ -221,16 +220,10 @@ def _uncounted(measurement: Measurement) -> list:
 def check(path, thresholds_path=None) -> int:
     """Gate a written measurement against the committed budgets.
 
-    The ONE pass-through is a tip document that carries no reparse
-    budget at all, inside the family's own re-seed window: some commit
-    in the bounded walk's span — from HEAD back to the last
-    family-present commit — carries the ``[reparse-re-seed]`` marker
-    (reseed.py), so the loader accepts the absence whether or not the
-    tip itself declares. The measurement is still taken, still uploaded
-    and still checked for gateability — there is simply nothing to
-    compare it against until the seed commit restores the family. Every
-    other missing budget, every absent count and every over-budget
-    phase fails exactly as before.
+    If the document has no reparse family, the measurement is still
+    taken, uploaded and checked for gateability; there is simply no
+    budget to compare it against. Every absent count and every
+    over-budget phase in a recorded family fails as before.
     """
     measurement = measurement_from_file(path)
     floors = thresholds.reparse(
