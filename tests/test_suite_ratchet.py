@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import subprocess
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -255,6 +256,30 @@ def test_tighten_seed_refuses_wrong_tree(tmp_path, capsys, monkeypatch):
     assert "63211" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("wrong_tree", [False, True])
+def test_tighten_absent_family_without_site_packages(tmp_path, wrong_tree):
+    target = _written(tmp_path, _seeded_document())
+    before = target.read_bytes()
+    measurement = _measurement_file(tmp_path, COUNTS)
+    identity = sum(len(path.read_bytes().splitlines())
+                   for path in sorted((REPO_ROOT / "tests").rglob("*.py")))
+    payload = json.loads(measurement.read_text(encoding="utf-8"))
+    payload["tests_tree_lines"] = identity + int(wrong_tree)
+    measurement.write_text(json.dumps(payload), encoding="utf-8")
+    script = REPO_ROOT / "scripts" / "ci" / "suite_ratchet.py"
+    result = subprocess.run(
+        [sys.executable, "-S", str(script),
+         "--tighten", str(measurement), "--thresholds", str(target)],
+        capture_output=True, text=True, check=False)
+    assert result.returncode == int(wrong_tree), result.stderr
+    if wrong_tree:
+        assert "the measurement was taken on a tests tree" in result.stderr
+        assert target.read_bytes() == before
+    else:
+        assert "seeded collection" in result.stdout
+        assert _thresholds().load(target)["suite_cost"]["tests_tree_lines"] == identity
+
+
 def test_tighten_refuses_a_counts_less_measurement(tmp_path):
     ratchet = _ratchet()
     target = _written(tmp_path, _seeded_document())
@@ -353,8 +378,6 @@ def test_seed_then_tighten_on_the_committed_document_round_trips(
 
 
 def subprocess_committed_bytes():
-    # pylint: disable-next=import-outside-toplevel
-    import subprocess
     return subprocess.run(
         ["git", "-C", str(REPO_ROOT), "cat-file", "blob",
          "HEAD:.github/ci-thresholds.json"],
