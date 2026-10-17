@@ -1,6 +1,6 @@
 --- a/lib/code-lines.js
 +++ b/lib/code-lines.js
-@@ -0,0 +1,173 @@
+@@ -0,0 +1,181 @@
 +// A lexical line classifier, deliberately independent of the coverage ranges.
 +// Keep physical offsets in CovSource; only statement emission uses this mask.
 +module.exports = function codeLines (source) {
@@ -147,6 +147,14 @@
 +        state.regex = false
 +        state.statement = false
 +      } else if (c === '.') {
++        if (next === '.' && source[i + 1] === '.') {
++          consume(true)
++          consume(true)
++          state.regex = true
++          state.statement = false
++          state.last = '...'
++          continue
++        }
 +        state.regex = false
 +        state.statement = false
 +      } else if (c === ';') {
