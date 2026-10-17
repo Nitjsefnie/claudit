@@ -186,7 +186,10 @@ def test_comment_only_runs_check_with_dependencies():
     assert check['if'] == (
         "${{ !cancelled() && steps.pytest.conclusion != 'skipped' "
         "&& inputs.thresholds_only != 'true' }}")
-    installs = [step for step in steps if step.get('run') == 'npm ci --no-audit --no-fund']
+    # The lockfile install step also overlays the patched converter (#1065).
+    installs = [step for step in steps if next(
+        (line.strip() for line in step.get('run', '').splitlines() if line.strip()),
+        '') == 'npm ci --no-audit --no-fund']
     assert len(installs) == 1
     install = installs[0]
     assert install['if'] == check['if']
