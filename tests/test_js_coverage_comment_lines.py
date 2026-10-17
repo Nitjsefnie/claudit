@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -28,8 +29,12 @@ def _line_percentage(directory: Path, source: str) -> float:
     directory.mkdir()
     script = directory / "variant.js"
     script.write_text(source, encoding="utf-8")
-    command = [str(C8), "--reporter=json-summary", "--include", "*.js"]
-    command += ["node", str(script)]
+    cov_dir = directory / "v8-coverage"
+    env = {**os.environ, "NODE_V8_COVERAGE": str(cov_dir)}
+    subprocess.run(["node", str(script)], cwd=directory, env=env,
+                   check=True, capture_output=True, text=True, timeout=60)
+    command = [str(C8), "report", "--temp-directory", str(cov_dir),
+               "--reporter=json-summary", "--include", "*.js"]
     subprocess.run(command, cwd=directory, check=True, capture_output=True,
                    text=True, timeout=60)
     summary = json.loads((directory / "coverage" / "coverage-summary.json")
