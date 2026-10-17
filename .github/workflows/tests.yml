@@ -249,15 +249,7 @@ jobs:
         # npm ci installs package-lock.json exactly, so the c8 pin means
         # what it says and is visible to Dependabot (issue #361). Same
         # lockfile eslint.yml installs from.
-        run: |
-          npm ci --no-audit --no-fund
-          # Issue #1065: v8-to-istanbul 9.3.0 counts comment-only and blank
-          # lines as covered executable lines. Overlay the patched converter;
-          # the maintainer files the fix upstream.
-          rm -rf node_modules/v8-to-istanbul
-          mkdir node_modules/v8-to-istanbul
-          tar -xzf scripts/ci/vendor/v8-to-istanbul-9.3.0-claudit1.tgz -C node_modules/v8-to-istanbul --strip-components=1
-          node -e 'require("node:assert/strict").equal(require("v8-to-istanbul/package.json").version, "9.3.0-claudit1")'
+        run: npm ci --no-audit --no-fund
 
       - name: Comment share baseline
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
