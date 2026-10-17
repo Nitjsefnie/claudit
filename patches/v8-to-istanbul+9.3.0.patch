@@ -1,8 +1,8 @@
-diff --git a/node_modules/v8-to-istanbul/lib/code-lines.js b/node_modules/v8-to-istanbul/lib/code-lines.js
+diff --git a/lib/code-lines.js b/lib/code-lines.js
 new file mode 100644
 index 0000000..1b1ff98
 --- /dev/null
-+++ b/node_modules/v8-to-istanbul/lib/code-lines.js
++++ b/lib/code-lines.js
 @@ -0,0 +1,181 @@
 +// A lexical line classifier, deliberately independent of the coverage ranges.
 +// Keep physical offsets in CovSource; only statement emission uses this mask.
@@ -185,10 +185,10 @@ index 0000000..1b1ff98
 +  }
 +  return lines
 +}
-diff --git a/node_modules/v8-to-istanbul/lib/source.js b/node_modules/v8-to-istanbul/lib/source.js
+diff --git a/lib/source.js b/lib/source.js
 index a7edfc1..1d5a337 100644
---- a/node_modules/v8-to-istanbul/lib/source.js
-+++ b/node_modules/v8-to-istanbul/lib/source.js
+--- a/lib/source.js
++++ b/lib/source.js
 @@ -1,4 +1,5 @@
  const CovLine = require('./line')
 +const codeLines = require('./code-lines')
@@ -209,10 +209,10 @@ index a7edfc1..1d5a337 100644
        if (ignoreCount > 0) {
          line.ignore = true
          ignoreCount--
-diff --git a/node_modules/v8-to-istanbul/lib/v8-to-istanbul.js b/node_modules/v8-to-istanbul/lib/v8-to-istanbul.js
+diff --git a/lib/v8-to-istanbul.js b/lib/v8-to-istanbul.js
 index 3616437..430120d 100644
---- a/node_modules/v8-to-istanbul/lib/v8-to-istanbul.js
-+++ b/node_modules/v8-to-istanbul/lib/v8-to-istanbul.js
+--- a/lib/v8-to-istanbul.js
++++ b/lib/v8-to-istanbul.js
 @@ -281,6 +281,7 @@ module.exports = class V8ToIstanbul {
        s: {}
      }
