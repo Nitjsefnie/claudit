@@ -175,7 +175,6 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-flash-0731 via OpenInference; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba",
     "tag 'alibaba/prime' names neither a known region nor a quantization: glm-5-3 via Alibaba",
@@ -311,7 +310,6 @@
     "deepseek-v4-flash-0731": {
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints selected",
-      "OpenInference": "no matching log state",
       "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-pro-0813": {
