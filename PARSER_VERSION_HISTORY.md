@@ -1,14 +1,14 @@
 # PARSER_VERSION history
 
-`PARSER_VERSION` lives in `backend/parser_version.py` — its own module
-since issue #986, disjoint from the file the hourly pricing bot
-rewrites — and the history of every bump is kept here. That module is
-kept dependency-free, like `constants.py`: any module may import it,
+`PARSER_VERSION` lives in `backend/parser_version.py`, outside the hourly
+pricing bot's write surface, and the history of every bump is kept here.
+That module is kept dependency-free, like `constants.py`: any module may import it,
 and it imports nothing. It lives apart from every other version
 constant on purpose: the hourly pricing bot rewrites
-`backend/constants.py` to bump `PRICING_VERSION`, and a PARSER_VERSION
-sharing that file textually conflicted with every bot commit, so each
-parser-version change rebased on the bot's commits first. The bot's
+`backend/constants.py` to bump `PRICING_VERSION`. Both constants shared
+that file, so every parser-version bump shared the bot's changed file
+and rebased on the bot's hourly commits. The review's experiment found
+that two isolated bumps merged without conflict markers. The bot's
 write surface and that module are disjoint now, pinned by
 `tests/test_parser_version_home.py`.
 

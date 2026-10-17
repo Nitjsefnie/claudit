@@ -1,6 +1,8 @@
 """Pin PARSER_VERSION's home (backend/parser_version.py) away from the
 pricing bot's write surface (issue #986): the bot rewrites constants.py
-hourly for PRICING_VERSION, which used to conflict with every bump."""
+hourly for PRICING_VERSION, so a parser-version edit there shared the
+changed file with every bot commit and rebased on the bot's hourly
+commits."""
 from __future__ import annotations
 
 import ast

@@ -151,8 +151,9 @@ of dispatch analytics; collection never disables `is_error` or line churn.
 
 ## The parser and pricing versions are code, never the environment (SV-PARSER-VERSION)
 
-`parser_version.PARSER_VERSION` (its own module since issue #986,
-disjoint from the file the pricing bot rewrites) invalidates stored
+`parser_version.PARSER_VERSION` lives in `backend/parser_version.py`, a
+dependency-free module outside the pricing bot's write surface
+(`backend/constants.py`). It invalidates stored
 PARSE results: bumping it reparses every stored file, refetching each
 from R2. Per-bump history: PARSER_VERSION_HISTORY.md.
 `constants.PRICING_VERSION` invalidates stored PRICES: bumping it
