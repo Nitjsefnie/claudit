@@ -11,6 +11,7 @@ agreement with the actual tree.
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -171,6 +172,45 @@ def test_violations_clean_tree_needs_no_entries():
         {"backend/small.py": 0}, {}).values())
 
 
+def _history(monkeypatch, module, trailer):
+    def read_range(argv, **kwargs):
+        assert argv == ['git', '-C', str(REPO_ROOT), 'log', '--format=%B', 'base..HEAD']
+        assert kwargs == {'capture_output': True, 'check': False, 'timeout': 10}
+        return subprocess.CompletedProcess(argv, 0, trailer.encode())
+    monkeypatch.setattr(module.subprocess, 'run', read_range)
+
+
+@pytest.mark.parametrize('entry,status', [
+    ('pylint_suppression_baseline.backend/api.py', 0),
+    ('pylint_suppression_baseline', 0),
+    ('', 1),
+    ('pylint_suppression_baseline.backend/other.py', 1),
+])
+def test_declared_removal_check(tmp_path, monkeypatch, capsys, entry, status):
+    module = _suppression_baseline()
+    target = _written(tmp_path)
+    monkeypatch.setattr(module, 'tracked_suppression_counts', lambda: {'backend/api.py': 2})
+    _history(monkeypatch, module, f'Thresholds-Removed: {entry}=bug')
+    assert module.main(['--thresholds', str(target),
+                        '--base-rev', 'base', '--head-rev', 'HEAD']) == status
+    captured = capsys.readouterr()
+    if status == 0:
+        assert 'declared-removed: backend/api.py' in captured.out
+        assert '2' in captured.out
+    else:
+        assert 'over:' in captured.err
+
+
+def test_declaration_does_not_exempt_recorded_statuses():
+    module = _suppression_baseline()
+    found = module.violations(
+        {'backend/grown.py': 3, 'backend/graduated.py': 0},
+        {'backend/grown.py': 2, 'backend/graduated.py': 1, 'backend/gone.py': 1},
+        declared_removed={'backend/grown.py', 'backend/graduated.py', 'backend/gone.py'})
+    assert found == {'grown': {'backend/grown.py': (3, 2)}, 'over': {},
+                     'missing': ['backend/gone.py'], 'graduated': {'backend/graduated.py': 0}}
+
+
 def test_tightened_lowers_shrunk_entry():
     suppression = _suppression_baseline()
     updated = suppression.tightened(
@@ -293,12 +333,16 @@ def test_committed_document_matches_tree(tmp_path, absent_family):
     counts = suppression.tracked_suppression_counts()
     for rel, recorded in baseline.items():
         assert counts.get(rel, 0) <= recorded, f"grown entry for {rel}"
-    found = suppression.violations(counts, baseline)
+    removed = suppression.thresholds_removed.declared(
+        os.environ.get('CLAUDIT_THRESHOLDS_BASE_REV'), 'HEAD', REPO_ROOT)
+    found = suppression.violations(
+        counts, baseline,
+        declared_removed=removed.paths('pylint_suppression_baseline', counts))
     assert not found["grown"], found["grown"]
     assert not found["over"], found["over"]
 
 
-@pytest.mark.parametrize("state", ["absent", "empty", "recorded"])
+@pytest.mark.parametrize("state", ["absent", "empty", "recorded", "declared-removal"])
 def test_tighten_seeds_unrecorded_suppressions(tmp_path, monkeypatch, capsys, state):
     thresholds = _thresholds()
     module = _suppression_baseline()
@@ -318,6 +362,13 @@ def test_tighten_seeds_unrecorded_suppressions(tmp_path, monkeypatch, capsys, st
     target = tmp_path / "thresholds.json"
     thresholds.write(target, data)
     monkeypatch.setattr(module, "tracked_suppression_counts", lambda: measured)
+    if state == 'declared-removal':
+        _history(monkeypatch, module, 'Thresholds-Removed: pylint_suppression_baseline=definition')
+        base = dict(data, pylint_suppression_baseline={'backend/new.py': 4, 'backend/multiple.py': 4})
+        removed = module.thresholds_removed.declared('base', 'HEAD', REPO_ROOT)
+        assert not importlib.import_module('thresholds_guard').forbidden_moves(
+            base, data, set(thresholds.BASELINE_MEMBERS), removal_declarations=removed)
+        assert module.main(['--thresholds', str(target), '--base-rev', 'base']) == 0
     assert module.main(["--tighten", "--thresholds", str(target)]) == 0
     assert thresholds.load(target).get("pylint_suppression_baseline", {}) == expected
     assert "seeded" in capsys.readouterr().out

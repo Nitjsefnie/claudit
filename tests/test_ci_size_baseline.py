@@ -9,6 +9,8 @@ agreement with the actual tree.
 from __future__ import annotations
 
 import importlib.util
+import os
+import subprocess
 import sys
 from functools import cache
 from pathlib import Path
@@ -153,6 +155,46 @@ def test_violations_clean_tree_has_no_entries():
     assert not any(size_baseline.violations(sizes, {}).values())
 
 
+def _history(monkeypatch, module, trailer):
+    def read_range(argv, **kwargs):
+        assert argv == ['git', '-C', str(REPO_ROOT), 'log', '--format=%B', 'base..HEAD']
+        assert kwargs == {'capture_output': True, 'check': False, 'timeout': 10}
+        return subprocess.CompletedProcess(argv, 0, trailer.encode())
+    monkeypatch.setattr(module.subprocess, 'run', read_range)
+
+
+@pytest.mark.parametrize('entry,status', [
+    ('module_size_baseline.backend/api.py', 0),
+    ('module_size_baseline', 0),
+    ('', 1),
+    ('module_size_baseline.backend/other.py', 1),
+])
+def test_declared_removal_check(tmp_path, monkeypatch, capsys, entry, status):
+    module = _size_baseline()
+    target = _written(tmp_path)
+    monkeypatch.setattr(module, 'tracked_sizes', lambda: {'backend/api.py': 656})
+    _history(monkeypatch, module, f'Thresholds-Removed: {entry}=bug')
+    assert module.main(['--thresholds', str(target),
+                        '--base-rev', 'base', '--head-rev', 'HEAD']) == status
+    captured = capsys.readouterr()
+    if status == 0:
+        assert 'declared-removed: backend/api.py' in captured.out
+        assert '656' in captured.out
+    else:
+        assert 'over:' in captured.err
+
+
+def test_declaration_does_not_exempt_recorded_statuses():
+    module = _size_baseline()
+    found = module.violations(
+        {'backend/grown.py': 650, 'backend/graduated.py': 500},
+        {'backend/grown.py': 600, 'backend/graduated.py': 800, 'backend/gone.py': 800},
+        declared_removed={'backend/grown.py', 'backend/graduated.py', 'backend/gone.py'})
+    assert found == {'grown': {'backend/grown.py': (650, 600)}, 'over': {},
+                     'missing': ['backend/gone.py'],
+                     'graduated': {'backend/graduated.py': (500, 500)}}
+
+
 @pytest.mark.parametrize("baseline,sizes,expected", [
     pytest.param({"backend/grown.py": 900}, {"backend/grown.py": 750},
                  {"backend/grown.py": 750}, id="shrunk"),
@@ -281,7 +323,10 @@ def test_committed_document_matches_tree(real_tracked_sizes, baseline_document):
         # Master's --tighten follows a shrink down; a PR need not update
         # thresholds to record the intermediate size.
         assert sizes.get(rel, 0) <= recorded, f"grown entry for {rel}"
-    found = size_baseline.violations(sizes, baseline)
+    removed = size_baseline.thresholds_removed.declared(
+        os.environ.get('CLAUDIT_THRESHOLDS_BASE_REV'), 'HEAD', REPO_ROOT)
+    found = size_baseline.violations(
+        sizes, baseline, declared_removed=removed.paths('module_size_baseline', sizes))
     assert not found["grown"], found["grown"]
     assert not found["over"], found["over"]
 
@@ -329,18 +374,22 @@ def test_committed_family_seeds_match_tree_and_only_over_ceiling(
     if "module_size_baseline" not in doc:
         assert baseline == {}
     sizes = real_tracked_sizes
+    removed = size_baseline.thresholds_removed.declared(
+        os.environ.get('CLAUDIT_THRESHOLDS_BASE_REV'), 'HEAD', REPO_ROOT)
+    exempt = removed.paths('module_size_baseline', sizes)
     for rel in ("backend/schema.sql", "public/app.css"):
         if rel in baseline:
             assert sizes.get(rel, 0) <= baseline[rel]
             assert baseline[rel] > size_baseline.ceiling_for(rel)
         else:
-            expected = {rel: (sizes[rel], 500)} if sizes[rel] > 500 else {}
+            expected = ({rel: (sizes[rel], 500)}
+                        if sizes[rel] > 500 and rel not in exempt else {})
             assert size_baseline.violations(
-                {rel: sizes[rel]}, baseline)["over"] == expected
+                {rel: sizes[rel]}, baseline, declared_removed=exempt)["over"] == expected
     # --tighten graduated tests.yml; under-ceiling files need no seed.
 
 
-@pytest.mark.parametrize("state", ["absent", "empty", "recorded"])
+@pytest.mark.parametrize("state", ["absent", "empty", "recorded", "declared-removal"])
 def test_tighten_seeds_over_ceiling_files(tmp_path, monkeypatch, capsys, state):
     thresholds = _thresholds()
     module = _size_baseline()
@@ -361,6 +410,13 @@ def test_tighten_seeds_over_ceiling_files(tmp_path, monkeypatch, capsys, state):
     target = tmp_path / "thresholds.json"
     thresholds.write(target, data)
     monkeypatch.setattr(module, "tracked_sizes", lambda: measured)
+    if state == 'declared-removal':
+        _history(monkeypatch, module, 'Thresholds-Removed: module_size_baseline=definition')
+        base = dict(data, module_size_baseline={'backend/new.py': 900, 'tests/new.py': 900})
+        removed = module.thresholds_removed.declared('base', 'HEAD', REPO_ROOT)
+        assert not importlib.import_module('thresholds_guard').forbidden_moves(
+            base, data, set(thresholds.BASELINE_MEMBERS), removal_declarations=removed)
+        assert module.main(['--thresholds', str(target), '--base-rev', 'base']) == 0
     assert module.main(["--tighten", "--thresholds", str(target)]) == 0
     assert thresholds.module_size_baseline(thresholds.load(target)) == expected
     assert "seeded" in capsys.readouterr().out
