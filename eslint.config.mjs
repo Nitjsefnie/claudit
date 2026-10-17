@@ -173,4 +173,16 @@ export default [
       'react/jsx-uses-react': 'error',
     },
   },
+  {
+    files: ['scripts/ci/js_coverage.mjs'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: globals.node,
+    },
+    rules: {
+      'no-undef': 'error',
+      'no-unused-vars': ['error', { 'caughtErrors': 'none' }],
+    },
+  },
 ];

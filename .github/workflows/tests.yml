@@ -246,9 +246,8 @@ jobs:
 
       - name: Install the JS toolchain from the lockfile
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
-        # npm ci installs package-lock.json exactly, so the c8 pin means
-        # what it says and is visible to Dependabot (issue #361). Same
-        # lockfile eslint.yml installs from.
+        # npm ci installs the exact toolchain pins Dependabot owns (#361).
+        # eslint.yml installs the same lockfile.
         run: npm ci --no-audit --no-fund
 
       - name: Comment share baseline

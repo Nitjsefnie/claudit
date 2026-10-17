@@ -13,8 +13,8 @@ Scope is every tracked ``*.py`` under ``backend/``, ``scripts/`` and
 (issue #266: the shipped JavaScript front end joins the ratchet), and
 the shipped SQL, CSS and workflow-YAML sources (issue #393:
 ``backend/*.sql``, ``public/*.css`` and the ``.github/workflows/``
-YAML all join the ratchet the same way). A
-``tests/`` prefix is a test file (ceiling 700 lines); everything else is
+YAML), plus the CI coverage converter.
+A ``tests/`` prefix is a test file (ceiling 700 lines); everything else is
 production (ceiling 500 lines), so a front-end, stylesheet, schema
 or workflow file prices against 500 like any other production source.
 
@@ -48,7 +48,8 @@ TRACKED_PREFIXES = ('backend/', 'scripts/', 'tests/')
 TRACKED_SRC_GLOBS = ('src/*.js', 'src/*.jsx')
 TRACKED_FAMILY_GLOBS = ('backend/*.sql', 'public/*.css',
                         '.github/workflows/*.yml',
-                        '.github/workflows/*.yaml')
+                        '.github/workflows/*.yaml',
+                        'scripts/ci/js_coverage.mjs')
 
 GROWTH_REMEDY = (
     'A recorded number is never raised by hand and no entry is ever added '
@@ -100,7 +101,8 @@ def _in_family_scope(rel):
     """Whether a path is a shipped SQL, CSS or workflow-YAML source the
     ratchet caps (#393). The thresholds document itself is data, not
     source, and stays outside."""
-    return (rel.startswith('backend/') and rel.endswith('.sql')
+    return (rel == 'scripts/ci/js_coverage.mjs'
+            or rel.startswith('backend/') and rel.endswith('.sql')
             or rel.startswith('public/') and rel.endswith('.css')
             or rel.startswith('.github/workflows/')
             and rel.endswith(('.yml', '.yaml')))

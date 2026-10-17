@@ -30,13 +30,13 @@ invisible:
   the `globals` entry is what ties that set to the manifest: since #814 a
   consistent bump lands green BY DESIGN, and the reviewed diff is the
   guard — a bump that moves the set arrives as a manifest diff;
-- the JS coverage gate still folds with c8 and still reads one decimal off
+- the JS coverage gate folds V8 captures with the AST converter and reads one decimal off
   `total.lines.pct`, against the committed javascript floor.
 
 `npm ci` is not exercised here — this file must pass with no `node_modules`
 (the pytest leg runs before either workflow installs). What CI actually
 installs and runs IS the check: eslint over `src/**` on every push, and the
-c8 fold gating the javascript ratchet.
+AST conversion gating the javascript ratchet.
 """
 from __future__ import annotations
 
@@ -66,7 +66,11 @@ WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 # `test_the_lockfile_is_committed_and_matches_the_manifest`'s job.
 EXPECTED_DEV_TOOLS = (
     "playwright",
-    "c8",
+    "@bcoe/v8-coverage",
+    "acorn",
+    "ast-v8-to-istanbul",
+    "istanbul-lib-coverage",
+    "test-exclude",
     "eslint",
     "eslint-plugin-react",
     "globals",
@@ -276,7 +280,7 @@ def test_no_workflow_pins_an_npm_package_inline() -> None:
     """The shape issue #361 is about, wherever it reappears.
 
     Every workflow, both extensions, and the extracted coverage gate:
-    moving the c8 invocation into an action keeps its pins visible here.
+    moving coverage conversion into an action keeps its pins visible here.
     """
     offenders = []
     paths = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
@@ -491,10 +495,8 @@ def test_js_coverage_gate_still_reports_one_decimal() -> None:
     """SV-CI-RATCHETS' javascript floor, fed the same number.
 
     `coverage-summary.json`'s `total.lines.pct` is raw; the gate rounds it
-    to the one decimal the ratchet records and compares against the
-    committed floor. The bump to c8 12 measured byte-identically against
-    c8 10 (same per-file percentages, same total), so the recorded
-    `measured` stays valid and no floor moves.
+    to the one decimal the ratchet records. The converter compares its
+    unrounded measurement against the committed floor.
     """
     step = _javascript_coverage_gate()
     run = step.get("run") or ""
@@ -504,10 +506,10 @@ def test_js_coverage_gate_still_reports_one_decimal() -> None:
     assert "total.lines.pct.toFixed(1)" in run, (
         "the javascript coverage measurement is no longer rounded to one "
         "decimal, which is the format .github/ci-thresholds.json records")
-    assert '--check-coverage --lines "$floor"' in run, (
+    assert '--lines "$floor"' in run, (
         "the JavaScript coverage gate no longer checks itself against the "
         "committed javascript floor")
-    assert "npx --no-install c8 report" in run
+    assert "node scripts/ci/js_coverage.mjs" in run
     assert "--include 'src/**/*.js'" in run
     assert step.get("env", {}).get("NODE_V8_COVERAGE") == (
         "${{ runner.temp }}/v8-coverage")

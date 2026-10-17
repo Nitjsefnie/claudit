@@ -1,4 +1,4 @@
-"""The real c8 line gate must not measure comments or blank lines."""
+"""The real AST coverage gate must not measure comments or blank lines."""
 from __future__ import annotations
 
 import json
@@ -10,7 +10,8 @@ import pytest
 
 
 REPO = Path(__file__).resolve().parents[1]
-C8 = REPO / "node_modules" / ".bin" / "c8"
+NODE_MODULES = REPO / "node_modules"
+CONVERTER = REPO / "scripts" / "ci" / "js_coverage.mjs"
 SOURCE = """function run(flag) {
   if (flag) {
     return 1;
@@ -33,8 +34,8 @@ def _line_percentage(directory: Path, source: str) -> float:
     env = {**os.environ, "NODE_V8_COVERAGE": str(cov_dir)}
     subprocess.run(["node", str(script)], cwd=directory, env=env,
                    check=True, capture_output=True, text=True, timeout=60)
-    command = [str(C8), "report", "--temp-directory", str(cov_dir),
-               "--reporter=json-summary", "--include", "*.js"]
+    command = ["node", str(CONVERTER), "--temp-directory", str(cov_dir),
+               "--include", "*.js"]
     subprocess.run(command, cwd=directory, check=True, capture_output=True,
                    text=True, timeout=60)
     summary = json.loads((directory / "coverage" / "coverage-summary.json")
@@ -42,12 +43,12 @@ def _line_percentage(directory: Path, source: str) -> float:
     return summary["total"]["lines"]["pct"]
 
 
-@pytest.mark.skipif(not C8.exists(), reason="c8 is installed in the JS gate only")
+@pytest.mark.skipif(not NODE_MODULES.exists(), reason="JS toolchain not installed")
 @pytest.mark.parametrize("source,needle,insertion,expected", [
     (SOURCE, "  if (flag) {\n", "  // first\n  // second\n  // third\n", 75.0),
     (SOURCE, "  if (flag) {\n", "\n\n\n", 75.0),
     (SOURCE, "  if (flag) {\n", "  /* first\n     second\n     third */\n", 75.0),
-    (FUNCTION_EXPRESSION_SOURCE, " / 2;", " /* start\n comment only\n*/", 77.77),
+    (FUNCTION_EXPRESSION_SOURCE, " / 2;", " /* start\n comment only\n*/", 80.0),
 ], ids=["line-comments", "blank-lines", "block-comment", "function-expression"])
 def test_js_coverage_ignores_non_code_lines(
     tmp_path: Path, source: str, needle: str, insertion: str, expected: float,
