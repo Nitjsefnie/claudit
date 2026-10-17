@@ -125,9 +125,12 @@ def _workflow(name: str) -> dict:
 
 
 def _step_runs(doc: dict) -> list[str]:
-    """Every `run:` body of every job, decoded the way the runner reads it."""
+    """Every workflow or composite `run:` body, decoded as the runner reads it."""
     runs: list[str] = []
-    for job in (doc.get("jobs") or {}).values():
+    jobs = list((doc.get("jobs") or {}).values())
+    if (doc.get("runs") or {}).get("using") == "composite":
+        jobs.append(doc["runs"])
+    for job in jobs:
         for step in (job or {}).get("steps") or []:
             run = (step or {}).get("run")
             if run:
@@ -272,20 +275,20 @@ def test_exactly_one_npm_entry_owns_the_manifest() -> None:
 def test_no_workflow_pins_an_npm_package_inline() -> None:
     """The shape issue #361 is about, wherever it reappears.
 
-    Every workflow, both extensions: `.github/workflows` holds `*.yml` today
-    and nothing stops the next workflow arriving as `*.yaml`, where a
-    `*.yml`-only glob would read the tree as clean.
+    Every workflow, both extensions, and the extracted coverage gate:
+    moving the c8 invocation into an action keeps its pins visible here.
     """
     offenders = []
     paths = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
     assert paths, "no workflow found; the scan would pass on an empty tree"
+    paths.append(REPO_ROOT / ".github" / "actions" / "coverage-gate" / "action.yml")
     for path in paths:
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for run in _run_bodies(doc):
             for match in _INLINE_NPM_PIN.finditer(run):
                 offenders.append(f"{path.name}: {match.group(0).strip()}")
     assert not offenders, (
-        "a workflow installs an npm package with an inline @version, which "
+        "a workflow or coverage action installs an npm package with an inline @version, which "
         "no update mechanism can see (issue #361): " + "; ".join(offenders))
 
 
@@ -465,6 +468,25 @@ def test_flat_config_lints_js_and_jsx() -> None:
         "linting every panel")
 
 
+def _javascript_coverage_gate() -> dict:
+    steps = _workflow("tests.yml")["jobs"]["pytest"]["steps"]
+    caller = next(step for step in steps
+                  if step.get("name") == "JavaScript coverage gate")
+    assert caller.get("uses") == "$/.github/actions/coverage-gate"
+    assert caller.get("with", {}).get("language") == "javascript"
+    assert caller.get("id") == "jscov"
+    action = yaml.safe_load((REPO_ROOT / ".github" / "actions"
+                             / "coverage-gate" / "action.yml").read_text(
+                                 encoding="utf-8"))
+    assert action["runs"]["using"] == "composite"
+    assert action["outputs"]["js_measured"]["value"] == (
+        "${{ steps.jscov.outputs.js_measured }}")
+    step = next(step for step in action["runs"]["steps"]
+                if step.get("id") == "jscov")
+    assert step.get("if") == "inputs.language == 'javascript'"
+    return step
+
+
 def test_js_coverage_gate_still_reports_one_decimal() -> None:
     """SV-CI-RATCHETS' javascript floor, fed the same number.
 
@@ -474,25 +496,30 @@ def test_js_coverage_gate_still_reports_one_decimal() -> None:
     c8 10 (same per-file percentages, same total), so the recorded
     `measured` stays valid and no floor moves.
     """
-    runs = _step_runs(_workflow("tests.yml"))
-    measured = [run for run in runs if "total.lines.pct" in run]
-    assert measured, (
-        "tests.yml no longer reads total.lines.pct out of "
+    step = _javascript_coverage_gate()
+    run = step.get("run") or ""
+    assert 'require("./coverage/coverage-summary.json").total.lines.pct' in run, (
+        "coverage-gate/action.yml no longer reads total.lines.pct out of "
         "coverage-summary.json; the javascript ratchet has no measurement")
-    assert any("toFixed(1)" in run for run in measured), (
+    assert "total.lines.pct.toFixed(1)" in run, (
         "the javascript coverage measurement is no longer rounded to one "
         "decimal, which is the format .github/ci-thresholds.json records")
-    assert any("--check-coverage" in run and "--lines" in run for run in runs), (
+    assert '--check-coverage --lines "$floor"' in run, (
         "the JavaScript coverage gate no longer checks itself against the "
         "committed javascript floor")
+    assert "npx --no-install c8 report" in run
+    assert "--include 'src/**/*.js'" in run
+    assert step.get("env", {}).get("NODE_V8_COVERAGE") == (
+        "${{ runner.temp }}/v8-coverage")
+    assert 'echo "js_measured=${js_measured}" >> "$GITHUB_OUTPUT"' in run
 
 
 def test_js_coverage_measured_set_matches_its_derivation() -> None:
     """The measured set is the grep's output, pinned, not merely claimed.
 
     The list lives in scripts/ci/node_test_files.txt, one `tests/…` path
-    per line; tests.yml feeds it to pytest and this test pins the file's
-    content to the files containing `["node"` under tests/ — the command
+    per line; the coverage-gate action feeds it to pytest and this test pins
+    the file's content to the files containing `["node"` under tests/ — the command
     the workflow comment cites, `grep -lF '["node"' tests/*.py` (the
     fixed-string -F is load-bearing: unquoted-bracket grep exits 2 —
     issue #433: the hand-list had drifted four files behind what it
@@ -511,8 +538,8 @@ def test_js_coverage_measured_set_matches_its_derivation() -> None:
         "the measured set (scripts/ci/node_test_files.txt) no longer equals "
         "grep -lF '[\"node\"' tests/*.py: a node-executing test file was "
         "added or removed without updating the list")
-    runs = _run_bodies(_workflow("tests.yml"))
-    assert any("$(cat scripts/ci/node_test_files.txt)" in run for run in runs), (
-        "tests.yml no longer feeds scripts/ci/node_test_files.txt to pytest "
+    run = _LINE_CONTINUATION.sub(" ", _javascript_coverage_gate().get("run") or "")
+    assert "python -m pytest $(cat scripts/ci/node_test_files.txt)" in run, (
+        "coverage-gate/action.yml no longer feeds scripts/ci/node_test_files.txt to pytest "
         "via $(cat ...); the pinned list no longer drives the JavaScript "
         "coverage measurement")

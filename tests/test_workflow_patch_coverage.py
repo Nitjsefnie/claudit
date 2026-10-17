@@ -152,9 +152,25 @@ class TestComputeSide:
         assert "--coverage coverage.xml" in (step.get("run") or "")
 
     def test_compute_step_reads_the_merge_base(self):
-        run = _step(_pytest_job(), COMPUTE_STEP).get("run") or ""
-        assert "git merge-base" in run
-        assert "git diff" in run
+        job = _pytest_job()
+        run = _step(job, COMPUTE_STEP).get("run") or ""
+        assert 'base="$CLAUDIT_THRESHOLDS_BASE_REV"' in run
+        assert 'git diff "$base" HEAD --' in run
+        resolver = _step(job, "Resolve the threshold base")
+        assert resolver.get("uses") == "$/.github/actions/thresholds-base"
+        assert "if" not in resolver
+        assert resolver.get("env", {}).get("EVENT") == "${{ github.event_name }}"
+        assert resolver.get("env", {}).get("BASE_REF") == (
+            "${{ github.event.pull_request.base.ref }}")
+        names = _step_names(job)
+        assert names.index("Resolve the threshold base") < names.index(COMPUTE_STEP)
+        action = _load(ROOT / ".github" / "actions" / "thresholds-base" / "action.yml")
+        assert action["runs"]["using"] == "composite"
+        resolver_run = action["runs"]["steps"][0]["run"]
+        assert 'pull_request)' in resolver_run
+        assert 'base="$(git merge-base HEAD FETCH_HEAD)"' in resolver_run
+        assert "printf 'CLAUDIT_THRESHOLDS_BASE_REV=%s\\n'" in resolver_run
+        assert '"$base" >> "$GITHUB_ENV"' in resolver_run
 
     def test_compute_and_publish_steps_are_pull_request_only(self):
         job = _pytest_job()
