@@ -139,7 +139,6 @@ def _path_literal(node: ast.expr) -> str | None:
 
 
 def _resolve_str(node: ast.expr, consts: dict[str, str]) -> str | None:
-    """Bounded literal strings, string aliases and string addition."""
     budget = 512
 
     def resolve(expr: ast.expr, depth: int) -> str | None:
@@ -333,7 +332,6 @@ def _no_additions(expr: ast.expr, consts: dict[str, str]) -> bool:
 
 @dataclass(frozen=True)
 class _Helper:
-    """Destination and payload snapshots paired at each recognized write."""
     params: tuple[str, ...]
     writes: tuple[tuple[ast.expr, ast.expr | None], ...]
 
@@ -431,7 +429,6 @@ def _helper_template(fd: ast.FunctionDef) -> _Helper:
 
 
 def _helper_specs(tree: ast.Module) -> dict[str, _Helper]:
-    """Precompute module-level helper templates once per Python source scan."""
     specs: dict[str, _Helper] = {}
     for fd in tree.body:
         if isinstance(fd, ast.FunctionDef):
@@ -488,7 +485,6 @@ class _HelperEffects:
     unknown: bool
 
     def add(self, churn: tuple[int, int]) -> None:
-        """Accumulate one (added, deleted) pair."""
         self.added += churn[0]
         self.deleted += churn[1]
 
@@ -570,7 +566,6 @@ def _call_effects(node: ast.Call, consts: dict[str, str],
 
 @dataclass(frozen=True)
 class _WriteTarget:
-    """A syntactic file receiver, with an optional resolved path."""
     path: str | None
     is_path: bool
 
@@ -758,7 +753,6 @@ def _statement_effects(stmt: ast.stmt, consts: dict[str, str],
 
 
 def _python_churn(src: str) -> tuple[int, int]:
-    """Churn enumerable from a python script's own source."""
     added, deleted, _, _ = _python_scan(src)
     return added, deleted
 
@@ -766,33 +760,27 @@ def _python_churn(src: str) -> tuple[int, int]:
 class BashCommand:
     """Lazy syntax shared by churn and access analysis of ONE tool call.
 
-    These consumers used to split heredocs three times and tokenize twice.
-    Keep their common input on the call, rather than a global mutable cache:
-    concurrent file parsers and separate cwd resolutions remain independent.
-    Consumers must treat the cached syntax as read-only.
-    """
+    Keep split/tokenized input on the call to avoid repeated scans without
+    a global mutable cache: concurrent parsers and cwd resolutions remain
+    independent. Consumers must treat cached syntax as read-only."""
 
     def __init__(self, command: str) -> None:
         self.command = command
 
     @functools.cached_property
     def parts(self) -> tuple[list[tuple[str, str]], str]:
-        """Heredoc contexts/bodies and the remaining shell command."""
         return _split_heredocs(self.command)
 
     @functools.cached_property
     def tokens(self) -> list[ShellWord]:
-        """Shell words with quote/expansion provenance, excluding heredoc bodies."""
         return shell_tokens(self.parts[1])
 
     @functools.cached_property
     def heredoc_repeats(self) -> list[int]:
-        """Times each heredoc body runs: its enclosing literal loops."""
         return heredoc_repeats(self.tokens, len(self.parts[0]))
 
     @functools.cached_property
     def heredoc_kinds(self) -> list[str | None]:
-        """Classifications for opener pairs, reusing each distinct context."""
         kinds_by_context: dict[str, str | None] = {}
         kinds = []
         for context, _ in self.parts[0]:
@@ -803,7 +791,6 @@ class BashCommand:
 
     @functools.cached_property
     def heredoc_python_stdin(self) -> list[bool]:
-        """Whether each opener context matches Python stdin, memoized by context."""
         matches_by_context: dict[str, bool] = {}
         matches = []
         for context, _ in self.parts[0]:
@@ -814,11 +801,9 @@ class BashCommand:
 
     @functools.cached_property
     def dash_c_sources(self) -> list[str]:
-        """Inline Python bodies, decoded once for both consumers."""
         return _dash_c_sources(self.parts[1])
 
     def churn(self) -> tuple[int, int]:
-        """(lines_added, lines_deleted) estimates from this command."""
         if not self.command or len(self.command) > MAX_COMMAND_CHARS:
             return 0, 0
         added = deleted = 0
@@ -848,7 +833,6 @@ class BashCommand:
         return added or int(unknown), deleted
 
     def write_paths(self) -> list[str]:
-        """Python write targets, before the caller resolves their cwd."""
         if not self.command or len(self.command) > MAX_COMMAND_CHARS:
             return []
         sources = [body for (_, body), is_python in
@@ -863,7 +847,6 @@ class BashCommand:
 
 
 def bash_churn(command: str) -> tuple[int, int]:
-    """(lines_added, lines_deleted) estimates for one Bash call."""
     return BashCommand(command).churn()
 
 

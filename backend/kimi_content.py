@@ -7,7 +7,6 @@ from backend.json_shape import as_dict, dict_list
 
 
 def _kc_parse_tool_call(tc: dict) -> tuple[str, str | None, str]:
-    """Extract name, arguments, id from a kimi-code ToolCall (v1.0/v1.1)."""
     if tc.get("type") != "function":
         return "", None, ""
     tcid = tc.get("id", "")

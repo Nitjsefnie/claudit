@@ -1,12 +1,9 @@
-"""Shell command payloads and write effects: sed, cp, perl, echo, printf.
+"""Shell payload/write effects for sed, cp, perl, echo and printf.
 
-The effect half of the old `bash_literals`, split so that module stays
-the bounded-words half: what a command line's payload text is and what
-paths it puts on disk — `sed_parts`, `destination_paths`,
-and the pipeline folds (`shell_effects`, `effects_from_tokens`).
-`command_options` refuses any flag the command's modes dict does not
-list, so an unparsable command names nothing rather than a guessed path.
-"""
+Recover payload text and destinations through sed_parts,
+destination_paths and pipeline folds. command_options refuses unknown
+flags so unmodelled commands name nothing rather than a guessed path.
+Bounded shell words belong to bash_literals."""
 from __future__ import annotations
 
 import posixpath
@@ -20,7 +17,6 @@ from backend.bash_write_targets import WRITE_TARGET_COMMANDS, write_targets
 
 
 def sed_parts(args: list[str]) -> tuple[list[str], list[str], bool]:
-    """Separate sed scripts, explicit file operands and in-place mode."""
     modes = {"-" + c: 0 for c in "nErusz"}
     modes.update(dict.fromkeys(("--quiet", "--silent", "--regexp-extended", "--posix", "--unbuffered"), 0))
     modes.update(dict.fromkeys(("-e", "-f", "--expression", "--file"), 1))
@@ -41,7 +37,6 @@ def sed_parts(args: list[str]) -> tuple[list[str], list[str], bool]:
 
 
 def _copy_parts(name: str, args: list[str]) -> tuple[dict[str, str | None], list[str], str | None]:
-    """Options, source operands and destination before path resolution."""
     modes = {"-" + c: 0 for c in "abcfHilLnprRsTuvDZ"}
     modes.update(dict.fromkeys(("--no-target-directory", "--force", "--verbose",
                                "--no-clobber", "--interactive", "--strip", "--compare"), 0))
@@ -92,7 +87,6 @@ def destination_paths(name: str, args: list[str], *, literal_only: bool = True,
 
 
 def _printf_format(fmt: str) -> list[str | None] | None:
-    """Decode supported format escapes and %s placeholders."""
     pieces: list[str | None] = []
     idx = 0
     escapes = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "f": "\f", "v": "\v", "\\": "\\"}
@@ -228,7 +222,6 @@ def _echo(args: list[str]) -> str | None:
 
 
 def _redirects(words: list[ShellWord]) -> tuple[list[ShellWord], bool | None, bool]:
-    """Remove redirects, retaining stdout's sink and whether stdin is replaced."""
     args: list[ShellWord] = []
     sink = None
     stdin_replaced = False
@@ -248,7 +241,7 @@ def _redirects(words: list[ShellWord]) -> tuple[list[ShellWord], bool | None, bo
             if _fold_fd(fd) in ("", "1") and redirect in (">", ">>", ">&", ">|", "&>", "&>>"):
                 # `>& file` with the fd omitted (or spelled 1, zero-padded
                 # included) is the stdout+stderr-to-file spelling, `&>`'s
-                # twin (#802); against a digit or `-` it is a duplication
+                # twin; against a digit or `-` it is a duplication
                 # or close and sinks nothing.
                 dup = redirect == ">&" and re.fullmatch(r"[0-9]+|-", words[idx + 1])
                 sink = not dup and _file_sink(words[idx + 1])
@@ -335,7 +328,6 @@ def payloads_from_tokens(tokens: list[ShellWord]) -> list[str]:
 
 
 def effects_from_tokens(tokens: list[ShellWord]) -> list[tuple[str | None, str]]:
-    """Classify file effects without repeating the shared syntax scan."""
     if not tokens or any(t.operator and t in ("(", ")", "<<", "|&", "&") for t in tokens):
         return []
     opens = [i for i, t in enumerate(tokens) if t.operator and t == "{"]

@@ -20,7 +20,7 @@ import psycopg
 from psycopg_pool import ConnectionPool
 
 # The schema, as an ordered list of files applied under one content
-# stamp (issue #436). Re-exported because `db.SCHEMA_PATH` and
+# stamp. Re-exported because `db.SCHEMA_PATH` and
 # `db.SCHEMA_PATHS` are the names the startup tests reach for, and
 # the list itself lives in schema_files so this module stays inside
 # the module-size ratchet's 500-line ceiling.
@@ -37,14 +37,13 @@ _VIZ: ConnectionPool | None = None
 _AUTH: ConnectionPool | None = None
 
 # Connections currently checked out of the viz pool, so teardown can
-# cancel a statement that is stuck server-side (issue #372). viz_conn is
+# cancel a statement that is stuck server-side. viz_conn is
 # the single checkout point for both API traffic and ingest phases.
 _VIZ_ACTIVE: set = set()
 _VIZ_ACTIVE_LOCK = threading.Lock()
 
 
 def track_viz_conn(conn) -> None:
-    """Register ANY dedicated connection with cancel_viz_queries' registry."""
     with _VIZ_ACTIVE_LOCK:
         _VIZ_ACTIVE.add(conn)
 
@@ -55,28 +54,18 @@ def untrack_viz_conn(conn) -> None:
 
 
 def sql_text(query: str) -> LiteralString:
-    """Mark a programmatically assembled query string as executable.
+    """Mark a programmatically assembled query as executable LiteralString.
 
-    psycopg types Cursor.execute() as taking a LiteralString, so a static
-    checker flags every runtime-built SQL string. The queries passed
-    through here are assembled exclusively from our own fragments —
-    branch-selected WHERE clauses, integer bucket widths — and user input
-    only ever reaches the DB as a %s parameter, so the literal-only
-    guarantee the type wants is upheld by construction.
-
-    The return type is typing.LiteralString and NOT psycopg.abc.Query,
-    which is what it used to be. psycopg 3.3 split that alias: execute()
-    now takes QueryNoTemplate, because Query gained
-    string.templatelib.Template for 3.14 t-strings, and a value typed as
-    the whole union matches neither overload. LiteralString is a member of
-    both aliases and belongs to the standard library, so this no longer
-    tracks psycopg's type-alias churn at all.
-    """
+    Only owned SQL fragments and integer bucket widths are assembled;
+    user input reaches SQL solely as %s parameters. LiteralString
+    therefore preserves execute's literal-only guarantee by construction
+    and fits both psycopg Query and QueryNoTemplate without including
+    templatelib.Template's incompatible overload."""
     return cast(LiteralString, query)
 
 
 def _probe_first_connection(dsn: str, env_var: str, label: str) -> None:
-    """Connect once, synchronously, before a pool opens (issue #449).
+    """Connect once, synchronously, before a pool opens.
 
     The pool starts its connection workers in the background: a DSN the
     server rejects (wrong password, missing database) fails only inside
@@ -112,11 +101,9 @@ def viz_pool() -> ConnectionPool:
         _probe_first_connection(dsn, "CLAUDIT_DATABASE_URL_VIZ", "viz")
         _VIZ = ConnectionPool(
             dsn,
-            # The read endpoints are sync (blocking psycopg) and run on
-            # FastAPI's threadpool, so requests now hit the DB genuinely
-            # concurrently — a single dashboard load fans out to ~7. While
-            # they were async-on-the-event-loop they serialised and 8 was
-            # never exercised; it would now be the bottleneck.
+            # Sync read endpoints run blocking psycopg in FastAPI's threadpool;
+            # a dashboard fans out concurrent queries, so the pool must accommodate
+            # that concurrency instead of serializing the request fan-out.
             min_size=2, max_size=20, timeout=10,
             kwargs={"autocommit": False},
             check=ConnectionPool.check_connection,
@@ -141,7 +128,7 @@ def reset_viz_pool() -> None:
 
 
 def viz_pool_statistics() -> dict:
-    """Current viz-pool gauges for /health's cache readout (issue #641):
+    """Current viz-pool gauges for /health's cache readout:
     requests_waiting is the acquire-queue depth; {} when no pool exists,
     because its absence must not gain /health a failure mode."""
     try:
@@ -164,7 +151,7 @@ def auth_pool() -> ConnectionPool:
                     # claudit only READS the auth DB — enforce it at the
                     # server on every connection the pool opens, so a
                     # future write raises ReadOnlySqlTransaction instead
-                    # of committing (issue #460). The option rides the
+                    # of committing. The option rides the
                     # startup packet, so pool reconnects inherit it.
                     "options": "-c default_transaction_read_only=on"},
             check=ConnectionPool.check_connection,
@@ -200,7 +187,7 @@ def viz_conn():
 def cancel_viz_queries() -> None:
     """Cancel every statement in flight on a checked-out viz connection.
 
-    Called from lifespan teardown after the abort request (issue #372):
+    Called from lifespan teardown after the abort request:
     the bounded steps cannot fire while a run sits inside one long
     single-statement phase — the clean restamp, a rollup rebuild — so the
     cancel is what stops the statement server-side; the driver raises
@@ -232,20 +219,19 @@ def auth_conn():
 _SCHEMA_LOCK_KEY = 0x5356_4D49
 
 # How long the schema transaction waits for ANY single lock — the
-# advisory boot lock and every DDL lock — before giving up (issue #387).
+# advisory boot lock and every DDL lock — before giving up.
 # A current schema takes no lock on `records` at all (the DDL is skipped
 # by stamp); this bounds only the wait when a migration IS due and some
 # long-running transaction (a psql analysis, a pg_dump) holds a
-# conflicting lock. Without the bound the boot queued forever, and every
-# other reader queued behind it. The value lives in code, never the
+# conflicting lock. Without a bound, boot and readers behind it can wait indefinitely. The value lives in code, never the
 # environment, like every version constant here.
 _SCHEMA_LOCK_TIMEOUT = "5s"
 
 
 def _stamp_version(c) -> str | None:
-    """The schema content stamp this database carries, or None when the
-    DDL cannot be skipped (the stamp table missing — a DB from before
-    issue #387 — or the row cleared to force a re-apply)."""
+    """Schema content stamp, or None when DDL cannot be skipped.
+
+    A missing stamp table or a cleared row forces reapplication."""
     row = c.execute(
         "SELECT to_regclass('public.schema_stamp')").fetchone()
     if row is None or row[0] is None:
@@ -277,7 +263,7 @@ def apply_schema() -> None:
     with viz_conn() as c:
         if _stamp_version(c) == stamp:
             # Current: the block exit ends the read transaction. No
-            # DDL, no exclusive lock anywhere (issue #387).
+            # DDL, no exclusive lock anywhere.
             c.commit()
             return
         # A migration is due, or the stamp is missing. Bounded waits:
@@ -327,7 +313,7 @@ def apply_schema() -> None:
                               (_SCHEMA_LOCK_KEY,))
                     c.commit()
             except Exception as exc:  # noqa: BLE001
-                # Issue #154: the unlock (and the commit ending its
+                # The unlock (and the commit ending its
                 # transaction) must never mask the DDL's own error — the
                 # diagnosable one. Either failure leaves the lock free or
                 # the boot dead: a dead session's lock died with it, and
@@ -361,8 +347,7 @@ def schema_check() -> None:
     For claudit: 'files' table exists.
     For the auth DB: 'users' carries every column the app reads
     (AUTH_COLUMNS) with a usable type — user_id an integer, config
-    JSONB (issue #368: a table keyed by another name passed the old
-    check and 500ed every login with UndefinedColumn). An information-
+    JSONB; checking names as well as types prevents UndefinedColumn on login. An information-
     schema probe that does not show a column has three causes,
     discriminated on the same connection before naming one: (a) no
     'users' table visible — the database is wrong or empty; (b) the
@@ -388,7 +373,7 @@ def schema_check() -> None:
         ).fetchall())
         missing = [name for name in AUTH_COLUMNS if name not in found]
         if missing:
-            # An unseen column has three causes (issue #122) —
+            # An unseen column has three causes —
             # discriminate on this same connection before naming one.
             exists = c.execute(
                 "SELECT to_regclass('public.users')"

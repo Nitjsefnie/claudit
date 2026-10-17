@@ -3,8 +3,7 @@ CLAUDIT_APP_DESCRIPTION, CLAUDIT_APP_PRIVACY_NOTICE_URL.
 
 One codebase is deployed over several buckets (claudit, codexmeter,
 kimimeter); which name the UI shows comes from the environment, never
-from the code. Defaults reproduce today's claudit strings exactly, so a
-deploy that sets none of them is byte-identical to before.
+from the code. Unset values use the claudit defaults.
 
 Three escaping contexts, deliberately different (SV-BRAND-ESCAPE):
 - HTML text/attribute contexts — the page <title>, the meta description,
@@ -78,7 +77,7 @@ _URL_ATTR_RE = re.compile(r"(?:https?://|/(?!/))")
 
 def url_attr(url: str) -> str | None:
     """The value for a URL-bearing HTML attribute — the sign-in page's
-    privacy-notice ``href`` (issue #365) — or None when refused.
+    privacy-notice ``href`` — or None when refused.
 
     An allow-list, never a ``javascript:`` deny-list: html-escaping
     alone cannot make an href safe, because the browser decodes
@@ -92,7 +91,7 @@ def url_attr(url: str) -> str | None:
     is XSS.
 
     Two more characters the browser does its own thing with, both
-    refused wherever they appear (#438, #450):
+    refused wherever they appear:
 
     - A RAW BACKSLASH. The URL parser maps ``\\`` to ``/`` for a
       special scheme — http(s) here — so ``/\\host`` is the ``//host``
@@ -131,7 +130,7 @@ def url_attr(url: str) -> str | None:
     if not value:
         return None
     # Anything the parser removes or rewrites ANYWHERE is refused, not
-    # only where the escape happens to sit today: the ends are already
+    # only at a known escape site: the ends are already
     # trimmed above, so what is left is what the browser reads.
     # (Set width is a margin, not a tested property — see the docstring.)
     if (not _URL_ATTR_RE.match(value) or "\\" in value
@@ -149,7 +148,6 @@ def url_attr(url: str) -> str | None:
 
 
 def brand() -> dict[str, str]:
-    """The three values as the window.BRAND payload dict."""
     return {
         "name": brand_name(),
         "title": brand_title(),

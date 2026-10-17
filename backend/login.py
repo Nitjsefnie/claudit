@@ -3,15 +3,15 @@
 Login UI is inlined HTML (no shared layout chrome — claudit uses
 its own visualizer dark theme). Every credential failure — unknown
 id, no web password configured, wrong password — answers one generic
-401 rendering the FULL sign-in page (issue #395), identical status and
+401 rendering the FULL sign-in page, identical status and
 body across the three shapes, and every failure costs about one PBKDF2
 run at the write count: the real verification where it can run, a
 dummy remainder run on top where it cannot or would run cheaper (a
 legacy 200k hash, a malformed stored hash), so an account id cannot
-be enumerated by response shape or timing (issue #109) — with one
+be enumerated by response shape or timing — with one
 documented residual: a stored hash versioned above the target count
 still costs longer. Rate limiting: 5 failures per IP+user pair per
-5-minute window (issue #111), so one user's failures never lock a
+5-minute window, so one user's failures never lock a
 different user behind the same egress IP; entries are pruned per key
 on access. Each history table and its in-flight reservation table is
 bounded at 4,096 keys. Expired history keys are swept above the cap; at
@@ -69,7 +69,6 @@ def _failure_key(ip: str, uid: int) -> str:
 
 
 def _prune_key(key: str, now: float) -> list[float]:
-    """Drop one key's expired timestamps; delete the key once empty."""
     attempts = [
         t for t in _LOGIN_FAILURES.get(key, [])
         if now - t < _LOGIN_WINDOW_SECONDS
@@ -139,7 +138,6 @@ def _record_login_failure(ip: str, uid: int) -> None:
 
 
 def _prune_ip_key(ip: str, now: float) -> list[float]:
-    """Drop one IP's expired timestamps; delete the key once empty."""
     attempts = [
         t for t in _LOGIN_IP_FAILURES.get(ip, [])
         if now - t < _LOGIN_WINDOW_SECONDS
@@ -198,7 +196,6 @@ def _reserve_login_attempt(ip: str, uid: int) -> None:
 
 
 def _release_login_attempt(ip: str, uid: int) -> None:
-    """Release both reservations when the request finishes."""
     key = _failure_key(ip, uid)
     pair_count = _LOGIN_INFLIGHT[key] - 1
     if pair_count:
@@ -230,7 +227,6 @@ async def _normalize_login_failure(
 async def _verification_failure_spent(
     reservation: WorkerReservation, config: dict, password: str
 ) -> int | None:
-    """Return spent iterations on failure, or None when verification passed."""
     try:
         verified = await run_reserved_worker(
             reservation, auth.verify_web_password, config, password
@@ -279,7 +275,7 @@ def reset_login_rate_limits() -> None:
 @router.get("/login")
 async def login_page(request: Request) -> HTMLResponse:
     # The upper-cased CLAUDIT_APP_NAME is the page's brand word; html-escaped —
-    # every slot is a real HTML context. Default = today's CLAUDIT.
+    # every slot is a real HTML context. Default = CLAUDIT.
     return _login_page_response(request, "", 200)
 
 
@@ -298,7 +294,7 @@ async def login_post(
         # Malformed input reveals nothing about accounts — uid 0 is the
         # guest sentinel — and it costs no query and no PBKDF2, so it
         # answers before the limiter with its own fixed text, on the
-        # full sign-in page like every other failure (#427).
+        # full sign-in page like every other failure.
         return _login_page_response(request, _INVALID_UID_TEXT, 400)
     pair_limited = _check_login_rate_limit(ip, uid)
     ip_limited = _check_login_ip_rate_limit(ip)
@@ -314,7 +310,7 @@ async def login_post(
             # The real verification cannot run: normalize from zero — burn
             # the CPU the real verification would cost — and give the same
             # generic answer a wrong password gets, so neither response
-            # shape nor timing separates the two (#109).
+            # shape nor timing separates the two.
             await _normalize_login_failure(reservation, password, 0)
             _record_login_failure(ip, uid)
             _record_login_ip_failure(ip)
@@ -327,7 +323,7 @@ async def login_post(
             # for a versioned hash, the legacy count for valid bare hex,
             # zero for malformed versioned or corrupt legacy material
             # that ran no PBKDF2 at all) so a failure costs ≈ the target
-            # whatever shape the stored hash is (#109).
+            # whatever shape the stored hash is.
             await _normalize_login_failure(
                 reservation, password, failure_spent
             )
@@ -365,13 +361,13 @@ async def logout(request: Request) -> Response:
     # the cookie: it acts only on the session the request itself
     # presents. SameSite=strict already keeps a cross-site GET /logout
     # from carrying the cookie, so it cannot name — or bump — a session
-    # it does not hold (issue #108).
+    # it does not hold.
     #
     # Resolve-and-bump is best-effort: this is the one route whose job
     # is dropping credentials, so it must not fail closed — if the
     # session store is unavailable, the cookie is still deleted and the
     # redirect still returned, and only the server-side invalidation
-    # (issue #108, defense in depth on top of the cookie deletion) is
+    # (defense in depth on top of cookie deletion) is
     # deferred until the store answers again.
     cookie = request.cookies.get(session_mod.SESSION_COOKIE_NAME, "")
     try:

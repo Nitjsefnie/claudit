@@ -1,10 +1,6 @@
-"""Command segments, capture shapes and subshell groups in Bash text.
+"""Bash command segments, NAME=$(...) captures and subshell groups.
 
-The token-level half of `bash_reads`' segment scan: splitting decoded
-shell words into command segments, and recognising the `NAME=$( … )`
-capture (bare, double-quoted, or behind a declaration builtin) and the
-`( … )` subshell group a segment may carry. `_Scan` in `bash_reads`
-drives these; every function here is shared with it.
+Shared token-level helpers driven by bash_reads._Scan.
 """
 from __future__ import annotations
 
@@ -67,7 +63,6 @@ def _segments(tokens: list[ShellWord]) -> list[list[str]]:
 
 
 def _matching_paren(tokens: list[str], open_idx: int) -> int | None:
-    """The index of the `)` closing the `(` at open_idx, or None."""
     depth = 0
     for idx in range(open_idx, len(tokens)):
         tok = tokens[idx]
@@ -159,7 +154,7 @@ def _capture_split(raw_segment: list[str]) -> tuple[list[str], list[ShellWord]] 
     `(` operator — the double-quoted `d="$( … )"` stays one word whose
     value is the whole substitution, and any of the declaration builtins
     may lead either (`export d=$( … )`), its option flags
-    (`local -r`, `declare -rx`, `--`) skipped as transparent (#770). The
+    (`local -r`, `declare -rx`, `--`) skipped as transparent. The
     double-quoted form's inner text is tokenized with its quote
     provenance intact, so a literal paren inside a quoted template does
     not read as substitution nesting; a nested live `$( … )` still
@@ -179,7 +174,7 @@ def _capture_split(raw_segment: list[str]) -> tuple[list[str], list[ShellWord]] 
         if saw_builtin and tok.startswith("-"):
             # A builtin's option flags name no word of their own and
             # none of the builtins' options takes one (only `--` ends
-            # them), so the flags are transparent (#770). A non-flag
+            # them), so the flags are transparent. A non-flag
             # word that is not an assignment still refuses below.
             continue
         m = _ASSIGN.match(tok)
@@ -243,7 +238,7 @@ def _split_redirects(args: list[str]) -> tuple[list[str], list[str], list[str]]:
                 and not re.fullmatch(r"[0-9]+|-", target):
             # `>& file` with the fd omitted (or spelled 1, zero-padded
             # included) is bash's stdout+stderr-to-file spelling, `&>`'s
-            # twin (#802); against a digit or `-` it is a duplication or
+            # twin; against a digit or `-` it is a duplication or
             # close, and a digit fd of 0 or 2+ refuses the filename form
             # outright (ambiguous redirect, nothing runs).
             writes.append(target)

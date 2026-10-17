@@ -1,38 +1,14 @@
-"""Frontend performance telemetry: the closed vocabulary and the sink write
-(issue #436).
+"""Browser telemetry vocabulary, validation and sink write.
 
-`TIMING` lines (CLAUDIT_TIMING) cover ingest phases and `latency_rollup`
-covers model reply latency, so the served page itself was unmeasured. This
-module owns the browser side: what a beacon may say, and how it is stored.
+The sink is the only writer and refuses unknown terms: unchecked TEXT would
+allow unbounded rollup grains. A SQL CHECK would duplicate the frontend vocabulary;
+share it with readers and validate metric and part as a pair. Finite out-of-range
+readings that are float-representable are clamped; non-finite numbers reject the batch. Vocabulary violations
+are frontend bugs and return 400.
 
-Three deliberate choices, each load-bearing downstream:
-
-* **Closed vocabularies, enforced here, not by a CHECK constraint.** The sink
-  is the only writer and refuses an unknown term with a 400. A rollup row is
-  keyed on `(metric, part, region, phase)`, so an unchecked TEXT column would
-  let one buggy caller mint a new grain — and a new stored row — per request,
-  and `web_metrics_rollup` would grow without bound. A constraint would
-  duplicate a set that has to change with the frontend's instrumentation
-  anyway; this module is imported by both the sink and the reader, so the two
-  cannot drift.
-
-* **`(metric, part)` is checked as a PAIR, not two independent sets.** Every
-  journey reports the same three parts (the fetch wait, the client work, the
-  interaction-to-rendered total), and the other two metrics have exactly one
-  part each. Pairing is what makes "client work minus the fetch wait" a
-  question the rollup can answer instead of a guess.
-
-* **The value is CLAMPED, never rejected, but only once it is a number.** A
-  beacon is telemetry: a corrupt reading should cost that one row, never the
-  rest of the batch and never a console error on a page the user is reading.
-  A *vocabulary* violation is the opposite — it is a bug in our own frontend,
-  and dropping it silently would hide it, so it is a 400.
-
-The raw table is a WORKING SET, pruned to `RAW_KEEP_S` by the rollup
-pass (`backend/ingest_rollup_web_metrics.py`) once the row is inside
-every stored bucket. The ROLLUP is the durable record and nothing prunes
-it, which is why a reader serving a range longer than the working set
-has to union the raw tail back in rather than read the rollup alone.
+Raw rows form a RAW_KEEP_S working set. Pruning follows fold attempts and may
+delete a refused closed bucket's raw rows without storing that bucket.
+Rollups are durable and unpruned; wider-range reads must union the uncovered raw tail back in.
 """
 from __future__ import annotations
 
@@ -80,19 +56,12 @@ METRIC_PARTS = {
 FIXED_REGIONS = ("panel_grid", "inspector", "signin", "topbar",
                  "project_picker", "range_picker", "summary_strip", "other")
 
-#: Named page regions a shift can be attributed to. The frontend walks up from
-#: the shift's own node: the nearest element carrying `data-perf-region` wins,
-#: except the grid's own `panel_grid`, which the walk defers (#717 - it wraps
-#: every panel, so it would otherwise win the walk before a panel name was
-#: read); the nearest `data-panel` ancestor names the shift by its own term,
-#: `panel_` + the title folded to a snake_case term. A shift lands `other`
-#: only when no source sits inside any of these. The panel terms are the
-#: closed set of panel titles the dashboard renders - bounded, because every
-#: member is one of the titles in the JSX sources (a free-form selector would
-#: grow the `(metric, part, region, phase)` rollup grain without bound); the
-#: derivation test in tests/test_web_metrics.py reads the titles out of the
-#: sources and requires them to equal this tuple's panel terms, so a panel
-#: added or renamed without its term fails CI.
+#: Attribute shifts to the nearest data-perf-region, deferring panel_grid
+#: because it wraps every panel. The nearest data-panel names a shift with
+#: panel_ plus its snake_case title; use other only outside all regions.
+#: Panel terms are a closed vocabulary: free-form selectors would grow the
+#: rollup grain unboundedly. The derivation test checks JSX panel titles
+#: against these terms, so adding or renaming a panel requires its term.
 REGIONS = FIXED_REGIONS + (
     "panel_input_tokens",
     "panel_output_tokens",
@@ -154,41 +123,18 @@ MAX_ROWS_PER_USER = 20_000
 #: anonymous budget and crowd out everyone else's.
 MAX_ROWS_PER_GUEST = 2_000
 
-#: The horizon the FOLD closes buckets at, and the working set the raw table
-#: keeps for it. Both are "now"-relative, and both were a full retention
-#: window wrong before a cross-model review of this branch found it.
+#: rollup_horizon is now: the sink stamps timestamps server-side, so a
+#: closed bucket cannot gain beacons. Closing a retention window early
+#: would omit newest beacons and make wide ranges report a subset.
 #:
-#: **`rollup_horizon` is `now`.** A bucket `[s, s+W)` is complete the moment
-#: its span has passed, because `POST /api/metrics` stamps `ts` server-side: a
-#: beacon can only ever carry `ts = now`, so nothing can still arrive inside a
-#: bucket whose span has closed. Closing buckets a retention window early buys
-#: no safety and costs a great deal -- the newest beacons stay OUT of the
-#: rollup entirely, and a reader serving wide ranges from the rollup alone
-#: then reports a strict SUBSET of what a narrower range reports. Measured on
-#: a ten-day corpus with hourly folds: `4d` served 97 beacons, `5d` served
-#: 54, and the default `all` served 42 of 240.
+#: RAW_KEEP_S covers two widest bucket widths plus a fold interval. That
+#: keeps newly closed buckets fully readable even across prune/fold
+#: boundaries; storing a partial bucket would freeze incomplete percentiles.
+#: A stalled fold can outgrow that window: fold_read_from reaches back to
+#: surviving beacons and the span check refuses buckets still incomplete.
 #:
-#: **`RAW_KEEP_S` is the fold's working set, not a history.** A bucket closing
-#: on the fold at `now` started as early as `now - 2W` -- it closed at
-#: `s + W <= now` and `s` sits on the `W` lattice -- so the read window has
-#: to reach back two widths, plus a fold interval so the boundary cannot land
-#: between a prune and a fold. Two widths is what makes a PARTIAL read of a
-#: closed bucket impossible at every fold that RUNS: with one, the fold that
-#: catches a bucket the instant it closes stores it short, and nothing
-#: repairs it, because the window advances with `now` and a bucket the window
-#: has cut off stays cut off for good. That is what stranded a 24-hour bucket
-#: with 22 of its 24 beacons after three skipped folds.
-#:
-#: It is arithmetic about folds that run, so it cannot cover a fold that does
-#: not (issue #475): thirty hours of stall moves the window inside the bucket
-#: it is about to close. `fold_read_from` and the fold's span check are what
-#: cover that case -- the window reaches back while the beacons survive, and
-#: a bucket that still cannot be read whole is not stored.
-#:
-#: The ROLLUP is the durable record and nothing prunes it. The raw table holds
-#: about two and a quarter days of a few rows per page view -- a working set,
-#: not a history -- so a reader MUST union the raw tail back in, or a range
-#: longer than the working set answers from a subset of its own data.
+#: Rollups are durable and unpruned. Raw rows are a bounded working set;
+#: readers must union the uncovered raw tail into wider-range results.
 FOLD_INTERVAL_S = 6 * 3600
 RAW_KEEP_S = 2 * max(LATENCY_BUCKETS) + FOLD_INTERVAL_S
 
@@ -303,7 +249,6 @@ def parse_batch(payload: object) -> list[tuple[str, str, str, str, float]]:
 
 
 def cap_for(user_id: int) -> int:
-    """The row ceiling for this session, anonymous or named."""
     return MAX_ROWS_PER_GUEST if user_id == GUEST_USER_ID else MAX_ROWS_PER_USER
 
 
@@ -345,7 +290,6 @@ def guest_share(conn, since: datetime) -> tuple[int, int]:
 
 def store(conn, user_id: int,
           beacons: list[tuple[str, str, str, str, float]]) -> int:
-    """Insert the batch in one statement. Returns rows written."""
     cur = conn.cursor()
     cur.executemany(
         """
@@ -367,31 +311,16 @@ def retention_cutoff(now: datetime) -> datetime:
 
 
 def fold_read_from(conn, now: datetime) -> datetime:
-    """The oldest instant the FOLD may read -- the cutoff, or older (issue
-    #475).
+    """Oldest instant the fold may read: the retention cutoff or oldest beacon.
 
-    `retention_cutoff` alone is enough on every fold that HAPPENS: it is two
-    widths behind `now`, and a bucket closing on this fold starts inside that.
-    It is not enough on a fold that does not happen. A pass stalled longer
-    than `RAW_KEEP_S - widest` -- thirty hours -- resumes with a read window
-    that has moved INTO the bucket it is about to close, stores that bucket's
-    newest hours, and `ON CONFLICT DO NOTHING` freezes the short row for
-    good, beside whole ones and indistinguishable from them.
+    After a stall, the nominal cutoff can fall inside a closed bucket and
+    freeze tail-only percentiles with ON CONFLICT DO NOTHING. Reach back
+    to the oldest surviving beacon; refuse any bucket still unreadable
+    in full. Missing beacons cannot be recovered by widening the window.
 
-    So the window reaches back to the oldest beacon still on the table when
-    that beacon is older than the cutoff, which is exactly when the working
-    set outgrew its nominal width -- which happens only while the pass is not
-    running to prune it. Nothing here is unbounded in practice: the fold reads
-    the extra rows and the same pass's prune (at the cutoff, NOT at this
-    window) removes them, so the next fold is back inside the nominal window.
-    The reach-back is bounded by how long the pass was not running, and it
-    buys a bucket back only while its beacons are still there; one whose
-    beacons are gone stays absent rather than being stored short.
-
-    What it costs is not measured here: a pass that resumes after a long
-    stall reads a wider slice than `RAW_KEEP_S` once. Treat that as a claim
-    to profile, not a measured ceiling.
-    """
+    Prune at the retention cutoff, never this widened read bound, so the
+    next pass returns to its nominal working set. A longer stall requires
+    a wider read; no fixed performance ceiling is implied."""
     cutoff = retention_cutoff(now)
     row = conn.execute("SELECT MIN(ts) FROM web_metrics").fetchone()
     oldest = row[0] if row else None

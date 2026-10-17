@@ -10,7 +10,6 @@ from backend.flags import CollectionPolicy
 
 
 def disabled_rollups(collection: CollectionPolicy) -> frozenset[str]:
-    """Read optional table ownership from the collection registry."""
     return frozenset(table for spec in collection.specs
                      if spec.key in collection.disabled
                      for table in spec.rollup_tables)
@@ -32,5 +31,4 @@ def clear_disabled_rollups(tables: frozenset[str]) -> int:
 
 def collected_phases(phases: tuple[tuple[str, Callable[[], int]], ...],
                      tables: frozenset[str]) -> tuple[tuple[str, Callable[[], int]], ...]:
-    """Keep retained phase order while excluding disabled rebuild callables."""
     return tuple((name, rebuild) for name, rebuild in phases if name not in tables)

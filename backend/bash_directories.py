@@ -22,7 +22,6 @@ def _no_glob_chars(token: str) -> bool:
 
 
 def _mkdir_targets(operands: list[str]) -> list[str]:
-    """mkdir directory operands without globs."""
     try:
         _, operands = command_options(operands, _MKDIR_MODES)
     except ValueError:
@@ -54,7 +53,6 @@ _DIRECTORY_TARGETS: dict[str, Callable[[list[str]], list[str]]] = {
 
 
 def directory_targets(name: str, operands: list[str]) -> list[str]:
-    """Paths one directory-creating command puts on disk, else empty."""
     if targets := _DIRECTORY_TARGETS.get(name):
         return targets(operands)
     return []

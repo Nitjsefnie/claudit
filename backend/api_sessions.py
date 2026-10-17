@@ -1,7 +1,4 @@
-"""/api/sessions* endpoints: paginated list, detail, transcript, sidecar.
-
-Split out of api.py (issue #8 module split).
-"""
+"""/api/sessions* endpoints: paginated list, detail, transcript, sidecar."""
 from __future__ import annotations
 
 import lzma
@@ -32,7 +29,7 @@ def get_transcript(session_id: str) -> Response:
     if row is None:
         raise HTTPException(404, "session not found")
     file_key, etag = row
-    # Keyed by the object, not the validator alone (issue #375): a
+    # Keyed by the object, not the validator alone: a
     # file:// mirror derives the etag from size+mtime, so two
     # transcripts of equal size and mtime share one etag.
     key = cache.transcript_key(file_key, etag)
@@ -97,18 +94,9 @@ def get_sidecar(
     return Response(content=body, media_type=media)
 
 
-# ---------------------------------------------------------------------------
-# Legacy compatibility shims (R11). Restored frontend expects these.
-# Source data lives in the new files+records tables; the response shape is
-# the OLD pre-R9 shape so backendDashToShape / SessionsList work unchanged.
-# ---------------------------------------------------------------------------
-
-
 def _models_dict(models_raw) -> dict:
-    """{model: count} out of a json_agg of {'model', 'count'} objects."""
     models = {}
     if models_raw:
-        # models_raw comes as a list of (model, count) pairs from a json_agg.
         for entry in models_raw:
             try:
                 models[entry["model"]] = int(entry["count"])
@@ -118,7 +106,6 @@ def _models_dict(models_raw) -> dict:
 
 
 def _aggregate_session_row(row) -> dict:
-    """Shared row-builder for /api/sessions and /api/sessions/{id}."""
     (
         session_id, project_id, first_at, last_at, dur_s, req_count,
         input_t, output_t, c5, c1h, cr, cost, models_raw,
@@ -147,14 +134,11 @@ def list_sessions(
     limit: int = Query(50, ge=1, le=500),
     cursor: str | None = Query(None),
 ) -> dict:
-    """Paginated MAIN-file session list. Cursor = ISO ts of first_event_at
-    (descending); pass the next_cursor from the prior page to continue.
+    """Paginated main-file sessions with records-table aggregates.
 
-    Aggregates fresh from the records table (no separate rollup). The
-    `models` field is built from a sub-aggregation; `limit_hits` returns
-    0 because the new schema doesn't track rate-limit hits per-session
-    (the OLD column came from a removed join).
-    """
+    Cursor is descending first_event_at ISO timestamp; use next_cursor
+    for the next page. models comes from a sub-aggregation. limit_hits is
+    0 because rate-limit hits are not tracked per session."""
     proj_filter = ""
     args: list[Any] = []
     if project:
@@ -172,15 +156,10 @@ def list_sessions(
     else:
         cursor_arg = []
 
-    # Aggregate across ALL files of each session (main + agent-* sub-files)
-    # with cross-file uuid dedup, mirroring /api/dashboard. Sub-agent
-    # tokens/cost roll up into the parent session's totals; the session
-    # is keyed by session_id (shared between main + its agent files).
-    # Dedup is resolved at ingest into records.is_canonical
-    # (SV-CANONICAL-FLAG): rows with a NULL uuid are always canonical
-    # (schema default + ingest.recompute_canonical), so the flag alone
-    # selects exactly the rows a read-time sort used to keep, without
-    # re-sorting the table on every request.
+    # Aggregate main and subagent files by their shared session_id, so
+    # subagent usage rolls into the parent. Ingest resolves cross-file uuid
+    # dedup into is_canonical (SV-CANONICAL-FLAG); NULL uuids are always
+    # canonical, so this flag alone avoids a per-request table sort.
     sql = f"""
     WITH per_session AS (
       SELECT f.session_id,
@@ -231,21 +210,17 @@ def list_sessions(
 
 
 def _ctx_trace(timestamps: list[datetime | None], inputs: list[int]) -> list:
-    """Project typed file turns to [{t: epoch_seconds, ctx: int}]."""
     return [{"t": int(ts.timestamp()), "ctx": int(value)}
             for ts, value in zip(timestamps, inputs, strict=True) if ts is not None]
 
 
 @router.get("/sessions/{session_id}")
 def session_detail(session_id: str) -> dict:
-    """Single-session aggregation including ctx_trace and burn rate.
+    """Single-session totals, context timeline and burn rate.
 
-    `ctx_trace` is the typed file timeline reshaped to
-    [{t: epoch_seconds, ctx: int}] for the OLD frontend chart code.
-    `burn` is {tps, model} computed from the records table.
-    `r2_key` is the MAIN file_key.
-    `limit_hits` returns 0 (see /api/sessions docstring).
-    """
+    ctx_trace reshapes the typed file timeline to [{t: epoch_seconds,
+    ctx: int}] for the chart. burn is {tps, model} from records; r2_key is
+    the main file_key. limit_hits is 0: no per-session hit count is stored."""
     with db.viz_conn() as c:
         row = c.execute(
             """
@@ -298,7 +273,6 @@ def session_detail(session_id: str) -> dict:
 
     base = _aggregate_session_row((row[0], row[1], *row[5:16]))
 
-    # Burn (tps + dominant model) for this session.
     write_tokens = (
         base["input_tokens"]
         + base["cache_create_5m_tokens"]

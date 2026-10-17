@@ -1,15 +1,6 @@
-"""Tool-result text handling and failure classification.
+"""Tool-result sizing, NUL-safe text flattening and harness-generic error kinds.
 
-Split out of parse.py to keep it under the lint line budget; every name
-here is re-exported by backend.parse, which remains the module callers
-import. Three jobs, all operating on a tool_result's CONTENT:
-
-- sizing: how many characters a result put into the transcript
-  (``_result_size``, images included);
-- text: flattening to plain text and stripping PostgreSQL-hostile NULs
-  (``_flatten_result_text``, ``_pg_text``);
-- classification: which HARNESS-generic failure kind a failed result is
-  (``_classify_error`` and the ERROR_KIND_* constants).
+backend.parse re-exports the established names for callers.
 """
 from __future__ import annotations
 
@@ -69,14 +60,10 @@ def _flatten_result_text(content) -> str:
 
 
 def _result_size(content) -> int:
-    """Characters one tool_result put into the transcript.
+    """Characters contributed by a tool result, including image base64.
 
-    Deliberately NOT `len(_flatten_result_text(...))`: that keeps text
-    blocks only, and an image block's base64 payload is the single
-    largest thing a tool result can carry. Over the live corpus, image
-    results are 92% of all duplicated read bytes — measuring only text
-    would report the cheapest half of the intake and call it the total.
-    """
+    _flatten_result_text keeps text only; using its length would omit
+    large image payloads and undercount context intake."""
     if isinstance(content, str):
         return len(content)
     if not isinstance(content, list):

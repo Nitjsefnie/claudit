@@ -15,7 +15,7 @@ Three shapes do not fit the fold-forward rule and get their own handling:
   prompt as sent. Its flags (``tools_change``, ``system_change``,
   ``prompt_rerender``) are therefore BACKFILLED onto the last request's
   flag list, not folded onto the next one. Only digests of the snapshot
-  are kept — the tool block alone is ~265 KB.
+  are kept, avoiding a copy of the full tool block.
 - A ``session_context`` attachment marks a process start on this file.
   It lands on the next request like any window event, as ``resume``; on
   the first request of a file it is simply the launch.
@@ -26,8 +26,7 @@ Three shapes do not fit the fold-forward rule and get their own handling:
   that re-renders the prefix.
 
 Flags are harness-generic names for transcript shapes, not for a
-particular fix; a check that wants "the bug fixed in 2.1.259" maps a flag
-to a version at read time.
+particular fix; version-specific checks map flags to versions at read time.
 """
 from __future__ import annotations
 
@@ -177,8 +176,8 @@ class TurnWindow:
             if btype == "text":
                 self._observe_user_text(obj, str(blk.get("text") or ""))
             elif btype == "image":
-                # One image block counts the record as a prompt (issue #215),
-                # so the next request carries user_prompt for it too (issue #254).
+                # One image block counts the record as a prompt,
+                # so the next request carries user_prompt for it too.
                 self.flags.add(FLAG_USER_PROMPT)
             elif btype == "tool_result":
                 self.tool_results += 1
@@ -197,7 +196,7 @@ class TurnWindow:
             self.flags.add(FLAG_STOP_HOOK_BLOCK)
         elif not obj.get("isMeta") and _is_prompt_text(text):
             # The shared predicate from backend.prompt_gate covers pasted
-            # content. Images are handled in the block walk (issue #215).
+            # content. Images are handled in the block walk.
             self.flags.add(FLAG_USER_PROMPT)
 
     def take(self, obj: dict) -> tuple[list[str], int, str | None]:

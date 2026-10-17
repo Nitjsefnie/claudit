@@ -23,15 +23,14 @@ _CANNOT_CREATE_DIR = re.compile(r"cannot create directory [`'\"]([^'`\"]+)")
 _STAGE_SPLIT = re.compile(r"&&|\|\||;|\||\n")
 
 # A shell operator or heredoc marker as one raw shlex token — never a
-# path, so the tee arm never books it (#820). The char classes carry a
+# path, so the tee arm never books it. The char classes carry a
 # redirect's fd prefix and its digit/`-` target (`>&2`, `2>&1`); `<<`
 # absorbs the marker's tag and a `<`-led form its input target, an
-# fd-prefixed `<` (`2<f.txt`) included (#855, #856).
+# fd-prefixed `<` (`2<f.txt`) included.
 _REDIRECT_TOKEN = re.compile(r"[0-9]*(?:>>?|<&?)[&|]?[0-9-]*|<<\S*|[0-9]*<[^\s;&|]*")
 
 
 def _verbatim_targets(context: str) -> list[str]:
-    """Files a `cat > F` / `tee F` heredoc opener lands its body in."""
     targets = [m.group(1) or m.group(2) or m.group(3)
                for m in _REDIRECT.finditer(context)]
     if _TEE.search(context):

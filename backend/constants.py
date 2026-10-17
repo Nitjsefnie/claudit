@@ -13,21 +13,14 @@ from pathlib import Path
 # range stays on the live path.
 LATENCY_BUCKETS = (3600, 21600, 43200, 86400)
 
-# Context-size buckets for `ctx_cost_rollup` / the Cost by Context panel.
-# The per-call window is fresh + cache_creation + cache_read, bucketed to
-# CTX_BUCKET_WIDTH; everything at or above CTX_BUCKET_MAX folds into one
-# open-ended overflow bucket keyed by CTX_BUCKET_MAX itself.
+# Fixed context-width buckets preserve detail across high-input spend.
+# Use fresh + cache_creation + cache_read; inputs at or above CTX_BUCKET_MAX
+# share its open-ended overflow bucket. Logarithmic buckets would compress
+# the high-input region into a few broad bars.
 #
-# Fixed width rather than logarithmic, and that is a measurement not a
-# taste: over the live corpus, cost is near-flat across the window --
-# 7.8% of all spend in 100-150k, still 5.2% in 700-750k, ~60% above
-# 300k. Log buckets would compress precisely the region carrying the
-# money into a handful of fat bars.
-#
-# These edges are BAKED INTO STORED ROWS, exactly like LATENCY_BUCKETS:
-# a read cannot re-bucket to a different width, so changing either
-# constant requires rebuilding the rollup (bump nothing else -- the
-# rollup derives from stored `records` columns, so no reparse).
+# Edges are baked into stored rows, like LATENCY_BUCKETS: changing either
+# constant requires a rollup rebuild, not a reparse, since records already
+# carry the inputs.
 CTX_BUCKET_WIDTH = 50_000
 CTX_BUCKET_MAX = 1_000_000
 
@@ -80,34 +73,15 @@ def _read_version() -> str:
 VERSION = _read_version()
 
 
-# The rate-data semantics version, stored per record: the ONLY switch
-# that forces a REPRICE, and a reprice never refetches R2 — the reprice
-# pass (issue #193) recomputes each stale row's cost_usd AND long_context
-# (issue #194) AND its meter factor pair (issue #878) AND web-search cost
-# from stored web_search_requests at the row's dated rate (issue #879).
-# It clears the retired request_fee_usd column to NULL. A stored-flag rule
-# change is a trigger with no rate change at all. PARSER_VERSION bumps
-# only for parser-semantics changes from now on.
+# Rate-data semantics version: forces repricing from stored columns,
+# never R2 refetch. Recompute cost, long_context, meter factors and
+# web-search cost at the row's rate; clear request_fee_usd to NULL.
+# Stored-flag changes also trigger repricing. PARSER_VERSION is only for
+# parser-semantics changes.
 PRICING_VERSION = "458"
 
 # Stored rollup semantics version. Bump whenever any rollup SQL semantics
 # change; it forces one complete rebuild without reparsing files.
-# 2 — the web-metrics fold refuses a bucket it cannot read whole, and its
-#     read window reaches back to the oldest raw row while a stalled pass has
-#     left the working set wide (issue #475).
-# 3 — the canonical winner prefers an attributed-model copy over an
-#     unattributed one (issue #529): re-ranking every stored uuid requires
-#     one complete derived rebuild, no reparse.
-# 4 -- <synthetic> joins the unattributed vocabulary of the canonical
-#     winner (issue #563): re-ranking every stored uuid requires one
-#     complete derived rebuild, no reparse.
-# 5 -- the replayed-model adoption pass (issue #713): a losing replayed
-#     copy takes its uuid's original's model. Rewrites stored records, so
-#     one complete derived rebuild, no reparse.
-# 6 -- the rollup grains carry the stored model, not a masked `unknown`
-#     (issue #686): usage_rollup and latency_rollup group by raw
-#     r.model, matching the live pass. Rollup SQL semantics only, so
-#     one complete derived rebuild, no reparse.
 DERIVED_STATE_VERSION = "6"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
@@ -122,10 +96,9 @@ MARKER_READER_VERSION = "1"
 #: Claude transcripts, parse_lanes.lane_agent_type for lane ones.
 DEFAULT_AGENT_TYPE = "general-purpose"
 
-# The text Claude Code writes when the user cuts a reply off.
 INTERRUPT_MARKER = "[Request interrupted by user"
 
-# The service's stop budget, in seconds (issues #410, #414). uvicorn spends
+# The service's stop budget, in seconds. uvicorn spends
 # SHUTDOWN_GRACEFUL_S draining connections BEFORE the lifespan teardown
 # runs, and systemd SIGKILLs the process at TimeoutStopSec. EVERY term the
 # teardown can spend draws from what is left, so no term can spend the
@@ -146,27 +119,17 @@ SHUTDOWN_GRACEFUL_S = 5.0
 SHUTDOWN_STOP_BUDGET_S = 10.0
 # What the teardown may spend once uvicorn's graceful window is done.
 SHUTDOWN_TEARDOWN_S = SHUTDOWN_STOP_BUDGET_S - SHUTDOWN_GRACEFUL_S
-# Spare for the fallback close itself and the tail of the teardown after
-# it, so a stop landing while the teardown is already part-way through
-# still lands the row. Generous on purpose: the fallback is one UPDATE,
-# and being early costs nothing — the run's own close wins either way.
-# Issue #414 took 0.5s off this to fund the reap share below; it covers one
-# single-row UPDATE and the tail, so it stays far wider than the work.
+# Spare for the fallback's single-row UPDATE and teardown tail, even
+# when stop lands part-way through. Being early costs nothing: the
+# run's own close wins either way.
 SHUTDOWN_MARGIN_S = 1.5
-# The export-render reap's share, for the reap as a WHOLE — every live
-# child, not one apiece (issue #414). It runs ahead of the bounded ingest
-# wait, and a wait bounded per child is drawn N times over: two wedged
-# children spent 10s of a 5s teardown, so the row close behind it never
-# ran. The kill is SIGKILL, so reaping a child is normally instant; the
-# bound only bites when a child is wedged, and a wedged child is what the
-# stop is about to kill anyway.
+# One shared reap budget for ALL render children, ahead of ingest wait.
+# Per-child bounds multiply teardown time and can prevent row close.
+# SIGKILL normally makes reaping instant; the bound covers wedged children
+# that the service stop will kill regardless.
 SHUTDOWN_RENDER_REAP_S = 1.5
-# What is left for the bounded wait on the in-flight run. A run's abort
-# unwind is one fetch chunk plus one final transaction, normally
-# sub-second, so this is a bound and not a target — 3.0s before issue
-# #414, 2.0s after, to fund the reap share above. The trade: a run that
-# genuinely needs 2-3s to unwind now loses its own close to the fallback,
-# which closes the same row as aborted — the outcome the fallback exists
-# for, reached a little more often.
+# Remaining stop budget for ingest unwind: a fetch chunk and final
+# transaction. A run exceeding this bound loses its own close to the
+# fallback, which closes the same row as aborted.
 SHUTDOWN_RUN_WAIT_S = (SHUTDOWN_TEARDOWN_S - SHUTDOWN_MARGIN_S
                        - SHUTDOWN_RENDER_REAP_S)

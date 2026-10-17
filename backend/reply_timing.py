@@ -35,8 +35,6 @@ class _GenerationSpan:
 
 
 class GenerationTiming:
-    """One file's generation clock, keyed by message.id rather than requestId."""
-
     def __init__(self) -> None:
         self._anchor: datetime | None = None
         self._failure_epoch = 0
@@ -93,8 +91,6 @@ def generation_values(span: _GenerationSpan | None) -> tuple[float | None, float
 
 
 class ReplyTiming:
-    """One file's reply-latency anchor, independent of prompt counting."""
-
     def __init__(self) -> None:
         self._anchor_ts: datetime | None = None
 

@@ -1,11 +1,7 @@
-"""The model-id spellings the pricing family shares (SV-RATE-DATA).
+"""Pure model-id normalization and suffix/free-shape grammar (SV-RATE-DATA).
 
-Normalisation, the free/stealth shape, and the suffix grammars the
-resolvers read: one id's spelling means one model across the family
-(``backend/pricing.py`` re-exports every name here, so existing
-``pricing._normalise``-style readers keep working). Pure functions over
-the id text — no rate table is read here.
-"""
+Pricing resolvers share these spellings and pricing re-exports them.
+Read no rate tables here."""
 from __future__ import annotations
 
 import re
@@ -16,12 +12,12 @@ from functools import lru_cache
 # keys do not match.
 _VERSIONED_KEY = re.compile(r"^claude-([a-z]+)-(\d+(?:-\d+)*)$")
 
-# A dated snapshot suffix ("-20250514") is the same model; a short version
-# suffix ("-9") or a mode suffix ("-fast") is a DIFFERENT model.
+# A YYYYMMDD snapshot suffix preserves model identity; a short version
+# suffix (-9) or mode suffix (-fast) names a different model.
 _SNAPSHOT_SUFFIX = re.compile(r"^-?\d{6,8}$")
 
-# OpenRouter's dated permaslug ("deepseek/deepseek-v4-flash-20260731") names
-# the same model as its short slug ("deepseek/deepseek-v4-flash-0731").
+# An OpenRouter permaslug's trailing YYYYMMDD names the same model as
+# its short MMDD slug; normalize the year away only for that lookup.
 _PERMASLUG_DATE = re.compile(r"-20\d{2}(\d{4})$")
 
 # OpenRouter's variant suffix (":nitro", ":floor") names a service tier,

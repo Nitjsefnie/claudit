@@ -1,15 +1,9 @@
-"""The ingest's listing scan: wires, sidecars and lane markers.
+"""Pair listed transcripts with sidecars and collect lane markers.
 
-Split out of backend.ingest for size: the lock-loss guard and the
-shutdown-cancel classification add net lines there, and the module-size
-baseline for ingest.py is exact. The scan is one listing pass over
-`r2.list_keys()`: transcripts paired with their meta.json sidecars
-(`_Wire`), and the lane markers collected for their own fetch round.
-
-The marker GET resolves `ingest._fetch_with_retry` at call time, so the
-monkeypatch seam the tests set on backend.ingest keeps reaching marker
-fetches exactly as when the code lived there.
-"""
+One r2.list_keys pass builds _Wire items and a separate marker-fetch
+round. Keep scan machinery outside ingest's module-size ceiling.
+Resolve ingest._fetch_with_retry at call time so ingest's test patch
+seam also governs marker GETs."""
 from __future__ import annotations
 
 import json
@@ -90,7 +84,7 @@ def _resolve_project_paths(marker_items: list[tuple[str, str, str]],
     The fetched path is marker content: it is NUL-stripped HERE, before
     any consumer sees it — the walk's project identity, the rekey's
     display_name and the stored row all take the same stripped value
-    (issue #673).
+   .
     """
     project_paths, stale = lane_markers.cached_paths(marker_items)
     read: dict[str, tuple[str, str | None]] = {}

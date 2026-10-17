@@ -1,44 +1,13 @@
-"""records.uuid as a split column set (issue #959 task 8).
+"""Lossless records.uuid storage split.
 
-One identity text lands in exactly one of three storage slots on
-``records``:
+Canonical lowercase UUIDs use uuid_col; canonical UUID:INT4 counters use uuid_col
+plus seq (no leading zeros). Every other spelling stays verbatim in fallback;
+NULL stays NULL in all three (SV-CANONICAL-FLAG). uuid_text_sql rebuilds the
+original text; a stored GENERATED text would undo the heap saving.
 
-* ``uuid_col`` — a canonical lowercase uuid: that is exactly the form
-  PostgreSQL's ``uuid::text`` renders, so the value round-trips
-  byte-identically;
-* ``seq`` — the INT4 counter stored beside ``uuid_col`` for the Codex
-  lane's ``<uuid>:<n>`` identity, decimal with no leading zeros and at
-  most 2^31-1;
-* ``fallback`` — everything else, verbatim: kimi ``<file_key>:<line>``
-  ids, legacy message ids, non-canonical uuid forms (uppercase,
-  unhyphenated, braced) and counters that are not a canonical INT4
-  decimal (``:007``, an overflowing ``:2147483648``).
-
-Nothing is ever coerced: a value no slot claims still stores verbatim in
-``fallback``, and a NULL identity stays NULL in all three — NULL uuid
-means always-canonical in the winner rule, so a silent NULL would be a
-silent dedup break (SV-CANONICAL-FLAG).
-
-Readers rebuild the original text with :func:`uuid_text_sql` —
-``COALESCE(fallback, uuid_col::text || COALESCE(':' || seq::text, ''))``
-— so canonical grouping, winner parity and API output stay byte-identical
-to the old TEXT column. A stored GENERATED column was rejected: it would
-re-store the same ~40-byte text on every row and hand back the heap
-saving the split exists to make.
-
-Why readers may group by the PARTS instead of the rebuilt text
-(:func:`uuid_partition_sql`): the classification is one total,
-deterministic function of the text, and the CHECK constraints in
-``schema_dims.sql`` enforce that the stores' text sets are pairwise
-disjoint — ``uuid_col::text`` never contains a colon (PostgreSQL's
-rendering), and a fallback never holds a form another slot owns. Equal
-parts therefore mean equal texts and vice versa, so PARTITION BY and the
-winner join on the parts pick exactly the winners the old TEXT column
-did, without rebuilding 1.79M strings per pass. A partition on
-``uuid_col`` ALONE would NOT: it merges a pure ``U`` row with its
-``U:n`` split variants, which are different identities — pinned by
-``tests/test_uuid_split.py::test_pure_and_split_rows_of_one_uuid_keep_
-separate_winners``.
+Classification is deterministic and schema_dims.sql CHECKs keep the slots'
+text sets disjoint, so grouping/joining on ALL parts equals grouping on text.
+uuid_col alone merges U with U:n and must never define the partition.
 """
 from __future__ import annotations
 
@@ -55,8 +24,7 @@ INT4_MAX = 2_147_483_647
 # differently, so they are not this shape and fall through to fallback.
 # Both patterns anchor with `\Z`, NOT `$`: Python's `$` also matches
 # BEFORE a trailing newline, which would let `"U\n"` into the uuid slot
-# (its uuid.UUID() parse then crashes the file's persist — the old TEXT
-# column stored it) and `"U:5\n"` into the seq slot (reconstruct would
+# (its uuid.UUID() parse then crashes the file's persist) and `"U:5\n"` into the seq slot (reconstruct would
 # drop the newline, breaking byte identity and merging with a genuine
 # `"U:5"` in the winner rule). `\Z` is end-of-string, no exceptions.
 # The SQL mirrors of these patterns are schema_dims.sql's third CHECK;
@@ -129,13 +97,11 @@ def reconstruct(parts: UuidParts) -> str | None:
 
 
 def uuid_text_sql(alias: str = "r") -> LiteralString:
-    """The byte-identical rebuild of the original identity text.
+    """Rebuild original identity text byte-identically, including NULL.
 
-    ``uuid_col::text || ':' || seq`` would be NULL for a pure uuid (NULL
-    concatenation), so the counter's separator is COALESCEd away first;
-    a NULL identity (all three slots NULL) rebuilds to NULL, exactly as
-    the old ``uuid IS NULL`` read did.
-    """
+    For a pure uuid, NULL concatenation would swallow uuid_col::text;
+    COALESCE removes only the absent counter separator. All-NULL slots
+    rebuild to NULL, preserving uuid IS NULL semantics."""
     return cast(LiteralString,
                 f"COALESCE({alias}.fallback, {alias}.uuid_col::text || "
                 f"COALESCE(':' || {alias}.seq::text, ''))")
@@ -158,12 +124,9 @@ def uuid_absent_sql(alias: str = "r") -> LiteralString:
 
 
 def uuid_partition_sql(alias: str = "r") -> LiteralString:
-    """The winner rule's grouping key: the parts, not the rebuilt text.
+    """Group winner identities by split parts, equal iff text is equal.
 
-    Equal here if and only equal as text (see the module docstring), so
-    this partitions exactly like the old ``PARTITION BY uuid`` — while
-    comparing 16-byte uuids instead of building 40-byte strings for
-    every row of every pass.
-    """
+    Schema CHECK disjointness preserves PARTITION BY uuid semantics while
+    comparing 16-byte uuids instead of rebuilding text per row per pass."""
     return cast(LiteralString,
                 f"({alias}.uuid_col, {alias}.seq, {alias}.fallback)")

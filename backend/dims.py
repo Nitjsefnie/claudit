@@ -1,4 +1,4 @@
-"""Dimension id resolution shared by the ingest write paths (#959).
+"""Dimension id resolution shared by the ingest write paths.
 
 The fact tables store dim FK ids (`dim_model`, `dim_provider`, ...), so
 every writer resolves its TEXT values through these helpers first. Read
@@ -31,7 +31,6 @@ _DIM_TABLES = frozenset({
 
 def dim_ids(conn: psycopg.Connection, table: str,
             values: Iterable[str | None]) -> dict[str, int]:
-    """Resolve every non-NULL value to its id; return {value: id}."""
     if table not in _DIM_TABLES:
         raise ValueError(f"not a dimension table: {table!r}")
     distinct = sorted({v for v in values if v is not None})
@@ -60,5 +59,4 @@ def dim_ids(conn: psycopg.Connection, table: str,
 
 
 def dim_id(conn: psycopg.Connection, table: str, value: str) -> int:
-    """The id for one value, upserting it (a frequently-used single)."""
     return dim_ids(conn, table, [value])[value]

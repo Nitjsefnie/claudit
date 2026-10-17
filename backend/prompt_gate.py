@@ -1,13 +1,8 @@
-"""The Claude-path prompt gate (issue #213).
+"""Claude prompt-count and context-turn gate, independent of latency.
 
-Decides whether a user text counts as a prompt for `prompt_count`,
-ctx-turn boundaries. Reply-latency anchoring is independent: injected
-user text can anchor a reply without counting as a prompt. Split out of
-parse.py, which had no room to grow under the module-size ratchet
-(SV-CI-RATCHETS); the gate's own text is the maintainer ruling
-verbatim. An explicit class keeps the gate's leading-strip and tag-regex
-whitespace decisions independent of interpreter Unicode tables; the browser
-parser mirrors that class verbatim.
+The gate text is the maintainer ruling verbatim. Its explicit whitespace class
+must stay independent of interpreter Unicode tables and match the browser.
+Module boundary: SV-CI-RATCHETS.
 """
 from __future__ import annotations
 
@@ -30,7 +25,6 @@ _PROMPT_HUMAN_TAGS = frozenset({"pasted_content"})
 
 
 def lstrip_prompt_ws(text: str) -> str:
-    """Strip the fixed prompt-whitespace repertoire from the left."""
     return _PROMPT_WS_RE.sub("", text)
 
 

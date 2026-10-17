@@ -1,22 +1,8 @@
-"""R2 (S3 API) client with a file:// mode for the local mirror.
+"""R2 S3 client with a file:// local-mirror mode.
 
-When CLAUDIT_R2_ENDPOINT starts with 'file://', the client walks the local
-directory tree at the path. Otherwise it uses boto3 against R2's
-S3-compatible endpoint.
-
-Several buckets per deploy: CLAUDIT_R2_BUCKET may name SEVERAL buckets joined by
-'+' (e.g. 'claude', or 'claude+codex+kimi'); every stored file key is
-qualified with its bucket as `<bucket>/<object-key>`. list_keys() yields
-qualified keys, and get_object()/get_stream() split that first segment
-back off (refusing a bucket not in buckets()); key_layout keeps working
-on the object key without it.
-
-API surface:
-- buckets() -> configured bucket names
-- split_key(key) -> (bucket, object-key)
-- list_keys(prefix='') -> iterator of R2Object, `.key` bucket-qualified
-- get_object(key) -> bytes
-- get_stream(key) -> file-like (for line-streaming large transcripts)
+CLAUDIT_R2_BUCKET joins configured buckets with +. Stored keys and list_keys
+results are <bucket>/<object-key>; get_object/get_stream split the bucket and
+refuse unconfigured names. key_layout consumes only the object key.
 """
 from __future__ import annotations
 
@@ -152,7 +138,6 @@ def _configured(key: str) -> tuple[str, str]:
 
 
 def _is_file_mode() -> tuple[bool, str]:
-    """Return (in_file_mode, root_path). root_path is '' when not in file mode."""
     endpoint = getenv("CLAUDIT_R2_ENDPOINT", "")
     if endpoint.startswith("file://"):
         parsed = urlparse(endpoint)
@@ -365,7 +350,7 @@ def get_object(key: str, etag: str | None = None,
     # Inflate transparently so callers (ingest, transcript serving) always
     # see the plain JSONL bytes. xz is stdlib (`lzma`) — no extra dependency.
     # The inflate wall is stamped onto this thread's accumulator when the
-    # timing flag is on (issue #662: the ingest pool children split the
+    # timing flag is on (the ingest pool children split the
     # fetch wall into GET and decompress via pop_decompress_seconds); the
     # flag-off path costs one boolean check.
     return maybe_inflate(key, data)
@@ -374,8 +359,8 @@ def get_object(key: str, etag: str | None = None,
 def maybe_inflate(key: str, data: bytes) -> bytes:
     """Inflate xz when the key names a compressed object.
 
-    Shared by the GET path and the blob-cache hit path (#684), so a hit
-    pays the inflate the GET would have and the #662 decompress stamp
+    Shared by the GET path and the blob-cache hit path, so a hit
+    pays the inflate the GET would have and the decompress stamp
     lands on the same accumulator either way.
     """
     if not key.endswith(".xz"):
@@ -431,29 +416,18 @@ _tls = threading.local()
 
 
 def _boto_client():
-    """Per-thread cached S3 client, stamped with its creating process.
+    """Cache an S3 client per thread, stamped with its creating process.
 
-    Rebuilding this per object cost ~5ms of botocore setup each time AND
-    threw away the underlying connection pool, so every GET paid a fresh
-    TLS handshake. Caching per thread keeps keep-alive alive; it is
-    thread-local rather than module-global because botocore clients are
-    only documented thread-safe for method calls, and a private client per
-    worker also gives each its own connection pool.
+    Reuse connection pools and TLS sessions. Per-thread clients avoid
+    sharing undocumented setup state and give each worker its own pool;
+    only client method calls are documented thread-safe.
 
-    The stamp is the fork guard (issue #338): any fork-started child
-    inherits the forking thread's thread-local — the client the ingest
-    listing built, still holding its open TLS sockets. (The ingest parse
-    pool has used a preloaded forkserver since #964, so its workers no
-    longer inherit that client; the guard covers any other fork.) A child
-    that reused it would read and write the same SSL streams the parent
-    and the other children use, corrupting every one of them
-    (`ssl.SSLError: record layer failure`), so a cached client whose stamp
-    is not this process's pid is treated as absent: the child keeps the
-    inherited client only as an unreachable reference and builds its own. Never close the inherited
-    one — a close could write to the shared streams; the duplicated
-    descriptors are simply dropped. The stamp lives in the thread-local
-    beside the client, never as an attribute on the botocore object.
-    """
+    Forks inherit thread-local clients and open SSL streams. Never reuse
+    one stamped with another pid: sharing streams corrupts parent and
+    child traffic. Build a private client and drop inherited descriptors
+    without closing the inherited client, since close could write to those
+    shared streams. Keep the pid beside the client, not on the botocore
+    object. The guard also covers forks outside the ingest forkserver."""
     client = getattr(_tls, "client", None)
     if client is not None and getattr(_tls, "pid", None) == os.getpid():
         return client

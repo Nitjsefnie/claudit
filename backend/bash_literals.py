@@ -94,8 +94,8 @@ def _mark_adjacent_parens(token: ShellWord, command: str, idx: int,
     """Flag a `(` adjacent to a second `(` and a `)` adjacent to a `)`.
 
     `((` opens and `))` closes bash's arithmetic command; spaced apart,
-    the same parens are a real nested subshell (#771), and the adjacent
-    opener with an undoubled close is bash's subshell fallback (#778).
+    the same parens are a real nested subshell, and the adjacent
+    opener with an undoubled close is bash's subshell fallback.
     """
     if token == "(" and end < len(command) and command[end] == "(":
         token.double_paren = True

@@ -1,18 +1,8 @@
-"""Read endpoints. All gated by session.auth_middleware via path prefix /api/.
+"""Small read endpoints, gated by session.auth_middleware at /api/.
 
-Per-FILE / per-RECORD: /api/projects, /api/cache, session transcripts and
-sidecars.
-Transcript reads stream raw bytes.
-Sidecar reads validate the requested path within the owning session.
-
-Legacy compatibility shims for the restored Dashboard / SessionsList /
-SessionView frontend return the older shape: /api/dashboard (hourly
-aggregates, burns, ctx_lines), /api/sessions (paginated list) and
-/api/sessions/{id} (session detail).
-
-Shared helpers live in backend/api_common.py; export, dashboard, sessions
-and cache routes live in their own routers. This file keeps smaller panel
-endpoints.
+Shared helpers live in api_common; export, dashboard, sessions and cache own
+separate routers. Transcript reads stream raw bytes and sidecar reads validate
+the path within the owning session.
 """
 from __future__ import annotations
 
@@ -53,8 +43,6 @@ router.include_router(web_metrics_router)
 
 @router.get("/me")
 def me(request: Request) -> dict:
-    """Identity probe — frontend uses `is_guest` to decide which UI
-    affordances to render."""
     return {
         "user_id": getattr(request.state, "user_id", None),
         "is_guest": bool(getattr(request.state, "is_guest", False)),
@@ -130,7 +118,6 @@ def activity_heatmap(
 
 def _latency_filters(project: str | None, model: str | None,
                      since: datetime) -> tuple[str, str, list]:
-    """(proj_filter, model_filter, args) for the live latency queries."""
     proj_filter = ""
     args: list[Any] = [since]
     if project:
@@ -145,10 +132,8 @@ def _latency_filters(project: str | None, model: str | None,
 
 def _latency_live(rng: str, project: str | None, model: str | None,
                   bucket_s: int, since: datetime) -> dict:
-    """The live pass for bucket widths latency_rollup does not store."""
     proj_filter, model_filter, args = _latency_filters(project, model, since)
 
-    # Bands: per-(bucket, model) percentiles.
     bands_sql = f"""
     SELECT to_timestamp(
              floor(EXTRACT(EPOCH FROM r.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
@@ -236,7 +221,7 @@ def reply_latency_route(
     request: Request, rng: str = Query("30d", alias="range"),
     project: str | None = Query(None), model: str | None = Query(None),
 ) -> dict:
-    """Reply-latency wrapper (issue #244): latency is the gap from each
+    """Reply-latency wrapper: latency is the gap from each
     anchored user message to its assistant reply; project/model filters
     apply to the assistant record. Guests get copied outliers without
     file_key, preserving the cached body."""
@@ -278,8 +263,6 @@ async def event_stream(request: Request):
                     break
                 if shutdown is not None and shutdown.is_set():
                     break
-                # Race the queue, the shutdown signal, and a 15s heartbeat.
-                # First-wins; everything else is cancelled.
                 wait_tasks = [asyncio.create_task(q.get())]
                 if shutdown is not None:
                     wait_tasks.append(asyncio.create_task(shutdown.wait()))
@@ -295,7 +278,6 @@ async def event_stream(request: Request):
                     continue
                 if shutdown is not None and shutdown.is_set():
                     break
-                # Queue task finished — drain it
                 first = next(iter(done), None)
                 if first is None:
                     continue
@@ -557,11 +539,10 @@ def cost_by_agent(
 @router.get("/models")
 @cache_response
 def list_models() -> dict:
-    """All distinct (real, non-synthetic) model strings ever recorded,
-    with counts. Frontend canonicalizes via shortModelName for the
-    dropdown. Cached (issue #644: it re-ran a ~1s GROUP BY over
-    records on every open); reads filter is_canonical (SV-CANONICAL-FLAG),
-    so a model seen only by a replayed copy never lists."""
+    """Distinct real model strings with counts, cached to avoid a GROUP BY
+    on every page open. Filter is_canonical (SV-CANONICAL-FLAG), so a model
+    seen only in a replayed copy never lists. The frontend canonicalizes
+    names via shortModelName."""
     with db.viz_conn() as c:
         rows = c.execute(
             """
@@ -578,31 +559,17 @@ def list_models() -> dict:
 @router.get("/projects")
 @cache_response
 def list_projects(rng: str = Query("30d", alias="range")) -> dict:
-    """Per-project rollup: session_count, range-scoped cost, derived from
-    files+usage_rollup. Ordered by the RANGE-scoped cost, descending, so
-    the picker re-sorts as the dashboard's time range changes — the same
-    `range` convention /api/dashboard takes (`_parse_range`, default
-    "30d"). Range-scoped TOKENS order the zero-cost projects and break
-    cost ties (a free lane's usage still ranks it); project_id breaks
-    token ties deterministically.
+    """Per-project session count and range-scoped usage from files+usage_rollup.
 
-    Projects whose ALL-TIME TOKENS are 0 — no usage at all — are dropped
-    entirely. A lane priced at $0 has usage and stays listed. A project
-    with all-time usage but nothing in the selected range is still
-    returned — sorted to the bottom with a cost of 0 — since this is a
-    re-sort of the existing list, not a range filter; the ALL-TIME-token
-    exclusion and the RANGE-scoped ordering are two different aggregates
-    and must not be conflated.
+    Order by range-scoped cost, then tokens, then project_id. Token ties
+    keep free-lane usage ranked; project_id makes the result deterministic.
+    Drop only projects with zero ALL-TIME tokens. A project with usage
+    outside the range stays listed at zero range cost: the all-time
+    exclusion and range ordering must remain separate aggregates.
 
-    Cost comes from usage_rollup instead of joining every record: this
-    used to fan `projects x files x records` out to ~296k rows and was
-    the slowest uncached call on a page load after /api/dashboard.
-
-    The aggregates are computed in separate subqueries rather than by
-    stacking two LEFT JOINs — joining files AND records first multiplied
-    the file rows by their record count, so COUNT(f.file_key) reported
-    67,969 files for a project that has 2,173.
-    """
+    Compute file counts and usage in separate subqueries: joining files
+    and records first multiplies file counts by record count. Read usage
+    from usage_rollup to avoid that record fan-out on every page load."""
     delta = _parse_range(rng)
     since = datetime.now(timezone.utc) - delta
     with db.viz_conn() as c:

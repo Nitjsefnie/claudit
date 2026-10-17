@@ -26,7 +26,7 @@ class _RunTiming:
     # Pipeline provenance, stamped once per run for the TIMING tail.
     parse_processes: int = 1
     persist_threads: int = 1
-    # Issue #662: the pool pipeline's fetch_parse parts, accumulated by
+    # The pool pipeline's fetch_parse parts, accumulated by
     # pipeline_pool (child work summed across the process workers via the
     # stages dict parse_wire returns, persist work via persist_seconds)
     # and emitted as mark_part breakdown figures beside the wall marks.
@@ -50,8 +50,7 @@ def _record_phase(label: str, seconds: float) -> None:
         current.phases.mark(label, seconds)
 
 
-#: The pool pipeline's fetch_parse part marks, in emission order (issue
-#: #662) — child work summed across the process workers, the summed
+#: The pool pipeline's fetch_parse part marks, in emission order — child work summed across the process workers, the summed
 #: persist work, and the parent's two blocking points.
 FETCH_PARSE_PART_MARKS = (
     "child_fetch", "child_decompress", "child_parse", "child_sidecar",
@@ -61,7 +60,7 @@ FETCH_PARSE_PART_MARKS = (
 
 def _emit_fetch_parse_parts(phases, current: _RunTiming) -> None:
     """Emit the pool pipeline's fetch_parse parts as breakdown figures so
-    the account line's sum/gap stay wall-only (issue #662)."""
+    the account line's sum/gap stay wall-only."""
     parts = dict(current.child_work)
     parts["persist_work"] = current.persist_seconds
     parts["wait_parse"] = current.wait_parse

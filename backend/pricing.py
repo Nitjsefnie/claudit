@@ -1,48 +1,17 @@
-"""Per-model cost rates (USD per million tokens).
+"""Resolve per-record USD rates from shared pricing data (SV-RATE-DATA).
 
-The rates themselves are data in src/pricing.json, which src/parser.js
-reads too (SV-RATE-DATA); this module loads it and resolves a record to
-its rates. Bump PRICING_VERSION when a change reprices stored records.
+Free/stealth ids price at zero before all table matches and count as exact:
+zero is intentional, never an estimate.
+A serving-provider pair wins when available at the request timestamp;
+otherwise match model keys or bare vendor forms, then estimated Claude tier
+rates, then an estimated default. Longest model-key matches permit snapshot
+and bracket suffixes, never unknown model versions that would silently
+inherit a different generation's price.
 
-Cache writes are split by TTL:
-  5m write = 1.25x base input (column 'create_5m')
-  1h write = 2x base input    (column 'create_1h')
-
-Tokens recorded as cache_creation_input_tokens with NO ephemeral_5m/1h
-split are charged at the 1h rate: main sessions write 98.7% of their
-cache at 1h and 5m is the subagent exception. See SV-COST-SPLIT in
-.claude/rules/claudit-doctrine.md.
-
-Three resolution behaviours matter, in priority order:
-
-1. EXACT — the normalised model id matches a key in MODEL_RATES, allowing
-   only a dated-snapshot or bracket suffix after it. A version suffix the
-   table doesn't know (``claude-opus-4-9``) deliberately does NOT match the
-   shorter ``claude-opus-4`` key: billing a future Opus at retired 15/75
-   rates is a silent 3x overcount.
-2. TIER — an unrecognised Claude model falls back to its family's
-   current-generation rates and is reported as ``kind="tier"`` so callers
-   can mark the figure estimated rather than presenting it as fact.
-3. DEFAULT — anything else. Also flagged.
-
-Before all three, a model id ending in ``:free`` or starting with
-``stealth/`` (OpenRouter's free tier and preview models) prices at ZERO.
-The id list churns weekly, so the match is on the id's shape rather than
-an enumerated row — checked on the raw id AND its normalised form,
-case-insensitively, so no spelling can dodge it, and it outranks an
-exact table key (``stealth/claude-opus-4-8`` stays free). It is reported
-``kind="exact"``: the zero is a deliberate price, not an estimate, so
-the API must not flag it (the same reasoning as the bonsai-2-27b row).
-
-Rates are a function of (model, timestamp): a model may carry dated
-overrides (e.g. an introductory price). Cost must be computed against the
-timestamp of the request being priced, not the time of rendering.
-
-A record that names its serving provider (OpenRouter's
-``message.provider``) is priced from PROVIDER_RATES, keyed by
-(normalised model, provider), when that pair has a row; otherwise, and
-always when the provider is absent, by the model alone as above.
-"""
+Use each request's timestamp for dated rates and provider schedules. Cache
+writes with declared TTLs use their rate columns; unsplit writes use the
+1h rate (SV-COST-SPLIT). Meter membership, thresholds and optional factors
+are pricing data. Bump PRICING_VERSION when a change reprices stored rows."""
 from __future__ import annotations
 
 import re
@@ -171,7 +140,7 @@ def _latest(*families: str) -> dict | None:
 # Family fallbacks for unrecognised Claude models — current-generation
 # rates for the tier, at LIST price (never a dated promotion). Derived
 # from the table, so adding a newer model moves its family's fallback.
-# Derived on first use (issue #840): the bench's bounded document need not
+# Derived on first use: the bench's bounded document need not
 # carry every family's row, and a family with no row at all must not
 # refuse the IMPORT for a fallback no unrecognised id has hit yet.
 _TIER_FALLBACKS: tuple[tuple[re.Pattern, dict], ...] | None = None
@@ -194,7 +163,7 @@ def _tier_fallbacks() -> tuple[tuple[re.Pattern, dict], ...]:
 def clear_tier_fallbacks() -> None:
     """Forget the derived tier table. Tests patch the tables between
     calls and go through rate_fingerprint.clear_fingerprint_cache(), the
-    same contract the match-key memo honors (issues #350, #351): a tier
+    same contract the match-key memo honors: a tier
     entry derived under a patch must never outlive it."""
     global _TIER_FALLBACKS
     _TIER_FALLBACKS = None
@@ -204,17 +173,12 @@ _MATCH_KEY_CACHE: dict[str, str | None] = {}
 
 
 def _match_key(norm: str) -> str | None:
-    """The LONGEST models-table key `norm` names, so
-    ``claude-opus-4-1-20250805`` is claude-opus-4-1, never claude-opus-4
-    — whatever the table order.
+    """Longest model-table key matching norm, independent of table order.
 
-    Memoized per normalised id (issue #350): the reprice pass calls this
-    once per stored record — over a million rows naming fewer than a
-    dozen distinct models — and the scan is O(|MODEL_RATES|) startswith
-    checks per call. The table loads once at import and is immutable at
-    runtime, so the result per norm is a process constant and a dict hit
-    replaces the scan. Same outputs as the scan, every call.
-    """
+    Allow snapshot suffixes without folding a different model version.
+    Memoize per normalized id: reprice calls per row, while the loaded
+    immutable table makes the match a process constant, avoiding an
+    O(number of model keys) scan on each call."""
     try:
         return _MATCH_KEY_CACHE[norm]
     except KeyError:
@@ -389,7 +353,7 @@ def is_long_context_model(model: str) -> bool:
 
 
 def long_context_threshold(model: str | None) -> int:
-    """Model threshold (issue #765), defaulting to the global Codex value."""
+    """Model threshold, defaulting to the global Codex value."""
     return LONG_CONTEXT_METERS.get(_normalise(model), {}).get(
         "threshold", LONG_CONTEXT_THRESHOLD)
 
@@ -402,16 +366,12 @@ def long_context_factors(model: str | None) -> tuple[float, float]:
 
 
 def meter_flag(model: str | None, window: int) -> bool | None:
-    """The meter decision for one record of `model` at input window
-    `window` — the billed input side, fresh + cache_creation + cache_read.
+    """Meter decision for billed input: fresh + cache_creation + cache_read.
 
-    A member above its own threshold bills the band and a member at or
-    below it stays flat; every non-member keeps the NULL marker, the
-    Claude format's parse-stored shape (issue #249: the reprice pass
-    re-derives only what a reparse would store, so the decision lives in
-    the parse path). The Codex lane passes its threshold test alone and
-    never consults this — parse_codex bills every record above the
-    threshold whatever its model (issue #194)."""
+    Members bill above their own threshold; non-members keep NULL. Store
+    the decision in the parse path so repricing derives only what a
+    reparse stores. Codex instead applies its threshold test to every
+    model directly."""
     norm = _normalise(model)
     if norm not in LONG_CONTEXT_MODELS:
         return None
@@ -445,24 +405,14 @@ def compute_cost(
     res: "Resolution | None" = None,
     adjustments: CostAdjustments = CostAdjustments(),
 ) -> float:
-    """USD cost for one request's token tally.
+    """USD cost for one request's tokens, dated at its own timestamp.
 
-    unsplit_create = max(0, cache_creation_input_tokens - eph5 - eph1h);
-    must already be computed by the caller. Pass the record's own
-    timestamp so dated rates apply to when the tokens were spent.
-
-    A write with no declared TTL is priced as 1h: main sessions write
-    98.7% of their cache at 1h, and 5m is the subagent exception (96% of
-    all 5m writes). See SV-COST-SPLIT.
-
-    `adjustments` applies the optional whole-request multiplier and search
-    fee. Codex records above threshold set long_context per record
-    (issue #194); Kimi has no such tier.
-
-    Web-search calls are billed at the record's explicit per-search rate
-    (issue #879). Hot paths pass `res` to resolve once; it carries the
-    rates and dated window.
-    """
+    Callers compute unsplit_create = max(0, cache_creation - eph5 - eph1h).
+    Unsplit writes bill at 1h (SV-COST-SPLIT): main sessions predominantly
+    use 1h, while 5m writes chiefly belong to subagents. adjustments carries the
+    whole-request meter multiplier and explicit per-search fee. Codex sets
+    long_context above threshold; Kimi has no such tier. Hot paths pass res
+    to share one rate resolution."""
     if res is None:
         res = resolve(model, ts)
     r = res.rates

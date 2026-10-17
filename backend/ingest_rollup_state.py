@@ -11,51 +11,35 @@ from backend.ingest_scope import Scope, current_scope
 
 log = logging.getLogger("claudit.ingest")
 
-# records.uuid is the split column set (issue #959 task 8). Every read
-# below rebuilds or groups by it through these three fragments, so the
-# winner rule and the incremental probes keep seeing the ORIGINAL text:
-#   _UUID_TEXT      — the byte-identical rebuild, for equality probes;
-#   _UUID_PARTITION — the grouping key, the parts rather than the text:
-#                     equal parts iff equal text (uuid_split's docstring
-#                     and schema_dims' CHECKs), so this picks the same
-#                     winners as PARTITION BY uuid did, without building
-#                     a 40-byte string per row per pass;
-#   _UUID_ABSENT    — `uuid IS NULL` (always-canonical legacy rows).
+# Read split uuid storage through shared fragments so winner ranking
+# and incremental probes use the same identity (SV-CANONICAL-FLAG):
+# _UUID_TEXT rebuilds text byte-identically for equality probes;
+# _UUID_PARTITION groups parts, equal iff texts are equal by schema CHECKs,
+# without building a text string per row; _UUID_ABSENT keeps NULL uuids
+# always canonical.
 _UUID_TEXT = uuid_split.uuid_text_sql("r")
 _WINNER_UUID_TEXT = uuid_split.uuid_text_sql("w")
 _UUID_PARTITION = uuid_split.uuid_partition_sql("r")
 _UUID_ABSENT = uuid_split.uuid_absent_sql("r")
 _UUID_PRESENT = uuid_split.uuid_present_sql("r")
 
-# The canonical winner prefers an ATTRIBUTED copy (issue #529): a forked
-# Codex rollout replays its parent's history with no model declaration in
-# front of it, and a multi-model fork has no sole-model fallback, so its
-# replayed copies store model `unknown` — and their `subagents/…` file key
-# sorts before the parent's `wire.jsonl`, so a bare file_key ordering let
-# them win the dedup and the Models panel showed usage every other copy
-# attributes as `unknown`. NULL is unattributed too. The placeholder
-# spellings are HISTORICAL rows only: since #653/#688 no parser emits
-# them (a live model-less file is refused at parse); `<synthetic>` is
-# Claude's harness-fabricated stub model, which names no model at all
-# (issue #563, kept in lockstep with the browser's isAttributed).
-# Since #959 the model is a dim FK, so the rank reads the dim's TEXT —
-# through the `dm` alias every winner query joins. records.model_id is
-# NOT NULL and tool_uses.model_id nullable, so COALESCE keeps the old
-# NULL-is-unattributed behaviour on the tool side.
+# Canonical ranking prefers attributed models over placeholders and
+# NULL. Refused model-less parses do not produce placeholders, but stored
+# placeholders remain unattributed. <synthetic> is a harness stub, not a
+# model. Keep this predicate in lockstep with browser isAttributed.
+# Read model text through joined dim_model alias dm; tool_uses.model_id
+# is nullable, so COALESCE preserves NULL-is-unattributed semantics.
 _UNATTRIBUTED_SQL = ("(COALESCE(dm.value, '')"
                      " IN ('', 'unknown', '(unknown)', '<synthetic>'))")
 
-# A replayed copy loses to an original of the same identity, whatever the
-# key order (issue #687): a forked Codex rollout re-journals its parent's
-# requests in its replayed prefix — attributed, after #653, to the fork's
-# first declared model — so with both copies attributed the attribution
-# rank tied and the fork's `subagents/…` key won, counting the parent's
-# history as the fork's. NULL (every non-Codex row, and every row parsed
-# before #687) ranks as an original.
+# An original beats a replayed copy of the same identity regardless
+# of file-key order (SV-CANONICAL-FLAG): fork prefixes re-journal parent
+# requests under the fork's first declared model. Without replay rank,
+# both attributed copies tie and a subagent key can beat its parent.
+# NULL replay markers rank as originals.
 
 
 def _replay_last(fact_alias: str) -> str:
-    """The replay rank as SQL over the fact table's alias."""
     return f"({fact_alias}.is_replay IS TRUE)"
 
 
@@ -72,12 +56,10 @@ def _winner_order(fact_alias: str) -> str:
 
 
 def _phase_scope(scope: Scope | None) -> Scope | None:
-    """Use an explicit scope, or the active ingest's scope."""
     return scope if scope is not None else current_scope()
 
 
 def purge_suppressed(scope: Scope | None = None) -> int:
-    """Delete suppressed records and calls, restricted to dirty files if scoped."""
     scope = _phase_scope(scope)
     incremental_scope = (
         scope if scope is not None and not scope.full else None)
@@ -93,9 +75,8 @@ def purge_suppressed(scope: Scope | None = None) -> int:
         if not row or not row[0]:
             return 0
         deleted = 0
-        # Model text lives in dim_model now (#959), so the ILIKE match
-        # reads the dim row for each fact's model_id; file scoping goes
-        # through files.file_key -> file_id.
+        # Read model text through dim_model for ILIKE; scope files through
+        # files.file_key -> file_id.
         filter_sql = (" AND tu.file_id IN (SELECT file_id FROM files "
                       "WHERE file_key = ANY(%(file_keys)s))") if incremental else ""
         params = {"file_keys": file_keys} if incremental else None
@@ -145,7 +126,6 @@ def purge_suppressed(scope: Scope | None = None) -> int:
 
 
 def resolve_teammate_agent_types(scope: Scope | None = None) -> int:
-    """Resolve named teammate roles, adding their hours to an incremental scope."""
     scope = _phase_scope(scope)
     with db.viz_conn() as conn:
         cur = conn.execute(
@@ -194,7 +174,6 @@ def resolve_teammate_agent_types(scope: Scope | None = None) -> int:
 def _updated_record_rows(
         scope: Scope,
         rows: list[tuple[str, datetime | None, bool]]) -> None:
-    """Join flipped row keys to their project and retain their old/new bucket."""
     for project_id, hour, latency_null in rows:
         scope.add_hour(project_id, hour)
         scope.latency_null = scope.latency_null or latency_null
@@ -210,7 +189,7 @@ def _updated_tool_hours(
 def recompute_canonical(scope: Scope | None = None) -> int:
     """Set canonical flags globally, or only for identities a run touched.
 
-    The pass's tail is the winner rule's model half (issue #713): once
+    The pass's tail is the winner rule's model half: once
     the flags have settled, every losing replayed copy adopts its
     original's model (adopt_original_models), so the return value counts
     reflagged rows and adopted rows together.
@@ -345,16 +324,16 @@ def recompute_canonical(scope: Scope | None = None) -> int:
         conn.commit()
     if changed:
         log.info("recompute_canonical: %d rows reflagged", changed)
-    # The winner rule's model half (issue #713): now that the rank has
+    # The winner rule's model half: now that the rank has
     # settled, a losing replayed copy adopts its original's model.
     return changed + adopt_original_models(scope)
 
 
 def adopt_original_models(scope: Scope | None = None) -> int:
-    """A replayed copy adopts the model the parent had in force (issue #713).
+    """A replayed copy adopts the model the parent had in force.
 
     A forked rollout stores its replayed copies under the fork's FIRST
-    declared model (#653) — the model at the fork point, which a
+    declared model — the model at the fork point, which a
     mid-history switch makes wrong for the earlier requests. The parent
     is a different file, so no parse can resolve this; the canonical
     winner of the uuid can, because while the parent's copy is present it
@@ -362,7 +341,7 @@ def adopt_original_models(scope: Scope | None = None) -> int:
     (SV-CANONICAL-FLAG). Every losing replayed copy therefore adopts its
     winner's model, records by uuid and tool calls by tool_use_id; with
     no original present (the replay is itself canonical, or every copy is
-    a replay) the #653 fallback stands. A NULL winner model is not
+    a replay) the first-declared-model fallback stands. A NULL winner model is not
     adopted — the copy keeps its attribution rather than losing it.
 
     Runs at recompute_canonical's tail, on the flags it has just
@@ -390,22 +369,14 @@ def adopt_original_models(scope: Scope | None = None) -> int:
             "tool_ids": (sorted(incremental_scope.affected_tool_use_ids)
                          if incremental else None),
         }
-        # records: a losing replayed copy takes its uuid's original's
-        # model, and files.models gains it — one statement, one snapshot,
-        # so `added` is derived before the rows move. The model travels
-        # as its dim id (the SET) beside the dim's TEXT (files.models,
-        # which stays a TEXT[] on the small files table, #959).
-        # The join is on the REBUILT identity text — the one spelling
-        # every other uuid read uses. Equal texts iff equal parts
-        # (uuid_split's docstring + schema_dims' CHECK disjointness), so
-        # this matches exactly the pairs `w.uuid = r.uuid` matched —
-        # winners are always uuid-bearing, so an absent-uuid row still
-        # never joins. It must be EQUALITY: `IS NOT DISTINCT FROM` over
-        # the parts has no hash or merge join path, which forced the
-        # planner into a nested loop whose inner side seq-scanned the
-        # whole records table once per replayed copy — quadratic at
-        # corpus scale (measured: 14,011 outer rows against 1.79M inner,
-        # hours; the equality form plans as a parallel hash join).
+        # Adopt each losing replay's original model and extend files.models
+        # in one statement/snapshot, deriving added before rows change. Carry
+        # the dim id for SET and its text for files.models, which stays TEXT[].
+        #
+        # Join REBUILT uuid text: equal text iff equal parts by uuid_split and
+        # schema CHECKs. Winners carry uuids, so absent identities never join.
+        # Use EQUALITY: IS NOT DISTINCT FROM over parts has no hash/merge join
+        # path and can force quadratic full-table scans per replayed copy.
         cur = conn.execute(
             f"""
             WITH winners AS (

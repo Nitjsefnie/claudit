@@ -1,16 +1,8 @@
-"""Server-Sent Events broadcast for ingest-completion notifications.
+"""Thread-safe ingest-completion SSE broadcast.
 
-Each browser opens an SSE stream to /api/events and receives an
-`ingest_done` event whenever a fresh ingest run lands in the DB. The
-frontend re-fetches /api/dashboard on receipt — no full page reload.
-
-Thread-safety:
-- run_ingest() runs in APScheduler's worker thread (or in the request
-  thread for /admin/ingest), so the broadcaster must be callable from
-  outside the event loop.
-- The captured loop reference (set at FastAPI startup) is the main
-  uvicorn event loop; call_soon_threadsafe pushes into per-subscriber
-  asyncio.Queue safely from any thread.
+APScheduler and request worker threads publish through the uvicorn event loop
+captured at startup; call_soon_threadsafe feeds per-subscriber asyncio queues.
+Browsers re-fetch the dashboard on ingest_done.
 """
 from __future__ import annotations
 
@@ -32,7 +24,6 @@ def set_loop(loop: asyncio.AbstractEventLoop) -> None:
 
 
 def clear_loop() -> None:
-    """Release lifespan-owned asyncio state before the loop closes."""
     global _main_loop, _shutdown_event
     _main_loop = None
     _shutdown_event = None
@@ -46,7 +37,6 @@ def shutdown_event() -> asyncio.Event | None:
 
 
 def signal_shutdown() -> None:
-    """Called from lifespan exit. Wakes up every SSE generator."""
     loop = _main_loop
     event = _shutdown_event
     if event is None or loop is None or loop.is_closed():

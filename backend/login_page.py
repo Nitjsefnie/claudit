@@ -1,10 +1,7 @@
-"""The sign-in page: its HTML template and the response builder.
+"""Sign-in HTML template and response builder.
 
-Extracted from backend/login.py — the module-size ratchet moved it here
-when #395's page rework and #384's nonce slot outgrew the 500-line cap;
-login.py keeps the routes and calls _login_page_response. Every slot is
-a real HTML context and escaped at its own site (SV-BRAND-ESCAPE); the
-inline style block carries the response's CSP nonce (#384).
+Escape every slot at its HTML context (SV-BRAND-ESCAPE); the inline style
+carries the response CSP nonce. login owns the routes.
 """
 from __future__ import annotations
 
@@ -17,8 +14,8 @@ from backend import branding
 from backend.guest_login import guest_login_enabled
 
 # One answer for every credential failure — identical status and body
-# for unknown id, no web password and wrong password (issue #109). The
-# body is the FULL sign-in page (issue #395): the error announced in a
+# for unknown id, no web password and wrong password. The
+# body is the FULL sign-in page: the error announced in a
 # role=alert element, the form still there to retry from, nothing
 # user-derived echoed back — the byte-identical contract holds.
 _GENERIC_FAILURE_TEXT = "Invalid credentials."
@@ -29,21 +26,12 @@ _INVALID_UID_TEXT = "Invalid user ID"
 def _login_page_response(
     request: Request, err: str, status: int
 ) -> HTMLResponse:
-    """The sign-in page with `err` in its role=alert element.
+    """Render the sign-in page with server-owned err in role=alert.
 
-    A credential failure or rate-limit answer used to be a bare
-    text/plain line — no form to retry from, no page title, no lang
-    (issue #395). Rendering the page keeps the status codes and every
-    limiter semantic; only the body changes. `err` is a server-owned
-    literal, never user input, so nothing from the request is echoed
-    back — that is what keeps the generic bodies byte-identical (#109).
-
-    The request rides along for its CSP nonce (#384): the inline style
-    block carries it (backend.app._SecurityHeaders stashes
-    scope.state.csp_nonce OUTSIDE the auth middleware, so every request
-    forwarded here has it), and style-src admits the block by nonce
-    instead of 'unsafe-inline'.
-    """
+    Retain the form, status codes and limiter semantics on every failure.
+    Never echo user input: generic credential-failure bodies must stay
+    byte-identical. The request carries its CSP nonce from the outer
+    security middleware, admitting the inline style without unsafe-inline."""
     nonce = getattr(request.state, "csp_nonce", None)
     nonce_attr = f' nonce="{nonce}"' if nonce else ""
     return HTMLResponse(
@@ -127,13 +115,11 @@ _LOGIN_HTML = """<!DOCTYPE html>
 
 
 def _privacy_notice_slots() -> dict[str, str]:
-    """The two _LOGIN_HTML slots for the operator's privacy notice
-    (issue #270). Empty unless CLAUDIT_APP_PRIVACY_NOTICE_URL is set, so the
-    unset page stays byte-identical to before — no anchor, no empty
-    href, and no styling either. The URL goes through
-    ``branding.url_attr`` (SV-BRAND-ESCAPE): attribute-escaping alone
-    cannot stop a ``javascript:`` scheme, so a value outside the
-    allow-list drops the link and logs a warning (#365)."""
+    """Privacy-notice slots, empty unless CLAUDIT_APP_PRIVACY_NOTICE_URL is set.
+
+    An unset notice emits no anchor, href or styling. branding.url_attr
+    (SV-BRAND-ESCAPE) drops and logs URLs outside its allow-list: attribute
+    escaping alone cannot block a javascript: scheme."""
     url = branding.privacy_notice_url()
     if not url:
         return {"privacy_link": "", "privacy_css": ""}

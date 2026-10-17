@@ -1,10 +1,7 @@
-"""GET /api/dashboard — hourly aggregates + sessions + ctx_at_end.
+"""GET /api/dashboard: hourly aggregates, sessions and ctx_at_end.
 
-Split out of api.py (issue #8 module split). The endpoint body is broken
-into _dashboard_sources (shared SQL fragments), _dashboard_queries (the
-eight panel queries) and _dashboard_build (row folding) so no single
-function trips the locals/branches/statements gates.
-"""
+Separate shared SQL sources, panel queries and row folding to keep each
+function within the locals/branches/statements gates."""
 from __future__ import annotations
 
 import time
@@ -46,7 +43,7 @@ def _rollup_source(use_rollup: bool, roll_proj: str, roll_model: str) -> str:
     """
     if use_rollup:
         # Project the dim TEXT back inside the source so both fragments
-        # expose the SAME column names (#959); queries below use `u.*`.
+        # expose the SAME column names; queries below use `u.*`.
         roll_from = """(SELECT se.session_id, pj.project_id, u.is_main, u.hour,
                  u.first_ts, u.last_ts, dm.value AS model, u.long_context,
                  dp.value AS provider, u.requests, u.fresh_tokens,
@@ -122,7 +119,6 @@ def _churn_source(project: str | None, model: str | None,
 
 def _dashboard_sources(project: str | None, model: str | None,
                        since: datetime, bucket_s: int) -> dict:
-    """Shared SQL fragments + their param lists for the panel queries."""
     proj_filter = ""
     model_filter = ""
     # `file_args` feeds the later per-FILE queries, which filter on
@@ -135,12 +131,9 @@ def _dashboard_sources(project: str | None, model: str | None,
     if model:
         model_filter = "AND dmm.value LIKE %s"
 
-    # Cross-file uuid dedup is resolved at ingest into records.is_canonical
-    # (see ingest.recompute_canonical), so reads filter a boolean instead of
-    # re-sorting 296k rows per request. That also removes the ON COMMIT DROP
-    # temp table this used to materialise: with dedup reduced to a WHERE
-    # clause there is nothing expensive left to share between the queries,
-    # and each one now scans records directly via records_canonical_ts_idx.
+    # Ingest resolves cross-file uuid dedup into records.is_canonical.
+    # Reads filter that flag through records_canonical_ts_idx, avoiding
+    # per-request sorting and a shared materialized temp table.
     canon_src = f"""
         FROM records d JOIN files f ON f.file_id = d.file_id JOIN dim_model dmm ON dmm.id = d.model_id
         WHERE d.ts >= %s AND d.is_canonical {proj_filter} {model_filter}
@@ -212,7 +205,7 @@ def dashboard(
 
     Cross-file uuid dedup is resolved at ingest into
     records.is_canonical (ingest.recompute_canonical); the queries here
-    just filter that boolean — there is no temp table (#790). Legacy
+    just filter that boolean. Legacy
     NULL-uuid rows are kept verbatim and always canonical.
     `model=opus-4-7` filters the deduped body so every panel derived
     from it is constrained to records matching the model substring.

@@ -70,7 +70,7 @@ def project_records(file_key: str, events: list[dict]) -> list[dict]:
             "turn_tool_results": int(ev.get("turn_tool_results") or 0),
             "eph5_tokens": tokens.eph5,
             "eph1h_tokens": tokens.eph1h,
-            # Provider-neutral cache-write count (issue #842): 0 here,
+            # Provider-neutral cache-write count: 0 here,
             # filled by parse_file()'s derivation over the file's records.
             "cache_write_tokens": 0,
             "cost_usd": round(cost, 6),

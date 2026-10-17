@@ -1,6 +1,5 @@
-"""In-process caches:
-  - transcript LRU keyed by (file_key, etag), 256 MB, 20-min idle eviction
-  - response cache with stale-while-revalidate for the heavy read endpoints
+"""In-process caches: transcript LRU and stale-while-revalidate responses.
+Transcripts use (file_key, etag), a 256 MiB cap and 20-min idle eviction.
 """
 from __future__ import annotations
 
@@ -69,7 +68,7 @@ class _IdleLRU:
         """Drop one entry outright, fixing the byte/entry accounting.
 
         The orphan sweep calls this for each deleted file's composite
-        key from `transcript_key` (issue #269): the transcript bytes are
+        key from `transcript_key`: the transcript bytes are
         keyed by (file_key, etag), so a file deleted from the bucket
         must not stay readable from the cache once its DB rows are gone.
         A missing key is a no-op.
@@ -93,13 +92,12 @@ transcript_cache = _IdleLRU(max_bytes=256 * 1024 * 1024, idle_seconds=1200)
 
 
 def transcript_key(file_key: str, etag: str) -> str:
-    """The transcript-cache key for one stored object (issue #375).
+    """The transcript-cache key for one stored object.
 
     The key must identify the OBJECT, never the validator alone: in
     file:// mode the etag is sha1 over mtime and size alone
     (r2._list_keys_file), so two transcripts of equal size and mtime
-    share an etag, and an etag-only key served one session's transcript
-    for another. The bucket-qualified file key supplies the object
+    share an etag, so an etag-only key can serve the wrong transcript. The bucket-qualified file key supplies the object
     identity; the etag stays in the key as the validator, so an object
     replaced under its key (new etag → new key) cannot serve its
     predecessor's stale bytes.
@@ -111,35 +109,18 @@ def transcript_key(file_key: str, etag: str) -> str:
 
 
 class _TTLCache:
-    """Process-local cache with a flat TTL, generation-based staleness,
-    and an optional cap on the number of entries.
+    """Process-local cache with soft TTL, generation staleness and an entry cap.
 
-    Values are whatever the decorated endpoint returns (dicts). The
-    keyspace is (endpoint × range × project × model); `max_entries`
-    bounds it, so keys minted from free-text query values (``model=`` is
-    one a guest can set freely) cannot grow the cache without bound.
+    Keys are endpoint × range × project × model; max_entries bounds keys
+    minted from free-text query values. invalidate bumps the generation
+    without dropping entries, so stale hits return immediately and refresh
+    in the background. TTL expiry also serves stale: dropping entries
+    would put the first request after a quiet gap on the cold inline path.
+    The entry cap remains the hard memory bound.
 
-    Ingest used to ``clear()`` this, which dropped every user onto the
-    cold path once an hour — and cold means 8s+ for the dashboard. It now
-    calls ``invalidate()``, which bumps a generation counter so existing
-    entries read as STALE but stay servable. A stale hit is returned
-    immediately and refreshed in the background; the TTL is a soft bound
-    on served age, not a drop: an entry past it is served stale exactly
-    like a generation-stale one, because dropping it put the request on
-    the cold inline path — the cold build a first open after a quiet gap
-    paid (issue #641). The ``max_entries`` cap stays the hard bound on
-    memory, and it is the only thing that drops an entry while it is
-    being served.
-
-    The per-key locks that single-flight a cold compute live here too
-    (``lock_for``), and are reclaimed whenever their entry is dropped or
-    a compute raises (issue #261), keeping locks bounded by the same cap
-    discipline as entries on both the success and failure paths.
-    A lock whose entry was evicted while another thread still holds it
-    is kept until its holder releases it; that race only degrades
-    single-flighting into a duplicate compute, never into incorrect
-    data (last put wins).
-    """
+    Per-key single-flight locks are reclaimed on eviction and failed
+    compute. A lock held through eviction survives until release; that race
+    can duplicate work but never corrupt data, since the last put wins."""
 
     def __init__(self, ttl_seconds: int, *, max_entries: int | None = None):
         self.ttl_seconds = ttl_seconds
@@ -156,15 +137,12 @@ class _TTLCache:
         return self.counters.outcomes()
 
     def count(self, **deltas: int) -> None:
-        """Count request/background outcomes (see cache_outcomes)."""
         self.counters.count(**deltas)
 
     def _take_since(self) -> dict[str, int]:
-        """Return and zero the since-last-invalidate window."""
         return self.counters.take_window()
 
     def lock_for(self, key: str) -> threading.Lock:
-        """Return the single-flight lock for `key`, creating it once."""
         with self._guard:
             lock = self._key_locks.get(key)
             if lock is None:
@@ -187,8 +165,8 @@ class _TTLCache:
 
         cache_response calls this after an endpoint raised and stored no
         entry: the lock (and its key string) would otherwise remain for the
-        process lifetime, since every other reclamation rides an entry being dropped
-        (issue #261). The non-blocking acquire test inside _reclaim_lock
+        process lifetime, since every other reclamation rides an entry being dropped.
+        The non-blocking acquire test inside _reclaim_lock
         keeps a lock another thread started single-flighting on in the
         meantime — that race only degrades single-flighting, never data.
         """
@@ -196,13 +174,11 @@ class _TTLCache:
             self._reclaim_lock(key)
 
     def get_entry(self, key: str) -> tuple[Any, bool] | None:
-        """Return ``(value, is_stale)``, or None on miss.
+        """Return (value, is_stale), or None on miss.
 
-        An entry past its TTL reads STALE, not absent: serving it costs
-        nothing and the recompute moves off the request path, where
-        dropping it put every first open after a quiet gap (issue #641).
-        The entry heals when the refresh's put re-stamps its timestamp.
-        """
+        TTL expiry serves stale and moves recomputation off the request path,
+        so the first open after a quiet gap avoids a cold inline build. A
+        refresh's put re-stamps the timestamp."""
         with self._guard:
             item = self._items.get(key)
             if item is None:
@@ -230,7 +206,7 @@ class _TTLCache:
 
         An entry stamped with anything older reads stale on its first
         get_entry, because invalidate() fired while it was computing —
-        its value was derived from pre-ingest data (issue #371).
+        its value was derived from pre-ingest data.
         """
         with self._guard:
             return self._generation
@@ -240,7 +216,7 @@ class _TTLCache:
         """Store an entry, stamped with the generation the COMPUTE saw.
 
         The optional `generation` is the value current_generation()
-        returned before the compute started (issue #371): an invalidate()
+        returned before the compute started: an invalidate()
         that lands mid-compute leaves the entry stamped with the older
         generation, so it reads stale immediately instead of presenting
         pre-ingest data as fresh until the TTL expires. None stamps the
@@ -278,14 +254,10 @@ class _TTLCache:
             self._reclaim_lock(k)
 
     def invalidate(self) -> None:
-        """Mark every entry stale WITHOUT dropping it.
+        """Mark entries stale without dropping them and log the outcome window.
 
-        Also logs the outcome counters accumulated since the last
-        invalidate, so the journal carries the cache outcomes of one
-        inter-ingest window per line — the split by ingest overlap the
-        slow-open investigation needs, with no post-hoc joining (issue
-        #641).
-        """
+        One line per inter-invalidate interval makes ingest overlap visible
+        without joining logs afterwards."""
         with self._guard:
             self._generation += 1
         log.info("response-cache outcomes since the last invalidate: %s",
@@ -323,11 +295,11 @@ def _schedule_refresh(key: str, fn: Callable[..., dict], kwargs: dict[str, Any])
             if entry is not None and not entry[1]:
                 # A warm (or another refresh) healed this key while ours
                 # sat queued behind them: recomputing would double a full
-                # build (issue #641).
+                # build.
                 response_cache.count(refresh_skip_fresh=1)
                 return
             # Capture BEFORE the compute: an invalidate() landing mid-run
-            # must leave the entry born stale (issue #371).
+            # must leave the entry born stale.
             generation = response_cache.current_generation()
             response_cache.put(key, fn(**kwargs), generation=generation)
             response_cache.count(refresh_run=1)
@@ -344,35 +316,25 @@ def _schedule_refresh(key: str, fn: Callable[..., dict], kwargs: dict[str, Any])
 
 
 def _cache_key(fn: Callable[..., dict], kwargs: dict[str, Any]) -> str:
-    """The response-cache key for `fn(**kwargs)`.
+    """Shared response-cache key for fn(**kwargs).
 
-    `cache_response` and `warm` must agree on it exactly -- a warm that
-    derives its own key warms a key no request reads (issue #641, and
-    pitfall 07 of the performance field guide) -- so both build it here.
-    `functools.wraps` copies `__qualname__`, so the wrapper `warm` is
-    handed and the raw function `cache_response` decorates name the same
-    key.
-    """
+    cache_response and warm must agree exactly or warming populates keys
+    no request reads. functools.wraps copies __qualname__, so wrappers and
+    raw functions share the same key."""
     return fn.__qualname__ + ":" + repr(sorted(kwargs.items()))
 
 
 def warm(fn: Callable[..., dict], **overrides: Any) -> None:
-    """Populate the cache entry a request with `overrides` would produce.
+    """Populate the cache entry a request with overrides would produce.
 
-    An ingest leaves Postgres' buffer cache cold — recompute_canonical and
-    rebuild_rollup rewrite the tables — and a restart leaves the response
-    cache empty on top of that, so the first visitor pays both: measured
-    6.0s vs 1.4s warm for /api/dashboard. After an ingest the entries are
-    still there but STALE, so a request is served the old value and the
-    recompute is deferred; after a restart there is nothing to serve and
-    the request computes inline. This is what makes the warmed value worth
-    having: it is the fresh one, not merely a present one.
+    Ingest rewrites tables, leaving database buffers cold; restart also
+    empties the response cache. Warming supplies fresh data without making
+    the first visitor pay both costs. Stale serving covers ingest but
+    cannot cover restart when no entry exists.
 
-    The key MUST match what the decorated wrapper computes for a real
-    request, and FastAPI passes every declared query param as a keyword.
-    So start from the endpoint's own defaults and apply the overrides on
-    top; guessing the kwargs would warm a key nobody ever reads.
-    """
+    FastAPI passes every declared query parameter as a keyword. Start
+    from endpoint defaults and apply overrides so the key matches a real
+    request exactly."""
     target = getattr(fn, "__wrapped__", fn)
     kwargs: dict[str, Any] = {}
     for name, param in inspect.signature(target).parameters.items():
@@ -388,26 +350,16 @@ def warm(fn: Callable[..., dict], **overrides: Any) -> None:
     def _run() -> None:
         key = _cache_key(fn, kwargs)
         try:
-            # Recompute HERE, not by calling the decorated `fn`: on the
-            # stale entries an ingest's `invalidate()` leaves behind, a
-            # decorated call returns the old value immediately and defers
-            # the recompute to `_schedule_refresh`, so the warm consumed a
-            # refresh-pool slot, queued a second one behind every other
-            # warm already queued, and left the entry stale (issue #641).
-            # The single-flight lock is still taken, so a request that
-            # misses the same key waits for this compute instead of
-            # duplicating it.
+            # Compute directly: the decorated function would serve stale and queue
+            # a refresh, leaving the warm stale and duplicating queued work. Keep
+            # the single-flight lock so a simultaneous miss waits for this compute.
             with response_cache.lock_for(key):
                 entry = response_cache.get_entry(key)
                 if entry is not None and not entry[1]:
                     response_cache.count(warm_skip_fresh=1)
-                    return  # someone beat us to it; nothing left to warm
-                # Claim the key in `_refreshing` for the duration of the
-                # compute. The entry is still stale, so a request arriving
-                # now is served the old value and schedules a refresh of
-                # this same key; without the claim the warm and that
-                # refresh exclude neither and the key computes twice
-                # (issue #641, review).
+                    return  # Someone beat us to it; nothing left to warm.
+                # Claim the key while computing: a stale request otherwise schedules
+                # a refresh that duplicates this warm despite single-flight locking.
                 with _refreshing_guard:
                     if key in _refreshing:
                         response_cache.count(warm_skip_inflight=1)
@@ -450,8 +402,8 @@ def cache_response(fn: Callable[..., dict]) -> Callable[..., dict]:
 
     - fresh hit  → return it.
     - stale hit  → return it IMMEDIATELY and refresh in the background.
-      Serving slightly-old numbers beats blocking a page load for 8s+.
-      An entry past its TTL takes this path too (issue #641).
+      Serving stale numbers avoids a cold build on the request path.
+      An entry past its TTL takes this path too.
     - miss       → compute inline, single-flighted per key so a burst of
       concurrent cold requests (a dashboard fires ~7 at once) runs the
       query once instead of N times.
@@ -480,7 +432,7 @@ def cache_response(fn: Callable[..., dict]) -> Callable[..., dict]:
                 if entry is not None:
                     response_cache.count(miss_waited=1)
                     return entry[0]
-                # Capture BEFORE the compute (issue #371): an invalidate()
+                # Capture BEFORE the compute: an invalidate()
                 # landing mid-compute must leave the entry born stale.
                 generation = response_cache.current_generation()
                 result = fn(**kwargs)

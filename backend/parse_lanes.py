@@ -1,29 +1,10 @@
-"""Format sniffing and the lane-to-claudit row adapter (D2, D3).
+"""Format sniffing and lane-to-claudit row adaptation.
 
-claudit persists four transcript formats through one parse_file: Claude
-Code transcripts (parsed in parse.py), Codex rollouts, and the two Kimi
-wire formats (parsed by codexmeter's ported parsers, which keep
-codexmeter's field names and row shapes). sniff_format names a blob's
-format; to_claudit projects a lane parse onto claudit's records and
-tool_uses columns.
-
-Detection scans line by line and the first rung that matches wins.
-What each rung matches:
-
-- codex: a type in parse_codex.RECORD_TYPES whose payload is a dict
-- kimi-code: a "metadata" line carrying created_at, or one of the
-  context./usage./turn. event types listed below
-- legacy: a "metadata" line without created_at, or a message.type in
-  the four legacy names below (a timestamp is not required)
-- claude: a file-history-snapshot/delta type, or any line carrying a
-  sessionId; a file NO line identifies also parses as claude, which
-  keeps the pre-dispatch behaviour. This is where codexmeter raised
-  UnsupportedTranscriptError -- claudit has a Claude parser, so the
-  detection's answer is data, not an error.
-
-The order matters only for a line carrying markers of two formats at
-once: the earlier rung claims it, and no format's marker set is known
-to overlap another's, so on real files any order sniffs the same.
+parse_file handles Claude, Codex and both Kimi wire formats; lane parsers keep
+their own row shapes, and to_claudit maps them to persisted columns.
+Detection scans lines in order; the first matching rung wins. Unknown input
+falls back to Claude, which has a parser rather than an unsupported-format error.
+An earlier rung claims a line bearing markers of multiple formats.
 """
 from __future__ import annotations
 
@@ -46,46 +27,26 @@ LANE_PARSERS: dict[str, Callable[..., dict]] = {
     "legacy": parse_kimi.parse_legacy,
 }
 
-# Claude Code writes ~/.claude/projects/<slug>/<uuid>.jsonl, and every line it
-# emits — conversation turns as well as the sidecar bookkeeping records it
-# interleaves into the same file — carries the session id under `sessionId`.
-# Neither Kimi format nor the Codex rollout format has any such field
-# (verified against production objects in both buckets: zero occurrences), so
-# its presence alone identifies the format, and it keeps identifying it as
-# Claude Code adds line types.
-#
-# The two exceptions are file-history records, which carry no sessionId; their
-# type names are distinctive enough to match on their own.
+# Claude conversation and bookkeeping lines carry sessionId; Kimi and
+# Codex wires do not. The field identifies Claude independently of line
+# type. File-history records omit it but have distinctive type names.
 _CLAUDE_UNKEYED_TYPES = frozenset({
     "file-history-snapshot", "file-history-delta",
 })
 
 
 def _is_claude_line(obj: dict) -> bool:
-    """Is this one line of a Claude Code transcript?"""
     if obj.get("type") in _CLAUDE_UNKEYED_TYPES:
         return True
     return isinstance(obj.get("sessionId"), str)
 
 
 def sniff_format(blob: bytes) -> Literal["claude", "codex", "kimi-code", "legacy"]:
-    """The transcript format a blob is written in.
+    """Detect lane formats positively, defaulting unidentified blobs to Claude.
 
-    The lane rungs are codexmeter's detection verbatim. Two claudit
-    differences, both forced by claudit's own corpus:
-
-    - codexmeter RAISED for a Claude transcript; claudit HAS a Claude
-      parser, so the detection's answer is data, and where codexmeter
-      raised this names the format "claude".
-    - codexmeter defaulted a file no line identifies to legacy, its
-      bucket's residue. claudit's catch-all is the claude parser it has
-      always run over every blob: the rungs exist to REROUTE the lane
-      formats positively, and a file no rung identifies keeps the
-      pre-dispatch behaviour -- the claude path. A genuinely legacy
-      file is identified positively by its rung, a message.type line,
-      with or without a timestamp: a legacy StatusUpdate may carry no
-      timestamp, and no other format puts a message.type in that set.
-    """
+    A legacy message.type identifies Kimi even without a timestamp; no
+    other format uses that type set. Unidentified blobs must still reach
+    the Claude parser rather than becoming legacy by elimination."""
     for raw in iter_lines(blob):
         if not raw.strip():
             continue
@@ -128,8 +89,7 @@ def sniff_format(blob: bytes) -> Literal["claude", "codex", "kimi-code", "legacy
         # rung claims such a line.
         if _is_claude_line(obj):
             return "claude"
-    # No rung identified a lane format, so this keeps the behaviour the
-    # claude path has always had: it parses the blob.
+    # No positive lane match: let the Claude parser handle the blob.
     return "claude"
 
 
@@ -167,7 +127,7 @@ def lane_sidecar_agent_type(role: str) -> str:
 
 
 def refuse_unattributed(parsed: dict, fmt: str, file_key: str) -> dict:
-    """Refuse a parse whose rows name no model (issues #653, #688).
+    """Refuse a parse whose rows name no model.
 
     A row without a model is a code error — the model was never
     actually unknown — so ingest fails loudly on the file instead of
@@ -187,8 +147,7 @@ def refuse_unattributed(parsed: dict, fmt: str, file_key: str) -> dict:
 def to_claudit(parsed: dict, fmt: str, *, collection: CollectionPolicy = ALL_COLLECTIONS_ON) -> dict:
     """Project one lane parse onto claudit's records/tool_uses columns.
 
-    The lane parsers keep codexmeter's row shapes. claudit's schema needs
-    every column its ingest binds by name, so this fills the Claude-side
+    claudit needs every column its ingest binds by name, so fill the Claude-side
     columns the lane formats do not express with their honest NULL/zero,
     and renames the two fields the formats spell differently:
 
@@ -209,8 +168,7 @@ def to_claudit(parsed: dict, fmt: str, *, collection: CollectionPolicy = ALL_COL
 
     ``fmt`` (the sniff_format label, required) namespaces one format's
     ids: a legacy ToolCall's payload.id is a per-session sequence
-    ("tc1", "ReadFile:0" -- sampled over the kimi bucket, ids repeat
-    across unrelated sessions), while Codex call_ids and kimi-code
+    ("tc1", "ReadFile:0", repeating across unrelated sessions), while Codex call_ids and kimi-code
     tool_<random> ids are globally unique. ingest groups tool_uses by
     tool_use_id ACROSS files (is_canonical), so a bare legacy id would
     collide with its namesakes in other sessions and wrongly mark real
@@ -234,7 +192,7 @@ def to_claudit(parsed: dict, fmt: str, *, collection: CollectionPolicy = ALL_COL
             "turn_tool_results": 0,
             "eph5_tokens": 0,
             "eph1h_tokens": 0,
-            # Derived over the final records list by parse_file (#842).
+            # Derived over the final records list by parse_file.
             "cache_write_tokens": 0,
         })
         r.setdefault("web_search_requests", None)

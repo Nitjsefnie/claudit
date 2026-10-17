@@ -11,7 +11,6 @@ from backend.ingest_persist import _strip_nul
 
 
 def stored_markers() -> dict[str, tuple[str, str, str | None]]:
-    """marker key -> (etag, reader version, path) for every stored marker."""
     with db.viz_conn() as c:
         return {
             key: (etag, version, path)
@@ -46,7 +45,7 @@ def save_markers(read: dict[str, tuple[str, str | None]],
     and drop the rows of keys the listing no longer shows. `read` maps
     key -> (etag, path) and holds only markers whose GET succeeded.
     The path is marker content, so it takes the same NUL strip every
-    other marker-derived text takes before a text column (issue #673)."""
+    other marker-derived text takes before a text column."""
     version = constants.MARKER_READER_VERSION
     with db.viz_conn() as c, c.cursor() as cur:
         cur.executemany(

@@ -1,11 +1,7 @@
-"""The context-growth family: /api/context-growth/{agg,session,traces}.
+"""Context-growth /api/context-growth/{agg,session,traces} endpoints.
 
-`agg` and `session/{id}` moved verbatim out of api.py when `traces`
-joined the family (issue #644); the module keeps one copy of the
-per-file trace SQL, which the panel endpoint owns alone. The dashboard
-no longer shares it: it needs only each main file's last turn, so it
-runs `ctx_end_rows` — a files-only projection, no records join — instead
-of the full trace query (issue #838).
+Owns per-file trace SQL. The dashboard needs only each main file's last turn
+and uses the files-only ctx_end_rows projection instead.
 """
 from __future__ import annotations
 
@@ -24,13 +20,11 @@ router = APIRouter()
 
 
 def ctx_traces_rows(c: Any, since: datetime, project: str | None = None) -> list:
-    """Per-FILE ctx traces — one row per main file AND per sub-agent
-    file with usage. The "Per-Session Context Growth" panel treats each
-    file as its own conversation, so a sub-agent invocation surfaces
-    under whatever model it ran on, even if there's no main session file
-    on disk. Moved verbatim from api_dashboard (issue #644); the panel
-    endpoint owns it alone — the dashboard's ctx_at_end fold reads
-    `ctx_end_rows` instead (issue #838)."""
+    """Per-file traces for main and subagent files with usage.
+
+    Each file is its own conversation, even without a main session file.
+    This panel owns the trace query; the dashboard's ctx_at_end fold reads
+    ctx_end_rows instead."""
     proj_filter = "AND f.project_id = %s" if project else ""
     args: list[Any] = [since]
     if project:
@@ -71,24 +65,13 @@ def ctx_traces_rows(c: Any, since: datetime, project: str | None = None) -> list
 
 
 def ctx_end_rows(c: Any, since: datetime, project: str | None = None) -> dict:
-    """Per-session context-at-end for the dashboard's session fold.
+    """Last context input of each main file for the dashboard's session fold.
 
-    The dashboard needs ONLY the last ctx turn of each MAIN file — the
-    session panel's ctx_at_end — but it used to run the panel's full
-    per-file trace query (ctx_traces_rows, with its file_models CTE over
-    records) and then throw away every trace but the last turn. This runs
-    ONE query over `files` alone, with no records join (issue #838).
+    Read files alone: full traces and a records join are unnecessary for
+    the final input. A NULL input converts defensively to None.
 
-    The array subscript projects only the final stored context input.
-    A NULL input is returned as None by the defensive conversion below.
-
-    Rows come back ordered by (session_id, file_key), and the dict is
-    built in that order, so the LAST row for one session id wins —
-    deterministic by file_key. The old
-    `{sid: turns for ... if is_main}` comprehension it replaces was
-    unordered, so when two main files shared a session id its pick was
-    arbitrary rather than the highest file_key.
-    """
+    Rows are ordered by (session_id, file_key); the last row wins for each
+    session, making multiple main files resolve to the highest file_key."""
     proj_filter = "AND f.project_id = %s" if project else ""
     args: list[Any] = [since]
     if project:
@@ -131,9 +114,8 @@ def context_growth_traces(
     rng: str = Query("30d", alias="range"),
     project: str | None = Query(None),
 ) -> dict:
-    """The per-file context traces the Per-Session Context Growth panel
-    draws (issue #644: fetched by the panel itself — the traces were 82%
-    of the dashboard payload's gzip while drawing one panel of ~30)."""
+    """Per-file traces fetched by the Context Growth panel itself, keeping
+    full traces out of the shared dashboard payload."""
     delta = _parse_range(rng)
     since = datetime.now(timezone.utc) - delta
 
@@ -224,7 +206,7 @@ def context_growth_agg(
 
 @router.get("/context-growth/session/{session_id}")
 def context_growth_session(request: Request, session_id: str) -> dict:
-    """Main-file context turns, without file_key for guests (issue #244)."""
+    """Main-file context turns, without file_key for guests."""
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT file_key, ctx_ts, ctx_line, ctx_input, ctx_output, turn_count "

@@ -1,25 +1,9 @@
-"""Password auth helpers.
+"""PBKDF2-SHA256 auth without database I/O; password setters mutate the supplied config.
 
-Operates on a plain dict (the user's `config` JSONB column from the
-auth DB) — no ORM or external user-state dependencies. Passwords are
-PBKDF2-SHA256 with a per-user hex salt.
-
-The stored hash (`config` key "web_password_hash") has one of two
-formats:
-
-- A BARE HEX DIGEST is the legacy format: the iteration count is
-  implicit — always PBKDF2_ITERATIONS (200,000) — and the salt is the
-  "web_password_salt" value. These verify exactly as they always have,
-  so a hash written by the external user-management process keeps
-  verifying byte-for-byte.
-- ``pbkdf2_sha256$<iterations>$<salt_hex>$<hash_hex>`` is the
-  versioned format: the string carries its own iteration count and
-  salt, so a writer can raise the cost without a code change here.
-  New writes use it at PBKDF2_WRITE_ITERATIONS (600,000, current
-  OWASP guidance); the salt keys stay populated with the same salt so
-  `has_web_password` keeps meaning the same thing.
-
-An external writer may produce either format.
+Bare hex digests use PBKDF2_ITERATIONS and web_password_salt. Versioned
+pbkdf2_sha256$<iterations>$<salt_hex>$<hash_hex> values carry their own cost and
+salt. External writers may use either format. New writes use
+PBKDF2_WRITE_ITERATIONS and keep the salt key populated for has_web_password.
 """
 from __future__ import annotations
 
@@ -44,7 +28,6 @@ def has_web_password(config: dict) -> bool:
 
 
 def pbkdf2(password: str, salt_hex: str, iterations: int) -> str:
-    """Hex digest of `password` under PBKDF2-SHA256 at `iterations`."""
     salt = bytes.fromhex(salt_hex)
     digest = hashlib.pbkdf2_hmac(
         "sha256",
@@ -158,8 +141,8 @@ def stored_verification_iterations(config: dict) -> int:
     return PBKDF2_ITERATIONS
 
 
-# Fixed verification target for the login flow's timing flattening
-# (issue #109): every credential failure costs about one PBKDF2 run at
+# Fixed verification target for the login flow's timing flattening:
+# every credential failure costs about one PBKDF2 run at
 # PBKDF2_WRITE_ITERATIONS — the real verification where it can run,
 # plus a dummy remainder run where it cannot, or would run cheaper (a
 # legacy 200k hash, a malformed stored hash, no stored hash at all).
@@ -198,7 +181,7 @@ def normalize_verification_timing(password: str, spent_iterations: int) -> None:
     Skipped when nothing remains, so a hash already stored at the
     target count pays the real run only. The login flow calls this on
     every credential-failure path, so a stored hash's format cannot be
-    read off the response timing (issue #109). One documented residual:
+    read off the response timing. One documented residual:
     a hash versioned ABOVE the target count still costs longer.
     """
     remaining = PBKDF2_WRITE_ITERATIONS - spent_iterations

@@ -1,7 +1,5 @@
-"""GET /api/export — render the full matplotlib dashboard PNG.
-
-Split out of api.py (issue #8 module split). Runs the reference plot
-script as a subprocess against the viz DB and streams back the PNG.
+"""GET /api/export: render the reference matplotlib dashboard in a
+subprocess against the viz DB and stream its PNG.
 """
 from __future__ import annotations
 
@@ -25,7 +23,6 @@ from scripts.plots.ccusage_plot_features import has_drawable_features
 
 router = APIRouter()
 
-# Export-PNG render plumbing -------------------------------------------------
 # System python (has matplotlib + psycopg); the app .venv does not. Override
 # via CLAUDIT_EXPORT_PYTHON for dev/test boxes where matplotlib lives elsewhere.
 _EXPORT_PYTHON = getenv("CLAUDIT_EXPORT_PYTHON", "/usr/bin/python3")
@@ -35,7 +32,7 @@ _export_lock = asyncio.Semaphore(1)
 
 # Live renders: spawned process -> its mkstemp output path, from spawn
 # until the render completes or is reaped. The lifespan shutdown consults
-# it (issue #363): uvicorn's cancellation of the in-flight request task
+# it: uvicorn's cancellation of the in-flight request task
 # cannot be relied on to unwind the handler's own cleanup before the
 # process exits.
 _live_renders: dict[asyncio.subprocess.Process, str] = {}
@@ -43,13 +40,13 @@ _live_renders: dict[asyncio.subprocess.Process, str] = {}
 # A plot child that dies with this in its stderr is almost always the
 # CLAUDIT_EXPORT_PYTHON interpreter lacking matplotlib (dev-only: requirements-dev.txt,
 # not backend/requirements.txt) or psycopg — an environment problem, not a
-# render failure, so it earns a 503 that names the fix (issue #115).
+# render failure, so it earns a 503 that names the fix.
 _MISSING_MODULE_RE = re.compile(r"ModuleNotFoundError")
 
 # No live export's file can be older than this: the render subprocess is
 # bounded at _EXPORT_TIMEOUT_S and the handler unlinks its output on every
 # exit path, so a claudit_export_* file older than twice that is an orphan
-# of a process that died mid-render (issue #441). The wide margin keeps a
+# of a process that died mid-render. The wide margin keeps a
 # live export in a process sharing the tmp directory (a dev box without the
 # unit's PrivateTmp) from ever being swept.
 _STALE_EXPORT_MIN_AGE_S = 2 * _EXPORT_TIMEOUT_S
@@ -59,7 +56,7 @@ _STALE_EXPORT_MIN_AGE_S = 2 * _EXPORT_TIMEOUT_S
 _EXPORT_TMP_PREFIX = "claudit_export_"
 
 # The plot script signals "no data for the range/project" with exit 3
-# (scripts/plots/ccusage_plot_db.py's empty path — issue #445), distinct
+# (scripts/plots/ccusage_plot_db.py's empty path), distinct
 # from 1 (genuine failure) and 2 (argparse). An empty result set is a
 # normal outcome, so it earns a 404, not a 500 that reads as a server
 # fault.
@@ -71,7 +68,7 @@ def build_export_argv(rng: str, project: str | None, out_path: str) -> list[str]
     option rides in --opt=value form — a single argv element — because a
     project id is a path slug that may start with '-' (every POSIX Claude
     project), which argparse would read as an option in the two-element
-    space form (issue #380). The child inherits CLAUDIT_DATABASE_URL_VIZ from the
+    space form. The child inherits CLAUDIT_DATABASE_URL_VIZ from the
     environment, so the DSN is NOT passed on the command line (keeps
     credentials out of the process list)."""
     argv = [_EXPORT_PYTHON, _EXPORT_SCRIPT, f"--output={out_path}"]
@@ -98,7 +95,6 @@ def export_filename(rng: str, project: str | None) -> str:
 
 
 async def _reap(proc: asyncio.subprocess.Process) -> bool:
-    """Kill a running child, drain its pipes, and wait until it is reaped."""
     if proc.returncode is None:
         try:
             proc.kill()
@@ -141,13 +137,10 @@ async def _render_export(argv: list[str], out_path: str) -> None:
             stderr=asyncio.subprocess.PIPE,
         )
     except OSError as exc:
-        # The spawn is the one failure mode OUTSIDE the guarded region
-        # below: an CLAUDIT_EXPORT_PYTHON naming a missing or unlaunchable
-        # interpreter raises FileNotFoundError / PermissionError /
-        # IsADirectoryError here, which nothing else classifies, so the
-        # request died as an unhandled 500 (issue #949). Answer the same
-        # 503 vocabulary as the missing-module path: name the knob with
-        # its resolved value and the fix.
+        # Spawn failures occur outside the guarded render region: a missing
+        # or unlaunchable CLAUDIT_EXPORT_PYTHON raises an OSError here. Return
+        # 503 with the resolved interpreter and fix, as for missing modules,
+        # so an environment error is not an unhandled server failure.
         raise HTTPException(
             503,
             f"export render failed: CLAUDIT_EXPORT_PYTHON ({_EXPORT_PYTHON}) "
@@ -191,28 +184,17 @@ async def _render_export(argv: list[str], out_path: str) -> None:
 
 
 async def reap_live_renders(budget_s: float) -> None:
-    """Kill every live render child and unlink its output.
+    """Kill every live render child and unlink its output during shutdown.
 
-    Called from the lifespan shutdown handler (issue #363): uvicorn
-    cancels the in-flight export task at the graceful-shutdown deadline,
-    awaits the lifespan shutdown, then re-raises the captured SIGTERM —
-    so the handler's own cleanup races process death and can lose, and
-    even where it wins, `_reap`'s pipe drain can block forever when the
-    renderer's own child inherits its pipes. The kill here is
-    synchronous; the pipes are deliberately not drained — the process is
-    exiting, and a drain waits for an EOF an orphaned grandchild may
-    never deliver.
+    Uvicorn cancels the export task at its graceful deadline, awaits
+    lifespan shutdown, then re-raises SIGTERM. Handler cleanup can lose
+    that race. Kill synchronously and never drain pipes: an orphaned
+    grandchild can hold them open forever.
 
-    `budget_s` bounds the reap as a WHOLE, on one deadline shared by the
-    live children, rather than once per child (issue #414). The reap runs
-    ahead of the lifespan's bounded ingest wait, so a per-child bound is
-    drawn N times over: a stop arriving with two wedged children spent
-    more than the whole teardown's share of TimeoutStopSec here, and the
-    ingest row close behind it never ran. Every child is killed and
-    unlinked whatever the budget is left of — both are instant — so what
-    runs out is the reaping of a wedged child, which is a process the stop
-    was going to kill regardless. Zero is a legal budget.
-    """
+    budget_s bounds the WHOLE reap on one deadline shared by all children.
+    A per-child bound would consume the ingest wait and row-close budgets.
+    Kill and unlink every child even when no reap time remains. Zero is a
+    legal budget."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + max(0.0, budget_s)
     for proc, out_path in list(_live_renders.items()):
@@ -227,10 +209,8 @@ async def reap_live_renders(budget_s: float) -> None:
             try:
                 await asyncio.wait_for(proc.wait(), timeout=remaining)
             except asyncio.TimeoutError:
-                # Reported the same way as the out-of-budget skip below:
-                # this one line is the only signal that a render child
-                # outlived the reap, and an earlier child eating the whole
-                # budget is exactly the case issue #414 is about.
+                # Use the same signal as an out-of-budget skip: this child outlived
+                # the reap, possibly because an earlier child consumed its budget.
                 print(f"[export] render child {proc.pid} still unreaped at "
                       "shutdown", file=sys.stderr)
         else:
@@ -243,16 +223,12 @@ async def reap_live_renders(budget_s: float) -> None:
 
 
 def sweep_stale_exports(directory: str | None = None) -> int:
-    """Unlink export tmp files a crashed process left behind (issue #441).
+    """Unlink aged export tmp files at lifespan startup.
 
-    The graceful paths (#363, #414) reap the renders of a stop they run
-    in; a SIGKILL bypasses both, and the partial PNG it leaves behind was
-    never cleaned by anything. Called once at lifespan startup. A file is
-    swept only when older than _STALE_EXPORT_MIN_AGE_S: nothing younger
-    can be an orphan, and in a tmp shared with a live process nothing
-    older can still be live. Files outside the prefix, and unstatable or
-    unlinkable ones, are left alone. Returns how many files were removed.
-    """
+    SIGKILL bypasses graceful cleanup and leaves partial PNGs. Sweep only
+    files older than _STALE_EXPORT_MIN_AGE_S, beyond any live render's
+    lifetime even when another process shares tmp. Leave unrelated,
+    unstatable and unlinkable files alone. Return the number removed."""
     tmp = Path(directory or tempfile.gettempdir())
     cutoff = time.time() - _STALE_EXPORT_MIN_AGE_S
     removed = 0

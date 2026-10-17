@@ -1,9 +1,7 @@
 """User-managed project grouping: the project_aliases fold pass.
 
-One deploy's project list is dominated by worktree/scratch ids — one
-repository's cost is split across hundreds of ids a `-tmp-%`-shaped
-pattern could name. The fix is DATA, not code: a per-deploy
-`project_aliases` table (pattern → target project id, plus note),
+Group worktree/scratch project ids by data: a per-deploy project_aliases
+table (pattern → target project id, plus note),
 shipped EMPTY in schema.sql, applied at ingest so every stored row and
 rollup sees the target id. Every alias target is labelled with its own
 id after every fold pass; other projects keep their existing labels.
@@ -145,7 +143,7 @@ def rekey_folded_projects() -> int:
     Returns the rows the pass changed — project ids re-keyed plus alias
     targets relabelled — because a relabel-only pass still changes the
     project list a client sees and must gate the response-cache
-    invalidation like a pass with moves (issue #370). Moved files are
+    invalidation like a pass with moves. Moved files are
     reported to the active incremental scope with their old and new
     project-hour keys.
     """

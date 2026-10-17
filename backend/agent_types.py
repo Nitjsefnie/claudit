@@ -1,37 +1,18 @@
-"""Agent-role canonical names (issue #650): one role, one name across lanes.
+"""Canonical agent roles across lanes.
 
-files.agent_type and the dispatch columns store the role in the lane's own
-spelling, so Cost by Agent Type showed the same role once per lane and
-showed lane defaults as distinct roles. canonical_agent_type folds them:
-
-- the Explore-equivalent role — Claude's ``Explore``, Kimi's ``explore``
-  profile, Codex's ``explorer`` — resolves to Claude's spelling, the one
-  name the Claude lane has always reported;
-- a plugin-namespaced type (``superpowers:code-reviewer``) splits on the
-  last colon and folds to the type itself, whatever lane named it
-  namespaced;
-- Kimi's ``coder`` profile is the implementer role and resolves to
-  Claude's ``implementer`` spelling (issue #749);
-- the lanes' default subagent role — Codex's ``worker`` — is "no real
-  role was selected", the same DEFAULT_AGENT_TYPE bucket the lanes'
-  default MAIN profiles (``agent``/``default``) already land in through
-  parse_lanes.
-
-One flat fold table: the function runs per named role on every reparse,
-and the reparse CPU gate holds parse_body to a bytecode budget — the
-lookup is the whole cost.
+Explore/explore/explorer share Claude's spelling; plugin namespaces fold on the
+last colon. Kimi coder is implementer; Codex worker is no recorded
+role and folds to DEFAULT_AGENT_TYPE. Keep the per-role hot path one flat lookup
+for the reparse CPU budget.
 """
 from __future__ import annotations
 
 from backend import branding
 from backend.constants import DEFAULT_AGENT_TYPE
 
-# The whole fold in one lookup: cross-lane spellings fold to one name (the
-# canonical spellings are Claude's — the vocabulary the dashboard has
-# always reported), Kimi's coder profile is the implementer role (issue
-# #749), and the lanes' default subagent role (what a spawn runs as when
-# the dispatch asked for no real role — Codex's worker role) folds to the
-# unattributable bucket, not a role.
+# Cross-lane spellings fold to Claude's canonical names in one lookup.
+# Kimi coder is implementer; Codex worker, the default with no named role,
+# folds to the unattributable bucket.
 _FOLD = {
     "explore": "Explore",
     "explorer": "Explore",
@@ -59,10 +40,8 @@ def fold_table() -> dict[str, str]:
 
 
 def fold_js() -> str:
-    """The script statement serving the fold table to the Inspector page
-    (issue #691): the backend stays the table's only home, and the
-    browser lookup (src/agent-types.js) holds the lookup logic only.
-    branding.script_json keeps the payload from closing the tag it rides
-    in, like window.BRAND beside it.
-    """
+    """Serve the Inspector's fold table from its only home, the backend.
+
+    The browser holds lookup logic only. branding.script_json prevents the
+    payload from closing its script tag."""
     return f"window.AGENT_TYPE_FOLD = {branding.script_json(fold_table())};"

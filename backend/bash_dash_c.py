@@ -25,7 +25,6 @@ _SHLEX_ESCAPE = (4, 4, 2, 5, 1, 3)
 def _advance_shlex(
         raises: tuple[bool, ...], transition: tuple[int, ...]
 ) -> tuple[bool, ...]:
-    """Apply one character's state transition to suffix raise outcomes."""
     return (
         raises[transition[0]], raises[transition[1]],
         raises[transition[2]], raises[transition[3]],
@@ -37,7 +36,6 @@ def _advance_token_ends(
         ends: tuple[int, ...], transition: tuple[int, ...],
         whitespace_position: int | None = None,
 ) -> tuple[int, ...]:
-    """Carry first-token end offsets through one state transition."""
     return tuple(
         whitespace_position + 1
         if state == 1 and whitespace_position is not None
@@ -47,7 +45,6 @@ def _advance_token_ends(
 
 
 def _largest_valid_start(text: str, position: int) -> int | None:
-    """Return the rightmost legal prefix start for a candidate."""
     if position == 0:
         return 0
 
@@ -194,7 +191,6 @@ def _script_tokens(
 
 
 def _dash_c_sources(text: str) -> list[str]:
-    """Script bodies passed as `python3 -c '<code>'`."""
     positions: list[int] = []
     last_end = 0
     # A selected prefix consumes one character, so the next prefix must begin

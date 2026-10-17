@@ -1,16 +1,10 @@
-"""The two Kimi wire formats → per-file (records list + ctx_turns array).
+"""Parse legacy and kimi-code wires with per-record model attribution.
 
-Ported from codexmeter's parse.py (its model attribution, _edit_churn and
-the legacy and kimi-code parsers). claudit's format DETECTION lives in
-backend/parse_lanes.py and the machinery all lane formats share in
-backend/parse_common.py; this module owns the two Kimi formats and the
-Kimi model ladder only.
-
-Cost is precomputed per-record using the pricing module's rate tables so the
-read path doesn't need to JOIN against rates. Bumps to a rate table OR to the
-parse algorithm both require a PARSER_VERSION bump to invalidate every files
-row.
-"""
+parse_lanes detects formats; parse_common owns shared state/builders.
+This module owns Kimi wire fields and its model fallback ladder.
+Precompute cost through pricing to avoid read-time rate joins.
+Parser-semantic changes invalidate PARSER_VERSION; rate changes use
+PRICING_VERSION and repricing."""
 from __future__ import annotations
 
 from bisect import bisect_right
@@ -57,10 +51,9 @@ if TYPE_CHECKING:
 # Boundaries are strictly-before / inclusive-at, so each cutoff instant
 # belongs to the NEWER model.
 
-# 2026-06-11 22:30:35 UTC  k2-6 -> k2-7-code
+# Fallback transition from k2-6 to k2-7-code.
 MODEL_CUTOFF_EPOCH = 1781217035
-# 2026-07-16 14:45:55 UTC  earliest observed k3 usage.record; only applies
-# to records with no wire model string.
+# K3 fallback boundary; applies only to records without a wire model.
 K3_CUTOFF_EPOCH = 1784213155
 MODEL_CUTOFF_DT = datetime.fromtimestamp(MODEL_CUTOFF_EPOCH, tz=timezone.utc)
 K3_CUTOFF_DT = datetime.fromtimestamp(K3_CUTOFF_EPOCH, tz=timezone.utc)
@@ -88,7 +81,7 @@ def _model_for(wire_model: str | None, ts: datetime | None) -> str:
 
     The wire wins when it names a model unambiguously; dates decide only what
     the wire cannot express. Resolved per-record, not per-session: a session
-    can switch model mid-flight (observed: kimi-for-coding -> k3, 24s apart).
+    can switch model mid-flight.
 
     Unknowns resolve conservatively, never to the newest label, because K3's
     rates are ~3x higher and a wrong undercount beats a wrong overcount:
@@ -143,12 +136,9 @@ def _legacy_status_update(st: _ParseState, line_num: int,
         int(tu.get("input_cache_read", 0) or 0),
         int(tu.get("output", 0) or 0),
     )
-    # Legacy transcripts carry no model string anywhere — verified across
-    # the corpus: StatusUpdate payloads expose only context_usage /
-    # context_tokens / max_context_tokens / token_usage / message_id /
-    # plan_mode / mcp_status. Dates are all we have here. Use the RECORD's
-    # own ts so a session spanning a cutoff splits correctly;
-    # first_event_ts is only the fallback for a record with no timestamp.
+    # Legacy StatusUpdate carries usage but no model string. Use each
+    # record's timestamp for the fallback ladder so a session can cross a
+    # cutoff; first_event_ts is only a missing-record-timestamp fallback.
     _append_usage_record(
         st, line_num, ts, payload.get("message_id") or None,
         _model_for(None, ts or st.first_event_ts), toks,
@@ -224,8 +214,7 @@ def _attribute_tool_models(st: _ParseState) -> None:
     """Give every tool call the model of the usage record billing its step.
 
     Both Kimi wires write a step's tool calls BEFORE the usage record that
-    closes the step (every step of the 24 kimi-code and legacy files
-    sampled from the kimi bucket reads calls-then-usage), and the model is
+    closes the step, and the model is
     resolved per record by _model_for. So a call's model is that of the
     first record after its line; a call after the last record (the file
     ends inside a step) takes the last record's, and a file with no record
@@ -318,16 +307,12 @@ def _kc_steer(st: _KimiCodeState, line_num: int, ts: datetime | None,
 
 def _kc_deliver_steer(st: _KimiCodeState, ts: datetime | None,
                       content: object) -> None:
-    """Arm the reply-latency anchor if this user message delivers a steer.
+    """Anchor reply latency when a queued steer is delivered as user content.
 
-    kimi-code delivers queued steers first-in first-out, each as a user
-    message whose content IS the steer's input (547 of 547 steers across
-    125 corpus files). Any other user message -- a prompt's own, or a Skill
-    tool's injected instructions landing mid-step -- is not a delivery, and
-    arming there would let the in-flight step's record consume the anchor.
-    Every delivery re-arms, so a batch is timed from its last message, when
-    the next request can start.
-    """
+    Deliveries are FIFO. Prompt messages and Skill-injected instructions
+    are not steer deliveries; arming on them would let the in-flight step
+    consume the anchor. Re-arm for every delivery so a batch is timed from
+    its last message, when the next request can start."""
     for i, pending in enumerate(st.pending_steers):
         if content == pending:
             del st.pending_steers[:i + 1]
@@ -392,9 +377,8 @@ def _kc_usage_record(st: _ParseState, line_num: int, ts: datetime | None,
         int(usage.get("inputCacheRead") or 0),
         int(usage.get("output") or 0),
     )
-    # Every usage.record names its model (verified: 7,397/7,397 in the
-    # corpus, values "kimi-code/k3" and "kimi-code/kimi-for-coding").
-    # Honour it; dates decide only what the wire cannot express.
+    # Honor usage.record's model; timestamps decide only what its wire
+    # label cannot settle.
     _append_usage_record(
         st, line_num, ts, f"{st.file_key}:{line_num}",
         _model_for(obj.get("model"), ts or st.first_event_ts), toks,
