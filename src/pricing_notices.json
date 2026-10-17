@@ -175,7 +175,6 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-1-flash via Morph; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for deepseek-v4-flash-0731 via OpenInference; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for deepseek-v4-flash-0731 via Relace; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
@@ -305,8 +304,7 @@
     "deepseek-v4-1-flash": {
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints at one current price",
-      "DeepSeek": "endpoint schedule",
-      "Morph": "no matching log state"
+      "DeepSeek": "endpoint schedule"
     },
     "deepseek-v4-1-flash-1017": {
       "DeepSeek": "endpoint schedule"
