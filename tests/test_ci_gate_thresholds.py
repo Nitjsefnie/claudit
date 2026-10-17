@@ -149,6 +149,72 @@ def test_canary_skips_only_the_unrelated_gates():
         "inputs.comment_only != 'true' && inputs.thresholds_only != 'true'")
 
 
+def _threshold_commands(tmp_path):
+    for executable in ('git', 'python3'):
+        fake = tmp_path / executable
+        fake.write_text(
+            '#!/bin/sh\n'
+            'printf "%s %s\\n" "${0##*/}" "$*" >> "$CALLS"\n'
+            'if [ "$1" = fetch ]; then exit 0; fi\n'
+            'printf "%s\\n" "$RESOLVED"\n'
+            'if [ "$1" = scripts/ci/threshold_base.py ]; then exit "$RESOLVER_STATUS"; fi\n')
+        fake.chmod(0o755)
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='the canary runs under POSIX Bash')
+@pytest.mark.parametrize('event,status,expected', [
+    ('pull_request', 0, 'a' * 40), ('push', 0, 'a' * 40),
+    ('push', 3, ''), ('push', 1, None), ('workflow_dispatch', 0, ''),
+])
+def test_threshold_base_resolved_before_tests_and_shared(event, status, expected, tmp_path):
+    steps = _workflow('tests.yml')['jobs']['pytest']['steps']
+    resolver = next(step for step in steps if step.get('id') == 'threshold_base')
+    assert steps.index(resolver) < next(i for i, step in enumerate(steps)
+                                        if step.get('id') == 'pytest')
+    _threshold_commands(tmp_path)
+    exported, calls = tmp_path / 'env', tmp_path / 'calls'
+    env = dict(os.environ, PATH=f'{tmp_path}{os.pathsep}{os.environ["PATH"]}',
+               EVENT=event, REPO='o/r', BASE_REF='master', BEFORE='b' * 40,
+               RESOLVED='a' * 40, RESOLVER_STATUS=str(status),
+               GITHUB_ENV=str(exported), CALLS=str(calls), RUNNER_TEMP=str(tmp_path))
+    result = subprocess.run(['bash', '-e', '-c', resolver['run']], cwd=ROOT,
+                            env=env, check=False, capture_output=True, text=True)
+    assert result.returncode == (1 if expected is None else 0), result.stderr
+    guard_step = next(step for step in steps if step.get('name') == 'Threshold direction guard')
+    if expected is None:
+        assert not exported.exists()
+        env.pop('CLAUDIT_THRESHOLDS_BASE_REV', None)
+        result = subprocess.run(['bash', '-e', '-c', guard_step['run']], cwd=ROOT,
+                                env=env, check=False, capture_output=True, text=True)
+        assert result.returncode != 0
+        return
+    assert exported.read_text() == f'CLAUDIT_THRESHOLDS_BASE_REV={expected}\n'
+    if event == 'pull_request':
+        assert calls.read_text().splitlines() == [
+            'git fetch --no-tags https://github.com/o/r.git refs/heads/master',
+            'git merge-base HEAD FETCH_HEAD']
+    elif event == 'push':
+        assert calls.read_text().splitlines() == [
+            f'python3 scripts/ci/threshold_base.py {"b" * 40} .github/ci-thresholds.json']
+    env['CLAUDIT_THRESHOLDS_BASE_REV'] = expected
+    for name, script in [('Comment share baseline', 'comment_baseline'),
+                         ('Module size baseline', 'size_baseline'),
+                         ('Pylint suppression baseline', 'suppression_baseline')]:
+        step = next(step for step in steps if step.get('name') == name)
+        subprocess.run(['bash', '-e', '-c', step['run']], cwd=ROOT, env=env,
+                       check=True, capture_output=True, text=True)
+        assert calls.read_text().splitlines()[-1] == (
+            f'python3 scripts/ci/{script}.py --base-rev {expected} --head-rev HEAD')
+    previous = calls.read_text().splitlines()
+    subprocess.run(['bash', '-e', '-c', guard_step['run']], cwd=ROOT, env=env,
+                   check=True, capture_output=True, text=True)
+    assert calls.read_text().splitlines()[len(previous):] == ([
+        f'git show {expected}:.github/ci-thresholds.json',
+        f'python3 scripts/ci/thresholds_guard.py --base {tmp_path}/base-thresholds.json '
+        f'--head .github/ci-thresholds.json --base-rev {expected} --head-rev HEAD',
+    ] if expected else [])
+
+
 @pytest.mark.skipif(os.name == 'nt', reason='the canary runs under POSIX Bash')
 @pytest.mark.parametrize('narrowed', [True, False])
 def test_canary_run_tests_selects_threshold_checks_without_coverage(

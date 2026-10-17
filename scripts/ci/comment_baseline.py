@@ -15,6 +15,8 @@ from pathlib import Path
 
 comment_share = importlib.import_module('scripts.ci.comment_share' if __package__ else 'comment_share')
 thresholds = importlib.import_module('scripts.ci.thresholds' if __package__ else 'thresholds')
+thresholds_removed = importlib.import_module(
+    'scripts.ci.thresholds_removed' if __package__ else 'thresholds_removed')
 TARGET = (15, 100)
 Pair = tuple[int, int] | list[int]
 
@@ -29,9 +31,12 @@ def entries(measured: dict[str, tuple[int, int]]) -> dict[str, list[int]]:
 
 
 def violations(measured: dict[str, tuple[int, int]],
-               baseline: dict[str, list[int]]) -> dict[str, str]:
+               baseline: dict[str, list[int]],
+               declared_removed: set[str] | frozenset[str] = frozenset()) -> dict[str, str]:
     failures = {}
     for path, counts in measured.items():
+        if path not in baseline and path in declared_removed:
+            continue
         if above(counts, baseline.get(path, TARGET)):
             failures[path] = f'{counts} exceeds {baseline.get(path, TARGET)}'
     return failures
@@ -56,6 +61,9 @@ def main(argv: list[str] | None = None) -> int:
     modes.add_argument('--seed', action='store_true', help='introduce an absent section once')
     parser.add_argument('--root', type=Path, default=comment_share.ROOT)
     parser.add_argument('--thresholds', type=Path, default=thresholds.THRESHOLDS)
+    parser.add_argument('--base-rev', help='exclusive base of the judged commit range')
+    parser.add_argument('--head-rev', default='HEAD',
+                        help='inclusive head of the judged commit range (default HEAD)')
     args = parser.parse_args(argv)
     try:
         if args.seed:
@@ -75,7 +83,13 @@ def main(argv: list[str] | None = None) -> int:
                 thresholds.write(args.thresholds, data)
             print(f'{len(updated)} comment-share entries recorded')
             return 0
-        found = violations(measured, baseline)
+        removed = thresholds_removed.declared(args.base_rev, args.head_rev, args.root)
+        exempt = removed.paths('comment_share_baseline', measured) - baseline.keys()
+        for path in sorted(exempt):
+            if above(measured[path], TARGET):
+                print(f'declared-removed: {path} ({measured[path]} above '
+                      'the default until master seeds)')
+        found = violations(measured, baseline, exempt)
         for path, detail in found.items():
             print(f'{path}: {detail}', file=sys.stderr)
         if found:

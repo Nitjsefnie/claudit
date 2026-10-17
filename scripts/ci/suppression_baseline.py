@@ -26,9 +26,10 @@ from pathlib import Path
 
 if __package__:
     # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import thresholds
+    from . import thresholds, thresholds_removed
 else:
     thresholds = importlib.import_module('thresholds')
+    thresholds_removed = importlib.import_module('thresholds_removed')
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -95,7 +96,8 @@ def tracked_suppression_counts(root=ROOT):
     return counts
 
 
-def violations(counts, baseline):
+def violations(counts, baseline,
+               declared_removed: set[str] | frozenset[str] = frozenset()):
     return {
         'grown': {rel: (counts[rel], recorded)
                   for rel, recorded in baseline.items()
@@ -105,11 +107,22 @@ def violations(counts, baseline):
         # growth past the policy.
         'over': {rel: (count, _UNRECORDED_LIMIT)
                  for rel, count in counts.items()
-                 if rel not in baseline and count >= _UNRECORDED_LIMIT},
+                 if rel not in baseline and rel not in declared_removed
+                 and count >= _UNRECORDED_LIMIT},
         'missing': sorted(rel for rel in baseline if rel not in counts),
         'graduated': {rel: 0 for rel in baseline
                       if rel in counts and counts[rel] == 0},
     }
+
+
+def _check(counts, baseline, base_rev, head_rev):
+    removed = thresholds_removed.declared(base_rev, head_rev, ROOT)
+    exempt = removed.paths('pylint_suppression_baseline', counts) - baseline.keys()
+    for rel in sorted(exempt):
+        if counts[rel] >= _UNRECORDED_LIMIT:
+            print(f'declared-removed: {rel} ({counts[rel]} suppressions '
+                  'above the default until master seeds)')
+    return violations(counts, baseline, exempt)
 
 
 def tightened(baseline, counts):
@@ -136,6 +149,9 @@ def _parser():
                              'reporting')
     parser.add_argument(
         '--thresholds', type=Path, default=thresholds.THRESHOLDS)
+    parser.add_argument('--base-rev', help='exclusive base of the judged commit range')
+    parser.add_argument('--head-rev', default='HEAD',
+                        help='inclusive head of the judged commit range (default HEAD)')
     return parser
 
 
@@ -157,7 +173,7 @@ def main(argv=None):
                   f'seeded {len(updated.keys() - baseline.keys())} entries')
             return 0
 
-        found = violations(counts, baseline)
+        found = _check(counts, baseline, args.base_rev, args.head_rev)
         if not any(found.values()):
             print(f'no complexity suppressions outside the baseline: '
                   f'{len(baseline)} recorded files')

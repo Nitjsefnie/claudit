@@ -49,10 +49,11 @@ from pathlib import Path
 
 if __package__:
     # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import size_baseline, thresholds
+    from . import size_baseline, thresholds, thresholds_removed
 else:
     thresholds = importlib.import_module('thresholds')
     size_baseline = importlib.import_module('size_baseline')
+    thresholds_removed = importlib.import_module('thresholds_removed')
 
 
 # The size ratchet's original families, frozen at the guard's landing:
@@ -275,35 +276,6 @@ def _baseline_moves(base, head, established):
     return moves
 
 
-def _removed_declarations(base_rev: str | None, head_rev: str) -> set[str]:
-    """One bounded history read; a malformed trailer line admits nothing."""
-    if not base_rev or not base_rev.strip():
-        return set()
-    try:
-        proc = subprocess.run(
-            ['git', '-C', str(Path(__file__).resolve().parents[2]),
-             'log', '--format=%B', f'{base_rev}..{head_rev}'],
-            capture_output=True, check=False, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return set()
-    if proc.returncode != 0:
-        return set()
-    declarations = set()
-    for line in proc.stdout.decode('utf-8', 'replace').split('\n'):
-        match = re.fullmatch(r'Thresholds-Removed:[ \t]*(.*)', line)
-        if not match:
-            continue
-        entries = set()
-        for token in match[1].split(','):
-            entry, separator, kind = (part.strip() for part in token.partition('='))
-            if not separator or not entry or kind not in ('bug', 'definition'):
-                break
-            entries.add(entry)
-        else:
-            declarations.update(entries)
-    return declarations
-
-
 def _subject_gone(path: str) -> bool:
     """Only git's unmatched-path status proves the subject is untracked."""
     try:
@@ -385,7 +357,8 @@ def main(argv=None):
         moves = forbidden_moves(
             base, head, established,
             feature_present=_has_feature_commits(args.base_rev, args.head_rev),
-            removal_declarations=_removed_declarations(args.base_rev, args.head_rev))
+            removal_declarations=thresholds_removed.declared(
+                args.base_rev, args.head_rev, Path(__file__).resolve().parents[2]))
         if not moves:
             print('no forbidden threshold moves')
             return 0

@@ -31,9 +31,10 @@ from pathlib import Path
 
 if __package__:
     # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import thresholds
+    from . import thresholds, thresholds_removed
 else:
     thresholds = importlib.import_module('thresholds')
+    thresholds_removed = importlib.import_module('thresholds_removed')
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -105,19 +106,31 @@ def _in_family_scope(rel):
             and rel.endswith(('.yml', '.yaml')))
 
 
-def violations(sizes, baseline):
+def violations(sizes, baseline,
+               declared_removed: set[str] | frozenset[str] = frozenset()):
     return {
         'grown': {rel: (sizes[rel], recorded)
                   for rel, recorded in baseline.items()
                   if rel in sizes and sizes[rel] > recorded},
         'over': {rel: (count, ceiling_for(rel))
                  for rel, count in sizes.items()
-                 if rel not in baseline and count > ceiling_for(rel)},
+                 if rel not in baseline and rel not in declared_removed
+                 and count > ceiling_for(rel)},
         'missing': sorted(rel for rel in baseline if rel not in sizes),
         'graduated': {rel: (sizes[rel], ceiling_for(rel))
                       for rel in baseline
                       if rel in sizes and sizes[rel] <= ceiling_for(rel)},
     }
+
+
+def _check(sizes, baseline, base_rev, head_rev):
+    removed = thresholds_removed.declared(base_rev, head_rev, ROOT)
+    exempt = removed.paths('module_size_baseline', sizes) - baseline.keys()
+    for rel in sorted(exempt):
+        if sizes[rel] > ceiling_for(rel):
+            print(f'declared-removed: {rel} ({sizes[rel]} lines above '
+                  'the default until master seeds)')
+    return violations(sizes, baseline, exempt)
 
 
 def tightened(baseline, sizes):
@@ -143,6 +156,9 @@ def _parser():
                         help='follow shrunk files down instead of reporting')
     parser.add_argument(
         '--thresholds', type=Path, default=thresholds.THRESHOLDS)
+    parser.add_argument('--base-rev', help='exclusive base of the judged commit range')
+    parser.add_argument('--head-rev', default='HEAD',
+                        help='inclusive head of the judged commit range (default HEAD)')
     return parser
 
 
@@ -163,7 +179,7 @@ def main(argv=None):
                   f'seeded {len(updated.keys() - baseline.keys())} entries')
             return 0
 
-        found = violations(sizes, baseline)
+        found = _check(sizes, baseline, args.base_rev, args.head_rev)
         if not any(found.values()):
             print(f'{len(sizes)} tracked modules within the size policy')
             return 0

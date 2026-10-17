@@ -79,6 +79,30 @@ jobs:
         with:
           node-version: "24.17.0"
 
+      - name: Resolve the threshold base
+        id: threshold_base
+        env:
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=
+          case "$EVENT" in
+            pull_request)
+              git fetch --no-tags "https://github.com/${REPO}.git" "refs/heads/${BASE_REF}"
+              base="$(git merge-base HEAD FETCH_HEAD)" ;;
+            push)
+              resolver_status=0
+              base="$(python3 scripts/ci/threshold_base.py "$BEFORE" .github/ci-thresholds.json)" || resolver_status=$?
+              if [ "$resolver_status" -eq 3 ]; then
+                base=
+              elif [ "$resolver_status" -ne 0 ]; then
+                exit "$resolver_status"
+              fi ;;
+          esac
+          printf 'CLAUDIT_THRESHOLDS_BASE_REV=%s\n' "$base" >> "$GITHUB_ENV"
+
       # The pip cache restores on every event but is saved only from a
       # push of master, never from a pull-request checkout (issue #126).
       - name: Restore the pip cache
@@ -187,14 +211,8 @@ jobs:
         # INFORMATIONAL BY DESIGN: no threshold, no gate; the module
         # exits 0 for any result it computed, even 0%.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' && inputs.thresholds_only != 'true' }}
-        env:
-          REPO: ${{ github.repository }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          git fetch --no-tags \
-            "https://github.com/${REPO}.git" \
-            "refs/heads/${BASE_REF}"
-          base="$(git merge-base HEAD FETCH_HEAD)"
+          base="$CLAUDIT_THRESHOLDS_BASE_REV"
           echo "Patch base: $(git log -1 --format='%h %s' "$base")"
           git diff "$base" HEAD -- '*.py' > "$RUNNER_TEMP/pr.diff"
           python3 scripts/ci/diff_coverage.py \
@@ -250,7 +268,7 @@ jobs:
 
       - name: Comment share baseline
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
-        run: python3 scripts/ci/comment_baseline.py
+        run: python3 scripts/ci/comment_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
 
       - name: JavaScript coverage gate
         id: jscov
@@ -268,14 +286,14 @@ jobs:
         # raising the recorded ceiling: a file that outgrew its entry
         # or crossed its ceiling fails here; master tightens below.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
-        run: python3 scripts/ci/size_baseline.py
+        run: python3 scripts/ci/size_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
 
       - name: Pylint suppression baseline
         # The same only-shrinks ratchet for inline complexity
         # suppressions (issue #389): a file's count never rises past its
         # record; an unrecorded file stays at zero. Master tightens below.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
-        run: python3 scripts/ci/suppression_baseline.py
+        run: python3 scripts/ci/suppression_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
 
       - name: Threshold direction guard
         # Lowered coverage and raised baseline entries fail here; suite-cost
@@ -284,27 +302,12 @@ jobs:
         # pull_request (merge base) and push; dispatch skips -- the PR
         # is the gate.
         if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && (github.event_name == 'pull_request' || github.event_name == 'push') }}
-        env:
-          REPO: ${{ github.repository }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
         run: |
-          case "$EVENT" in
-            pull_request)
-              git fetch --no-tags "https://github.com/${REPO}.git" "refs/heads/${BASE_REF}"
-              base="$(git merge-base HEAD FETCH_HEAD)" ;;
-            push)
-              resolver_status=0
-              base="$(python3 scripts/ci/threshold_base.py "$BEFORE" .github/ci-thresholds.json)" || resolver_status=$?
-              if [ "$resolver_status" -eq 3 ]; then
-                base=
-                echo "Threshold direction guard takes NO verdict on this push: no base exists in this clone."
-                exit 0
-              elif [ "$resolver_status" -ne 0 ]; then
-                exit "$resolver_status"
-              fi ;;
-          esac
+          base="${CLAUDIT_THRESHOLDS_BASE_REV?Threshold base resolution failed}"
+          if [ -z "$base" ]; then
+            echo "Threshold direction guard takes NO verdict on this push: no base exists in this clone."
+            exit 0
+          fi
           git show "${base}:.github/ci-thresholds.json" \
             > "$RUNNER_TEMP/base-thresholds.json"
           python3 scripts/ci/thresholds_guard.py \

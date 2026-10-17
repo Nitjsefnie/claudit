@@ -4,6 +4,7 @@ import copy
 import importlib
 import json
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -41,6 +42,44 @@ def test_tighten_lowers_drops_and_never_raises():
     measured = {'lower.py': (25, 100), 'drop.py': (15, 100), 'rise.py': (21, 100)}
     assert policy().tightened(baseline, measured) == {
         'lower.py': [25, 100], 'rise.py': [20, 100]}
+
+
+def _history(monkeypatch, module, trailer):
+    def read_range(argv, **kwargs):
+        assert argv == ['git', '-C', str(ROOT), 'log', '--format=%B', 'base..HEAD']
+        assert kwargs == {'capture_output': True, 'check': False, 'timeout': 10}
+        return subprocess.CompletedProcess(argv, 0, trailer.encode())
+    monkeypatch.setattr(module.subprocess, 'run', read_range)
+
+
+@pytest.mark.parametrize('entry,status', [
+    ('comment_share_baseline.backend/api.py', 0),
+    ('comment_share_baseline', 0),
+    ('', 1),
+    ('comment_share_baseline.backend/other.py', 1),
+])
+def test_declared_removal_check(tmp_path, monkeypatch, capsys, entry, status):
+    module = policy()
+    target = tmp_path / 'thresholds.json'
+    thresholds.write(target, {'schema_version': 1, 'comment_share_baseline': {}})
+    monkeypatch.setattr(module.comment_share, 'measure_files',
+                        lambda _root: {'backend/api.py': (20, 100)})
+    _history(monkeypatch, module, f'Thresholds-Removed: {entry}=bug')
+    assert module.main(['--thresholds', str(target),
+                        '--base-rev', 'base', '--head-rev', 'HEAD']) == status
+    captured = capsys.readouterr()
+    if status == 0:
+        assert 'declared-removed: backend/api.py' in captured.out
+        assert '(20, 100)' in captured.out
+    else:
+        assert 'backend/api.py:' in captured.err
+
+
+def test_declaration_does_not_exempt_recorded_rise():
+    assert policy().violations(
+        {'backend/api.py': (30, 100)}, {'backend/api.py': [20, 100]},
+        declared_removed={'backend/api.py'}) == {
+            'backend/api.py': '(30, 100) exceeds [20, 100]'}
 
 
 @pytest.mark.parametrize('after', [{'x.py': [21, 100]}, {'run.sh': [20, 100]}])
@@ -93,7 +132,8 @@ def test_pr_check_accepts_lower_shares_and_master_tightens(tmp_path, monkeypatch
     monkeypatch.setattr(module.comment_share, 'measure_files', lambda _root: {'x.py': (20, 100)})
     steps = yaml.load((ROOT / '.github/workflows/tests.yml').read_text(), Loader=yaml.BaseLoader)['jobs']['pytest']['steps']
     check = next(step for step in steps if step.get('name') == 'Comment share baseline')
-    args = [*shlex.split(check['run'])[2:], '--thresholds', str(target)]
+    args = [arg.replace('$CLAUDIT_THRESHOLDS_BASE_REV', '')
+            for arg in shlex.split(check['run'])[2:]] + ['--thresholds', str(target)]
     assert module.main(args) == 0
     assert module.main([*args, '--tighten']) == 0
     assert thresholds.comment_share_baseline(thresholds.load(target)) == {'x.py': [20, 100]}
@@ -138,7 +178,9 @@ def test_comment_only_runs_check_with_dependencies():
     checks = [step for step in steps if step.get('name') == 'Comment share baseline']
     assert len(checks) == 1
     check = checks[0]
-    assert check['run'] == 'python3 scripts/ci/comment_baseline.py'
+    assert shlex.split(check['run']) == [
+        'python3', 'scripts/ci/comment_baseline.py',
+        '--base-rev', '$CLAUDIT_THRESHOLDS_BASE_REV', '--head-rev', 'HEAD']
     assert check['if'] == (
         "${{ !cancelled() && steps.pytest.conclusion != 'skipped' "
         "&& inputs.thresholds_only != 'true' }}")
@@ -168,7 +210,7 @@ def test_deleted_entry_passes_pr_and_master_tighten_removes_it(tmp_path, monkeyp
     assert thresholds.comment_share_baseline(thresholds.load(target)) == {}
 
 
-@pytest.mark.parametrize('state', ['absent', 'empty', 'recorded'])
+@pytest.mark.parametrize('state', ['absent', 'empty', 'recorded', 'declared-removal'])
 def test_tighten_seeds_above_limit_pairs(tmp_path, monkeypatch, state):
     module = policy()
     data = {'schema_version': 1, 'comment_share_baseline': {}}
@@ -187,5 +229,12 @@ def test_tighten_seeds_above_limit_pairs(tmp_path, monkeypatch, state):
     target = tmp_path / 'thresholds.json'
     thresholds.write(target, data)
     monkeypatch.setattr(module.comment_share, 'measure_files', lambda _root: measured)
+    if state == 'declared-removal':
+        _history(monkeypatch, module, 'Thresholds-Removed: comment_share_baseline=definition')
+        base = dict(data, comment_share_baseline={'new.py': [40, 100]})
+        removed = module.thresholds_removed.declared('base', 'HEAD', ROOT)
+        assert not guard.forbidden_moves(
+            base, data, set(thresholds.BASELINE_MEMBERS), removal_declarations=removed)
+        assert module.main(['--thresholds', str(target), '--base-rev', 'base']) == 0
     assert module.main(['--tighten', '--thresholds', str(target)]) == 0
     assert thresholds.comment_share_baseline(thresholds.load(target)) == expected
