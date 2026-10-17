@@ -21,8 +21,8 @@
       1564
     ],
     ".github/dependabot.yml": [
-      3708,
-      4488
+      3631,
+      4411
     ],
     ".github/docker-smoke.compose.yaml": [
       417,
@@ -57,8 +57,8 @@
       8095
     ],
     ".github/workflows/eslint.yml": [
-      2394,
-      2972
+      2396,
+      3000
     ],
     ".github/workflows/gate-freshness.yml": [
       2268,
@@ -109,8 +109,8 @@
       5501
     ],
     ".github/workflows/tests.yml": [
-      5870,
-      16566
+      5824,
+      16520
     ],
     ".github/workflows/types.yml": [
       1200,
@@ -566,7 +566,7 @@
     ],
     "eslint.config.mjs": [
       2688,
-      5523
+      5719
     ],
     "scripts/bench_parser.py": [
       714,
@@ -714,7 +714,7 @@
     ],
     "scripts/ci/size_baseline.py": [
       1594,
-      6015
+      6079
     ],
     "scripts/ci/smoke.py": [
       3518,
@@ -1345,8 +1345,8 @@
       4790
     ],
     "tests/test_js_toolchain.py": [
-      10308,
-      21473
+      10231,
+      21489
     ],
     "tests/test_key_layout.py": [
       2482,
@@ -1894,6 +1894,10 @@
     ]
   },
   "coverage": {
+    "javascript": {
+      "floor": 86.2,
+      "measured": 87.7
+    },
     "python": {
       "floor": 94.1,
       "measured": 95.6
