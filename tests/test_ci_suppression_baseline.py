@@ -4,13 +4,14 @@ Production Python gains a second only-shrinks baseline: the per-file
 count of inline ``pylint: disable``/``disable-next`` comments whose check
 list names a complexity check (any ``too-many-…``), under ``backend/``
 and ``scripts/`` — ``tests/`` stays outside (issue #389). The cases pin
-the counted shape, the four violation classes, the tighten direction
-(only ever down or gone) and the committed document's agreement with the
-actual tree.
+the counted shape, the four reported statuses, the tighten direction
+(only ever down or gone) and the committed document's shrink-tolerant
+agreement with the actual tree.
 """
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -213,6 +214,31 @@ def test_main_check_fails_on_growth(tmp_path, capsys, monkeypatch):
     assert "never raised or added by hand" in captured.err
 
 
+def test_main_check_reports_missing_and_graduated_without_failing(
+        tmp_path, capsys, monkeypatch):
+    suppression = _suppression_baseline()
+    target = _written(tmp_path, baseline={
+        "backend/missing.py": 1,
+        "backend/graduated.py": 3,
+    })
+    monkeypatch.setattr(suppression, "tracked_suppression_counts",
+                        lambda: {"backend/graduated.py": 0})
+    assert suppression.main(["--thresholds", str(target)]) == 0
+    captured = capsys.readouterr()
+    assert "missing" in captured.err
+    assert "graduated" in captured.err
+    assert "--tighten" in captured.err
+
+
+def test_script_help_invokes_cli():
+    script = REPO_ROOT / "scripts" / "ci" / "suppression_baseline.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"], cwd=REPO_ROOT,
+        capture_output=True, check=False, text=True)
+    assert result.returncode == 0
+    assert "usage:" in result.stdout
+
+
 def test_main_tighten_rewrites(tmp_path, capsys, monkeypatch):
     thresholds = _thresholds()
     suppression = _suppression_baseline()
@@ -244,10 +270,9 @@ def test_main_tighten_noop_explains(tmp_path, capsys, monkeypatch):
 
 @pytest.mark.parametrize("absent_family", [False, True])
 def test_committed_document_matches_tree(tmp_path, absent_family):
-    # The committed baseline records each production file's CURRENT
-    # count: every entry equals the file's real suppression-line count,
-    # and no file sits outside the baseline. This is the truth pin the
-    # direction guard relies on for seeds.
+    # Entries bound production files from above. Master's --tighten
+    # follows reduced counts down and drops missing or clean files, so a
+    # PR need not update thresholds for those reductions.
     git_meta.require_own_git_metadata(REPO_ROOT)
     thresholds = _thresholds()
     suppression = _suppression_baseline()
@@ -267,9 +292,7 @@ def test_committed_document_matches_tree(tmp_path, absent_family):
         return
     counts = suppression.tracked_suppression_counts()
     for rel, recorded in baseline.items():
-        assert counts.get(rel, 0) == recorded, f"stale entry for {rel}"
+        assert counts.get(rel, 0) <= recorded, f"grown entry for {rel}"
     found = suppression.violations(counts, baseline)
     assert not found["grown"], found["grown"]
     assert not found["over"], found["over"]
-    assert not found["missing"], found["missing"]
-    assert not found["graduated"], found["graduated"]

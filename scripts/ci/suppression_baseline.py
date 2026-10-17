@@ -8,9 +8,9 @@ comments whose check list names a complexity check — any check starting
 ``scripts/``. ``tests/`` stays outside: a suppression there is not
 production complexity debt. An entry is never added or raised by hand,
 exactly like ``module_size_baseline``; the remedy is to reduce the
-complexity (or, once recorded, rely on master's tighten to follow a
-shrunk count down). A counted site is a LINE containing at least one
-qualifying disable, so a long check list counts once.
+complexity (or rely on master's --tighten to follow a shrunk count down
+and drop a clean or missing file). A counted site is a LINE containing
+at least one qualifying disable, so a long check list counts once.
 
   python3 scripts/ci/suppression_baseline.py
   python3 scripts/ci/suppression_baseline.py --tighten
@@ -46,9 +46,8 @@ GROWTH_REMEDY = (
     'A suppression entry is never raised or added by hand: reduce the '
     'complexity, or argue the exception in a gate-definer change.')
 STALE_ENTRY_REMEDY = (
-    'A stale entry goes away rather than being kept: --tighten drops one '
-    'whose file went clean, and an entry naming a file that is gone is '
-    'deleted by hand.')
+    'A stale entry goes away rather than being kept: master\'s --tighten '
+    'drops one whose file went clean or no longer exists.')
 REMEDY_FOR = {
     'grown': GROWTH_REMEDY,
     'over': GROWTH_REMEDY,
@@ -160,16 +159,20 @@ def main(argv=None):
             print(f'no complexity suppressions outside the baseline: '
                   f'{len(baseline)} recorded files')
             return 0
-        remedies = []
-        for kind in ('grown', 'over', 'missing', 'graduated'):
-            detail = found[kind]
-            if detail:
-                print(f'{kind}: {detail}', file=sys.stderr)
-                if REMEDY_FOR[kind] not in remedies:
-                    remedies.append(REMEDY_FOR[kind])
+        failed = bool(found['grown'] or found['over'])
+        diagnostics = [(kind, detail) for kind, detail in found.items()
+                       if detail]
+        for kind, detail in diagnostics:
+            print(f'{kind}: {detail}', file=sys.stderr)
+        remedies = dict.fromkeys(
+            REMEDY_FOR[kind] for kind, _ in diagnostics)
         for remedy in remedies:
             print(remedy, file=sys.stderr)
-        return 1
+        return int(failed)
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
