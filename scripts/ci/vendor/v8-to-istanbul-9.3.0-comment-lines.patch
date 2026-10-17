@@ -1,6 +1,6 @@
 --- a/lib/code-lines.js
 +++ b/lib/code-lines.js
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,128 @@
 +// A lexical line classifier, deliberately independent of the coverage ranges.
 +// Keep physical offsets in CovSource; only statement emission uses this mask.
 +module.exports = function codeLines (source) {
@@ -97,10 +97,13 @@
 +        state.regex = true
 +      } else if (c === ')') {
 +        state.regex = state.parens.pop() === true
++        state.last = state.regex ? 'control)' : ')'
++        continue
 +      } else if (c === '{') {
-+        // Distinguish expression objects from statement blocks for a slash
-+        // after their closing brace. Parenthesis context handles if/while.
-+        state.braces.push(state.last === '=>' || state.last === ')' || state.last === 'else' || state.last === 'do' || state.last === '' || state.last === ';' ? 'block' : 'object')
++        // Only a control head's closing parenthesis introduces a block here.
++        // Other bodies/objects close as operands, so a following slash divides.
++        // Bare blocks at statement start remain ambiguous without a parser.
++        state.braces.push(state.last === 'control)' || state.last === '' || state.last === ';' ? 'block' : 'operand')
 +        state.regex = true
 +      } else if (c === '}') {
 +        if (state.interpolation && state.braces.length === 0) {
