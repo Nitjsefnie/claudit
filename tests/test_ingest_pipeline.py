@@ -1,6 +1,3 @@
-"""The process-pool pipeline (issue #309): knob parsing, equality with
-the in-process pipeline over the mini mirror, and per-file persist
-failure isolation there."""
 from __future__ import annotations
 
 from functools import partial
@@ -18,8 +15,8 @@ from tests import mini_mirror
 from tests import test_ingest_forkserver as child_units
 from tests.test_ingest_forkserver import requires_forkserver
 
-#: How many transcripts the committed mirror holds, read from its
-#: tree (issue #503 grew it with the lane layout).
+# How many transcripts the committed mirror holds, read from its
+# tree ( grew it with the lane layout).
 _MIRROR = mini_mirror.counts()["transcripts"]
 
 
@@ -47,7 +44,6 @@ def test_process_pool_ingest_matches_sequential_exactly(fresh_db, mini_r2_env, m
     ingest.run_ingest("test-seq")
     sequential = _snapshot()
 
-    # Wipe and re-ingest the identical mirror through the process pool.
     with db.viz_conn() as c:
         c.execute("DELETE FROM files")
         c.execute("DELETE FROM projects")

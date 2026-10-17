@@ -1,7 +1,7 @@
 """Unit tests for scripts/ci/commit_scopes.py and the aggregate-job wiring.
 
 commit_scopes.py refuses a pull-request head whose commit subjects pair a
-workflow-name scope with a type other than `ci` (issue #556, ported from
+workflow-name scope with a type other than `ci` (ported from
 the Python source in Nitjsefnie-Actions/claim (tests/commit_scopes.py)
 and Nitjsefnie-Actions/pr-gate (scripts/ci/commit_scopes.py)). These tests
 pin the subject grammar, the workflow-name derivation from HEAD (a plain
@@ -26,7 +26,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load(name: str):
-    """Import scripts/ci/<name>.py by path (scripts/ci is no package)."""
     path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
@@ -37,8 +36,6 @@ def _load(name: str):
 
 
 cs = _load("commit_scopes")
-
-# --- the subject grammar -----------------------------------------------------
 
 
 def test_subject_parses_type_scope_and_summary():
@@ -69,9 +66,6 @@ def test_subject_admits_a_breaking_marker_on_either_side():
 def test_subject_refuses_uppercase_and_punctuated_types():
     assert cs.SUBJECT.match("Dedup: re-point the limb") is None
     assert cs.SUBJECT.match("Fix(api): x") is None
-
-
-# --- workflow_name: the one readable shape ------------------------------------
 
 
 def test_workflow_name_reads_a_plain_top_level_name():
@@ -117,9 +111,6 @@ def test_workflow_name_refuses_two_top_level_names():
 def test_workflow_name_refuses_a_continuation_line():
     with pytest.raises(cs.GateError):
         cs.workflow_name("w.yml", "name: plain\n  continued: yes\n")
-
-
-# --- fixture repos ------------------------------------------------------------
 
 
 def _run(argv: list[str], cwd: str | None = None) -> str:
@@ -205,9 +196,6 @@ def test_an_unreadable_answer_is_a_refusal_not_a_green(monkeypatch, capsys):
     monkeypatch.setattr(cs, "git", refuse)
     assert cs.main(["commit_scopes.py", "--root", str(REPO_ROOT)]) == 1
     assert "commit scopes: cannot" in capsys.readouterr().err
-
-
-# --- the aggregate-job wiring -------------------------------------------------
 
 
 def _aggregate_steps() -> list[dict]:

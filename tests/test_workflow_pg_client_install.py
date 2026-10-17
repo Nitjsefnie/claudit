@@ -1,35 +1,10 @@
-"""Every postgresql-client install step is bounded, retried and attributed.
-
-Five workflows install the PostgreSQL client from the PGDG apt repo:
-tests.yml, test-data.yml, test-data-explore.yml, smoke.yml and
-refresh-pricing.yml. The step shells out to psql, and the client major
-must match the container major, so the install cannot be dropped.
-
-The invariants pinned here:
-
-- every install step declares a step-level `timeout-minutes` (issue #845;
-  a stalled install had held jobs for the full 45-minute job timeout
-  three times on 2026-10-07);
-- the key download bounds each attempt (`--connect-timeout`,
-  `--max-time`) and retries all errors (`--retry`, `--retry-all-errors`),
-  so a stalled connection is abandoned per attempt and retried inside the
-  step budget (issue #862: the step's own 5-minute bound cancelled the
-  refresh run 37738499924 because neither curl nor apt set a per-attempt
-  timeout, so the configured retries never ran a second attempt);
-- both apt calls carry the same per-attempt bound (`Acquire::Retries`,
-  `Acquire::http::Timeout`, `Acquire::https::Timeout`);
-- no install command swallows its own failure, so a stall fails the step
-  visibly instead of greening it;
-- each command is announced with a non-empty echo, so the step's log
-  names the command that stalled instead of ending at the group header
-  (issue #862: the log printed nothing after the first command echo,
-  because `-qq` and `-s` leave no per-command output).
-
-Steps are selected by PROPERTY — a step whose run block installs the
-client — never by step name, so a re-named sixth site cannot escape the
-pins below; the site list is pinned by exact set equality, and the step
-count by `len(steps) == len(INSTALL_SITES)`.
-"""
+"""PostgreSQL client installs must be bounded, retried and attributed.
+The client major must match the container. Bound each step, each key-download
+attempt and both apt calls; retries cannot help an attempt that never exits.
+Do not swallow failures. Announce each command because quiet curl/apt output
+otherwise leaves only a group header when a command stalls.
+Select install steps by the commands they run so renaming a step cannot
+escape the checks; assert both the site set and step count."""
 from __future__ import annotations
 
 import re
@@ -154,7 +129,7 @@ def test_every_install_step_bounds_both_apt_calls():
 
 
 def test_no_install_command_swallows_its_failure():
-    # Issue #862's point is that a stall FAILS the step, visibly. A
+    # point is that a stall FAILS the step, visibly. A
     # trailing `|| true` would turn a failed install into a green step,
     # which is exactly what the step-level bound exists to prevent.
     for name, step in _install_steps():
@@ -172,7 +147,7 @@ def _is_command(line: str) -> bool:
 
 
 def test_every_install_command_is_announced():
-    # Issue #862: the step's log must name the command that stalled. Each
+    # the step's log must name the command that stalled. Each
     # command line is preceded by an echo carrying a non-empty message;
     # the last echo printed is the command in flight.
     for name, step in _install_steps():

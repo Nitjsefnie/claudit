@@ -1,6 +1,3 @@
-"""Shape coverage for the documented provider resolve pins and the
-automatic rules that replace the mechanical ones (#877); payloads are
-fixture-only."""
 from __future__ import annotations
 
 import re
@@ -53,8 +50,7 @@ def _assert_document_shape_resolves(
 
 
 def test_the_alibaba_shape_resolves_without_a_pin(tmp_path, capsys):
-    """#893's stopgap pin is gone: the host's live shape (its fp8 endpoint
-    listed twice at two prices, beside a throughput tier) resolves by rule."""
+    """Resolve duplicate fp8 listings beside a throughput tier through the rule."""
     doc = _openrouter_template()
     assert "Alibaba" not in doc["models"]["glm-5-2"].get("resolve", {})
     _assert_document_shape_resolves(
@@ -213,11 +209,9 @@ def test_rule_resolved_same_quantization_keeps_the_possible_twin_switch_notice()
 
 
 def test_tag_pin_resolves_same_quantization_prices_within_the_pinned_tag():
-    """A quantization tag pin narrows away the fast tier before twin ordering.
-
-    The maintained catalog no longer needs the Alibaba stopgap pin, so the
-    pin is synthetic while the price, tag and twin-switch assertions remain.
-    """
+    """Use a synthetic quantization pin so the verdict does not depend on
+    whether the maintained catalog currently needs that override. Preserve
+    price, tag and twin-switch assertions under the narrowed endpoint set."""
     pin = {"tag": "alibaba/fp8", "why": "synthetic quantization pin"}
     assert pin["tag"] == "alibaba/fp8"
     assert set(pin) == {"tag", "why"}

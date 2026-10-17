@@ -1,16 +1,7 @@
-"""Re-applying the schema must not burn attnums (issue #959 round two).
-
-PostgreSQL never reuses an attnum: a column an ADD COLUMN creates and a
-later file DROPs in the same transaction costs that attribute number
-forever (and grows every row's header past ~73 attributes). The additive
-path used to re-ADD the retired text dimension columns on every stamp
-change and schema_dims/schema_records_price dropped them again, so each
-apply leaked one number per retired column. These tests pin the catalog
-instead: the pg_attribute ROW count per table — dropped attributes
-included, because a dropped one is exactly the leak — must be stable
-across re-applies, on a fresh database and on one migrated from the
-pre-#959 shape, and the two end states must agree.
-"""
+"""Schema reapplication must not consume PostgreSQL attribute numbers.
+Adding a column then dropping it still consumes an attnum permanently.
+Compare pg_attribute counts, including dropped attributes, across fresh
+and migrated schemas and repeated applies; the final states must agree."""
 from __future__ import annotations
 
 import psycopg

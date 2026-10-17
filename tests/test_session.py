@@ -1,6 +1,6 @@
 """Session token/store tests.
 
-Token shape (issue #108): five dot-separated parts, uid, issued-at,
+Token shape: five dot-separated parts, uid, issued-at,
 nonce, generation, signature — the signature covers the four payload
 parts. Each real user's secret and generation live in claudit's own
 user_session table; a token verifies only while its generation is still
@@ -58,7 +58,7 @@ def test_verify_rejects_wrong_generation():
 
 
 def test_old_four_part_token_is_rejected():
-    """The pre-generation 4-part shape (obsolete since #108) must not
+    """The pre-generation 4-part shape (obsolete) must not
     parse, and so must not verify, even against the right secret."""
     secret = "k" * 4
     payload = "7.1234567890.nonce"
@@ -150,8 +150,6 @@ def test_non_ascii_admin_token_is_unauthorized(monkeypatch):
     assert response.status_code == 401
     assert response.json() == {"ok": False, "error": "Unauthorized"}
 
-
-# --------------------------------------------------------------- the store
 
 @pytest.fixture(name="fresh_db")
 def _fresh_db_fixture(monkeypatch):
@@ -392,8 +390,6 @@ def test_guest_token_ignores_generation():
     )
     assert session.resolve_session_user_id(tok) == session.GUEST_USER_ID
 
-
-# ------------------------------------------------------------ the cookie
 
 def test_set_session_cookie_owns_complete_flag_contract(monkeypatch):
     """One helper owns every issuance flag, including absent Domain."""

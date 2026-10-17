@@ -322,9 +322,6 @@ def test_the_window_edge_is_end_exclusive_and_the_stamp_whole_seconds(
     assert history[-1]["schedule"] == history[0]["schedule"]
 
 
-# --- a schedule that splits the Token Breakdown only approximately ----------
-
-
 def test_a_committed_schedule_scaling_prices_unevenly_is_noticed(tmp_path, capsys):
     run = Run(tmp_path)
     stored = run.doc()["providers"][V41]["DeepSeek"][-1]
@@ -366,9 +363,6 @@ def test_a_paid_window_over_a_free_default_does_not_scale_alike():
     assert not refresh._scales_alike(listing({**free, "output": 1.0}))
 
 
-# --- one host's failure is its own -------------------------------------------
-
-
 def test_a_failing_fetch_refuses_only_its_model(tmp_path, capsys):
     run = Run(tmp_path)
     _move_glm(run)
@@ -387,13 +381,10 @@ def test_a_failing_fetch_refuses_only_its_model(tmp_path, capsys):
     assert run.doc()["providers"][GLM]["OpenInference"][-1]["from"] == STAMP
 
 
-# --- the blind spot of price order is reported -------------------------------
-
-
 def test_a_bare_http_client_failure_refuses_its_model(tmp_path, capsys):
     """A truncated body raises http.client.IncompleteRead — neither a
     URLError, an OSError nor a ValueError — and it is still that model's
-    refusal, not a crash of the run (issue #762)."""
+    refusal, not a crash of the run."""
     run = Run(tmp_path)
     _move_glm(run)
     failing = run.doc()["openrouter"]["models"][V41]["id"]
@@ -434,9 +425,6 @@ def test_a_price_order_row_that_falls_is_not_reported(tmp_path, capsys):
     assert run.doc()["providers"][V41]["BaseTen"][-1]["from"] == STAMP
 
 
-# --- tags, and edges ------------------------------------------------------------
-
-
 def test_a_tag_suffix_neither_region_nor_quantization_is_logged(tmp_path, capsys):
     run = Run(tmp_path)
     run.endpoint(GLM, "Wafer")["tag"] = "wafer/fast"
@@ -466,7 +454,7 @@ def test_a_file_with_two_pricing_versions_is_refused(tmp_path, capsys):
 def test_the_subject_drops_the_vanished_count(tmp_path, capsys):
     """The vanished set is standing state — the stdout report and the
     state file — never a subject count: the subject carries this run's
-    moves and refusals only (issue #933)."""
+    moves and refusals only."""
     run = Run(tmp_path)
     _move_glm(run)
     run.endpoints(GLM)[:] = [e for e in run.endpoints(GLM)

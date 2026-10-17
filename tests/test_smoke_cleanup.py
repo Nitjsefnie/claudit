@@ -1,10 +1,5 @@
-"""The smoke script cleans up after itself on every exit path (issue #87).
-
-main() used to drop its two scratch databases only on the success path,
-so a run that failed after provisioning left them for the stale sweep
-(six hours). These tests fail ci_smoke.provision in controlled ways and
-hold the cleanup in place.
-"""
+"""The smoke script must remove both scratch databases on every exit path.
+Fail provision at controlled points to exercise cleanup after partial setup."""
 from __future__ import annotations
 
 import importlib.util

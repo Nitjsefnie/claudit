@@ -1,6 +1,3 @@
-"""The stamp belt's unit tests, split from test_perturb_test_data.py to
-keep that module under its size ceiling — relocation only, no assertion
-changed."""
 from __future__ import annotations
 
 import importlib.util

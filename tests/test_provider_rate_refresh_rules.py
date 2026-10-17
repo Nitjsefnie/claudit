@@ -1,4 +1,4 @@
-"""#877: endpoint-selection rules beneath explicit pins.
+"""endpoint-selection rules beneath explicit pins.
 
 Synthetic listings cover namespace, quantization, region and price continuity.
 """
@@ -34,9 +34,6 @@ def _select(listings, *, region=None, resolutions=None, stored=None):
 def _rules(notices, rule):
     return [note for note in notices
             if "rule-resolved" in note and f"({rule})" in note]
-
-
-# --- the bare namespace rule -------------------------------------------------
 
 
 def test_a_bare_namespace_wins_over_service_tiers():
@@ -80,9 +77,6 @@ def test_two_bare_prices_are_refused():
     selected, refused, _, _ = _select([("fixture", RATES_A), ("fixture", RATES_B)])
     assert selected == {}
     assert set(refused) == {HOST}
-
-
-# --- the unique quantization rule --------------------------------------------
 
 
 def test_a_unique_quantization_wins_over_a_throughput_tier():
@@ -148,9 +142,6 @@ def test_a_quantization_beside_a_bare_namespace_is_refused():
         [("fixture/fp4", RATES_A), ("fixture", RATES_B)])
     assert selected == {}
     assert set(refused) == {HOST}
-
-
-# --- the data region rule ----------------------------------------------------
 
 
 def test_a_named_data_region_leaves_one_endpoint_rule_resolved():
@@ -224,9 +215,6 @@ def test_a_lone_bare_endpoint_is_not_a_rule_resolution():
     assert refused == {}
     assert selected[HOST].tag == "fixture"
     assert not any("rule-resolved" in note for note in notices)
-
-
-# --- the same-quantization rule ----------------------------------------------
 
 
 @pytest.mark.parametrize("cheap, dear", [
@@ -368,11 +356,8 @@ def test_a_pinned_tag_with_two_prices_still_needs_a_human():
     assert selected == {} and set(refused) == {HOST}
 
 
-# --- the live shape, end to end ----------------------------------------------
-
-
 def test_the_alibaba_stopgap_pins_are_gone_from_the_document():
-    """#893's two cheapest pins were the stopgap this rule replaces."""
+    """The rule replaces explicit pins for choosing the cheapest duplicate endpoint."""
     doc = _openrouter_template()
     for model_id in ("deepseek/deepseek-v4-pro", "z-ai/glm-5.2"):
         entry = next(entry for entry in doc["models"].values()
@@ -381,7 +366,7 @@ def test_the_alibaba_stopgap_pins_are_gone_from_the_document():
 
 
 def test_the_alibaba_shape_resolves_without_its_stopgap_pins(tmp_path, capsys):
-    """#893: take the cheaper fp8 twin beside an alibaba/fast tier.
+    """take the cheaper fp8 twin beside an alibaba/fast tier.
 
     Vendor-tracked snapshots need explicit synthetic seed rows.
     """
@@ -409,9 +394,6 @@ def test_the_alibaba_shape_resolves_without_its_stopgap_pins(tmp_path, capsys):
     assert "rule-resolved (same quantization)" in out
     for key in keys:
         assert run.doc()["providers"][key]["Alibaba"][-1] == {"from": STAMP, **cheap}
-
-
-# --- tier variants and stored-price continuity (#1029, #1030) -----------------
 
 
 @pytest.mark.parametrize("quantization, suffixes", [

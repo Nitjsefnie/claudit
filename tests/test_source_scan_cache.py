@@ -1,4 +1,3 @@
-"""Compatibility and preprocessing budgets for shared source artifacts."""
 from __future__ import annotations
 
 import ast

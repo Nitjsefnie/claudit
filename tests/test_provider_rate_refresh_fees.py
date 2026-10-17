@@ -404,7 +404,7 @@ def test_refresh_reports_deferred_search_change_without_rewriting_history(
         entry["from"] = STAMP
         entry["web_search"] = 0.002
         entry.pop("note", None)
-        # The fetch stamp covers the dated entry (issue #931).
+        # The fetch stamp covers the dated entry.
         doc["provider_rates_fetched"] = STAMP
 
     run.edit(set_committed_search_epoch)
@@ -483,9 +483,6 @@ def test_a_1h_tier_round_trips_through_the_listing_inverse():
     round_trip = refresh_prices.rates_of(listed, "h")
     assert {field: round_trip[field] for field in RATE_FIELDS} == CLAUDE_RATES
     assert round_trip.get("web_search", 0) == 0
-
-
-# --- a different-region tag drops under the global filter --------------------
 
 
 def test_global_suffix_is_recognized_as_the_configured_region():

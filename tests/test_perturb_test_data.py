@@ -8,8 +8,7 @@ per-field factors; then a single-field move) and the three version
 constants move up one — so a test that pins repository-managed data
 fails as a test failure. These tests drive the perturbation over a
 MINIMAL synthetic pricing.json and synthetic version homes — a
-constants module and, since issue #986 split it out, a parser-version
-module — in tmp_path; one pin test perturbs a tmp COPY of the
+constants module and a parser-version module — in tmp_path; one pin test perturbs a tmp COPY of the
 committed document, which it only ever reads — the tree's own file is
 never mutated.
 """
@@ -106,7 +105,6 @@ def _seed_tree(tmp_path: Path) -> tuple[Path, Path, dict]:
 
 
 def _run(tmp_path: Path) -> tuple[dict, dict, str, Path]:
-    """Seed, run the perturbation once, read the tree back."""
     pricing_path, constants_path, doc = _seed_tree(tmp_path)
     perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
     perturb_module.bump_constants(constants_path, tmp_path / "parser_version.py")
@@ -116,7 +114,6 @@ def _run(tmp_path: Path) -> tuple[dict, dict, str, Path]:
 
 
 def _run_twice(tmp_path: Path) -> tuple[dict, dict, Path]:
-    """Seed, run the perturbation twice, read the tree back."""
     pricing_path, constants_path, doc = _seed_tree(tmp_path)
     for _ in range(2):
         perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
@@ -246,7 +243,7 @@ def test_the_note_names_the_factor_that_was_applied(tmp_path):
 
 
 def test_an_offset_spelled_newest_stamp_perturbs_cleanly(tmp_path):
-    """(issue #264) A document whose newest real stamp is spelled with a
+    """ A document whose newest real stamp is spelled with a
     ±HH:MM offset perturbs cleanly: `_stamp_after` normalises to UTC
     before formatting, so the appended stamps carry the INSTANT — not
     the offset-local wall time mislabeled Z, five hours early — the
@@ -330,7 +327,7 @@ def test_every_row_gains_a_single_field_entry(tmp_path):
 
 
 def test_provider_entries_carry_the_web_search_rate(tmp_path):
-    """Issue #900: a provider row's appended entries carry the optional
+    """a provider row's appended entries carry the optional
     `web_search` rate — the row's previous one under its own seeded
     factor, a zero becoming one; a models row never does, the loader
     refusing the field there."""
@@ -608,14 +605,10 @@ PINNED_ROWS = (
 
 
 def test_appended_stamps_decouple_from_the_seed_and_pins_hold(tmp_path):
-    """ANY seed is valid (issue #227): the run seed drives the factors and
-    the shuffle, never a `from` stamp. The appended stamps derive from
-    the document's own newest real stamp, so even a seed far older than
-    the data — 42, the historical case that clamped the appended entries
-    into closed windows — leaves every appended entry after its row's
-    newest real stamp, and the six closed-window pins of
-    tests/test_provider_pricing.py keep reading their pristine rates at
-    SEEDED."""
+    """Any seed drives factors and shuffle, never appended from stamps.
+    Derive appended stamps from the document's newest real stamp so they
+    remain beyond all real windows even when the seed is older than the data. Closed-window tests keep
+    reading their pristine rates at SEEDED."""
     pristine = decoded_pricing_doc(json.loads(_real_pricing_text()))
     document_max = _document_max_stamp(_rows_of(pristine))
     for seed in (42, int(time.time())):

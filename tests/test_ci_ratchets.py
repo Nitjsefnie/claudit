@@ -231,14 +231,13 @@ def test_main_unreadable_thresholds_fails(tmp_path, capsys):
 
 
 # --- the reparse CPU ratchet -------------------------------------------------
-#
 # The coverage ratchet only ever moves UP: more measured coverage is a
 # better number. A reparse phase's recorded bytecodes are a cost, so this
 # ratchet mirrors every rule with the direction inverted — it only ever
 # moves DOWN, one phase at a time, and a slower or within-hysteresis
 # reading tightens nothing. The yardsticks are the same two constants,
 # in the bench's own unit. The per-phase share is NOT tightened: it stopped
-# being a budget with issue #513 and is telemetry the measurement carries.
+# being a budget with and is telemetry the measurement carries.
 
 def _reparse_ratchet():
     return _load("reparse_ratchet")

@@ -1,4 +1,4 @@
-"""The deferred-transform helper, driven through node (issue #838).
+"""The deferred-transform helper, driven through node.
 
 `src/deferred.js` is plain JS on purpose -- no React, no JSX -- so node
 can execute it, exactly as tests/test_dashboard_fetch_js.py drives the
@@ -25,7 +25,6 @@ DEFERRED_JS = ROOT / "src" / "deferred.js"
 
 
 def _node(body: str):
-    """Run `body` against the real src/deferred.js in node."""
     script = f"""
       global.window = {{}};
       require({str(DEFERRED_JS)!r});

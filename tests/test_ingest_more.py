@@ -1,4 +1,3 @@
-"""Tests moved from test_ingest.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
 import json
@@ -46,13 +45,8 @@ def test_purge_suppressed_is_idempotent(fresh_db, mini_r2_env):
 
 def test_parser_version_ignores_the_environment(fresh_db, mini_r2_env,
                                                 monkeypatch):
-    """PARSER_VERSION is code-owned: setting the old env var must NOT
-    trigger a reparse.
-
-    It used to be read from .env, so a parser change shipped without an
-    operator editing that file left every stored row on the previous
-    semantics with nothing to detect the drift.
-    """
+    """PARSER_VERSION is code-owned; an environment setting must not trigger reparse.
+    A shipped parser change must invalidate stored semantics without operator edits."""
     ingest.run_ingest(trigger="manual")
     monkeypatch.setenv("PARSER_VERSION", "999")  # sv-test-data: allow (negative test: the env value is ignored input, not test data)
     result = ingest.run_ingest(trigger="manual")
@@ -135,7 +129,7 @@ def test_tool_error_rollup_totals_match_raw(fresh_db, mini_r2_env):
     assert rolled == raw
     # The literal is the PLANTED fixture's own contribution, read from the
     # raw table scoped to its session: the mirror itself now carries lane
-    # wires (issue #503), one of which settles a failed call of its own,
+    # wires, one of which settles a failed call of its own,
     # so the global tally is the planted three plus that one.
     assert dict(c.execute(
         "SELECT dek.value, COUNT(*) FROM tool_uses t "
@@ -488,7 +482,7 @@ def test_state_reset_forces_full_rebuild(fresh_db, mini_r2_env):
 
 def test_a_stored_test_session_row_is_swept_as_an_orphan(fresh_db,
                                                          mini_r2_env):
-    """The test-session rule at the ingest level (review of PR 689): rows
+    """The test-session rule at the ingest level: rows
     stored under a `test`-session lane key by a pre-rule binary are
     deleted by the orphan sweep on the next ingest — the walk never lists
     them, so they are just absent keys — and the project row, left
@@ -519,7 +513,7 @@ def test_a_stored_test_session_row_is_swept_as_an_orphan(fresh_db,
 
 
 def test_cache_write_tokens_persist_through_ingest(fresh_db):
-    """Issue #842: the derived provider-neutral cache-write count lands in
+    """the derived provider-neutral cache-write count lands in
     the records column, one value per file-order record."""
     key = "sessions/p/s/wire.jsonl"
     out = parse.parse_file(

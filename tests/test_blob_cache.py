@@ -1,4 +1,4 @@
-"""The disk blob cache (issue #684): (key, etag)-keyed, best-effort on
+"""The disk blob cache: (key, etag)-keyed, best-effort on
 every failure, size-capped LRU prune.
 """
 from __future__ import annotations
@@ -112,7 +112,6 @@ def test_prune_drops_the_oldest_first(cache_root):
 
 
 def entry_of(root: Path, key: str, etag: str) -> Path:
-    """The entry path the cache module derives for (key, etag)."""
     digest = hashlib.sha256(f"{key}\0{etag}".encode()).hexdigest()
     return root / digest[:2] / digest
 
@@ -136,13 +135,12 @@ def test_prune_cap_from_env(cache_root, monkeypatch):
 
 
 def _is_control(ch: str) -> bool:
-    """A character _log_safe must drop (issue #940): C0, DEL, C1."""
+    """A character _log_safe must drop: C0, DEL, C1."""
     code = ord(ch)
     return code < 0x20 or 0x7F <= code <= 0x9F
 
 
 def _store_failure_record(caplog, key):
-    """Run one failing store() and return its single log record."""
     with caplog.at_level(logging.DEBUG, logger="claudit.blob_cache"):
         assert blob_cache.store(key, "e", b"x") is False
     records = [
@@ -153,7 +151,7 @@ def _store_failure_record(caplog, key):
 
 def test_store_failure_log_carries_no_control_characters(
         monkeypatch, tmp_path, caplog):
-    """A store() key can come from a user query param (issue #940), so
+    """A store() key can come from a user query param, so
     CR/LF and other control characters must not reach the log record:
     one record, no newline, nothing that could forge a second line."""
     blocker = tmp_path / "blocker"
@@ -170,7 +168,7 @@ def test_store_failure_log_carries_no_control_characters(
 def test_store_failure_log_scrubs_the_exception_text(
         cache_root, monkeypatch, caplog):
     """The exception text store() logs is tainted by the same route as
-    the key (issue #940). OSError escapes unprintables in a filename, so
+    the key. OSError escapes unprintables in a filename, so
     a real ENOTDIR can never seed it — force a failure whose message
     carries the tainted text raw instead, with a key that carries none,
     so only the exc limb can put a control char in the record."""

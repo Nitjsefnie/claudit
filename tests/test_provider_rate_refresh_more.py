@@ -1,4 +1,3 @@
-"""Tests moved from test_provider_rate_refresh.py to keep modules under 700 lines."""
 from __future__ import annotations
 
 import copy
@@ -123,7 +122,7 @@ def test_modal_ignores_withdrawn_fp8_when_nvfp4_survives() -> None:
 
 # --- the bare-namespace rule over a /fast tier --------------------------------
 # OpenRouter lists a /fast throughput tier under its own tag beside a host's
-# base endpoint. The bare namespace rule (#877) takes the base endpoint: a
+# base endpoint. The bare namespace rule takes the base endpoint: a
 # tier is a distinct offering, not a price twin. Shapes no rule fits refuse.
 
 BASE_RATES = {"fresh": 0.17, "create_5m": 0.17, "create_1h": 0.17,
@@ -142,7 +141,7 @@ def _fast_payload(tags: list[str]) -> dict:
 
 
 def test_a_fast_pair_takes_the_base_endpoint_automatically() -> None:
-    """Issue #623: a /fast tier is a distinct offering under its own tag,
+    """a /fast tier is a distinct offering under its own tag,
     not a price twin, so the exact {p, p/fast} pair resolves by rule — the
     base endpoint prices the row — and the run's report records it as
     rule-resolved rather than silently."""
@@ -253,7 +252,7 @@ def test_a_fast_pair_selects_the_same_log_history_with_or_without_a_pin() -> Non
 
 
 def test_a_new_fast_pair_host_gets_a_row_for_its_base(tmp_path, capsys) -> None:
-    """End to end, the shape that redded master before #623: a host with a
+    """End to end, the shape that redded master before a host with a
     stored row at the base price is suddenly listed as {p, p/fast}. The
     rule takes the base endpoint, the stored row still matches it, and the
     run is green with the rule-resolved line in its report."""
@@ -375,7 +374,7 @@ def _pin_baseten(run: Run) -> None:
 
 
 def test_identical_twins_without_an_override_resolve_to_the_cheaper(tmp_path, capsys):
-    """#877: one quantization's price twins are one offering priced twice,
+    """one quantization's price twins are one offering priced twice,
     so the same-quantization rule takes the cheaper without a resolution.
     The recorded pin's own `ignore` machinery still governs a pinned host
     (the tests below), and a genuinely ambiguous shape still refuses."""
@@ -504,7 +503,7 @@ def test_a_malformed_order_override_is_refused(tmp_path, capsys, pin):
 
 def test_a_tag_with_cheapest_and_a_recorded_ignore_resolves_a_sibling_tier(
         tmp_path, capsys):
-    """Issue #355's live shape: the baseten/fp8 twins differ by a 1-token
+    """ live shape: the baseten/fp8 twins differ by a 1-token
     max_completion_tokens listing artifact and baseten/fast lists a sibling
     tier under its own tag. The recorded resolution narrows by tag, takes the
     cheaper twin, and the sibling's price never lands."""

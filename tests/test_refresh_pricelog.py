@@ -1,4 +1,3 @@
-"""Synthetic tests for OpenRouter's per-endpoint listed-pricing log."""
 from __future__ import annotations
 
 import email.message
@@ -23,7 +22,6 @@ sys.path.insert(0, str(CI))
 
 
 def _load():
-    """Import scripts/ci/refresh_pricelog.py by path."""
     path = CI / "refresh_pricelog.py"
     spec = importlib.util.spec_from_file_location("refresh_pricelog", path)
     assert spec and spec.loader
@@ -34,7 +32,6 @@ def _load():
 
 
 def _load_logshape():
-    """Import scripts/ci/refresh_logshape.py by path."""
     path = CI / "refresh_logshape.py"
     spec = importlib.util.spec_from_file_location("refresh_logshape", path)
     assert spec and spec.loader
@@ -376,9 +373,9 @@ def test_scheduled_endpoint_or_series_is_sampled(scheduled: str):
 
 
 def test_the_sampled_reason_names_band_or_schedule():
-    """The overrides' sampled reason names what classified the host: a
-    min_prompt_tokens band is not a schedule (issue #851's rewrite; the log
-    path reads overrides' presence only, and either kind samples)."""
+    """The sampled override reason must name the host classification accurately.
+    A min_prompt_tokens band is not a schedule. The log reader samples either
+    kind based on override presence, so its explanation must preserve the distinction."""
     rates = _rates(0.3, 0.8)
     banded = _endpoint("Wafer", "wafer/fp8", rates)
     banded["pricing"]["overrides"] = [
@@ -509,7 +506,7 @@ def test_a_series_entirely_after_the_fetch_instant_has_no_state_in_force():
     assert match["Wafer"].reason
 
 
-# --- _fetch_json's bounded retry over transient fetch failures (issue #760)
+# --- _fetch_json's bounded retry over transient fetch failures
 
 
 def _fake_open(outcomes: list):
@@ -534,7 +531,7 @@ def _fetch_with(monkeypatch, outcomes: list, sleeps: list) -> object:
 
 
 def test_one_catalog_timeout_is_retried_so_the_delisted_skip_survives(monkeypatch):
-    """Issue #760: a single read timeout on the models read must not leave
+    """a single read timeout on the models read must not leave
     the catalog unreadable — an unreadable catalog proves nothing, so the
     empty-endpoints refusal stood and the run went red although the model
     was delisted all along."""

@@ -1,13 +1,7 @@
-"""Server-shutdown reap of live export renders (issue #363).
-
-A SIGTERM during an in-flight export used to leave the render child running
-and its mkstemp PNG in TMPDIR: uvicorn cancels the request task at the
-graceful-shutdown deadline, awaits the lifespan shutdown, then re-raises the
-captured SIGTERM — so the handler's own cleanup races process death and
-loses. The fix reaps live renders in the lifespan shutdown handler, which
-uvicorn does await. This module boots the app on its scratch databases as a
-subprocess and exercises exactly that sequence.
-"""
+"""Server shutdown must reap live export children and their temporary PNGs.
+Uvicorn cancels request tasks, awaits lifespan shutdown, then re-raises
+SIGTERM. Handler cleanup can race process death; lifespan cleanup is awaited.
+Exercise that sequence in an app subprocess on scratch databases."""
 from __future__ import annotations
 
 import asyncio
@@ -58,8 +52,8 @@ _RELEASE_ENV = "CLAUDIT_EXPORT_TEST_RELEASE"
 # `#!<python> <standin> <plot script> --output=<out>`: the shebang
 # interpreter receives the stand-in file as its script, then the plot
 # script path and the render argv behind it. It reads the output path
-# from the --output= element (the shape build_export_argv emits since
-# issue #380) and dies loudly if that element is absent, so an argv
+# from the --output= element build_export_argv emits,
+# and dies loudly if that element is absent, so an argv
 # shape regression fails here instead of silently skipping the render.
 # It records its pid, stalls until the release file appears (or its
 # deadline passes) and only then writes the PNG — so a leaked child is
@@ -251,7 +245,7 @@ def _server_fixture(tmp_path, monkeypatch):  # pylint: disable=too-many-locals
 def test_shutdown_during_export_reaps_child_and_unlinks_png(server):
     """SIGTERM mid-render: no render child survives the shutdown and the
     temporary directory is left without the export PNG — the two halves of
-    issue #363."""
+    ."""
     state = server
     request = (
         f"GET /api/export?range=30d HTTP/1.1\r\n"
@@ -310,7 +304,7 @@ def test_shutdown_during_export_reaps_child_and_unlinks_png(server):
 
 
 def test_reap_live_renders_kills_child_and_unlinks_output(tmp_path):
-    """Layer-level control for reap_live_renders (issue #363 review): with
+    """Layer-level control for reap_live_renders ( review): with
     a live child registered, the reap kills it, unlinks its output and
     empties the registry. Red on the unfixed code (no function to call)
     and on a mutant that drops either step."""
@@ -350,9 +344,8 @@ def test_reap_live_renders_kills_child_and_unlinks_output(tmp_path):
             proc = next(iter(api_export._live_renders))  # pylint: disable=protected-access
             assert proc is not None
             assert out_path.exists()
-            # The reap draws from the stop budget the lifespan gives it
-            # (issue #414); here the shipped share, which the child clears
-            # instantly.
+            # The reap draws from the lifespan stop budget;
+            # this child clears the shipped share instantly.
             await asyncio.wait_for(
                 api_export.reap_live_renders(constants.SHUTDOWN_RENDER_REAP_S),
                 timeout=_CHILD_DEATH_TIMEOUT_S)

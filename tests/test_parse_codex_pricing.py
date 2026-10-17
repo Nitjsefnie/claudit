@@ -1,15 +1,6 @@
-"""Codex records are priced at the rate in force WHEN they ran.
-
-The GPT-5.6 family repriced twice — Terra and Luna on 2026-07-30, Sol on
-2026-08-21 — so a corpus that spans either instant cannot be priced off one
-table. The other half of the same story is the long-context meter, which
-bills every record above the 272k threshold whatever plan served the
-rollout (issue #194).
-
-Both are asserted on rollouts built here rather than on the fixtures under
-fixtures/codex, which are dated 2026-06-14 and would have to be re-dated —
-and thereby re-purposed — to straddle a boundary.
-"""
+"""Price Codex records at the rate in force when they ran.
+Synthetic rollouts straddle rate boundaries without repurposing the committed
+fixtures. Above-threshold records bill the long-context meter on every plan."""
 import json
 import pytest
 
@@ -61,11 +52,8 @@ def _codex_usage_lines(*, snapshots, model="gpt-5.6-sol",
 
 def test_a_codex_record_is_priced_at_the_rate_of_its_own_timestamp(
         monkeypatch: pytest.MonkeyPatch) -> None:
-    """A corpus spanning Sol's 2026-08-21 rate boundary uses both windows.
-
-    Controlled rows keep this test focused on timestamp selection instead
-    of tying it to the repository's live rate table.
-    """
+    """A corpus spanning a synthetic rate boundary uses both windows.
+    Controlled rows isolate timestamp selection from the live rate table."""
     dated_rates = {"fresh": 5.00, "create_5m": 6.25, "create_1h": 6.25,
                    "read": 0.50, "output": 30.00}
     list_rates = {"fresh": 4.00, "create_5m": 5.00, "create_1h": 5.00,
@@ -161,7 +149,7 @@ def test_a_stored_dotted_id_matches_its_dashed_membership_key(monkeypatch):
 
 
 def test_a_gpt_5_5_codex_record_prices_through_its_own_row():
-    """gpt-5.5 has a models row (issue #723): the dotted wire id resolves
+    """gpt-5.5 has a models row: the dotted wire id resolves
     EXACT through the parser path, never the catch-all default. The
     expected cost is derived from the same loaded tables at the record's
     own ts, so the pin is twofold: the row's existence (kind exact) and

@@ -1,18 +1,8 @@
-"""The layout-consistency harness's testable halves, driven through node.
-
-Issue #772: the dashboard's class-less self-fetch wrapper took the panels
-from Tool Usage Ratio over Time downward out of ``.dashboard``'s flex-gap
-context, and those sections rendered flush against their neighbours. Every
-other check was green because nothing in the suite measured rendered
-geometry.
-
-The guard proper is ``scripts/ci/panel_layout_rules.mjs`` and it runs only
-in the browser leg (panel-layout.yml): nothing in pytest can read a
-bounding box. What the suite CAN drive are the harness's pure halves --
-the rule registry and the vertical-gap classifier -- plus the wiring that
-keeps the guard honest: the workflow step, the marks its measured universe
-relies on, and the seed each rule carries for its red proof.
-"""
+"""Drive the layout guard's pure registry and gap classifier through node.
+A wrapper outside the dashboard flex-gap context makes adjacent sections
+render flush. Pytest cannot read bounding boxes, so the browser leg checks
+that rendered geometry, while source tests pin workflow wiring, marks and
+each rule's seeded failure proof."""
 from __future__ import annotations
 
 import json
@@ -237,13 +227,13 @@ class TestRuleRegistry:
 
 def test_workflow_runs_the_harness():
     """The browser leg must run the harness, or the classifier above is
-    dead code and #772 ships green again."""
+    dead code and ships green again."""
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "node scripts/ci/panel_layout_rules.mjs" in text
 
 
 class TestLegendBelowViolations:
-    """The legend-placement classifier over owned chart groups (#773).
+    """The legend-placement classifier over owned chart groups.
 
     Convention under test: every legend renders below every plot of its
     OWN chart. A group missing either side checks nothing -- a chart
@@ -342,12 +332,12 @@ class TestLegendBelowViolations:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 class TestGapConsistencyViolations:
-    """The gap-consistency classifier over a flex-column stack (#796).
+    """The gap-consistency classifier over a flex-column stack.
 
     Convention under test: a stack's children sit at the stack's own flex
     gap PLUS the pair's own margins (flex adds the gap to whatever the
     margins contribute), and the dashboard-wide convention is that the
-    stack gap is .dashboard's row gap. The probe supplies the groups (the
+    stack gap is.dashboard's row gap. The probe supplies the groups (the
     dashboard itself and each flex-column section); the classifier is
     pure over their boxes.
     """
@@ -463,7 +453,7 @@ def _module_text() -> str:
 
 def test_untagged_legend_detector_reads_checkbox_colour_keys():
     """The legend-shape detector must read the one shape every strip in
-    src/ shares (#474 made the checkbox the colour key): direct-child
+    src/ shares ( made the checkbox the colour key): direct-child
     labels carrying checkboxes. A detector keyed on anything rarer
     misses the next panel's legend."""
     assert 'input[type="checkbox"]' in _module_text(), (
@@ -513,7 +503,7 @@ def test_multichart_rule_id_and_tagged_rule_id_registered():
 
 def test_picker_rule_family_registered():
     """The picker shift rules are one rule per limb, each with its own
-    seed (#808), the pinched-page rules cover #821, and the two
+    seed, the pinched-page rules cover, and the two
     two-limb rules they replace are gone."""
     out = _node("console.log(JSON.stringify(mod.RULES"
                 ".map((r) => r.id)));")
@@ -590,7 +580,7 @@ class TestTopPlotBox:
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 class TestPairSectionLegendsTop:
     """The multichart rule's wiring decision, pinned where a union
-    refactor fails (#797): a SECTION group's legends pair against the
+    refactor fails: a SECTION group's legends pair against the
     section's TOPMOST plot only. The discriminating case is the strip
     UNDER chart 1 of a stacked grid — topmost pairing passes it, a
     union-of-plots box fires it against chart 2 (the union mutant the

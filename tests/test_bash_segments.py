@@ -4,7 +4,7 @@ A redirect's fd prefix is read by VALUE, not by spelling: bash ignores
 leading zeros, so `01>&` is fd 1 and `00<` is fd 0. `_fold_fd` is the
 shared primitive that folds a spelling to its value; it lives in
 `bash_literals`, the shell-syntax layer both `bash_effects` and
-`bash_segments` import from (#856, #857, #912).
+`bash_segments` import from.
 """
 from __future__ import annotations
 
@@ -36,22 +36,21 @@ def test_fold_fd_reads_the_fd_by_value(fd, expected):
 
 
 @pytest.mark.parametrize("command,expected", [
-    # plain spellings: unchanged by the fold.
     ("cat < f.txt", ("whole", ["f.txt"], [])),
     ("cat 0< f.txt", ("whole", ["f.txt"], [])),
     ("tee 1>& f.txt", (None, [], ["f.txt"])),
     ("tee >& f.txt", (None, [], ["f.txt"])),
     # a zero-padded fd is read by value: `00<` is fd 0, so it IS an
-    # input redirect and f.txt is booked as read (#912).
+    # input redirect and f.txt is booked as read.
     ("cat 00< f.txt", ("whole", ["f.txt"], [])),
     # `01>&` is fd 1, so it IS bash's stdout-to-file write of f.txt
     # (the un-folded spelling fell to the descriptor-target refusal and
-    # dropped the whole command) (#912).
+    # dropped the whole command).
     ("tee 01>& f.txt", (None, [], ["f.txt"])),
 ])
 def test_scan_reads_a_redirect_fd_by_value(command, expected):
     """`_split_redirects` folds the fd prefix before its fd tests, so a
-    zero-padded spelling books the target bash would (#912)."""
+    zero-padded spelling books the target bash would."""
     assert scan(command) == expected
 
 
@@ -82,5 +81,5 @@ def test_tee_arm_filters_an_fd_prefixed_heredoc_marker(context, expected):
     """A `<<`-led token is a heredoc marker, never a path, and the
     fd-prefixed form (`2<<EOF`) filters with it — a redirect shape, never
     a real file — so a later widening of the operator class cannot
-    silently book it (#856 review N1)."""
+    silently book it ( review N1)."""
     assert _verbatim_targets(context) == expected

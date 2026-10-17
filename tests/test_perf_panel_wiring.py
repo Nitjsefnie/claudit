@@ -1,4 +1,4 @@
-"""Source-level guards for the page-performance panel (issue #436).
+"""Source-level guards for the page-performance panel.
 
 Same boundary as `tests/test_panel_wiring.py`: node cannot parse JSX and
 nothing here renders React, so a panel can pass every test while drawing
@@ -81,7 +81,7 @@ def test_the_panel_hides_entirely_when_nothing_was_measured():
     assert "if (!series.length) return null;" in src, (
         "the panel renders with an empty series -- an unmeasured range "
         "would be indistinguishable from a measured one full of zeros")
-    # ...and the emptiness test is on series, not on the response object:
+    # ..and the emptiness test is on series, not on the response object:
     # a payload with buckets but no pooled rows is still unmeasured.
     assert re.search(r"const series = \(?.*\)?\.series\) \|\| \[\]", src) or \
         re.search(r"const series = .*\|\| \[\]", src), (
@@ -119,7 +119,7 @@ def test_a_part_that_was_never_measured_renders_an_em_dash():
     src = _strip_line_comments(PANEL.read_text(encoding="utf-8"))
     assert EM_DASH in src, (
         "a missing series row must render an em dash, not a zero")
-    # ...and the em dash must be what a MISSING row yields, not what a
+    # ..and the em dash must be what a MISSING row yields, not what a
     # measured zero yields: the condition reads the row, never the value.
     assert re.search(r"!row\s*\?\s*['\"]" + EM_DASH + r"['\"]", src), (
         "the em dash is not wired to the missing-row branch")
@@ -147,7 +147,7 @@ def test_the_journey_rows_cover_all_three_journeys():
 
 
 def test_the_split_that_separates_server_from_browser_is_shown():
-    """The whole point of issue #436 item (1): a total that regressed
+    """The whole point of item (1): a total that regressed
     while its client share did not is a different problem. Both parts
     must be read, from the rows themselves."""
     src = _panel_src("WebMetricsPanel")
@@ -223,7 +223,7 @@ def test_the_app_mounts_the_panel_once_with_the_other_backend_panels():
 
 
 def test_the_panel_mounts_only_for_an_operator():
-    """#629: the readout is operator-only, and an ordinary user must not
+    """the readout is operator-only, and an ordinary user must not
     even be offered the panel — the endpoint would refuse it anyway, but
     a page that fetches into a 403 shows an empty panel where telemetry
     should be. node parses no JSX, so the mount CONDITION is pinned here at
@@ -246,7 +246,6 @@ def test_the_app_still_fetches_the_dashboard_exactly_once():
 
 
 # --- the call sites ---------------------------------------------------
-#
 # A journey that is opened and never closed reports nothing at all, and
 # one closed on mount reports a page that rendered nothing -- neither is
 # catchable from the panel side, because the panel faithfully draws
@@ -370,7 +369,7 @@ def test_the_regions_the_panel_groups_by_are_actually_marked_up():
     panel's breakdown has one row."""
     src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (
         APP, APP.parent / "dashboard-view.jsx", APP.parent / "app-navigation.jsx")))
-    # The project strip lives in src/picker.jsx since #774 extracted it;
+    # The project strip lives in src/picker.jsx;
     # both strips carry the region, wherever the file sits.
     picker_src = _strip_line_comments(
         (ROOT / "src" / "picker.jsx").read_text(encoding="utf-8"))
@@ -383,7 +382,7 @@ def test_the_regions_the_panel_groups_by_are_actually_marked_up():
     assert 'data-perf-region="topbar"' in src, (
         "the top bar carries no region, so its shifts are attributed "
         "to `other` (#733)")
-    # #755: the range strip and the project strip no longer SHARE
+    # the range strip and the project strip no longer SHARE
     # `project_picker` -- a beacon naming it could not say which strip
     # shifted. Each names its own term, so the range strip's shifts stop
     # reading as the project strip's.
@@ -400,7 +399,7 @@ def test_the_regions_the_panel_groups_by_are_actually_marked_up():
     # app.jsx, and OverviewStatus's two `.dash-summary` returns (the
     # loading/empty/error strip and the failed-over-stale-data strip) in
     # dashboard-summary.jsx. Every one must name the term, or the
-    # unmarked state still inherits the grid's `panel_grid` (#755). The
+    # unmarked state still inherits the grid's `panel_grid`. The
     # counts are exact per site, not a floor: a sum lets any ONE of the
     # three regress with the assertion still green.
     summary_src = _strip_line_comments(

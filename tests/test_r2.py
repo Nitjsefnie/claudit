@@ -104,7 +104,7 @@ def test_get_object(mini_r2):
 
 def test_get_object_inflates_xz(mini_r2, monkeypatch):
     # xz inflates transparently; the inflate wall stamps the per-thread
-    # accumulator when the timing flag is on (#662), read-and-reset.
+    # accumulator when the timing flag is on, read-and-reset.
     plain = b'{"type":"user"}\n{"type":"assistant"}\n'
     key = "claude/proj-a/sess-1/sess-1.jsonl.xz"
     (mini_r2 / "proj-a" / "sess-1" / "sess-1.jsonl.xz").write_bytes(
@@ -129,7 +129,6 @@ def test_get_object_inflates_xz(mini_r2, monkeypatch):
 
 
 def test_get_stream_inflates_xz(mini_r2):
-    # Streaming a `.xz` key yields the decompressed lines.
     plain = b"alpha\nbeta\ngamma\n"
     (mini_r2 / "proj-a" / "sess-1" / "s.jsonl.xz").write_bytes(
         lzma.compress(plain)
@@ -137,8 +136,6 @@ def test_get_stream_inflates_xz(mini_r2):
     with r2.get_stream("claude/proj-a/sess-1/s.jsonl.xz") as fh:
         assert fh.read() == plain
 
-
-# ------------------------------------ get_object's blob cache (#684)
 
 def test_get_object_cache_hit_skips_the_read(mini_r2, monkeypatch, tmp_path):
     """A (key, etag) hit answers from the disk cache: the mirror file is
@@ -208,7 +205,7 @@ def test_path_traversal_blocked(mini_r2):
         r2.get_object("../etc/passwd")
     with pytest.raises(ValueError):
         r2.get_object("proj-a/../../../etc/passwd")
-    # ...while traversal inside the object-key part still hits
+    # ..while traversal inside the object-key part still hits
     # _safe_join: the bucket passes, the path out of it does not.
     with pytest.raises(PermissionError):
         r2.get_object("claude/../../etc/passwd")
@@ -235,7 +232,7 @@ def test_a_bucket_segment_that_is_not_a_plain_name_cannot_escape(
     # touching anything outside the root.
     with pytest.raises(FileNotFoundError):
         r2.get_object(".../secret.jsonl")
-    # ...and the listing path hits the same join: '..' raises there too.
+    # ..and the listing path hits the same join: '..' raises there too.
     with pytest.raises(PermissionError):
         list(r2.list_keys())
 
@@ -332,13 +329,13 @@ def test_list_keys_skips_a_file_that_vanished_mid_walk(mini_r2):
 
 
 # ---------------------------------------------------------------------------
-# The cached S3 client must not cross a fork (issue #338): a thread that
+# The cached S3 client must not cross a fork: a thread that
 # built its client and then forks hands the child the forking thread's
 # thread-local — the same client object, and with it the same open TLS
 # sockets. Two processes reading one SSL stream corrupt each other's
 # records (ssl.SSLError: record layer failure), so every fork-started
 # child must build its own client. The ingest parse pool no longer forks
-# from the ingest thread (a preloaded forkserver since #964); the guard
+# from the ingest thread (a preloaded forkserver); the guard
 # still protects any fork-started child. No network: the probe compares
 # object identity and the creator stamp inside a fork-context child, over
 # a fixture mirror env.
@@ -402,7 +399,7 @@ class TestBotoClientFork:
     @pytest.mark.usefixtures("tls_state")
     def test_forked_child_builds_its_own_client(self):
         # The shape the guard defends: this thread builds a client, then
-        # forks a child from it (the parse pool no longer does, #964).
+        # forks a child from it (the parse pool no longer does).
         parent_client = r2._boto_client()  # pylint: disable=protected-access
         _FORK_REF["client"] = parent_client
         ctx = multiprocessing.get_context("fork")

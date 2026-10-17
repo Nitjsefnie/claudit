@@ -1,4 +1,4 @@
-"""The pair-qualified reprice staleness (issue #351): the pass's own
+"""The pair-qualified reprice staleness: the pass's own
 tests.
 
 The reprice pass classifies the stale (model, provider) pairs and
@@ -10,7 +10,7 @@ sees them. The tests here bind that structural guarantee (a clean
 bump reads ZERO rows into Python), the guard's reach into the SQL
 restamp, the odd version spellings the SQL set excludes, and the
 persist/migration shapes. The differential against the frozen
-pre-#351 pass lives in tests/test_reprice_differential.py; the
+legacy pass lives in tests/test_reprice_differential.py; the
 assembly-point and write-shape pins stay in test_reprice_setbased.py.
 Split from test_reprice.py, which would otherwise cross the
 SV-CI-RATCHETS test ceiling.
@@ -77,7 +77,7 @@ def _seed_block(c, model: str, first_line: int, count: int, *,
                 ts=_SEED_TS) -> None:
     """`count` stale rows of one (model, provider) pair under the seeded
     file, all with the fixed tally, one cost and one fingerprint — the
-    block shapes the pair-qualified tests need (issue #351)."""
+    block shapes the pair-qualified tests need."""
     _seed_parents(c, _FILE_KEY)
     c.execute(
         "INSERT INTO records (file_id, line_num, ts, model_id, fresh_tokens, cache_creation_tokens, cache_read_tokens, output_tokens, eph5_tokens, eph1h_tokens, provider_id) SELECT %s, i, %s, %s, 1000, 2000, 3000, 100, 250, 500, %s FROM generate_series(%s::int, %s::int) AS i",
@@ -152,7 +152,7 @@ def test_ingest_stamps_rate_fingerprint(fresh_db, mini_r2_env):
     ("rate_fingerprint_id", SeedRecord(rate_fingerprint=None, pricing_version=None)),
 ], ids=["pricing-version", "rate-fingerprint"])
 def test_rate_fingerprint_dim_is_nullable_migration(fresh_db, mini_r2_env, column, seed):
-    """Since #959 each pricing stamp rides a nullable dim FK: the catalog
+    """each pricing stamp rides a nullable dim FK: the catalog
     admits NULL, apply_schema leaves stored rows alone, and a row seeded
     without a stamp reads a NULL id (the conservative stale shape)."""
     result = ingest.run_ingest(trigger="manual")
@@ -163,7 +163,7 @@ def test_rate_fingerprint_dim_is_nullable_migration(fresh_db, mini_r2_env, colum
     assert before is not None and before[0] > 0, (
         "the mirror must produce records, or this proves nothing")
 
-    # Issue #387: apply_schema skips the DDL while the content stamp
+    # apply_schema skips the DDL while the content stamp
     # matches, so out-of-band schema damage needs the stamp cleared to
     # force the re-apply under test.
     with db.viz_conn() as c:
@@ -195,7 +195,7 @@ def test_rate_fingerprint_dim_is_nullable_migration(fresh_db, mini_r2_env, colum
 
 def test_clean_bump_restamps_set_based_without_reading_rows(
         fresh_db, monkeypatch, caplog):
-    """THE structural pin (issue #351): 30k stale rows across three
+    """THE structural pin: 30k stale rows across three
     pairs, every cost correct and every fingerprint stamped — a
     PRICING_VERSION bump that moved no pair's rate data must restamp
     the whole block in ONE set-based UPDATE and read ZERO rows into
@@ -350,12 +350,11 @@ def test_moved_pair_recomputes_while_the_clean_pair_restamps(
 
     # The mutation pair A's rows were priced under no longer describes:
     # the moved pair's WHOLE rows are replaced in BOTH tables with one
-    # dated window that covers the seeded ts (end 2099-01-01, the
-    # cache-gate test's spelling), dict-additive so no other pair's
+    # dated window that covers the seeded ts, dict-additive so no other pair's
     # resolution reads this patch. A's move is then self-contained —
     # it dominates whatever live or perturbed rows the tables carry —
     # and pair B stays untouched under any table content. The seed key
-    # is a tracked vendor key since the migration, so its pair is
+    # is a tracked vendor key, so its pair is
     # (key, vendor_host) and the move lands on the provider tables.
     seed_row = (_SEED_MODEL, pricing.VENDOR_HOSTS[_SEED_MODEL])
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
@@ -391,7 +390,7 @@ def test_moved_pair_recomputes_while_the_clean_pair_restamps(
 
 def test_null_fingerprint_recomputes_once_then_goes_clean(
         fresh_db, monkeypatch, caplog):
-    """Migration shape (issue #351): pre-feature rows read NULL and
+    """Migration shape: pre-feature rows read NULL and
     take the conservative recompute path once — the first run stamps
     their fingerprint, and the second run is the clean path."""
     cost = _seeded_cost()
@@ -423,7 +422,7 @@ def _odd_spellings() -> list[tuple[str | None, bool]]:
     restampable): the SQL restamp set is exactly {plain-digit versions
     <= V}; every other spelling reaches the keyset path, whose guard
     decides it exactly as before. All derived from the committed
-    constant (never a literal, issue #198). Two traps: a version
+    constant (never a literal). Two traps: a version
     Python's int() parses GREATER than the binary's behind a sign the
     SQL cast refuses, and a plain-digit string too long for the SQL
     cast's int4 — the regex bound keeps it OUT of the set-based
@@ -500,7 +499,7 @@ def test_clean_restamp_and_python_guard_agree_on_odd_versions(
 
 
 # --------------------------------------------------------------------------
-# Issue #377: a change to the reprice pass's OWN long-context rule,
+# a change to the reprice pass's OWN long-context rule,
 # shipped with a PRICING_VERSION bump, must reprice: the fingerprint
 # covers the pass's derivation, so the rule edit moves the pair's
 # fingerprint and the clean restamp cannot claim the rows.
@@ -511,7 +510,7 @@ _METER_377 = "gpt-5.6-sol"
 
 def test_long_context_rule_change_shipped_with_a_bump_reprices(
         fresh_db, monkeypatch):
-    """The #249 route end to end: the rule change (threshold collapsed
+    """The route end to end: the rule change (threshold collapsed
     to 1) rides its PRICING_VERSION bump, and the rule edit moves the
     pair's fingerprint — simulated at the seam the pass reads it
     through — so every stale row of the pair reaches Python, is
@@ -521,7 +520,7 @@ def test_long_context_rule_change_shipped_with_a_bump_reprices(
         _METER_377, **_SEED_INPUTS, ts=_SEED_TS,
         adjustments=pricing.CostAdjustments(long_context=False)), 6)
     # flag FALSE explicitly: the meter re-derivation keeps a NULL flag
-    # whatever the rule does (issue #249), so a NULL-seeded row would
+    # whatever the rule does, so a NULL-seeded row would
     # prove nothing.
     with db.viz_conn() as c:
         _seed_parents(c, _FILE_KEY)
@@ -568,7 +567,7 @@ def test_long_context_rule_change_shipped_with_a_bump_reprices(
 
 
 # --------------------------------------------------------------------------
-# Issue #400: when Phase A's clean restamp covered every stale row the
+# when Phase A's clean restamp covered every stale row the
 # pairs scan counted (clean == stale_total), the keyset loop (Phase B)
 # is skipped outright — its terminating SELECT walks the entire PK
 # index only to prove emptiness (measured 3.6 s at production shape,
@@ -634,7 +633,7 @@ def _seed_skip_fixture(c, *, with_escapee: bool) -> None:
 
 def test_phase_b_skipped_when_every_stale_row_clean_restamps(
         fresh_db, monkeypatch, caplog):
-    """THE skip pin (issue #400): every stale row clean-restampable →
+    """THE skip pin: every stale row clean-restampable →
     the pass returns 0, every row ends at the current version, and the
     keyset SELECT provably never executes — the poisoned _SELECT_SQL
     sentinel fails the test the moment Phase B starts (delete the skip

@@ -1,4 +1,3 @@
-"""Kimi request generation windows through the public parser."""
 from __future__ import annotations
 
 import json

@@ -1,8 +1,8 @@
-"""The lifespan teardown's stop budget against the shipped unit (#410, #414).
+"""The lifespan teardown's stop budget against the shipped unit.
 
 uvicorn spends `--timeout-graceful-shutdown` draining connections BEFORE the
 lifespan teardown runs, and systemd SIGKILLs at `TimeoutStopSec`. EVERY term
-the teardown can spend -- the render reap (#414), then the bounded wait on the
+the teardown can spend -- the render reap, then the bounded wait on the
 in-flight run, then the fallback row close behind it -- has to fit in what is
 left. A term sized past its share means systemd kills the process while the
 row is still open, which is the finished_at NULL this pins shut.
@@ -43,7 +43,7 @@ _MIN_FALLBACK_MARGIN_S = 1.0
 # cannot flip the verdict (the +1e-9 in the comparison absorbs clock
 # rounding; a per-child sum clears the ceiling by five orders of
 # magnitude); a wall ceiling here read 0.61s of runner stall against a
-# 0.5s bound on the Windows leg (issue #736). One catch the wall ceiling
+# 0.5s bound on the Windows leg. One catch the wall ceiling
 # had is dropped deliberately: 0.5–5s of real whole-budget slowness that
 # never passes the seam (a sleep ahead of the loop) is now invisible — a
 # planted 0.6s sleep leaves both reap tests green — and that is the
@@ -111,7 +111,7 @@ class _WedgedRender:
 
     `wait()` is what a killed-but-unreaped child does: it stays pending
     forever, so the reap's own bounded wait is the only thing that ends it.
-    That is the shape issue #414 is about -- a per-child bound drawn N
+    That is the shape is about -- a per-child bound drawn N
     times is what overran the unit's stop budget.
     """
 
@@ -191,7 +191,7 @@ async def test_teardown_wait_leaves_room_for_the_fallback_close(monkeypatch):
     this fails for a wait sized past the budget no matter where the number is
     written — a literal in app.py or a derived constant. The render reap is
     subtracted too: it runs BETWEEN the graceful window and this wait (that
-    ordering is issue #414), so a wait that fits only by ignoring it is a wait
+    ordering is), so a wait that fits only by ignoring it is a wait
     that does not fit.
     """
     _stub_lifespan(monkeypatch)
@@ -253,7 +253,7 @@ def test_stop_budget_constants_match_the_shipped_unit():
 @pytest.mark.asyncio
 async def test_the_terms_the_teardown_uses_sum_to_the_stop_budget(monkeypatch):
     """The budgets the teardown PASSES -- not the ones written down -- must
-    fit the unit's stop budget, the render reap included (#414).
+    fit the unit's stop budget, the render reap included.
 
     Captured by running the real lifespan, so a per-child reap budget that
     is never bounded, a wait sized past what is left, or a term nobody
@@ -300,12 +300,12 @@ async def test_the_reap_bounds_itself_as_a_whole_not_per_child(monkeypatch):
     """`reap_live_renders(budget_s)` bounds the reap as a whole.
 
     A per-child wait drawn once per live child is what overran the stop
-    budget (issue #414): with three wedged children it spends three times
+    budget: with three wedged children it spends three times
     the budget and the ingest row close behind it never runs. The bound is
     read at the asyncio.wait_for seam — the timeouts the reap passes must
     sum to at most ONE budget however many children are live — because a
     wall ceiling judged the correct shape on runner load: the Windows leg
-    read 0.61s against a 0.5s bound (issue #736). Every child must still
+    read 0.61s against a 0.5s bound. Every child must still
     be KILLED — that is instant and free — so only the reaping of a wedged
     one is what the budget governs.
     """
@@ -443,15 +443,11 @@ async def test_a_run_finishing_inside_the_wait_keeps_its_own_close(
 @pytest.mark.asyncio
 async def test_a_live_render_at_shutdown_still_leaves_the_row_closed(
         fresh_db, monkeypatch):
-    """The defect of #414, against a real row and real wedged children.
-
-    A run holds the lock and is unwinding, and two render children are live
-    and unreapable when the stop arrives. The teardown must close the row
-    inside the teardown's own share of the stop budget: before the fix the
-    reap waited its per-child bound on EACH of them, so the window the
-    fallback close needs was already gone and systemd SIGKILLed the process
-    with finished_at still NULL.
-    """
+    """Close a real ingest row within the shutdown budget despite wedged children.
+    The run holds the lock while unwinding and two render children are live but
+    unreapable. Per-child reap waits must share one bounded window, preserving
+    time for fallback row closure; otherwise systemd can SIGKILL the process
+    with finished_at still NULL."""
     _stub_lifespan(monkeypatch)
     run_id = _open_run()
     # The run is in flight: it holds the lock, so the teardown's real

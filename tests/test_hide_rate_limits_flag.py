@@ -30,7 +30,6 @@ DASHBOARD_KEYS = frozenset({
 
 @pytest.fixture(name="hide_flag_env")
 def _hide_flag_env(monkeypatch):
-    """Replace the startup config and clear cached payloads per scenario."""
     original = flags.CONFIG
 
     def apply(value: str | None) -> None:

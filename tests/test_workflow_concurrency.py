@@ -1,26 +1,8 @@
-"""Workflow shape: a master push's own runs cannot be cancelled by a newer push.
-
-Three workflows still keyed their push-side concurrency group per ref after
-PR #367 gave ci-gate itself per-SHA groups (issue #358), so an older commit's
-run could still be cancelled or pending-superseded through them:
-
-- ``version-guard.yml`` cancelled the older commit's in-flight guard run
-  outright (`cancel-in-progress: true` on a per-ref group), stranding a
-  cancelled check on that SHA — which release.yml's waiter refuses (issue
-  #366);
-- ``test-data.yml`` runs the longest remaining gate leg: with per-ref
-  push groups a third concurrent master push cancelled a merely-pending
-  leg run — GitHub keeps at most one PENDING run per group, whatever
-  `cancel-in-progress` says — and that middle commit's aggregate folded
-  red (issue #409, observed on 1f0470e). speed.yml held the shape too
-  until issue #515 folded its bench into the tests canary, whose group
-  is per-ref BY DESIGN: it is the queue that serializes master runs.
-
-The invariant: on a push the group is the workflow name plus the pushed SHA,
-so no two master pushes ever share a group. Pull requests keep the
-per-number group; ``cancel-in-progress`` keeps cancelling only superseded
-PR runs (and, for version-guard, never a push run, whose group is unique).
-"""
+"""A master push owns a per-SHA concurrency group, so a newer push cannot
+cancel or supersede its gate runs. GitHub retains only one pending run per
+group even with cancel-in-progress false. PR groups remain per number so
+superseded PR runs can cancel; the tests canary deliberately serializes
+master runs through its queue."""
 from __future__ import annotations
 
 from pathlib import Path

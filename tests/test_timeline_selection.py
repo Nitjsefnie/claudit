@@ -1,4 +1,4 @@
-"""Issue #364: the Inspector timeline selection when a search shrinks it.
+"""the Inspector timeline selection when a search shrinks it.
 
 node cannot parse JSX and nothing here renders React, so the selection
 semantics live in the plain-JS helper src/timeline-selection.js (node
@@ -34,7 +34,7 @@ def _run_helper(script: str) -> dict:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_selection_recovers_when_a_search_shrinks_the_timeline():
-    """The #364 sequence: row 3 of four selected, then a search leaves two
+    """The sequence: row 3 of four selected, then a search leaves two
     rows. The active option, the selected row and the detail row derive
     from ONE clamped index -- the second visible row -- and ArrowUp moves
     from IT (to the first visible row), not from the stale index two rows

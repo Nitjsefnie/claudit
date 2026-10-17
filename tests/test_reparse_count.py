@@ -145,7 +145,7 @@ def test_bytecodes_per_file_is_recorded_in_hundreds():
         assert value.as_tuple().exponent == -1
         assert value >= 0
     # The sidecar step is a real reading too: the mirror carries a
-    # meta.json beside one lane wire (issue #503), so it is nonzero. The
+    # meta.json beside one lane wire, so it is nonzero. The
     # unit is what this pins — a sidecar-less corpus of one transcript
     # must still read exactly 0.0, which is the same demonstration the
     # bench's own shape test makes.

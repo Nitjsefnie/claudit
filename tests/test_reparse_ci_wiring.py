@@ -1,4 +1,4 @@
-"""The reparse bench's CI wiring, pinned (issue #436).
+"""The reparse bench's CI wiring, pinned.
 
 The bench is a gate, and a gate nothing pins is a gate a later PR can
 delete without a red build. Every assertion here is about the SHAPE --
@@ -6,12 +6,6 @@ which event runs it, what it measures, what it gates, and who may write the
 recorded numbers -- because those are the things a refactor moves and
 none of them is the bench's arithmetic, which `test_reparse_bench.py` owns.
 
-The review corpus is blunt about this line: `ci/2026-08-28-derive-the-gate-
-list-from-the-workflow.md` records a planted deletion of a gate step leaving
-the whole suite green, seven recurrences deep, and its companion entries pin
-the operator's semantics rather than the presence of the text. So each case
-below asserts a decoded value, and the load-bearing ones are proven by
-mutating the workflow in a disposable copy.
 """
 from __future__ import annotations
 
@@ -128,7 +122,7 @@ def test_the_action_measures_once_and_gates_that_same_file():
     second path, which on a fresh runner is nothing at all.
 
     The shape is measure -> upload -> gate: two run steps invoking the
-    bench exactly twice, with the upload between them (issue #710).
+    bench exactly twice, with the upload between them.
     """
     runs = [step for step in _action_steps() if "run" in step]
     assert len(runs) == 2, (
@@ -159,7 +153,7 @@ def test_the_action_measures_once_and_gates_that_same_file():
 
 def test_every_run_step_binds_MEASUREMENT_to_the_measurement_input():
     """That the steps share the NAME is pinned above; what it is BOUND to
-    is not (issue #712): a step can keep reading `"$MEASUREMENT"` while an
+    is not: a step can keep reading `"$MEASUREMENT"` while an
     edit points the variable at a file the measuring step never wrote --
     the gate then passes on whatever is at the second path, which on a
     fresh runner is nothing at all.
@@ -179,7 +173,7 @@ def test_the_measurement_default_is_the_file_the_ratchet_reads(workflow):
     """The caller passes no `measurement` input, so the action input's
     default is the operative path -- and tests.yml's ratchet step reads
     the measurement back through a plain literal (`--measured-file`,
-    issue #712). Two independently editable literals: when they stop
+    ). Two independently editable literals: when they stop
     agreeing, the ratchet tightens on a file the bench never wrote.
     """
     gate = _step(workflow, GATE_STEP)
@@ -199,7 +193,7 @@ def test_the_measurement_default_is_the_file_the_ratchet_reads(workflow):
 
 def test_the_action_uploads_the_measurement_as_an_artifact():
     """The reparse seed's runner-measurement source is this artifact
-    (issue #710): without it, a seed can only be transcribed by hand or
+    : without it, a seed can only be transcribed by hand or
     measured off-runner, neither a valid source for a runner seed.
 
     The whole shape is pinned by position, so removing the upload, moving

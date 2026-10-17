@@ -1,4 +1,4 @@
-"""The web-metrics rollup and the readout it serves (issue #436).
+"""The web-metrics rollup and the readout it serves.
 
 Split from `test_web_metrics.py` by subject, not by size: that module is
 what a BEACON MAY SAY, this one is what the fold DOES WITH what was said.
@@ -52,9 +52,6 @@ def _client(viz):
     yield from _client_fixture(viz)
 
 
-# --- the rollup ------------------------------------------------------------
-
-
 def test_rollup_folds_exact_percentiles_and_the_sum(viz, pinned):
     _seed(_VALUES)
     assert rebuild_web_metrics_rollup() > 0
@@ -70,13 +67,10 @@ def test_rollup_folds_exact_percentiles_and_the_sum(viz, pinned):
     assert {round(total, 6) for _w, _n, _a, _b, total in rows} == {36.0}
 
 
-# --- closed-bucket semantics (the reviewer's B1) ---------------------------
-#
-# A bucket is stored once, whole, by the fold that CLOSES it, and never
-# revised. Before this was the rule, a fold rewrote every bucket the window
-# touched with a strictly narrower slice, so each stored percentile ended up
-# describing the bucket's LAST HOUR -- at every width. The suite below pins
-# the rule; the first one is the one that was broken.
+# --- closed-bucket semantics --------------------------------------------
+# Store a bucket once, whole, when its closing fold runs. Rewriting a closed
+# bucket from a narrower moving window would replace its percentile with a
+# partial population, so backfilled data must not revise the closed fact.
 
 
 @pytest.fixture(name="short_horizon")
@@ -229,22 +223,10 @@ def test_prune_keeps_the_window_and_drops_the_rest(viz, pinned):
 
 
 def test_the_fold_reads_every_row_the_prune_deletes(viz, pinned, monkeypatch):
-    """A row one second outside the window is never pruned unread.
-
-    The fold and the prune need no ordering between them for one reason: the
-    fold's read window is never NEWER than the prune's delete bound, so
-    whatever the prune drops was already offered to the fold. The two used to
-    be the same instant — disjoint populations by construction. Issue #475
-    moved them apart: the read window now reaches back to the oldest row on
-    the table when a stalled pass has left the working set wider than its
-    nominal width, so the fold can read rows the prune is about to delete.
-
-    Which is what makes the boundary worth pinning. A row just OUTSIDE the
-    window shares an hourly bucket with one just inside it, so the bucket
-    cannot be read whole, and the fold refuses it — before #475 it stored the
-    inner row alone, which is the partial-bucket defect wearing a test's
-    clothes: an `n = 1` row that looks like a fact and cannot be revised.
-    """
+    """A row outside the nominal window must not be pruned before the fold reads it.
+    The read window must reach at least as far back as the prune bound,
+    including a stalled working set. A boundary bucket cannot be read partially:
+    one included row cannot stand for a closed bucket and be revised later."""
     pinned = datetime(2026, 1, 2, 0, 10, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(web_metrics, "utcnow", lambda: pinned)
     cutoff = web_metrics.retention_cutoff(pinned)
@@ -259,9 +241,6 @@ def test_the_fold_reads_every_row_the_prune_deletes(viz, pinned, monkeypatch):
     assert totals == set(), (
         "a bucket one row short of readable was stored as the rows that "
         "survived; it must be refused instead")
-
-
-# --- the readout -----------------------------------------------------------
 
 
 def test_readout_serves_the_rollup_past_the_retention_window(viz, pinned, client):
@@ -306,19 +285,10 @@ def test_a_range_the_raw_beacons_still_cover_is_exact(viz, pinned, client):
 
 
 def test_the_live_pass_clamps_a_window_past_the_table(viz, pinned, client):
-    """The clamp, pinned where a `range` value can no longer reach it.
-
-    `RAW_KEEP_S` now exceeds the 100-hour span at which `_bucket_seconds`
-    first reaches a stored width, so every range the UI can ask for is inside
-    the window and no `?range=` value exercises the clamp. That is worth
-    knowing, and it is why the earlier band assertion — "past RAW_KEEP_S and
-    below 100h" — is gone: it asserted a band the design has since closed, and
-    a test pinning a fiction is how the next reader wastes an afternoon.
-
-    So the clamp is pinned by CALLING the reader with a window past the
-    table, which is exactly what a future retention change would do. The
-    rollup path is a different question and is pinned below.
-    """
+    """Exercise the retention clamp by calling the live reader directly.
+    RAW_KEEP_S exceeds the span at which UI ranges select a stored rollup width,
+    so a UI range cannot reach past raw retention while still taking this path.
+    Pass a window beyond the table directly; the rollup path is tested separately."""
     _seed(_VALUES, ts=_recent_ts())
     far_past = PINNED_NOW - timedelta(seconds=web_metrics.RAW_KEEP_S * 2)
     body = _series_live("400d", 60, far_past, PINNED_NOW)
@@ -424,39 +394,23 @@ def test_sink_rows_reach_the_readout_end_to_end(viz, pinned, client):
 
 @pytest.fixture(name="closing_horizon")
 def _closing_horizon_fixture(monkeypatch):
-    """The shipped horizon, which is `now`, and the shipped read window.
-
-    There is nothing to collapse any more: `rollup_horizon` IS `now`, and the
-    read window is `retention_cutoff`. An earlier version of this suite
-    shortened the horizon to reach a closed bucket in a few folds, and that is
-    exactly the fiction this case exists to catch — so the fixture now uses
-    the real relationship and the case says so.
-    """
+    """Use the shipped horizon and read window: rollup_horizon is now and
+    read_from is retention_cutoff. A shortened fixture horizon would let closed
+    buckets appear whole under a relationship production does not use."""
     return monkeypatch
 
 
 def test_the_fold_that_closes_a_bucket_stores_all_of_it(
         viz, closing_horizon):
-    """The fold that CLOSES a bucket stores all of it, and it stays whole.
-
-    Not a repair test: there is no repair. The read window reaches back two
-    widths, so every closed bucket is whole when it is first read, and the
-    row is never revised. An earlier version of this suite tested a
-    `read_from` discriminator that let a later fold replace a partial row --
-    which could not work, because the window advances with `now` and a bucket
-    the window has cut off never becomes whole again. The fix was to size
-    the window from the arithmetic, and this is what that has to keep doing.
-
-    So: fold at the instant the day-bucket closes, and the row must already
-    hold all 24 beacons; then fold again at +1h, +2h, +24h and +400h, with a
-    backfilled beacon inside the closed bucket in between, and it must not
-    move.
-    """
+    """A bucket must be whole at its closing fold and remain immutable.
+    The read window spans two widths so the initial closed row includes every
+    beacon. A later fold cannot repair a partial row after the moving window
+    has cut off its missing portion. Fold at closure and again at later instants,
+    including a backfilled beacon in the closed bucket; the row must not change."""
     # The shipped value, asserted before the behaviour: the fixture above
     # derives its window FROM `RAW_KEEP_S`, so narrowing the constant narrows
     # the fixture with it and this case would stay green. What was wrong was
     # the constant, so the constant is what needs the assertion.
-    #
     # A closed bucket `[s, s+W)` has s > now - 2W (see the derivation on
     # web_metrics.RAW_KEEP_S), so the read window must reach
     # back at least that far. One width instead of two leaves the newest
@@ -493,8 +447,7 @@ def test_the_fold_that_closes_a_bucket_stores_all_of_it(
             f"a fold {later}h later changed a stored closed bucket: {after}")
 
 
-# --- the stall (issue #475) ------------------------------------------------
-#
+# --- the stall ------------------------------------------------
 # The window is `RAW_KEEP_S - widest` = 30h wide, so `RAW_KEEP_S` makes a
 # partial read of a closed bucket impossible ON EVERY NORMAL FOLD -- and says
 # so. It cannot make it impossible on a fold that does not happen: a pass
@@ -654,23 +607,10 @@ def test_a_wider_range_never_serves_fewer_beacons(viz, pinned):
 
 
 def test_since_names_the_data_served_not_the_range_asked_for(viz, pinned):
-    """`since` EQUALS the oldest data served — an equality, not a bound.
-
-    `since` existed to stop the reader believing a longer label: on the
-    rollup path it used to echo the REQUESTED window while the data stopped
-    short of it, which is the exact lie the field was added to prevent.
-
-    It was first pinned with two `since <= X` assertions, and both of them
-    held against the buggy code — an echo of the requested window names an
-    instant OLDER than the data, so `requested <= oldest-served` is true
-    exactly when the bug is present. A one-sided bound cannot catch a value
-    that is wrong by being too early; only an equality, or the symmetric
-    bound, can. The cross-model review ran the original assertions against
-    the pre-fix head and they were green, which is how the toothless pin
-    was found. This one asserts the identity, and the count assertion in
-    `test_a_wider_range_never_serves_fewer_beacons` is what actually
-    discriminates the data itself.
-    """
+    """since must equal the oldest data served, rather than merely bound it.
+    An echoed requested window can be earlier than all served data and still
+    pass a <= assertion. Require equality, and separately compare beacon counts
+    to establish that widening the requested range does not lose data."""
     base = PINNED_NOW - timedelta(hours=240)
     with db.viz_conn() as conn:
         for hour in range(240):

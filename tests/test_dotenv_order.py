@@ -1,4 +1,3 @@
-"""Regression tests for settings loaded from the quickstart dotenv file."""
 from __future__ import annotations
 
 import json

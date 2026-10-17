@@ -345,7 +345,7 @@ def test_seed_then_tighten_on_the_committed_document_round_trips(
         # assertion below also covers an absent-family document (the
         # sibling test at test_seed_carries_the_workload_identity pins
         # the writer half). The tree identity matches the counter the
-        # seed consults, so the seed is accepted (issue #598).
+        # seed consults, so the seed is accepted.
         monkeypatch.setattr(ratchet, "_tree_identity", lambda: 41234)
         measurement = _measurement_file(tmp_path, COUNTS)
         payload = json.loads(measurement.read_text(encoding="utf-8"))
@@ -355,7 +355,7 @@ def test_seed_then_tighten_on_the_committed_document_round_trips(
             "--seed", str(measurement),
             "--thresholds", str(target)]) == 0
     doc = thresholds.load(target)
-    # The workload identity (issue #524) rides beside the budgets on the
+    # The workload identity rides beside the budgets on the
     # committed family — seed-supplied or committed — and the phases are
     # the invariant it must not displace.
     assert thresholds.SUITE_COST_IDENTITY in doc["suite_cost"]
@@ -387,8 +387,8 @@ def subprocess_committed_bytes():
 def test_seed_carries_the_workload_identity(tmp_path, monkeypatch):
     # The seed binds the budget to the workload it measured: the
     # measurement's tests_tree_lines enters the committed family
-    # (SV-CI-RATCHETS, issue #524). The artifact must also name the tree
-    # it lands on (issue #598): this one matches, so it seeds through.
+    # (SV-CI-RATCHETS). The artifact must also name the tree
+    # it lands on: this one matches, so it seeds through.
     thresholds = _thresholds()
     ratchet = _ratchet()
     target = _written(tmp_path, _seeded_document())
@@ -464,8 +464,8 @@ def test_tighten_preserves_the_identity(tmp_path, monkeypatch):
 
 
 def test_the_committed_identity_is_a_positive_integral_count(tmp_path):
-    # The workload identity the seed binds to (SV-CI-RATCHETS, issue
-    # #524): optional in the document, a positive integer when present,
+    # The workload identity (SV-CI-RATCHETS) is optional in the document
+    # and must be a positive integer when present,
     # carried through the canonical round trip; a refusal names it.
     thresholds = _thresholds()
     target = tmp_path / "ci-thresholds.json"
@@ -488,7 +488,7 @@ def test_the_committed_identity_is_a_positive_integral_count(tmp_path):
 
 
 def test_the_suite_cost_reader_returns_phases_without_the_identity():
-    """The accessor is the BUDGET reader (issue #571): the workload
+    """The accessor is the BUDGET reader: the workload
     identity rides beside the budgets in the family, and a consumer
     that asks for the budgets must never receive the tree-line count
     as if it were a phase."""
@@ -503,7 +503,7 @@ def test_the_suite_cost_reader_returns_phases_without_the_identity():
 
 
 def test_tree_identity_is_the_benchs_counter():
-    # The seed's tree count IS the bench's (issue #598): the same
+    # The seed's tree count IS the bench's: the same
     # algorithm over the same anchor — the checkout holding the script,
     # not the --thresholds path or the CWD — so the refusal compares
     # like with like.

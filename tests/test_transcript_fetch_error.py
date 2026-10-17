@@ -1,4 +1,3 @@
-"""Regression guards for Inspector transcript fetch failures (issue #252)."""
 from __future__ import annotations
 
 import re

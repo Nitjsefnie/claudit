@@ -1,9 +1,3 @@
-"""Per-object R2 fetch outcomes: transient drops, corrupt payloads, bugs,
-and objects that vanish between the listing and their GET.
-
-Split out of test_ingest.py, whose fixtures it borrows, once that module
-crossed pylint's line budget.
-"""
 from __future__ import annotations
 
 import lzma
@@ -30,16 +24,14 @@ from tests import dims_seed, mini_mirror
 from tests.test_ingest_forkserver import (noop_parse as _noop_parse, worker_report as _worker_report,)
 from tests.test_ingest_forkserver import requires_forkserver
 
-#: How many transcripts the committed mirror holds, read from its tree
-#: (issue #503 grew it with the lane layout). A count written down here is
-#: a count every future fixture addition makes wrong.
+# How many transcripts the committed mirror holds, read from its tree
+# ( grew it with the lane layout). A count written down here is
+# a count every future fixture addition makes wrong.
 _MIRROR = mini_mirror.counts()["transcripts"]
 
 # failed_keys is the PUBLIC key form returned for authenticated triage.
 _FLAKY_PUBLIC_KEY = _FLAKY_KEY.split("/", 1)[1]
 
-
-# ------------------------------------------- per-object R2 failures (#2)
 
 def _patch_fetch(monkeypatch, key, fail_times, exc=None):
     """Make r2.get_object fail for `key` on its first `fail_times` calls.
@@ -69,12 +61,8 @@ def _patch_fetch(monkeypatch, key, fail_times, exc=None):
 
 @pytest.mark.parametrize("workers", [1, 4])
 def test_one_failed_object_does_not_abort_the_run(fresh_db, mini_r2_env, monkeypatch, workers):
-    """A single unfetchable object costs that object, not the ingest.
-
-    Both the sequential and the pooled path are exercised: they collect
-    results differently (a generator consumed in the persist loop vs
-    as_completed), and each used to let the exception escape.
-    """
+    """An unfetchable object must not abort ingest in either collector.
+    Cover both the sequential generator and pooled as_completed paths."""
     monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", str(workers))
     counts, _ = _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99)
     recorded = []
@@ -128,14 +116,13 @@ def test_per_object_failure_still_rebuilds_derived_state(fresh_db, mini_r2_env, 
             "%s, false)",
             (flaky_fid, read_id),
         )
-        # Wreck every piece of derived state, then prove the run restores it.
         c.execute("TRUNCATE usage_rollup")
         c.execute("TRUNCATE tool_rollup")
         c.execute("UPDATE records SET is_canonical = TRUE")
         c.commit()
 
     # A forward bump forces the reparse; a rollback would now be skipped
-    # by the guard (issue #118).
+    # by the guard.
     monkeypatch.setattr(parser_version, "PARSER_VERSION", str(int(parser_version.PARSER_VERSION) + 1))
     _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99)
     result = ingest.run_ingest(trigger="manual")
@@ -356,8 +343,6 @@ def test_failure_summary_counts_every_failure():
     assert summary_builder([]) is None
 
 
-# ------------------------------------------- objects that vanish mid-run
-
 def _no_such_key(key):
     """The ClientError boto3 raises when a listed object is gone by GET."""
     return ingest.ClientError({"Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}}, "GetObject",)
@@ -382,7 +367,7 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(fresh_db, min
     ingest.run_ingest(trigger="manual")
     # A changed parser_version makes the stored files stale; derived from
     # the committed constant so the bump target can never collide with it
-    # (issue #198).
+    #
     monkeypatch.setattr(parser_version, "PARSER_VERSION", str(int(parser_version.PARSER_VERSION) + 1))
     counts, slept = _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99, exc=exc_factory(_FLAKY_KEY))
 
@@ -402,12 +387,9 @@ def test_an_object_deleted_between_list_and_fetch_is_not_a_failure(fresh_db, min
     assert rollup > 0, "derived state must still be rebuilt"
 
 
-# ------------------------------------------ parse-worker signal hygiene (#373)
-
-
 @requires_forkserver
 def test_parse_worker_init_and_its_sigterm_defense():
-    """The #373 defense: workers need default SIGTERM/SIGINT handlers,
+    """The defense: workers need default SIGTERM/SIGINT handlers,
     so the initializer must restore SIG_DFL — and a
     cgroup stop must then kill the worker outright."""
     with ingest_fetch.parse_pool(1, os.getpid()) as pool:
@@ -504,10 +486,8 @@ def test_abort_cancels_the_queued_persist_half(fresh_db, mini_r2_env, monkeypatc
     assert persisted == ["chunk/first-0.jsonl"], (f"queued persists survived the abort: {persisted}")
 
 
-# --------------------------------- fetch_parse stage accounting (#662)
-
 def test_parse_wire_books_child_stages(monkeypatch):
-    """The #662 booking and channel: fetch_and_parse writes a file's
+    """The booking and channel: fetch_and_parse writes a file's
     child work into an accumulator (inert without one), parse_wire
     plants it for the timed child and returns (parsed, stages), the
     sidecar fetch booking beside fetch/parse. Fakes throughout — the

@@ -1,11 +1,11 @@
-"""Issue #449: a pool whose DSN the server refuses must fail with the
+"""a pool whose DSN the server refuses must fail with the
 driver's error, not a bare PoolTimeout.
 
 The pool starts its connection workers in the background: a DSN the
 server rejects (wrong password, missing database) fails only inside
 those workers — logged on the psycopg pool logger at most — while the
 first client sees a bare PoolTimeout with the cause suppressed
-(`raise ... from None` in getconn). First boot then fails on a timeout
+(`raise... from None` in getconn). First boot then fails on a timeout
 that names neither the database nor the reason, and the FATAL is
 swallowed.
 
@@ -52,7 +52,7 @@ def test_viz_pool_failure_names_the_driver_error(bad_pool_env) -> None:
     msg = str(excinfo.value)
     # The driver's FATAL reaches the surfaced message...
     assert "does not exist" in msg
-    # ...naming the env var whose DSN to check (fail-fast baseline).
+    # ..naming the env var whose DSN to check (fail-fast baseline).
     assert "CLAUDIT_DATABASE_URL_VIZ" in msg
     # The driver's exception is chained, not swallowed.
     assert isinstance(excinfo.value.__cause__, psycopg.OperationalError)
@@ -72,7 +72,7 @@ def test_auth_pool_failure_names_the_driver_error(bad_pool_env) -> None:
 def test_auth_pool_failure_on_an_unreachable_server_names_the_env_var(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Issue #463's title mechanism: a server that cannot be dialled at
+    """ title mechanism: a server that cannot be dialled at
     all fails the same way — the driver's dial error chained, with
     CLAUDIT_DATABASE_URL_AUTH named — not a bare PoolTimeout that names
     neither the env var nor the database."""
@@ -90,7 +90,7 @@ def test_auth_pool_failure_on_an_unreachable_server_names_the_env_var(
 
 @pytest.mark.db
 def test_auth_pool_rejects_a_write(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Issue #460: the auth pool's connections are read-only at the
+    """the auth pool's connections are read-only at the
     server, so a write reaching the auth DB fails loudly instead of
     committing (the doctrine's read-only invariant, enforced)."""
     name = scratch_db.create_database("auth_ro")

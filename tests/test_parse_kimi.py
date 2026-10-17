@@ -212,9 +212,7 @@ def test_model_for_without_timestamp_falls_back_to_k2_7_code():
 
 
 def test_k3_cutoff_matches_earliest_observed_k3_record():
-    """1784213155 == 2026-07-16 14:45:55 UTC, the earliest k3 usage.record in
-    the corpus. The prior value (1784214394) postdated real k3 usage.
-    """
+    """The model cutoff must admit the earliest recorded k3 usage."""
     assert parse_kimi.K3_CUTOFF_EPOCH == 1784213155
 
 
@@ -319,11 +317,8 @@ def test_kimi_code_usage_record_drives_record_and_turn():
 
 
 def test_kimi_code_ambiguous_wire_id_falls_through_to_the_date():
-    """kimi-code usage.record embeds the raw provider id and parse.py honors
-    it — but "kimi-for-coding" spans both k2 generations, so it cannot settle
-    the model alone and the date decides between them. Fixture is stamped
-    2026-07-02, i.e. after MODEL_CUTOFF, so it lands on kimi-k2-7-code.
-    """
+    """kimi-for-coding spans both k2 generations, so provider id alone is ambiguous.
+    The fixture timestamp is after MODEL_CUTOFF and resolves to kimi-k2-7-code."""
     out = parse.parse_file(
         "sessions/projKC/sess-kc/wire.jsonl", _read("kimi_code_raw_model.jsonl")
     )
@@ -377,7 +372,7 @@ def test_turn_begin_drives_turn_boundaries():
     assert out["ctx_turns"][0]["input"] == 100
     assert out["ctx_turns"][0]["output"] == 2
     assert out["ctx_turns"][1]["input"] == 200   # a3 wins turn 2
-    assert out["ctx_turns"][1]["delta"] == 100   # 200 - 100
+    assert out["ctx_turns"][1]["delta"] == 100
 
 
 # --- wire-first model attribution, end to end -----------------------------
@@ -460,8 +455,7 @@ def test_kimi_code_mid_session_model_switch_yields_two_labels():
     assert [r["model"] for r in out["records"]] == ["kimi-k2-7-code", "kimi-k3"]
 
 
-# --- llm.error -> rate_limit_hits (issue #1) --------------------------------
-#
+# --- llm.error -> rate_limit_hits --------------------------------
 # Shape taken from the producer that emits it, Nitjsefnie-OSC/kimi-code@e7bb820
 # (`llm.error` op, packages/agent-core-v2/src/agent/llmRequester/llmRequestOps.ts):
 # payload fields are flattened onto the wire line next to "type" and "time",
@@ -536,7 +530,6 @@ def _churn_by_tool(out):
 
 
 # --- Claude Code transcripts ------------------------------------------------
-#
 # codexmeter raised UnsupportedTranscriptError for a Claude Code transcript
 # (one reached its bucket whenever claude-code-proxy routed one through
 # Codex); claudit parses the format, so the raise becomes a sniff answer.

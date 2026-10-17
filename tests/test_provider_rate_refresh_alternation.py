@@ -13,9 +13,6 @@ from tests.test_provider_rate_refresh import (
     GLM, RATE_FIELDS, STAMP, Run, _overrides)
 
 
-# --- an alternating price -----------------------------------------------------
-
-
 def _alternating_row(run: Run, first_from: str, second_from: str) -> tuple[dict, dict]:
     """OpenInference on GLM with a hand-written history: rates A at
     `first_from`, B at `second_from` (the newest), the payload still
@@ -28,7 +25,7 @@ def _alternating_row(run: Run, first_from: str, second_from: str) -> tuple[dict,
         doc["providers"][GLM].update({"OpenInference": [
             {"from": first_from, **a}, {"from": second_from, **b}]})
         # The hand-written entries must not postdate the fetch stamp
-        # their document carries (issue #931): stamp it at the row's
+        # their document carries: stamp it at the row's
         # newest entry, as a stored document requires.
         doc["provider_rates_fetched"] = second_from
 
@@ -79,9 +76,8 @@ def test_a_match_older_than_the_lookback_does_not_fire(tmp_path, capsys):
 
 
 def test_a_match_exactly_at_the_lookback_does_not_fire(tmp_path, capsys):
-    """2030-12-25 is exactly `at` minus 7 days; the lookback is exclusive
-    (`>` against the cutoff), so the boundary entry is outside it and the
-    move appends like any older one."""
+    """The sample is exactly seven days before at, on the exclusive lookback edge.
+    The > cutoff excludes it, so the move appends like any older entry."""
     run = Run(tmp_path)
     a, _ = _alternating_row(run, "2030-12-25T00:00:00Z", "2030-12-31T00:00:00Z")
     rc, out, _ = run(capsys)

@@ -1,4 +1,4 @@
-"""Transitive security floors pinned in backend/requirements.txt (issue #938).
+"""Transitive security floors pinned in backend/requirements.txt.
 
 urllib3 and anyio are TRANSITIVE here — urllib3 arrives under botocore,
 anyio under starlette / httpx / httpx2 — so an advisory against either is
@@ -8,7 +8,7 @@ nowhere in it is never bumped. Pinning the advisory fix floor in that
 file brings both under the same watch as every direct dependency.
 
 The floors are the fix versions of the advisories the served venv
-carried (issue #938):
+carried:
 
 - urllib3 2.6.3 — PYSEC-2026-141, PYSEC-2026-142 (fixed 2.7.0),
   PYSEC-2026-4175, PYSEC-2026-4176, PYSEC-2026-4177 (fixed 2.8.0);

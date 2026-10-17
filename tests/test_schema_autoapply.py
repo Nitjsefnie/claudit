@@ -1,6 +1,6 @@
 """Startup applies the schema files, so a deploy cannot outrun its DB.
 
-Issue #43: schema_check() only asserted that `files` existed, so a
+schema_check() only asserted that `files` existed, so a
 checkout that pulled code writing a new column started clean and then
 failed every ingest with UndefinedColumn. Applying the idempotent
 schema at boot removes the divergence rather than reporting it.
@@ -36,17 +36,17 @@ def _columns(table: str) -> set[str]:
 
 
 def test_apply_schema_restores_a_dropped_column(app_with_fresh_data):
-    """The #43 reproduction: a DB missing a column the code writes is
+    """The reproduction: a DB missing a column the code writes is
     repaired at startup instead of failing at the next ingest."""
     with db.viz_conn() as c:
-        # error_text, not error_kind: since #959 tool_uses carries
+        # error_text, not error_kind: tool_uses carries
         # error_kind_id (a dim FK), and error_text is the free-text
         # drill-down column the additive path still restores.
         c.execute("ALTER TABLE tool_uses DROP COLUMN error_text")
         c.commit()
     assert "error_text" not in _columns("tool_uses")
 
-    # Issue #387: apply_schema skips the DDL while the content stamp
+    # apply_schema skips the DDL while the content stamp
     # matches, so out-of-band schema damage needs the stamp cleared to
     # force the re-apply under test.
     with db.viz_conn() as c:
@@ -64,7 +64,7 @@ def test_apply_schema_restores_a_dropped_rollup(app_with_fresh_data):
         c.execute("DROP TABLE IF EXISTS dispatch_rollup")
         c.commit()
 
-    # Issue #387: apply_schema skips the DDL while the content stamp
+    # apply_schema skips the DDL while the content stamp
     # matches, so out-of-band schema damage needs the stamp cleared to
     # force the re-apply under test.
     with db.viz_conn() as c:
@@ -80,7 +80,7 @@ def test_apply_schema_restores_a_dropped_rollup(app_with_fresh_data):
 
 
 def test_apply_schema_creates_user_session(app_with_fresh_data):
-    """Issues #94/#108: the per-user session-secret table is part of the
+    """the per-user session-secret table is part of the
     startup-applied schema, and re-applying leaves its rows alone."""
     with db.viz_conn() as c:
         c.execute(
@@ -101,10 +101,9 @@ def test_apply_schema_creates_user_session(app_with_fresh_data):
 def test_apply_schema_widens_an_integer_user_session_user_id(
     app_with_fresh_data,
 ):
-    """Issue #185: a DB created while `user_id` was INTEGER is widened to
-    BIGINT at startup — the live databases were hotfixed by hand, so the
-    DO block must be a no-op there too — and re-applying on an
-    already-BIGINT column changes nothing."""
+    """Startup widens an INTEGER user_id to BIGINT.
+    Applying the schema to an already-BIGINT column must be a no-op, including
+    reapplication after the widening migration."""
     def _user_id_type():
         with db.viz_conn() as c:
             row = c.execute(
@@ -119,7 +118,7 @@ def test_apply_schema_widens_an_integer_user_session_user_id(
         c.commit()
     assert _user_id_type() == "integer"
 
-    # Issue #387: apply_schema skips the DDL while the content stamp
+    # apply_schema skips the DDL while the content stamp
     # matches, so out-of-band schema damage needs the stamp cleared to
     # force the re-apply under test.
     with db.viz_conn() as c:
@@ -175,7 +174,7 @@ def test_apply_schema_widens_an_integer_web_metrics_user_id(
                 "VALUES (%s, %s, %s)", (2**31 + 7, "dashboard_open", 12.0))
         c.rollback()
 
-    # Issue #387: apply_schema skips the DDL while the content stamp
+    # apply_schema skips the DDL while the content stamp
     # matches, so an out-of-band type change needs the stamp cleared to
     # force the re-apply under test.
     with db.viz_conn() as c:
@@ -226,7 +225,7 @@ def test_apply_schema_is_idempotent_and_preserves_data(app_with_fresh_data):
 
 def test_apply_schema_does_not_block_behind_an_open_reader(
         app_with_fresh_data):
-    """Issue #387: a start whose schema is already current must neither
+    """a start whose schema is already current must neither
     wait behind nor make others wait behind an open reader of `records`.
 
     The reader holds ACCESS SHARE on `records`; the unfixed boot's
@@ -236,7 +235,7 @@ def test_apply_schema_does_not_block_behind_an_open_reader(
     synchronises on the boot's completion — not on any wall-clock
     margin — so the failure is a named assertion, never a hang.
     """
-    db.apply_schema()  # bring the fixture DB to this build's schema
+    db.apply_schema()
     url = os.environ["CLAUDIT_DATABASE_URL_VIZ"]
 
     with closing(psycopg.connect(url)) as blocker, \
@@ -262,7 +261,7 @@ def test_apply_schema_does_not_block_behind_an_open_reader(
 
 def test_apply_schema_blocked_migration_fails_fast_and_atomic(
         app_with_fresh_data, monkeypatch):
-    """Issue #387: a boot that NEEDS the DDL while a reader holds
+    """a boot that NEEDS the DDL while a reader holds
     `records` gives up after the bounded wait with a clear error. The
     DDL and the stamp write share one transaction, so the abort discards
     the prefix whole — nothing half-applied, no stamp — and the advisory
@@ -305,7 +304,7 @@ def test_apply_schema_blocked_migration_fails_fast_and_atomic(
 
 def test_apply_schema_gives_up_when_another_boot_holds_the_migration_lock(
         app_with_fresh_data, monkeypatch):
-    """Issue #387: the advisory boot lock is under the same bounded wait
+    """the advisory boot lock is under the same bounded wait
     as the DDL locks, so a boot queues behind a concurrent migration for
     lock_timeout, then fails with the same clear error instead of
     hanging. Success after the holder releases is the positive half."""
@@ -429,11 +428,8 @@ def test_startup_applies_the_schema_before_checking_it(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Unlock failure must not mask the migration's own error (issue #154): the
-# unlock (and the commit ending its transaction) run in apply_schema's
-# finally, where a failure — an aborted transaction left by a failed DDL,
-# or a connection that died mid-migration — used to REPLACE the error the
-# caller should have seen.
+# Unlock and commit run in apply_schema's finally; an aborted transaction
+# or lost connection must not replace the migration's original error.
 # ---------------------------------------------------------------------------
 
 

@@ -63,7 +63,7 @@ def test_cache_session_search_total_sums_real_search_requests(
              _FRESH_TOKENS, _SEARCH_REQUESTS, file_key, line_num),
         )
         # The stored total is a reprice-written column, so it lands on
-        # the records_price sidecar (#959 R4) the pair already carries.
+        # the records_price sidecar the pair already carries.
         conn.execute(
             "UPDATE records_price rp SET cost_usd = %s, long_context = FALSE, "
             "long_context_input_mult = NULL, long_context_output_mult = NULL "
@@ -77,7 +77,7 @@ def test_cache_session_search_total_sums_real_search_requests(
     body = app_with_fresh_data.get("/api/cache?range=3650d").json()
     model_row = next(row for row in body["per_model"]
                      if row["model"] == _SEARCH_MODEL)
-    # cost_buckets is stripped from per_model (issue #916); the session
+    # cost_buckets is stripped from per_model; the session
     # total still carries the decomposition, and only this model bills a
     # search rate, so its web_search bucket is the whole total.
     assert "cost_buckets" not in model_row

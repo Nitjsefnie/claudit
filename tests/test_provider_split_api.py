@@ -159,7 +159,7 @@ def test_cache_splits_per_model_by_provider_and_keeps_the_totals(client):
         # = 1e-4 strict, and 1.5e-4 adds float margin.
         assert split[(m, p)]["cost_total"] == pytest.approx(
             round(cost, 4), abs=1.5e-4)
-        # cost_buckets is stripped from per_model_provider (issue #916), so
+        # cost_buckets is stripped from per_model_provider, so
         # the split entry must not carry it.
         assert "cost_buckets" not in split[(m, p)]
     # The session total still carries the decomposition: five buckets + the

@@ -90,7 +90,7 @@ def test_the_session_loop_that_found_this():
     # must shift the marker pairing exactly as the bare `<&-` does: the
     # user-written close is a second `<&`-`-` token, the marker count no
     # longer matches the heredoc count, and the walk floors to one
-    # iteration (#917). `1<&-` closes fd 1, not stdin, so it is not a
+    # iteration. `1<&-` closes fd 1, not stdin, so it is not a
     # marker and the confident loop count stands.
     ("<&-", (2, 0)),
     ("0<&-", (2, 0)),

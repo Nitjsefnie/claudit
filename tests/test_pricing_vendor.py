@@ -1,4 +1,4 @@
-"""Task A of issue 851: vendor first-party rows live in the tracked table.
+"""Task A of: vendor first-party rows live in the tracked table.
 
 `openrouter.vendor.prefixes` configures the namespaces; a tracked entry
 carrying `vendor_host` points at the (tracked key, host) provider row whose
@@ -46,7 +46,7 @@ R_OLD = {"fresh": 3.0, "create_5m": 3.75, "create_1h": 6.0,
          "read": 0.3, "output": 15.0}
 R_NEW = {"fresh": 4.0, "create_5m": 5.0, "create_1h": 8.0,
          "read": 0.4, "output": 20.0}
-# The shared default-row literal's vector (issue #858): the five
+# The shared default-row literal's vector: the five
 # rate fields only — the row wrappers add "from" themselves.
 R_THIRD = {f: DEFAULT_ROW[f] for f in RATE_FIELDS}
 CUT = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
@@ -175,9 +175,6 @@ def _load_vendor():
     sys.modules["refresh_vendor_rates"] = module
     spec.loader.exec_module(module)
     return module
-
-
-# --- the loaders build and validate the vendor tables ------------------------
 
 
 def test_the_loader_builds_the_vendor_tables(monkeypatch):
@@ -323,9 +320,6 @@ def test_a_long_context_member_may_name_a_tracked_key():
     assert KEY in pricing.load_tables(doc)["LONG_CONTEXT_MODELS"]
 
 
-# --- the bare-id vendor path in resolve() ------------------------------------
-
-
 def test_a_bare_vendor_id_resolves_exact_at_the_windows(monkeypatch):
     _install(monkeypatch, _doc())
     before = pricing.resolve(KEY, CUT - timedelta(seconds=1))
@@ -468,7 +462,7 @@ def test_the_browser_resolves_the_bare_path_identically(tmp_path):
         ("exact", PKEY)
     got_host = got["hostSpelled"]
     assert got_host["rates"]["search"] == SEARCH_RATE
-    # 2026-10-31 is a Saturday: the host's schedule window answers through
+    # The sample instant is a Saturday: the host's schedule window answers through
     # the host and never on the bare path.
     assert _js_rates(got["hostSaturday"]["rates"]) == R_THIRD
     assert got["hostSaturday"]["rates"]["search"] == SEARCH_RATE
@@ -499,9 +493,6 @@ def test_the_browser_prefixed_id_uses_the_bare_provider_and_vendor_rows(
         ("exact", BARE)
     assert _js_rates(got["vendor"]["rates"]) == R_NEW
     assert got["untracked"]["kind"] == "default"
-
-
-# --- rate_boundaries: the vendor branch ---------------------------------------
 
 
 def test_vendor_boundaries_for_a_bare_pair(monkeypatch):
@@ -555,9 +546,6 @@ def test_the_pre_start_fold_uses_the_vendor_windows(monkeypatch):
     from backend.rate_boundaries import rate_boundaries  # pylint: disable=import-outside-toplevel
     assert rate_boundaries(KEY, "OtherHost") == [
         vendor_start, CUT, provider_start]
-
-
-# --- the fingerprint covers the vendor tables ---------------------------------
 
 
 def test_a_vendor_table_edit_moves_the_fingerprint(monkeypatch):
@@ -662,9 +650,6 @@ def test_the_vendor_pass_never_re_adds_a_tracked_key():
             == before["openrouter"]["models"][KEY]), "the entry was rewritten"
 
 
-# --- the family fallback and default on the REAL file -------------------------
-
-
 @pytest.mark.parametrize("probe,family", [
     ("claude-haiku-99", "haiku"), ("claude-fable-99", "fable"),
     ("claude-mythos-99", "fable"), ("claude-opus-99", "opus"),
@@ -676,9 +661,6 @@ def test_real_family_fallbacks_feed_from_the_tracked_table(probe, family):
     assert r.kind == "tier", probe
     assert r.rates is pricing._latest(  # pylint: disable=protected-access
         *(("fable", "mythos") if family == "fable" else (family,)))
-
-
-# --- browser lockstep on the fallback tables ----------------------------------
 
 
 @needs_node

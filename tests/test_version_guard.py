@@ -1,5 +1,5 @@
 """Unit tests for scripts/ci/version_guard.py, the decider behind
-.github/workflows/version-guard.yml (issue #131).
+.github/workflows/version-guard.yml.
 
 The workflow gathers the facts with `gh` and calls the script; these tests
 pin the decision logic itself — version shape, the pricing-bot carve-out,
@@ -24,8 +24,6 @@ HUMAN = "dev@example.com"
 BOTH_FILES = ["src/pricing.json", "backend/constants.py"]  # sv-test-data: allow — path strings test file-set logic; the committed document is never read
 NOTICE_FILES = BOTH_FILES + ["src/pricing_notices.json"]
 
-
-# --- parse_version ---------------------------------------------------------
 
 def test_parse_version_final():
     assert parse_version("0.3.0") == ("0.3.0", "")
@@ -52,8 +50,6 @@ def test_parse_version_refuses(text):
     with pytest.raises(ValueError):
         parse_version(text)
 
-
-# --- is_bot_exempt ---------------------------------------------------------
 
 def test_bot_exempt_bot_author_both_files():
     assert is_bot_exempt(BOT, BOTH_FILES) is True
@@ -90,8 +86,6 @@ def test_bot_exempt_needs_bot_author_and_file_shape(files):
     assert is_bot_exempt("", files) is False
     assert is_bot_exempt(HUMAN, []) is False
 
-
-# --- decide ----------------------------------------------------------------
 
 def test_decide_unparseable_refuses():
     result = decide("garbage", False, HUMAN, [])
@@ -135,8 +129,6 @@ def test_decide_tag_plus_bot_commit_extra_file_refuses(files):
 def test_decide_result_is_a_decision():
     assert isinstance(decide("0.4.0-dev", False, HUMAN, []), Decision)
 
-
-# --- CLI -------------------------------------------------------------------
 
 def test_cli_pass_exits_zero_and_prints_the_reason(capsys):
     rc = main([

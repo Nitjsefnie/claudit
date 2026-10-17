@@ -18,7 +18,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load(name):
-    """Import scripts/ci/<name>.py by path (scripts/ci is not a package)."""
     path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
@@ -44,8 +43,6 @@ def _tracked():
 
 gts = _load("gate_trigger_set")
 
-
-# --- families, explicit members, hand-held configs -----------------------
 
 def test_families_are_the_gate_shaped_directories():
     assert gts.FAMILIES == (
@@ -123,8 +120,6 @@ def test_plain_source_paths_are_not_triggers():
     assert not gts.is_triggered("tests/test_parse.py")
     assert not gts.is_triggered("README.md")
 
-
-# --- extraction -----------------------------------------------------------
 
 def test_extraction_finds_named_files_and_local_actions():
     text = "\n".join([

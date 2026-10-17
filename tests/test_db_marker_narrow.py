@@ -1,4 +1,4 @@
-"""The narrow derivation's index pins (issue #715).
+"""The narrow derivation's index pins.
 
 The narrow tree path (`_derive_narrow`) walks server-text modules
 first and resolves further def-sites through the vocabulary index, so

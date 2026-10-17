@@ -44,7 +44,7 @@ def _synthetic_doc() -> dict:
         "threshold": 100_000,
         "models": [{"claude-opus-4-8": {"input_mult": 3.5}}],
     }]
-    # The appended cutover must not postdate the fetch stamp (#931).
+    # The appended cutover must not postdate the fetch stamp.
     doc["provider_rates_fetched"] = "2027-01-01T00:00:00Z"
     return doc
 
@@ -231,7 +231,7 @@ def test_a_quiet_run_over_a_converted_document_keeps_its_bytes(tmp_path, capsys)
 def test_the_perturbers_fetch_stamp_covers_its_appends(tmp_path):
     """The perturber moves provider_rates_fetched exactly to
     max(its old value, its newest appended stamp) — never backwards,
-    never further (issue #931: no `from` postdates the fetch stamp) —
+    never further (no `from` postdates the fetch stamp) —
     and never touches the openrouter section. (Relocated here from the
     perturber's own file, which sits at its 700-line size ceiling.)"""
     # pylint: disable=protected-access

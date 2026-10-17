@@ -64,9 +64,6 @@ def _transcript() -> str:
 
 @pytest.fixture(name="fresh_db")
 def _fresh_db_fixture(monkeypatch):
-    """Per-test schema reset on a separate DB (same shape as
-    test_multi_bucket's fixture, kept local so this module stands
-    alone)."""
     yield from scratch_db.scratch_viz_database(monkeypatch, "bucket_redact")
 
 
@@ -310,7 +307,7 @@ def test_health_db_failure_is_generic(redact_app, monkeypatch):
     body = resp.text
     monkeypatch.undo()
     # 503, not 200: a status-code monitor reads only the status line
-    # (issue #104). Same generic body as before.
+    # Same generic body as before.
     assert resp.status_code == 503
     assert "alpha-db" not in body and "beta-rows" not in body
     assert "database unavailable" in body

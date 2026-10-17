@@ -59,8 +59,6 @@ V41 = next(key for key, entry in _openrouter_template()["models"].items()
 
 
 def _load():
-    """Import scripts/ci/refresh_provider_rates.py by path (scripts/ci is
-    not a package)."""
     path = ROOT / "scripts" / "ci" / "refresh_provider_rates.py"
     spec = importlib.util.spec_from_file_location("refresh_provider_rates", path)
     assert spec and spec.loader
@@ -245,20 +243,17 @@ class Run:
         return rc, out, err
 
 
-# --- the tracked set ---------------------------------------------------------
-
-
 def test_every_provider_table_model_names_its_openrouter_id():
     """One convention per key shape: an OpenRouter-tracking key normalises
     to its full id (deepseek/...); a tracked VENDOR key is bare and
     normalises to the id's slug (including GLM's catalog id) — the same
-    bare first-party id resolve() prices through it (issue #851). Every
+    bare first-party id resolve() prices through it. Every
     provider-table key is tracked; a tracked key may sit ahead of its
     provider row for one run — the auto-add's pickup delay (SV-VENDOR-RATES)."""
     doc = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
     assert doc["openrouter"]["data_region"] == "global"
     assert set(doc["providers"]) <= set(doc["openrouter"]["models"])
-    # The five delisted claude-3-* keys stay dashed snapshot handles (#929).
+    # The five delisted claude-3-* keys stay dashed snapshot handles.
     snapshot_keys = {"claude-3-5-haiku-", "claude-3-5-sonnet-",
                      "claude-3-7-sonnet-", "claude-3-haiku-", "claude-3-opus-"}
     for key, entry in doc["openrouter"]["models"].items():
@@ -273,9 +268,6 @@ def test_every_provider_table_model_names_its_openrouter_id():
             assert pricing._normalise(entry["id"]) == key  # pylint: disable=protected-access
 
 
-# --- nothing moved -----------------------------------------------------------
-
-
 def test_a_run_with_no_moves_leaves_every_file_byte_identical(tmp_path, capsys):
     run = Run(tmp_path)
     before = run.snapshot()
@@ -284,9 +276,6 @@ def test_a_run_with_no_moves_leaves_every_file_byte_identical(tmp_path, capsys):
     assert run.snapshot() == before
     assert not run.commit_msg.exists()
     assert "no rate moved" in out
-
-
-# --- a price moves -----------------------------------------------------------
 
 
 def _move_openinference(run: Run, discount: float = 0) -> dict:
@@ -357,8 +346,6 @@ def test_a_moved_price_prices_by_time_in_the_browser(moved_run, tmp_path):
     got = _node_rates(run, tmp_path / "js", "OpenInference")
     assert got == [old, moved]
 
-
-# --- a provider appears ------------------------------------------------------
 
 def test_a_new_provider_gets_a_row_that_begins_at_the_detection_time(
         tmp_path, capsys, monkeypatch):
@@ -454,9 +441,6 @@ def _node_rates(run: Run, where: Path, host: str) -> list[dict]:
     return _browser_pricing(run, where, script)
 
 
-# --- a provider vanishes -----------------------------------------------------
-
-
 def test_a_vanished_provider_keeps_its_row_and_is_reported(tmp_path, capsys):
     run = Run(tmp_path)
     run.endpoints(GLM)[:] = [e for e in run.endpoints(GLM)
@@ -466,9 +450,6 @@ def test_a_vanished_provider_keeps_its_row_and_is_reported(tmp_path, capsys):
     assert rc == 0
     assert run.snapshot() == before, "a vanished host alone moves nothing"
     assert re.search(r"vanished\b.*Cloudflare", out)
-
-
-# --- discount metadata -------------------------------------------------------
 
 
 @pytest.mark.parametrize("discount,note", [
@@ -495,9 +476,6 @@ def test_a_discount_alone_changing_is_not_a_rate_change(tmp_path, capsys, discou
     before = run.snapshot()
     assert run(capsys)[0] == 0
     assert run.snapshot() == before
-
-
-# --- normalisation -----------------------------------------------------------
 
 
 def test_a_listed_cache_write_price_fills_both_create_buckets(tmp_path, capsys):
@@ -532,9 +510,6 @@ def test_endpoints_of_one_host_at_one_price_are_one_row(tmp_path, capsys):
     before = run.snapshot()
     assert run(capsys)[0] == 0
     assert run.snapshot() == before
-
-
-# --- designed red runs -------------------------------------------------------
 
 
 def _refused(run: Run, capsys, *names: str) -> None:
@@ -589,9 +564,6 @@ def test_a_run_refused_everywhere_writes_nothing(tmp_path, capsys):
     run = Run(tmp_path)
     _two_global_novitas(run)
     _refused(run, capsys, f"{GLM} via Novita")
-
-
-# --- a model is delisted -----------------------------------------------------
 
 
 def _catalog_without(run: Run, *ids: str) -> dict:
@@ -672,9 +644,6 @@ def test_the_region_a_tag_names(tag, region):
     assert refresh_prices.tag_region(tag) == region
 
 
-# --- a per-host tag override -------------------------------------------------
-
-
 def _two_global_novitas(run: Run) -> None:
     """Different quantizations with no structural fit or stored-price match."""
     stored = run.doc()["providers"][GLM]["Novita"][-1]
@@ -685,9 +654,3 @@ def _two_global_novitas(run: Run) -> None:
     twin["tag"] = "novita/fp4"
     twin["pricing"]["input_cache_read"] = "0.00000005"
     run.endpoints(GLM).append(twin)
-
-
-# --- the detection time ------------------------------------------------------
-
-
-# --- dry run -----------------------------------------------------------------

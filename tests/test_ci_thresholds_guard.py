@@ -1,10 +1,10 @@
-"""Tests for the CI thresholds direction guard (issue #388).
+"""Tests for the CI thresholds direction guard.
 
-For the ratchet data in .github/ci-thresholds.json, a coverage floor or
+For the ratchet data in.github/ci-thresholds.json, a coverage floor or
 measured value never decreases, a baseline entry is never raised,
 and an entry is added only to seed a
 brand-new member or a brand-new measured family. Cost budget raises
-require a feat: or feat(scope): subject in the judged range (#1041).
+require a feat: or feat(scope): subject in the judged range.
 The cases cover forbidden moves and the bots' and features' allowed moves.
 """
 from __future__ import annotations
@@ -41,7 +41,6 @@ def _load(name):
 
 @cache
 def _ci_modules():
-    """Load the sibling modules once, in dependency order at first use."""
     thresholds = _load("thresholds")
     size_baseline = _load("size_baseline")
     guard = _load("thresholds_guard")
@@ -222,7 +221,7 @@ def test_non_core_entry_added_outside_the_measured_set_fails(tmp_path):
 
 
 def test_family_seed_for_a_new_measured_family_is_clean(tmp_path):
-    # The sanctioned path (#393): a new measured family seeds its entries
+    # The sanctioned path: a new measured family seeds its entries
     # once, through the loader's writer, in a reviewed gate-definer PR.
     base = _document(baseline={"backend/api.py": 986})
     head = _document(
@@ -234,7 +233,7 @@ def test_family_seed_for_a_new_measured_family_is_clean(tmp_path):
 
 def test_new_member_seeded_is_clean(tmp_path):
     # A brand-new baseline member seeds its entries in the PR that
-    # introduces it (#389); the committed-document-matches-tree tests
+    # introduces it; the committed-document-matches-tree tests
     # pin each seed truthful. The base predates the member, so its
     # bytes are placed directly — the writer refuses a memberless doc.
     base = _document(baseline={})
@@ -366,7 +365,7 @@ def test_suite_cost_tightened_is_clean(tmp_path):
 
 def test_suite_cost_introduced_against_a_predating_base_is_clean(tmp_path):
     # A base predating the family carries no suite_cost record: the
-    # change introducing one is its seed, not a move (the #389 shape).
+    # change introducing one is its seed, not a move (the shape).
     base = _document()
     del base["suite_cost"]
     base_path = tmp_path / "base.json"

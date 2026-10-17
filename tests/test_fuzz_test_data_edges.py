@@ -1,4 +1,3 @@
-"""Focused coverage for reserved fuzz rows and shard crash cleanup."""
 from __future__ import annotations
 
 import importlib.util
@@ -27,7 +26,7 @@ FLOOR_STAMP = "2026-06-01T00:00:00Z"
 
 
 def _assert_stored_compactly(entry: dict) -> None:
-    """Five effective draws stored compactly (issue #931's storage rule)."""
+    """Five effective draws stored compactly (the compact storage rule)."""
     assert {"from", "note"} <= set(entry)
     assert set(entry) <= {"from", "note", *RATE_FIELDS}
     assert set(effective_rates(entry)) == set(RATE_FIELDS)
@@ -190,7 +189,6 @@ def test_a_crashed_shard_waits_for_all_owned_children_before_raising(
 
 
 class _FakeShardChild:
-    """A Popen stand-in recording its kill and wait traffic."""
 
     def __init__(self, pid: int, hang: bool = False):
         self.pid = pid
@@ -281,7 +279,7 @@ def test_install_and_restore_round_trips_the_handlers() -> None:
 @pytest.mark.skipif(not hasattr(signal, "pthread_sigmask"),
                     reason="needs POSIX signal masking")
 def test_installing_the_handlers_unblocks_the_inherited_mask() -> None:
-    """(review round 1) A shard child inherits the parent's blocked
+    """A shard child inherits the parent's blocked
     spawn-window mask across fork/exec; installing the handlers MUST
     unblock the signals or both the child's handler and the parent's
     SIGTERM teardown stage are dead letters — every interrupted run
@@ -313,7 +311,7 @@ def test_a_delivered_signal_exits_through_the_cleanup_path(
         signame: str) -> None:
     """A delivered SIGTERM/SIGINT/SIGHUP raises SystemExit(128 + signum)
     instead of the default sudden death, so main's `finally` — the
-    baseline restore, the snapshot removal — runs (issue #331)."""
+    baseline restore, the snapshot removal — runs."""
     signum = getattr(signal, signame)
     restore = fuzz_sharding.install_interrupt_handlers()
     try:
@@ -400,7 +398,7 @@ def _procs_referencing(token: str) -> list[int]:
                     reason="delivers a real SIGTERM to a real child tree")
 def test_a_sigterm_during_a_sharded_run_removes_the_snapshots_and_shards(
         tmp_path: Path) -> None:
-    """(issue #331) The contract, end to end: SIGTERM the sharded parent
+    """ The contract, end to end: SIGTERM the sharded parent
     mid-run and its snapshot directory is REMOVED and no process of the
     run survives — where the default disposition killed the parent with
     the tree left on disk and both shard children running."""
@@ -458,7 +456,7 @@ def test_a_sigterm_during_a_sharded_run_removes_the_snapshots_and_shards(
                            "on Windows, never a catchable signal")
 def test_a_sigterm_during_a_sequential_run_restores_the_baseline(
         monkeypatch, tmp_path: Path) -> None:
-    """(issue #331) The sequential path gets the same unwinding: the
+    """ The sequential path gets the same unwinding: the
     SIGTERM raises SystemExit out of main, whose `finally` puts the
     operator's pricing document back — the tree is never left carrying
     the interrupted iteration's perturbed document."""

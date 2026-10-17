@@ -68,7 +68,7 @@ def seed_record(c, file_key: str, line_num: int,
                 record: SeedRecord | None = None) -> None:
     """Insert one fixed-tally row under its project and file parents.
 
-    Since #959 the fact stores dim FK ids: model/provider resolve
+    the fact stores dim FK ids: model/provider resolve
     through dims_seed (NULL stays NULL — the FK columns are nullable),
     file_key resolves to the files row's file_id. The reprice-written
     columns (cost, fee, staleness markers) live on the records_price

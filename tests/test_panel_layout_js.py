@@ -1,6 +1,6 @@
 """The chart panels' layout arithmetic, driven through node.
 
-Issue #630: the Per-Session Context Growth comparison panel laid its
+the Per-Session Context Growth comparison panel laid its
 legend out on fixed offsets, so a 17-character model name rendered
 108.5px wide and ran 9.5px into the "median (N files)" label beside it
 and straight through the swatch rule -- and the legend's wrapped row fell
@@ -28,13 +28,12 @@ ROOT = Path(__file__).resolve().parents[1]
 LAYOUT_JS = ROOT / "src" / "panel-layout.js"
 
 # The advance the browser measured for these panels' 9.5px monospace in
-# headless Chromium (issue #630): wider than the 0.6em a naive reader
+# headless Chromium: wider than the 0.6em a naive reader
 # would predict, which is exactly why it is measured rather than guessed.
 ADV = 6.382
 
 
 def _node(body: str):
-    """Run `body` against the real src/panel-layout.js in node."""
     script = f"""
       global.window = {{}};
       require({str(LAYOUT_JS)!r});
@@ -57,8 +56,6 @@ def _node(body: str):
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 
-
-# --- fitText -----------------------------------------------------------
 
 CTX_JS = ROOT / "src" / "ctx-axis.js"
 
@@ -99,7 +96,6 @@ def _strip_js_comments(src: str) -> str:
 
 
 def _ctx_node(body: str):
-    """Run `body` against the real src/ctx-axis.js in node."""
     script = f"""
       global.window = {{}};
       require({str(CTX_JS)!r});
@@ -156,10 +152,10 @@ def _series_expression(path: Path) -> str:
     This is the bundle the comparison's axis expression actually reads.
     Handing the expression a series the TEST builds instead would leave
     the panel's own wiring unpinned, and the field that matters most is
-    the one an edit is most likely to drop: `sessions` is new in #648, so
+    the one an edit is most likely to drop: `sessions` is new in, so
     a refactor that rebuilt this bundle without it would silently scale
     the comparison off MIN_TOP while the grid kept its real axis --
-    precisely the disagreement #648 exists to close, and invisible to a
+    precisely the disagreement exists to close, and invisible to a
     test that supplies its own bundle.
     """
     src = _strip_js_comments(path.read_text(encoding="utf-8"))
@@ -189,7 +185,7 @@ def _cap_readers(root: Path) -> list[str]:
 
 
 class TestNodeDrivenPanelAndCtxAxis:
-    # Every test below drives node; the class mark is the file's node skip (#746).
+    # Every test below drives node; the class mark is the file's node skip.
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
     def test_text_that_already_fits_is_returned_unchanged(self):
@@ -225,7 +221,7 @@ class TestNodeDrivenPanelAndCtxAxis:
         assert got == ["abc", "abc", ""]
 
     def test_the_rule_and_the_count_sit_after_the_labels_own_width(self):
-        # THE #630 REGRESSION. At the fixed offsets the panel used (rule at
+        # THE REGRESSION. At the fixed offsets the panel used (rule at
         # 86, count at 108) this label is 108.5px wide starting at x=9, so it
         # ran through the rule and 9.5px into the count. The offsets must be
         # derived from the label instead.
@@ -263,7 +259,7 @@ class TestNodeDrivenPanelAndCtxAxis:
         )
 
     def test_a_shortened_cluster_keeps_its_identity_and_loses_only_the_text(self):
-        # #630 review finding 1: the panel keys its React children and looks
+        # review finding 1: the panel keys its React children and looks
         # the model's colour up by `label`. A cluster that returned the
         # SHORTENED string as its identity gave the legend entry a #888
         # fallback swatch beside its own model-coloured median line, and two
@@ -287,8 +283,8 @@ class TestNodeDrivenPanelAndCtxAxis:
             "both shorten alike; only the identity keeps them apart")
 
     def test_the_slot_budget_is_divided_by_the_advance_not_compared_with_it(self):
-        # #630 review finding 2: `adv` is a WIDTH per character. Treating it
-        # as a character count (Math.max(adv, ...)) sized the cluster off the
+        # review finding 2: `adv` is a WIDTH per character. Treating it
+        # as a character count (Math.max(adv,...)) sized the cluster off the
         # font instead of off the room available, so a large advance overflowed
         # the slot and shortened nothing.
         widths = [
@@ -394,7 +390,7 @@ class TestNodeDrivenPanelAndCtxAxis:
 
 
 class TestNodeDrivenCtxAxis:
-    # Every test below drives node; the class mark is the file's node skip (#746).
+    # Every test below drives node; the class mark is the file's node skip.
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
     def test_ctx_peak_is_the_largest_turn_across_every_session(self):
@@ -422,7 +418,6 @@ class TestNodeDrivenCtxAxis:
         # pinned once, by literal, below the loop: the module's comment claims
         # 1.1 is the factor the per-session view already used, and a loop that
         # reads HEADROOM back cannot notice that claim going false.
-        #
         # Only peaks clear of the MIN_TOP floor take the headroom -- below that
         # the floor wins, which is the next test's subject and is stated here
         # so neither reads as a silent exception to the other.
@@ -508,10 +503,10 @@ class TestNodeDrivenCtxAxis:
         assert got["negative"] == [0]
 
     def test_the_comparison_scales_from_the_checked_models_observed_peak(self):
-        """#648/#649: the comparison's axis is the shared rule over the
+        """the comparison's axis is the shared rule over the
         bundle the panel itself builds, not a hand-folded constant.
 
-        Both expressions are extracted from the .jsx and evaluated against
+        Both expressions are extracted from the.jsx and evaluated against
         the real module, so what the assertion reads is what the panel hands
         the rule. The equality side is against ctxAxisTopFor over the SAME
         sessions, and adding a taller model must move it: without that
@@ -589,7 +584,7 @@ class TestNodeDrivenCtxAxis:
 
 
 def test_no_frontend_file_reads_a_per_model_context_cap():
-    # #648 dropped the table. This is an ABSENCE assertion, so it is only
+    # dropped the table. This is an ABSENCE assertion, so it is only
     # worth anything next to a demonstration that the scan fires: the
     # second half runs the same reader over a planted source and requires
     # it to name the line. An absence check whose oracle cannot be shown

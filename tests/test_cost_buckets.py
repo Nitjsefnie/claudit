@@ -152,7 +152,7 @@ def test_cache_range_includes_null_timestamp_in_list_epoch(monkeypatch):
     monkeypatch.setattr(pricing, "RATE_EPOCHS", [boundary])
     epoch_expr, epoch_params = rate_epoch_sql("r.ts")
     canon_src, canon_args = _cache_canon_source(None, None, since)
-    # The #959 canon source joins files/dims and the records_price
+    # The canon source joins files/dims and the records_price
     # sidecar, so every relation and join target it names is faked here
     # (CTEs shadow the base tables), including records.line_num — the
     # sidecar join's key.
@@ -444,14 +444,9 @@ HALF = {field: value / 2 for field, value in LIST_RATES.items()}
 
 
 def _install_scheduled_row(monkeypatch, schedule):
-    """Give a made-up provider row a weekly schedule, through the real loader.
-
-    Priced against the live Novita entry, the verdict moved with every
-    refresh: the 2026-09-26T04:54:05Z Novita move turned the default
-    1e-6 relative tolerance red on the perturbed leg (issue #218). A
-    synthetic row makes the verdict independent of which rates the file
-    holds; schedules live on provider rows, so the synthetic row is one.
-    """
+    """Use a synthetic provider schedule through the real loader.
+    Synthetic rates keep the verdict independent of live pricing refreshes;
+    schedules live on provider rows, so the synthetic row must be one."""
     doc = decoded_pricing_doc(json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8")))  # sv-test-data: allow (loads the live document only to inject the synthetic provider row; no live value reaches a verdict)
     doc["providers"][_SYNTHETIC_MODEL] = {_SYNTHETIC_HOST: [
         {"from": None, **LIST_RATES, "schedule": schedule},

@@ -191,7 +191,6 @@ def _node_raw(script: str):
     # The program goes on stdin: inlined cases outgrow one argv string.
     proc = subprocess.run(
         ["node", "-"], input=script, capture_output=True, text=True, timeout=60,
-        # Return code checked by hand on the next line.
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
@@ -371,7 +370,7 @@ def test_tracked_vendor_model_keys_use_bare_forms_only():
 
 def test_tracked_model_ids_carry_no_dangling_dash():
     """A tracked entry's `id` is the catalog's exact spelling of the model
-    (issue #929): no leading or trailing dash, so catalog membership tests
+    : no leading or trailing dash, so catalog membership tests
     read the real label. The dashed KEYS are snapshot-substring matching
     handles and stay as they are."""
     doc = json.loads(_pricing_json().read_text(encoding="utf-8"))

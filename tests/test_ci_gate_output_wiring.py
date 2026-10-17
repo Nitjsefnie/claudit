@@ -1,4 +1,4 @@
-"""The classify step's written outputs actually gate the legs (issue #540).
+"""The classify step's written outputs actually gate the legs.
 
 The workflow-text pins judge ci-gate.yml as TEXT: that each leg carries
 the narrowing `if:`, that the classify job declares `docs_only` /
@@ -127,7 +127,6 @@ class Classified(NamedTuple):
 
 
 def _ci_gate():
-    """The ci-gate workflow document."""
     return yaml.safe_load(CI_GATE.read_text(encoding="utf-8")) or {}
 
 
@@ -157,7 +156,7 @@ def _run_classifier(tmp_path, paths=None, writes=True, base_contents=None,
     """Run the classifier on a push event over the stub `gh`.
 
     PR_NUMBER is empty and BEFORE_SHA is a 40-hex commit, the shape of
-    the refresh bot's own push (issue #540's run 37057914441). Returns
+    the refresh bot's own push. Returns
     the step-output file's text, the reads the stub answered, and the
     classifier's own exit status — the third is what the fail-closed
     test rests on.
@@ -334,7 +333,7 @@ def test_every_leg_needs_the_classifier():
     # A leg that drops `needs: classify` does not narrow: `classify` is
     # no longer in its needs, so `needs.classify.outputs.docs_only`
     # resolves to empty, `'' != 'true'` is true, and the leg runs on
-    # every push — #540's symptom, "the decision prints and does not
+    # every push — symptom, "the decision prints and does not
     # bind", with the condition string itself untouched and every
     # `if:`-shaped pin still green. The `needs:` hop is the limb sitting
     # one line below the `if:` every other pin reads.
@@ -352,7 +351,7 @@ def test_every_leg_needs_the_classifier():
 
 
 def test_a_bot_push_runs_only_the_cheap_legs_end_to_end(tmp_path):
-    # Issue #540's own run, with the two paths the refresh bot's commit
+    # own run, with the two paths the refresh bot's commit
     # carries: the cheap class is lint and smoke, every other leg skips.
     run = _run_classifier(tmp_path)
     _only_modelled_reads(run)
@@ -394,7 +393,7 @@ COMMENT_ONLY_HEAD = {
 
 
 def test_a_comment_only_push_skips_the_behaviour_legs_end_to_end(tmp_path):
-    # Issue #844: a change whose source files strip to an identical token
+    # a change whose source files strip to an identical token
     # stream runs only the legs a comment cannot affect. The comment-only
     # class skips test-data and panel-layout (and the portable matrix
     # inside tests.yml via the input); codeql is NOT skipped (its
@@ -440,7 +439,7 @@ def test_a_setup_doc_push_runs_only_the_needed_guard(tmp_path, setup_changed):
 
 
 def test_a_classifier_that_writes_nothing_runs_every_leg(tmp_path):
-    # Fail closed, and the direction the #540 wiring failure took. The
+    # Fail closed, and the direction the wiring failure took. The
     # step-output file is pre-created and the classifier dies before it
     # writes a byte, so the emptiness asserted here is the script's and
     # not the harness's — the nonzero exit proves the script ran and
@@ -489,8 +488,7 @@ def test_every_narrowing_reference_names_a_written_output(tmp_path):
 
 
 def test_every_published_output_names_a_step_the_classify_job_has():
-    # The layer no text pin can reach, and the one #540's report turned
-    # on. `steps.classifier.outputs.data_only` is a well-formed
+    # Bind published step ids to actual steps; text pins alone cannot. `steps.classifier.outputs.data_only` is a well-formed
     # reference with a well-formed output name, and every string pin in
     # the suite stays green on it — but no step carries the id
     # `classifier`, so the expression resolves to nothing at runtime,

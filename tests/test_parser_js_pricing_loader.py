@@ -79,7 +79,7 @@ def _doc(start1=0, end1=1400, start2=1400, end2=0, rates1=None,
 
 def _render(doc: dict, spelling: str | None = None) -> str:
     """The doc as its STORED spelling (compact — the shape the page's
-    ingest check enforces, issue #931), with the SENTINEL placeholder
+    ingest check enforces), with the SENTINEL placeholder
     replaced by a raw number token (`spelling`) where a test controls
     the spelling."""
     text = serialize_pricing_doc(doc)
@@ -186,9 +186,6 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
     return json.loads(proc.stdout)
 
 
-# --- a schedule time spelled with an exponent or a fraction --------------------
-
-
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 @pytest.mark.parametrize("keyword,spelling", [
     pytest.param("start1", "14e2", id="exponent-start"),
@@ -201,9 +198,6 @@ def test_an_exponent_spelled_schedule_start_throws_naming_pricing_json(
     assert "pricing.json" in out["error"]
     assert spelling in out["error"], out["error"]
     assert "offset" in out["error"], out["error"]
-
-
-# --- a valid file --------------------------------------------------------------
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
@@ -241,16 +235,13 @@ def test_browser_loader_rejects_a_negative_search_rate(tmp_path):
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_browser_loader_rejects_an_empty_models_key(tmp_path):
-    """Issue #837: the browser loader refuses an empty models key."""
+    """the browser loader refuses an empty models key."""
     doc = _doc()
     doc["models"][""] = [dict(DEFAULT_ROW)]
     out = _run(tmp_path, _render(doc))
     assert out["error"], "the empty models key must be refused"
     assert "pricing.json" in out["error"]
     assert 'models key ""' in out["error"], out["error"]
-
-
-# --- a fractional start outside a schedule -------------------------------------
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
@@ -260,9 +251,6 @@ def test_a_fractional_start_outside_a_schedule_loads_as_a_number(tmp_path):
     assert out["error"] is None, out["error"]
     assert out["untouched"] is True, "the value must survive as a number"
     assert out["rates"]["day"] == DAY
-
-
-# --- the browser load path -----------------------------------------------------
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
@@ -279,9 +267,6 @@ def test_the_browser_load_path_checks_the_spelling_and_prices_a_valid_file(
     assert good["rates"] == {"day": DAY, "night": NIGHT}
 
 
-# --- scoping: a start inside a window's rates object ---------------------------
-
-
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_start_inside_a_window_rates_object_is_not_an_offense(tmp_path):
     rates = {**DAY, "start": SENTINEL}
@@ -294,9 +279,6 @@ def test_a_start_inside_a_window_rates_object_is_not_an_offense(tmp_path):
     # And the value itself survived as the number 30: what the loader
     # parsed equals a plain parse of the same text.
     assert out["untouched"] is True, "the value must survive as a number"
-
-
-# --- the long-context meters (issue #765) -------------------------------------
 
 
 def _grouped_doc(groups):

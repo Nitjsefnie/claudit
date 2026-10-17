@@ -1,14 +1,11 @@
-"""Workflow shape: the informational patch-coverage readout (issues #129, #560).
+"""Workflow shape: the informational patch-coverage readout.
 
 tests.yml's `pytest` job already produces `coverage.xml`; on a pull
 request it also computes the patch-coverage readout against the merge
-base. Until #560 it posted the result itself, under a
-`pull-requests: write` token that was live from `pip install` through a
-run of the PROPOSED tree — and read-only on a fork anyway, which is why no
-fork pull request ever saw the readout. The job now uploads the rendered
-body and a NEW top-level workflow, coverage-comment.yml, posts it: that
-workflow checks out nothing and runs no pull-request code, so it is the
-only side of the boundary holding a token that can write.
+base. The compute job uploads the rendered body; coverage-comment.yml posts
+it without checking out or running pull-request code. Only the posting side
+holds a write token, so proposed code never runs with that privilege and
+fork pull requests can still receive the readout.
 
 The readout is INFORMATIONAL either way: no threshold, no gate, no
 required check anywhere — the module's own exit contract is pinned in
@@ -21,7 +18,7 @@ COMPUTE SIDE (tests.yml, the `pytest` job)
 - coverage.xml exists before the readout runs;
 - the workflow carries exactly one wiring of the module.
 
-TOKEN GRANTS (#560)
+TOKEN GRANTS
 - the `pytest` job and ci-gate's `tests` leg hold `contents: read` and
   NOTHING else, and neither file grants pull-request write anywhere;
 - the body crosses as an artifact named `diff-coverage-comment`, staged
@@ -40,7 +37,7 @@ POSTING SIDE (coverage-comment.yml) — the artifact-poisoning surface
   interpolation;
 - one marker comment, posted or updated.
 
-NOT A GATE (#560)
+NOT A GATE
 - it is not a ci-gate leg, publishes no check run, and holds no
   `checks:` permission;
 - release_gate.py never judges a `workflow_run`-triggered run's check
@@ -213,7 +210,7 @@ class TestComputeSide:
 
 
 class TestTokenGrants:
-    """#560: the job that RUNS the proposed tree holds no write token."""
+    """the job that RUNS the proposed tree holds no write token."""
 
     def test_the_callee_job_is_contents_read_only(self):
         perms = _pytest_job().get("permissions") or {}
@@ -266,7 +263,7 @@ class TestPostingSide:
 
     def test_the_zip_is_fetched_through_the_api_not_a_download_action(
             self):
-        # CodeQL alert 13 (actions/artifact-poisoning, issue #939): a
+        # CodeQL alert 13 (actions/artifact-poisoning): a
         # workflow_run consumer no longer pulls what a pull request
         # produced with actions/download-artifact. The zip is fetched
         # through the shared retry into $RUNNER_TEMP instead — by the id
@@ -280,7 +277,6 @@ class TestPostingSide:
         assert not [u for u in uses if "download-artifact" in u], uses
         assert "download-artifact@" not in text
         step = _step(_comment_job(), DOWNLOAD_STEP)
-        # It is a plain run step now: the flagged action is gone.
         assert "uses" not in step, step
         run = step.get("run") or ""
         assert '. "$RUNNER_TEMP/api_retry.sh"' in run
@@ -364,7 +360,6 @@ class TestPostingSide:
         step = _step(job, POST_STEP)
         run = step.get("run") or ""
         assert "-F body=@" in run
-        # The body is concatenated into a file and uploaded as a file.
         assert run.count('cat "$ART_DIR/body.md"') == 1
         # Every address the API is given comes from the resolved EVENT,
         # never from a value the artifact supplied.
@@ -406,10 +401,10 @@ class TestPostingSide:
                            "POSIX-bound — windows runners resolve bare "
                            "bash to the WSL stub that exits 1")
 class TestCommentComposition:
-    """The comment composers, pinned by execution (issue #614).
+    """The comment composers, pinned by execution.
 
     A source-text pin can hold while the composer still garbles its
-    output: the #614 header printf parsed, ran, and printed the header
+    output: the header printf parsed, ran, and printed the header
     twice over — the first copy carrying the literal text `ref.` and
     backslash-n pairs in the SHA's place, the second the real SHA —
     because a sentence continuation had slipped out of

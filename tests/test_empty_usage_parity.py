@@ -28,7 +28,6 @@ EXPECTED = [
 
 @lru_cache(maxsize=1)
 def _browser_results() -> dict[str, dict[str, Any]]:
-    """Parse the empty-usage fixtures through the production browser code."""
     if shutil.which("node") is None:
         pytest.skip("node not available")
     fixtures = {

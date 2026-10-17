@@ -1,4 +1,3 @@
-"""Guest-login configuration through the real routes and auth middleware."""
 from __future__ import annotations
 
 import secrets
@@ -12,7 +11,6 @@ from backend.guest_login import guest_login_enabled
 from backend.login_page import _login_page_response
 from backend import session
 
-# Copied from origin/master's original guest controls, including whitespace.
 _ORIGINAL_GUEST_HTML = """  <div class="or">or</div>
   <button type="submit" class="guest-btn"
           formaction="/login/guest" formmethod="post" formnovalidate>

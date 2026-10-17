@@ -1,23 +1,10 @@
-"""Storage widths: SMALLINT dimensions, INTEGER keys, widest-first order.
-
-Issue #959 task 7. Measured on live pg_stats, a BIGINT surrogate is
-WIDER than the text it replaced for every low-cardinality dimension
-(tool_name avg 7 B, effort 4 B, stop_reason 9 B), so the dimension ids
-and their FK columns store SMALLINT, the file/project/session
-surrogates INTEGER (2.1B ceiling), and records/tool_uses DECLARE their
-columns widest-first — 8-byte, then 4-byte, then 2-byte, then variable
-— so alignment padding cannot eat the saving.
-
-Also pinned here: cli_version is a SMALLINT dimension (dim_cli_version,
-NULL = absent), empty read_targets/write_targets arrays store as NULL,
-and read_kind — two-valued in the parser by construction ('whole' /
-'slice' / None) — stores as BOOLEAN, TRUE = a whole-file read.
-
-Every shape assertion runs against the APPLIED schema in both states
-(fresh database, pre-#959 database migrated by the chain) and the two
-end states must agree; tests/test_schema_attnums.py pins the catalog
-count invariant beside it.
-"""
+"""Store low-cardinality dimensions as SMALLINT and entity keys as INTEGER.
+BIGINT can exceed the short text values these dimension ids replace.
+Widest-first column order limits alignment padding.
+cli_version is nullable SMALLINT, empty target arrays store NULL, and
+read_kind uses BOOLEAN: TRUE means whole-file, FALSE slice, NULL absent.
+Check fresh and migrated applied schemas for identical types and order;
+schema-attnum tests separately cover stable catalog counts."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -171,7 +158,7 @@ def _assert_canonical(conn) -> None:
         "SELECT is_nullable, column_default FROM information_schema.columns "
         "WHERE table_name = 'latency_rollup' AND column_name LIKE 'out_%'"
     ).fetchall() == [("YES", None)] * 5
-    # The uuid split's own column types (issue #959 task 8): the native
+    # The uuid split's own column types: the native
     # uuid part, the INT4 counter, the verbatim TEXT fallback — and no
     # `uuid` column left to hold the old TEXT identity.
     split_types = _types(conn, "records")
@@ -199,7 +186,7 @@ def test_fresh_database_carries_the_canonical_widths_and_order():
 def test_migrated_database_carries_the_canonical_widths_and_order(
         monkeypatch,
 ):
-    """A pre-#959 database converges to the SAME types and order."""
+    """A legacy database converges to the SAME types and order."""
     name = scratch_db.create_database("width_migrate", schema=scratch_db.OLD_SCHEMA)
     monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")
     db.reset_viz_pool()

@@ -24,7 +24,6 @@ _LIVE_MODEL = "issue-244-live-seed"
 
 @pytest.fixture(scope="module", name="guest_client")
 def guest_client_fixture():
-    """Mount the API router in a fresh app with the real guest state flag."""
     app = FastAPI()
 
     @app.middleware("http")
@@ -38,7 +37,6 @@ def guest_client_fixture():
 
 
 def _fixture_agent_key() -> str:
-    """Read the stored R2 key for the mini fixture's known agent file."""
     with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
         row = conn.execute(
             "SELECT file_key FROM files "

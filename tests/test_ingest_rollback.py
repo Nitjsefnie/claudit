@@ -1,4 +1,4 @@
-"""The rollback guard on the reparse decision (issue #118).
+"""The rollback guard on the reparse decision.
 
 A binary OLDER than the one that stored a file's rows must not rewrite
 them: _persist DELETEs and re-INSERTs each file's records with its own
@@ -26,8 +26,8 @@ from backend import db, ingest, parser_version
 
 from tests import dims_seed, mini_mirror
 
-#: How many transcripts the committed mirror holds, read from its
-#: tree (issue #503 grew it with the lane layout).
+# How many transcripts the committed mirror holds, read from its
+# tree ( grew it with the lane layout).
 _MIRROR = mini_mirror.counts()["transcripts"]
 
 
@@ -37,7 +37,7 @@ def test_newer_stored_parser_version_is_never_reparsed(
     records verbatim across a rollback — even when the object's etag
     changed, because the older binary's rewrite would NULL the columns
     the old binary does not know. A sentinel planted in records.provider
-    — the exact column issue #118 demonstrated being wiped — must
+    — the exact column demonstrated being wiped — must
     survive the run. The skip is surfaced in the run summary and logged
     at warning level."""
     ingest.run_ingest(trigger="manual")
@@ -106,7 +106,7 @@ def test_health_surfaces_stored_newer_end_to_end(fresh_db, mini_r2_env):
     health()'s ingest_runs SELECT serves it back. The fake-cursor payload
     test in test_version.py pins the JSON shape but never sees the SQL;
     this is the assert that binds that SELECT's column list to the actual
-    column (issue #161)."""
+    column."""
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         c.execute(

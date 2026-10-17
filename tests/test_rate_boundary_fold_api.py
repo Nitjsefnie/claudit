@@ -203,7 +203,7 @@ def test_cache_fold_ignores_other_pairs_boundaries_and_keeps_own_cutovers(
     assert set(per_model) == {case.stable_pair[0], case.changing_pair[0]}
     assert per_model[case.stable_pair[0]]["cost_total"] == pytest.approx(6.0)
     assert per_model[case.changing_pair[0]]["cost_total"] == pytest.approx(9.0)
-    # cost_buckets is stripped from per_model (issue #916): the session
+    # cost_buckets is stripped from per_model: the session
     # total's decomposition is the sum over both models — fresh 6.0 + 9.0 —
     # and still reconciles with its own total.
     session_total = body["session_total"]
@@ -271,7 +271,7 @@ def test_cache_missing_rollup_pair_uses_global_epoch_fallback(
     assert missing_entry["cost_total"] == pytest.approx(12.0)
     assert "cost_buckets" not in missing_entry
     # The missing pair is the only model with records, so the session
-    # total's decomposition is this model's (issue #916).
+    # total's decomposition is this model's.
     assert body["session_total"]["cost_buckets"]["fresh"] == pytest.approx(12.0)
     assert abs(sum(body["session_total"]["cost_buckets"].values())
                - body["session_total"]["cost_total"]) <= 3e-4
@@ -280,7 +280,7 @@ def test_cache_missing_rollup_pair_uses_global_epoch_fallback(
 # --- a tracked vendor pair: the bare id's fold gets the vendor boundaries --
 # The migrated vendor rows are provider rows keyed (bare key, vendor host),
 # and the bare first-party id prices through them with no provider at all
-# (issue #851). A pair the rollup lists must get the vendor boundaries, or
+# A pair the rollup lists must get the vendor boundaries, or
 # its re-derived Token Breakdown split drifts from the stored cost.
 
 VENDOR_MODEL = "acme/fold-vendor-302"
@@ -333,7 +333,7 @@ def test_cache_fold_prices_a_bare_vendor_pair_at_the_vendor_boundaries(
     assert entry["cost_total"] == pytest.approx(want)
     assert "cost_buckets" not in entry
     # The vendor pair is the only model with records, so the session total's
-    # decomposition is this model's (issue #916).
+    # decomposition is this model's.
     assert body["session_total"]["cost_buckets"]["fresh"] == pytest.approx(want)
     assert abs(sum(body["session_total"]["cost_buckets"].values())
                - body["session_total"]["cost_total"]) <= 3e-4

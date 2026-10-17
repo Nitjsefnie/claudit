@@ -23,7 +23,7 @@ class TestNodeHarnessesLoadLanes:
     longContextFlagFor calls window.longContextThresholdFor, which
     parser-lanes.js defines, and the call is reached only once the grouped
     long_context_meters field includes a member, so the absence stayed invisible
-    until the first live fold (issue #860). The browser always loads
+    until the first live fold. The browser always loads
     the module (public/index.html, script order); this pins the
     harnesses to the browser's own dependency, at any require order.
 
@@ -36,7 +36,7 @@ class TestNodeHarnessesLoadLanes:
     a false offender."""
 
     def test_harnesses_driving_the_real_parser_load_lanes(self):
-        """A pure source scan - no node, so no node skip (issue #812)."""
+        """A pure source scan - no node, so no node skip."""
         offenders = []
         for path in sorted((ROOT / "tests").glob("test_*.py")):
             text = cached_source(path, encoding=None)

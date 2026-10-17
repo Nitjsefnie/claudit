@@ -1,6 +1,6 @@
 """The project picker fits its chips to the strip instead of scrolling.
 
-Issue #774: the picker showed every project of the current page and
+the picker showed every project of the current page and
 scrolled horizontally when they did not fit. The maintainer ruling makes
 the page size measured, not fixed: only the chips that fit the strip's
 current width render, the rest page through the existing prev/next
@@ -36,7 +36,6 @@ INDEX = ROOT / "public" / "index.html"
 
 
 def _node(body: str) -> dict:
-    """Run `body` against the real src/picker-fit.js in node."""
     script = f"""
       global.window = {{}};
       require({str(FIT_JS)!r});
@@ -53,7 +52,6 @@ def _node(body: str) -> dict:
 
 
 def _pages_node(body: str):
-    """Run `body` against the real fit and page-packing modules."""
     script = f"""
       global.window = {{ getComputedStyle: () => ({{}}) }};
       require({str(FIT_JS)!r});
@@ -69,8 +67,6 @@ def _pages_node(body: str):
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 
-
-# --- the pure fit arithmetic -------------------------------------------
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_fit_counts_how_many_chips_fit_with_gaps_and_reserve():
@@ -119,8 +115,6 @@ def test_fit_of_no_chips_is_zero():
     out = _node("console.log(JSON.stringify({ n: window.pickerFit.fitCount(100, [], 6, 0) }));")
     assert out["n"] == 0
 
-
-# --- the legacy DOM read (stubbed strip) -------------------------------
 
 def _stub_strip(inner=400, gap=6, widths=(100, 100, 100), all_w=40,
                 pager_core=None, jump_w=0):
@@ -179,8 +173,6 @@ def _stub_strip(inner=400, gap=6, widths=(100, 100, 100), all_w=40,
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 
-
-# --- retained legacy reader regression coverage -------------------------
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_compute_fit_reads_padding_gap_all_and_chips():
@@ -242,7 +234,7 @@ def test_compute_fit_returns_zero_when_nothing_fits():
 
 
 def test_picker_floors_the_degenerate_page_at_one_pinched_chip():
-    """#807: a strip too narrow for any full chip still pages one project
+    """a strip too narrow for any full chip still pages one project
     at a time and never shows NaN. The packer advances by at least one
     project, marks that page pinched, and the JSX shrink-to-fit style
     applies only to that forced chip."""
@@ -266,8 +258,6 @@ def test_picker_floors_the_degenerate_page_at_one_pinched_chip():
         "plain chips lost flex-shrink: 0 — a squeezed chip wraps (#643) "
         "and the rendered guard's seeded chips would stop overflowing")
 
-
-# --- the JSX wiring (source pins) ---------------------------------------
 
 def _app() -> str:
     return APP.read_text(encoding="utf-8")
@@ -319,8 +309,8 @@ def test_picker_refits_on_resize_and_fonts():
 def test_picker_overflow_is_cut_off_not_scrolled():
     """The ruling's hard line: no horizontal scrolling remains. The
     project strip cuts overflow off (overflow-x hidden), scoped to the
-    project picker alone — the shared .project-picker class keeps its
-    overflow for the range strip (#755 owns that strip)."""
+    project picker alone — the shared.project-picker class keeps its
+    overflow for the range strip ( owns that strip)."""
     body = _picker_body()
     assert "overflowX" in body and "'hidden'" in body, (
         "ProjectPicker's strip does not cut overflow off — a fit slip "

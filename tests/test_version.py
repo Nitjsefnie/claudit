@@ -106,8 +106,7 @@ def test_health_error_branch_answers_503(monkeypatch):
 
     A status-code monitor (curl -fsS, an LB probe) never parses the body:
     /health answering 200 with ok:false reports the outage as healthy to
-    it. The branch answers 503 carrying the same JSON fields (issue
-    #104).
+    it. The branch answers 503 carrying the same JSON fields .
     """
     app_mod = importlib.import_module("backend.app")
 
@@ -146,7 +145,6 @@ def test_health_ok_branch_reports_version(monkeypatch):
 
 
 class _RowCursor:
-    """A cursor answering /health's ingest_runs SELECT with one row."""
 
     @staticmethod
     def fetchone():
@@ -171,7 +169,7 @@ class _RowConn:
 
 def test_health_last_ingest_carries_newer(monkeypatch):
     """`last_ingest` carries the newer-version skip count beside
-    `reparsed` (issue #161).
+    `reparsed`.
 
     Files skipped because a NEWER binary stored them are the visible
     signature of a rollback in progress; /health is the unauthenticated

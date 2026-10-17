@@ -322,7 +322,7 @@ def _synthetic_provider_window_fixture(monkeypatch):
     PROVIDER_SCHEDULES is emptied too: an appended entry could carry a
     schedule on the touched rows, and a live window answering the schedule
     lookup would price `past` at the window's rates instead of the list
-    price the assertion names (issue #191)."""
+    price the assertion names."""
     cutover = datetime(2026, 9, 20, tzinfo=UTC)
     key = (V41_KEY, "Novita")
     before = {"fresh": 7.0, "create_5m": 7.0, "create_1h": 7.0,
@@ -370,7 +370,7 @@ def test_fold_reconciles_across_a_provider_cutover(synthetic_provider_window):
             m["cost_total"], abs=3e-4)
 
 
-# The fold tests price SYNTHETIC provider rows (issue #191): the rates are
+# The fold tests price SYNTHETIC provider rows: the rates are
 # unlike any real price and the keys sit in no other rate table, so a
 # legitimate refresh appending entries or first-seeing a host cannot move an
 # assertion. Rows carry epoch 0, before every live boundary; a synthetic row
@@ -534,7 +534,7 @@ def test_fold_of_null_provider_rows_is_unchanged(monkeypatch):
     # Rows with no provider fold exactly as the model-only fold did. Pinned
     # on a synthetic models row: the stored cost and the fold's
     # re-derivation read the same made-up rates, so no live rate — list or
-    # refreshed — can move either side (issue #191).
+    # refreshed — can move either side.
     model = "acme/grommet-7"
     rates = {"fresh": 0.21, "create_5m": 0.21, "create_1h": 0.21,
              "read": 0.021, "output": 0.71}

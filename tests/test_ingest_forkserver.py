@@ -1,4 +1,3 @@
-"""Forkserver controls, importable child units and bounded process cleanup."""
 from __future__ import annotations
 
 import ctypes
@@ -496,12 +495,11 @@ def test_pool_timing_parts_are_disjoint_slices(fresh_db, mini_r2_env, monkeypatc
         return int(m.group(1))
     assert _ms("child_decompress") > 0, line
     assert _ms("child_fetch") < _ms("child_decompress"), line
-    # One chunk puts the final persist drain outside wait_persist (#680).
+    # One chunk puts the final persist drain outside wait_persist.
     assert _ms("wait_persist") == 0, line
 
 
 def _safe_initializer(monkeypatch) -> types.SimpleNamespace:
-    """Stub process effects and restore them through monkeypatch."""
     state = types.SimpleNamespace(
         prctl=Mock(return_value=0), exit=Mock(side_effect=SystemExit(0)),
         close=Mock(wraps=os.close),

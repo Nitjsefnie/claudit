@@ -1,19 +1,9 @@
-"""Issue #375: the transcript cache is keyed by (file_key, etag), never by
-the etag alone.
-
-In file:// mode an object's etag is derived from its size and mtime
-alone (``sha1("{mtime_ns}:{size}")`` in the r2 listing), so two
-transcripts of equal size and modification time share one etag — and an
-etag-only cache key served one session's transcript for another: a
-cross-session data leak between users of a multi-user deploy.
-
-Issue #390 adds the behavioural pin for the replacement guarantee the
-``cache.transcript_key`` docstring states — an object replaced under
-its own key (new etag → new key) must not serve its predecessor's
-cached bytes — derives the key-shape test's identity from the ``files``
-row rather than a literal, and covers a file key that itself contains
-the ``:`` separator.
-"""
+"""Key transcript bytes by (file_key, etag), never etag alone.
+File-mode etags depend on size and mtime, so different transcripts can share
+one etag. An etag-only cache can leak one session's bytes into another.
+A replacement under the same file key gets a new etag and must not serve
+its predecessor's bytes. Derive key-shape identities from files rows and
+include a file key containing the separator to cover ambiguous encodings."""
 from __future__ import annotations
 
 import os
@@ -40,7 +30,7 @@ _CAROL = (
     b'{"type":"user","message":'
     b'{"role":"user","content":"carol-only secret"}}\n'
 )
-# The replacement payload (issue #390): different bytes under the SAME
+# The replacement payload: different bytes under the SAME
 # object key, so the stored etag must move and the endpoint must build
 # a new composite key rather than serve the predecessor's entry.
 _ALICE_V2 = (
@@ -110,7 +100,7 @@ def _twin_app_fixture(monkeypatch):
 def test_equal_size_mtime_transcripts_not_served_for_each_other(twin_app):
     """Serving alice warms the cache; bob's and carol's GETs must still
     return their own bytes. Under the etag-only key the second GET
-    returned alice's transcript (issue #375)."""
+    returned alice's transcript."""
     r_alice = twin_app.get("/api/sessions/sess-alice/transcript")
     assert r_alice.status_code == 200
     assert r_alice.content == _ALICE

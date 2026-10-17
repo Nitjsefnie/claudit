@@ -42,8 +42,8 @@ def test_cache_response_decorator_caches_and_bypasses():
 
     first = endpoint(rng="30d", fresh=0)
     second = endpoint(rng="30d", fresh=0)
-    assert first == second                    # served from cache
-    assert len(calls) == 1                    # body ran once
+    assert first == second
+    assert len(calls) == 1
 
     bypass = endpoint(rng="30d", fresh=1)
     assert len(calls) == 2                    # fresh=1 skips the cache
@@ -67,12 +67,12 @@ def test_invalidate_serves_stale_then_refreshes():
     # The stale value comes back straight away — NOT a recomputed one.
     assert endpoint(rng="30d", fresh=0) == {"n": 1}
 
-    # ...and the refresh lands in the background. Poll the CACHE — what
+    # The refresh lands in the background. Poll the CACHE — what
     # the contract governs — not the endpoint's call log: a poll that
     # watches `calls` can exit in the window between the refresh
     # computing its value and that value being put, then the final read
     # serves stale and fails. Serving stale through that window is the
-    # contract working, so wait on the cache itself. (Issue #155.)
+    # contract working, so wait on the cache itself.
     deadline = time.time() + 5
     while time.time() < deadline and endpoint(rng="30d", fresh=0) != {"n": 2}:
         time.sleep(0.02)
@@ -92,7 +92,7 @@ def test_invalidate_keeps_entries_servable():
 
 
 # --------------------------------------------------------------------------
-# Issue #105: _IdleLRU mutates the shared OrderedDict from get/put/_evict_idle
+# _IdleLRU mutates the shared OrderedDict from get/put/_evict_idle
 # with no lock while endpoints run in FastAPI's threadpool.
 
 def test_idle_lru_thread_safety():
@@ -141,7 +141,7 @@ def test_idle_lru_thread_safety():
 
 
 # --------------------------------------------------------------------------
-# Issue #113: put() inserts unconditionally, so an entry larger than the
+# put() inserts unconditionally, so an entry larger than the
 # size cap stays resident above the advertised 256 MB.
 
 def test_idle_lru_refuses_oversized_entry():
@@ -161,7 +161,7 @@ def test_idle_lru_refuses_oversized_entry():
 
 
 # --------------------------------------------------------------------------
-# Issue #269: the orphan sweep must be able to drop one cached transcript
+# the orphan sweep must be able to drop one cached transcript
 # explicitly, so deleted source bytes do not stay served from the cache.
 
 def test_idle_lru_evict_drops_entry_and_byte_count():
@@ -184,7 +184,7 @@ def test_idle_lru_evict_drops_entry_and_byte_count():
 
 
 # --------------------------------------------------------------------------
-# Issue #96: the response cache's keyspace and its per-key locks grew
+# the response cache's keyspace and its per-key locks grew
 # without bound. The fix gives _TTLCache a max_entries cap and moves the
 # per-key locks inside it, so a lock is reclaimed when its entry is dropped.
 
@@ -223,7 +223,7 @@ def test_ttl_cache_cap_evicts_expired_then_oldest(monkeypatch):
 
 def test_ttl_cache_evicts_key_lock_with_entry(monkeypatch):
     """A key's lock is reclaimed whenever its entry is dropped: on cap
-    eviction and on clear(). An expiry drops nothing since #641 — the
+    eviction and on clear(). An expiry drops nothing — the
     entry is served stale — so its lock stays with it."""
     clock = {"t": 1000.0}
     monkeypatch.setattr(cache_mod.time, "time", lambda: clock["t"])
@@ -238,7 +238,6 @@ def test_ttl_cache_evicts_key_lock_with_entry(monkeypatch):
     assert "exp" in c._key_locks  # pylint: disable=protected-access
     assert c.lock_for("exp") is exp_lock
 
-    # cap eviction in put
     c.put("cap1", 1)
     c.lock_for("cap1")
     clock["t"] += 1.0
@@ -251,7 +250,6 @@ def test_ttl_cache_evicts_key_lock_with_entry(monkeypatch):
     assert "cap2" in c._key_locks  # pylint: disable=protected-access
     assert "cap3" in c._key_locks  # pylint: disable=protected-access
 
-    # clear()
     c.lock_for("solo")
     c.clear()
     assert len(c._key_locks) == 0  # pylint: disable=protected-access
@@ -264,7 +262,7 @@ def test_ttl_cache_keeps_held_lock_through_eviction(monkeypatch):
     clock = {"t": 1000.0}
     monkeypatch.setattr(cache_mod.time, "time", lambda: clock["t"])
 
-    # expiry (drops nothing since #641) while the lock is held
+    # expiry (drops nothing) while the lock is held
     c = _TTLCache(ttl_seconds=60)
     c.put("k", 1)
     held = c.lock_for("k")
@@ -274,7 +272,6 @@ def test_ttl_cache_keeps_held_lock_through_eviction(monkeypatch):
     assert c.lock_for("k") is held    # kept — someone is on it
     held.release()
 
-    # clear() while the lock is held
     c2 = _TTLCache(ttl_seconds=60)
     c2.put("k", 1)
     held2 = c2.lock_for("k")
@@ -308,7 +305,7 @@ def test_response_cache_is_capped():
 
 
 # --------------------------------------------------------------------------
-# Issue #261: failed response-cache computes leave no entry to trigger the
+# failed response-cache computes leave no entry to trigger the
 # existing per-key lock reclamation paths.
 
 
@@ -350,7 +347,7 @@ def test_same_key_retry_after_failed_compute_reclaims_lock(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Issue #371: an entry whose compute straddles an invalidate() must be
+# an entry whose compute straddles an invalidate() must be
 # STORED stale, so the next read refreshes it instead of serving
 # pre-ingest data as current until the TTL expires.
 
@@ -407,7 +404,7 @@ def test_background_refresh_across_an_invalidate_is_stored_stale(monkeypatch):
         return {"n": len(calls)}
 
     assert endpoint(rng="30d", fresh=0) == {"n": 1}
-    c.invalidate()  # mark the entry stale
+    c.invalidate()
     assert endpoint(rng="30d", fresh=0) == {"n": 1}, (
         "the stale value is still served while the refresh runs")
     key = endpoint.__qualname__ + ":" + repr(
@@ -443,7 +440,7 @@ def _key_for(fn, kwargs):
 
 
 def test_warm_recomputes_a_stale_entry_in_one_hop(monkeypatch):
-    """`warm()` must itself populate the entry, in one pool task (issue #641).
+    """`warm()` must itself populate the entry, in one pool task.
 
     Regression: `warm()` called the DECORATED endpoint, so a stale entry
     was returned immediately and the recompute deferred to
@@ -611,7 +608,7 @@ def test_warm_claims_the_key_while_it_computes(monkeypatch):
 
     key = _key_for(endpoint, {"rng": "all"})
 
-    endpoint(rng="all")                      # seed the entry
+    endpoint(rng="all")
     cache_mod.response_cache.invalidate()    # the ingest's invalidate()
     cache_mod.warm(endpoint, rng="all")
     pool.run_all()

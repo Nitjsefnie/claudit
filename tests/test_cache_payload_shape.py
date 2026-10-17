@@ -1,4 +1,4 @@
-"""Issue #916: /api/cache's per_model[] and per_model_provider[] must not
+"""/api/cache's per_model[] and per_model_provider[] must not
 carry cost_buckets — no frontend file reads it there — while session_total
 does (the cache view renders session_total.cost_buckets)."""
 from __future__ import annotations

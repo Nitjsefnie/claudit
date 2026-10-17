@@ -1,4 +1,3 @@
-"""Tests moved from test_parse_kimi.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -137,7 +136,7 @@ def test_legacy_str_replace_and_write_churn():
         "sessions/projLC/sess-lcl/wire.jsonl", _LEGACY_CHURN_BLOB
     )
     assert _churn_by_tool(out) == [
-        ("StrReplaceFile", False, 1, 2),  # single edit object
+        ("StrReplaceFile", False, 1, 2),
         ("StrReplaceFile", False, 4, 3),  # list of edits, summed
         ("WriteFile", False, 2, 0),
         ("WriteFile", True, 0, 0),        # is_error -> zeroed

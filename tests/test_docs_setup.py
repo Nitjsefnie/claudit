@@ -2,7 +2,7 @@
 
 The setup appears in README "Quick start", CONTRIBUTING "Getting it
 running" and AGENTS "Build and test commands". CONTRIBUTING once omitted
-CLAUDIT_DATABASE_URL_AUTH unnoticed (issue #464). Like test_panel_wiring.py,
+CLAUDIT_DATABASE_URL_AUTH unnoticed. Like test_panel_wiring.py,
 these source-level pins run no commands or database work; no other test
 reads these docs, so drift passes elsewhere.
 
@@ -30,7 +30,7 @@ before the setup block.
 
 CI compares shared doc facts; changed facts run this guard, unreadable sections the full gate.
 
-Normalization boundary: each command's trailing ` # ...` inline
+Normalization boundary: each command's trailing ` #...` inline
 comment is stripped, so a quoted or escaped ` #` literal inside a
 command line would be over-stripped -- none exists in any setup line
 today, and the strip applies identically to all three docs, so the

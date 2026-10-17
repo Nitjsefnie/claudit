@@ -1,11 +1,10 @@
-"""The hourly refresh's commit body carries only what the run changed
-(issue #933).
+"""The hourly refresh's commit body carries only what the run changed.
 
 The standing blocks — the vanished-host set (rows kept) and the sampled
 host classifications — are dropped from the commit message and kept in
 the run's own stdout report. A committing run records both as the
 ``vanished`` and ``sampled`` keys of the state file beside the pricing
-document (src/pricing_notices.json, which carries the issue #888 notice
+document (src/pricing_notices.json, which carries the notice
 baseline), so a vanished set that changes or a classification that
 changes shows as a diff of that file instead of re-printing in every
 commit body.
@@ -137,7 +136,7 @@ def test_the_commit_message_names_the_counts_and_carries_the_report(
     subject, _, body = message.partition("\n\n")
     assert subject == "Refresh OpenRouter provider rates: 1 changed, 1 new"
     # The body is the run's report minus the standing vanished/sampled
-    # blocks, which the stdout report keeps (issue #933): the body is a
+    # blocks, which the stdout report keeps: the body is a
     # section of that report, never a superset of it.
     assert "OpenRouter provider rates, detected" in body
     assert re.search(r"changed\s+OpenInference", body)

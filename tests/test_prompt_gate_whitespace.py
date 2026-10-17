@@ -1,4 +1,3 @@
-"""Prompt-gate whitespace parity across the backend and browser."""
 from __future__ import annotations
 
 import json
@@ -56,7 +55,6 @@ def _backend_prompt_lines(text: str, parsed: dict) -> list[int]:
 
 
 def _node_prompt_results(transcripts: dict[str, str]) -> dict:
-    """Parse transcripts with the real browser parser in one Node process."""
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
@@ -85,7 +83,6 @@ def _node_prompt_results(transcripts: dict[str, str]) -> dict:
 
 
 def _make_transcript(texts: list[str]) -> str:
-    """Encode user texts as one valid, ordered JSONL transcript."""
     base = datetime(2026, 9, 20, tzinfo=timezone.utc)
     records = []
     for index, text in enumerate(texts):

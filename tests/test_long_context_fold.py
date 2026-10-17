@@ -1,7 +1,7 @@
 """The Codex long-context meter survives every re-derivation.
 
 A Codex record above the 272k threshold is stored at 2x input side /
-1.5x output, whatever plan served the rollout (issue #194). Any endpoint
+1.5x output, whatever plan served the rollout. Any endpoint
 that rebuilds per-component cost from the stored tokens must apply the
 same multipliers or its breakdown stops summing to the stored cost_usd
 (SV-DATED-RATES). records.long_context persists the decision; these
@@ -27,13 +27,13 @@ from tests import dims_seed
 
 # 300k prompt / 2k output, no rate_limits (the API shape): the record
 # lands over the threshold with the meter armed — which is every plan's
-# shape now (issue #194).
+# shape now.
 _USAGE = {
     "input_tokens": 300_000, "cached_input_tokens": 290_000,
     "cache_write_input_tokens": 0, "output_tokens": 2_000,
     "reasoning_output_tokens": 1_000, "total_tokens": 302_000,
 }
-# The rollout's request timestamp; sol's pre-Aug21 dated window prices it.
+# Resolve the rollout's rate at its request timestamp.
 _BLOB_TS = datetime(2026, 6, 14, 12, 3, tzinfo=timezone.utc)
 _BLOB = b"".join(
     json.dumps(line).encode() + b"\n"
@@ -125,7 +125,7 @@ def _seed_search_records(records: tuple[_SearchRecord, ...]) -> None:
 
 def _cache_search_model_row(codex_app) -> tuple[dict, dict]:
     """The search model's per_model entry (for its cost_total) and the
-    session total — the only entry carrying cost_buckets (issue #916).
+    session total — the only entry carrying cost_buckets.
     _seed_search_records leaves this model the sole one, so the session
     total's buckets are this model's."""
     body = codex_app.get("/api/cache?range=3650d").json()
@@ -194,9 +194,7 @@ def test_cache_cost_buckets_sum_to_the_stored_cost(codex_app):
     assert m["cost_total"] == pytest.approx(
         sum(buckets.values()), abs=3e-4
     )
-    # The record's ts (2026-06-14) sits inside sol's pre-Aug21 dated
-    # window; the fold resolves the same rates for the epoch, so the
-    # expected figures read them at that ts too.
+    # Read expected rates at the record's own timestamp, as the fold does.
     rates = pricing.rate_for("gpt-5.6-sol", _BLOB_TS)  # sv-test-data: allow (derived: expected priced from the same window rates at the record's own ts)
     assert buckets["fresh"] == pytest.approx(
         10_000 * rates["fresh"] * pricing.LONG_CONTEXT_INPUT_MULT / 1_000_000,
@@ -249,7 +247,7 @@ def test_cache_fold_places_token_and_search_cost_in_each_rate_epoch(
 
 def _seed_meter_pair(model: str, old_fingerprint: str) -> None:
     """Retarget the first stored record to the meter pair and plant a
-    second row carrying the old factors (#959's dim-FK shape)."""
+    second row carrying the old factors (the dim-FK shape)."""
     with db.viz_conn() as c:
         file_key, line_num = c.execute(
             "SELECT f.file_key, r.line_num FROM records r "
@@ -358,7 +356,7 @@ def test_mixed_stored_factor_pairs_decompose_stored_total(
     assert model_row["cost_total"] == 62.0
     assert "cost_buckets" not in model_row
     # The synthetic model is the sole one here, so the session total's
-    # decomposition is its own (issue #916).
+    # decomposition is its own.
     assert sum(body["session_total"]["cost_buckets"].values()) == \
         pytest.approx(62.0)
     assert [(float(cost), in_mult, out_mult) for cost, in_mult, out_mult,

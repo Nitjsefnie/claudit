@@ -5,7 +5,7 @@ and states no other prerequisite, but several of its tests shell out to
 git over the tree under test (``git ls-files``, ``git cat-file``,
 ``git check-ignore``). From a plain source archive — a tree with no
 ``.git`` — git exits 128 and the test errors instead of skipping
-(issue #392). The guard asks one question: would git answer for THIS
+. The guard asks one question: would git answer for THIS
 tree? ``git rev-parse --show-toplevel`` run inside the tree must
 resolve to the tree itself; an enclosing repository's toplevel is not
 this tree's metadata, so an archive unpacked inside another checkout
@@ -48,7 +48,7 @@ def has_own_git_metadata(root: Path) -> bool:
 def require_own_git_metadata(root: Path) -> None:
     """Skip the calling test when `root` has no git metadata of its own.
 
-    The reason names the situation, per issue #392's expectation.
+    The reason names the situation, per expectation.
     """
     if not has_own_git_metadata(root):
         pytest.skip(SKIP_REASON)

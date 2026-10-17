@@ -68,7 +68,6 @@ def _seed(cur: psycopg.Cursor, pid: str, keys: list[str]) -> None:
 
 
 def _alias(pattern: str, target: str) -> None:
-    """Add one alias row, the way an operator would."""
     with db.viz_conn() as c:
         c.execute(
             "INSERT INTO project_aliases (pattern, project_id, note) "
@@ -253,7 +252,7 @@ def test_fold_labels_existing_target_with_its_id(fresh_db):
         c.commit()
     _alias("-tmp-acme-wt-%", target)
 
-    # 1 re-key + the target's own label reset (issue #370): the return is
+    # 1 re-key + the target's own label reset: the return is
     # the rows the pass changed, not only the re-keyed ids.
     assert project_aliases.rekey_folded_projects() == 2
     with db.viz_conn() as c:
@@ -275,7 +274,7 @@ def test_fold_relabels_target_when_there_are_no_moves(fresh_db):
     _alias("-tmp-acme-wt-%", target)
 
     assert _pairs() == {}
-    # Issue #370: the relabel is a real change — the pass returns it, so a
+    # the relabel is a real change — the pass returns it, so a
     # relabel-only run gates the response-cache invalidation like a fold.
     assert project_aliases.rekey_folded_projects() == 1
     with db.viz_conn() as c:
@@ -576,7 +575,7 @@ def test_projects_hides_a_project_whose_files_carry_zero_usage_records(
         projects_client):
     """The all-time-token inner JOIN drops a project whose files parsed to
     ZERO usage records — the state a folded-away worktree's source
-    project would otherwise present in the picker (issue #272). A project
+    project would otherwise present in the picker. A project
     with usage stays listed. Uses range=3650d: a cache key no other
     /api/projects test claims."""
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \

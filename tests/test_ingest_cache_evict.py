@@ -13,7 +13,6 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture(name="fresh_db")
 def _fresh_db_fixture(monkeypatch):
-    """Per-test schema reset on a separate DB."""
     yield from scratch_db.scratch_viz_database(monkeypatch, "ingest")
 
 
@@ -29,9 +28,9 @@ def _mini_r2_env_fixture(monkeypatch):
 
 def test_orphan_sweep_evicts_deleted_file_from_transcript_cache(
         fresh_db, mini_r2_env):
-    """Issue #269: the sweep that drops a deleted file's rows must also
+    """the sweep that drops a deleted file's rows must also
     evict its cached transcript bytes — they are keyed by
-    cache.transcript_key(file_key, r2_etag) (issues #269, #375), so
+    cache.transcript_key(file_key, r2_etag), so
     without the eviction the raw transcript stays served from cache
     after its source object is deleted. A survivor's entry is
     untouched."""
@@ -58,9 +57,7 @@ def test_orphan_sweep_evicts_deleted_file_from_transcript_cache(
 
 def test_full_scope_orphan_sweep_evicts_cached_transcripts(
         fresh_db, mini_r2_env):
-    """Issue #269, the full-scope branch: an empty listing (seen_keys
-    empty) deletes EVERY files row, and every deleted row's cached
-    transcript bytes go with it."""
+    """An empty seen_keys listing deletes every file and evicts all its cached bytes."""
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         keys = [
@@ -69,7 +66,7 @@ def test_full_scope_orphan_sweep_evicts_cached_transcripts(
                 "SELECT file_key, r2_etag FROM files").fetchall()
         ]
     # The mirror's transcript count, read from its tree: it carries the
-    # lane layout's wires too (issue #503), and what is asserted is that
+    # lane layout's wires too, and what is asserted is that
     # the sweep takes exactly the rows the listing held.
     transcripts = mini_mirror.counts()["transcripts"]
     assert len(keys) == transcripts

@@ -1,26 +1,9 @@
-"""Issue #936 — Cost/Tokens by Model group to one row per model by default.
-
-The two panels used to draw one flat row per (model, host) pair, which
-turns an OpenRouter deploy into a wall of near-identical rows for one
-model. They now collapse to ONE row per model — summed value, today's
-descending sort, today's share-of-panel labels — and a single checkbox
-per panel flips the whole panel back to today's per-host rows. Hovering a
-collapsed multi-host row lists each host's share of that MODEL's total.
-
-Neither half is reachable by running the suite the usual way: node cannot
-parse the JSX and nothing here renders React (the boundary
-test_panel_wiring.py documents), so a panel can pass every other test
-while drawing the wrong rows. The pure grouping/expand/hover logic is
-therefore a plain module driven through node the way
-tests/test_model_select_js.py drives src/model-select.js, and the wiring
-that cannot run — the mounts, the ONE checkbox, the hover lines — is
-pinned at source level.
-
-The single-checkbox shape is the point of the panel-level control: a
-per-row toggle was considered and rejected (maintainer, 2026-10-11), so
-these pins fail on either a second checkbox or a checkbox that has moved
-into the row loop.
-"""
+"""Cost/Tokens by Model default to one row per model, summing host values.
+One checkbox per panel switches the whole list to per-host rows; hover on
+a collapsed multi-host row lists each host's share of the model total.
+Node cannot parse JSX and the suite does not render React, so plain-module
+tests drive grouping logic and source checks pin mounts, control and hover
+wiring. A control inside each row would change the panel-level contract."""
 from __future__ import annotations
 
 import json
@@ -110,7 +93,7 @@ def test_checked_is_todays_per_host_rows_in_todays_order():
     within exact ties — NOT the model's hosts stacked in place under
     their collapsed row, which would read as a different sort to anyone
     comparing against a saved screenshot. Descending-sort semantics,
-    not a byte-for-byte replay of the pre-#936 flat fold: an exact tie
+    not a byte-for-byte replay of the legacy flat fold: an exact tie
     spanning two models was broken there by label-map insertion order."""
     grouped = (
         "window.modelGroup.group({"
@@ -218,17 +201,9 @@ def _hbar_body() -> str:
 
 
 def test_the_panel_carries_exactly_one_checkbox_outside_the_row_loop():
-    """One control flips the WHOLE panel (maintainer, 2026-10-11 — the
-    per-row checkbox the issue first described was rejected). Three
-    regressions this pins: a second checkbox, a checkbox that moved into
-    the row map (one per row again), and a control that is no longer
-    gated on the panel having opted into grouping — every other HBar
-    mount (Cost/Tokens by Agent Type) must stay untouched.
-
-    The count and the position check run over HBar's body alone, so a
-    future checkbox in another component of this module (a legend
-    expander, a table control) is that component's business and does not
-    fail here with a message naming the wrong panel."""
+    """One control flips the whole panel, gated on opting into model grouping.
+    Count and position checks inspect HBar alone so another component's own
+    checkbox cannot fail with a message naming the wrong panel."""
     body = _hbar_body()
     assert body.count('type="checkbox"') == 1, (
         "HBar renders more than one checkbox -- the control belongs to "
@@ -322,7 +297,7 @@ def test_the_collapsed_rows_hover_lines_come_from_the_module():
 def test_the_monospace_advance_probe_lives_where_the_size_ratchet_put_it():
     """dashboard-charts.jsx and app.jsx sit exactly on their recorded
     size entries (.github/ci-thresholds.json; entries only ever move
-    DOWN), so #936 cannot add lines to either without relocating some.
+    DOWN), so cannot add lines to either without relocating some.
     monoAdvancePx — a self-contained measurement helper used only by
     dashboard-charts.jsx — moved to its own module for the room; this
     pins the seam (call site, export, load order) so the next reader

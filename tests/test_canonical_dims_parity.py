@@ -1,9 +1,9 @@
-"""SV-CANONICAL-FLAG parity across the issue #959 surrogate ids (R2).
+"""SV-CANONICAL-FLAG parity across the surrogate ids (R2).
 
 The winner rule still orders by `(is_replay, attribution, file_key,
 line_num[, idx])` over the TEXT `files.file_key` — never `file_id`,
 which is first-seen order. Each test computes the expected winners with
-a Python copy of the PRE-#959 rule and asserts the stored flags match
+a Python copy of the legacy rule and asserts the stored flags match
 it, plus one trap case whose file_id order is the opposite of its
 file_key order: a file_id-ordered implementation flips that case's
 winner and fails here.
@@ -22,7 +22,7 @@ _UNATTRIBUTED = ("", "unknown", "(unknown)", "<synthetic>")
 
 
 def _old_rule_winners(rows: list[dict], key_fields: tuple[str, ...]) -> set:
-    """The pre-#959 winner rule, in Python, over rows carrying file_key.
+    """The legacy winner rule, in Python, over rows carrying file_key.
 
     `rows` items need uuid/tool_use_id, model, is_replay and the key
     fields; a NULL identity is always canonical (never a duplicate).
@@ -54,7 +54,6 @@ def _old_rule_winners(rows: list[dict], key_fields: tuple[str, ...]) -> set:
 @pytest.mark.db
 def test_fixture_corpus_winners_match_the_old_text_rule(monkeypatch,
                                                         tmp_path):
-    """fixtures/r2_mini ingested end to end: stored flags == the old rule."""
     import shutil  # pylint: disable=import-outside-toplevel
 
     name = scratch_db.create_database("canon_fixture")
@@ -246,9 +245,9 @@ def test_replay_and_attribution_ranks_outrank_key_order(monkeypatch):
                 "JOIN files f ON f.file_id = r.file_id"
             ).fetchall()
         winners = {u: fk for fk, u, canon in rows if canon}
-        # An original beats a replay whatever the key order (issue #687).
+        # An original beats a replay whatever the key order.
         assert winners["u-replay"] == "bucket/p/bbb.jsonl"
-        # An attributed copy beats an unattributed one (issue #529).
+        # An attributed copy beats an unattributed one.
         assert winners["u-attr"] == "bucket/p/ddd.jsonl"
     finally:
         db.reset_viz_pool()

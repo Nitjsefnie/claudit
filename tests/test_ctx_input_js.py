@@ -2,7 +2,7 @@
 
 Mirrors backend/ctx_input.py, which reads its iteration list through
 json_shape.dict_list: only OBJECT entries count, so a malformed entry
-(null, array, scalar) is skipped rather than thrown on (issue #896).
+(null, array, scalar) is skipped rather than thrown on.
 What survives the filter then decides between the >1-iteration peak and
 the top-level fresh+create+read fallback.
 """

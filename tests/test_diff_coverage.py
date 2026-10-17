@@ -340,7 +340,7 @@ class TestRender:
         assert "No" in body  # says why nothing was measured, not "0%"
 
     def test_no_measured_sentence_is_grammatical(self):
-        """#614: words were missing between 'executable' and the
+        """words were missing between 'executable' and the
         parenthesis, reading 'Lines coverage does not consider
         executable (...) are excluded'."""
         body = dc.render([], 0, 0, 0, unmeasured=[])

@@ -1,6 +1,6 @@
 """The agent-type panel's bounded row cap, driven through node.
 
-Issue #651: Cost by Agent Type grew one full-width row per distinct
+Cost by Agent Type grew one full-width row per distinct
 agent role with no bound -- 1860px tall at 25 roles. The fix caps each
 list at MAX_VISIBLE rows: the roles past the fold fold into one
 aggregate `other` row, and the header toggle expands the full list.
@@ -23,7 +23,6 @@ CAPS = ROOT / "src" / "agent-list-caps.js"
 
 
 def _node(body: str):
-    """Run `body` against the real src/agent-list-caps.js in node."""
     script = f"""
       global.window = {{}};
       require({str(CAPS)!r});
@@ -38,7 +37,6 @@ def _node(body: str):
 
 
 def _rows(n):
-    """n roles, values n..1 (already biggest-first), one request each."""
     return [{"label": f"role-{i:02d}", "value": n - i, "requests": 1}
             for i in range(n)]
 
@@ -69,7 +67,7 @@ def test_eight_roles_render_whole_nine_create_the_aggregate():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_thirty_roles_collapse_to_seven_plus_other():
-    """#651's subject: 30 roles render 7 kept + one aggregate, whose
+    """Tail aggregation: 30 roles render 7 kept + one aggregate, whose
     value and request count are the hidden tail's sums computed from the
     same inputs -- a mis-folded aggregate over- or under-counts the very
     roles it stands for."""
@@ -112,8 +110,6 @@ def test_unsorted_input_is_sorted_biggest_first_before_the_fold():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_expanded_cap_passes_every_role_through():
-    """The toggle's expanded state: an Infinity cap returns every role,
-    no aggregate, nothing hidden."""
     out = _node(f"""
       const r = window.agentListCaps.capAgentRows(
         {json.dumps(_rows(30))}, Infinity);

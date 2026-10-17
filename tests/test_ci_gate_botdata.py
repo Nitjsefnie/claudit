@@ -1,4 +1,4 @@
-"""The ci-gate bot-data class: classifier and fold pins (issues #455, #488).
+"""The ci-gate bot-data class: classifier and fold pins.
 
 The classifier accepts the refresh bot's exact push signature; the aggregate
 fold permits its expensive legs to skip.
@@ -16,7 +16,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load(name):
-    """Import scripts/ci/<name>.py by path."""
     path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
@@ -42,11 +41,6 @@ CODE = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# classify_changes: the bot-data class
-# ---------------------------------------------------------------------------
-
-
 def test_bot_signature_is_the_refresh_bots_staged_paths():
     # The push stages exactly these three paths (refresh-pricing.yml's
     # `git add`) — an exact-set signature, never a per-file filter.
@@ -56,8 +50,8 @@ def test_bot_signature_is_the_refresh_bots_staged_paths():
 
 
 def test_bot_signature_spans_the_refresh_push_workflow():
-    # The contract issue #932 broke on: each side was pinned only inside
-    # its own suite, so a fourth staged path (#888) left both green.
+    # Compare the two sides directly: independent local checks could
+    # both miss an extra staged path.
     # The push job's add line is read out of the raw workflow text, so
     # the paths it stages must equal BOT_SIGNATURE exactly.
     text = (REPO_ROOT / ".github" / "workflows"
@@ -78,7 +72,7 @@ def test_data_only_requires_the_exact_signature():
 
 def test_data_only_accepts_the_three_path_bot_commit():
     # The triple shape: under the pair-only signature it classified
-    # full and ran the whole matrix on a pure bot push (issue #932).
+    # full and ran the whole matrix on a pure bot push.
     assert classify.data_only(
         ["src/pricing.json", "backend/constants.py",
          "src/pricing_notices.json"])
@@ -200,10 +194,6 @@ def test_write_outputs_records_the_data_only_narrowing(tmp_path):
         "reason=bot-data-only change: 1 paths\n"
     )
 
-
-# ---------------------------------------------------------------------------
-# aggregate_gate: the data-only fold
-# ---------------------------------------------------------------------------
 
 # Lockstep with the fold's own leg tuple, not a copy of the modules
 # file's: the pins here judge exactly the document aggregate_gate

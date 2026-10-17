@@ -1,4 +1,4 @@
-"""Tests for the git-metadata skip guard (issue #392).
+"""Tests for the git-metadata skip guard.
 
 Six tests of the documented portable subset shell out to git over the
 tree under test and error with ``git exit 128`` from a plain source

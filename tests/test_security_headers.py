@@ -1,4 +1,4 @@
-"""Security headers on every response (issues #369, #384).
+"""Security headers on every response.
 
 The document CSP (_CSP_TEMPLATE: script-src over 'self', the unpkg CDN
 and the response nonce; style-src over the Google Fonts stylesheet host
@@ -65,8 +65,6 @@ def test_static_css_gets_nosniff_only(guest_client):
     assert "x-frame-options" not in resp.headers
 
 
-# --- middleware-level pins -------------------------------------------------
-
 def _drive(status, raw_headers, body_chunks):
     sent = []
 
@@ -132,7 +130,7 @@ def test_existing_headers_are_not_clobbered():
 
 
 # Every directive the app needs, pinned one by one. The evidence for each
-# lives in the PR for #384; the short form: the unpkg scripts are admitted by
+# lives in the PR for; the short form: the unpkg scripts are admitted by
 # host (SRI pins their bytes independently); every <script> tag the dashboard
 # serves carries the response's nonce, and Babel standalone propagates a
 # text/babel source tag's nonce onto the inline script element it generates
@@ -145,7 +143,7 @@ def test_existing_headers_are_not_clobbered():
 # styling is not CSP-governed. fetch/XHR/SSE are same-origin; the Google
 # Fonts pair needs one style host and one font host. default-src 'none',
 # base-uri 'none' and form-action 'self' are the deny-by-default floor;
-# frame-ancestors 'none' stays from #369. The two nonce-shaped directives
+# frame-ancestors 'none' stays from. The two nonce-shaped directives
 # (script-src, style-src) are pinned against the body nonce by the page
 # tests, not by this fixed-value table.
 _EXPECTED_CSP_DIRECTIVES = {

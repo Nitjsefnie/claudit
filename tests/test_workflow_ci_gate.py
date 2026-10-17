@@ -18,12 +18,12 @@ check still reports. The invariants pinned here:
   contract is self-contained; `tests/test_workflow_pip_cache.py` owns
   the pip-cache shape repo-wide);
 - every step-running job in every workflow declares `timeout-minutes`
-  (issue #98: GitHub's default is 360, so an undeclared bound lets a
+  (GitHub's default is 360, so an undeclared bound lets a
   hung step occupy a runner for six hours);
 - the deploy key is loaded only by the two push jobs that take it from
   the master-push environment — refresh-pricing.yml's and the top-level
   ratchet-push.yml's — never by a forwarded secret, and tests.yml
-  pushes nothing (issue #479: the secret resolved empty inside the
+  pushes nothing (the secret resolved empty inside the
   workflow_call callee, and a GITHUB_TOKEN push is rejected by the
   ruleset's required aggregate check, so the ratchet push moved out of
   the callee into ratchet-push.yml, keyed on the ci-gate run's
@@ -124,7 +124,7 @@ def test_aggregate_legs_match_the_modules_expected_legs():
 
 
 def test_ci_gate_jobs_are_exactly_the_non_leg_jobs_plus_the_legs():
-    # Lockstep pin for the verified-base walk (issue #208): the
+    # Lockstep pin for the verified-base walk: the
     # classifier's NON_LEG_JOBS and this file's LEG_IDS must together
     # name every ci-gate job, so a leg added to the workflow moves all
     # three lists in one commit or this test goes red — a job the walk
@@ -142,13 +142,13 @@ def test_ci_gate_jobs_are_exactly_the_non_leg_jobs_plus_the_legs():
 
 
 def test_legs_are_conditioned_on_the_narrowing_outputs():
-    # Issue #455: a bot-data-only change (src/pricing.json alone) runs
+    # a bot-data-only change (src/pricing.json alone) runs
     # only the cheap legs; every other leg needs BOTH narrowing outputs
     # false. The cheap set is pinned in lockstep with the aggregate
     # module's CHEAP_LEGS, so a leg cannot change class in one place.
     cheap = _aggregate_module().CHEAP_LEGS
     assert set(cheap) == {"lint", "smoke"}
-    # Issue #844: the legs a comment cannot affect additionally read the
+    # the legs a comment cannot affect additionally read the
     # comment-only output, so a comment-only change skips exactly them.
     # CodeQL is NOT among them: `// codeql[...]` / `// lgtm[...]` are
     # comment-keyed suppressions, so a comment-only diff can change it.
@@ -182,7 +182,7 @@ def test_aggregate_module_names_the_same_cheap_legs_the_workflow_runs():
 
 
 def test_master_push_runs_get_a_per_sha_concurrency_group():
-    # Issue #358: on a per-ref group with cancel-in-progress, a bot push
+    # on a per-ref group with cancel-in-progress, a bot push
     # (the hourly pricing refresh, a dependabot merge) landing while a
     # master run was in flight cancelled it whole — but the aggregate
     # carries `if: always()`, so the cancelled run's aggregate still ran,
@@ -192,7 +192,7 @@ def test_master_push_runs_get_a_per_sha_concurrency_group():
     # push side of the group to the commit SHA gives every master push
     # its own run the gate's group never cancels, and release.yml waits
     # on a run that completes. The two long legs are per-SHA on a push
-    # too (issues #366, #409), pinned by tests/test_workflow_concurrency.py.
+    # too, pinned by tests/test_workflow_concurrency.py.
     # One residual remains one level down: the remaining per-ref leg
     # groups hold at most one pending run, so a third concurrent master
     # push can still cancel a merely-queued short leg (see the
@@ -233,7 +233,7 @@ def test_setup_docs_runs_only_the_guard_with_the_tests_python_pin():
 
 
 def test_classify_job_reads_actions_for_the_verified_base_walk():
-    # Issue #208: on a push the classifier walks the ci-gate workflow
+    # on a push the classifier walks the ci-gate workflow
     # runs and run-jobs endpoints for the newest master commit whose
     # legs executed. Without `actions: read` every such read 403s and
     # every push over-runs to full legs, silently disabling docs-only
@@ -244,7 +244,7 @@ def test_classify_job_reads_actions_for_the_verified_base_walk():
 
 def test_ci_gate_push_trigger_keeps_the_ratchet_paths_ignore():
     # The ratchet bot's master commit (only .github/ci-thresholds.json)
-    # must not start the suite — the guarantee the gate workflows used to
+    # must not start the suite — the guarantee the gate workflows
     # carry individually, hosted by ci-gate now.
     push = (_ci_gate().get("on") or {}).get("push") or {}
     ignored = push.get("paths-ignore") or []
@@ -381,7 +381,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
             "baselines (automated)" in run)
     # The commit names no co-author: a github-actions[bot] commit is
     # authored by no model, so a trailer on it attributes work to a
-    # model that never ran (issue #491). Pinned by ABSENCE from every
+    # model that never ran. Pinned by ABSENCE from every
     # non-comment line of the step, case-folded — so a continuation, a
     # `-m`, a `--trailer`, either case spelling, or a message assembled
     # into a variable above the commit all fail, while prose that
@@ -389,7 +389,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     # it is gone) still passes. Scoping to the `-m` arguments instead
     # let that last form through; slicing the commit invocation cannot
     # work either, because a YAML block scalar strips the step's indent
-    # and `if ! git ...` does not begin with `git`, so any boundary
+    # and `if ! git...` does not begin with `git`, so any boundary
     # wide enough to catch the commit also catches the comment beside
     # it. A `#` inside a quoted string would read as a comment here.
     _code = "\n".join(line for line in run.split("\n")
@@ -425,9 +425,9 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
 
 def test_the_tests_callee_is_capped_at_what_its_jobs_use():
     # A callee's token is capped by the caller's grant at the uses:
-    # site. The callee pushes nothing since issue #479 (the ratchet
+    # site. The callee pushes nothing (the ratchet
     # push lives in the top-level ratchet-push.yml workflow, where the
-    # master-push environment's secret resolves) and, since issue #560,
+    # master-push environment's secret resolves), and
     # it posts nothing either — the informational patch-coverage comment
     # is uploaded as an artifact and posted by the top-level
     # coverage-comment.yml, which runs no pull-request code. So
@@ -448,13 +448,9 @@ def test_the_tests_callee_is_capped_at_what_its_jobs_use():
 
 
 def test_the_canary_job_is_named_for_what_it_is():
-    # Issue #514: the bare job ran the calibration gates but displayed
-    # as `tests / pytest`, identical in shape to the six portability
-    # legs. The `name:` is the check-run name; the JOB ID stays `pytest`
-    # (the needs lists, the aggregate fold and the classifier key on
-    # ids, and nothing in the repo pins the old check string -- grepped,
-    # not remembered). The pinned micro is part of the name because the
-    # name is what a red run is read by.
+    # Name the canary distinctly from portability jobs and include its pinned
+    # interpreter version so a failed check identifies the measured runtime.
+    # Keep the job id pytest: needs, aggregate and classifier wiring use it.
     pytest_job = _tests_workflow()["jobs"]["pytest"]
     assert pytest_job.get("name") == (
         "pytest + calibration gates (canary, pinned 3.13.14)")
@@ -536,7 +532,7 @@ def test_no_setup_python_step_owns_the_cache_anywhere():
 
 
 def test_every_step_running_job_declares_timeout_minutes():
-    # Issue #98. GitHub's default is 360 minutes per job, so an
+    # GitHub's default is 360 minutes per job, so an
     # undeclared bound lets a hung step occupy a runner for six hours.
     # A reusable-call job cannot carry the key at all — the schema allows
     # only name/uses/with/secrets/needs/if/permissions there — so the
@@ -555,19 +551,15 @@ def test_every_step_running_job_declares_timeout_minutes():
 
 
 def test_panel_layout_job_timeout_is_pinned_by_value():
-    # Issue #849. The presence check above cannot see the VALUE, so
-    # reverting this job's bound to the pre-#846 value passes silently —
-    # #846/#847 raised it from 20 to 30 because healthy runs took 94-97%
-    # of the old limit, and a slow step cancelled the leg (master red on
-    # d0a07178 twice). Pin the value the way the other jobs' bounds are
-    # pinned here and in tests/test_workflow_refresh_push.py.
+    # Presence alone cannot catch an undersized timeout. Pin the value
+    # so the job retains enough headroom for normal runs and slow steps.
     jobs = _load(WORKFLOWS / "panel-layout.yml")["jobs"]
     assert set(jobs) == {"panel-layout"}
     assert jobs["panel-layout"]["timeout-minutes"] == "30"
 
 
 def test_gate_freshness_publishes_on_push_and_pr_targets():
-    # Issue #495: every master push re-publishes every open head, and a
+    # every master push re-publishes every open head, and a
     # pull_request_target event re-publishes the event's own head,
     # filtered to the base it protects. The dispatch-only advisory era
     # is gone.
@@ -597,9 +589,7 @@ def test_classify_step_runs_the_module():
 
 
 def test_contributing_count_prose_matches_the_workflow_tree():
-    # Issue #621: the two counts the CI section states in words had no
-    # oracle and drifted three times (#604, #618). Pin them to the
-    # structural truth: the leg fold to LEG_WORKFLOWS, the total to the
+    # Bind the two prose counts to structural truth: the leg fold to LEG_WORKFLOWS, the total to the
     # workflows directory listing, so the next workflow addition reds
     # the prose in the same push.
     def _words(n: int) -> str:

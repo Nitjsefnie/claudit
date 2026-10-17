@@ -1,5 +1,5 @@
 """The stored document's compact shape, checked at the raw-file
-boundaries only (issue #931, storage half): a cache-write rate stored in
+boundaries only (storage half): a cache-write rate stored in
 src/pricing.json must differ from `fresh` — compact_pricing_doc strips an
 equal pair at every write, so a present pair is a hand edit. The shared
 validation (`load_tables`, the node loader path) stays shape-agnostic and

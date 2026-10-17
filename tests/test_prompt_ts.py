@@ -1,4 +1,4 @@
-# Range prompts/turns count per own timestamp (issue #214). One module
+# Range prompts/turns count per own timestamp. One module
 # because the feature's three pins (Claude parse, lane parse, dashboard
 # totals) share one subject and this keeps the baselined test_parse.py /
 # test_api.py modules within their committed size-baseline entries
@@ -28,7 +28,7 @@ def test_prompt_ts_collected_per_prompt():
     """parse_file returns prompt_ts carrying each counted prompt's own
     timestamp, index-aligned with prompt_count: an excluded line's ts is
     excluded by the same gate, so instrumentation never appears in it
-    (issue #214)."""
+    ."""
     blob = (
         b'{"type":"user","timestamp":"2026-05-07T10:00:00Z","uuid":"u1",'
         b'"message":{"role":"user","content":"real prompt"}}\n'
@@ -50,7 +50,7 @@ def test_prompt_ts_collected_per_prompt():
 def test_lane_prompt_ts_matches_prompt_count(name):
     """The lane parsers emit prompt_ts with one entry per counted prompt
     (== the source of files.prompt_count), a real isoformat timestamp or
-    None (issue #214)."""
+    None."""
     out = parse.parse_file(f"sessions/p/s/{name}", (FIX / name).read_bytes())
     assert len(out["prompt_ts"]) == out["prompt_count"]
     for ts in out["prompt_ts"]:
@@ -59,13 +59,9 @@ def test_lane_prompt_ts_matches_prompt_count(name):
 
 @pytest.fixture(name="app_with_prompt_range_data")
 def _app_with_prompt_range_data_fixture(monkeypatch):
-    """Fresh DB + a tiny R2 mirror built inline: two main files whose
-    mtimes are current, one of them carrying a prompt and a turn dated
-    BEFORE a 30d range's `since` plus one prompt with no timestamp.
-
-    This reproduces issue #214: a file modified inside the range still
-    carried prompts sent before it, and the range's totals used to count
-    those whole-file numbers."""
+    """Prompt and turn counts use their own timestamps rather than file mtime.
+    A recently modified main file can contain events outside the selected range
+    and events without timestamps; whole-file totals would overcount them."""
     test_db = scratch_db.create_database("api_ptr")
     monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{test_db}")
     tmp = tempfile.mkdtemp(prefix="sv-api-ptr-")
@@ -94,7 +90,7 @@ def _app_with_prompt_range_data_fixture(monkeypatch):
                                   "cache_read_input_tokens": 0}}})
 
     def _write(key, lines):
-        path = r2root / key  # e.g. claude/projA/sess-RA/sess-RA.jsonl
+        path = r2root / key
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines) + "\n")
 
@@ -130,7 +126,7 @@ def _app_with_prompt_range_data_fixture(monkeypatch):
 
 def test_dashboard_counts_prompts_and_turns_by_own_timestamp(
         app_with_prompt_range_data):
-    """Issue #214 regression: the range's prompts/turns count per own
+    """ regression: the range's prompts/turns count per own
     timestamp, not whole files' totals. sess-RA was modified now but
     carries a prompt and a turn dated 45 days ago; a 30d view must not
     count those, while its unstamped prompt still counts (ruling P1: an

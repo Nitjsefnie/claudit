@@ -1,4 +1,3 @@
-"""Behavioral geometry coverage for dashboard aggregate time series."""
 from __future__ import annotations
 
 import json
@@ -145,7 +144,7 @@ def test_panel_wires_bounded_geometry_to_measurement_hooks():
     assert "timeBarRect(b, range, padL, plotW)" in panel
     assert "const xScale = ts => timeX(ts, range, padL, plotW)" in panel
     # The hover hit-tests in the svg frame, so the x the binder receives
-    # is `sx`, not the container-frame `mx` (#645's 1px-border dead band).
+    # is `sx`, not the container-frame `mx` (avoiding a 1px-border dead band).
     assert "timeBinIndexAtX(bins, range, padL, plotW, sx)" in panel
     assert 'data-plot-boundary=""' in panel
     assert 'data-time-bar=""' in panel

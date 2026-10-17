@@ -1,5 +1,5 @@
 """The response-cache invalidation / ingest_done broadcast gate of
-run_ingest_locked (issues #256 and #341): an ingest whose only data
+run_ingest_locked: an ingest whose only data
 change comes from the derived-state phases — the reprice pass after a
 PRICING_VERSION bump, the suppression purge, or the project_aliases
 fold — must gate exactly like a run that inserted, reparsed or deleted
@@ -41,8 +41,6 @@ UTC = timezone.utc
 def _prime_and_spy(
         key: str, monkeypatch: pytest.MonkeyPatch
 ) -> list[tuple[object, ...]]:
-    """Prime one response-cache entry and record every ingest_done
-    broadcast; return the recorded list."""
     cache.response_cache.put(key, {"v": "old"})
     broadcasts = []
     monkeypatch.setattr(ingest.events, "broadcast_threadsafe",
@@ -53,13 +51,13 @@ def _prime_and_spy(
 def test_a_reprice_only_ingest_invalidates_and_broadcasts(
         fresh_db: str, mini_r2_env: Path,
         monkeypatch: pytest.MonkeyPatch) -> None:
-    """Issue #256: an ingest whose only data change is the reprice pass
+    """an ingest whose only data change is the reprice pass
     must mark the response cache stale and broadcast ingest_done, exactly
     like a run that inserted, reparsed or deleted files — SV-ROLLUP: the
     dashboard must never serve the previous numbers after records
     changed."""
     assert ingest.run_ingest_locked("manual")["error"] is None
-    # Issue #339: a restamp-only bump changes no data and must stay
+    # a restamp-only bump changes no data and must stay
     # quiet; the simulated bump moves real rates so the reprice pass has
     # something to reprice.
     # claude-opus-4-7 is a tracked vendor key since the migration: the
@@ -100,7 +98,7 @@ def test_a_reprice_only_ingest_invalidates_and_broadcasts(
 def test_a_purge_only_ingest_invalidates_and_broadcasts(
         fresh_db: str, mini_r2_env: Path,
         monkeypatch: pytest.MonkeyPatch) -> None:
-    """Issue #256: an ingest whose only data change is the suppression
+    """an ingest whose only data change is the suppression
     purge must mark the response cache stale and broadcast ingest_done —
     the purge deletes records without inserting, reparsing or deleting a
     file, so the walk-level counts all stay zero."""
@@ -182,7 +180,7 @@ def test_a_tool_use_only_purge_invalidates_and_broadcasts(
 def test_an_alias_fold_only_ingest_invalidates_and_broadcasts(
         fresh_db: str, mini_r2_env: Path,
         monkeypatch: pytest.MonkeyPatch) -> None:
-    """Issue #341: an ingest whose only data change is the project_aliases
+    """an ingest whose only data change is the project_aliases
     fold must mark the response cache stale and broadcast ingest_done —
     the fold re-keys stored identity without inserting, reparsing or
     deleting a file, so the walk-level counts all stay zero."""
@@ -224,7 +222,7 @@ def test_an_alias_fold_only_ingest_invalidates_and_broadcasts(
 def test_a_no_op_ingest_stays_quiet(
         fresh_db: str, mini_r2_env: Path,
         monkeypatch: pytest.MonkeyPatch) -> None:
-    """Issue #256's flip side: a run that changes nothing stays quiet.
+    """ flip side: a run that changes nothing stays quiet.
     The rollup rebuilds rewrite their whole derived table every run, so
     their row counts must NOT gate the invalidation — only the five
     record-mutating phases do (suppression, reprice, the alias fold,
@@ -243,7 +241,7 @@ def test_a_no_op_ingest_stays_quiet(
 
 
 # --------------------------------------------------------------------------
-# Issue #370: identity changes that bypass the walk-level counts must
+# identity changes that bypass the walk-level counts must
 # reach the same gate. A lane re-key moves files' project id without
 # inserting, reparsing or deleting anything; the fold pass's label reset
 # changes what /api/projects displays. Either alone must invalidate and

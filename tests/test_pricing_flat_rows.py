@@ -11,11 +11,8 @@ from backend import pricing
 UTC = timezone.utc
 
 # --- rows without a dated window price flat across time ---------------------
-# Sonnet 5's launch price was announced as introductory through
-# 2026-08-31, but it was made the standard price and the 2026-09-01 rise
-# was cancelled — there is no cutover in the row. That is a property of
-# the ROW's shape, so the behaviour is driven through a synthetic row
-# (SV-TEST-DATA) instead of pinning sonnet 5's committed values.
+# A flat row has no cutover: exercise its shape through synthetic rates
+# rather than pinning a real model's committed values (SV-TEST-DATA).
 
 UTC = timezone.utc
 

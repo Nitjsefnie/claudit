@@ -1,14 +1,6 @@
-"""Parity between the derivation and its full-sweep control.
-
-The control pair that keeps the incremental derivation honest: both
-forms must root exactly the same fixture sets on the same modules. The
-pair and its seeds moved here from tests/test_db_marker.py (issue
-#715) so the guard module stays under the test-file size cap; nothing
-about either form changed. `seeded_root`'s split spelling below is the
-same trick the marking guard's pins use: this file's own text must
-never carry a server token whole, or the marking guard would see this
-file as rooted.
-"""
+"""Incremental and full-sweep controls must root identical fixture sets.
+Split seeded_root spelling so this file's text does not carry a whole
+server token and accidentally root itself in the marking guard."""
 from __future__ import annotations
 
 import ast
@@ -20,12 +12,8 @@ from tests.test_db_marker import (_arg_names, _derive_from_modules,
 
 
 def _derive_by_sweep(modules) -> set[str]:
-    """The derivation exactly as it read before the incremental union.
-
-    The control the optimisation is measured against: it asks
-    `_rooted_fixture_names` for a full sweep of every module's fixture
-    map at every call, which is what `_derive_from_modules` used to do.
-    """
+    """Full-sweep control for the incremental fixture derivation.
+    Ask _rooted_fixture_names to sweep every module fixture map on every call."""
     funcs = {name: _functions(tree) for name, tree, _ in modules}
     fixtures = _registered_fixtures(modules)
     rooted = {name: _mention_roots(funcs[name], source)
@@ -78,7 +66,7 @@ def _seeded_modules() -> tuple:
 
 # The frozen parity slice: four real, fixture-carrying modules, named.
 # Named rather than the dynamic biggest-four so this test's cost
-# tracks these files alone, never tree membership (issue #675).
+# tracks these files alone, never tree membership.
 # All four carry real fixture decorators and fixture chains.
 _PARITY_SLICE = ("test_web_metrics_rollup", "test_parse_lanes",
                  "test_ci_thresholds_guard", "test_api")
@@ -90,7 +78,7 @@ def test_the_incremental_derivation_equals_the_full_sweep_on_real_source():
     # out of the registry this module guards. The slice is a FROZEN
     # list of four real modules, named: a dynamic biggest-N would
     # re-price this test whenever a pull request's added lines pushed
-    # a different file into the top four (issue #675), and a guard that
+    # a different file into the top four, and a guard that
     # costs more than the thing it guards is not a guard. The named
     # four were the largest modules when the slice froze. Their
     # fixture chains resolve from the initial mention-root sweep alone,

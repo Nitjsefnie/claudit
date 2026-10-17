@@ -31,7 +31,7 @@ def _cut(doc: dict) -> str:
     return _stamp(_latest_document_stamp(doc) + timedelta(seconds=1))
 
 
-# --- issue #930: an entry never repeats its predecessor -----------------------
+# --- an entry never repeats its predecessor -----------------------
 
 def _repeated_append() -> dict:
     """The newest provider entry appended a second time under a later
@@ -107,7 +107,7 @@ def test_any_band_key_is_refused_by_both_loaders_naming_the_same_row(tmp_path, b
     assert where in str(caught.value) and "band" in str(caught.value)
 
 
-# --- issue #931.2: no `from` postdates provider_rates_fetched ----------------
+# ---.2: no `from` postdates provider_rates_fetched ----------------
 
 def _dated_past_fetch() -> dict:
     """A move appended after the fetch instant: refused until the fetch
@@ -140,7 +140,7 @@ def test_a_from_after_provider_rates_fetched_is_refused_in_the_browser(
     assert "is after provider_rates_fetched" in error, error
 
 
-# --- issue #931.4: a dual pin agrees on its tag ------------------------------
+# ---.4: a dual pin agrees on its tag ------------------------------
 
 _PIN_MODEL = "acme/synthetic-9"
 

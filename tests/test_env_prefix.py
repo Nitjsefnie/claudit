@@ -39,9 +39,9 @@ PLATFORM_NAMES = {
 }
 # Dynamic exemptions pin individual file/line sites and reject unknown expressions.
 DYNAMIC_SITES = {
-    ("backend/bash_reads.py", 134): "Lexical transcript-shell mapping, not process configuration.",
-    ("backend/bash_reads.py", 177): "Lexical transcript-shell mapping, not process configuration.",
-    ("backend/branding.py", 55): "_branded callers are scanned as config reads below.",
+    ("backend/bash_reads.py", 115): "Lexical transcript-shell mapping, not process configuration.",
+    ("backend/bash_reads.py", 158): "Lexical transcript-shell mapping, not process configuration.",
+    ("backend/branding.py", 54): "_branded callers are scanned as config reads below.",
     ("backend/flags.py", 92): "Registry env names are checked for the prefix below.",
     ("backend/flags.py", 94): "Registry env names are checked for the prefix below.",
     ("backend/env_config.py", 44): "Prefixed name validated by the resolver.",

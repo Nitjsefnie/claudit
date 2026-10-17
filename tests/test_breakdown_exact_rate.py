@@ -4,7 +4,7 @@ The dashboard's events carry a short display name ('opus-4-8'), which
 resolveModelRate matches only as a family tier — the family's NEWEST
 rate — so pricing by it put claude-opus-4-8 at Opus 5.5 rates and the
 per-type cost bars stopped summing to the stored total beside them
-(issue #70, SV-DATED-RATES). These drive the real adapter and breakdown
+(SV-DATED-RATES). These drive the real adapter and breakdown
 out of src/app.jsx through node (which cannot parse the file's JSX, so
 the plain functions are sliced out of it) against backend.pricing and,
 end to end, against /api/dashboard over an ingested fixture.
@@ -85,7 +85,7 @@ _TS = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 @pytest.mark.parametrize("model", ["claude-opus-5-5", "claude-sonnet-4-5"])
 def test_breakdown_prices_an_older_claude_model_at_its_own_rate(model):
-    """Issue #70's cases, now pinning that each model is priced by its own
+    """Each model must be priced by its own
     EXACT row rather than the default row: a producer dropping model_id
     must fail here, which the old opus-4-8 case could never show — its
     exact row equals the default row, while opus-5-5's differs from it and
@@ -113,7 +113,7 @@ def test_breakdown_prices_an_older_claude_model_at_its_own_rate(model):
         "cache_read_tokens": read, "cost_usd": stored,
     }]})
     assert got["costTotal"] == pytest.approx(stored, rel=1e-12)
-    # The display name is the recorded id, vendor prefix included (#472).
+    # The display name is the recorded id, vendor prefix included.
     assert got["models"] == [model]
 
 
@@ -185,11 +185,9 @@ def test_transcript_breakdown_prices_at_the_rate_its_events_were_costed():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_transcript_turns_price_at_the_rate_in_force_at_their_own_time():
-    """Issue #55: txToDashData priced every turn with no timestamp, so a
-    turn inside gpt-5-6-sol's GA window (it ends at AUG21_CUT,
-    where the cut list price begins) costed at list instead. Each turn's
-    cost_usd must equal what pricing.compute_cost stores for that turn's
-    own timestamp, so the turn costs sum to the stored total."""
+    """Price each turn at its own timestamp so dated windows are respected.
+    Each cost_usd must equal what pricing.compute_cost stores for that
+    turn, so the turn costs sum to the stored total."""
     model = "gpt-5-6-sol"
     cut = gpt56_cuts.AUG21_CUT
     ts_in, ts_out = cut - timedelta(days=1), cut + timedelta(days=30)

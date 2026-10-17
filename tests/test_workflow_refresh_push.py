@@ -1,22 +1,10 @@
-"""Workflow shape + push simulation: the pricing bot's key-only push job.
-
-Issue #359: the deploy key that bypasses the required aggregate gate used
-to be loaded inside jobs that also ran the suite, unpinned installs and
-upstream-response parsing. The contract pinned here: the key is loaded
-ONLY by the push job, which receives the tested data as an artifact, runs
-no checkout, no pip, no npm, no suite and no upstream parsing before or
-while the key is loaded, and stops its ssh-agent at the step's end. The
-in-run retry is gone: a push refused because master moved is dropped with
-a notice, and the NEXT hourly run re-fetches, re-tests in the keyless
-refresh job, and lands it. The verdict job runs with always(), so a
-refused fetch turns the run red even when nothing moved and the push
-skipped.
-
-The simulation tests execute the push step's own `run:` block under
-`bash -e` in a scratch repository whose remote moves mid-run — which is
-the race itself. The simulation pre-places the staging directory the
-download action would have produced at `$RUNNER_TEMP/push-data`.
-"""
+"""Only the isolated pricing push job may load the deploy key.
+It receives tested artifacts, runs no checkout, installation, suite or
+upstream parsing while the key is loaded, then stops ssh-agent. A push
+refused because master moved is dropped; the next hourly run refetches and
+retests without the key. always() keeps fetch failures visible.
+Execute the push step against a scratch remote that moves mid-run, with
+the artifact staging directory pre-placed as the download action would."""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -55,9 +43,6 @@ ubuntu_run_block = pytest.mark.skipif(
            "POSIX bash and PATH shims; the block only ever runs on "
            "ubuntu-latest",
 )
-
-
-# --- shape: parse the workflow ---------------------------------------------
 
 
 def _workflow() -> dict:
@@ -135,7 +120,7 @@ def test_refresh_job_stages_and_uploads_the_tested_data():
     assert 'mkdir -p "$RUNNER_TEMP/push-data"' in run
     assert 'cp src/pricing.json "$RUNNER_TEMP/push-data/pricing.json"' in run
     assert 'cp backend/constants.py "$RUNNER_TEMP/push-data/constants.py"' in run
-    # The notice baseline travels with the data it describes (issue #888).
+    # The notice baseline travels with the data it describes .
     assert ('cp src/pricing_notices.json '
             '"$RUNNER_TEMP/push-data/pricing_notices.json"' in run)
     assert ('cp "$RUNNER_TEMP/commit-msg.txt" '
@@ -233,9 +218,6 @@ def test_the_push_never_forces():
                     job_id, step.get("name"))
 
 
-# --- the push simulation ---------------------------------------------------
-
-
 def _run(cmd: list[str], cwd: Path | None = None,
          env: dict[str, str] | None = None,
          check: bool = True) -> subprocess.CompletedProcess:
@@ -264,7 +246,6 @@ def _configure_identity(repo: Path) -> None:
 
 
 def _peer_move(scratch: Path, mark: str) -> str:
-    """Commit and push a move on the peer clone; return the new tip."""
     peer = scratch / "peer"
     with open(peer / "README.md", "a", encoding="utf-8") as handle:
         handle.write(f"{mark}\n")

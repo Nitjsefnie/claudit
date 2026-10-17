@@ -1,4 +1,4 @@
-"""Tests for the reparse family's seed writer (issue #703).
+"""Tests for the reparse family's seed writer.
 
 Seeding works only onto a family-absent document and is refused over a
 recorded one, restores both metrics per phase, refuses a counts-less
@@ -21,7 +21,6 @@ CI = REPO_ROOT / "scripts" / "ci"
 
 
 def _load(name):
-    """Import one scripts/ci module by path, as the CI entry points do."""
     if str(CI) not in sys.path:
         sys.path.insert(0, str(CI))
     spec = importlib.util.spec_from_file_location(name, CI / f"{name}.py")
@@ -124,7 +123,7 @@ def test_an_empty_family_is_present_and_refuses_the_seed():
     # family PRESENT and malformed (the loader refuses its shape), and
     # a seed that read emptiness as the absent family would replace it
     # despite the malformed recorded shape
-    # (issue #703 review; guards/distinguish-absent-from-empty).
+    # ( review; guards/distinguish-absent-from-empty).
     data = _document(reparse=False)
     data[thresholds.REPARSE_FAMILY] = {}
     readings = {
@@ -153,7 +152,7 @@ def _load_for_seed_of_bytes(data):
 
 def test_a_missing_phase_reading_is_a_clean_refusal():
     # A direct caller's contract: the same ValueError shape the CLI's
-    # guard produces, never a KeyError (issue #703 review, minor).
+    # guard produces, never a KeyError ( review, minor).
     data = _document(reparse=False)
     readings = {
         phase: {"share": "9.0", "bytecodes": "1.0"}
@@ -191,7 +190,7 @@ def test_the_seed_cli_writes_an_absent_family(tmp_path, capsys):
 
 def test_the_seed_cli_writes_the_loader_s_canonical_bytes(tmp_path):
     # The bytes the CLI leaves are the loader's canonical serialisation
-    # (issue #707): a hand-serialised document the loader happens to
+    # a hand-serialised document the loader happens to
     # accept would otherwise pass the CLI test above, which pins only
     # that the bytes changed.
     document = _write(tmp_path, _document(reparse=False))

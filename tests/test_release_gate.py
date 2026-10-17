@@ -1,43 +1,9 @@
-"""Unit tests for the release waiter's gate selection.
-
-`release.yml` used to project a commit's check runs through
-`select(.name | startswith("release") | not)`. That dropped its own job and
-two other things as well: any gate whose check name begins `release`
-(issue #557 — the name is not the waiter, and dropping a red one releases
-over it), and, by omission, every check a NON-gate workflow happened to
-publish on the SHA — `claim`, whose `issue_comment` run is stamped with the
-default branch's tip, so one `/claim` comment anywhere in the repository
-puts a red `claim` row on master's head commit (issue #579).
-
-The selection is now scripts/ci/release_gate.py, keyed on the workflow run
-that PRODUCED each check run rather than on the check's name. These pin,
-per assertion, that the old expression would have got it wrong:
-
-- a push-run check named `release-anything` is JUDGED (#557);
-- a check named exactly `release` from some OTHER run is JUDGED (#557's
-  converse — identity is the run, not the name);
-- the waiter's OWN job is still skipped, by exact name and run identity;
-- the waiter's own WORKFLOW is skipped at any attempt — an earlier
-  `release` run on the commit is a push run, so it lands in the gate set
-  and would otherwise make every manual re-cut of a commit whose first
-  release run failed refuse on its predecessor's answer;
-- an `issue_comment` run's check is skipped (#579);
-- a `workflow_dispatch` run of a workflow that does not gate the commit is
-  skipped (the hourly rate-refresh bot publishes `refresh` / `verdict`
-  rows on master's tip from an external hourly dispatch);
-- a `workflow_dispatch` run of a workflow that DOES gate the commit is
-  judged, so a manually dispatched gate still counts;
-- a run stamped with another commit's SHA is skipped;
-- and that an UNLISTED self run excludes nothing by path, so the path rule
-  cannot quietly become a no-op when the listing lags — the state in which
-  no path at all, derived or listed, can drop anything;
-
-and the fail-closed side, without which the filter would be a way to lose a
-gate rather than to shed noise:
-
-- a check whose producing run cannot be resolved is JUDGED;
-- while no push run is known for the commit, a dispatch row is JUDGED;
-"""
+"""Select release gates by their producing workflow run, not a check-name prefix.
+A release-prefixed check from another run still gates; the waiter's own job
+and workflow do not. issue_comment and non-gating workflow_dispatch checks
+must not block a release, while dispatched gates still count.
+Require the same SHA. An unlisted self-run excludes nothing by path; missing
+provenance and dispatch rows without a known push run are judged fail-closed."""
 from __future__ import annotations
 
 import importlib.util
@@ -127,7 +93,7 @@ RELEASE_PATH = ".github/workflows/release.yml"
 EARLIER_RELEASE_RUN = "300"
 
 
-# --- issue #557: the name is not the waiter -------------------------------
+# --- the name is not the waiter -------------------------------
 
 def test_a_push_run_check_named_release_anything_is_judged():
     # `startswith("release")` drops this row whatever it concluded, so a
@@ -166,10 +132,10 @@ def test_the_own_job_is_skipped_even_its_run_id_cannot_be_read():
     assert _judged([check], [_run(PUSH_RUN, "push")]) == []
 
 
-# --- issue #579: a run stamped with another commit's claim ---------------
+# --- a run stamped with another commit's claim ---------------
 
 def test_an_issue_comment_runs_check_is_skipped():
-    # The incident: `claim` / failure from run 37138981898, event
+    # A failing claim check from an issue-comment run must not gate a release;
     # issue_comment, head_sha the master commit under release.
     checks = [_check("claim", CLAIM_RUN, conclusion="failure"),
               _check("aggregate", PUSH_RUN)]
@@ -376,7 +342,7 @@ def test_a_dispatch_row_is_judged_until_a_push_run_proves_otherwise():
 
 
 def test_the_aggregate_verdict_survives_every_exclusion():
-    # Issue #247's proof the gates ran is a push row, so no exclusion
+    # proof the gates ran is a push row, so no exclusion
     # above may be able to remove it.
     checks = [_check("aggregate", PUSH_RUN), _check(SELF_JOB, OWN_RUN),
               _check("claim", CLAIM_RUN, conclusion="failure")]
@@ -388,8 +354,6 @@ def test_the_aggregate_verdict_survives_every_exclusion():
     assert len(rows) == 1
     assert rows[0].split("\t")[1:] == ["success", "aggregate", "github-actions"]
 
-
-# --- the projection and the two API shapes -------------------------------
 
 def test_parse_pages_merges_the_pages_gh_printed():
     raw = (json.dumps({"total_count": 2,
@@ -415,8 +379,6 @@ def test_the_row_projection_carries_status_conclusion_name_and_app():
         == "queued\t-\ttests\tgithub-actions"
     assert rg.row({"name": "n"}) == "\t-\tn\t-"
 
-
-# --- the CLI the workflow step actually calls ---------------------------
 
 def _cli(tmp_path, checks, runs, *extra):
     checks_file = tmp_path / "checks.json"

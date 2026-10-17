@@ -1,4 +1,4 @@
-"""Tests for the deterministic reparse CPU bench (issue #436).
+"""Tests for the deterministic reparse CPU bench.
 
 The bench is the CI-side instrument for the maintainer's reparse lever:
 the CPU work of one parse of one transcript, measured over the committed
@@ -65,20 +65,11 @@ def _fixture_transcripts():
                   for p in bucket_root.rglob("*.jsonl"))
 
 
-#: Passes a shape-asserting test needs for `time.process_time()` to resolve
-#: them AT ALL. One pass over this corpus is ~0.35 ms of CPU, so the old
-#: 5 measured 1.8 ms and 20 measured 7 ms — comfortably above Linux's
-#: microsecond resolution and BELOW Windows', where the counter
-#: `GetProcessTimes` reads at roughly a 15.6 ms tick. There a short
-#: measurement comes back as exactly 0.0, and the bench refuses it
-#: ("nothing to share") rather than dividing by it — so every shape test
-#: failed on both Windows legs with the corpus tests green, which is the
-#: signature of a clock and not of a corpus.
-#:
-#: 4000 passes is ~1.4 s of CPU: about 90 ticks at 15.6 ms, and still two
-#: ticks if a platform's granularity were as coarse as 0.6 s. The cost is
-#: paid once per test and the recorded gate is unaffected — it runs
-#: `bench.PASSES` (60000) and the gate step is Linux-only.
+# Use enough passes for CPU clocks with coarse resolution to return a
+# nonzero measurement. Windows GetProcessTimes can tick at roughly 15.6ms;
+# a short workload may read 0.0, which the bench refuses rather than dividing
+# by it. Shape tests use thousands of passes to span several ticks; the
+# recorded Linux-only gate independently uses bench.PASSES.
 SHAPE_PASSES = 4000
 
 
@@ -131,8 +122,6 @@ def test_the_shape_pass_count_resolves_this_platform_clock():
         f"{SHAPE_PASSES} passes measured 0.0 under a {tick}s clock tick: "
         f"SHAPE_PASSES is below what Windows can resolve")
 
-
-# --- the corpus and the path -------------------------------------------------
 
 def test_corpus_is_every_fixture_transcript():
     entries = bench.corpus()
@@ -240,8 +229,6 @@ def test_bench_opens_no_database_connection(monkeypatch):
     assert bench.run_pass(bench.corpus()) > 0
 
 
-# --- the decomposition -------------------------------------------------------
-
 def test_phases_come_from_the_loader():
     # One source of truth: a phase cannot be measured under one name and
     # recorded in the document under another.
@@ -281,7 +268,6 @@ def test_residual_is_the_divergence_not_a_rounding():
     # The residual is everything the wrapped callables do not account
     # for. It is reported as its own phase rather than spread over the
     # others, so an unmeasured phase cannot hide inside a measured one.
-    #
     # The claim is asserted in BYTECODES, not in process_time. A residual
     # is a small SHARE of a pass, and Windows reads `GetProcessTimes` at
     # roughly a 15.6 ms tick, so a phase this size quantises to 0.0 there
@@ -308,7 +294,7 @@ def test_residual_is_the_divergence_not_a_rounding():
 
     # And the currency is one that CAN read zero, or the two assertions
     # above would hold for any wiring at all. The full mirror now carries
-    # a meta.json sidecar (issue #503), so the demonstration uses a corpus
+    # a meta.json sidecar, so the demonstration uses a corpus
     # that genuinely has none -- one transcript, no sidecar beside it: the
     # same shape as a residual that is not really measured, and the
     # instrument reports the unreached phase as exactly zero.
@@ -434,14 +420,13 @@ def test_non_positive_pass_count_refused(passes):
         bench.measure(bench.corpus(), passes=int(passes), warmup=1)
 
 
-#: Every module that touches the measurement, not just the one the docstring
-#: is in. The per-phase timing actually happens in reparse_phases.py, so a
-#: scan of reparse_bench.py alone left the phase split — the part the ratchet
-#: reads — unchecked. A claim narrower than the thing it protects.
-#:
-#: The first pair MEASURES and must therefore clock with process_time; the
-#: second pair only reads and writes the measurement file, so requiring a
-#: clock of them would be nonsense. A wall clock is barred from all four.
+# Every module that touches the measurement, not just the one the docstring
+# is in. The per-phase timing actually happens in reparse_phases.py, so a
+# scan of reparse_bench.py alone left the phase split — the part the ratchet
+# reads — unchecked. A claim narrower than the thing it protects.
+# The first pair MEASURES and must therefore clock with process_time; the
+# second pair only reads and writes the measurement file, so requiring a
+# clock of them would be nonsense. A wall clock is barred from all four.
 BENCH_MEASURES = ("reparse_bench.py", "reparse_phases.py")
 BENCH_HANDLES = ("reparse_ratchet.py", "reparse_report.py")
 
@@ -450,8 +435,7 @@ def test_bench_measures_cpu_time_never_wall_clock():
     # Source-level on purpose: nothing here renders or executes the
     # measurement, so the pin that survives is the one on the code. A
     # wall-clock component would make the number depend on the runner's
-    # load rather than on the parse work, which is the whole point — and on
-    # this host the co-tenant multiplier moved wall by 2-4x.
+    # load rather than on the parse work, so CPU budgets must exclude it.
     ci_dir = BENCH.parent
     for name in BENCH_MEASURES:
         source = (ci_dir / name).read_text(encoding="utf-8")

@@ -1,4 +1,4 @@
-"""The mechanical db/portable test split (issue #27).
+"""The mechanical db/portable test split.
 
 A test is a DB test when its invocation hands it a PostgreSQL-backed
 database. DB_FIXTURES is the registry of fixture names that do that;
@@ -29,34 +29,33 @@ import pytest
 # they call — mentions a scratch_db server call, closed transitively
 # over fixture parameters and helper calls) and fails when it no longer
 # equals this frozenset.
-#
-#   app_with_data        test_api / test_tokens_by_project; the fixture
-#                        body calls a _build_api_client helper that
-#                        creates the scratch DB
-#   app_with_prompt_range_data  test_prompt_ts; creates its own scratch
-#                        DB in-body (issue #214 fixture)
-#   dashboard_body       test_breakdown_exact_rate; creates its own
-#                        scratch DB in-body
-#   client               test_provider_split_api; creates its own
-#                        scratch DB in-body. test_web_metrics defines a
-#                        second one over `viz` (issue #436) — the registry
-#                        is by NAME, so both mark.
-#   api_client           test_rate_boundary_fold_api; takes fresh_db,
-#                        which creates the scratch DB
-#   _viz_ready           test_db_schema_check; autouse, applies the app
-#                        schema to its own scratch viz DB
-#   auth_env             test_db_schema_check; creates its own empty
-#                        scratch auth DB per case
-#   twin_app             test_transcript_cache_key; creates its own
-#                        scratch DB in-body (issue #375 fixture)
-#   server               test_export_shutdown; provisions the export-shutdown
-#                        server's viz + auth scratch databases
-#   viz                  test_web_metrics; a fresh schema as CLAUDIT_DATABASE_URL_VIZ,
-#                        with no ingest (issue #436)
-#   gated_client         test_web_metrics; the api router behind the real
-#                        auth middleware, as a guest
-#   lat_client           test_latency_read_canonical; creates its own
-#                        scratch DB in-body
+# app_with_data test_api / test_tokens_by_project; the fixture
+# body calls a _build_api_client helper that
+# creates the scratch DB
+# app_with_prompt_range_data test_prompt_ts; creates its own scratch
+# DB in-body ( fixture)
+# dashboard_body test_breakdown_exact_rate; creates its own
+# scratch DB in-body
+# client test_provider_split_api; creates its own
+# scratch DB in-body. test_web_metrics defines a
+# second one over `viz` — the registry
+# is by NAME, so both mark.
+# api_client test_rate_boundary_fold_api; takes fresh_db,
+# which creates the scratch DB
+# _viz_ready test_db_schema_check; autouse, applies the app
+# schema to its own scratch viz DB
+# auth_env test_db_schema_check; creates its own empty
+# scratch auth DB per case
+# twin_app test_transcript_cache_key; creates its own
+# scratch DB in-body ( fixture)
+# server test_export_shutdown; provisions the export-shutdown
+# server's viz + auth scratch databases
+# viz test_web_metrics; a fresh schema as CLAUDIT_DATABASE_URL_VIZ,
+# with no ingest
+# gated_client test_web_metrics; the api router behind the real
+# auth middleware, as a guest
+# lat_client test_latency_read_canonical; creates its own
+# scratch DB in-body
 DB_FIXTURES = frozenset({
     "fresh_db",
     "redact_app",
@@ -74,7 +73,7 @@ DB_FIXTURES = frozenset({
     "projects_client",
     "twin_app",
     "server",
-    # issue #436; see the `client` entry above for why it is not repeated.
+    # See the `client` entry above for why it is not repeated.
     "viz",
     "gated_client",
     "lat_client",
@@ -99,8 +98,7 @@ def mark_db_items(items: Iterable[Any]) -> None:
 # server, each with the reason. Every entry names a test that EXISTS: an
 # entry for a name no test carries excuses nothing, and reads as cover
 # while the real offender is left to be found. Moved here from the guard
-# test module so the registry and its allowlist live in one place (issue
-# #715); the guard reads it as tests.db_marker.MARK_ALLOWLIST.
+# test module so the registry and its allowlist live in one place; the guard reads it as tests.db_marker.MARK_ALLOWLIST.
 MARK_ALLOWLIST: dict[str, str] = {
     "test_version.py:test_health_error_branch_answers_503":
         "monkeypatches db.viz_conn with a function that raises, so the "

@@ -1,4 +1,4 @@
-"""Issue #842 — the provider-neutral cache-write split's invariants.
+"""the provider-neutral cache-write split's invariants.
 
 The split the backend derives in ``parse_common.resolve_cache_writes`` and
 the browser mirrors in ``window.resolveCacheWrites`` is pinned here by
@@ -13,7 +13,7 @@ three controls, on both sides:
   ``cache_creation > 0`` takes the create branch, never the
   successor-less zero.
 
-These live in their own module rather than beside the #842 derivation
+These live in their own module rather than beside the derivation
 tests (``test_parse.py``) and the lane parity tests
 (``test_parser_js_lanes.py``): both sit within a few lines of the 700-line
 test ceiling the size ratchet caps, so the controls go into a new module.
@@ -85,8 +85,6 @@ def _browser(name):
     return json.loads(proc.stdout)
 
 
-# --- Backend (parse_common.resolve_cache_writes) --------------------------
-
 def test_backend_derivation_is_idempotent():
     """A second pass reads only fresh/create/read, so it changes nothing.
     (Mutation pinned: a derive that folded its own cache_write_tokens back
@@ -122,8 +120,6 @@ def test_backend_last_record_with_creation_takes_create_branch():
     assert last["cache_creation_tokens"] > 0
     assert last["cache_write_tokens"] == last["cache_creation_tokens"]
 
-
-# --- Browser (window.resolveCacheWrites) ----------------------------------
 
 class TestBrowserCacheWriteSplit:
     # Node-backed tests skip together when Node is unavailable.

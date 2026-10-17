@@ -1,4 +1,3 @@
-"""Clobber and stream redirects booking write targets (issue #794)."""
 from __future__ import annotations
 
 import pytest
@@ -14,7 +13,7 @@ from backend.bash_reads import scan
 ])
 def test_clobber_and_stream_redirects_book_write_targets(command, target):
     """`>|` clobbers and `&>` / `&>>` redirect stdout+stderr; bash opens
-    each target, so every spelling books its write like `>` (#794)."""
+    each target, so every spelling books its write like `>`."""
     assert scan(command, "/work")[2] == [target]
 
 
@@ -32,7 +31,7 @@ def test_stream_redirects_refuse_when_incomplete(redirect):
 def test_fd_dup_spelling_to_a_filename_books_write_target(command, target):
     """`>& file` with the fd omitted (or spelled 1) is bash's
     stdout+stderr-to-file spelling, `&>`'s twin: the file is created and
-    both streams land in it (#802)."""
+    both streams land in it."""
     assert scan(command, "/work")[2] == [target]
 
 
@@ -42,7 +41,7 @@ def test_fd_dup_spelling_to_a_filename_books_write_target(command, target):
 ])
 def test_arithmetic_tail_fd_dup_filename_books_write_target(command):
     """The compound tail's `>& file` books like the plain-command one:
-    bash opens the file before the (failing) evaluation (#802, #785)."""
+    bash opens the file before the (failing) evaluation."""
     assert scan(command, "/work")[2] == ["/work/both.txt"]
 
 
@@ -68,5 +67,5 @@ def test_fd_digit_two_with_filename_books_nothing():
 ])
 def test_fd_dup_predicate_is_not_a_leading_digit_read(command, target):
     """The dup predicate is all-digits-or-`-`, fullmatch: a filename that
-    merely STARTS with a digit is a file and books (#802)."""
+    merely STARTS with a digit is a file and books."""
     assert scan(command, "/work")[2] == [target]

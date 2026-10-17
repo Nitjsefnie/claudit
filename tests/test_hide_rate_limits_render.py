@@ -1,4 +1,3 @@
-"""Effective rate visibility reaches every derived dashboard surface."""
 from __future__ import annotations
 
 import subprocess

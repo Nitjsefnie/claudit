@@ -72,7 +72,7 @@ def test_list_counts_the_shared_uuid_once(app_with_data):
     body = app_with_data.get("/api/sessions?limit=500").json()
     items = {i["session_id"]: i for i in body["items"]}
     # The per-session numbers below are the CLAUDE sessions'; the lane
-    # wires (issue #503) contribute sessions of their own, so the set is
+    # wires contribute sessions of their own, so the set is
     # the table's plus the mirror's, and the table still pins every number
     # it names.
     assert set(items) == (set(_EXPECTED_SESSIONS)
@@ -84,10 +84,9 @@ def test_list_counts_the_shared_uuid_once(app_with_data):
 
 
 def test_detail_drops_the_non_canonical_loser_rows(app_with_data):
-    """sess-D's main file carries the shared-uuid-1 loser plus its own
-    canonical row; only the canonical one may count. (Before the fix the
-    detail endpoint aggregated with no canonical filter and returned
-    request_count=2, 1050/525.)"""
+    """sess-D's main file carries a shared-uuid loser and its own canonical row.
+    Session detail must filter the loser before aggregation so only the canonical
+    row contributes to request and token totals."""
     body = app_with_data.get("/api/sessions/sess-D").json()
     assert body["request_count"] == 1
     assert body["input_tokens"] == 50
@@ -114,7 +113,7 @@ def test_detail_returns_zeroed_row_for_non_canonical_main_file(app_with_data):
     sidecar, which the detail endpoint -- main-file-only -- does not
     read). This pins the deliberate placement of the canonical condition
     in the LEFT JOIN's ON clause: the file row survives with zeroed
-    aggregates -- request_count included (issue #146: COUNT(*) over the
+    aggregates -- request_count included (COUNT(*) over the
     LEFT JOIN counted the one NULL-extended row the empty canonical
     population still produces). WHERE-clause placement would drop the
     row instead and answer 404 for an existing session."""

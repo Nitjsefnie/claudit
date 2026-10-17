@@ -1,4 +1,4 @@
-"""The disk blob cache through the ingest's fetch path (issue #684).
+"""The disk blob cache through the ingest's fetch path.
 
 The cache unit's own tests live in test_blob_cache.py; these pin the
 wiring: the listing identity reaching the fetch callable, a hit
@@ -15,8 +15,6 @@ from test_ingest import (  # pylint: disable=unused-import
 
 from backend import blob_cache, ingest, ingest_fetch
 
-
-# --------------------------------------- the disk blob cache (#684)
 
 def test_fetch_and_parse_forwards_the_listing_identity_only_when_cached(
         monkeypatch, tmp_path):
@@ -107,7 +105,7 @@ def test_ingest_run_populates_and_prunes_the_blob_cache(
 def test_parse_wire_passes_the_listing_identity_when_timed():
     """The timed child's unit carries the identity too: a CLAUDIT_TIMING
     run must not silently re-download the bucket the cache exists to
-    answer (the uncontrolled limb the #684 review caught)."""
+    answer (the uncontrolled limb the review caught)."""
     recorded: list[tuple] = []
 
     def parse_call(key, sidecar_key, etag=None, size=None):

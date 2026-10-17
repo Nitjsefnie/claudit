@@ -1,4 +1,4 @@
-"""records.pricing_version and the reprice pass (issue #193).
+"""records.pricing_version and the reprice pass.
 
 A rate change must rePRICE stored records — recompute cost_usd from the
 stored token columns — instead of re-parsing every R2 object.
@@ -247,14 +247,14 @@ def test_reprice_leaves_the_current_version_alone(fresh_db):
 
 
 def test_reprice_skips_rows_priced_by_a_newer_version(fresh_db, caplog):
-    """The rollback guard mirrors _stored_version_is_newer (issue #118):
+    """The rollback guard mirrors _stored_version_is_newer:
     a stored version that parses as an int and is GREATER than the
     current one was priced by a newer build, and an older binary must
     not clobber it. The row is skipped, the keyset advances past it,
     and the skip is logged."""
     # NEWER than the binary's own, derived from the committed constant so
     # the guard's semantics hold whatever the real value has reached
-    # (issue #198).
+    #
     newer = str(int(constants.PRICING_VERSION) + 1)
     with db.viz_conn() as c:
         for line_num, version in ((1, None), (2, "0"), (3, newer)):
@@ -292,7 +292,7 @@ def test_reprice_batches_across_the_keyset(fresh_db, monkeypatch):
     boundary (line 4, the last row of the second batch of two) on
     purpose."""
     monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", 2)
-    # NEWER than the binary's own, derived (issue #198) — same reasoning
+    # NEWER than the binary's own, derived — same reasoning
     # as the guard test above.
     newer = str(int(constants.PRICING_VERSION) + 1)
     with db.viz_conn() as c:
@@ -317,7 +317,7 @@ def test_reprice_aborts_between_batches_when_shutdown_requested(
     """A shutdown request between batches unwinds the pass via
     IngestAborted: every batch already committed persists, the batch the
     abort interrupts never opens, and the next run converges — the
-    ingest stop contract (issue #103) at the reprice pass's own bounded
+    ingest stop contract at the reprice pass's own bounded
     steps. should_stop returning True (or raising) is the signal."""
     monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", 2)
     with db.viz_conn() as c:
@@ -408,7 +408,7 @@ def test_reprice_prices_a_weekly_schedule(fresh_db,
 
 
 def test_reprice_rederives_long_context_for_the_meters_models(fresh_db):
-    """Issue #194: for the meter's models the long-context flag is a pure
+    """for the meter's models the long-context flag is a pure
     function of stored columns — fresh + cache_creation + cache_read
     against the threshold — so the pass re-derives it beside the cost. A
     stale gpt-5.6-sol row whose tally sits above the 272k threshold flips
@@ -479,7 +479,7 @@ def test_reprice_keeps_a_nonmember_codex_rows_stored_flag(fresh_db, monkeypatch)
 
 
 def test_reprice_claims_a_pre_fold_null_row_of_a_member(fresh_db):
-    """Issue #765, the review's C1 at DB level: the refresh learns a band
+    """At DB level: the refresh learns a band
     and bumps PRICING_VERSION only; every pre-fold row of the newly
     learned member carries the parse-stored NULL flag (non-member
     marker) priced flat. The reprice re-derives member rows whatever the
@@ -513,7 +513,7 @@ def test_reprice_claims_a_pre_fold_null_row_of_a_member(fresh_db):
 
 
 def test_reprice_unbills_a_lapsed_members_stored_true(fresh_db):
-    """Issue #833 at DB level: a non-member row whose stored TRUE is the
+    """ at DB level: a non-member row whose stored TRUE is the
     lapsed member era's — 250k tokens, under the global threshold, no
     parse path stores TRUE there — reprices to FALSE and the flat cost,
     what a reparse stores for every format."""

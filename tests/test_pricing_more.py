@@ -60,7 +60,7 @@ def test_opus_5_5_suffix_and_provider_aliases_keep_their_synthetic_row(
 
 
 def test_match_key_memoizes_per_normalised_id() -> None:
-    """Issue #350: the reprice pass matches keys for over a million rows
+    """the reprice pass matches keys for over a million rows
     naming few distinct models, so the longest-key scan is memoized per
     norm — the second call is a dict hit with the same answer. A norm
     matching nothing caches that too; the conftest autouse fixture keeps
@@ -73,12 +73,9 @@ def test_match_key_memoizes_per_normalised_id() -> None:
 
 
 def test_gpt_6_1_sol_resolves_exact_distinct_from_gpt_6_sol():
-    """Dotted and dashed GPT-6.1 Sol ids fold to their own row (issue
-    #357): before it landed, the dotted id resolved kind='default' at the
-    generic rates. The shorter gpt-6-sol key cannot absorb it —
-    _match_key needs the key to be a literal prefix and 'gpt-6-1-sol'
-    diverges from 'gpt-6-sol' at the version digit. The live table check
-    pins only exact-key resolution."""
+    """Dotted and dashed GPT-6.1 Sol ids resolve their own exact row.
+    The shorter gpt-6-sol key cannot absorb them: literal-prefix matching diverges
+    at the version digit. Test exact-key resolution independently of live prices."""
     sol = pricing.resolve("gpt-6.1-sol")  # sv-test-data: allow (structure: exact table key survives appends)
     dashed = pricing.resolve("gpt-6-1-sol")  # sv-test-data: allow (structure: exact table key survives appends)
     shorter = pricing.resolve("gpt-6-sol")  # sv-test-data: allow (structure: exact table key survives appends)
@@ -90,10 +87,8 @@ def test_gpt_6_1_sol_resolves_exact_distinct_from_gpt_6_sol():
 
 
 def test_the_live_rate_key_sets_keep_their_negative_space():
-    """Issue #900 widened the live-row shape by the optional web_search
-    rate; the class stays CLOSED — a key set that is neither of the two
-    admitted shapes is refused, so an unexpected extra field still reds
-    the structure tests rather than riding along."""
+    """Allow the optional web_search rate while keeping the row shape closed.
+    Any key set outside the two admitted shapes must be refused."""
     assert {*pricing.RATE_FIELDS, "bogus"} not in LIVE_RATE_KEY_SETS
     assert frozenset() not in LIVE_RATE_KEY_SETS
     assert frozenset({"web_search"}) not in LIVE_RATE_KEY_SETS

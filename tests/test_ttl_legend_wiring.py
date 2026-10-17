@@ -1,4 +1,4 @@
-"""Source-level pins for the Prompt-Cache TTL Split legend (issue #633).
+"""Source-level pins for the Prompt-Cache TTL Split legend.
 
 The legend sat at translate(padL + 8, padT + 12) -- INSIDE the plot
 rectangle, across the bars it explains -- and ran 8.8px past the panel's
@@ -30,7 +30,7 @@ def _strip_line_comments(src: str) -> str:
 
 
 def _ttl_module() -> Path:
-    """The one module that defines CacheTTLPanel. Since #633 it is its own
+    """The one module that defines CacheTTLPanel. It is its own
     file: the module-size ratchet's committed entry for
     dashboard-charts-extra.jsx never rises, so the code the fix adds moved
     out instead of growing a file that is already far over the ceiling."""
@@ -47,7 +47,7 @@ def _ttl_src() -> str:
 
 
 def test_the_page_loads_the_module_that_defines_the_ttl_panel():
-    """The panel moved files in #633. A script tag that did not move with
+    """The panel moved files in. A script tag that did not move with
     it would leave window.CacheTTLPanel undefined and the panel silently
     absent -- nothing else in the suite would notice."""
     index = (ROOT / "public" / "index.html").read_text(encoding="utf-8")
@@ -57,7 +57,7 @@ def test_the_page_loads_the_module_that_defines_the_ttl_panel():
 
 
 def test_the_ttl_legend_anchors_below_the_share_strip_not_in_the_plot():
-    """#633: the legend sat at translate(padL + 8, padT + 12) -- INSIDE the
+    """the legend sat at translate(padL + 8, padT + 12) -- INSIDE the
     plot rectangle, across the bars it explains -- and ran 8.8px past the
     panel's right edge at a 320px viewport. The rendered-layout guard
     (scripts/ci/panel_layout.mjs) reads the resulting boxes; this pin is
@@ -87,12 +87,12 @@ def test_the_ttl_legend_band_is_sized_from_its_row_count():
 
 def test_the_ttl_hover_hit_tests_in_the_svg_frame():
     """The panel's hit test reads the cursor in the frame its bounds are
-    expressed in (#696): padT/shareBot are svg coordinates and the
+    expressed in: padT/shareBot are svg coordinates and the
     container's rect carries the panel's 1px border, so comparing across
     the frames left the share strip's bottom row dead and parked a live
     1px band over the title area. The tip still positions in container
     coordinates (its offsetParent) -- the svg-frame shape the family's
-    other panels took in #645."""
+    other panels took in."""
     src = _strip_line_comments(_ttl_module().read_text(encoding="utf-8"))
     m = re.search(r"function onMove\(e\) \{(.*?)\n  \}", src, re.S)
     assert m, "could not locate the panel's hover handler"

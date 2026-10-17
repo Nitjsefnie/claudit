@@ -1,5 +1,5 @@
 """Pins for two dashboard-latency mechanisms that could be reverted with
-no test failing (issue #839).
+no test failing.
 
 1. The gzip middleware's `compresslevel=6` and `minimum_size=1024`
    (backend/app.py). Removing the level silently ships a different
@@ -39,7 +39,6 @@ def test_gzip_middleware_uses_level_six():
 
 
 def _node(body: str):
-    """Run `body` against the real src/cost-by-context.js in node."""
     script = f"""
       global.window = {{}};
       require({str(CBC_JS)!r});

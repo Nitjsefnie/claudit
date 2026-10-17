@@ -1,4 +1,3 @@
-"""Collection policy changes converge real stored rows and derived state."""
 from __future__ import annotations
 
 import json
@@ -70,7 +69,7 @@ def _run() -> dict:
     return result
 
 
-# #959 stores these fields as dim FK ids; master's assertions read the
+# stores these fields as dim FK ids; master's assertions read the
 # transport field's TEXT value, so each id resolves through its dim
 # table (a masked or absent id reads NULL, which is what "off" means).
 _DIM_VALUES = {
@@ -83,14 +82,10 @@ _DIM_VALUES = {
 
 
 def _rows(table: str, key: str) -> list[dict]:
-    """Every row of `table` belonging to one file_key, in transport shape.
-
-    files keeps file_key; records/tool_uses key on file_id since #959,
-    so the fact tables resolve the id through files first. Dim FK ids
-    come back as their TEXT values, and `file_id` — a #959 storage
-    surrogate master's rows never carried — is dropped so a
-    delete-and-reingest snapshot compares like for like.
-    """
+    """Return one file's rows in transport shape.
+    Resolve fact-table file_id through files and dimension ids to text. Drop
+    the storage-only file_id so delete-and-reingest snapshots compare values
+    rather than whichever surrogate ids were allocated."""
     with db.viz_conn() as conn:
         if table == "files":
             where, params = "file_key = %s", (key,)

@@ -1,4 +1,4 @@
-"""The ci-gate comment-only class (issue #844).
+"""The ci-gate comment-only class.
 
 A change whose changed paths are all source files whose comment-stripped
 token streams are identical at base and head cannot move behaviour, so
@@ -27,7 +27,6 @@ TESTS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "tests.yml"
 
 
 def _load(name):
-    """Import scripts/ci/<name>.py by path (scripts/ci is not a package)."""
     path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
@@ -98,9 +97,6 @@ def _js_run(contents, base_tokens, head_tokens):
         node_calls.append(argv)
         return base_tokens if len(node_calls) == 1 else head_tokens
     return run
-
-
-# --- comment_only: the over-run directions ----------------------------------
 
 
 # A pair whose only difference is a comment BELOW line 2 — the magic-comment
@@ -213,9 +209,6 @@ def test_js_comment_only_and_real_change_via_canned_tokens():
         _js_run(contents, same, '[["Identifier", "b", false]]')) is False
 
 
-# --- classify: the class through the whole decision --------------------------
-
-
 def test_classify_reports_the_comment_only_class():
     contents = {("m.py", BASE): BELOW_WINDOW_BASE,
                 ("m.py", HEAD): BELOW_WINDOW_HEAD}
@@ -237,9 +230,6 @@ def test_write_outputs_emits_all_classifications(tmp_path):
         "setup_only=false\n"
         "reason=comment-only change: 2 source files\n"
     )
-
-
-# --- _refs: the pull-request path (issue #822's event) -----------------------
 
 
 def test_refs_reads_a_pull_request_base_and_head():
@@ -282,8 +272,6 @@ def test_comment_only_on_a_pull_request():
     event = {"name": "pull_request", "repository": REPO, "pull_request": "17"}
     assert classify.comment_only(["m.py"], event, run) is True
 
-
-# --- aggregate: comment-only fold, including setup-docs (issue #1054) --------
 
 LEGS = ("classify", "tests", "test-data", "lint", "types", "eslint",
         "panel-layout", "smoke", "docker-smoke", "audit", "actionlint",
@@ -347,9 +335,6 @@ def test_comment_only_output_absent_fails():
     assert aggregate.decide(doc)[0] == aggregate.FAILED
 
 
-# --- the workflow wiring the class depends on --------------------------------
-
-
 def _ci_gate():
     return yaml.safe_load(CI_GATE.read_text(encoding="utf-8")) or {}
 
@@ -382,9 +367,6 @@ def test_the_espree_dir_env_name_matches_the_workflow():
                 if s.get("id") == "classify")
     assert classify.ESPREE_DIR_ENV == "CLAUDIT_ESPREE_DIR"
     assert classify.ESPREE_DIR_ENV in (step.get("env") or {})
-
-
-# --- the node helper ---------------------------------------------------------
 
 
 def test_the_node_helper_strips_comments_and_marks_line_breaks(tmp_path):

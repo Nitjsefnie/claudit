@@ -1,4 +1,4 @@
-"""The perturbed-data leg's attribution bench (issue #456) under test.
+"""The perturbed-data leg's attribution bench under test.
 
 These tests drive ``scripts/ci/perturbed_leg_bench.py`` over a MINIMAL
 synthetic pricing.json, constants module and parser-version module in
@@ -73,9 +73,6 @@ def _mini_suite(tmp_path: Path, *, passing: bool = True) -> list[str]:
     mini = tmp_path / "test_mini.py"
     mini.write_text(body, encoding="utf-8")
     return [str(mini), "-q", "--tb=no", "-p", "no:cacheprovider"]
-
-
-# --- the measurement's shape --------------------------------------------------
 
 
 @POSIX
@@ -186,9 +183,6 @@ def test_a_perturb_failure_names_it_and_is_nonzero(tmp_path, capsys):
     assert str(pricing_path) in captured.err
 
 
-# --- the reports -----------------------------------------------------------------
-
-
 def _synthetic_measurement() -> dict:
     return {
         "instrument": bench.INSTRUMENT,
@@ -221,9 +215,6 @@ def test_the_summary_markdown_carries_the_table():
         assert needle in text
 
 
-# --- the CI wiring ---------------------------------------------------------------
-
-
 def _workflow_doc():
     return yaml.load(
         (ROOT / ".github" / "workflows" / "test-data.yml").read_text(
@@ -233,11 +224,11 @@ def _workflow_doc():
 def test_the_leg_runs_one_seed_per_matrix_job():
     (job,) = _workflow_doc()["jobs"].values()
     strategy = job.get("strategy") or {}
-    # Every seed reports its own verdict (issue #456, option A): the
+    # Every seed reports its own verdict (option A): the
     # seeds are independent trees, so fail-fast's cancellation would
     # discard a seed still to run.
     assert strategy.get("fail-fast") == "false", strategy
-    # The fixed seeds (issue #226) live in the matrix now, so this is
+    # The fixed seeds live in the matrix now, so this is
     # where the leg's seed policy is pinned: a dropped or added seed
     # fails here.
     assert (strategy.get("matrix") or {}).get("seed") == [
@@ -260,7 +251,6 @@ def test_the_leg_runs_one_seed_per_matrix_job():
         "python scripts/ci/perturbed_leg_bench.py "
         '--seed "${{ matrix.seed }}" '
         '--summary "$GITHUB_STEP_SUMMARY"')
-    # The default is the production invocation: no override here.
     assert "--pytest-args" not in lines[0]
 
 

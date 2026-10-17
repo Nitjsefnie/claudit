@@ -1,4 +1,4 @@
-"""backend.dims' table-name allow-set (issue #959).
+"""backend.dims' table-name allow-set.
 
 `dim_ids` interpolates its table name into the upsert, so the name is
 checked against the module's fixed allow-set first: a caller passing
@@ -22,7 +22,7 @@ def test_an_unknown_table_name_is_refused_before_any_sql():
     fake_conn: Any = object()
     with pytest.raises(ValueError, match="not_a_dim_table"):
         dims.dim_ids(fake_conn, "not_a_dim_table", ["x"])
-    # ...and before the empty-values shortcut too: the NAME is what is
+    # ..and before the empty-values shortcut too: the NAME is what is
     # being validated, whatever the value list holds.
     with pytest.raises(ValueError, match="not_a_dim_table"):
         dims.dim_ids(fake_conn, "not_a_dim_table", [])

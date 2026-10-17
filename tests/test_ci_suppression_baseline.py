@@ -3,7 +3,7 @@
 Production Python gains a second only-shrinks baseline: the per-file
 count of inline ``pylint: disable``/``disable-next`` comments whose check
 list names a complexity check (any ``too-many-…``), under ``backend/``
-and ``scripts/`` — ``tests/`` stays outside (issue #389). The cases pin
+and ``scripts/`` — ``tests/`` stays outside. The cases pin
 the counted shape, the four reported statuses, the tighten direction
 (only ever down or gone) and the committed document's shrink-tolerant
 agreement with the actual tree.

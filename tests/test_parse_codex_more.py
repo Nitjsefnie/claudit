@@ -1,4 +1,3 @@
-"""Tests moved from test_parse_codex.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
 import json
@@ -43,7 +42,7 @@ def test_a_cache_write_is_billed_at_its_own_rate_not_at_fresh_input_rates():
 ])
 def test_every_label_the_codex_parser_stores_prices_exactly(label):
     """Every id the corpus names is a pricing.json key, so the stored model
-    prices exactly — no estimate flag. An id with NO row is the issue #471
+    prices exactly — no estimate flag. An id with NO row is the
     fallback shape: stored verbatim, priced estimated, never renamed."""
     resolution = pricing.resolve(label)
     assert resolution.kind == "exact"
@@ -53,7 +52,7 @@ def test_every_label_the_codex_parser_stores_prices_exactly(label):
 def test_every_codex_label_lives_in_the_browser_mirrored_table():
     """The dashboard calls window.rateForModel for backend Codex rows, so
     keeping Codex rates outside the mirrored table misprices that view.
-    Since issue #851 the first-party labels live in the tracked table and
+    the first-party labels live in the tracked table and
     the mirrored table is the merged view — the bare vendor forms the
     browser's vendorBare carries beside the models table — and the keys
     are written in the normalised (dashed) form the codex parser stores.
@@ -173,7 +172,7 @@ def test_codex_tool_uses_preserve_event_time_models_across_a_switch():
 
 def test_codex_tool_use_before_first_declaration_uses_the_first_declared_model():
     """The first declared model backfills a tool call in replayed
-    history (issue #653)."""
+    history."""
     lines = [
         {
             "timestamp": "2026-06-14T12:00:01.000Z",
@@ -259,17 +258,14 @@ def test_diff_churn_counts_changed_lines_not_headers(diff, expected):
 
 
 def test_a_filechange_item_is_counted_as_churn():
-    """From 2026-08-18 Codex stopped emitting event_msg/patch_apply_end and
-    began wrapping the same content in event_msg/item_completed with an
-    item.type of FileChange. A parser that only knows the old discriminator
-    books every patch at zero lines, silently: the rows still appear, the
-    churn is just gone."""
+    """Recognise event_msg/item_completed FileChange as well as patch_apply_end.
+    Ignoring the alternate discriminator leaves tool rows present but loses churn."""
     out = _parse("rollout_item_completed.jsonl")
     patches = [t for t in out["tool_uses"] if t["tool_name"] == "apply_patch"]
     assert [(t["lines_added"], t["lines_deleted"]) for t in patches] == [
         (3, 3),   # update +1/-1, add of 2 lines, delete of 2 lines
         (0, 0),   # status=failed changed nothing
-        (4, 0),   # a 4-line file added
+        (4, 0),
     ]
 
 
@@ -460,7 +456,7 @@ def test_malformed_command_json_does_not_hide_a_later_write(
 
 def test_every_model_the_corpus_names_stays_itself():
     """Each id here is one a rollout has actually carried: the parser stores
-    it verbatim (spelling normalisation only, issue #471) — never renamed,
+    it verbatim (spelling normalisation only) — never renamed,
     whatever the pricing table lists."""
     for raw in ("gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
         label = _codex_model(raw)

@@ -1,11 +1,6 @@
-"""The context-growth traces panel endpoint and the traces move (issue
-#644): the per-file traces left the /api/dashboard payload — they were
-82% of its gzip — and the panel fetches
-/api/context-growth/traces itself. Also the /api/models read-path pins
-that landed with the same fan-out work: the response cache (it re-ran a
-~1s GROUP BY on every open) and the is_canonical filter
-(SV-CANONICAL-FLAG).
-"""
+"""Fetch per-file context traces separately from the dashboard response.
+Cache the models endpoint so repeated opens avoid full GROUP BY work, and
+filter it by canonical records (SV-CANONICAL-FLAG)."""
 from contextlib import closing
 from pathlib import Path
 import os
@@ -25,8 +20,6 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture(scope="module", name="client")
 def _client_fixture():
-    """Fresh DB + mini R2 + ingest, yielding a TestClient on the api
-    router (auth bypassed), the same shape tests/test_api.py uses."""
     mp = pytest.MonkeyPatch()
     test_db = scratch_db.create_database("ctx_growth_traces")
     mp.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{test_db}")
@@ -46,11 +39,7 @@ def _client_fixture():
 
 
 def test_models_response_is_cached(client):
-    """GET /api/models re-ran a full GROUP BY over records on every page
-    open (measured ~1s on allmeter at range=all scale) — the one fan-out
-    request that was neither cached nor warmed. The cached endpoint
-    answers the second call from the cache, not the database (issue
-    #644): the same dict object comes back, no second query runs."""
+    """A second /api/models call returns the cached dict without a second query."""
     first = api.list_models()
     second = api.list_models()
     assert second is first
@@ -106,11 +95,9 @@ def test_dashboard_carries_no_ctx_traces(client):
 
 
 def test_context_growth_traces_serves_the_panel_rows(client):
-    """/api/context-growth/traces returns the per-file traces the
-    dashboard payload used to carry, projected the same way ({model,
-    turns}, turns flattened to ctx ints): the panel's reading is
-    unchanged. Every session whose ctx_at_end is set must find a trace
-    ending on that value — the fold and the panel now read one source."""
+    """Project per-file traces as {model, turns}, flattening turns to ctx ints.
+    Every session with ctx_at_end must have a trace ending at that value,
+    because the fold and panel read one source."""
     traces = client.get(
         "/api/context-growth/traces?range=all").json()["traces"]
     assert traces, "fixture produced no traces"

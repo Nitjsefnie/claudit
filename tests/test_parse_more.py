@@ -1,4 +1,3 @@
-"""Tests moved from test_parse.py to keep test modules under 700 lines."""
 from __future__ import annotations
 
 import json
@@ -69,7 +68,7 @@ def test_error_text_carries_no_nul_byte():
     """A failed tool_result that read binary content puts a NUL in the
     result text. PostgreSQL text columns cannot hold one, so a NUL that
     survives parsing aborts the whole ingest transaction and leaves every
-    derived rollup unbuilt (issue #41). The classification and the
+    derived rollup unbuilt. The classification and the
     readable part of the message must survive the stripping.
     """
     out = parse.parse_file(
@@ -132,7 +131,7 @@ def test_agent_dispatch_args_captured():
 
 
 def test_dispatch_agent_type_takes_its_canonical_name(tmp_path):
-    """One role, one name (issue #650): the asked type folds a plugin
+    """One role, one name: the asked type folds a plugin
     namespace and a cross-lane spelling, exactly like the stored side."""
     dispatch_line = {
         "type": "assistant", "sessionId": "s", "uuid": "a0",
@@ -160,7 +159,7 @@ def test_dispatch_agent_type_takes_its_canonical_name(tmp_path):
 
 def test_the_file_agent_type_folds_in_band_names(tmp_path):
     """attributionAgent and agent-setting take the canonical name too
-    (issue #650)."""
+    ."""
     blob = "\n".join([
         json.dumps({"type": "user", "sessionId": "s", "uuid": "u0",
                     "isSidechain": True, "attributionAgent": "explorer",
@@ -264,7 +263,7 @@ def test_errored_compound_bash_keeps_the_heredoc_write():
     assert tu["lines_added"] == 2
     assert tu["lines_deleted"] == 0
     # The mkdir limb now books the directory it creates beside the
-    # heredoc's file (#655).
+    # heredoc's file.
     assert tu["write_targets"] == ["/repo/scripts", "/repo/scripts/gen.py"]
 
 
@@ -601,9 +600,9 @@ def test_provider_merges_across_streaming_chunks_first_non_null_wins():
     # req-2's trailing provider-less chunk must not wipe its provider.
     assert kept["provider"] == "Novita"
     # usage max-merged as before, and one record per requestId.
-    assert carried["output_tokens"] == 200      # max(50, 200)
+    assert carried["output_tokens"] == 200
     assert carried["fresh_tokens"] == 1000
-    assert kept["output_tokens"] == 300         # max(100, 300)
+    assert kept["output_tokens"] == 300
     assert kept["fresh_tokens"] == 1000
 
 
@@ -620,7 +619,7 @@ def test_provider_merge_conflicting_providers_first_wins():
     assert merged["request_id"] == "req-1"
     # 'Chutes' arrives on the second chunk; the record keeps 'Novita'.
     assert merged["provider"] == "Novita"
-    assert merged["output_tokens"] == 200       # max(50, 200)
+    assert merged["output_tokens"] == 200
 
 
 def test_provider_strips_surrounding_whitespace():

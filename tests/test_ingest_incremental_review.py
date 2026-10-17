@@ -1,4 +1,3 @@
-"""Regression tests for incremental rebuild review findings."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -17,7 +16,6 @@ from tests import dims_seed
 
 
 def _rebuild_rollups(scope: ingest_scope.Scope | None = None) -> None:
-    """Run each hourly and latency table through its public ingest seam."""
     for name in (
         "rebuild_rollup", "rebuild_tool_rollup", "rebuild_tool_error_rollup",
         "rebuild_dispatch_rollup", "rebuild_dispatch_brief_rollup",

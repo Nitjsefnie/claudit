@@ -1,4 +1,4 @@
-"""Frontend performance telemetry (issue #436): the sink's vocabulary, the
+"""Frontend performance telemetry: the sink's vocabulary, the
 beacon endpoint's gates, the percentile rollup, and the readout.
 
 No ingest runs here — `web_metrics` is written by the sink and read by the
@@ -35,9 +35,9 @@ _ORIGIN = {"Origin": "http://testserver"}
 _VALUES = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
 
 
-#: The fold's clock, pinned. Every rollup assertion below reads its instants
-#: from here, because the band a seed must land in is exactly one fold
-#: interval wide and a live clock puts it on the boundary.
+# The fold's clock, pinned. Every rollup assertion below reads its instants
+# from here, because the band a seed must land in is exactly one fold
+# interval wide and a live clock puts it on the boundary.
 PINNED_NOW = datetime(2026, 5, 14, 9, 20, 0, tzinfo=timezone.utc)
 
 
@@ -56,9 +56,9 @@ def _closed_ts() -> datetime:
         seconds=max(LATENCY_BUCKETS) + 1800)
 
 
-#: The fold's clock, pinned. Every rollup assertion below reads its instants
-#: from here, because the band a seed must land in is exactly one bucket
-#: width wide and a live clock puts it on the boundary.
+# The fold's clock, pinned. Every rollup assertion below reads its instants
+# from here, because the band a seed must land in is exactly one bucket
+# width wide and a live clock puts it on the boundary.
 PINNED_NOW = datetime(2026, 5, 14, 9, 20, 0, tzinfo=timezone.utc)
 
 
@@ -88,10 +88,9 @@ def _client_fixture(viz):
     behaviour is what is under test here, and the middleware's gates get
     their own clients below so they are not silently absent.
 
-    The one thing a bare router cannot supply is IDENTITY, and #629 made
-    the readout demand one: this client presents itself as an operator
-    (issue #629's gate and its refusal live further down, against real
-    sessions). `user_id = 0` and `is_guest` keep the sink's guest-shaped
+    The readout requires identity, which a bare router cannot supply:
+    present this client as an operator. Exercise the gate and refusal
+    separately against real sessions below. `user_id = 0` and `is_guest` keep the sink's guest-shaped
     behaviour exactly as a session-less client had it — the stored rows
     below assert `user_id 0`, and the guest row cap is picked from the
     same id.
@@ -167,9 +166,6 @@ def _seed(values, *, ts=None, **over):
     return moment
 
 
-# --- the vocabulary (backend/web_metrics.py) -------------------------------
-
-
 def test_normalise_accepts_every_documented_pair():
     for metric, parts in web_metrics.METRIC_PARTS.items():
         for part in parts:
@@ -240,11 +236,9 @@ def test_normalise_refuses_an_unknown_observer_term():
 
 
 def test_normalise_refuses_an_unknown_panel_term():
-    """#717 widened the region class with the panel terms; the negative
-    space is the point of the closed set. A `panel_`-shaped term that
-    names no rendered panel is the same vocabulary violation `sidebar`
-    is, and a free-form selector would grow the rollup grain without
-    bound."""
+    """A panel-shaped region naming no rendered panel is outside the closed set.
+    Reject it just like any unrelated vocabulary term: free-form selectors
+    would grow the rollup grain without bound."""
     with pytest.raises(web_metrics.BeaconError, match="unknown region"):
         web_metrics.normalise({"metric": "layout_shift", "part": "shift",
                                "region": "panel_not_a_panel", "value": 0.1})
@@ -259,9 +253,6 @@ def test_parse_batch_bounds_the_batch():
         web_metrics.parse_batch(
             {"beacons": [_beacon()] * (web_metrics.MAX_BEACONS + 1)})
     assert len(web_metrics.parse_batch({"beacons": [_beacon()]})) == 1
-
-
-# --- the sink --------------------------------------------------------------
 
 
 def test_sink_stores_the_batch(viz, client):
@@ -389,11 +380,11 @@ def test_a_beacon_without_a_session_is_401(viz):
     assert _rows(viz) == []
 
 
-# --- the readout's operator gate (issue #629) ------------------------------
+# --- the readout's operator gate ------------------------------
 
-#: A real user's auth-DB `users.config`, and the fingerprint their
-#: `user_session` row must carry for `resolve_session_user_id` to accept
-#: the token at all — so every client below resolves for REAL.
+# A real user's auth-DB `users.config`, and the fingerprint their
+# `user_session` row must carry for `resolve_session_user_id` to accept
+# the token at all — so every client below resolves for REAL.
 _USER_CONFIG = {
     "web_password_hash": "stored-hash",
     "web_password_salt": "stored-salt",
@@ -479,8 +470,6 @@ def test_the_sink_keeps_answering_everyone_the_gate_excludes(
     assert len(rows) == 2, "the gate cost the sink a stored beacon"
 
 
-# --- the schema, and the shipped client against this sink ------------------
-
 def test_the_schema_carries_both_tables(viz):
     with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
         names = {r[0] for r in conn.execute(
@@ -518,7 +507,6 @@ def test_a_user_id_wider_than_int4_round_trips(viz):
 
 
 # --- the shipped client, against THIS sink's vocabulary -------------------
-#
 # The client and the sink each close over the same five metrics and their
 # parts, regions and phases, and nothing has ever made them agree: the
 # client's own suite pins it against a restatement of the table written in
@@ -658,7 +646,7 @@ def _panel_terms() -> set[str]:
 
 
 def test_the_panel_terms_are_derived_from_the_panel_sources():
-    """#717: the region vocabulary gained the panel terms, and a term is
+    """the region vocabulary gained the panel terms, and a term is
     only admissible while some panel source still justifies it — the
     closed set IS the JSX's own titles, folded. One assertion spans the
     three places the vocabulary lives (the sink tuple, the client table,

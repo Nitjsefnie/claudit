@@ -1,9 +1,9 @@
 """Tests for the reparse bench's GATE — what it compares, and what it refuses.
 
-Split out of `test_reparse_bench.py` (issue #513): that file pins the
+Split out of `test_reparse_bench.py`: that file pins the
 bench's SHAPE — the corpus it walks, the code path it drives, the
 partition it reports and the arithmetic behind the recorded numbers —
-while this one pins the step CI runs against its output. Since #513 the
+while this one pins the step CI runs against its output. The
 gate holds a phase to its BYTECODE budget alone and the per-phase share
 is telemetry, so the enforced set, its reader and the fail-closed rule
 for an absent count all live here.
@@ -99,8 +99,6 @@ def _measurement_with(shares, counted=None):
                               is None else counted))
 
 
-# --- the phase table (issue #490) ---------------------------------------------
-
 def _report_lines(counted=None):
     """The report block for a synthetic measurement: shares of 9.0%
     apiece and, unless a per-phase mapping is given, 1.0 counted apiece.
@@ -114,7 +112,7 @@ def _report_lines(counted=None):
 
 def test_report_phase_table_is_markdown():
     """Padded markdown: readable in the monospace job log, and pasted
-    elsewhere it renders as a table (issue #490)."""
+    elsewhere it renders as a table."""
     lines = _report_lines()
     header, separator, *rows = [
         line for line in lines if line.startswith("|")]
@@ -164,7 +162,7 @@ def test_report_shows_a_phase_counted_value_in_its_row():
 
 def test_report_totals_and_instrument_notes_stay_prose():
     """The intro, the sum and the two instrument notes are not rows of
-    the table (issue #490 keeps them prose)."""
+    the table ( keeps them prose)."""
     prose = [line for line in _report_lines()
              if not line.startswith("|")]
     assert prose[0].startswith("reparse CPU")
@@ -203,13 +201,13 @@ def test_check_fails_on_a_phase_over_its_bytecode_floor(tmp_path, capsys):
 
 
 def test_check_ignores_a_share_over_its_floor(tmp_path, capsys):
-    """A share no longer gates (issue #513) — it is telemetry.
+    """A share no longer gates — it is telemetry.
 
     A phase share is a proportion of a timed run: its runner-to-runner
     spread measures wider than the 1.5-point gap it is compared against
-    (#500, #506), and it moves when the corpus MIX shifts between
+    , and it moves when the corpus MIX shifts between
     formats of different parse cost even with no code path slower and
-    every count under its ceiling (PR #512). The recorded share budgets
+    every count under its ceiling. The recorded share budgets
     stay in the document as the reading they recorded; nothing is
     compared against them.
     """
@@ -296,15 +294,9 @@ def test_the_gate_holds_exactly_the_bytecode_budgets():
 
 def test_the_gate_reads_the_enforced_set_rather_than_a_hardcoded_metric(
         tmp_path, monkeypatch):
-    """A metric that joins the enforced set with no reader fails the gate.
-
-    The gate body used to spell 'bytecodes', so the constant the doctrine
-    names as the enforced set was consulted only by the ratchet: widening
-    it tightened shares again while the gate kept passing on the count it
-    read by name. Reading through the constant binds the two, and a gated
-    metric the gate cannot read refuses rather than passing silently —
-    the shape of the defect issue #513 exists to close.
-    """
+    """An enforced metric with no reader fails closed.
+    The gate and ratchet must read the same enforced-set constant, or widening
+    the set could tighten shares while the gate keeps checking a single metric."""
     thresholds_path = tmp_path / "ci-thresholds.json"
     thresholds.write(thresholds_path, _document(_budgets()))
     path = tmp_path / "m.json"

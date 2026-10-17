@@ -1,7 +1,7 @@
 """Layout-shift REGION attribution in src/perf.js (node-driven).
 
-The region family of `tests/test_perf_js.py`, plus the #643 all-sources
-walk and the #717 panel terms. The module reads the same faked browser
+The region family of `tests/test_perf_js.py`, plus the all-sources
+walk and the panel terms. The module reads the same faked browser
 globals the parent harness builds (`_run` there stands in for
 `performance`, `PerformanceObserver`, `navigator`, `sessionStorage` and
 the timers), so every assertion here runs against the real shipped
@@ -31,11 +31,11 @@ def test_region_walks_up_to_the_nearest_ancestor_that_names_one():
 
 
 def test_region_falls_back_to_the_nearest_data_panel():
-    """#647: only the grid and the Inspector carry `data-perf-region`,
+    """only the grid and the Inspector carry `data-perf-region`,
     so a live node inside one panel — under no named region — landed in
     `other`, and `other` is what most production shifts carried. The
     nearest `[data-panel]` ancestor is the attribution the page already
-    names. #717: the name is no longer folded into the grid term — it is
+    names. the name is no longer folded into the grid term — it is
     the attribution, as its own `panel_` term — so a shift names the
     panel that moved. The region walk keeps precedence, and the fallback
     widens nothing it cannot see: a node outside every panel keeps
@@ -58,14 +58,10 @@ def test_region_falls_back_to_the_nearest_data_panel():
 
 
 def test_a_node_under_the_grid_names_its_panel_not_the_grid():
-    """#717: the whole grid carries `data-perf-region="panel_grid"`
-    (src/app.jsx, on both `.dashboard` and `.dash-grid`), so the region
-    walk matched the grid on an ANCESTOR before any panel name was read
-    and every panel shift read `panel_grid`. The walk now defers the grid
-    term: a named panel on the node itself or any ancestor wins over the
-    grid's `panel_grid`, and the grid keeps only what no panel
-    names — grid gaps, elements that carry no `data-panel` of their own.
-    (The summary strip was one of these until #755 gave it its own term.)"""
+    """Defer the grid region until after named panels.
+    The grid wraps every panel, so reading its ancestor attribute first would
+    hide a panel's identity. Named panels win; panel_grid covers only unnamed
+    gaps or elements, and the summary strip has its own distinct region."""
     out = _run("""
       const mk = (attrs, parent) => ({
         getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
@@ -85,14 +81,10 @@ def test_a_node_under_the_grid_names_its_panel_not_the_grid():
 
 
 def test_the_topbar_and_the_picker_strip_name_their_own_terms():
-    """#733: the top bar and the project picker strip carried no region
-    attribute, so a shift sourced in either — the logo, the nav buttons,
-    the picker buttons — landed in `other`, the exact outcome #643's
-    Expected Behavior forbids. Both carry their own terms now (src/app.jsx
-    marks the `<header class="topbar">` and src/picker.jsx the project
-    strip); the walk returns them like any named region, and a node
-    under neither still falls to `other`. #755 split the range strip off
-    the project strip's term, so the two no longer share one."""
+    """The top bar, project picker and range picker have distinct named regions.
+    Each node under those containers must resolve to that region, while a node
+    under none of them falls back to other. Separate the range strip from the
+    project strip so a beacon identifies which one shifted."""
     out = _run("""
       const mk = (attrs, parent) => ({
         getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
@@ -111,7 +103,7 @@ def test_the_topbar_and_the_picker_strip_name_their_own_terms():
 def test_a_shift_sourced_in_the_topbar_or_picker_strip_beacons_the_term():
     """End to end through the observer: a shift whose source sits in the
     top bar or the picker strip names that strip in the beacon the sink
-    receives, where it read `other` before #733."""
+    receives, where it read `other` before."""
     out = _run("""
       const mk = (attrs, parent) => ({
         getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
@@ -132,7 +124,7 @@ def test_a_shift_sourced_in_the_topbar_or_picker_strip_beacons_the_term():
 
 
 def test_the_range_strip_and_the_summary_strip_name_their_own_terms():
-    """#755: the range preset strip carried the project strip's
+    """the range preset strip carried the project strip's
     `project_picker`, so a beacon naming it could not say which strip
     shifted; and a node inside the summary strip — in the grid but under
     no panel — reported the whole-grid `panel_grid`, the same term a gap
@@ -159,7 +151,7 @@ def test_a_shift_sourced_in_the_range_or_summary_strip_beacons_the_term():
     """End to end through the observer: a shift whose source sits in the
     range strip or the summary strip names that strip in the beacon the
     sink receives, where it read the project strip's term and `panel_grid`
-    respectively before #755."""
+    respectively before."""
     out = _run("""
       const mk = (attrs, parent) => ({
         getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
@@ -261,7 +253,7 @@ def test_a_shift_with_no_sources_falls_back_to_other():
 
 
 def test_attribution_walks_every_source_before_other():
-    """#643: one Layout Instability entry names SEVERAL moved nodes, and
+    """one Layout Instability entry names SEVERAL moved nodes, and
     the FIRST one does not always resolve — the production 0.697 shifts
     reported `other` because sources[0] was a bare section wrapper while
     the panel it pushed around moved as a later source. The attribution

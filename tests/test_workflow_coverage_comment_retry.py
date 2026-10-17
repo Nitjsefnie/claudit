@@ -1,6 +1,6 @@
-"""The comment job's GitHub API calls retry, bounded and spaced (issue #763).
+"""The comment job's GitHub API calls retry, bounded and spaced.
 
-Run 37521615906 (comment job for PR #761) lost its patch-coverage
+Run 37521615906 (comment job for) lost its patch-coverage
 comment to ONE malformed `gh api` response ("unexpected end of JSON
 input"): the POST exited 1 on its first attempt and no later run
 reposted for that pull request. Every `gh api` call in the comment job
@@ -195,7 +195,6 @@ class TestSharedHelper:
 
 
 class TestApiRetry:
-    """The wrapper's own contract, against a fake gh failing N times."""
 
     def _probe(self, tmp_path, fail_times):
         helper = _write_helper(tmp_path)

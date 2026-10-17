@@ -1,4 +1,4 @@
-"""Prompt-gate fixtures (issue #213): XML-wrapped harness injections are
+"""Prompt-gate fixtures: XML-wrapped harness injections are
 not prompts.
 
 One test per fixture, names 1:1; the Codex lane's R1 pin rides here too
@@ -24,7 +24,7 @@ def _read(name):
 
 def test_prompt_count_excludes_xml_wrapped_injections():
     """Harness-injected user lines that OPEN with an XML tag are data, not
-    prompts (issue #213): they count neither toward prompt_count nor as
+    prompts: they count neither toward prompt_count nor as
     ctx-turn boundaries, but they re-anchor the latency window. Each
     reply measures from the immediately preceding user text, including
     the U+001C-prefixed notification: Python lstrip strips the C0
@@ -42,7 +42,7 @@ def test_prompt_count_excludes_xml_wrapped_injections():
 
 def test_prompt_count_keeps_pasted_content():
     """<pasted_content> wraps text a person pasted, so it STAYS a prompt
-    (issue #213 keep-list): it counts and re-anchors the latency window —
+    ( keep-list): it counts and re-anchors the latency window —
     the reply answers the paste, not the line before it."""
     out = parse.parse_file("k/sess-pc/sess-pc.jsonl",
                            _read("prompt_pasted_content_keeps.jsonl"))
@@ -51,7 +51,7 @@ def test_prompt_count_keeps_pasted_content():
 
 
 def test_prompt_count_excludes_unknown_xml_tags_by_default():
-    """Deny-by-default (issue #213): an injected wrapper we have never
+    """Deny-by-default: an injected wrapper we have never
     heard of (<environment_context>, <user_instructions>) is excluded
     without a parser change; only the real prompt counts, while every
     non-interrupt user text can anchor reply latency."""
@@ -62,7 +62,7 @@ def test_prompt_count_excludes_unknown_xml_tags_by_default():
 
 
 def test_prompt_count_counts_xml_only_when_it_opens():
-    """Only the OPENING matters (issue #213): a tag mid-text is the
+    """Only the OPENING matters: a tag mid-text is the
     person's own words around harness vocabulary, a leading CLOSING tag
     is not an opening tag, and a URL in angle brackets fails the tag
     shape (the // is outside the tag-name alphabet) — all three texts
@@ -76,7 +76,7 @@ def test_prompt_count_counts_xml_only_when_it_opens():
 
 
 def test_is_prompt_text_direct_shapes():
-    """The gate's defensive edges, directly (issue #213): empty and
+    """The gate's defensive edges, directly: empty and
     whitespace-only text is not a prompt; the keep-list wrapper around a
     human paste is; a wrapped notification is not."""
     assert _is_prompt_text("") is False
@@ -88,7 +88,7 @@ def test_is_prompt_text_direct_shapes():
 def test_codex_turns_ignore_injected_user_xml():
     """Codex prompt_count is event-keyed (one turn per task_started), so
     injected response_item/user messages carrying <environment_context> /
-    <user_instructions> open no turn and count no prompt (issue #213, R1:
+    <user_instructions> open no turn and count no prompt (R1:
     no lane code change — this fixture pins that the lane path stays
     immune so drift fails loudly)."""
     out = parse.parse_file("codex/codex_user_xml.jsonl",

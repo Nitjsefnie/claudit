@@ -1,4 +1,4 @@
-"""Tripwires for the OpenSSF Scorecard workflow (issue #554).
+"""Tripwires for the OpenSSF Scorecard workflow.
 
 Scorecard is a repository trend signal, not a gate, and two properties of it
 are load-bearing rather than incidental:
@@ -52,7 +52,6 @@ CONTRIBUTION_EVENTS = ("push", "pull_request", "pull_request_target",
 
 
 def _load(name):
-    """Import scripts/ci/<name>.py by path (scripts/ci is not a package)."""
     path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
@@ -94,8 +93,6 @@ def _step_using(action: str) -> dict:
             return step
     raise AssertionError(f"no step uses {action}")
 
-
-# --- not a gate -----------------------------------------------------------
 
 def _cron_expressions(path: Path) -> list[str]:
     """Every five-field cron a workflow schedules, in file order."""
@@ -274,8 +271,6 @@ def test_its_slot_collides_with_no_other_workflow_cron():
         )
 
 
-# --- it publishes ---------------------------------------------------------
-
 def test_the_job_publishes_and_uploads_sarif():
     scorecard_step = _step_using("ossf/scorecard-action")
     with_ = scorecard_step.get("with") or {}
@@ -326,8 +321,6 @@ def test_the_analysis_runs_on_a_hosted_ubuntu_runner():
             "publish with"
         )
 
-
-# --- permissions ----------------------------------------------------------
 
 def test_write_permissions_live_on_the_job_not_the_workflow():
     """Upstream's publishing rules reject a workflow-level write grant, and
@@ -388,7 +381,7 @@ def test_no_step_is_conditional():
 
 def test_the_sarif_upload_shares_codeqls_pin():
     """One SARIF dialect across both producers. codeql-action records its
-    version and refuses a later step at a different one (issue #335), and
+    version and refuses a later step at a different one, and
     SARIF processing fails at the point of upload when they disagree."""
     def codeql_pins() -> set[str]:
         shas = set()

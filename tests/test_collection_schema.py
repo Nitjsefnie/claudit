@@ -8,7 +8,7 @@ from psycopg import sql
 from backend import db, flags, turn_flag_bits
 from tests import scratch_db
 
-# The collection registry names TRANSPORT fields; #959 stores several of
+# The collection registry names TRANSPORT fields; stores several of
 # them as dim FK ids, one as an INT4 mask and one as a boolean. Each is
 # written through its own translation and read back through it too, so
 # the round-trip still proves the column accepts the value and NULL.
@@ -24,7 +24,7 @@ _TEXT_BOOL_FIELDS = {("tool_uses", "read_kind"): "whole"}
 
 
 def _where(table: str):
-    """files keeps file_key; records/tool_uses key on file_id (#959)."""
+    """files keeps file_key; records/tool_uses key on file_id."""
     if table == "files":
         return sql.SQL("file_key = %s")
     return sql.SQL(

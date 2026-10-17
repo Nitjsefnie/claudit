@@ -1,4 +1,4 @@
-"""The smoke server environment sets no PARSER_VERSION (issue #160).
+"""The smoke server environment sets no PARSER_VERSION.
 
 scripts/ci/smoke.py passed "PARSER_VERSION": "smoke" to the server it
 boots. Nothing reads it: consumers read the code constant

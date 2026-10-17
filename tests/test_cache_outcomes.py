@@ -1,4 +1,4 @@
-"""Issue #641 tests: cache outcome counters, and the TTL-expired entry
+""" tests: cache outcome counters, and the TTL-expired entry
 served stale instead of dropped onto the cold path.
 """
 from __future__ import annotations
@@ -17,7 +17,6 @@ from backend.cache import _TTLCache, cache_response
 
 
 class _Pool:
-    """Records submitted tasks instead of running them."""
 
     def __init__(self):
         self.tasks = []
@@ -66,7 +65,7 @@ def test_expired_entry_serves_stale_instead_of_a_cold_miss(monkeypatch):
     calls = []
     endpoint = _seeded_endpoint(calls, "test_expired_entry_serves_stale_instead_of_a_cold_miss")
 
-    endpoint(rng="all")          # seed the entry
+    endpoint(rng="all")
     clock["t"] += 61.0           # past the TTL
     endpoint(rng="all")          # must SERVE the old value, not recompute
     assert calls == [1], "a TTL-expired entry was dropped onto the cold path"
@@ -87,7 +86,7 @@ def test_expired_entry_schedules_exactly_one_refresh(monkeypatch):
     calls = []
     endpoint = _seeded_endpoint(calls, "test_expired_entry_schedules_exactly_one_refresh")
 
-    endpoint(rng="all")          # seed
+    endpoint(rng="all")
     clock["t"] += 61.0
     endpoint(rng="all")          # expired -> stale serve + refresh claim
     endpoint(rng="all")          # second serve while the claim is held
@@ -207,8 +206,8 @@ def test_scheduled_refresh_skips_when_the_entry_is_already_fresh(monkeypatch):
     calls = []
     endpoint = _seeded_endpoint(calls, "test_scheduled_refresh_skips_when_the_entry_is_already_fresh")
 
-    endpoint(rng="all")            # seed
-    c.invalidate()                 # the ingest
+    endpoint(rng="all")
+    c.invalidate()
     endpoint(rng="all")            # stale serve + refresh queued (unrun)
     # Another actor (a warm) heals the entry while the refresh sits queued:
     c.put(_key_for(endpoint, {"rng": "all"}), {"n": 99})
@@ -310,7 +309,7 @@ def test_warm_skips_a_key_already_claimed_by_a_refresh(monkeypatch):
     calls = []
     endpoint = _seeded_endpoint(calls, "warm-inflight")
 
-    endpoint(rng="all")            # seed
+    endpoint(rng="all")
     c.invalidate()                 # stale, so the freshness check passes
     key = _key_for(endpoint, {"rng": "all"})
     claim = cache_mod._refreshing  # pylint: disable=protected-access
@@ -331,7 +330,7 @@ def test_warm_skips_a_key_already_claimed_by_a_refresh(monkeypatch):
 
 def test_failed_refresh_counts_refresh_error(monkeypatch):
     """A refresh whose compute raises counts refresh_error and leaves the
-    stale entry in place — better stale than a 500 (issue #371's shape)."""
+    stale entry in place — better stale than a 500."""
     c, pool = _make_cache(monkeypatch)
 
     @cache_response
@@ -358,7 +357,7 @@ def test_failed_refresh_counts_refresh_error(monkeypatch):
 
 
 def test_failed_cold_compute_counts_miss_error(monkeypatch):
-    """A cold compute that raises counts miss_error (issue #641 review
+    """A cold compute that raises counts miss_error ( review
     F2): a burst of failing cold opens must not read as nothing."""
     c, _pool = _make_cache(monkeypatch)
 

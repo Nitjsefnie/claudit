@@ -1,4 +1,3 @@
-"""Synthetic properties for each model/provider rate timeline."""
 from __future__ import annotations
 
 import importlib.util

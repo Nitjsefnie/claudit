@@ -1,4 +1,3 @@
-"""Hourly log-backed refresh tests over synthetic OpenRouter responses."""
 from __future__ import annotations
 
 import copy
@@ -31,7 +30,6 @@ sys.path.insert(0, str(CI))
 
 
 def _load():
-    """Import scripts/ci/refresh_provider_rates.py by path."""
     path = CI / "refresh_provider_rates.py"
     spec = importlib.util.spec_from_file_location("refresh_provider_rates", path)
     assert spec and spec.loader
@@ -78,13 +76,12 @@ def _doc(hosts: dict[str, list[dict]], resolve: dict | None = None) -> dict:
         providers={MODEL: hosts},
         tracked={MODEL: {"id": MODEL_ID, "resolve": resolve or {}}},
         # At the detection instant: every seeded row entry is dated at or
-        # before it, as issue #931 requires of a stored document.
+        # before it, as requires of a stored document.
         fetched=STAMP,
     )
 
 
 def _entry(at: str | None, rates: dict, **extra) -> dict:
-    """Provider history row in the pricing document's compact spelling."""
     entry = {"from": at, **rates, **extra}
     for field in ("create_5m", "create_1h"):
         if entry.get(field, entry["fresh"]) == entry["fresh"]:
@@ -98,7 +95,6 @@ def _endpoint(host: str, rates: dict) -> dict:
 
 @dataclass
 class RefreshCase:
-    """Inputs for one synthetic hourly refresh run."""
     history: list[tuple[str, dict]]
     hosts: dict[str, list[dict]]
     endpoint_rates: dict
@@ -109,7 +105,6 @@ class RefreshCase:
 
 
 class RefreshFetches:
-    """Network stubs used by every refresh test in this file."""
     def __init__(self, payload: dict, log_payload: dict,
                  log_fetch: Callable[[], object] | None, catalog: object) -> None:
         self.payload = payload
@@ -269,7 +264,7 @@ def test_log_append_compares_offset_timestamps_as_instants(
         tmp_path, capsys, row_at, row_rates, states, endpoint_rates, additions):
     # The second entry repeats the row's level so the comparison under
     # test is about INSTANTS; a note distinguishes it from its
-    # predecessor, which issue #930 refuses as a no-op otherwise.
+    # predecessor, which refuses as a no-op otherwise.
     row = [_entry(None, RATE_A),
            _entry(row_at, row_rates, note="offset-spelled cutover")]
     expected = row + additions
@@ -336,7 +331,7 @@ def test_first_seen_import_begins_at_the_history_floor(tmp_path, capsys):
     price no record the meters hold — the account's OpenRouter-lane
     records begin at the floor — so a first-seen log-backed host imports
     its log from the last state in force AT the floor, and the dropped
-    levels price nothing (issue #872: the #859 whole-log import grew the
+    levels price nothing (the whole-log import grew the
     deployed document 3.4x)."""
     states = [("2026-01-01T00:00:00Z", RATE_A),
               ("2026-09-01T12:00:00Z", RATE_B),
@@ -526,7 +521,7 @@ def test_a_row_carrying_a_future_entry_is_skipped_without_blocking_the_run(
 
     # The run makes NO move elsewhere (its only endpoint is the skipped
     # host), so the fetch stamp stays where the fixture set it — at or
-    # after the future entry, as issue #931 requires of a stored file.
+    # after the future entry, as requires of a stored file.
     endpoint_payload = {"data": {"endpoints": [_endpoint(HOST, RATE_C)]}}
     fetches = RefreshFetches(endpoint_payload, {"data": {"series": []}}, fail_log, None)
     pricing_path = tmp_path / "pricing.json"

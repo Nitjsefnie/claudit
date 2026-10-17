@@ -98,7 +98,6 @@ def test_long_context_defaults_off_for_every_existing_caller(
 
 
 @pytest.mark.parametrize("model,before,rates", [
-    # Windows copied from codexmeter backend/pricing.py DATED_RATES.
     ("gpt-5.6-sol", "2026-08-21T19:39:59+00:00", (5.00, 6.25, 0.50, 30.00)),
     ("gpt-5.6-terra", "2026-07-30T18:11:59+00:00", (2.50, 3.125, 0.25, 15.00)),
     ("gpt-5.6-luna", "2026-07-30T18:11:59+00:00", (1.00, 1.25, 0.10, 6.00)),

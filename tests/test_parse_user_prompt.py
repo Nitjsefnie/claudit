@@ -1,9 +1,9 @@
-"""User-record prompt counting, one prompt per record (issue #215).
+"""User-record prompt counting, one prompt per record.
 
 The unit is ONE user record: it counts exactly one prompt when any
-top-level content block is human — a text block passing the #213 prompt
+top-level content block is human — a text block passing the prompt
 gate, or an image block. Images inside a ``tool_result`` are result
-payload, never a prompt. The count, the #214 per-prompt timestamp, the
+payload, never a prompt. The count, the per-prompt timestamp, the
 ctx-turn boundary and the reply-latency anchor all land once per
 record, exactly as they do for a plain text prompt (SV-PARSER-SPEC).
 The browser parser (src/parser.js) applies the same rule; its parity is
@@ -24,7 +24,7 @@ def _read(name):
 
 def test_prompt_image_only_record_counts_once():
     """An image-only user record is ONE prompt: it counts toward
-    prompt_count, carries its own #214 timestamp, anchors the reply
+    prompt_count, carries its own timestamp, anchors the reply
     latency and bounds a ctx turn, exactly like a text prompt."""
     out = parse.parse_file(
         "k/sess-img/sess-img.jsonl", _read("prompt_image_only.jsonl")
@@ -40,7 +40,7 @@ def test_prompt_image_only_record_counts_once():
 
 
 def test_prompt_image_with_injected_text_counts():
-    """A record whose text blocks all fail the #213 gate still counts
+    """A record whose text blocks all fail the gate still counts
     once when it carries an image: the image is the human block."""
     out = parse.parse_file(
         "k/sess-imgx/sess-imgx.jsonl",
