@@ -1,0 +1,170 @@
+--- a/lib/code-lines.js
++++ b/lib/code-lines.js
+@@ -0,0 +1,125 @@
++// A lexical line classifier, deliberately independent of the coverage ranges.
++// Keep physical offsets in CovSource; only statement emission uses this mask.
++module.exports = function codeLines (source) {
++  const lines = [false]
++  let line = 0
++  let i = 0
++  const normal = (interpolation = false) => ({ mode: 'normal', interpolation, braces: [], parens: [], regex: true, last: '' })
++  const stack = [normal()]
++  const expressionKeywords = new Set(['return', 'throw', 'case', 'delete', 'void', 'typeof', 'instanceof', 'in', 'of', 'yield', 'await', 'else', 'do', 'new'])
++  const controlKeywords = new Set(['if', 'while', 'for', 'with', 'switch', 'catch'])
++  function consume (code) {
++    if (code) lines[line] = true
++    if (source[i++] === '\n') lines[++line] = false
++  }
++  function operand () {
++    const parent = stack[stack.length - 1]
++    parent.regex = false
++    parent.last = 'operand'
++  }
++  while (i < source.length) {
++    const state = stack[stack.length - 1]
++    const c = source[i]
++    const next = source[i + 1]
++    if (state.mode === 'line') {
++      if (c === '\n' || c === '\r') stack.pop()
++      consume(false)
++    } else if (state.mode === 'block') {
++      if (c === '*' && next === '/') {
++        consume(false)
++        consume(false)
++        stack.pop()
++      } else consume(false)
++    } else if (state.mode === 'quote') {
++      consume(true)
++      if (c === '\\' && i < source.length) {
++        if (source[i] === '\r' && source[i + 1] === '\n') consume(true)
++        consume(true)
++      } else if (c === state.quote) {
++        stack.pop()
++        operand()
++      }
++    } else if (state.mode === 'template') {
++      consume(true)
++      if (c === '\\' && i < source.length) {
++        consume(true)
++      } else if (c === '`') {
++        stack.pop()
++        operand()
++      } else if (c === '$' && next === '{') {
++        consume(true)
++        stack.push(normal(true))
++      }
++    } else if (state.mode === 'regex') {
++      // Invalid candidates must not hide comments on subsequent source lines.
++      if (c === '\n' || c === '\r') {
++        stack.pop()
++        operand()
++        consume(false)
++      } else {
++        consume(true)
++        if (c === '\\' && i < source.length && !/[\r\n]/.test(source[i])) {
++          consume(true)
++        } else if (c === '[') state.inClass = true
++        else if (c === ']') state.inClass = false
++        else if (c === '/' && !state.inClass) {
++          stack.pop()
++          operand()
++        }
++      }
++    } else if (/\s/.test(c)) {
++      consume(false)
++    } else if (c === '/' && (next === '/' || next === '*')) {
++      consume(false)
++      consume(false)
++      stack.push({ mode: next === '/' ? 'line' : 'block' })
++    } else if (c === '"' || c === "'" || c === '`') {
++      consume(true)
++      stack.push(c === '`' ? { mode: 'template' } : { mode: 'quote', quote: c })
++    } else if (c === '/' && state.regex) {
++      consume(true)
++      stack.push({ mode: 'regex', inClass: false })
++    } else if (/[\w$\u0080-\uFFFF]/.test(c)) {
++      let token = ''
++      do {
++        token += source[i]
++        consume(true)
++      } while (i < source.length && /[\w$\u0080-\uFFFF]/.test(source[i]))
++      state.regex = expressionKeywords.has(token)
++      state.last = token
++    } else {
++      consume(true)
++      if (c === '(') {
++        state.parens.push(controlKeywords.has(state.last))
++        state.regex = true
++      } else if (c === ')') {
++        state.regex = state.parens.pop() === true
++      } else if (c === '{') {
++        // Distinguish expression objects from statement blocks for a slash
++        // after their closing brace. Parenthesis context handles if/while.
++        state.braces.push(state.last === '=>' || state.last === ')' || state.last === 'else' || state.last === 'do' || state.last === '' || state.last === ';' ? 'block' : 'object')
++        state.regex = true
++      } else if (c === '}') {
++        if (state.interpolation && state.braces.length === 0) {
++          stack.pop()
++          continue
++        }
++        state.regex = state.braces.pop() === 'block'
++      } else if (c === ']' || c === '.') {
++        state.regex = false
++      } else if ((c === '+' || c === '-') && next === c) {
++        consume(true)
++        // Prefix keeps expression context; postfix keeps operand context.
++      } else if (c === '=' && next === '>') {
++        consume(true)
++        state.regex = true
++        state.last = '=>'
++        continue
++      } else {
++        state.regex = true
++      }
++      state.last = c
++    }
++  }
++  return lines
++}
+--- a/lib/source.js
++++ b/lib/source.js
+@@ -1,4 +1,5 @@
+ const CovLine = require('./line')
++const codeLines = require('./code-lines')
+ const { sliceRange } = require('./range')
+ const { originalPositionFor, generatedPositionFor, GREATEST_LOWER_BOUND, LEAST_UPPER_BOUND } = require('@jridgewell/trace-mapping')
+ 
+@@ -13,11 +14,13 @@
+   }
+ 
+   _buildLines (source) {
++    const executable = codeLines(source)
+     let position = 0
+     let ignoreCount = 0
+     let ignoreAll = false
+     for (const [i, lineStr] of source.split(/(?<=\r?\n)/u).entries()) {
+       const line = new CovLine(i + 1, position, lineStr)
++      line.executable = executable[i]
+       if (ignoreCount > 0) {
+         line.ignore = true
+         ignoreCount--
+--- a/lib/v8-to-istanbul.js
++++ b/lib/v8-to-istanbul.js
+@@ -281,6 +281,7 @@
+       s: {}
+     }
+     source.lines.forEach((line, index) => {
++      if (!line.executable) return
+       statements.statementMap[`${index}`] = line.toIstanbul()
+       statements.s[`${index}`] = line.ignore ? 1 : line.count
+     })
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "v8-to-istanbul",
+-  "version": "9.3.0",
++  "version": "9.3.0-claudit1",
+   "description": "convert from v8 coverage format to istanbul's format",
+   "main": "index.js",
+   "types": "index.d.ts",
