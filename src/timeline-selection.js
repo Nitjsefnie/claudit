@@ -1,4 +1,4 @@
-// Shared Inspector timeline-selection semantics (issue #364). A search or
+// Shared Inspector timeline-selection semantics. A search or
 // filter can shrink the filtered timeline under the stored selection index;
 // every consumer — the detail row, the keyboard moves, the selected row and
 // the listbox's aria-activedescendant — must derive from the ONE clamped

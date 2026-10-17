@@ -1,9 +1,3 @@
-// Sessions page: the sortable table of reconstructed sessions. Reads
-// window.computeSessions (defined in panel-gating.js) for the fallback
-// clustering, and the window.* helpers for dates, model colors and
-// currency. Split out of app.jsx so that file stays under its recorded
-// module-size ratchet entry.
-
 const { useState, useMemo } = React;
 
 function SessionsList({ synth, onOpen }) {
@@ -31,7 +25,6 @@ function SessionsList({ synth, onOpen }) {
         };
       });
     } else {
-      // Synth/live fallback: cluster the hourly events as before.
       const { sessions } = window.computeSessions(synth.events);
       arr = sessions.map((s, i) => {
         const sums = { input: 0, output: 0, cc: 0, cr: 0, cost: 0 };

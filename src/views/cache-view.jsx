@@ -1,11 +1,3 @@
-// Cache view — renders /api/cache.
-// Three sections:
-//   1. PerModelTable: one row per model + a SESSION TOTAL row
-//   2. TopTurnsTable × 3 (output, cache_create, cache_read)
-//   3. CostBuckets: per-bucket cost with % + TOTAL + PER TURN
-//
-// Mounted by App.jsx as <window.CacheView project={...} range="30d" />.
-
 window.CacheView = function CacheView({ project, range }) {
   const [data, setData] = React.useState(null);
   const [err, setErr] = React.useState(null);

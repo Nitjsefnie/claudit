@@ -1,20 +1,8 @@
-// The Overview's /api/dashboard request state, split from its data
-// (issue #394).
-//
-// The fetch used to answer the panel set through the DATA alone: a null
-// aggregate (an empty range) and a failed request both left the summary
-// on its "loading…" placeholder, forever, because a null payload was
-// read as "still in flight". Three outcomes have to be told apart, and
-// only the request knows which one it is.
-//
-// Plain JS on purpose — no React, no JSX — so node can execute it and
-// tests/test_dashboard_fetch_js.py drives the real thing.
 (function () {
   const LOADING = 'loading';
   const READY = 'ready';
   const ERROR = 'error';
 
-  // The empty summary reads as every other panel's: "no … data in range".
   const EMPTY_TEXT = 'no usage data in range';
 
   function start() { return { status: LOADING, detail: '' }; }
@@ -28,7 +16,6 @@
 
   // What the summary block renders, decided from the STATE first and the
   // rendered shape second:
-  //
   //   loading            → the placeholder, while the request is in flight
   //   ready   + no shape → the empty state (a range with no rows)
   //   ready   + a shape  → the stat block
@@ -37,7 +24,6 @@
   //                        fails leaves the previous response's numbers
   //                        on screen, and quietly keeping them is worse
   //                        than saying they are stale
-  //
   // `hasData` is what the panels actually rendered (backendDashToShape
   // retains surviving sessions, responses or projects without hours,
   // and returns null only when no usable dashboard data survives): the shape

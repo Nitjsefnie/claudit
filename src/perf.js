@@ -1,16 +1,13 @@
-// Browser performance telemetry (issue #436): journey timings, layout
+// Browser performance telemetry: journey timings, layout
 // stability and main-thread blocking, batched into POST /api/metrics.
-//
 // Three journeys are timed, each as a total with a fetch/client split so
 // a slow server can be told apart from a slow browser, and two
 // PerformanceObservers carry the observed metrics.
-//
 // Plain JS on purpose -- no React, no JSX -- so node can execute it and
 // tests/test_perf_js.py drives the real thing against faked browser
 // globals. Nothing here may ever throw into a render or surface to the
 // user: every entry point is guarded and a batch that cannot be sent is
 // dropped, not raised.
-//
 // Two properties of the sink shape every line below. `metric` x `part`
 // is a CLOSED table and an out-of-range value is CLAMPED, never refused
 // -- so a beacon that would be rejected is not sent at all rather than
@@ -19,7 +16,6 @@
 // fabricated 0 would read as a measurement nobody took.
 (function () {
   const ENDPOINT = '/api/metrics';
-  // The sink's per-request beacon ceiling.
   const MAX_BATCH = 50;
   const FLUSH_MS = 3000;
 
@@ -38,7 +34,7 @@
   const REGIONS = ['panel_grid', 'inspector', 'signin', 'topbar',
     'project_picker', 'range_picker', 'summary_strip', 'other'];
 
-  // #717: a shift inside one panel names the panel, not just the grid.
+  // a shift inside one panel names the panel, not just the grid.
   // The closed set of `data-panel` titles the dashboard renders, kept as
   // titles and folded to the sink's snake_case term at use; the fold is
   // `panelTerm` below. tests/test_web_metrics.py derives the same set
@@ -61,14 +57,14 @@
   ];
 
   let phase = 'pre_paint';
-  const open = {};   // journey name -> { t0, fetch }
+  const open = {};
   let buffer = [];
   let timer = null;
 
-  // Eager font-face load (issue #643): the css2 stylesheet registers the
+  // Eager font-face load: the css2 stylesheet registers the
   // faces early, but a face only LOADS when the first text that uses it
   // paints — at React mount, seconds in — and metrics landing mid-layout
-  // reflow the page (measured 0.07-0.12 CLS at phone widths). load() this
+  // reflow the page. load() this
   // early runs against a document with nothing laid out, so the faces
   // complete before the first paint and text renders once, already in its
   // final metrics. The suite's fake document has no `fonts`, so the guard
@@ -95,8 +91,6 @@
   }
 
   function ok(v) { return typeof v === 'number' && isFinite(v) && v >= 0; }
-
-  // --- transport -----------------------------------------------------
 
   // Same-origin throughout: the sink sits behind the auth middleware, and
   // a cross-origin beacon would be refused anyway.
@@ -156,8 +150,6 @@
     if (timer === null) timer = setTimeout(flush, FLUSH_MS);
   }
 
-  // --- journeys ------------------------------------------------------
-
   function openJourney(name) {
     if (JOURNEYS.indexOf(name) < 0) return;
     open[name] = { t0: now(), fetch: null };
@@ -173,14 +165,12 @@
     const j = open[name];
     if (!j) return;               // never opened: not a measurement
     delete open[name];
-    // Past the first paint by definition, so an SSE-phase observation is
-    // over and the page is simply usable again.
     phase = 'post_usable';
     const total = now() - j.t0;
     if (!ok(total)) return;
     const rows = [{ metric: name, part: 'total', value: total }];
     if (j.fetch !== null) {
-      // The split is the whole point of issue #436 item (1): a total that
+      // Keep the split: a total that
       // regressed while its client share did not is a different problem.
       // A fetch that outlives its own total is dropped rather than sent
       // for the server to clamp into a negative duration.
@@ -194,21 +184,16 @@
 
   function markUsable() {
     if (phase === 'pre_paint') phase = 'post_usable';
-    // The sign-in journey spans the 303, so it ends here: the signed-in
-    // page has become usable.
     if (open.signin) closeJourney('signin');
   }
 
   function sseUpdate() { phase = 'sse_update'; }
-
-  // --- the sign-in journey across the redirect -----------------------
 
   // The new document's own Navigation Timing is a real measurement of the
   // same navigation -- time from navigation start to first byte -- so the
   // sign-in fetch part is read from it rather than guessed at. It is only
   // consulted when the login page's marker says a sign-in really happened:
   // Navigation Timing exists on every navigation, including a plain load.
-  //
   // It is NOT the same interval as the other two journeys' `fetch`, and the
   // panel's three rows sit side by side, so say so here where a reader of
   // this function will see it: this one spans the whole chain (the POST,
@@ -235,7 +220,6 @@
       if (typeof sessionStorage === 'undefined') return;
       raw = sessionStorage.getItem(SIGNIN_START);
       origin = sessionStorage.getItem(SIGNIN_ORIGIN);
-      // Consumed, so a reload does not report the same journey twice.
       sessionStorage.removeItem(SIGNIN_START);
       sessionStorage.removeItem(SIGNIN_ORIGIN);
     } catch (_) { return; }
@@ -246,29 +230,13 @@
     open.signin = { t0: base + start, fetch: navigationFetchMs() };
   }
 
-  // --- the observed metrics ------------------------------------------
-
   // The nearest ancestor (or the node itself) naming a region. An
   // attribute value outside the closed sets is NOT echoed: it would be a
   // 400 that takes the whole batch with it.
-  //
-  // #647: only the grid and the Inspector carry `data-perf-region`, so a
-  // live node inside one panel — under no named region — used to land in
-  // `other`, and `other` is what most production shifts carried. The
-  // walk then reads the nearest `[data-panel]` ancestor the panels
-  // already render.
-  //
-  // #717: the grid's own `panel_grid` is DEFERRED to last. It wraps
-  // every panel, so its attribute sits on an ancestor of each and the
-  // first walk used to return it before any panel name was read -- every
-  // panel shift read `panel_grid` and never named the panel. The order
-  // is now: a named non-grid region (the Inspector, the sign-in page,
-  // the top bar, the project and range strips, the summary strip), then
-  // the nearest named panel as its own `panel_` term, then `panel_grid`
-  // for what sits in the grid but under no named panel (grid gaps), then
-  // `other`. The range strip and the summary strip got their own terms in
-  // #755: sharing `project_picker` and `panel_grid` meant a beacon could
-  // not say which element had shifted.
+  // Prefer named non-grid regions, then the nearest named panel, then
+  // panel_grid for grid gaps, then other. The grid wraps every panel, so
+  // consulting its attribute first would hide the panel attribution.
+  // Keep range and summary strips distinct so their shifts are separable.
   function region(node) {
     let el = node;
     while (el && typeof el.getAttribute === 'function') {
@@ -333,9 +301,8 @@
     if (entry.hadRecentInput) return;
     const sources = entry.sources || [];
     // One shift's `sources` name SEVERAL moved nodes, and the first does
-    // not always resolve: #643's production shifts reported `other`
-    // because sources[0] was a bare section div whose panel moved with
-    // it. Walk every source and take the first attribution that names a
+    // not always resolve: a bare section div may move with its panel.
+    // Walk every source and take the first attribution that names a
     // region, so a shift lands `other` only when NO source sits inside
     // one. Sources may be detached (the re-render that moved them has
     // already run); the walk reads parentElement, which a detached tree
@@ -356,8 +323,6 @@
     push({ metric: 'longtask', part: 'block', value: entry.duration,
            phase: phaseNow() });
   });
-
-  // --- install -------------------------------------------------------
 
   function onHidden() { flush(); }
   try {

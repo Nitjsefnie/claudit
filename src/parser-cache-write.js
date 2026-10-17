@@ -1,4 +1,4 @@
-// The provider-neutral cache-write split (issue #842), the browser mirror
+// The provider-neutral cache-write split, the browser mirror
 // of backend/parse_common.resolve_cache_writes (SV-PARSER-SPEC). A
 // request's input splits into three neutral categories on every lane:
 // read from cache (cache_read_input_tokens), written to cache
@@ -6,7 +6,6 @@
 // its implicit writes inside fresh (they bill at the fresh rate), so the
 // neutral count is a separate, NON-priced value the parsers attach as
 // `cache_write` on each assistant_usage meta entry.
-//
 // An explicit-caching lane reports its write (cache_creation > 0), trusted
 // verbatim; otherwise the write is the NEXT record's cache-read growth,
 // capped by this record's fresh input; a file's last record has no

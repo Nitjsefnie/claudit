@@ -1,18 +1,6 @@
-// The shared in-flight /api/cost-by-context fetch, lifted out of
-// src/dashboard-charts-extra.jsx (issue #839) so a plain-JS test can drive
-// it through node — nothing else in the suite could see that the shared
-// fetch in `fetchCostByContext` had been reverted. The logic is unchanged;
-// the pending map is renamed `pending` and the file is now an IIFE, since
-// it loads as a classic script rather than a JSX module body.
-//
-// app.jsx renders the tokens and the cost variants of this panel side by
-// side; both draw from ONE endpoint response, but each instance used to
-// GET the same URL. The first caller to ask for a URL starts the fetch,
-// the second joins the in-flight promise (issue #644).
-//
-// Plain JS on purpose — no React, no JSX — so node can execute it and
-// tests/test_dashboard_latency_pins.py drives the real thing. `fetch` is
-// read at call time, never at load.
+// Both side-by-side panel variants share one endpoint response: the first
+// caller starts the fetch and the second joins the in-flight promise.
+// Read `fetch` at call time, never at load.
 (function () {
   const pending = new Map();
 

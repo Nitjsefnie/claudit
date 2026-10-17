@@ -1,11 +1,11 @@
 // Browser parser for the Codex rollout lane (backend/parse_codex.py).
 // Split out of src/parser-lanes.js: the codex section is the size
-// ratchet's largest JS member and the fork/replay head (issues #653,
-// #687) is codex-only. Same lockstep SV-PARSER-SPEC keeps parser-lanes
+// ratchet's largest JS member and the fork/replay head (
+//) is codex-only. Same lockstep SV-PARSER-SPEC keeps parser-lanes
 // and parser.js in with the backend parsers: the emitted shapes are the
 // lane shapes parser-lanes.js documents —
-//   events: user_message / assistant_text / thinking / tool_call / tool_result
-//   meta:   assistant_usage plus rate_limit entries
+// events: user_message / assistant_text / thinking / tool_call / tool_result
+// meta: assistant_usage plus rate_limit entries
 // with one added, sparse field: a fork's replayed prefix entries carry
 // isReplay: true, the copy the canonical rank (src/record-dedup.js)
 // demotes behind the parent rollout's originals.
@@ -15,7 +15,7 @@
 // sharing the page's global scope with parser-lanes.js, whose same-named
 // top-level function declarations are non-configurable global properties.
 // A global lexical declaration (const/let) of such a name is a SyntaxError
-// that kills this file before its first statement runs (issue #780) - a
+// that kills this file before its first statement runs - a
 // top-level var lands on that same global property instead and cannot
 // collide. Guarded by tests/test_classic_script_scope.py, which
 // instantiates every classic script index.html loads in one realm.
@@ -24,9 +24,6 @@ var laneInt = window.laneInt;
 var laneToIso = window.laneToIso;
 var laneUsageMeta = window.laneUsageMeta;
 var lanePairToolEvents = window.lanePairToolEvents;
-// --------------------------------------------------------------------------
-// Codex rollout format — backend/parse_codex.py
-// --------------------------------------------------------------------------
 
 // `exec` is the only custom tool; the api it calls is the useful name.
 const LANE_CODEX_API_RE = /tools\.([A-Za-z_][A-Za-z_0-9]*)\s*\(/g;
@@ -36,15 +33,14 @@ const LANE_CODEX_USAGE_KEYS = [
   'input_tokens', 'cached_input_tokens', 'cache_write_input_tokens',
   'output_tokens', 'reasoning_output_tokens', 'total_tokens',
 ];
-// A tool result whose first line starts with one of these is a failure.
 const LANE_CODEX_FAILURE_HEADS = ['Script failed', 'collab spawn failed'];
 
-// A record keeps the model id the transcript names (issue #471) — the
+// A record keeps the model id the transcript names — the
 // relabelling map and flagship fallback are gone (backend _codex_model):
 // the only rewrites are spelling: lower case and the missing separator
 // (gpt5.6-sol -> gpt-5.6-sol); an unpriced id surfaces as estimated_rate.
 // A transcript naming no model keeps null — the backend refuses such a
-// file outright (issue #653); the browser has no ingest to fail loudly.
+// file outright; the browser has no ingest to fail loudly.
 function laneCodexModel(raw) {
   const lowered = String(raw || '').trim().toLowerCase();
   if (!lowered) return null;
@@ -75,12 +71,12 @@ function parseLaneCodex(blob, opts) {
 
   // Cheap pre-scan (backend codex_fork.head_scan): the FIRST model this
   // file declares, in line order — the model in force where a fork cut,
-  // the inherited settings, attributing the replayed prefix (issue #653);
+  // the inherited settings, attributing the replayed prefix;
   // a file declaring none keeps null and the backend refuses it. Beside
   // it: whether the first session_meta names a parent thread
   // (forked_from_id — a forked rollout), and that first declaration's
   // line, the replay boundary — a fork's leading lines are its parent's
-  // history journalled here, marked isReplay below (issue #687).
+  // history journalled here, marked isReplay below.
   let firstDeclaredModel = null;
   let firstDeclaredLine = null;
   let isFork = false;
@@ -121,11 +117,11 @@ function parseLaneCodex(blob, opts) {
     prevUsage: null,      // previous cumulative snapshot, for differencing
     webSearchRequests: 0, // response_item/web_search_call since last usage row
     // Model in force: opened as the file's first declared model (the
-    // replayed fork prefix's attribution, issue #653), then the latest
+    // replayed fork prefix's attribution), then the latest
     // declaration wins.
     model: firstDeclaredModel,
-    sessionId: null,      // this thread's id, from session_meta
-    lastRlKind: null,     // last rate-limit condition booked
+    sessionId: null,
+    lastRlKind: null,
   };
 
   for (let i = 0; i < lines.length; i++) {
@@ -208,11 +204,9 @@ function parseLaneCodex(blob, opts) {
       // First one wins: a rollout declares its own thread once, at the head.
       if (st.sessionId === null && payload.session_id) st.sessionId = String(payload.session_id);
     }
-    // world_state / compacted / inter_agent_communication_metadata: no
-    // billing or tool consequence.
   }
 
-  // The replayed prefix (issue #687): the fork's leading lines, before
+  // The replayed prefix: the fork's leading lines, before
   // its own first declaration, are the parent's history — isReplay marks
   // them, mirroring backend codex_fork.mark_replay, for the canonical
   // rank record-dedup.js applies in the multi-load mode.
@@ -221,20 +215,20 @@ function parseLaneCodex(blob, opts) {
     for (const e of events) e.isReplay = e.line < firstDeclaredLine;
   }
 
-  // The provider-neutral cache-write split (issue #842), over this file's
+  // The provider-neutral cache-write split, over this file's
   // assistant_usage entries in order — mirrors the backend's
   // resolve_cache_writes (SV-PARSER-SPEC). Applied BEFORE the cross-file
   // dedup below, since the backend derives per file.
   if (window.resolveCacheWrites) window.resolveCacheWrites(meta);
 
-  // Cross-file record dedup (issue #713): the lane's derived record
+  // Cross-file record dedup: the lane's derived record
   // identities join the shared seenUuids map the way parser.js feeds the
   // Claude path's line uuids — decide per assistant_usage entry, then
   // this call's retraction drops the copies a standing winner outranks.
   // Without it a parent and its fork loaded together keep BOTH copies of
   // every replayed record and the Inspector double-counts replayed
   // history. The winner's model adoption itself stays DB-side: a lone
-  // fork file has no parent to read, so its parse keeps the #653
+  // fork file has no parent to read, so its parse keeps the
   // fallback.
   const seenUuids = (opts && opts.seenUuids) || null;
   if (seenUuids && window.recordDedup) {
@@ -248,7 +242,7 @@ function parseLaneCodex(blob, opts) {
     window.recordDedup.retract(events, meta, stamps, seenUuids);
   }
 
-  // Tool-call dedup (issue #766): the replayed prefix replays the
+  // Tool-call dedup: the replayed prefix replays the
   // parent's call_ids, so the same winner rule joins a shared seenToolIds
   // map keyed on tool_use_id — decide per tool_call (the call owns the
   // identity; results settle onto it in the DB), then this call's drop
@@ -288,7 +282,7 @@ function laneCodexTokenCount(st, meta, fileKey, lineNum, tsIso, payload) {
   for (const k of LANE_CODEX_USAGE_KEYS) delta[k] = cumulative[k] - st.prevUsage[k];
   st.prevUsage = cumulative;
   if (LANE_CODEX_USAGE_KEYS.every(k => delta[k] <= 0)
-      && st.webSearchRequests === 0) return; // Trap 2
+      && st.webSearchRequests === 0) return;
 
   // Trap 3: cached and cache-write inputs are SUBSETS of input_tokens.
   const totalIn = Math.max(0, delta.input_tokens);
@@ -300,7 +294,7 @@ function laneCodexTokenCount(st, meta, fileKey, lineNum, tsIso, payload) {
 
   // The long-context meter is a property of the model's rate card, not of
   // the plan that served the request — every record is billed as if it
-  // were an API call (issue #194), so a subscription rollout above the
+  // were an API call, so a subscription rollout above the
   // threshold bills the meter exactly as an API-key one does.
   const record = laneUsageMeta(
     lineNum, tsIso,
@@ -337,6 +331,5 @@ function laneCodexRateLimit(st, meta, lineNum, tsIso, payload) {
     ).slice(0, 500),
   });
 }
-
 
 window.parseLaneCodex = parseLaneCodex;

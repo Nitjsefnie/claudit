@@ -1,24 +1,7 @@
-// The Per-Session Context Growth COMPARISON panel — ONE chart (issue
-// #649): every checked model's median, translucent p25–p75 band and p90
-// line on one set of shared axes, with the per-session traces behind a
-// toggle. The per-model sub-panel grid this module's neighbours used to
-// hold is gone (#649 absorbed #638's overflowing sub-panel legends with
-// it).
-//
-// Split out of dashboard-charts-extra.jsx (issue #630): the panel grew a
-// measured-advance layout pass that the file's committed size entry had
-// no room for, and the size ratchet's own rule is that an outgrown file
-// moves code into a new module. Nothing about the panel changed but where
-// it lives.
-//
-// Its layout is BANDED, top to bottom: title, plot, x ticks, axis caption,
-// then one legend row per wrapped row. Every band is measured rather than
-// assumed. At the fixed offsets the panel used before, a 17-character
-// model name overran the count label beside it by 9.5px and through the
-// swatch rule, and the wrapped legend row fell off the bottom of a
-// fixed-height svg, which clipped it away (#630). The packing arithmetic
-// lives in src/panel-layout.js as pure functions, so it is testable
-// without a browser.
+// Measured bands stack the title, plot, x ticks, caption and wrapped
+// legend rows. Fixed pitches can overlap long model names and clip the
+// last wrapped row. Pure packing lives in src/panel-layout.js so it can
+// be tested without a browser.
 
 const TH_X = window.dashboardTheme;
 const humanFmt_X = window.humanFmt;
@@ -57,7 +40,7 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
   // The PLOT keeps the height it had; everything below it is banded (x
   // ticks, caption, then one band per legend row) and the svg grows to
   // fit those bands. A fixed svg height is what clipped the wrapped legend
-  // row off the bottom at phone width (issue #630).
+  // row off the bottom at phone width.
   const padL = 60, padR = 30, padT = 30, padB = 60;
   const plotW = Math.max(10, w - padL - padR);
   const plotH = Math.max(10, h - padT - padB);
@@ -71,13 +54,11 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
              stats: perTurnStats(sessions) };
   }), [models, byModel]);
 
-  // The axis, from the observed data and through the SAME call the
-  // per-model grid used to use (issue #648): the peak context among every
+  // The axis uses the shared observed-data rule: peak context among every
   // turn of every session of every CHECKED model, plus headroom. Shared
-  // axes are the point of the single chart (#649): a model checked beside
+  // axes are the point of the single chart: a model checked beside
   // a taller one sits lower, and that is the comparison working.
   const yMax = window.ctxAxis.ctxAxisTopFor(series.map(s => s.sessions));
-  // Dynamic x-domain: max turn across all checked models
   const xMax = Math.max(1, ...series.map(s => s.stats.maxT || 0));
   const xScale = t => padL + (t / xMax) * plotW;
   const yScale = v => padT + plotH - (v / yMax) * plotH;
@@ -123,7 +104,6 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
       lines.push([`${s.model} p90`, fmt(s.stats.p90[turn])]);
       lines.push([`${s.model} active`, `${live} / ${s.count}`]);
     }
-    // bi keys the turn's hit column (#690): the hovered column lifts.
     setTip({ x: mx, y: my, cx: xScale(turn), bi: turn, title: `turn ${turn}`, accent: '#ffffff', lines });
   }
 
@@ -132,17 +112,12 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
     : series.length === 1
       ? `${series[0].model}  ·  median per turn`
       : series.map(s => s.model).join(' vs ') + '  ·  median per turn';
-  // The title is fitted to the panel, not trusted to fit: at a phone
-  // width it is 401.8px of text in a 329px svg and simply ran off the
-  // right edge (#630).
   const shownTitle = window.panelLayout.fitText(
     titleText, titleAdv || 7.8, Math.max(24, w - padL - padR));
-  // Legend clusters, packed from the measured advance and wrapping when
-  // they run out of width; the row count is what sizes the svg below.
   const legend = window.panelLayout.packLegend(
     series, adv || 5.7, plotW, 16, 18);
   // The static legend-key row: what each mark IS, once, in a fixed-size
-  // row that never grows with the model count (#649 point 6). Entries
+  // row that never grows with the model count. Entries
   // carry a null count, which packs as no count text at all; the
   // `sessions` key appears only while the traces are on.
   const keyEntries = [
@@ -225,7 +200,7 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
 
         {/* The static legend-key row — what each mark is. Packed and
             wrapped by the same packer, so it fits at 320px the way the
-            model clusters above it do (issue #638's replacement). */}
+            model clusters above it do. */}
         <g>
           {keyLegend.rows.flat().map(c => {
             return (
@@ -246,7 +221,7 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
         ))}
 
         {/* Per-session traces — behind everything, at low opacity, in the
-            model's colour, gated by the sessions toggle (#649 point 4). */}
+            model's colour, gated by the sessions toggle. */}
         {showSessions && series.map(s => {
           const c = (window.modelColors && window.modelColors[s.model]) || '#888';
           return s.sessions.map((sess, i) => {
@@ -263,7 +238,7 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
         })}
 
         {/* p25–p75 band per checked model — translucent, in the model's
-            colour (#649 point 3). */}
+            colour. */}
         {series.map(s => {
           const c = (window.modelColors && window.modelColors[s.model]) || '#888';
           const top = [], bot = [];
@@ -280,7 +255,7 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
         })}
 
         {/* p90 line per checked model, dashed so it cannot be read as
-            the median (#649 point 3). */}
+            the median. */}
         {series.map(s => {
           const c = (window.modelColors && window.modelColors[s.model]) || '#888';
           return (
@@ -299,7 +274,7 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
           );
         })}
 
-        {/* The plot AREA, for the layout guard (#631). It has to be a real
+        {/* The plot AREA, for the layout guard. It has to be a real
             element: an empty region measures as nothing, and the series
             that occupy it are drawn at a hundred different sizes, so
             none of them can stand in for the region they share. */}
@@ -312,7 +287,7 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
             stroke="#fff" strokeOpacity="0.3" strokeDasharray="2,3" />
         )}
 
-        {/* Hit columns, one per turn (#690): invisible at rest, the
+        {/* Hit columns, one per turn: invisible at rest, the
             hovered turn's column lifts when the tooltip snaps to it. */}
         {Array.from({ length: xMax + 1 }, (_, turn) => (
           <rect key={'hit' + turn} data-hover-target=""
@@ -323,11 +298,7 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
             fillOpacity={tip && tip.bi === turn ? 0.12 : 0} />
         ))}
 
-        {/* Y labels. Every tick is drawn: the panel used to drop any tick
-            within one label-height of the cap line, because that cap sat
-            just off a round tick (1.02M against a 1M tick) and the two
-            labels overlapped. With the cap line gone there is nothing to
-            collide with. */}
+        {/* Draw every tick; there is no separate cap label to collide with. */}
         <g data-role="axis">
         {yTicks.map((v, i) => (
           <text key={'yl'+i} x={padL - 9} y={yScale(v) + 3}
@@ -348,12 +319,8 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
         <text data-role="axis" x={14} y={padT + plotH/2} fontSize="9" fill={TH_X.textDim}
           textAnchor="middle" fontFamily="monospace"
           transform={`rotate(-90 14 ${padT + plotH/2})`}>context size</text>
-        {/* The caption gets its own band between the x ticks and the legend.
-            Pinned to the bottom (h - 10) it shared a 1px-apart band with the
-            legend, and since it is centred while the legend is left-anchored
-            at fixed 270px clusters, narrower viewports slid the caption into
-            a legend entry — at 1224px "median (1,314 files)" overlapped it by
-            7.5px. Stacking the bands makes horizontal position irrelevant. */}
+        {/* Stack the centred caption and left-anchored legend in separate
+            bands so they cannot overlap at narrower widths. */}
         <text data-role="axis" x={(padL + w - padR)/2} y={padT + plotH + 33} fontSize="9" fill={TH_X.textDim}
           textAnchor="middle" fontFamily="monospace">turn number within session</text>
       </svg>

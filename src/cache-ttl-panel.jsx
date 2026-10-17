@@ -1,17 +1,9 @@
-// The Prompt-Cache TTL Split panel: stacked 5m + 1h hourly cache-create
-// bars with a 5m-share strip. Extracted to its own file in #633 -- the
-// module-size ratchet's committed entry for dashboard-charts-extra.jsx
-// never rises, and the legend fix adds lines, so the panel moved out
-// instead of growing a file already far over the ceiling. Loaded after
+// Loaded after
 // dashboard-charts.jsx, whose globals (TH/COL/humanFmt/fmtDate) it reads.
-
 const TH_X       = window.dashboardTheme;
 const COL_X      = window.dashboardCol;
 const humanFmt_X = window.humanFmt;
 const fmtDate_X  = window.fmtDate;
-// ──────────────────────────────────────────────────────────────────────
-// Cache TTL panel — stacked 5m + 1h hourly bars, with 5m share strip
-// ──────────────────────────────────────────────────────────────────────
 
 function CacheTTLPanel({ events, range, binMs }) {
   const ref = React.useRef(null), svgRef = React.useRef(null);
@@ -54,10 +46,9 @@ function CacheTTLPanel({ events, range, binMs }) {
   // Separates the main plot's baseline from the share strip's ceiling.
   // This has to clear the *labels*, not just the lines: the main axis "0"
   // sits in a 12px box centred on the baseline and the strip's "100%" in a
-  // 10px box centred on shareTop, so anything under ~12 makes them collide
-  // (at the old value of 6 they overlapped by 6px).
+  // 10px box centred on shareTop, so anything under ~12 makes them collide.
   const gap = 16;
-  // The legend, in a band of its own BELOW the share strip (#633): at
+  // The legend, in a band of its own BELOW the share strip: at
   // translate(padL + 8, padT + 12) it sat INSIDE the plot rectangle,
   // across the bars it explains, and ran 8.8px past the panel's right
   // edge at a 320px viewport. Entries flow left to right and wrap to a
@@ -91,8 +82,6 @@ function CacheTTLPanel({ events, range, binMs }) {
       x += ew + LEG_SPACING;
     }
   }
-  // padB: the x-axis band (the labels sit at shareBot + 14) plus one
-  // legend row height per legend row.
   const padB = 36 + legRows.length * LEG_ROW_H;
   const plotW = Math.max(10, w - padL - padR);
   const plotH = Math.max(40, h - padT - padB - sharePctH - gap);
@@ -122,7 +111,6 @@ function CacheTTLPanel({ events, range, binMs }) {
   const useRange = dataRange;
   const useBin = adaptiveBin;
 
-  // Build bins, snapping start to bin boundary so labels read cleanly
   const bins = React.useMemo(() => {
     const arr = [];
     let bStart = Math.floor(useRange.start / useBin) * useBin;
@@ -156,7 +144,6 @@ function CacheTTLPanel({ events, range, binMs }) {
   const yBar = v => padT + plotH - (v / maxBin) * plotH;
   const barW = Math.max(2, (plotW / Math.max(1, bins.length)) * 0.9);
 
-  // y ticks
   function niceTicks(maxV, n = 4) {
     if (maxV <= 0) return [0];
     const step0 = maxV / n;
@@ -169,14 +156,11 @@ function CacheTTLPanel({ events, range, binMs }) {
   }
   const yTicks = niceTicks(maxBin);
 
-  // x ticks (adaptive: months / days / hours)
   const xTicks = window.timeTicksUTC(useRange.start, useRange.end);
 
-  // Share strip Y origin
   const shareTop = padT + plotH + gap;
   const shareBot = shareTop + sharePctH;
 
-  // Median + p95 of share %
   const sharePct = bins.map(b => {
     const t = b.s5 + b.s1;
     return t > 0 ? (b.s5 / t) * 100 : null;
@@ -190,7 +174,7 @@ function CacheTTLPanel({ events, range, binMs }) {
   // Hit-test in the <svg>'s frame: padT/shareBot are svg coordinates and
   // the container's rect carries the panel's 1px border, so comparing
   // across the frames killed the share strip's bottom row and parked a
-  // live 1px band over the title area (#696). The tip still positions
+  // live 1px band over the title area. The tip still positions
   // in container coordinates — its offsetParent.
   function onMove(e) {
     const rect = ref.current.getBoundingClientRect(), srect = svgRef.current.getBoundingClientRect();
@@ -263,13 +247,9 @@ function CacheTTLPanel({ events, range, binMs }) {
           const y5 = yBar(b.s5 + b.s1);             // top of 5m
           const h1 = padT + plotH - y1;             // 1h bar height
           const h5 = y1 - y5;                       // 5m bar height
-          // The family's ONE hover treatment (#697): bars rest a dim 0.3
-          // field and the hovered bin lifts to 0.85, keyed on the BIN so
-          // both stacked segments are marked together. The old peak-bin
-          // annotation folded away: resting the peak pre-lifted at 0.85
-          // made its own hover a no-op — the interaction gate fails any
-          // hoverable mark that does not visibly respond — and the peak
-          // is already the tallest bar, self-annotating.
+          // Bars rest at 0.3 and the hovered bin lifts to 0.85. Key on the
+          // bin so both stacked segments respond together. The peak must
+          // also respond to hover; its height already identifies it.
           const isHover = tip != null && tip.idx === idx;
           return (
             <g key={'bar'+idx}>
@@ -285,7 +265,7 @@ function CacheTTLPanel({ events, range, binMs }) {
           );
         })}
 
-        {/* Crosshair, snapped to the hovered bin's bar centre (#646). */}
+        {/* Crosshair, snapped to the hovered bin's bar centre. */}
         {tip && bins[tip.idx] && (
           <line x1={xScale(bins[tip.idx].start) + barW / 2}
             x2={xScale(bins[tip.idx].start) + barW / 2} y1={padT} y2={shareBot}
@@ -305,8 +285,8 @@ function CacheTTLPanel({ events, range, binMs }) {
           textAnchor="middle" fontFamily="monospace"
           transform={`rotate(-90 14 ${padT + plotH/2})`}>cache_create / bin</text>
 
-        {/* Legend, below the share strip in the band padB bought for it
-            (#633). The outer group is the marked region the layout guard
+        {/* Legend, below the share strip in its padB band.
+            The outer group is the marked region the layout guard
             reads; rows translate within it. */}
         <g data-role="legend" ref={legRef}
           transform={`translate(${padL}, ${shareBot + 26})`}>

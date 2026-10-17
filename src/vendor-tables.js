@@ -2,7 +2,6 @@
 // Only vendor_host-carrying entries join the first-party host table.
 // Duplicate bare forms and models-table collisions refuse by name.
 // Mirrors pricing_load._vendor_tables.
-//
 // Loaded ahead of src/pricing-loader.js by index.html's script tags (it
 // installs the builder on window) and required by the loader under node;
 // the loader calls it once its own tables are built, and the merged-view
@@ -13,7 +12,6 @@
   const _pricingError = (detail) => new Error(`pricing.json: ${detail}`);
   const _VENDOR_NAME = /^[a-z0-9-]+$/;
 
-  // The tables the loader installs; keyListRates reads them after the call.
   let _modelRates, _vendorBare, _vendorHosts;
 
   const buildVendorTables = (pricing, modelRates, vendorBare, vendorHosts) => {
@@ -43,7 +41,7 @@
         throw _pricingError(`${where} carries no 'id'`);
       }
       // A key pinned in BOTH resolve tables names one endpoint: when both
-      // sides carry tags they must agree (#931); tagless pins and `why`
+      // sides carry tags they must agree; tagless pins and `why`
       // are not compared.
       const vendorPin = vendorResolve && typeof vendorResolve === 'object'
         ? vendorResolve[key] : undefined;
@@ -101,7 +99,7 @@
   // A key's list rates in the merged view: the models-table row when the
   // key names one, else its tracked vendor row's. The tier fallbacks and
   // the default estimate read the merged view — the claude families live
-  // in the tracked table since the vendor migration (issue #851). Mirrors
+  // in the tracked table. Mirrors
   // pricing._list_rates.
   const keyListRates = (key) => {
     if (_modelRates[key] !== undefined) return _modelRates[key];

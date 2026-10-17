@@ -8,7 +8,6 @@
 // browser fetches the URL the page names on this script tag (data-pricing,
 // which the backend cache-busts like every /src asset), else the file
 // beside this script, and revalidates either way.
-//
 // Exposes the derived token and web-search rate tables, dated boundaries,
 // provider schedules, and the weekly schedule lookup used by src/rates.js.
 
@@ -29,7 +28,7 @@ const _pricingRows = typeof module !== 'undefined' && typeof module.exports !== 
   ? require('./pricing-rows.js') : window;
 /* eslint-enable no-undef */
 
-// The STORED document's shape (SV-RATE-DATA, #931): a cache-write rate is
+// The STORED document's shape (SV-RATE-DATA): a cache-write rate is
 // stored only when it differs from fresh; called only at raw-ingest so the
 // shared validation below stays shape-agnostic for expanded documents.
 function checkCompactShape(raw, decoded = null) {
@@ -136,7 +135,6 @@ function _instantMs(stamp) {
 }
 const _isRate = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
-// Canonical JSON (keys sorted at every depth): issue #930's whole-entry compare.
 const _stable = (v) => (Array.isArray(v)
   ? `[${v.map(_stable).join(',')}]`
   : (v !== null && typeof v === 'object'
@@ -283,7 +281,6 @@ function _history(entries, where, mayBegin = false, fetchedMs = NaN) {
 const _RAW_PRICING = _readPricing();
 const _PRICING = _pricingRows.decodePricingDoc(_RAW_PRICING);
 if (typeof document !== 'undefined') checkCompactShape(_RAW_PRICING, _PRICING);
-// Parsed before the histories: no dated entry postdates the fetch (#931).
 const _fetchedMs = _instantMs(_PRICING.provider_rates_fetched);
 if (Number.isNaN(_fetchedMs)) {
   throw _pricingError(`provider_rates_fetched: ${JSON.stringify(_PRICING.provider_rates_fetched)} is not YYYY-MM-DDTHH:MM:SS with Z or ±HH:MM`);
@@ -299,8 +296,6 @@ for (const [key, entries] of Object.entries(_PRICING.models)) {
   window.modelRates[key] = list;
   if (windows.length) window.datedRates[key] = windows;
 }
-// Keyed by normalised model id then provider (the transcript's
-// message.provider spelling).
 window.providerRates = {};
 window.providerDatedRates = {};
 window.providerStarts = {};
@@ -371,7 +366,7 @@ if (_defaultRow === undefined) {
 window.FREE_RATES = Object.fromEntries(Object.keys(_RATE_FIELDS).map((k) => [k, 0]));
 window.scheduleRatesAt = _scheduledRates;
 
-// The grouped long-context meter (issue #883) carries both membership and
+// The grouped long-context meter carries both membership and
 // threshold. Fold it to the complete per-model entries used by rates.js;
 // mirrors backend/meter_tables.py.
 if (Object.prototype.hasOwnProperty.call(_PRICING, 'long_context_models'))

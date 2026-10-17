@@ -1,12 +1,10 @@
 // Browser lanes: format sniffing, the shared helpers and the entry point.
 // Codex logic is in parser-codex.js; Kimi parsing is in parser-kimi.js.
 // Keep lane records and pricing aligned with backend parsing (SV-PARSER-SPEC).
-//
 // Global Codex meter defaults; per-model entries can override them.
 window.LONG_CONTEXT_THRESHOLD = 272000;
 window.LONG_CONTEXT_INPUT_MULT = 2.0;
 window.LONG_CONTEXT_OUTPUT_MULT = 1.5;
-// The model's complete meter entry, shared by threshold and factor lookups.
 function _longContextMeterFor(model) {
   const norm = String(model || '').trim().toLowerCase();
   const key = (norm.indexOf('claude') > 0
@@ -14,12 +12,12 @@ function _longContextMeterFor(model) {
   return (window.longContextMeters || {})[key];
 }
 
-// Per-model thresholds (issue #765): mirrors pricing.long_context_threshold.
+// Per-model thresholds: mirrors pricing.long_context_threshold.
 window.longContextThresholdFor = function (model) {
   const meter = _longContextMeterFor(model);
   return (meter && meter.threshold) || window.LONG_CONTEXT_THRESHOLD;
 };
-// Per-model factors (issue #878): omitted fields keep the global defaults.
+// Per-model factors: omitted fields keep the global defaults.
 window.longContextFactorsFor = function (model) {
   const meter = _longContextMeterFor(model) || {};
   return [
@@ -41,10 +39,6 @@ window.laneToIso = window.laneToIso || laneToIso;
 window.laneUsageMeta = window.laneUsageMeta || laneUsageMeta;
 window.lanePairToolEvents = window.lanePairToolEvents || lanePairToolEvents;
 
-// --------------------------------------------------------------------------
-// Shared helpers
-// --------------------------------------------------------------------------
-
 function laneIsPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -52,7 +46,7 @@ function laneIsPlainObject(v) {
 // Any timestamp the lane formats carry -> an ISO string ('' when absent or
 // unparsable). Numbers are epoch SECONDS (legacy Kimi); strings (Codex,
 // legacy ISO variants) go through Date.parse — an offset-less ISO string
-// stamped UTC first (issue #376, mirrors parse_common._to_dt: unstamped,
+// stamped UTC first (mirrors parse_common._to_dt: unstamped,
 // Date.parse reads the viewer's zone); kimi-code's epoch-ms `time` is
 // converted by its caller upstream.
 function laneToIso(ts) {
@@ -93,8 +87,6 @@ function laneUsageMeta(line, tsIso, uuid, model, fresh, create, read, output,
   };
 }
 
-// Link tool_call <-> tool_result the way the Claude parser does, so
-// ToolCallDetail shows a call's result and eventOneLine previews it.
 function lanePairToolEvents(events) {
   const callMap = new Map();
   for (const e of events) {
@@ -159,10 +151,6 @@ window.sniffTranscriptFormat = function sniffTranscriptFormat(blob) {
   // No rung identified a lane format: the claude path parses the blob.
   return 'claude';
 };
-
-// --------------------------------------------------------------------------
-// Entry points wired into parseTranscript
-// --------------------------------------------------------------------------
 
 window.parseTranscriptLanes = function parseTranscriptLanes(blob, opts) {
   const fmt = window.sniffTranscriptFormat(blob);

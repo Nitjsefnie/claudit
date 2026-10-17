@@ -1,4 +1,3 @@
-// Project picker React glue; measured page boundaries live in picker-pages.js.
 const { useState, useLayoutEffect, useRef } = React;
 
 function ProjectPicker({ projects, active, onChange }) {

@@ -13,8 +13,6 @@ function txToDashData(tx) {
   // Inspector, Token Breakdown, and this path can never disagree on pricing.
   const shortM = (model) => window.shortModelName(model || 'unknown');
 
-  // Group all assistant_usage records by sessionId, plus user-text events
-  // per session for turn boundaries (only available when loaded via Load N).
   const usageBySid = new Map();
   for (const u of tx.meta) {
     if (u.type !== 'assistant_usage') continue;
@@ -23,7 +21,6 @@ function txToDashData(tx) {
     usageBySid.get(sid).push(u);
   }
 
-  // Get user-text lines per session for turn boundaries.
   const boundaryLinesBySid = new Map();
   const allEv = tx.eventsBySession ? null : tx.events;
   if (tx.eventsBySession) {
@@ -38,8 +35,6 @@ function txToDashData(tx) {
       boundaryLinesBySid.set(sid, lines);
     }
   } else if (allEv) {
-    // Single-file path: all events live in tx.events; partition by sessionId
-    // (which is on the usage records — we use the dominant one).
     const byS = new Map();
     for (const e of allEv) {
       if (e.type === 'user_message' && typeof e.detail === 'string' && e.detail.trim()) {
@@ -80,7 +75,7 @@ function txToDashData(tx) {
       const out = us.output_tokens || 0;
       const cc  = us.cache_creation_input_tokens || 0;
       const cr  = us.cache_read_input_tokens || 0;
-      if ((inp + cc + cr) === 0 && (u.web_search_requests || 0) === 0) continue; // refusal/interrupt
+      if ((inp + cc + cr) === 0 && (u.web_search_requests || 0) === 0) continue;
       const eph5 = (us.cache_creation && us.cache_creation.ephemeral_5m_input_tokens) || 0;
       const eph1h = (us.cache_creation && us.cache_creation.ephemeral_1h_input_tokens) || 0;
       const res = window.resolveModelRate(u.model, t, u.provider);
@@ -121,11 +116,6 @@ function txToDashData(tx) {
   return { events, limitHits, range: { start: start - pad, end: end + pad } };
 }
 
-// Convert backend /api/dashboard response → the {events, limitHits, range}
-// shape the existing Dashboard component expects. The hourly aggregates
-// are mapped to one synthetic "event" per hour bucket so the dashboard
-// panels render correctly. Per-turn detail is loaded separately via the
-// Inspector when a user opens a session.
 function backendAggregateRange(events, bucketS) {
   if (!events.length) {
     const now = Date.now();
@@ -141,8 +131,8 @@ function backendAggregateRange(events, bucketS) {
 }
 
 function backendDashToShape(b) {
-  // Canonicalize raw backend model strings ("claude-opus-4-7-20251101")
-  // to canonical names ("claude-opus-4-7") ONCE here, so every downstream
+  // Canonicalize backend snapshot ids with a -YYYYMMDD suffix to bare
+  // model names ONCE here, so every downstream
   // consumer (model colors, Cost by Model labels, burn-rate dots) agrees.
   const short = m => window.shortModelName(m || 'unknown');
   const events = (b.hourly || []).map((h, i) => ({
@@ -170,8 +160,6 @@ function backendDashToShape(b) {
     // true bill at 2x input side / 1.5x output, which the Token
     // Breakdown must apply or its bars drift from the stored total.
     long_context: !!h.long_context,
-    // The serving host, priced per row like the long-context flag; null
-    // when the record named none.
     provider: h.provider || null,
     cost_usd: h.cost_usd || 0,
     lines_added: h.lines_added || 0,
@@ -182,9 +170,6 @@ function backendDashToShape(b) {
   if (!events.length && !['sessions', 'response_sizes', 'cost_by_project', 'tokens_by_project']
       .some(key => (b[key] || []).length)) return null;
   const range = backendAggregateRange(events, b.bucket_s);
-  // Keyed like the client-side fold in Dashboard: model, split by host
-  // where the records named one. A backend without the split falls back
-  // to the per-model list.
   const costByModel = (b.cost_by_model_provider || b.cost_by_model || []).reduce((acc, r) => {
     const key = modelProviderLabel(short(r.model), r.provider);
     acc[key] = (acc[key] || 0) + (r.cost_usd || 0);
@@ -224,9 +209,6 @@ function backendDashToShape(b) {
       requests: s.requests,
       model: short(s.model),
       models_used: (s.models_used || []).map(short),
-      // No `turns`: the per-session ctx trace belongs to the Context
-      // Growth panel, which fetches /api/context-growth/traces itself
-      // (issue #644). ctx_at_end (folded server-side) is what the dot needs.
     };
   });
   return {
@@ -249,7 +231,6 @@ function backendDashToShape(b) {
     tokenTypes: b.token_types || null,
   };
 }
-
 
 window.backendDashToShape = backendDashToShape;
 window.txToDashData = txToDashData;

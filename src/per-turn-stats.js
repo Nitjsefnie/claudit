@@ -1,8 +1,3 @@
-// Per-turn percentile stats for the Per-Session Context Growth
-// comparison (issue #644: extracted verbatim from
-// dashboard-charts-extra.jsx, which outgrew its size budget — no code
-// changed, not even a name). Plain JS so node can execute it.
-//
 // `sessions` is a list of {seq: [{t, ctx}, ...]} traces; the result
 // carries, per turn index from 0 to the largest observed, the sorted
 // nearest-rank median/p25/p75/p90 over every trace's ctx at that turn

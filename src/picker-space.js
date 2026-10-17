@@ -1,4 +1,3 @@
-// Budget the measured controls before packing any project pages.
 (function (global) {
   'use strict';
 
