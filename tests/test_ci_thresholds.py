@@ -91,8 +91,8 @@ def _document(measured="92.6", floor="91.1", baseline=None, reparse=None,
     return doc
 
 
-@pytest.fixture(scope="module")
-def committed_document():
+@pytest.fixture(scope="module", name="committed_thresholds_document")
+def _committed_thresholds_document():
     """Read the real document once; these consumers only inspect it."""
     return thresholds.load(THRESHOLDS_PATH)
 
@@ -136,7 +136,7 @@ def _thresholds_path(tmp_path, state):
     return target
 
 
-def test_committed_document_loads(tmp_path, committed_document):
+def test_committed_document_loads(tmp_path, committed_thresholds_document):
     for state in [
         "committed",
         "present",
@@ -144,7 +144,7 @@ def test_committed_document_loads(tmp_path, committed_document):
         "no-javascript",
         "no-coverage",
     ]:
-        doc = (committed_document if state == "committed" else
+        doc = (committed_thresholds_document if state == "committed" else
                thresholds.load(_thresholds_path(tmp_path, state)))
         assert doc["schema_version"] == 1
         for language in thresholds.COVERAGE_LANGUAGES:
@@ -432,19 +432,19 @@ def test_coverage_value_bounds():
         thresholds.coverage_value(Decimal("92"), "m")
 
 
-def test_committed_document_bytes_are_canonical(tmp_path, committed_document):
+def test_committed_document_bytes_are_canonical(tmp_path, committed_thresholds_document):
     # The COMMITTED bytes must be byte-identical to what write()
     # publishes for the same document — no hand-edited formatting
     # drift. The bytes come from git, not the working-tree file: a
     # Windows autocrlf checkout delivers CRLF on disk, and the pin has
     # to hold on every platform's checkout.
-    doc = committed_document
+    doc = committed_thresholds_document
     target = tmp_path / "canonical.json"
     thresholds.write(target, doc)
     assert subprocess_committed_bytes() == target.read_bytes()
 
 
-def test_coverage_floor_cli_prints_floor(tmp_path, capsys, committed_document):
+def test_coverage_floor_cli_prints_floor(tmp_path, capsys, committed_thresholds_document):
     for flag, field in [
         ("--coverage-floor", "floor"),
         ("--coverage-measured", "measured"),
@@ -458,7 +458,7 @@ def test_coverage_floor_cli_prints_floor(tmp_path, capsys, committed_document):
             # Committed readings may move or disappear; synthetic documents
             # exercise both CLI outcomes regardless of the current recording.
             path = _thresholds_path(tmp_path, state)
-            data = committed_document if state == "committed" else thresholds.load(path)
+            data = committed_thresholds_document if state == "committed" else thresholds.load(path)
             recorded = data.get("coverage", {}).get("python")
             assert thresholds.main([flag, "python", "--thresholds", str(path)]) == 0
             captured = capsys.readouterr()
@@ -489,7 +489,7 @@ def test_check_cli_rejects_broken_document(tmp_path):
     assert "schema_version" in result.stderr
 
 
-def test_committed_suppression_member_loads(tmp_path, committed_document):
+def test_committed_suppression_member_loads(tmp_path, committed_thresholds_document):
     for state in [
         "committed",
         "present",
@@ -497,7 +497,7 @@ def test_committed_suppression_member_loads(tmp_path, committed_document):
     ]:
         # Recorded suppression entries name production paths and carry
         # positive counts; the whole family may also be absent.
-        doc = (committed_document if state == "committed" else
+        doc = (committed_thresholds_document if state == "committed" else
                thresholds.load(_thresholds_path(tmp_path, state)))
         baseline = doc.get("pylint_suppression_baseline", {})
         if "pylint_suppression_baseline" not in doc:
@@ -508,7 +508,7 @@ def test_committed_suppression_member_loads(tmp_path, committed_document):
             assert count > 0
 
 
-def test_committed_suite_cost_family_matches_the_committed_bytes(committed_document):
+def test_committed_suite_cost_family_matches_the_committed_bytes(committed_thresholds_document):
     # The committed document loads, and its suite_cost family — the one
     # property every consumer relies on — carries exactly the bench's
     # phases with every ceiling the calibration gap above its measured
@@ -516,7 +516,7 @@ def test_committed_suite_cost_family_matches_the_committed_bytes(committed_docum
     #
     # The pin is on the DOCUMENT, so it asserts the family's readings
     # when they are recorded and accepts the valid absent-family shape.
-    doc = committed_document
+    doc = committed_thresholds_document
     recorded = thresholds.suite_cost(doc)
     present = b'"suite_cost"' in subprocess_committed_bytes()
     assert (recorded != {}) is present, (
