@@ -459,9 +459,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: retain ancestry for the direction guard's
-          # git log base..head reads of Thresholds-Removed trailers
-          # and feat: subjects, and the patch-coverage merge-base.
+          # Shared full-history policy: ancestry consumers run in the
+          # canary job (the direction guard's judged-range reads and
+          # the patch-coverage merge-base).
           fetch-depth: 0
           # No step in this job pushes; persist-credentials: false keeps
           # the job token out of .git/config for any later step to reuse.

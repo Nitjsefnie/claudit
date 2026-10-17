@@ -200,7 +200,7 @@ def test_the_measurement_default_is_the_file_the_ratchet_reads(workflow):
 def test_the_action_uploads_the_measurement_as_an_artifact():
     """The reparse seed's runner-measurement source is this artifact
     (issue #710): without it, a seed can only be transcribed by hand or
-    measured off-runner, both forbidden by the re-seed rules.
+    measured off-runner, neither a valid source for a runner seed.
 
     The whole shape is pinned by position, so removing the upload, moving
     it after the gate, or slipping in a step fails here.

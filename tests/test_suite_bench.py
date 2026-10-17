@@ -575,13 +575,13 @@ def test_gate_names_workload_drift_on_a_breach(mini_suite, tmp_path):
         ["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
     assert result.returncode == 1
     assert "workload identity drifted" in result.stderr
-    assert "re-seed" in result.stderr
+    assert "A breach is never a removal reason" in result.stderr
 
 
 def test_gate_names_workload_drift_within_the_ceiling(mini_suite, tmp_path):
     # Under the ceiling the drift is a note, not a verdict: the
-    # hysteresis absorbs small tree changes, and the note is the early
-    # warning a re-seed can be scheduled against.
+    # hysteresis absorbs small tree changes, and the note prompts review
+    # of the workload change; ordinary growth must trim its own tests.
     measurement = _measure(mini_suite)
     target = _thresholds_for(tmp_path, measurement, identity=40000)
     result = _run_bench(

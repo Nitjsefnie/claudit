@@ -113,7 +113,7 @@ def _tree_identity() -> int:
 def _check_tree_identity(artifact: Path, identity) -> None:
     """Refuse a seed measured on a different tests tree than this one.
 
-    The sanctioned re-seed measures the FINAL tree the seed lands on,
+    The seed measures the FINAL tree the seed lands on,
     the seed change's own edits included (SV-CI-RATCHETS): the working
     tree of the checkout running this command is that tree. A
     measurement whose recorded identity names another tree seeds
@@ -131,7 +131,7 @@ def _check_tree_identity(artifact: Path, identity) -> None:
     raise ValueError(
         f'{artifact}: the measurement was taken on a tests tree of '
         f'{identity} lines, but the tree this seed lands on holds '
-        f'{tree_lines}: the sanctioned re-seed measures the final tree '
+        f'{tree_lines}: the seed measures the final tree '
         '(SV-CI-RATCHETS); seed from a measurement of THIS tree')
 
 

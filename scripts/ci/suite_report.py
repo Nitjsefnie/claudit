@@ -46,9 +46,12 @@ PHASES = thresholds.SUITE_COST_PHASES
 _COUNTS = 'million_instructions'
 _OVER_BUDGET_REMEDY = (
     'A suite phase is over its recorded budget: make that phase '
-    'cheaper, or use the doctrine\'s re-seed path when the fixture list '
-    'or the interpreter pin legitimately changed. A recorded budget is '
-    'never raised by hand.')
+    'cheaper. A breach is never a removal reason; ordinary workload '
+    'growth must trim its own tests. Removal is allowed only when the '
+    'subject is gone, or the recorded number is wrong or no longer '
+    'comparable, declared via Thresholds-Removed with before/after '
+    'measurements on the same tree. A recorded budget is never raised '
+    'by hand.')
 # The no-budget line, shared by gate stdout and the step summary so the
 # two never disagree about what this run was.
 NO_BUDGET_LINE = 'no suite_cost budget recorded'
@@ -184,8 +187,8 @@ def _workload_drift_note(measurement: Measurement, budgets: dict) -> str | None:
     A budget binds to the workload it measured (SV-CI-RATCHETS): when
     both identities are known and differ, a breach names the workload
     change instead of reading as slowness, and a pass within the
-    hysteresis still gets the early warning a re-seed can be scheduled
-    against.
+    hysteresis still gets a note to review the workload change. Ordinary
+    workload growth must trim its own tests, not move the identity.
     """
     committed = budgets.get(thresholds.SUITE_COST_IDENTITY)
     measured = measurement.tests_tree_lines
@@ -194,8 +197,9 @@ def _workload_drift_note(measurement: Measurement, budgets: dict) -> str | None:
     return (f'workload identity drifted: this run scanned '
             f'{measured} tests-tree lines against a seed recorded at '
             f'{committed} — the budgets describe a different workload '
-            f'than the one they measured; the doctrine\'s re-seed path, '
-            f'taken against a draw of the current tree, is the remedy '
+            f'than the one they measured; review the workload change '
+            f'and trim tests for ordinary workload growth, never move '
+            f'the recorded identity to excuse a breach '
             f'(issue #524)')
 
 
