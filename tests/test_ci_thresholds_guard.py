@@ -513,8 +513,8 @@ def _init_judged_tree(tmp_path):
     _git(root, "branch", "pristine")
 
 
-@pytest.fixture(scope="module")
-def judged_path(tmp_path_factory):
+@pytest.fixture(scope="module", name="judged_base_path")
+def _judged_base_path(tmp_path_factory):
     """One scratch tree per module; the helper restores its saved commit."""
     path = tmp_path_factory.mktemp("thresholds-judged")
     _init_judged_tree(path)
@@ -550,7 +550,7 @@ def _raised_document(family="suite_cost", metric="bytecodes"):
     return head
 
 
-def test_feature_range_admits_budget_raise(judged_path, monkeypatch):
+def test_feature_range_admits_budget_raise(judged_base_path, monkeypatch):
     for family, metric, subjects in [
         ("suite_cost", "bytecodes", ["feat: add a panel", "fix: polish"]),
         ("reparse", "bytecodes", ["fix: prepare", "feat: parse new events"]),
@@ -558,9 +558,9 @@ def test_feature_range_admits_budget_raise(judged_path, monkeypatch):
         ("suite_cost", "bytecodes", ["feat(ci): measure a new path"]),
     ]:
         assert _judged_guard(
-            judged_path, monkeypatch, _document(), _raised_document(family, metric),
+            judged_base_path, monkeypatch, _document(), _raised_document(family, metric),
             subjects) == 0
-        root = judged_path / "repo"
+        root = judged_base_path / "repo"
         assert (root / "backend/kept.py").read_text(encoding="utf-8") == "pass\n"
         assert not (root / "leaked.txt").exists()
         assert _git(root, "rev-list", "--count", "pristine..HEAD") == str(len(subjects))
@@ -568,7 +568,7 @@ def test_feature_range_admits_budget_raise(judged_path, monkeypatch):
         (root / "leaked.txt").write_text("untracked\n", encoding="utf-8")
 
 
-def test_non_feature_range_refuses_raise_and_names_remedy(judged_path, monkeypatch, capsys):
+def test_non_feature_range_refuses_raise_and_names_remedy(judged_base_path, monkeypatch, capsys):
     for subject in [
         "fix: trim work",
         "chore: tidy",
@@ -581,8 +581,8 @@ def test_non_feature_range_refuses_raise_and_names_remedy(judged_path, monkeypat
         "fix: keep one subject\x0bfeat: embedded feature",
     ]:
         assert _judged_guard(
-            judged_path, monkeypatch, _document(), _raised_document(), [subject]) == 1
-        root = judged_path / "repo"
+            judged_base_path, monkeypatch, _document(), _raised_document(), [subject]) == 1
+        root = judged_base_path / "repo"
         assert (root / "backend/kept.py").read_text(encoding="utf-8") == "pass\n"
         assert not (root / "leaked.txt").exists()
         assert _git(root, "rev-list", "--count", "pristine..HEAD") == "1"
@@ -593,19 +593,19 @@ def test_non_feature_range_refuses_raise_and_names_remedy(judged_path, monkeypat
         assert "deleting tests that repeat another test's assertions" in err
 
 
-def test_unproved_feature_range_refuses_raise(judged_path, monkeypatch, capsys):
+def test_unproved_feature_range_refuses_raise(judged_base_path, monkeypatch, capsys):
     for revs in [
         [],
         ["--base-rev", "unknown-revision", "--head-rev", "HEAD"],
         ["--base-rev", "HEAD", "--head-rev", "HEAD"],
     ]:
         assert _judged_guard(
-            judged_path, monkeypatch, _document(), _raised_document(),
+            judged_base_path, monkeypatch, _document(), _raised_document(),
             ["feat: add a panel"], revs) == 1
         assert "trimming its own tests" in capsys.readouterr().err
 
 
-def test_feature_raise_keeps_other_refusals(judged_path, monkeypatch, capsys):
+def test_feature_raise_keeps_other_refusals(judged_base_path, monkeypatch, capsys):
     for other_move in [
         "coverage",
         "identity",
@@ -625,7 +625,7 @@ def test_feature_raise_keeps_other_refusals(judged_path, monkeypatch, capsys):
             head["module_size_baseline"]["backend/api.py"] = 1486
             forbidden = "module_size_baseline.backend/api.py"
         assert _judged_guard(
-            judged_path, monkeypatch, base, head, ["feat: add a panel"],
+            judged_base_path, monkeypatch, base, head, ["feat: add a panel"],
             ["--base-rev", "HEAD^", "--head-rev", "HEAD"]) == 1
         err = capsys.readouterr().err
         assert f"forbidden move: {forbidden}" in err
