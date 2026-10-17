@@ -8,4 +8,4 @@ changing comments can move the JavaScript line-coverage gate.
 Remove it once an upstream release includes the fix.
 
 Upstream issue: [istanbuljs/v8-to-istanbul#272](https://github.com/istanbuljs/v8-to-istanbul/issues/272).
-The upstream PR will be linked here once open.
+Upstream PR: [istanbuljs/v8-to-istanbul#273](https://github.com/istanbuljs/v8-to-istanbul/pull/273).
