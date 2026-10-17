@@ -131,20 +131,24 @@ def _thresholds_path(tmp_path, state):
     return target
 
 
-@pytest.mark.parametrize("state", [
-    "committed", "present", "no-python", "no-javascript", "no-coverage",
-])
-def test_committed_document_loads(tmp_path, state):
-    doc = thresholds.load(_thresholds_path(tmp_path, state))
-    assert doc["schema_version"] == 1
-    for language in thresholds.COVERAGE_LANGUAGES:
-        record = doc.get("coverage", {}).get(language)
-        if record is None:
-            assert thresholds.coverage(doc, language) == (None, None)
-            continue
-        assert isinstance(record["measured"], Decimal)
-        assert isinstance(record["floor"], Decimal)
-        assert record["floor"] == record["measured"] - GAP
+def test_committed_document_loads(tmp_path):
+    for state in [
+        "committed",
+        "present",
+        "no-python",
+        "no-javascript",
+        "no-coverage",
+    ]:
+        doc = thresholds.load(_thresholds_path(tmp_path, state))
+        assert doc["schema_version"] == 1
+        for language in thresholds.COVERAGE_LANGUAGES:
+            record = doc.get("coverage", {}).get(language)
+            if record is None:
+                assert thresholds.coverage(doc, language) == (None, None)
+                continue
+            assert isinstance(record["measured"], Decimal)
+            assert isinstance(record["floor"], Decimal)
+            assert record["floor"] == record["measured"] - GAP
 
 
 def test_javascript_coverage_language_accepted(tmp_path):
@@ -181,30 +185,24 @@ def test_write_publishes_canonical_bytes(tmp_path):
     assert thresholds.load(target)["suite_cost"] == SUITE_COST
 
 
-@pytest.mark.parametrize("mutate,match", [
-    pytest.param(lambda doc: doc.update(surprise={}),
-                 "unknown field: surprise", id="unknown-top-level"),
-    pytest.param(lambda doc: doc["coverage"].update(
-        ruby={"measured": 50.0, "floor": 48.5}),
-        "unknown coverage language", id="unknown-language"),
-    pytest.param(lambda doc: doc["coverage"]["python"].pop("floor"),
-                 "missing", id="missing-floor"),
-    pytest.param(lambda doc: doc.update(schema_version=2),
-                 "unsupported schema_version", id="wrong-schema-version"),
-    pytest.param(lambda doc: doc.update(
-        pylint_suppression_baseline={"backend/api.py": 0}),
-        "positive integer", id="invalid-suppression-entry"),
-    pytest.param(lambda doc: doc["suite_cost"].update(
-        warmup={"measured": 1.0, "floor": 2.5}),
-        "unknown suite cost phase", id="unknown-suite-cost-phase"),
-])
-def test_invalid_document_shape_refused(tmp_path, mutate, match):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    mutate(payload)
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match=match):
-        thresholds.load(target)
+def test_invalid_document_shape_refused(tmp_path):
+    for mutate, match in [
+        (lambda doc: doc.update(surprise={}), "unknown field: surprise"),
+        (lambda doc: doc["coverage"].update(
+                ruby={"measured": 50.0, "floor": 48.5}), "unknown coverage language"),
+        (lambda doc: doc["coverage"]["python"].pop("floor"), "missing"),
+        (lambda doc: doc.update(schema_version=2), "unsupported schema_version"),
+        (lambda doc: doc.update(
+                pylint_suppression_baseline={"backend/api.py": 0}), "positive integer"),
+        (lambda doc: doc["suite_cost"].update(
+                warmup={"measured": 1.0, "floor": 2.5}), "unknown suite cost phase"),
+    ]:
+        target = _written_document(tmp_path)
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        mutate(payload)
+        target.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError, match=match):
+            thresholds.load(target)
 
 
 def test_floor_at_or_above_measured_refused(tmp_path):
@@ -329,18 +327,19 @@ def test_absent_baseline_member_loads(tmp_path):
         thresholds.load(target)) == {}
 
 
-@pytest.mark.parametrize("member", [
-    "module_size_baseline", "comment_share_baseline",
-])
-def test_absent_baseline_reader_returns_empty_mapping(tmp_path, member):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    del payload[member]
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    loaded = thresholds.load(target)
+def test_absent_baseline_reader_returns_empty_mapping(tmp_path):
+    for member in [
+        "module_size_baseline",
+        "comment_share_baseline",
+    ]:
+        target = _written_document(tmp_path)
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        del payload[member]
+        target.write_text(json.dumps(payload), encoding="utf-8")
+        loaded = thresholds.load(target)
 
-    reader = getattr(thresholds, member)
-    assert reader(loaded) == {}
+        reader = getattr(thresholds, member)
+        assert reader(loaded) == {}
 
 
 def test_optional_families_round_trip_without_reappearing(tmp_path):
@@ -354,29 +353,22 @@ def test_optional_families_round_trip_without_reappearing(tmp_path):
     assert loaded == normalised == {"schema_version": 1}
 
 
-@pytest.mark.parametrize("mutate,absent_family,match", [
-    pytest.param(lambda doc: doc.update(suite_cost={}),
-                 "reparse", "missing suite cost phase",
-                 id="empty-suite-cost"),
-    pytest.param(lambda doc: doc.update(reparse={}),
-                 "suite_cost", "missing reparse CPU phase",
-                 id="empty-reparse"),
-    pytest.param(lambda doc: doc["coverage"]["python"].update(floor=90.0),
-                 "suite_cost", "gap must be 1.5", id="coverage-wrong-gap"),
-    pytest.param(lambda doc: doc["coverage"].update(
-        python={"measured": 92.6}),
-        "reparse", "missing.*floor", id="malformed-coverage-record"),
-])
-def test_present_but_malformed_optional_data_is_refused(
-        tmp_path, mutate, absent_family, match):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    mutate(payload)
-    del payload[absent_family]
-    target.write_text(json.dumps(payload), encoding="utf-8")
+def test_present_but_malformed_optional_data_is_refused(tmp_path):
+    for mutate, absent_family, match in [
+        (lambda doc: doc.update(suite_cost={}), "reparse", "missing suite cost phase"),
+        (lambda doc: doc.update(reparse={}), "suite_cost", "missing reparse CPU phase"),
+        (lambda doc: doc["coverage"]["python"].update(floor=90.0), "suite_cost", "gap must be 1.5"),
+        (lambda doc: doc["coverage"].update(
+                python={"measured": 92.6}), "reparse", "missing.*floor"),
+    ]:
+        target = _written_document(tmp_path)
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        mutate(payload)
+        del payload[absent_family]
+        target.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(ValueError, match=match):
-        thresholds.load(target)
+        with pytest.raises(ValueError, match=match):
+            thresholds.load(target)
 
 
 def test_coverage_reader_returns_none_for_an_absent_language():
@@ -446,28 +438,31 @@ def test_committed_document_bytes_are_canonical(tmp_path):
     assert subprocess_committed_bytes() == target.read_bytes()
 
 
-@pytest.mark.parametrize("flag,field", [
-    pytest.param("--coverage-floor", "floor", id="floor"),
-    pytest.param("--coverage-measured", "measured", id="measured"),
-])
-@pytest.mark.parametrize("state", [
-    "committed", "present", "no-python", "no-coverage",
-])
-def test_coverage_floor_cli_prints_floor(tmp_path, flag, field, state):
-    # Committed readings may move or disappear; synthetic documents
-    # exercise both CLI outcomes regardless of the current recording.
-    path = _thresholds_path(tmp_path, state)
-    data = thresholds.load(path)
-    recorded = data.get("coverage", {}).get("python")
-    result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
-         flag, "python", "--thresholds", str(path)],
-        capture_output=True, text=True, check=True)
-    if recorded is None:
-        assert thresholds.coverage(data, "python") == (None, None)
-        assert result.stdout == ""
-    else:
-        assert result.stdout == f'{recorded[field]:.1f}\n'
+def test_coverage_floor_cli_prints_floor(tmp_path):
+    for flag, field in [
+        ("--coverage-floor", "floor"),
+        ("--coverage-measured", "measured"),
+    ]:
+        for state in [
+            "committed",
+            "present",
+            "no-python",
+            "no-coverage",
+        ]:
+            # Committed readings may move or disappear; synthetic documents
+            # exercise both CLI outcomes regardless of the current recording.
+            path = _thresholds_path(tmp_path, state)
+            data = thresholds.load(path)
+            recorded = data.get("coverage", {}).get("python")
+            result = subprocess.run(
+                [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
+                 flag, "python", "--thresholds", str(path)],
+                capture_output=True, text=True, check=True)
+            if recorded is None:
+                assert thresholds.coverage(data, "python") == (None, None)
+                assert result.stdout == ""
+            else:
+                assert result.stdout == f'{recorded[field]:.1f}\n'
 
 
 def test_check_cli_accepts_committed_document():
@@ -494,18 +489,22 @@ def test_check_cli_rejects_broken_document(tmp_path):
     assert "schema_version" in result.stderr
 
 
-@pytest.mark.parametrize("state", ["committed", "present", "no-suppression"])
-def test_committed_suppression_member_loads(tmp_path, state):
-    # Recorded suppression entries name production paths and carry
-    # positive counts; the whole family may also be absent.
-    doc = thresholds.load(_thresholds_path(tmp_path, state))
-    baseline = doc.get("pylint_suppression_baseline", {})
-    if "pylint_suppression_baseline" not in doc:
-        assert baseline == {}
-    for path, count in baseline.items():
-        assert path.startswith(("backend/", "scripts/"))
-        assert not path.startswith("tests/")
-        assert count > 0
+def test_committed_suppression_member_loads(tmp_path):
+    for state in [
+        "committed",
+        "present",
+        "no-suppression",
+    ]:
+        # Recorded suppression entries name production paths and carry
+        # positive counts; the whole family may also be absent.
+        doc = thresholds.load(_thresholds_path(tmp_path, state))
+        baseline = doc.get("pylint_suppression_baseline", {})
+        if "pylint_suppression_baseline" not in doc:
+            assert baseline == {}
+        for path, count in baseline.items():
+            assert path.startswith(("backend/", "scripts/"))
+            assert not path.startswith("tests/")
+            assert count > 0
 
 
 def test_committed_suite_cost_family_matches_the_committed_bytes():
@@ -537,14 +536,14 @@ def test_suite_cost_reader_returns_the_committed_phases():
     assert phases == SUITE_COST
 
 
-@pytest.mark.parametrize("phase", thresholds.SUITE_COST_PHASES)
-def test_missing_suite_cost_phase_refused(tmp_path, phase):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    del payload["suite_cost"][phase]
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="missing suite cost phase"):
-        thresholds.load(target)
+def test_missing_suite_cost_phase_refused(tmp_path):
+    for phase in thresholds.SUITE_COST_PHASES:
+        target = _written_document(tmp_path)
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        del payload["suite_cost"][phase]
+        target.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError, match="missing suite cost phase"):
+            thresholds.load(target)
 
 
 def test_suite_cost_entry_validator_rejects(tmp_path):
