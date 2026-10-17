@@ -20,6 +20,7 @@ tests/test_heatmap_layout_wiring.py
 tests/test_hide_rate_limits_render.py
 tests/test_ingest.py
 tests/test_js_coverage_comment_lines.py
+tests/test_js_coverage_scanner_parity.py
 tests/test_js_toolchain.py
 tests/test_model_colors.py
 tests/test_model_group_wiring.py
