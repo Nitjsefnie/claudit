@@ -27,11 +27,10 @@ measurement would fail a gate no change could satisfy.
 Phases are independent ceilings, so a run that tightens one of them
 leaves the others exactly where they were.
 
-SEEDING is the landing half of the doctrine's re-seed (issue #703):
+SEEDING is the writer path for an absent family (issue #703):
 ``--seed MEASUREMENT`` writes the committed family from a runner
 measurement's per-phase readings, both metrics, only onto a document
-the family is ABSENT from — the shape the marker's delete committed —
-and refuses over a recorded family, which is the hand-raise's doorway.
+the family is absent from, and refuses over a recorded family.
 The seed is the second reviewed gate-definer; a counts-less measurement
 is refused rather than seeded, because an unmeasured instrument must
 never enter the document as a number.
@@ -99,12 +98,12 @@ def tightenable(data, readings):
     beats its recorded value by more than the hysteresis — the same rule
     the coverage ratchet applies to a raise, with every comparison
     reversed. Only the GATED metrics are read (issue #513): the share
-    rides along in every measurement, and nothing here moves it. A tip
-    inside the reparse re-seed window carries no budget to tighten
+    rides along in every measurement, and nothing here moves it. A
+    document without a reparse family carries no budget to tighten
     against: tightening nothing is the whole answer, and the CLI says
     so.
     """
-    candidate = thresholds.normalise(data, thresholds.verdict())
+    candidate = thresholds.normalise(data)
     if thresholds.REPARSE_FAMILY not in candidate:
         return {}
     moves = {}
@@ -130,13 +129,13 @@ def update(data, readings):
     moves = tightenable(data, readings)
     if not moves:
         return None
-    candidate = thresholds.normalise(data, thresholds.verdict())
+    candidate = thresholds.normalise(data)
     for _label, (phase, metric, measured) in moves.items():
         candidate[thresholds.REPARSE_FAMILY][phase][metric] = {
             'measured': measured,
             'floor': measured + CALIBRATION_GAP,
         }
-    return thresholds.normalise(candidate, thresholds.verdict())
+    return thresholds.normalise(candidate)
 
 
 def _parser():
@@ -199,17 +198,15 @@ def load_for_seed(path):
     """The raw committed bytes a seed may target.
 
     A document carrying the family is loaded through the loader's
-    strict validation, and seed() refuses it; one the family is absent
-    from — the shape the marker's delete committed — is parsed leniently
-    (trusted committed bytes) and handed to seed() with the member
-    gone, the one state seed() accepts.
+    validation, and seed() refuses it; one the family is absent from is
+    parsed leniently (trusted committed bytes) and handed to seed() with
+    the member gone, the one state seed() accepts.
     """
     data = json.loads(Path(path).read_text(encoding='utf-8'))
     # PRESENCE, never emptiness, the loader's own rule (issue #703
     # review): `"reparse": {}` is a family PRESENT and malformed — the
     # loader refuses it and the seed must not quietly replace it. A
-    # falsy test would read the decoy as the absent family only the
-    # marker's delete may produce.
+    # falsy test would read the decoy as the absent family.
     if thresholds.REPARSE_FAMILY in data:
         return thresholds.load(path), False
     return data, True
@@ -220,13 +217,9 @@ def seed(data, readings):
     it is already recorded.
 
     ``data`` is the RAW document as its bytes carry it: the seed's
-    target is exactly the document the family is ABSENT from, which the
-    loader accepts while the delete's marker sits inside the bounded
-    walk's span (reseed.py) — so the seed commit need not carry the
-    marker itself. Seeding over a recorded family is refused: the
-    sanctioned way to replace recorded budgets is the doctrine's
-    re-seed — delete the stale member under the marker first, commit
-    the runner-measured counts second, both reviewed gate-definers.
+    target is exactly the document the family is absent from. Seeding
+    over a recorded family is refused: replacing recorded budgets
+    requires a measured reading and a reviewed change.
     ``readings`` is ``{phase: {metric: value}}`` from a runner
     measurement (``reparse_bench.py --write``); both metrics are
     written per phase, the share as the reading it was recorded beside.
@@ -235,16 +228,10 @@ def seed(data, readings):
         # PRESENCE, for the same reason load_for_seed tests it: an
         # empty family is a present one, and overwriting it is the
         # hand-raise's doorway whatever its (broken) shape.
-        # Imported HERE, the way the loader's verdict does it: the
-        # refusal is the one place this module names the marker, and
-        # the git-reading module stays off the tighten path's imports.
-        # pylint: disable-next=import-outside-toplevel
-        reseed = importlib.import_module('reseed')
         raise ValueError(
             f'{thresholds.REPARSE_FAMILY} is already recorded: seeding '
-            'would overwrite recorded budgets. Delete the stale member '
-            f'under the {reseed.REPARSE_MARKER} marker first if the '
-            'workload legitimately changed.')
+            'would overwrite recorded budgets. Remove the recorded '
+            'family before seeding it again.')
     candidate = dict(data)
     family = {}
     for phase in thresholds.REPARSE_PHASES:
@@ -265,10 +252,7 @@ def seed(data, readings):
                 'floor': measured + CALIBRATION_GAP,
             }
     candidate[thresholds.REPARSE_FAMILY] = family
-    # Strict, by fact and not by default: the candidate this builds
-    # always carries the family, so there is nothing for the marker to
-    # excuse. The re-seed's tolerance is the loader's, not the seed's.
-    return thresholds.normalise(candidate, False)
+    return thresholds.normalise(candidate)
 
 
 def main(argv=None):
@@ -291,11 +275,10 @@ def main(argv=None):
         data = thresholds.load(args.thresholds)
         recorded = read_calibration(data)
         if not recorded:
-            # The re-seed window: no budget exists to tighten. Saying so
-            # beats a crash on an absent family the walk found the
-            # family's own marker for.
-            print(f'no {thresholds.REPARSE_FAMILY} budget — re-seed in '
-                  'flight: nothing to tighten')
+            # No budget exists to tighten. Keep this a clean no-op
+            # rather than indexing an absent family.
+            print(f'no {thresholds.REPARSE_FAMILY} budget recorded: '
+                  'nothing to tighten')
             return 0
         readings = _readings(args.measured_file)
         candidate = update(data, readings)

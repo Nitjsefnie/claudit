@@ -49,9 +49,9 @@ _OVER_BUDGET_REMEDY = (
     'cheaper, or use the doctrine\'s re-seed path when the fixture list '
     'or the interpreter pin legitimately changed. A recorded budget is '
     'never raised by hand.')
-# The pass-through's own line, shared by the gate's stdout and by the
-# step summary so the two never disagree about what this run was.
-NO_BUDGET_LINE = 'no suite_cost budget — re-seed in flight'
+# The no-budget line, shared by gate stdout and the step summary so the
+# two never disagree about what this run was.
+NO_BUDGET_LINE = 'no suite_cost budget recorded'
 
 
 def _spelling(value, label):
@@ -218,15 +218,10 @@ def check(path, thresholds_path=None) -> int:
     A counts-less measurement (the process_time fallback) fails closed:
     the absence of an instruction count is not a pass.
 
-    The ONE pass-through is a tip document that carries no budget at
-    all, inside the re-seed window: some commit in the bounded walk's
-    span — from HEAD back to the last family-present commit — carries
-    the marker (reseed.py), so the loader accepts the absence whether
-    or not the tip itself declares. The measurement is still taken,
-    still uploaded and still checked for gateability — there is simply
-    nothing to compare it against until the seed commit restores the
-    family. Every other missing budget, and every over-budget phase,
-    fails exactly as before.
+    If the document has no suite_cost family, the measurement still has
+    to be taken, uploaded and checked for gateability; there is simply
+    no budget to compare it against. Every over-budget phase in a
+    recorded family fails as before.
     """
     measurement = measurement_from_file(path)
     if measurement.counts is None:
@@ -265,9 +260,9 @@ def check(path, thresholds_path=None) -> int:
 def gate_verdict(thresholds_path, code: int) -> str:
     """The step summary's verdict line, in the gate's own words.
 
-    'within budget' would be a false statement inside the re-seed
-    window, where the tip is gated against nothing at all; the summary
-    says so.
+    'within budget' would be a false statement when no family is
+    recorded, where the run is gated against nothing; the summary says
+    so.
     """
     if code:
         return '**OVER BUDGET**'

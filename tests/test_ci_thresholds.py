@@ -40,7 +40,6 @@ def _load(name="thresholds"):
     return module
 
 
-reseed = _load("reseed")
 thresholds = _load()
 
 GAP = Decimal("1.5")
@@ -143,7 +142,7 @@ def test_javascript_coverage_language_accepted(tmp_path):
 
 
 def test_normalised_document_keeps_exact_values():
-    doc = thresholds.normalise(_document(measured="92.6", floor="91.1"), False)
+    doc = thresholds.normalise(_document(measured="92.6", floor="91.1"))
     record = doc["coverage"]["python"]
     assert record["measured"] == Decimal("92.6")
     assert record["floor"] == Decimal("91.1")
@@ -157,41 +156,34 @@ def test_write_publishes_canonical_bytes(tmp_path):
     assert text.endswith("\n")
     assert text == json.dumps(
         json.loads(text), indent=2, sort_keys=True) + "\n"
-    assert thresholds.load(target) == thresholds.normalise(doc, False)
+    assert thresholds.load(target) == thresholds.normalise(doc)
     assert thresholds.load(target)["suite_cost"] == SUITE_COST
 
 
-@pytest.mark.parametrize("mutate,match,options", [
+@pytest.mark.parametrize("mutate,match", [
     pytest.param(lambda doc: doc.update(surprise={}),
-                 "unknown field: surprise", (), id="unknown-top-level"),
+                 "unknown field: surprise", id="unknown-top-level"),
     pytest.param(lambda doc: doc["coverage"].update(
         ruby={"measured": 50.0, "floor": 48.5}),
-        "unknown coverage language", (), id="unknown-language"),
-    pytest.param(lambda doc: doc["coverage"].pop("javascript"),
-                 "missing coverage language: javascript", (),
-                 id="missing-javascript"),
+        "unknown coverage language", id="unknown-language"),
     pytest.param(lambda doc: doc["coverage"]["python"].pop("floor"),
-                 "missing", (), id="missing-floor"),
+                 "missing", id="missing-floor"),
     pytest.param(lambda doc: doc.update(schema_version=2),
-                 "unsupported schema_version", (), id="wrong-schema-version"),
-    pytest.param(lambda doc: doc.pop("pylint_suppression_baseline"),
-                 "missing field", (False,), id="missing-suppression"),
+                 "unsupported schema_version", id="wrong-schema-version"),
     pytest.param(lambda doc: doc.update(
         pylint_suppression_baseline={"backend/api.py": 0}),
-        "positive integer", (), id="invalid-suppression-entry"),
-    pytest.param(lambda doc: doc.pop("suite_cost"),
-                 "missing field", (False,), id="missing-suite-cost"),
+        "positive integer", id="invalid-suppression-entry"),
     pytest.param(lambda doc: doc["suite_cost"].update(
         warmup={"measured": 1.0, "floor": 2.5}),
-        "unknown suite cost phase", (), id="unknown-suite-cost-phase"),
+        "unknown suite cost phase", id="unknown-suite-cost-phase"),
 ])
-def test_unknown_top_level_key_refused(tmp_path, mutate, match, options):
+def test_invalid_document_shape_refused(tmp_path, mutate, match):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
     mutate(payload)
     target.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match=match):
-        thresholds.load(target, *options)
+        thresholds.load(target)
 
 
 def test_floor_at_or_above_measured_refused(tmp_path):
@@ -257,6 +249,132 @@ def test_duplicate_key_refused(tmp_path):
         encoding="utf-8")
     with pytest.raises(ValueError, match="duplicate JSON key"):
         thresholds.load(target)
+
+
+def test_absent_coverage_languages_load(tmp_path):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    del payload["coverage"]["python"]
+    target.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = thresholds.load(target)
+
+    assert loaded["coverage"] == {
+        "javascript": {"measured": Decimal("50.0"),
+                       "floor": Decimal("48.5")}}
+
+
+def test_both_coverage_languages_may_be_absent(tmp_path):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["coverage"] = {}
+    target.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert thresholds.load(target)["coverage"] == {}
+
+
+def test_absent_coverage_family_loads(tmp_path):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    del payload["coverage"]
+    target.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert "coverage" not in thresholds.load(target)
+
+
+def test_absent_suite_cost_and_reparse_families_load(tmp_path):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    del payload["suite_cost"]
+    del payload["reparse"]
+    target.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = thresholds.load(target)
+
+    assert "suite_cost" not in loaded
+    assert "reparse" not in loaded
+    assert thresholds.suite_cost(loaded) == {}
+    assert thresholds.reparse(loaded) == {}
+
+
+def test_absent_baseline_member_loads(tmp_path):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    del payload["module_size_baseline"]
+    target.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert "module_size_baseline" not in thresholds.load(target)
+    assert thresholds.module_size_baseline(
+        thresholds.load(target)) == {}
+
+
+@pytest.mark.parametrize("member", [
+    "module_size_baseline", "comment_share_baseline",
+])
+def test_absent_baseline_reader_returns_empty_mapping(tmp_path, member):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    del payload[member]
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    loaded = thresholds.load(target)
+
+    reader = getattr(thresholds, member)
+    assert reader(loaded) == {}
+
+
+def test_optional_families_round_trip_without_reappearing(tmp_path):
+    data = {"schema_version": 1}
+    normalised = thresholds.normalise(data)
+    target = tmp_path / "ci-thresholds.json"
+
+    thresholds.write(target, normalised)
+    loaded = thresholds.load(target)
+
+    assert loaded == normalised == {"schema_version": 1}
+
+
+@pytest.mark.parametrize("mutate,match", [
+    pytest.param(lambda doc: doc.update(suite_cost={}),
+                 "missing suite cost phase", id="empty-suite-cost"),
+    pytest.param(lambda doc: doc.update(reparse={}),
+                 "missing reparse CPU phase", id="empty-reparse"),
+    pytest.param(lambda doc: doc["coverage"]["python"].update(floor=90.0),
+                 "gap must be 1.5", id="coverage-wrong-gap"),
+    pytest.param(lambda doc: doc["coverage"].update(
+        python={"measured": 92.6}),
+        "missing.*floor", id="malformed-coverage-record"),
+])
+def test_present_but_malformed_optional_data_is_refused(
+        tmp_path, mutate, match):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    mutate(payload)
+    target.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=match):
+        thresholds.load(target)
+
+
+def test_coverage_reader_returns_none_for_an_absent_language():
+    data = _document()
+    del data["coverage"]["python"]
+
+    assert thresholds.coverage(data, "python") == (None, None)
+
+
+def test_coverage_floor_cli_is_empty_for_an_absent_language(tmp_path):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    del payload["coverage"]["python"]
+    target.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = subprocess.run(  # pylint: disable=subprocess-run-check
+        [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
+         "--coverage-floor", "python", "--thresholds", str(target)],
+        capture_output=True, text=True)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
 
 
 def test_baseline_value_must_be_positive_int(tmp_path):
@@ -361,21 +479,14 @@ def test_committed_suite_cost_family_matches_the_committed_bytes():
     # phases with every ceiling the calibration gap above its measured
     # value (a cost's gap sits above).
     #
-    # The pin is on the DOCUMENT, not on the commit: the sanctioned
-    # re-seed (issue #502) makes an absent family admissible for one
-    # commit, and a pin that skipped there would run on no commit at
-    # all. So this asserts the family when the document carries one and
-    # says plainly when it does not — which is itself the shape the
-    # delete commit has, so the delete commit is covered too.
+    # The pin is on the DOCUMENT, so it asserts the family's readings
+    # when they are recorded and accepts the valid absent-family shape.
     doc = thresholds.load(THRESHOLDS_PATH)
     recorded = thresholds.suite_cost(doc)
     present = b'"suite_cost"' in subprocess_committed_bytes()
     assert (recorded != {}) is present, (
         "the reader and the committed bytes disagree about the family")
     if not present:
-        assert reseed.in_flight(REPO_ROOT), (
-            "the family is absent on a tree that declares no re-seed: "
-            "the loader tolerated a document the marker does not authorise")
         return
     assert tuple(sorted(recorded)) == tuple(
         sorted(thresholds.SUITE_COST_PHASES))
@@ -386,22 +497,9 @@ def test_committed_suite_cost_family_matches_the_committed_bytes():
 
 
 def test_suite_cost_reader_returns_the_committed_phases():
-    doc = thresholds.normalise(_document(), False)
+    doc = thresholds.normalise(_document())
     phases = thresholds.suite_cost(doc)
     assert phases == SUITE_COST
-
-
-def test_a_marker_admits_an_absent_family_without_forbidding_a_present_one():
-    # What the marker actually promises (issue #502): a family-ABSENT
-    # document is admissible. It does NOT promise the family is absent,
-    # and it must not forbid a document that carries one — the seed
-    # commit restores the family, and a copy-pasted marker must not make
-    # that state unreadable. The narrow claim is the loadable one; the
-    # over-claim ("a marked commit records no budget") is what redded
-    # the seed commit in review.
-    doc = thresholds.normalise(_document(), False)
-    assert thresholds.suite_cost(doc, True) == thresholds.suite_cost(doc, False)
-    assert thresholds.normalise(doc, True) == doc
 
 
 @pytest.mark.parametrize("phase", thresholds.SUITE_COST_PHASES)

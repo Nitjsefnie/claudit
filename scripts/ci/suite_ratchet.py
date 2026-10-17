@@ -22,13 +22,8 @@ INTERPRETER AND LIBRARY DRIFT, not measurement noise -- there is none.
 A 3.13.x micro release, or a pinned pytest patch release, can move a
 hot path's bytecode count by more than the gap; the interpreter is
 pinned to the exact micro version in the workflows that run the bench,
-and a legitimately moved workload (fixture list or interpreter pin) is
-the doctrine's sanctioned re-seed path: two reviewed gate-definer
-changes — the first deletes the stale member under the
-``[suite-cost-re-seed]`` marker, the second seeds the new counts
-through the loader's writer from a RUNNER measurement. One change
-cannot do both, because the guard refuses an upward move the base
-already carries.
+A legitimately moved workload (fixture list or interpreter pin) uses
+the seed path to replace the old counts with a RUNNER measurement.
 
 That measurement must be of the tree master will hold once the seed
 lands, the seed change's own edits included: the seed PR's own run on
@@ -63,10 +58,9 @@ from pathlib import Path
 
 if __package__:
     # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import reseed, thresholds
+    from . import thresholds
 else:
     thresholds = importlib.import_module('thresholds')
-    reseed = importlib.import_module('reseed')
 
 # The checkout holding this script: the tree a seed lands on, and the
 # root the bench's tree-line counter walks. Not the --thresholds path,
@@ -180,17 +174,12 @@ def seed(data, counts, identity=None):
     """Return a document with the family seeded, or raise when present.
 
     ``data`` is the RAW document as its bytes carry it: the seed's
-    target is exactly the document the member is ABSENT from, which the
-    loader accepts while the delete's marker sits inside the bounded
-    walk's span — any commit from HEAD back to the last family-present
-    commit (reseed.py) — so the seed commit need not carry the marker
-    itself. Seeding over a recorded family is refused: overwriting
-    would need its own justification, and the sanctioned one is the
-    doctrine's re-seed -- delete the stale member first, commit the new
-    counts second, both reviewed gate-definers -- not a quiet rewrite by
-    a bot. ``identity`` is the measurement's workload identity: written
-    beside the budgets when the reading carries one, so the committed
-    seed names the workload it measured.
+    target is exactly the document the member is absent from. Seeding
+    over a recorded family is refused: overwriting needs its own
+    justification, not a quiet rewrite by a bot. ``identity`` is the
+    measurement's workload identity: written beside the budgets when
+    the reading carries one, so the committed seed names the workload it
+    measured.
     """
     if _family in data:
         # PRESENCE, never emptiness: `"suite_cost": {}` is the family
@@ -199,9 +188,8 @@ def seed(data, counts, identity=None):
         # writer carries the same test — issue #703).
         raise ValueError(
             f'{_family} is already recorded: seeding would overwrite '
-            'recorded budgets. Delete the stale member under the '
-            f'{reseed.MARKER} marker first if the workload '
-            'legitimately changed.')
+            'recorded budgets. Remove the recorded family before '
+            'seeding it again.')
     candidate = dict(data)
     candidate[_family] = {
         phase: {
@@ -215,10 +203,7 @@ def seed(data, counts, identity=None):
     }
     if identity is not None:
         candidate[_family][_IDENTITY] = identity
-    # Strict, by fact and not by default: the candidate this builds
-    # always carries the family, so there is nothing for the marker to
-    # excuse. The re-seed's tolerance is the loader's, not the seed's.
-    return thresholds.normalise(candidate, False)
+    return thresholds.normalise(candidate)
 
 
 def load_for_seed(path):
@@ -233,8 +218,7 @@ def load_for_seed(path):
     # PRESENCE, never emptiness, the loader's own rule (issue #705):
     # `"suite_cost": {}` is a family PRESENT and malformed — the loader
     # refuses it and the seed must not quietly replace it. A falsy test
-    # would read the decoy as the absent family only the marked delete
-    # may produce.
+    # would read the decoy as the absent family.
     if _family in data:
         return thresholds.load(path), False
     return data, True
@@ -248,7 +232,7 @@ def tightenable(data, counts):
     with every comparison reversed. Phases are independent ceilings: a
     run that tightens one leaves the others exactly where they were.
     """
-    candidate = thresholds.normalise(data, thresholds.verdict())
+    candidate = thresholds.normalise(data)
     moves = {}
     for phase in PHASES:
         if phase not in counts:
@@ -266,13 +250,13 @@ def update(data, counts):
     moves = tightenable(data, counts)
     if not moves:
         return None
-    candidate = thresholds.normalise(data, thresholds.verdict())
+    candidate = thresholds.normalise(data)
     for phase, measured in moves.items():
         candidate[_family][phase] = {
             'measured': measured,
             'floor': measured + CALIBRATION_GAP,
         }
-    return thresholds.normalise(candidate, thresholds.verdict())
+    return thresholds.normalise(candidate)
 
 
 def _parser():
@@ -308,13 +292,9 @@ def main(argv=None):
             return 0
         data = thresholds.load(args.thresholds)
         if not data.get(_family):
-            # A tree inside the re-seed window — the delete and every
-            # commit that lands on it before the seed — carries no
-            # budget to tighten. Tightening nothing is the whole
-            # answer, and saying so beats a crash on an absent family
-            # the walk found the marker for.
-            print('no suite_cost budget — re-seed in flight: '
-                  'nothing to tighten')
+            # No budget exists to tighten. Keep this a clean no-op
+            # rather than indexing an absent family.
+            print('no suite_cost budget recorded: nothing to tighten')
             return 0
         candidate = update(data, counts)
         if candidate is None:

@@ -1,9 +1,4 @@
-"""The reparse member's loader contract.
-
-The reparse family's own re-seed window needed the committed-document
-pins branched on presence: the pins here are on the DOCUMENT, so each
-one holds on the delete's tip as well as on a budget-carrying one.
-"""
+"""The reparse member's loader contract."""
 from __future__ import annotations
 
 import importlib.util
@@ -36,7 +31,6 @@ def _load(name="thresholds"):
     return module
 
 
-reseed = _load("reseed")
 thresholds = _load()
 
 GAP = Decimal("1.5")
@@ -102,22 +96,15 @@ def subprocess_committed_bytes():
 
 
 def test_committed_document_carries_a_record_for_every_reparse_phase():
-    # The reparse bench's calibration is a required member: a document
-    # without one leaves the bench's gate step with nothing to check the
-    # measurement against, and one missing a phase leaves that phase
-    # ungated while the others still look complete.
+    # A present reparse family has a calibration for every phase; one
+    # missing phase would leave it ungated while the others still look
+    # complete.
     #
-    # The pin is on the DOCUMENT, not on the commit: the family's own
-    # sanctioned re-seed makes an absent family admissible
-    # for the window, and a pin that demanded a record there would run
-    # red on the delete's tip. Present, every phase carries both
-    # instruments; absent, the tree must be declaring the window.
+    # The pin is on the DOCUMENT. Present, every phase carries both
+    # instruments; the whole family may also be absent.
     doc = thresholds.load(THRESHOLDS_PATH)
     family = doc.get("reparse")
     if family is None:
-        assert reseed.in_flight(REPO_ROOT, family=thresholds.REPARSE_FAMILY), (
-            "the family is absent on a tree that declares no re-seed: "
-            "the loader tolerated a document the marker does not authorise")
         return
     assert set(family) == set(thresholds.REPARSE_PHASES)
     for phase, metrics in family.items():
@@ -149,17 +136,16 @@ def test_reparse_reader_returns_every_phase_and_metric():
         assert metrics == doc["reparse"][phase], phase
 
 
-def test_missing_reparse_cpu_member_refused(tmp_path):
-    # The refusal is asked for explicitly, because load()'s default
-    # answers the TREE (scripts/ci/reseed.py) and inside the family's
-    # own re-seed window (issue #698) that tree admits the absence —
-    # the suite-cost member's rule exactly.
+def test_absent_reparse_cpu_member_loads(tmp_path):
     target = _written_document(tmp_path)
     payload = json.loads(target.read_text(encoding="utf-8"))
     del payload["reparse"]
     target.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="missing field: reparse"):
-        thresholds.load(target, False)
+
+    loaded = thresholds.load(target)
+
+    assert "reparse" not in loaded
+    assert thresholds.reparse(loaded) == {}
 
 
 @pytest.mark.parametrize("mutate,match", [
@@ -223,10 +209,7 @@ def test_reparse_cli_prints_one_phase_metric(metric):
     doc = thresholds.load(THRESHOLDS_PATH)
     family = doc.get("reparse")
     if family is None:
-        assert reseed.in_flight(REPO_ROOT, family=thresholds.REPARSE_FAMILY), (
-            "the family is absent on a tree that declares no re-seed: "
-            "the loader tolerated a document the marker does not authorise")
-        pytest.skip("the reparse family sits mid-re-seed (issue #698)")
+        pytest.skip("the committed document has no reparse budget")
     recorded = family[phase][metric]
     for flag, field in (("--reparse-floor", "floor"),
                         ("--reparse-measured", "measured")):
@@ -250,3 +233,19 @@ def test_reparse_cli_refuses_an_unknown_phase(tmp_path):
         capture_output=True, text=True)
     assert result.returncode == 1
     assert "unknown reparse phase" in result.stderr
+
+
+def test_reparse_cli_names_an_absent_budget(tmp_path):
+    target = _written_document(tmp_path)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    del payload["reparse"]
+    target.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = subprocess.run(  # pylint: disable=subprocess-run-check
+        [sys.executable, str(REPO_ROOT / "scripts" / "ci" / "thresholds.py"),
+         "--reparse-floor", "sniff", "bytecodes", "--thresholds",
+         str(target)],
+        capture_output=True, text=True)
+
+    assert result.returncode == 1
+    assert result.stderr == "no reparse budget recorded\n"

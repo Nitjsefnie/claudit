@@ -79,13 +79,9 @@ def _seeded_modules() -> tuple:
 # The frozen parity slice: four real, fixture-carrying modules, named.
 # Named rather than the dynamic biggest-four so this test's cost
 # tracks these files alone, never tree membership (issue #675).
-# test_ci_reseed replaced test_workflow_release when the gate's fixture
-# half moved to compile-level vocabulary (issue #679): the release
-# module's only ``fixture`` occurrences are comment prose, so the gate
-# rightly skips it, and a parity slice must name modules the gate
-# admits. All four carry real fixture decorators and fixture chains.
+# All four carry real fixture decorators and fixture chains.
 _PARITY_SLICE = ("test_web_metrics_rollup", "test_parse_lanes",
-                 "test_ci_reseed", "test_api")
+                 "test_ci_thresholds_guard", "test_api")
 
 
 def test_the_incremental_derivation_equals_the_full_sweep_on_real_source():

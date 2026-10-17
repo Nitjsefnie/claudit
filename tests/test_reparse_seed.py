@@ -1,18 +1,14 @@
 """Tests for the reparse family's seed writer (issue #703).
 
-The landing half of the sanctioned re-seed: after the marked delete,
-only a runner measurement through the loader's writer may restore the
-family. The pins below hold the two directions apart — seeding works
-only onto a family-ABSENT document and is refused over a recorded one
-(the hand-raise's doorway), restores BOTH metrics per phase, refuses a
-counts-less measurement rather than seeding an absence, and leaves the
-committed bytes in the loader's canonical form.
+Seeding works only onto a family-absent document and is refused over a
+recorded one, restores both metrics per phase, refuses a counts-less
+measurement rather than seeding an absence, and leaves the committed
+bytes in the loader's canonical form.
 """
 from __future__ import annotations
 
 import importlib.util
 import json
-import re
 import sys
 import tempfile
 from decimal import Decimal
@@ -39,7 +35,6 @@ def _load(name):
 # Load order is the import graph: thresholds imports thresholds_validate
 # by name, and the ratchet reaches its sibling the same way.
 thresholds = _load("thresholds")
-reseed = _load("reseed")
 reparse_ratchet = _load("reparse_ratchet")
 
 GAP = Decimal("1.5")
@@ -76,14 +71,7 @@ def _document(reparse=True):
 
 def _write(tmp_path: Path, data, name="ci-thresholds.json") -> Path:
     path = tmp_path / name
-    if thresholds.REPARSE_FAMILY in data:
-        thresholds.write(path, thresholds.normalise(data, False), False)
-    else:
-        # The family-absent shape is writable only under the verdict the
-        # delete's marker declares — the same door the seed's target
-        # went out of.
-        verdict = thresholds.validate.ReseedVerdict(False, True)
-        thresholds.write(path, thresholds.normalise(data, verdict), verdict)
+    thresholds.write(path, data)
     return path
 
 
@@ -105,14 +93,6 @@ def test_the_seed_refuses_a_family_that_is_still_recorded():
             for phase in thresholds.REPARSE_PHASES})
 
 
-def test_the_refusal_names_the_own_marker():
-    with pytest.raises(ValueError, match=re.escape(
-            str(reseed.REPARSE_MARKER))):
-        reparse_ratchet.seed(_document(), {
-            phase: {"share": "9.0", "bytecodes": "1.0"}
-            for phase in thresholds.REPARSE_PHASES})
-
-
 def test_the_seed_writes_the_family_onto_an_emptied_document():
     data = _document(reparse=False)
     readings = {
@@ -122,8 +102,7 @@ def test_the_seed_writes_the_family_onto_an_emptied_document():
     family = seeded[thresholds.REPARSE_FAMILY]
     assert family["parse_body"]["bytecodes"] == {
         "measured": Decimal("27.2"), "floor": Decimal("28.7")}
-    # Strict, by fact: the seeded document needs no marker's tolerance.
-    assert thresholds.normalise(seeded, False) == seeded
+    assert thresholds.normalise(seeded) == seeded
 
 
 def test_the_seed_restores_both_metrics_per_phase():
@@ -144,7 +123,7 @@ def test_an_empty_family_is_present_and_refuses_the_seed():
     # The decoy the falsy test would admit: `"reparse": {}` is the
     # family PRESENT and malformed (the loader refuses its shape), and
     # a seed that read emptiness as the absent family would replace it
-    # without the marked delete — the hand-raise's doorway in miniature
+    # despite the malformed recorded shape
     # (issue #703 review; guards/distinguish-absent-from-empty).
     data = _document(reparse=False)
     data[thresholds.REPARSE_FAMILY] = {}
@@ -155,7 +134,7 @@ def test_an_empty_family_is_present_and_refuses_the_seed():
         reparse_ratchet.seed(data, readings)
     # load_for_seed hands a PRESENT family to the loader, whose own
     # shape refusal fires before any seed could: a different message,
-    # the same outcome — no replace without the marked delete.
+    # the same outcome — a malformed family cannot be replaced.
     with pytest.raises(ValueError, match="missing reparse CPU phase"):
         _load_for_seed_of_bytes(data)
 
@@ -203,8 +182,7 @@ def test_the_seed_cli_writes_an_absent_family(tmp_path, capsys):
         "--seed", str(measurement),
         "--thresholds", str(document)]) == 0
     assert "seeded the parse_body budgets" in capsys.readouterr().out
-    loaded = thresholds.load(document, thresholds.validate.ReseedVerdict(
-        False, False))
+    loaded = thresholds.load(document)
     # The count the measurement carried is what landed, at the gap above.
     assert (loaded[thresholds.REPARSE_FAMILY]["parse_body"]["bytecodes"]
             == {"measured": Decimal("1.0"), "floor": Decimal("2.5")})
@@ -221,11 +199,9 @@ def test_the_seed_cli_writes_the_loader_s_canonical_bytes(tmp_path):
     assert reparse_ratchet.main([
         "--seed", str(measurement),
         "--thresholds", str(document)]) == 0
-    loaded = thresholds.load(document, thresholds.validate.ReseedVerdict(
-        False, False))
+    loaded = thresholds.load(document)
     canonical = tmp_path / "canonical.json"
-    thresholds.write(canonical, loaded, thresholds.validate.ReseedVerdict(
-        False, False))
+    thresholds.write(canonical, loaded)
     assert document.read_bytes() == canonical.read_bytes()
 
 

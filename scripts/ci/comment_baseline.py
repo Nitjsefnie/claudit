@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
             if 'comment_share_baseline' in data:
                 raise ValueError('comment_share_baseline already exists; use --tighten')
             data['comment_share_baseline'] = {}
-            data = thresholds.normalise(data, thresholds.verdict())
+            data = thresholds.normalise(data)
         else:
             data = thresholds.load(args.thresholds)
         baseline = thresholds.comment_share_baseline(data)

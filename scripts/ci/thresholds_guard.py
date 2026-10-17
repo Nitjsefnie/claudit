@@ -22,14 +22,8 @@ rule no longer depends on review:
   a hand-add and fails.
 
 Removals and lowers are the bots' own direction and pass, as does the
-one-time seed of a family the base predates, and as does a cost
-family's removal — the sanctioned re-seed's delete step, whose family
-the loader honors as absent anywhere in the bounded walk's span from
-HEAD back to the last family-present commit (reseed.py), under that
-family's own marker — suite_cost under ``[suite-cost-re-seed]``,
-reparse under ``[reparse-re-seed]`` — so commits landing on the
-delete before the seed read the absence through the delete's marker.
-Size and suppression seeds have separate committed-tree tests.
+one-time seed of a family the base predates and a cost family's
+removal. Size and suppression seeds have separate committed-tree tests.
 Comment shares permit reductions until master tightens.
 
 The guard runs from the tree under test, like every other gate step: it
@@ -74,7 +68,7 @@ NON_FEATURE_REMEDY = (
 REPARSE_REMEDY = (
     'A reparse phase budget is never raised by hand without a feat: or '
     'feat(scope): commit in the judged range. ' + NON_FEATURE_REMEDY +
-    ' The own-marker re-seed path cannot bypass a breach for test growth, '
+    ' The seed path cannot bypass a breach for test growth, '
     'refactors or fixes.')
 BASELINE_REMEDY = (
     'Baseline entries are never raised or added by hand: split the '
@@ -107,11 +101,11 @@ def _is_core_family(rel):
 
 
 def _load_base(path):
-    """Load a base document, tolerating members it predates AND members
-    a re-seed window has deleted (the loader admits the absence only on
-    the declaring lineage; the base is master's trusted bytes, so the
-    stand-in is never compared against — the family is not in
-    ``established``).
+    """Load a base document, tolerating members it predates or omits.
+
+    The base is master's trusted bytes, so a stand-in for an absent cost
+    family is never compared against — the family is not in
+    ``established``.
 
     Returns the normalised document and the members its bytes actually
     carried — a member the base predates is a brand-new one, and its
@@ -130,11 +124,10 @@ def _load_base(path):
     if thresholds.REPARSE_FAMILY in data:
         established.add(thresholds.REPARSE_FAMILY)
     else:
-        # A base that records no reparse budget — the family predates
-        # it, or a [reparse-re-seed] delete merged — takes the stand-in
-        # rather than a family's worth of phases that are not there to
-        # compare. An ASSIGNMENT, not a setdefault: the empty spelling
-        # has the key already, and the phase comparison needs the shape.
+        # A base without a reparse budget takes the stand-in rather than
+        # a family's worth of phases that are not there to compare. An
+        # ASSIGNMENT, not a setdefault: the empty spelling has the key
+        # already, and phase comparison needs the shape.
         data[thresholds.REPARSE_FAMILY] = {
             phase: dict(record) for phase, record in _ABSENT_REPARSE.items()}
     if data.get(thresholds.SUITE_COST_FAMILY):
@@ -150,15 +143,22 @@ def _load_base(path):
             phase: dict(record)
             for phase, record in _ABSENT_SUITE_COST.items()}
     # Strict, and by fact: the stand-in above guarantees a family.
-    return thresholds.normalise(data, False), established
+    return thresholds.normalise(data), established
 
 
 def _coverage_moves(base, head):
     """A coverage value that decreases: the ratchet only ever raises."""
     moves = []
+    before_coverage = base.get('coverage', {})
+    after_coverage = head.get('coverage', {})
     for language in thresholds.COVERAGE_LANGUAGES:
-        before = base['coverage'][language]
-        after = head['coverage'][language]
+        before = before_coverage.get(language)
+        after = after_coverage.get(language)
+        if before is None:
+            continue
+        if after is None:
+            moves.append(f'coverage.{language}: removed')
+            continue
         for field in ('measured', 'floor'):
             if after[field] < before[field]:
                 moves.append(
@@ -173,12 +173,10 @@ def _suite_cost_moves(base, head, established, feature_present):
     Each phase's number is a cost ceiling, so its ratchet only ever
     moves down: an upward move requires a feature commit in the judged
     range, a downward one is the tighten. The workload identity
-    (``tests_tree_lines``, issue #524) is the seed's binding to the
-    workload it measured: only the sanctioned re-seed writes it, and
-    that path deletes the family first -- the marker's commit is the
-    one whose base lacks the family, so the identity always arrives as
-    part of a new family's seed. On an established family, an added or
-    changed identity is a hand-edit and fails; a family the HEAD omits
+    (``tests_tree_lines``, issue #524) binds a seed to the workload it
+    measured and arrives with a new family's seed. On an established
+    family, an added or changed identity is a hand-edit and fails; a
+    family the HEAD omits
     is the sanctioned delete and leaves with the family wholesale. A
     family the base predates carries no record, so the change
     introducing one is its seed and not a move at all.
@@ -220,10 +218,8 @@ def _reparse_moves(base, head, established, feature_present):
     before = base[thresholds.REPARSE_FAMILY]
     after = head.get(thresholds.REPARSE_FAMILY)
     if not after:
-        # The head carries no reparse record — the sanctioned delete,
-        # which the loader admits only inside the family's own marker's
-        # window (reseed.py); the family arrives whole in the seed
-        # commit. Nothing to compare against a stand-in's numbers.
+        # The head carries no reparse record. Nothing is compared
+        # against the stand-in's numbers.
         return []
     for phase in thresholds.REPARSE_PHASES:
         for metric in thresholds.REPARSE_METRICS:
@@ -244,7 +240,11 @@ def _baseline_moves(base, head, established):
     moves = []
     measured = None
     for member in thresholds.BASELINE_MEMBERS:
-        before = base[member]
+        before = base.get(member, {})
+        if member not in head:
+            if member in established:
+                moves.append(f'{member}: removed')
+            continue
         after = head[member]
         if before == after:
             continue

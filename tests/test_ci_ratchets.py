@@ -109,6 +109,31 @@ def test_no_raise_within_hysteresis():
         assert ratchet.update(copy.deepcopy(doc), Decimal(measured), **options) is None
 
 
+def test_update_does_nothing_without_a_coverage_baseline():
+    ratchet = _ratchet()
+    doc = _document()
+    del doc["coverage"]["python"]
+
+    assert ratchet.update(doc, Decimal("98.0")) is None
+
+
+def test_cli_reports_an_absent_coverage_baseline_without_raising(
+        tmp_path, capsys):
+    thresholds = _thresholds()
+    ratchet = _ratchet()
+    target = _written(tmp_path)
+    data = thresholds.load(target)
+    del data["coverage"]["python"]
+    thresholds.write(target, data)
+    before = target.read_bytes()
+
+    assert ratchet.main([
+        "--measured", "98.0", "--thresholds", str(target)]) == 0
+
+    assert target.read_bytes() == before
+    assert "no Python coverage budget recorded" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize(
     "options,language,measured,floor,other_language,other_measured,other_floor", [
         pytest.param({}, "python", "94.2", "92.7", "javascript", "50.0", "48.5",
@@ -355,6 +380,25 @@ def test_reparse_main_no_tighten_leaves_file_untouched(tmp_path, capsys):
         "--thresholds", str(target)]) == 0
     assert target.read_text(encoding="utf-8") == before
     assert "nothing to tighten" in capsys.readouterr().out
+
+
+def test_reparse_main_without_a_family_is_a_clean_noop(tmp_path, capsys):
+    thresholds = _thresholds()
+    ratchet = _reparse_ratchet()
+    target = _written(tmp_path)
+    data = thresholds.load(target)
+    del data["reparse"]
+    thresholds.write(target, data)
+    measurement = _measurement_file(tmp_path, _readings("10.0"))
+    before = target.read_bytes()
+
+    assert ratchet.main([
+        "--measured-file", str(measurement),
+        "--thresholds", str(target)]) == 0
+
+    assert target.read_bytes() == before
+    assert capsys.readouterr().out == (
+        "no reparse budget recorded: nothing to tighten\n")
 
 
 def test_reparse_main_unreadable_measurement_fails(tmp_path, capsys):
