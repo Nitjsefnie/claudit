@@ -42,11 +42,11 @@ runs:
         floor="$(python3 scripts/ci/thresholds.py --coverage-floor javascript)"
         if [ -z "$floor" ]; then
           echo "no coverage.javascript calibration recorded — seeded on master"
-          node scripts/ci/js_coverage.mjs --temp-directory "$NODE_V8_COVERAGE" \
+          node scripts/ci/js_coverage.mjs "$NODE_V8_COVERAGE" \
             --include 'src/**/*.js'
           floor_label="not recorded"
         else
-          node scripts/ci/js_coverage.mjs --temp-directory "$NODE_V8_COVERAGE" \
+          node scripts/ci/js_coverage.mjs "$NODE_V8_COVERAGE" \
             --include 'src/**/*.js' --lines "$floor"
           floor_label="${floor}%"
         fi

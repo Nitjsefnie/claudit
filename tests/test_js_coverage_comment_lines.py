@@ -34,7 +34,7 @@ def _line_percentage(directory: Path, source: str) -> float:
     env = {**os.environ, "NODE_V8_COVERAGE": str(cov_dir)}
     subprocess.run(["node", str(script)], cwd=directory, env=env,
                    check=True, capture_output=True, text=True, timeout=60)
-    command = ["node", str(CONVERTER), "--temp-directory", str(cov_dir),
+    command = ["node", str(CONVERTER), str(cov_dir),
                "--include", "*.js"]
     subprocess.run(command, cwd=directory, check=True, capture_output=True,
                    text=True, timeout=60)
