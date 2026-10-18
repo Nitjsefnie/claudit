@@ -449,7 +449,8 @@
       "InferenceNet"
     ],
     "glm-5-3": [
-      "OpenInference"
+      "OpenInference",
+      "Tenstorrent"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
