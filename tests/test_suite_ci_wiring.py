@@ -298,6 +298,53 @@ def test_ratchet_push_drops_an_unreadable_ancestor_before_commit_or_push():
     assert ancestor < end < merge < lines.index(TIGHTEN_CMD) < commit < push
 
 
+def test_ratchet_push_skips_suite_measurements_when_thresholds_moved():
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    initial = lines.index("suite_measurement_current=true")
+    ancestor = lines.index(
+        'if ! git -C "$RUNNER_TEMP/ratchet-repo" show '
+        '"$base:.github/ci-thresholds.json" > "$RUNNER_TEMP/ratchet-base.json"; then')
+    compare = lines.index(
+        'elif ! cmp -s "$RUNNER_TEMP/ratchet-base.json" '
+        '"$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"; then')
+    merge = next(index for index, line in enumerate(lines) if "merge-file" in line)
+    check = next(index for index, line in enumerate(lines)
+                 if 'thresholds.py" --check' in line)
+    guard = lines.index('if [ "$suite_measurement_current" = true ]; then')
+    tighten = lines.index(TIGHTEN_CMD)
+    assert initial < ancestor < compare < merge < check < guard < tighten
+    unreadable = lines[ancestor + 1:compare]
+    assert 'if [ -f "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" ]; then' in unreadable
+    assert "exit 0" in unreadable
+    assert unreadable[-1] == "suite_measurement_current=false"
+    assert lines[compare + 1] == "suite_measurement_current=false"
+    skip = lines.index("else", tighten + 1)
+    end = lines.index("fi", skip + 1)
+    branch = lines[skip + 1:end]
+    assert any("::notice::" in line for line in branch)
+    assert any('>> "$GITHUB_STEP_SUMMARY"' in line for line in branch)
+    assert any("master's thresholds moved while this run measured" in line
+               for line in branch)
+    assert not any(line.startswith("exit ") for line in branch)
+
+
+def test_ratchet_push_validates_every_stale_path_before_tightening():
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    check = lines.index(
+        'if ! python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/thresholds.py" '
+        '--check; then')
+    copy = next(index for index, line in enumerate(lines) if line.startswith("cp "))
+    assert copy < check < lines.index(TIGHTEN_CMD)
+    assert lines[check - 3:check] == [
+        "fi", "fi", 'if [ "$fetched" != "$base" ]; then']
+    branch = lines[check + 1:lines.index("fi", check + 1)]
+    assert any("::notice::" in line for line in branch)
+    assert any('>> "$GITHUB_STEP_SUMMARY"' in line for line in branch)
+    assert branch[-1] == "exit 0"
+
+
 def test_ratchet_push_rejected_push_handler_stays_guarded():
     job = _job(_load("ratchet-push.yml"), "push")
     lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))

@@ -59,6 +59,14 @@ def test_thresholds_only_is_data(history):
     assert result.returncode == 0, result.stderr
 
 
+def test_thresholds_deletion_is_data_and_requires_workflow_validation(history):
+    repo, base = history
+    _git(repo, "rm", ".github/ci-thresholds.json")
+    _git(repo, "commit", "-qm", "Delete fixture thresholds")
+    tip = _git(repo, "rev-parse", "HEAD")
+    assert _decision(repo, base, tip).returncode == 0
+
+
 @pytest.mark.parametrize("notices", [False, True])
 def test_bot_numeric_constants_is_data(history, notices):
     repo, base = history
