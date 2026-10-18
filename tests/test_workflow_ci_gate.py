@@ -364,12 +364,22 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
             in run)
     assert 'base="$BASE_FALLBACK"' in run
     assert "no ratchet data and no suite measurement to push" in run
-    assert run.index("remote=") < run.index("git ls-remote")
+    assert (run.index("remote=") < run.index('base="$BASE_FALLBACK"')
+            < run.index("git init") < run.index('remote add origin "$remote"')
+            < run.index("fetch --quiet origin master")
+            < run.index("checkout -B push FETCH_HEAD"))
 
     # The push order and its refusals: the base staleness check, the
     # artifact-presence guards, the tighten, the no-change guard, the
     # commit, and the rejected-push fallback.
-    assert run.index("git ls-remote") < run.index("git init")
+    assert (run.index("checkout -B push FETCH_HEAD")
+            < run.index('fetched="$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse HEAD)"')
+            < run.index('if [ "$fetched" != "$base" ]; then')
+            < run.index("merge-file")
+            < run.index('cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json"')
+            < run.index("suite_ratchet.py") < run.index("status --porcelain")
+            < run.index("commit -m") < run.index("push origin HEAD:master")
+            and "git ls-remote" not in run)
     assert ('cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" '
             '"$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"' in run)
     assert ('git -C "$RUNNER_TEMP/ratchet-repo" '
