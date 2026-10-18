@@ -33,7 +33,9 @@ name: ratchet push
 # staged base.txt when the run raised, else the triggering run's own
 # head for a suite-only run — may trail master's tip only across
 # data-only commits. A three-way file merge preserves intervening
-# threshold changes; conflicts or invalid merged data drop the raise.
+# threshold changes; conflicts or invalid thresholds drop the run.
+# Suite measurements are reused only when the fetched thresholds match
+# the measured base, compared before the artifact raise is applied.
 # A push rejected while master stood still is an
 # error, and a push rejected after master moved drops this run's data:
 # the next master run measures and raises instead.
@@ -167,6 +169,7 @@ jobs:
           git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
           git -C "$RUNNER_TEMP/ratchet-repo" checkout -B push FETCH_HEAD
           fetched="$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse HEAD)"
+          suite_measurement_current=true
           if [ "$fetched" != "$base" ]; then
             if ! (cd "$RUNNER_TEMP/ratchet-repo" && python3 scripts/ci/ratchet_staleness.py --base "$base" --tip "$fetched"); then
               echo "::notice::Master moved while this run measured; the next push raises instead"
@@ -179,33 +182,45 @@ jobs:
               } >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-          fi
-          if [ -f "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" ]; then
-            if [ "$fetched" != "$base" ]; then
-              if ! git -C "$RUNNER_TEMP/ratchet-repo" show "$base:.github/ci-thresholds.json" > "$RUNNER_TEMP/ratchet-base.json"; then
+            if ! git -C "$RUNNER_TEMP/ratchet-repo" show "$base:.github/ci-thresholds.json" > "$RUNNER_TEMP/ratchet-base.json"; then
+              if [ -f "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" ]; then
                 echo "::notice::Ancestor thresholds are unreadable; the next push raises instead"
                 echo "### Dropped: ancestor thresholds could not be read" >> "$GITHUB_STEP_SUMMARY"
                 exit 0
               fi
+              suite_measurement_current=false
+            elif ! cmp -s "$RUNNER_TEMP/ratchet-base.json" "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"; then
+              suite_measurement_current=false
+            fi
+          fi
+          if [ -f "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" ]; then
+            if [ "$fetched" != "$base" ]; then
               if ! git -C "$RUNNER_TEMP/ratchet-repo" merge-file .github/ci-thresholds.json "$RUNNER_TEMP/ratchet-base.json" "$RUNNER_TEMP/ratchet-data/ci-thresholds.json"; then
                 echo "::notice::Threshold changes conflict; the next push raises instead"
                 echo "### Dropped: threshold merge conflicted" >> "$GITHUB_STEP_SUMMARY"
-                exit 0
-              fi
-              if ! python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/thresholds.py" --check; then
-                echo "::notice::Merged thresholds are invalid; the next push raises instead"
-                echo "### Dropped: merged thresholds failed validation" >> "$GITHUB_STEP_SUMMARY"
                 exit 0
               fi
             else
               cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
             fi
           fi
+          if [ "$fetched" != "$base" ]; then
+            if ! python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/thresholds.py" --check; then
+              echo "::notice::Thresholds are invalid; the next push raises instead"
+              echo "### Dropped: thresholds failed validation" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
           if [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]; then
-            # Downward-only data operation over the fetched master's
-            # thresholds and this run's own measurement; writes nothing
-            # when nothing justifies it.
-            python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/suite_ratchet.py" --tighten "$RUNNER_TEMP/suite-data/suite-measurement.json" --thresholds "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
+            if [ "$suite_measurement_current" = true ]; then
+              # Downward-only data operation over the fetched master's
+              # thresholds and this run's own measurement; writes nothing
+              # when nothing justifies it.
+              python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/suite_ratchet.py" --tighten "$RUNNER_TEMP/suite-data/suite-measurement.json" --thresholds "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
+            else
+              echo "::notice::Suite measurement dropped because master's thresholds moved while this run measured"
+              echo "### Dropped suite measurement: master's thresholds moved while this run measured" >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
           git -C "$RUNNER_TEMP/ratchet-repo" add .github/ci-thresholds.json
           git -C "$RUNNER_TEMP/ratchet-repo" config user.name 'github-actions[bot]'
