@@ -20,19 +20,21 @@ name: ratchet push
 # JavaScript-coverage legs were green stages the suite measurement,
 # only one whose reparse bench was green too stages the ratchet data,
 # and only a FULLY green gate run (conclusion: success) publishes
-# either. The push job runs no test, dependency or upstream code — no
-# checkout, no pip, no npm — and stops its ssh-agent when the step
-# ends. The deploy
+# either. The push job runs the staleness classifier, thresholds check
+# and suite_ratchet.py from fetched master, with no checkout of PR code,
+# no pip and no npm, and stops its ssh-agent when the step ends. The deploy
 # key lives in the master-push environment, reachable only from
 # master. Like the pricing bot's deploy-key push, the ratchet commit
 # starts workflow runs — but ci-gate ignores a
 # .github/ci-thresholds.json-only change, so the commit stays silent
 # there by construction.
 #
-# Master standing still is checked twice. The measured base — the
+# Master movement is checked twice. The measured base — the
 # staged base.txt when the run raised, else the triggering run's own
-# head for a suite-only run — must still be master's tip before
-# anything is built; a push rejected while master stood still is an
+# head for a suite-only run — may trail master's tip only across
+# data-only commits. A three-way file merge preserves intervening
+# threshold changes; conflicts or invalid merged data drop the raise.
+# A push rejected while master stood still is an
 # error, and a push rejected after master moved drops this run's data:
 # the next master run measures and raises instead.
 
@@ -43,7 +45,7 @@ on:
     # code from another branch's run reaching a privileged job — does
     # not apply: the job's if admits only a push event whose head
     # branch is master (a fork PR's run never passes it), the job
-    # checks out no code, downloads only this repository's own
+    # runs only the fetched master's data helpers, downloads this repository's own
     # artifacts from the triggering run, and authenticates the push
     # with the deploy key, not the job token.
     workflows: [ci gate]
@@ -54,7 +56,7 @@ permissions: {}
 concurrency:
   # Never cancel in progress: a cancelled run can stop between the
   # commit and the push. Two master runs completing close together
-  # queue here; the loser's staleness check below drops its data.
+  # queue here; each run checks intervening commits before applying its data.
   group: ratchet-push
   cancel-in-progress: false
 
@@ -151,9 +153,7 @@ jobs:
           export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
           remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
           # The measured base: a raise staged base.txt; a suite-only run
-          # measured the triggering run's own head. Master must still
-          # stand at it, or the data describes a tree master no longer
-          # has.
+          # measured the triggering run's own head.
           if [ -f "$RUNNER_TEMP/ratchet-data/base.txt" ]; then
             base="$(cat "$RUNNER_TEMP/ratchet-data/base.txt")"
           elif [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]; then
@@ -162,23 +162,40 @@ jobs:
             echo "no ratchet data and no suite measurement to push" >&2
             exit 1
           fi
-          fetched="$(git ls-remote "$remote" refs/heads/master | cut -f1)"
-          if [ "$fetched" != "$base" ]; then
-            echo "::notice::Master moved while this run measured; the next push raises instead"
-            {
-              echo "### Dropped: master moved while this run measured"
-              echo
-              echo "The measured base $base is no longer master's tip ($fetched);"
-              echo "this run's raise is dropped and the next master push raises instead."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
           git init -q "$RUNNER_TEMP/ratchet-repo"
           git -C "$RUNNER_TEMP/ratchet-repo" remote add origin "$remote"
           git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
           git -C "$RUNNER_TEMP/ratchet-repo" checkout -B push FETCH_HEAD
+          fetched="$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse HEAD)"
+          if [ "$fetched" != "$base" ]; then
+            if ! (cd "$RUNNER_TEMP/ratchet-repo" && python3 scripts/ci/ratchet_staleness.py --base "$base" --tip "$fetched"); then
+              echo "::notice::Master moved while this run measured; the next push raises instead"
+              {
+                echo "### Dropped: master moved while this run measured"
+                echo
+                echo "The measured base $base is no longer master's tip ($fetched);"
+                echo "the intervening commits could not be verified as data-only."
+                echo "This run's raise is dropped and the next master push raises instead."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
           if [ -f "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" ]; then
-            cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
+            if [ "$fetched" != "$base" ]; then
+              git -C "$RUNNER_TEMP/ratchet-repo" show "$base:.github/ci-thresholds.json" > "$RUNNER_TEMP/ratchet-base.json"
+              if ! git -C "$RUNNER_TEMP/ratchet-repo" merge-file .github/ci-thresholds.json "$RUNNER_TEMP/ratchet-base.json" "$RUNNER_TEMP/ratchet-data/ci-thresholds.json"; then
+                echo "::notice::Threshold changes conflict; the next push raises instead"
+                echo "### Dropped: threshold merge conflicted" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              if ! python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/thresholds.py" --check; then
+                echo "::notice::Merged thresholds are invalid; the next push raises instead"
+                echo "### Dropped: merged thresholds failed validation" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            else
+              cp "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" "$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"
+            fi
           fi
           if [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]; then
             # Downward-only data operation over the fetched master's
