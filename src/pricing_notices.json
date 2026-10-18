@@ -449,11 +449,11 @@
       "InferenceNet"
     ],
     "glm-5-3": [
-      "OpenInference",
-      "Tenstorrent"
+      "OpenInference"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
+      "Decart",
       "DekaLLM"
     ],
     "mimo-v2-6-flash": [
