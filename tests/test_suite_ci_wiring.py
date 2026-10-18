@@ -263,8 +263,8 @@ def test_ratchet_push_classifies_the_fetched_tip_before_merging():
         '.github/ci-thresholds.json "$RUNNER_TEMP/ratchet-base.json" '
         '"$RUNNER_TEMP/ratchet-data/ci-thresholds.json"; then')
     ancestor = lines.index(
-        'git -C "$RUNNER_TEMP/ratchet-repo" show '
-        '"$base:.github/ci-thresholds.json" > "$RUNNER_TEMP/ratchet-base.json"')
+        'if ! git -C "$RUNNER_TEMP/ratchet-repo" show '
+        '"$base:.github/ci-thresholds.json" > "$RUNNER_TEMP/ratchet-base.json"; then')
     validate = lines.index(
         'if ! python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/thresholds.py" '
         '--check; then')
@@ -277,6 +277,25 @@ def test_ratchet_push_classifies_the_fetched_tip_before_merging():
         assert any("::notice::" in line for line in branch)
         assert any('>> "$GITHUB_STEP_SUMMARY"' in line for line in branch)
         assert "exit 0" in branch
+
+
+def test_ratchet_push_drops_an_unreadable_ancestor_before_commit_or_push():
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    ancestor = lines.index(
+        'if ! git -C "$RUNNER_TEMP/ratchet-repo" show '
+        '"$base:.github/ci-thresholds.json" > "$RUNNER_TEMP/ratchet-base.json"; then')
+    end = lines.index("fi", ancestor + 1)
+    branch = lines[ancestor + 1:end]
+    assert any("::notice::" in line for line in branch)
+    assert any('>> "$GITHUB_STEP_SUMMARY"' in line for line in branch)
+    assert branch[-1] == "exit 0"
+    merge = next(index for index, line in enumerate(lines) if "merge-file" in line)
+    commit = next(index for index, line in enumerate(lines)
+                  if line.startswith('git -C "$RUNNER_TEMP/ratchet-repo" commit'))
+    push = next(index for index, line in enumerate(lines)
+                if 'push origin HEAD:master' in line)
+    assert ancestor < end < merge < lines.index(TIGHTEN_CMD) < commit < push
 
 
 def test_ratchet_push_rejected_push_handler_stays_guarded():

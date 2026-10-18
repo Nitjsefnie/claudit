@@ -182,7 +182,11 @@ jobs:
           fi
           if [ -f "$RUNNER_TEMP/ratchet-data/ci-thresholds.json" ]; then
             if [ "$fetched" != "$base" ]; then
-              git -C "$RUNNER_TEMP/ratchet-repo" show "$base:.github/ci-thresholds.json" > "$RUNNER_TEMP/ratchet-base.json"
+              if ! git -C "$RUNNER_TEMP/ratchet-repo" show "$base:.github/ci-thresholds.json" > "$RUNNER_TEMP/ratchet-base.json"; then
+                echo "::notice::Ancestor thresholds are unreadable; the next push raises instead"
+                echo "### Dropped: ancestor thresholds could not be read" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
               if ! git -C "$RUNNER_TEMP/ratchet-repo" merge-file .github/ci-thresholds.json "$RUNNER_TEMP/ratchet-base.json" "$RUNNER_TEMP/ratchet-data/ci-thresholds.json"; then
                 echo "::notice::Threshold changes conflict; the next push raises instead"
                 echo "### Dropped: threshold merge conflicted" >> "$GITHUB_STEP_SUMMARY"
