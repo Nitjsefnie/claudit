@@ -247,6 +247,61 @@ def test_ratchet_push_commits_only_when_something_changed():
     assert lines[nothing_index + 1] == "exit 0"
 
 
+def test_ratchet_push_classifies_the_fetched_tip_before_merging():
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    checkout = lines.index(
+        'git -C "$RUNNER_TEMP/ratchet-repo" checkout -B push FETCH_HEAD')
+    fetched = lines.index(
+        'fetched="$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse HEAD)"')
+    stale = lines.index('if [ "$fetched" != "$base" ]; then')
+    classify = lines.index(
+        'if ! (cd "$RUNNER_TEMP/ratchet-repo" && python3 scripts/ci/'
+        'ratchet_staleness.py --base "$base" --tip "$fetched"); then')
+    merge = lines.index(
+        'if ! git -C "$RUNNER_TEMP/ratchet-repo" merge-file '
+        '.github/ci-thresholds.json "$RUNNER_TEMP/ratchet-base.json" '
+        '"$RUNNER_TEMP/ratchet-data/ci-thresholds.json"; then')
+    ancestor = lines.index(
+        'git -C "$RUNNER_TEMP/ratchet-repo" show '
+        '"$base:.github/ci-thresholds.json" > "$RUNNER_TEMP/ratchet-base.json"')
+    validate = lines.index(
+        'if ! python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/thresholds.py" '
+        '--check; then')
+    assert checkout < fetched < stale < classify < ancestor < merge < validate
+    assert validate < lines.index(TIGHTEN_CMD)
+    assert not any("ls-remote" in line for line in lines[:stale])
+    for start, stop in ((classify, ancestor), (merge, validate),
+                        (validate, lines.index(TIGHTEN_CMD))):
+        branch = lines[start:stop]
+        assert any("::notice::" in line for line in branch)
+        assert any('>> "$GITHUB_STEP_SUMMARY"' in line for line in branch)
+        assert "exit 0" in branch
+
+
+def test_ratchet_push_rejected_push_handler_stays_guarded():
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    rejected = lines.index(
+        'if ! git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master; then')
+    assert lines[rejected:] == [
+        'if ! git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master; then',
+        'git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master',
+        'if [ "$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse HEAD^)" = '
+        '"$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse FETCH_HEAD)" ]; then',
+        'echo "the ratchet push was rejected while master stood still" >&2',
+        'exit 1',
+        'fi',
+        'echo "::notice::Master moved while this run measured; '
+        'the next push raises instead"',
+        '{',
+        'echo "### Dropped: master moved while this run measured"',
+        'echo "This run\'s raise is dropped; the next master push raises instead."',
+        '} >> "$GITHUB_STEP_SUMMARY"',
+        'fi',
+    ]
+
+
 # --- the deleted A/B machinery stays deleted ---------------------------------
 
 def test_compare_durations_is_gone():
