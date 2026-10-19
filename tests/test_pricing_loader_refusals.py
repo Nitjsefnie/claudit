@@ -71,9 +71,14 @@ def test_a_repeated_entry_under_a_later_from_is_refused():
 def test_an_append_that_changes_only_the_schedule_is_accepted():
     doc = _schedule_only_append()
     tables = pricing.load_tables(doc)
-    history = doc["providers"][_GLM_MODEL][_GLM_HOST]
-    schedules = tables["PROVIDER_SCHEDULES"][_GLM_MODEL, _GLM_HOST]
-    assert len(history) - 1 in schedules
+    pair = _GLM_MODEL, _GLM_HOST
+    # Context-only entries are stored but consume no priced-history index.
+    priced_index = len(tables["PROVIDER_DATED_RATES"].get(pair, []))
+    schedules = tables["PROVIDER_SCHEDULES"][pair]
+    assert schedules[priced_index] == [
+        (frozenset({"monday"}), 0, 100,
+         {"fresh": 0.5, "create_5m": 0.5, "create_1h": 0.5,
+          "read": 0.05, "output": 2.0})]
 
 
 @needs_node

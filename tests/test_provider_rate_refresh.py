@@ -71,19 +71,8 @@ def _load():
 refresh = _load()
 
 
-def _load_prices():
-    """Import scripts/ci/refresh_prices.py by path, the same way: its pure
-    helpers (tag_region, covers_week) are under test beside the run's."""
-    path = ROOT / "scripts" / "ci" / "refresh_prices.py"
-    spec = importlib.util.spec_from_file_location("refresh_prices", path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["refresh_prices"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-refresh_prices = _load_prices()
+# Reuse the refresh's import so all test readers share its exception classes.
+refresh_prices = importlib.import_module("refresh_prices")
 
 
 def _seeded(doc: dict) -> dict:
