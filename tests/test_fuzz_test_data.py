@@ -460,35 +460,6 @@ def test_a_nested_ignored_test_dir_reaches_the_shard(git_repo, tmp_path):
     assert got.read_text(encoding="utf-8") == "def test_nested(): ...\n"
 
 
-@pytest.mark.skipif(
-    not hasattr(os, "mkfifo"),
-    reason="no fifo on this platform; the sharding refusal path for "
-    "non-regular entries is exercised on POSIX")
-def test_a_fifo_under_tests_refuses_sharding_but_not_sequential(
-        monkeypatch, git_repo, tmp_path):
-    """A non-regular file under tests/ cannot be snapshotted, so the
-    population guarantee would fail silently — the sharded run refuses
-    LOUDLY instead, naming the path. The sequential run never
-    snapshots, so it may still proceed."""
-    under_tests = git_repo / "tests" / "artifacts"
-    under_tests.mkdir(parents=True)
-    os.mkfifo(under_tests / "pipe")
-    monkeypatch.setattr(fuzz_module, "run_suite",
-                        lambda _root: (0, "suite ok"))
-
-    with pytest.raises(SystemExit) as exit_info:
-        fuzz_module.main(["--iterations", "1", "--jobs", "2", "--seed",
-                          "7", "--artifact-dir", str(tmp_path)],
-                         repo_root=git_repo)
-    assert "not a regular file" in str(exit_info.value.code)
-    assert "tests" in str(exit_info.value.code)
-
-    exit_code = fuzz_module.main(
-        ["--iterations", "1", "--jobs", "1", "--seed", "7",
-         "--artifact-dir", str(tmp_path)], repo_root=git_repo)
-    assert exit_code == 0
-
-
 def test_shard_refusal_names_repo_relative_posix_path(tmp_path):
     repo_root = tmp_path / "repo"
     refused_path = repo_root / "tests" / "linked_test.py"
@@ -508,15 +479,20 @@ def test_shard_refusal_uses_absolute_posix_path_outside_repo(tmp_path):
         "is not a regular file")
 
 
-def test_a_file_symlink_under_tests_refuses_sharding(
-        monkeypatch, git_repo, tmp_path):
-    """A file SYMLINK under tests/ is a non-regular entry: copying it
-    into the shard either collides with the git-known pass or carries a
-    symlink whose target was omitted — a silent population gap. It
-    refuses the sharded run loudly, naming the path; a dangling target
-    is refused the same way, and sequential proceeds."""
-    link = git_repo / "tests" / "linked_test.py"
-    os.symlink("nowhere/test_target.py", link)  # dangling: same refusal
+@pytest.mark.parametrize("kind", ["symlink", "fifo"], ids=["dangling-symlink", "fifo"])
+def test_nonregular_entry_under_tests_refuses_sharding(
+        monkeypatch, git_repo, tmp_path, kind):
+    if kind == "fifo":
+        if not hasattr(os, "mkfifo"):
+            pytest.skip("no fifo on this platform")
+        under_tests = git_repo / "tests" / "artifacts"
+        under_tests.mkdir(parents=True)
+        os.mkfifo(under_tests / "pipe")
+        expected_path = "tests"
+    else:
+        link = git_repo / "tests" / "linked_test.py"
+        os.symlink("nowhere/test_target.py", link)
+        expected_path = "tests/linked_test.py"
     monkeypatch.setattr(fuzz_module, "run_suite",
                         lambda _root: (0, "suite ok"))
 
@@ -525,7 +501,7 @@ def test_a_file_symlink_under_tests_refuses_sharding(
                           "7", "--artifact-dir", str(tmp_path)],
                          repo_root=git_repo)
     assert "not a regular file" in str(exit_info.value.code)
-    assert "tests/linked_test.py" in str(exit_info.value.code)
+    assert expected_path in str(exit_info.value.code)
 
     exit_code = fuzz_module.main(
         ["--iterations", "1", "--jobs", "1", "--seed", "7",

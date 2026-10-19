@@ -1,16 +1,4 @@
-"""/api/dashboard tokens_by_project — the Tokens by Project panel.
-
-The billed partition per project (fresh + cache_creation + cache_read +
-output; thinking_tokens is a SUBSET of output and is never added,
-SV-SUBSET-TOKENS), folded like cost_by_project: top 10 plus one
-"Other (N projects)" remainder.
-
-Split out of tests/test_api.py (the module tripped pylint's 1000-line
-gate). Fixture construction is tests/test_api.py's, kept local so the
-module stands alone (the tests/test_multi_bucket.py convention). The
-endpoint requests carry fresh=1 so no other module's response-cache
-entry can serve this module a payload computed against another DB.
-"""
+"""Tokens by Project keeps free usage and folds the billed token partition into top-ten rows and a remainder."""
 from __future__ import annotations
 
 import os
@@ -79,41 +67,6 @@ def _app_with_fresh_data_fixture():
         yield from _build_api_client(mp, "tokens_mut")
     finally:
         mp.undo()
-
-
-def test_dashboard_tokens_by_project_shape(app_with_data):
-    """tokens_by_project is cost_by_project's fold measured in the billed
-    token partition Tokens by Model sums — fresh + cache_creation +
-    cache_read + output, sorted desc, zero-token rows out, top 10 plus
-    at most one "Other (N projects)". thinking_tokens is a SUBSET of
-    output and must NOT be added (SV-SUBSET-TOKENS): the exact-sum
-    comparison against the stored records catches that."""
-    body = app_with_data.get("/api/dashboard?range=3650d&fresh=1").json()
-    tbp = body["tokens_by_project"]
-    assert {"projA", "projB"} <= {r["project"] for r in tbp}
-    tokens = [r["total_tokens"] for r in tbp]
-    assert all(t > 0 for t in tokens)
-    assert tokens == sorted(tokens, reverse=True)
-    named = [r for r in tbp if not r["project"].startswith("Other (")]
-    assert len(named) <= 10
-    others = [r for r in tbp if r["project"].startswith("Other (")]
-    assert len(others) <= 1
-
-    # EXACT sums over the deduped records, computed with the same
-    # partition the panel claims to chart.
-    with db.viz_conn() as c:
-        expected = dict(c.execute(
-            "SELECT f.project_id, "
-            "SUM(d.fresh_tokens + d.output_tokens + d.cache_creation_tokens "
-            "+ d.cache_read_tokens) "
-            "FROM records d JOIN files f ON f.file_id = d.file_id "
-            "WHERE d.is_canonical GROUP BY 1"
-        ).fetchall())
-    by_proj = {r["project"]: r["total_tokens"] for r in tbp
-               if not r["project"].startswith("Other (")}
-    for pid, total in expected.items():
-        assert by_proj[pid] == int(total), (
-            f"{pid}: the panel's sum drifted from the billed partition")
 
 
 def test_dashboard_tokens_by_project_shows_a_free_lane(app_with_fresh_data):

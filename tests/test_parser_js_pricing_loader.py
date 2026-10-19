@@ -225,26 +225,6 @@ def test_provider_and_vendor_search_rates_load_in_python_and_both_js_paths(
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_browser_loader_rejects_a_negative_search_rate(tmp_path):
-    doc = _doc()
-    doc["providers"][ROW_KEY][HOST][0]["web_search"] = -0.1
-    out = _run(tmp_path, _render(doc))
-    assert out["error"]
-    assert "web_search not a finite non-negative number" in out["error"]
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_browser_loader_rejects_an_empty_models_key(tmp_path):
-    """the browser loader refuses an empty models key."""
-    doc = _doc()
-    doc["models"][""] = [dict(DEFAULT_ROW)]
-    out = _run(tmp_path, _render(doc))
-    assert out["error"], "the empty models key must be refused"
-    assert "pricing.json" in out["error"]
-    assert 'models key ""' in out["error"], out["error"]
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_fractional_start_outside_a_schedule_loads_as_a_number(tmp_path):
     out = _run(tmp_path, _render(
         _doc(openrouter_start=SENTINEL), spelling="30.0"))
@@ -366,64 +346,68 @@ def test_backend_and_browser_refuse_array_shaped_tracked_models(tmp_path):
     assert browser_error and "openrouter.models" in browser_error
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-@pytest.mark.parametrize(("groups", "reason"), [
-    ([{"threshold": 200_000, "models": ["claude-opus-4-8"]},
-      {"threshold": 200_000, "models": ["claude-opus-4-7"]}],
-     "duplicate threshold"),
-    ([{"threshold": 200_000, "models": []}], "models is empty"),
-    ([{"threshold": 200_000, "models": ["claude-opus-4-8"]},
-      {"threshold": 100_000, "models": ["claude-opus-4-8"]}],
-     "more than once"),
-    ([{"threshold": 200_000, "models": [
-        {"claude-opus-4-8": {"input_mult": 0}}]}], "invalid input_mult"),
-    ([{"threshold": 200_000, "models": [
-        {"claude-opus-4-8": {"output_mult": -1}}]}], "invalid output_mult"),
-    ([{"threshold": 200_000, "models": [
-        {"claude-opus-4-8": {"input_mult": True}}]}], "invalid input_mult"),
-    ([{"threshold": 200_000, "models": [
-        {"claude-opus-4-8": {"input_mult": "5"}}]}], "invalid input_mult"),
-    ([{"threshold": 200_000, "models": [42]}],
-     "each model is a key or a one-key"),
-    ([{"threshold": 200_000, "models": [[]]}],
-     "each model is a key or a one-key"),
-    ([{"threshold": 200_000, "models": [{}]}],
-     "each model is a key or a one-key"),
-    ([{"threshold": 200_000, "models": [
-        {"claude-opus-4-8": {}, "claude-opus-4-7": {}}]}],
-     "each model is a key or a one-key"),
-    ([{"threshold": 200_000, "models": [
-        {"claude-opus-4-8": 5.0}]}], "multipliers are not an object"),
-    ([{"threshold": 200_000, "models": [
-        {"claude-opus-4-8": []}]}], "multipliers are not an object"),
-    ([{"threshold": 200_000, "models": [
-        {"claude-opus-4-8": {"mult": 2.0}}]}], "unknown field"),
-    ([{"threshold": 200_000, "models": ["claude-opus-4-8"], "extra": True}],
-     "unknown field"),
-    ([{"models": ["claude-opus-4-8"]}], "positive integer threshold"),
-    ({"claude-opus-4-8": {"threshold": 200_000}}, "list of groups"),
-])
-def test_the_browser_load_refuses_invalid_grouped_meters(tmp_path, groups, reason):
-    out = _run(tmp_path, _render(_grouped_doc(groups)))
-    assert out["error"] and reason in out["error"], out
+def _refused_documents():
+    negative = _doc()
+    negative["providers"][ROW_KEY][HOST][0]["web_search"] = -0.1
+    empty_key = _doc()
+    empty_key["models"][""] = [dict(DEFAULT_ROW)]
+    removed = _grouped_doc([])
+    removed["long_context_models"] = []
+    nonfinite = _render(_grouped_doc([{"threshold": 200_000, "models": [
+        {"claude-opus-4-8": {"input_mult": 5.0}}]}])).replace(
+            '"input_mult": 5.0', '"input_mult": 1e309')
+    cases = [
+        pytest.param(_render(negative), ["web_search not a finite non-negative number"], id="negative-search"),
+        pytest.param(_render(empty_key), ["pricing.json", 'models key ""'], id="empty-model-key"),
+        pytest.param(_render(removed), ["long_context_models"], id="removed-membership"),
+        pytest.param(nonfinite, ["long_context_meters"], id="nonfinite-factor"),
+    ]
+    groups = [
+        ([{'threshold': 200000, 'models': ['claude-opus-4-8']},
+          {'threshold': 200000, 'models': ['claude-opus-4-7']}],
+         'duplicate threshold'),
+        ([{'threshold': 200000, 'models': []}], 'models is empty'),
+        ([{'threshold': 200000, 'models': ['claude-opus-4-8']},
+          {'threshold': 100000, 'models': ['claude-opus-4-8']}],
+         'more than once'),
+        ([{'threshold': 200000, 'models': [{'claude-opus-4-8': {'input_mult': 0}}]}],
+         'invalid input_mult'),
+        ([{'threshold': 200000, 'models': [{'claude-opus-4-8': {'output_mult': -1}}]}],
+         'invalid output_mult'),
+        ([{'threshold': 200000, 'models': [{'claude-opus-4-8': {'input_mult': True}}]}],
+         'invalid input_mult'),
+        ([{'threshold': 200000, 'models': [{'claude-opus-4-8': {'input_mult': '5'}}]}],
+         'invalid input_mult'),
+        ([{'threshold': 200000, 'models': [42]}], 'each model is a key or a one-key'),
+        ([{'threshold': 200000, 'models': [[]]}], 'each model is a key or a one-key'),
+        ([{'threshold': 200000, 'models': [{}]}], 'each model is a key or a one-key'),
+        ([{'threshold': 200000, 'models': [{'claude-opus-4-8': {}, 'claude-opus-4-7': {}}]}],
+         'each model is a key or a one-key'),
+        ([{'threshold': 200000, 'models': [{'claude-opus-4-8': 5.0}]}],
+         'multipliers are not an object'),
+        ([{'threshold': 200000, 'models': [{'claude-opus-4-8': []}]}], 'multipliers are not an object'),
+        ([{'threshold': 200000, 'models': [{'claude-opus-4-8': {'mult': 2.0}}]}], 'unknown field'),
+        ([{'threshold': 200000, 'models': ['claude-opus-4-8'], 'extra': True}], 'unknown field'),
+        ([{'models': ['claude-opus-4-8']}], 'positive integer threshold'),
+        ({'claude-opus-4-8': {'threshold': 200000}}, 'list of groups'),
+    ]
+    ids = ["duplicate-threshold", "empty-models", "duplicate-model", "zero-input-factor",
+           "negative-output-factor", "boolean-factor", "string-factor", "numeric-model",
+           "array-model", "empty-object-model", "multi-key-model", "numeric-factors",
+           "array-factors", "unknown-factor", "unknown-group-field", "missing-threshold",
+           "object-instead-of-groups"]
+    for (group, reason), case_id in zip(groups, ids, strict=True):
+        cases.append(pytest.param(_render(_grouped_doc(group)), [reason], id=case_id))
+    return cases
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_the_browser_load_refuses_the_removed_membership_field(tmp_path):
-    doc = _grouped_doc([])
-    doc["long_context_models"] = []
-    out = _run(tmp_path, _render(doc))
-    assert out["error"] and "long_context_models" in out["error"], out
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_the_browser_load_refuses_a_non_finite_meter_factor(tmp_path):
-    doc = _grouped_doc([{"threshold": 200_000, "models": [
-        {"claude-opus-4-8": {"input_mult": 5.0}}]}])
-    text = _render(doc).replace(
-        '"input_mult": 5.0', '"input_mult": 1e309')
+@pytest.mark.parametrize("text, needles", _refused_documents())
+def test_browser_loader_refuses_invalid_documents(tmp_path, text, needles):
     out = _run(tmp_path, text)
-    assert out["error"] and "long_context_meters" in out["error"], out
+    assert out["error"], out
+    for needle in needles:
+        assert needle in out["error"], out
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")

@@ -1,13 +1,4 @@
-"""Per-row measure columns narrow to INT4; every rollup total stays BIGINT.
-
-Ruling R7: only per-row measures — the nine records token
-columns, tool_uses' churn and result_chars — narrow; corpus evidence
-says no per-row value reaches 2^31-1. Aggregates are sums over the whole
-corpus and exceed int4 by construction, so every rollup TOTAL column
-stays BIGINT. Also require no index on the turn_flags mask and guarded
-convergence of a database already carrying
-the surrogate-id shape (the path schema_dims.sql's legacy drop skips).
-"""
+"""Per-row measures narrow to INT4; rollup totals stay BIGINT."""
 from __future__ import annotations
 
 import psycopg
@@ -62,41 +53,19 @@ def _index_names(conn) -> set[str]:
 
 
 @pytest.mark.db
-def test_record_measures_are_integer():
-    name = scratch_db.create_database("int4_records")
+@pytest.mark.parametrize("tables, expected", [
+    ({"records": RECORD_INT4}, "integer"),
+    ({"tool_uses": TOOL_INT4}, "integer"),
+    (ROLLUP_BIGINT, "bigint"),
+], ids=["record-measures", "tool-churn", "rollup-totals"])
+def test_measure_column_types(tables, expected):
+    name = scratch_db.create_database("measure_types")
     try:
         with psycopg.connect(f"postgresql:///{name}") as conn:
-            types = _column_types(conn, "records")
-            for column in RECORD_INT4:
-                assert types.get(column) == "integer", (column,
-                                                        types.get(column))
-    finally:
-        scratch_db.drop_database(name)
-
-
-@pytest.mark.db
-def test_tool_churn_is_integer():
-    name = scratch_db.create_database("int4_tools")
-    try:
-        with psycopg.connect(f"postgresql:///{name}") as conn:
-            types = _column_types(conn, "tool_uses")
-            for column in TOOL_INT4:
-                assert types.get(column) == "integer", (column,
-                                                        types.get(column))
-    finally:
-        scratch_db.drop_database(name)
-
-
-@pytest.mark.db
-def test_rollup_totals_stay_bigint():
-    """Narrowing is per-row only: aggregates keep their width (R7)."""
-    name = scratch_db.create_database("rollup_bigint")
-    try:
-        with psycopg.connect(f"postgresql:///{name}") as conn:
-            for table, columns in ROLLUP_BIGINT.items():
+            for table, columns in tables.items():
                 types = _column_types(conn, table)
                 for column in columns:
-                    assert types.get(column) == "bigint", (
+                    assert types.get(column) == expected, (
                         table, column, types.get(column))
     finally:
         scratch_db.drop_database(name)

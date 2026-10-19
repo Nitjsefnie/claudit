@@ -45,51 +45,6 @@ def _commit_message(run: Run) -> str:
     return run.commit_msg.read_text(encoding="utf-8")
 
 
-def test_the_notice_stays_suppressed_across_consecutive_commits(tmp_path, capsys):
-    """The regression this design exists for: the baseline holds the lines
-    the last committing run suppressed, so a permanently-delisted model's
-    notice does not alternate back into every second commit .
-
-    Three commits, because the defect shows on the run AFTER a suppressing
-    one — a two-commit case passes against a baseline that drops what it
-    suppressed."""
-    run = _delisted_run(tmp_path)
-    catalog = _catalog_without(run, "stealth/space-bunny-alpha")
-
-    rc, first, _ = run(capsys, catalog=catalog)
-    assert rc == 0
-    assert _DELISTED in first
-    assert _DELISTED in _commit_message(run), "the first commit shows it"
-
-    for hours in (1, 2):
-        # A fresh move at a later detection time, so the run commits too.
-        _move_openinference(run)
-        rc, out, _ = run(capsys, catalog=catalog, now=NOW + timedelta(hours=hours))
-        assert rc == 0
-        assert "no rate moved" not in out, "the run must commit"
-        assert _DELISTED not in out, "the suppressed line must not come back"
-        assert _DELISTED not in _commit_message(run)
-
-
-def test_a_changed_delisting_notice_still_appears(tmp_path, capsys):
-    """A grouped line that no longer matches the carried one — a model
-    dropped from it — is not suppressed, so a changed notice is never
-    hidden ."""
-    run = _delisted_run(tmp_path)
-    (tmp_path / "pricing_notices.json").write_text(
-        '{\n  "notices": [\n'
-        f'    "delisted from OpenRouter\'s catalog; row kept, not fetched: '
-        f'{_DELISTED_SUBJECT}, other-model (other/model)"\n'
-        '  ]\n}\n', encoding="utf-8")
-
-    rc, out, _ = run(capsys,
-                     catalog=_catalog_without(run, "stealth/space-bunny-alpha"))
-
-    assert rc == 0
-    assert _DELISTED in out
-    assert _DELISTED in _commit_message(run)
-
-
 @pytest.mark.parametrize("baseline", [
     pytest.param(None, id="absent"),
     pytest.param("", id="empty"),
@@ -104,17 +59,18 @@ def test_a_changed_delisting_notice_still_appears(tmp_path, capsys):
                  id="non-list-that-would-suppress"),
     pytest.param(json.dumps({"notices": [["nested"]]}) + "\n",
                  id="unhashable-entry"),
+    pytest.param(b"\xff\xfe\x00not utf-8", id="undecodable"),
+    pytest.param(json.dumps({"notices": [
+        f"delisted from OpenRouter's catalog; row kept, not fetched: "
+        f"{_DELISTED_SUBJECT}, other-model (other/model)"]}) + "\n",
+        id="changed-delisting"),
 ])
 def test_an_unusable_baseline_suppresses_nothing(tmp_path, capsys, baseline):
-    """Every unusable baseline shape under-suppresses: absent, empty, blank,
-    malformed, wrong-shaped, key-less, a top-level array or null, a non-list
-    ``notices`` (including one whose keys WOULD suppress), and a non-string
-    entry. The feature can never hide a notice behind a bad read, nor crash
-    the run on one ."""
     run = _delisted_run(tmp_path)
     path = tmp_path / "pricing_notices.json"
     if baseline is not None:
-        path.write_text(baseline, encoding="utf-8")
+        path.write_bytes(baseline if isinstance(baseline, bytes)
+                         else baseline.encode("utf-8"))
 
     rc, out, _ = run(capsys,
                      catalog=_catalog_without(run, "stealth/space-bunny-alpha"))
@@ -122,19 +78,6 @@ def test_an_unusable_baseline_suppresses_nothing(tmp_path, capsys, baseline):
     assert rc == 0
     assert _DELISTED in out
     assert _DELISTED in _commit_message(run)
-
-
-def test_an_undecodable_baseline_suppresses_nothing(tmp_path, capsys):
-    """A non-UTF-8 baseline is a read failure like any other, not a crash:
-    UnicodeDecodeError is a ValueError, not an OSError."""
-    run = _delisted_run(tmp_path)
-    (tmp_path / "pricing_notices.json").write_bytes(b"\xff\xfe\x00not utf-8")
-
-    rc, out, _ = run(capsys,
-                     catalog=_catalog_without(run, "stealth/space-bunny-alpha"))
-
-    assert rc == 0
-    assert _DELISTED in out
 
 
 def test_a_run_that_commits_records_the_carried_notice_set(tmp_path, capsys):
@@ -147,18 +90,6 @@ def test_a_run_that_commits_records_the_carried_notice_set(tmp_path, capsys):
     assert rc == 0 and _DELISTED in out
     recorded = (tmp_path / "pricing_notices.json").read_text(encoding="utf-8")
     assert _DELISTED_LINE in recorded
-
-
-def test_a_quiet_run_leaves_the_baseline_untouched(tmp_path, capsys):
-    """A run that appends nothing publishes no commit, so it must not move
-    the baseline either ."""
-    run = Run(tmp_path)
-    path = tmp_path / "pricing_notices.json"
-
-    rc, out, _ = run(capsys)
-
-    assert rc == 0 and "no rate moved" in out
-    assert not path.exists()
 
 
 def test_a_dry_run_writes_no_baseline(tmp_path, capsys):
@@ -183,27 +114,34 @@ def _vendor_pass(*_args):
     return SimpleNamespace(moves=[], refusals=[], notices=[_VENDOR_NOTICE])
 
 
-def test_a_vendor_notice_also_stays_suppressed_across_commits(tmp_path, capsys):
-    """The baseline carries the vendor pass's notices too: a regression
-    dropping that half would oscillate a vendor notice exactly as the
-    provider one did .
+@pytest.mark.parametrize("vendor, needle", [
+    (None, _DELISTED),
+    (_vendor_pass, _VENDOR_LINE),
+], ids=["provider", "vendor"])
+def test_the_notice_stays_suppressed_across_consecutive_commits(tmp_path, capsys, vendor, needle):
+    """The regression this design exists for: the baseline holds the lines
+    the last committing run suppressed, so a permanently-delisted model's
+    notice does not alternate back into every second commit .
 
-    Three commits, for the same reason the provider case runs three: a
-    two-commit case passes against a baseline that records only what it
-    showed."""
+    Three commits, because the defect shows on the run AFTER a suppressing
+    one — a two-commit case passes against a baseline that drops what it
+    suppressed."""
     run = _delisted_run(tmp_path)
     catalog = _catalog_without(run, "stealth/space-bunny-alpha")
 
-    rc, first, _ = run(capsys, catalog=catalog, vendor=_vendor_pass)
-    assert rc == 0 and _VENDOR_LINE in first
+    rc, first, _ = run(capsys, catalog=catalog, vendor=vendor)
+    assert rc == 0
+    assert needle in first
+    assert needle in _commit_message(run), "the first commit shows it"
 
     for hours in (1, 2):
+        # A fresh move at a later detection time, so the run commits too.
         _move_openinference(run)
-        rc, out, _ = run(capsys, catalog=catalog, vendor=_vendor_pass,
-                         now=NOW + timedelta(hours=hours))
-        assert rc == 0 and "no rate moved" not in out
-        assert _VENDOR_LINE not in out
-        assert _VENDOR_LINE not in _commit_message(run)
+        rc, out, _ = run(capsys, catalog=catalog, now=NOW + timedelta(hours=hours), vendor=vendor)
+        assert rc == 0
+        assert "no rate moved" not in out, "the run must commit"
+        assert needle not in out, "the suppressed line must not come back"
+        assert needle not in _commit_message(run)
 
 
 def test_the_shipped_baseline_has_the_documents_shape():

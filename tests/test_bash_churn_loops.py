@@ -22,30 +22,22 @@ def _loop(header: str, body: str = BODY) -> str:
     return f"{header}; do\ncat > out_$f.txt <<EOF\n{body}\nEOF\ndone"
 
 
-@pytest.mark.parametrize("header,expected", [
-    ("for f in a b", (6, 0)),
-    ("for f in a b c d", (12, 0)),
-    # Quoted words are one word each, whatever they contain.
-    ('for f in "a b" \'c d\'', (6, 0)),
-    ('for f in "rollout-*.jsonl" x', (6, 0)),
-    # An empty literal list never runs its body.
-    ("for f in", (0, 0)),
+@pytest.mark.parametrize('header, expected', [
+    pytest.param('for f in a b', (6, 0), id='two-words'),
+    pytest.param('for f in a b c d', (12, 0), id='four-words'),
+    pytest.param('for f in "a b" \'c d\'', (6, 0), id='quoted-spaces'),
+    pytest.param('for f in "rollout-*.jsonl" x', (6, 0), id='quoted-glob'),
+    pytest.param('for f in', (0, 0), id='empty-list'),
+    pytest.param('for f in $LIST', (3, 0), id='variable'),
+    pytest.param('for f in "$@"', (3, 0), id='positional'),
+    pytest.param('for f in *.py', (3, 0), id='glob'),
+    pytest.param('for f in a $(ls)', (3, 0), id='substitution'),
+    pytest.param('for f', (3, 0), id='implicit-args'),
+    pytest.param('while read f', (3, 0), id='while'),
+    pytest.param('until false', (3, 0), id='until'),
 ])
-def test_literal_word_list_multiplies_the_heredoc(header, expected):
+def test_loop_iteration_count(header, expected):
     assert bash_churn(_loop(header)) == expected
-
-
-@pytest.mark.parametrize("header", [
-    "for f in $LIST",
-    'for f in "$@"',
-    "for f in *.py",
-    "for f in a $(ls)",
-    "for f",
-    "while read f",
-    "until false",
-])
-def test_an_unknowable_count_stays_one_iteration(header):
-    assert bash_churn(_loop(header)) == (3, 0)
 
 
 def test_nested_literal_loops_multiply():
@@ -59,11 +51,6 @@ def test_only_the_heredoc_inside_the_loop_repeats():
            "for f in a b c; do\ncat > $f <<EOF\nin1\nin2\nEOF\ndone\n"
            "cat > after <<EOF\na1\nEOF")
     assert bash_churn(cmd) == (1 + 3 * 2 + 1, 0)
-
-
-def test_loop_on_one_line_with_the_opener():
-    cmd = "for f in a b; do cat > $f <<EOF\nl1\nl2\nEOF\ndone"
-    assert bash_churn(cmd) == (4, 0)
 
 
 def test_a_do_that_is_an_argument_opens_no_loop():

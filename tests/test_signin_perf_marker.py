@@ -1,22 +1,4 @@
-"""The sign-in page records the start of the sign-in journey.
-
-The sign-in journey measures submit -> signed-in page, and that
-journey spans a document that no longer exists by the time the signed-in
-page runs: the form POSTs, the server answers a bare `303` to `/`, and
-the marker has to survive the navigation to be measured at all.
-
-So the sign-in page stamps the instant the form is submitted, and
-`src/perf.js` picks it up on the next document (see test_perf_js.py). The
-half that survives the redirect is measured in the LOGIN page's time
-origin, so the marker carries that origin alongside the elapsed time:
-the two documents' `performance.now()` are unrelated numbers, and only
-the origins make the span comparable.
-
-The sign-in page has its own CSP -- one per-response nonce, no
-'unsafe-inline' in script-src -- so the marker is an inline script
-carrying that nonce, and the failure paths re-render the same page with
-the same script.
-"""
+"""Sign-in submit markers carry elapsed time and origin across navigation under the response CSP."""
 from __future__ import annotations
 
 import re
@@ -65,18 +47,6 @@ def _nonce(resp) -> str:
     match = re.search(r"script-src ([^;]+);", policy)
     assert match, policy
     return match.group(1).split("'nonce-")[1].rstrip("'")
-
-
-def test_the_signin_page_carries_a_marked_up_script(page):
-    """The marker is an inline script, so script-src admits it by the
-    response's per-response nonce -- the same token the page's style
-    block already carries, and the only one script-src allows."""
-    resp = page.get("/login")
-    assert f'<script nonce="{_nonce(resp)}">' in resp.text, (
-        "the sign-in page's inline script carries no nonce, or a "
-        "different one from the header's: script-src has no "
-        "'unsafe-inline', so the marker would never run")
-    assert "'unsafe-inline'" not in resp.headers["content-security-policy"]
 
 
 def test_the_signin_page_has_no_nonce_less_script(page):

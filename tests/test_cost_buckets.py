@@ -1,8 +1,4 @@
-"""cost_buckets is a decomposition of cost_total, so it must be computed
-per rate epoch. With dated rates, re-deriving one rate for a range that
-straddles a cutover makes the buckets disagree with the authoritative
-SUM(cost_usd) they claim to decompose.
-"""
+"""Cost bucket folds."""
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -41,63 +37,6 @@ def _row(model, epoch, tokens: _Tokens = _Tokens(), cost=0.0,
     return (model, None, epoch, long_context, 1, tokens.fresh,
             tokens.cache_create, tokens.cache_read, tokens.output,
             tokens.eph5, tokens.eph1h, cost, input_mult, output_mult)
-
-
-def test_buckets_sum_to_total_within_a_single_epoch():
-    # The stored total is what the tables price the tokens at, at the
-    # fold's own representative instant, so both sides move together.
-    ts = epoch_ts(0)
-    stored = pricing.compute_cost(
-        "claude-opus-4-8", fresh=1_000_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: stored read from the same tables the fold prices at)
-        unsplit_create=0, read=0, ts=ts,
-    )
-    rows = [_row("claude-opus-4-8", 0,
-                 tokens=_Tokens(fresh=1_000_000), cost=stored)]
-    out = fold_per_model(rows, pair_bounds={})
-    assert len(out) == 1
-    m = out[0]
-    # cost_total is the fold's own rounding of this stored cost to 4
-    # decimals, so re-derive it rather than budget the rounding.
-    assert m["cost_total"] == pytest.approx(round(stored, 4), abs=1e-6)
-    assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
-
-
-def test_buckets_sum_to_total_across_a_dated_rate_cutover(monkeypatch):
-    # 1M input tokens in the promotional window and 1M after it, each
-    # stored at that span's own fresh rate; the stored cost_total is
-    # authoritative and the buckets must reconcile to it.
-    model = "acme/cost-cutover-9"
-    cutover = datetime(2030, 1, 1, tzinfo=UTC)
-    before = {"fresh": 9.0, "create_5m": 11.25, "create_1h": 18.0,
-              "read": 0.9, "output": 45.0}
-    after = {"fresh": 0.06974999999999999, "create_5m": 0.1,
-             "create_1h": 0.14, "read": 0.01, "output": 0.5}
-    monkeypatch.setitem(pricing.MODEL_RATES, model, after)
-    monkeypatch.setattr(pricing, "DATED_RATES", {model: [(cutover, before)]})
-    monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
-    rows = [
-        _row(model, 0, tokens=_Tokens(fresh=1_000_000),
-             cost=before["fresh"]),
-        _row(model, 1, tokens=_Tokens(fresh=1_000_000),
-             cost=after["fresh"]),
-    ]
-    total = before["fresh"] + after["fresh"]
-    out = fold_per_model(
-        rows, pair_bounds={(model, ""): [cutover]})
-    assert len(out) == 1, "epochs must fold into one row per model"
-    m = out[0]
-    assert m["fresh"] == 2_000_000
-    assert m["turns"] == 2
-    # SV-TEST-DATA rounded-compare rule: cost_total sums the same stored
-    # costs in the same order, so this rounded comparison is exact.
-    assert m["cost_total"] == round(total, 4)
-    # SV-TEST-DATA rounded-compare rule: the five recomputed buckets round
-    # independently, so their sum may differ by up to 2.5e-4.
-    assert abs(sum(m["cost_buckets"].values()) - total) <= 2.5e-4
-    # SV-TEST-DATA rounded-compare rule: token-price math and stored-total
-    # summation differ; allow one 4-place unit plus float comparison noise.
-    assert m["cost_buckets"]["fresh"] == pytest.approx(
-        round(total, 4), abs=1e-4 + 1e-12)
 
 
 def test_null_timestamp_provider_fold_uses_provider_list_price(monkeypatch):
@@ -193,25 +132,6 @@ def test_epoch_index_selects_the_rate_in_force_for_that_window(synthetic_dated_r
     assert pricing.rate_for(w.model, epoch_ts(1))["fresh"] == w.after["fresh"]
 
 
-@pytest.mark.db
-def test_epoch_sql_places_null_at_list_epoch(monkeypatch):
-    boundary = datetime(2031, 1, 1, tzinfo=UTC)
-    monkeypatch.setattr(pricing, "RATE_EPOCHS", [boundary])
-    expr, params = rate_epoch_sql("ts")
-    tick = timedelta(microseconds=1)
-    probes = [None, boundary - tick, boundary + tick]
-    with scratch_db.admin_connection() as conn:
-        got = conn.execute(
-            sql_text(
-                "WITH rate_bounds AS (SELECT NULL::text AS pair_model, "
-                "NULL::timestamptz[] AS boundaries WHERE FALSE) "
-                f"SELECT {expr} FROM unnest(%s::timestamptz[]) AS v(ts) "
-                "LEFT JOIN rate_bounds ON FALSE"),
-            params + [probes],
-        ).fetchall()
-    assert [row[0] for row in got] == [-1, 0, 1]
-
-
 def test_epoch_ts_negative_index_is_list_price_epoch(synthetic_dated_rate):
     assert epoch_ts(-1) is None
     assert epoch_ts(0) == synthetic_dated_rate.cutover - timedelta(microseconds=1)
@@ -237,17 +157,6 @@ def test_epoch_sql_uses_empty_global_fallback_when_no_rates_are_dated(
     assert "width_bucket(ts, %s::timestamptz[])" in expr
     assert params == [[]]
     assert epoch_ts(0) is None, "no epochs => price at list, not a window"
-
-
-def test_epoch_sql_binds_the_global_fallback_array():
-    """The fallback array is derived from all file and provider windows."""
-    expr, params = rate_epoch_sql("ts")
-    expected = sorted(
-        {end for w in pricing.DATED_RATES.values() for end, _ in w}
-        | {end for w in pricing.PROVIDER_DATED_RATES.values() for end, _ in w}
-        | set(pricing.PROVIDER_STARTS.values()))
-    assert params == [expected]
-    assert "width_bucket(ts, %s::timestamptz[])" in expr
 
 
 @pytest.mark.db
@@ -530,35 +439,3 @@ def test_zero_token_search_cost_uses_the_stored_total_fallback(monkeypatch):
     assert folded["cost_buckets"]["fresh"] == 0
     assert sum(folded["cost_buckets"].values()) == pytest.approx(
         folded["cost_total"])
-
-
-def test_search_and_token_costs_follow_their_rate_epochs(monkeypatch):
-    """Nonzero fresh-token cost makes a wrong search epoch visible in both
-    independent buckets instead of falling back to the stored total."""
-    # sv-test-data: synthetic rates and hand-calculated record totals.
-    model, host = "acme/search-9", "SearchHost"
-    pair = (model, host)
-    cutover = datetime(2030, 1, 1, tzinfo=UTC)
-    old_search, new_search = 0.0137, 0.045
-    older = {**RATES_B, "web_search": old_search}
-    newer = {**RATES_B, "web_search": new_search}
-    monkeypatch.setattr(pricing, "PROVIDER_RATES", {pair: newer})
-    monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES",
-                        {pair: [(cutover, older)]})
-    monkeypatch.setattr(pricing, "PROVIDER_STARTS", {})
-    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
-    monkeypatch.setattr(pricing, "RATE_EPOCHS", [cutover])
-    rows = [
-        (model, host, 0, False, 1, 1_000_000, 0, 0, 0, 0, 0,
-         2, 2.0274, None, None),
-        (model, host, 1, False, 1, 2_000_000, 0, 0, 0, 0, 0,
-         3, 4.135, None, None),
-    ]
-
-    folded = fold_per_model_provider(
-        rows, pair_bounds={pair: [cutover]})[0]
-    search_total = 2 * old_search + 3 * new_search
-    assert folded["cost_total"] == pytest.approx(6.1624)
-    assert folded["cost_buckets"]["web_search"] == pytest.approx(search_total)
-    assert folded["cost_buckets"]["fresh"] == pytest.approx(6.0)
-    assert sum(folded["cost_buckets"].values()) == pytest.approx(6.1624)

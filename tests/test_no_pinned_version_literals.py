@@ -1,25 +1,4 @@
-"""SV-TEST-DATA's guard: no test pins repository-managed data with a literal.
-
-A test that patches ``parser_version.PARSER_VERSION`` or
-``constants.PRICING_VERSION`` / ``MARKER_READER_VERSION`` (or sets the
-parser-version env var) with a string literal silently changes meaning
-when the committed value reaches it — the patch turns into a no-op, the
-test keeps passing until the data moves under it, and the failure lands
-on an unrelated surface (a refresh bot's working tree, say).
-
-The same holds for the LIVE-ROW shapes: a test that reads the committed
-pricing document (``pricing.PRICING_JSON``), that binds its path at
-module level, or that hands a live model or host name to ``rate_for`` /
-``resolve`` / ``compute_cost`` breaks the same way when the committed
-rows move.
-
-The detector below is a pure function over source text: ``detect()``
-lists the flagged sites (an AST scan), ``check()`` adds the allowlist
-matching. An inline ``# sv-test-data: allow`` comment on the flagged
-statement's first line excuses a site; a marker on a line with no
-flagged site of either family is marker rot and fails the guard, so
-stale excuses cannot accumulate.
-"""
+"""Guard tests against literal pins of repository-managed version and live-rate data."""
 from __future__ import annotations
 
 import json
@@ -298,22 +277,11 @@ def test_rate_call_with_a_wanted_model_literal_is_flagged(
         (name, shape, value)]
 
 
-def test_rate_call_with_a_variable_argument_is_not_flagged():
-    assert detect("rate_for(model)\n",
-                  wanted_models=WANTED_MODELS,
-                  wanted_hosts=WANTED_HOSTS) == []
-
-
-def test_rate_call_with_an_unknown_model_literal_is_not_flagged():
-    assert detect("rate_for('acme-ghost-9')\n",
-                  wanted_models=WANTED_MODELS,
-                  wanted_hosts=WANTED_HOSTS) == []
-
-
-def test_rate_call_of_a_differently_named_function_is_not_flagged():
-    assert detect("price_for('acme/acme-9')\n",
-                  wanted_models=WANTED_MODELS,
-                  wanted_hosts=WANTED_HOSTS) == []
+@pytest.mark.parametrize("source", [
+    "rate_for(model)\n", "rate_for('acme-ghost-9')\n", "price_for('acme/acme-9')\n",
+], ids=["variable", "unknown-model", "other-function"])
+def test_rate_call_without_a_wanted_literal_is_not_flagged(source):
+    assert detect(source, wanted_models=WANTED_MODELS, wanted_hosts=WANTED_HOSTS) == []
 
 
 def test_pricing_json_reference_is_flagged():
@@ -425,10 +393,18 @@ def test_the_tests_tree_holds_no_unmarked_site_and_no_rotted_marker():
         + "\n".join(_tree_problems(REPO_ROOT / "tests")))
 
 
-def test_a_seeded_version_literal_is_flagged_in_a_fresh_file(tmp_path):
-    (tmp_path / "test_planted.py").write_text(
-        "def test_uses_a_version_constant(monkeypatch):\n"
-        "    monkeypatch.setenv('PARSER_VERSION', '999')\n", encoding="utf-8")
+@pytest.mark.parametrize("kind", ["version", "model", "host"], ids=["version", "dotted-model", "exact-host"])
+def test_seeded_literal_is_flagged_in_a_fresh_file(tmp_path, kind):
+    if kind == "version":
+        source = ("def test_uses_a_version_constant(monkeypatch):\n"
+                  "    monkeypatch.setenv('PARSER_VERSION', '999')\n")
+    elif kind == "model":
+        model = sorted(_deployed_wanted()[0])[0].replace("-", ".")
+        source = f"def test_prices_a_live_row():\n    return rate_for('{model}')\n"
+    else:
+        host = sorted(_deployed_wanted()[1])[0]
+        source = f"def test_prices_a_host():\n    return resolve(model, '{host}')\n"
+    (tmp_path / "test_planted.py").write_text(source, encoding="utf-8")
     problems = _tree_problems(tmp_path)
     assert len(problems) == 1 and "line 2" in problems[0]
 
@@ -453,29 +429,6 @@ def test_a_seeded_marker_without_a_site_is_rot(tmp_path):
         "X = 1  # sv-test-data: allow (rot)\n", encoding="utf-8")
     problems = _tree_problems(tmp_path)
     assert len(problems) == 1 and "rot" in problems[0]
-
-
-def test_a_seeded_live_rate_call_is_flagged_in_a_fresh_file(tmp_path):
-    # The dotted spelling: the text clause admits on the rate call's
-    # name alone, and detect() normalises the literal before matching,
-    # so the plant is flagged whatever the literal's spelling. The
-    # plant names a DEPLOYED row, the same set the scanner matches.
-    model = sorted(_deployed_wanted()[0])[0]
-    dotted = model.replace("-", ".")
-    (tmp_path / "test_planted.py").write_text(
-        "def test_prices_a_live_row():\n"
-        f"    return rate_for('{dotted}')\n", encoding="utf-8")
-    problems = _tree_problems(tmp_path)
-    assert len(problems) == 1 and "line 2" in problems[0]
-
-
-def test_a_seeded_host_literal_is_flagged_case_exactly(tmp_path):
-    host = sorted(_deployed_wanted()[1])[0]
-    (tmp_path / "test_planted.py").write_text(
-        "def test_prices_a_host():\n"
-        f"    return resolve(model, '{host}')\n", encoding="utf-8")
-    problems = _tree_problems(tmp_path)
-    assert len(problems) == 1 and "line 2" in problems[0]
 
 
 def test_a_seeded_split_path_bind_in_a_longer_literal_is_flagged(tmp_path):
@@ -535,8 +488,7 @@ def test_a_prose_rate_or_version_name_is_not_admitted():
     # detect() flags (the scan is AST-based) and admits no longer:
     # admitting it on raw text was pure parse-and-walk cost. The
     # code-shape admission is pinned by the seeded-literal tests:
-    # test_a_seeded_version_literal_is_flagged_in_a_fresh_file and
-    # test_a_seeded_live_rate_call_is_flagged_in_a_fresh_file. A
+    # the seeded-literal parameter cases. A
     # source that does not compile raises out of the gate now: the old
     # text clauses skipped broken files silently, module_vocab's
     # compile does not — loud, and collection fails on the same file

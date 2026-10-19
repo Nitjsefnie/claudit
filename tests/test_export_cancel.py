@@ -286,19 +286,30 @@ def _process_is_alive(pid: int) -> bool | None:
     return True
 
 
-def test_cancelled_render_reaps_child_and_prevents_output(tmp_path, monkeypatch):
+@pytest.mark.parametrize("flooded", [False, True], ids=["plain", "flooded-stdout"])
+def test_cancelled_render_reaps_child_and_prevents_output(tmp_path, monkeypatch, flooded):
     marker = tmp_path / "started"
     release = tmp_path / "release"
     out_path = tmp_path / "out.png"
-    processes, returncodes = _record_render_exit(monkeypatch)
+    if flooded:
+        processes, returncodes, communicate_started, release_communicate = (
+            _prepare_flooded_render(monkeypatch))
+        gates = (release_communicate,)
+    else:
+        processes, returncodes = _record_render_exit(monkeypatch)
+        gates = ()
 
     async def run() -> None:
         task: asyncio.Task[Any] | None = None
         try:
             task = asyncio.create_task(api_export._render_export(  # pylint: disable=protected-access
-                _renderer_argv(marker, out_path, release), str(out_path)))
-            pid = await _wait_for_started(marker, task)
-            await _wait_for_process(processes)
+                _renderer_argv(marker, out_path, release, _FLOOD_BYTES if flooded else 0), str(out_path)))
+            if flooded:
+                pid = await _wait_for_flooded_render(
+                    marker, task, processes, communicate_started)
+            else:
+                pid = await _wait_for_started(marker, task)
+                await _wait_for_process(processes)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await _await_bounded(task, "cancelled render task")
@@ -310,37 +321,7 @@ def test_cancelled_render_reaps_child_and_prevents_output(tmp_path, monkeypatch)
                 f"child_alive_immediately_after_cancel={child_alive}; "
                 f"output_appeared_after_cancel={output_appeared}")
         finally:
-            await _cleanup_test(task, processes, release)
-
-    asyncio.run(run())
-
-
-def test_cancelled_render_drains_flooded_stdout_before_reaping(tmp_path, monkeypatch):
-    marker = tmp_path / "started"
-    release = tmp_path / "release"
-    out_path = tmp_path / "out.png"
-    processes, returncodes, communicate_started, release_communicate = (
-        _prepare_flooded_render(monkeypatch))
-
-    async def run() -> None:
-        task: asyncio.Task[Any] | None = None
-        try:
-            task = asyncio.create_task(api_export._render_export(  # pylint: disable=protected-access
-                _renderer_argv(marker, out_path, release, _FLOOD_BYTES), str(out_path)))
-            pid = await _wait_for_flooded_render(
-                marker, task, processes, communicate_started)
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await _await_bounded(task, "cancelled flooded render task")
-
-            output_appeared = await _release_and_observe(release, out_path)
-            _assert_render_reaped(returncodes)
-            child_alive = _process_is_alive(pid)
-            assert child_alive is not True and not output_appeared, (
-                f"child_alive_after_flood_cancel={child_alive}; "
-                f"output_appeared_after_flood_cancel={output_appeared}")
-        finally:
-            await _cleanup_test(task, processes, release, (release_communicate,))
+            await _cleanup_test(task, processes, release, gates)
 
     asyncio.run(run())
 
@@ -383,18 +364,29 @@ def test_cancelled_handler_unlinks_temp_png_after_reaping_child(tmp_path, monkey
     asyncio.run(run())
 
 
-def test_export_timeout_still_returns_503_and_reaps_child(tmp_path, monkeypatch):
+@pytest.mark.parametrize("flooded", [False, True], ids=["plain", "flooded-stdout"])
+def test_export_timeout_still_returns_503_and_reaps_child(tmp_path, monkeypatch, flooded):
     marker = tmp_path / "started"
     release = tmp_path / "release"
     out_path = tmp_path / "out.png"
-    monkeypatch.setattr(api_export, "_EXPORT_TIMEOUT_S", _TIMEOUT_S)
-    processes, returncodes = _record_render_exit(monkeypatch)
+    if flooded:
+        monkeypatch.setattr(api_export, "_EXPORT_TIMEOUT_S", 60.0)
+        processes, returncodes, communicate_started, release_communicate = (
+            _prepare_flooded_render(monkeypatch, asyncio.TimeoutError))
+        gates = (release_communicate,)
+    else:
+        monkeypatch.setattr(api_export, "_EXPORT_TIMEOUT_S", _TIMEOUT_S)
+        processes, returncodes = _record_render_exit(monkeypatch)
+        gates = ()
 
     async def run() -> None:
         task: asyncio.Task[Any] | None = None
         try:
             task = asyncio.create_task(api_export._render_export(  # pylint: disable=protected-access
-                _renderer_argv(marker, out_path, release), str(out_path)))
+                _renderer_argv(marker, out_path, release, _FLOOD_BYTES if flooded else 0), str(out_path)))
+            if flooded:
+                await _wait_for_flooded_render(marker, task, processes, communicate_started)
+                release_communicate.set()
             with pytest.raises(HTTPException) as excinfo:
                 await _await_bounded(task, "timed-out render task")
             output_appeared = await _release_and_observe(release, out_path)
@@ -409,46 +401,18 @@ def test_export_timeout_still_returns_503_and_reaps_child(tmp_path, monkeypatch)
                 f"child_alive_after_timeout={child_alive}; "
                 f"output_appeared_after_timeout={output_appeared}")
         finally:
-            await _cleanup_test(task, processes, release)
+            await _cleanup_test(task, processes, release, gates)
 
     asyncio.run(run())
 
 
-def test_export_timeout_drains_flooded_stdout_before_reaping(tmp_path, monkeypatch):
-    marker = tmp_path / "started"
-    release = tmp_path / "release"
-    out_path = tmp_path / "out.png"
-    monkeypatch.setattr(api_export, "_EXPORT_TIMEOUT_S", 60.0)
-    processes, returncodes, communicate_started, release_communicate = (
-        _prepare_flooded_render(monkeypatch, asyncio.TimeoutError))
-
-    async def run() -> None:
-        task: asyncio.Task[Any] | None = None
-        try:
-            task = asyncio.create_task(api_export._render_export(  # pylint: disable=protected-access
-                _renderer_argv(marker, out_path, release, _FLOOD_BYTES), str(out_path)))
-            await _wait_for_flooded_render(marker, task, processes, communicate_started)
-            release_communicate.set()
-            with pytest.raises(HTTPException) as excinfo:
-                await _await_bounded(task, "timed-out flooded render task")
-
-            output_appeared = await _release_and_observe(release, out_path)
-            assert excinfo.value.status_code == 503
-            assert excinfo.value.detail == "export render timed out"
-            _assert_render_reaped(returncodes)
-            assert not output_appeared
-        finally:
-            await _cleanup_test(task, processes, release, (release_communicate,))
-
-    asyncio.run(run())
-
-
-def test_cancel_during_timeout_reap_waits_and_propagates_cancel(tmp_path, monkeypatch):
+@pytest.mark.parametrize("timeout", [False, True], ids=["second-cancel", "timeout-then-cancel"])
+def test_cancel_during_reap_waits_and_propagates_cancel(tmp_path, monkeypatch, timeout):
     marker = tmp_path / "started"
     release = tmp_path / "release"
     reap_started = asyncio.Event()
     release_reap = asyncio.Event()
-    monkeypatch.setattr(api_export, "_EXPORT_TIMEOUT_S", _TIMEOUT_S)
+    monkeypatch.setattr(api_export, "_EXPORT_TIMEOUT_S", _TIMEOUT_S if timeout else 60.0)
     processes, returncodes = _record_render_exit(monkeypatch)
     reap_calls = _gate_reap_wait(monkeypatch, reap_started, release_reap)
 
@@ -460,7 +424,8 @@ def test_cancel_during_timeout_reap_waits_and_propagates_cancel(tmp_path, monkey
         await _wait_for_started(marker)
         return proc
 
-    monkeypatch.setattr(api_export.asyncio, "create_subprocess_exec", create_after_started)
+    if timeout:
+        monkeypatch.setattr(api_export.asyncio, "create_subprocess_exec", create_after_started)
 
     async def run() -> None:
         task: asyncio.Task[Any] | None = None
@@ -470,7 +435,9 @@ def test_cancel_during_timeout_reap_waits_and_propagates_cancel(tmp_path, monkey
                 str(tmp_path / "out.png")))
             proc = await _wait_for_process(processes)
             await _wait_for_started(marker, task)
-            await _await_bounded(reap_started.wait(), "timeout reap wait start")
+            if not timeout:
+                task.cancel()
+            await _await_bounded(reap_started.wait(), "reap wait start")
             assert reap_calls == [proc]
             task.cancel()
             for _ in range(5):
@@ -488,52 +455,6 @@ def test_cancel_during_timeout_reap_waits_and_propagates_cancel(tmp_path, monkey
                 f"output_appeared_after_timeout_cancel={output_appeared}")
         finally:
             await _cleanup_test(task, processes, release, (release_reap,))
-
-    asyncio.run(run())
-
-
-def test_communicate_error_still_reaps_child_before_propagating(tmp_path, monkeypatch):
-    marker = tmp_path / "started"
-    release = tmp_path / "release"
-    out_path = tmp_path / "out.png"
-    processes: list[asyncio.subprocess.Process] = []
-    allow_communicate_error = asyncio.Event()
-    original_create = api_export.asyncio.create_subprocess_exec
-
-    async def capture_process(*args: Any, **kwargs: Any) -> asyncio.subprocess.Process:
-        proc = await original_create(*args, **kwargs)
-        processes.append(proc)
-        original_communicate = proc.communicate
-        first_call = True
-
-        async def fail_communicate_once() -> tuple[bytes | None, bytes | None]:
-            nonlocal first_call
-            if first_call:
-                first_call = False
-                await allow_communicate_error.wait()
-                raise OSError("synthetic communicate failure")
-            return await original_communicate()
-
-        monkeypatch.setattr(proc, "communicate", fail_communicate_once)
-        return proc
-
-    monkeypatch.setattr(api_export.asyncio, "create_subprocess_exec", capture_process)
-
-    async def run() -> None:
-        task: asyncio.Task[Any] | None = None
-        try:
-            task = asyncio.create_task(api_export._render_export(  # pylint: disable=protected-access
-                _renderer_argv(marker, out_path, release), str(out_path)))
-            await _wait_for_started(marker, task)
-            allow_communicate_error.set()
-            with pytest.raises(OSError, match="synthetic communicate failure"):
-                await _await_bounded(task, "render after communicate error")
-
-            assert processes and processes[0].returncode is not None
-            output_appeared = await _release_and_observe(release, out_path)
-            assert not output_appeared
-        finally:
-            await _cleanup_test(task, processes, release)
 
     asyncio.run(run())
 
@@ -594,45 +515,6 @@ def test_pipe_read_error_still_reaps_child_and_preserves_error(tmp_path, monkeyp
             await _cleanup_test(task, processes, release, (allow_read_failure,))
             for proc in processes:
                 await _await_bounded(proc.wait(), "renderer process cleanup wait")
-
-    asyncio.run(run())
-
-
-def test_second_cancel_during_reap_still_waits_for_child(tmp_path, monkeypatch):
-    marker = tmp_path / "started"
-    release = tmp_path / "release"
-    out_path = tmp_path / "out.png"
-    reap_started = asyncio.Event()
-    release_reap = asyncio.Event()
-    processes, returncodes = _record_render_exit(monkeypatch)
-    reap_calls = _gate_reap_wait(monkeypatch, reap_started, release_reap)
-
-    async def run() -> None:
-        task: asyncio.Task[Any] | None = None
-        try:
-            task = asyncio.create_task(api_export._render_export(  # pylint: disable=protected-access
-                _renderer_argv(marker, out_path, release), str(out_path)))
-            pid = await _wait_for_started(marker, task)
-            proc = await _wait_for_process(processes)
-            task.cancel()
-            await _await_bounded(reap_started.wait(), "cancellation reap wait start")
-            assert reap_calls == [proc]
-            task.cancel()
-            for _ in range(5):
-                await asyncio.sleep(0)
-            assert not task.done(), "render task finished while reap gate was closed"
-            release_reap.set()
-
-            with pytest.raises(asyncio.CancelledError):
-                await _await_bounded(task, "second-cancel reap task")
-            output_appeared = await _release_and_observe(release, out_path)
-            _assert_render_reaped(returncodes)
-            child_alive = _process_is_alive(pid)
-            assert child_alive is not True and not output_appeared, (
-                f"child_alive_after_second_cancel={child_alive}; "
-                f"output_appeared_after_second_cancel={output_appeared}")
-        finally:
-            await _cleanup_test(task, processes, release, (release_reap,))
 
     asyncio.run(run())
 

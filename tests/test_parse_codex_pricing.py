@@ -76,63 +76,35 @@ def test_a_codex_record_is_priced_at_the_rate_of_its_own_timestamp(
     assert float(after["cost_usd"]) == 0.42
 
 
-@pytest.mark.parametrize("model,plan,file_key,check_fresh,check_membership", [
-    pytest.param("gpt-5.6-sol", "pro", "codex/sub_long.jsonl", True, False, id="subscription"),
-    pytest.param("gpt-5.6-sol", None, "codex/api_long.jsonl", False, False, id="no-plan"),
-    pytest.param("gpt-5.5", "pro", "codex/gpt55_long.jsonl", True, True, id="gpt-5-5"),
+@pytest.mark.parametrize("model, plan, file_key, check_fresh, check_membership, snapshots, flags", [
+    pytest.param("gpt-5.6-sol", "pro", "codex/sub_long.jsonl", True, False,
+                 [("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 300_000, 1_000)], [True], id="subscription"),
+    pytest.param("gpt-5.6-sol", None, "codex/api_long.jsonl", False, False,
+                 [("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 300_000, 1_000)], [True], id="no-plan"),
+    pytest.param("gpt-5.5", "pro", "codex/gpt55_long.jsonl", True, True,
+                 [("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 300_000, 1_000)], [True], id="gpt-5-5"),
+    pytest.param("gpt-5.6-sol", "pro", "codex/per_record.jsonl", False, False,
+                 [("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 100_000, 1_000),
+                  ("2026-08-24T12:05:00.000Z", 1_300_000, 11_000, 300_000, 1_000)], [False, True], id="per-record"),
 ])
-def test_a_subscription_record_bills_the_long_context_meter(
-        model, plan, file_key, check_fresh, check_membership):
-    """The model's meter applies to subscription and API rollouts alike."""
+def test_records_bill_the_long_context_meter(
+        model, plan, file_key, check_fresh, check_membership, snapshots, flags):
     if check_membership:
         assert pricing.is_long_context_model(model)
-    blob = _codex_usage_lines(model=model, plan=plan, snapshots=[
-        ("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 300_000, 1_000),
-    ])
+    blob = _codex_usage_lines(model=model, plan=plan, snapshots=snapshots)
     out = parse.parse_file(file_key, blob)
-
-    rec = out["records"][0]
-    if check_fresh:
-        assert rec["fresh_tokens"] == 300_000 > pricing.LONG_CONTEXT_THRESHOLD
-    assert rec["long_context"] is True
-    metered = pricing.compute_cost(
-        model, fresh=300_000, output=1_000,
-        eph5=0, eph1h=0, unsplit_create=0, read=0,
-        ts=_to_dt("2026-08-24T12:00:00.000Z"),
-        adjustments=pricing.CostAdjustments(long_context=True),
-    )
-    assert float(rec["cost_usd"]) == pytest.approx(round(metered, 6), rel=1e-9)
-
-
-def test_the_long_context_verdict_is_per_record():
-    """The flag is decided per record, never carried across the file: one
-    plan="pro" rollout whose first request sits below the threshold bills
-    flat, and its second request above it bills the meter — in the same
-    file, under the same plan.
-    """
-    blob = _codex_usage_lines(snapshots=[
-        ("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 100_000, 1_000),
-        ("2026-08-24T12:05:00.000Z", 1_300_000, 11_000, 300_000, 1_000),
-    ])
-    out = parse.parse_file("codex/per_record.jsonl", blob)
-
-    below, above = out["records"]
-    flat = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=100_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
-        eph5=0, eph1h=0, unsplit_create=0, read=0,
-        ts=_to_dt("2026-08-24T12:00:00.000Z"),
-    )
-    metered = pricing.compute_cost(
-        "gpt-5.6-sol", fresh=300_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
-        eph5=0, eph1h=0, unsplit_create=0, read=0,
-        ts=_to_dt("2026-08-24T12:05:00.000Z"),
-        adjustments=pricing.CostAdjustments(long_context=True),
-    )
-    assert below["long_context"] is False
-    assert float(below["cost_usd"]) == pytest.approx(round(flat, 6), rel=1e-9)
-    assert above["long_context"] is True
-    assert float(above["cost_usd"]) == pytest.approx(
-        round(metered, 6), rel=1e-9)
+    assert len(out["records"]) == len(snapshots)
+    for rec, snapshot, metered_flag in zip(out["records"], snapshots, flags, strict=True):
+        ts, _total_in, _total_out, fresh, output = snapshot
+        if check_fresh:
+            assert rec["fresh_tokens"] == 300_000 > pricing.LONG_CONTEXT_THRESHOLD
+        assert rec["long_context"] is metered_flag
+        cost = pricing.compute_cost(
+            model, fresh=fresh, output=output,
+            eph5=0, eph1h=0, unsplit_create=0, read=0,
+            ts=_to_dt(ts), adjustments=pricing.CostAdjustments(long_context=metered_flag),
+        )
+        assert float(rec["cost_usd"]) == pytest.approx(round(cost, 6), rel=1e-9)
 
 
 def test_a_stored_dotted_id_matches_its_dashed_membership_key(monkeypatch):

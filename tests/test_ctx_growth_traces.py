@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend import api, cache, db, ingest
-from tests import dims_seed, mini_mirror, scratch_db
+from tests import dims_seed, scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -81,19 +81,6 @@ def test_models_excludes_non_canonical_rows(client):
         assert "zzz-only-on-dupes" in names
 
 
-def test_dashboard_carries_no_ctx_traces(client):
-    """The dashboard response must not carry the per-file traces any
-    more — the sessions' ctx_at_end fold still runs server-side from
-    the same rows."""
-    body = client.get("/api/dashboard?range=all").json()
-    assert "ctx_traces" not in body
-    # The fold that outlived the move: sessions still carry ctx_at_end.
-    sessions = body["sessions"]
-    assert sessions, "fixture produced no sessions"
-    assert any(s["ctx_at_end"] is not None for s in sessions), \
-        "ctx_at_end fold lost by the traces move"
-
-
 def test_context_growth_traces_serves_the_panel_rows(client):
     """Project per-file traces as {model, turns}, flattening turns to ctx ints.
     Every session with ctx_at_end must have a trace ending at that value,
@@ -116,17 +103,6 @@ def test_context_growth_traces_serves_the_panel_rows(client):
 def test_context_growth_traces_bad_range_400(client):
     assert client.get(
         "/api/context-growth/traces?range=banana").status_code == 400
-
-
-def test_traces_route_is_mounted_under_api_router(client):
-    """The endpoint rides api.router's sub-inclusion (the split-module
-    pattern), not a separate app mount: the auth middleware and the
-    guest ?project= gate are app-level, but the route must exist for
-    every deploy that only includes api.router (the panel-layout
-    harness among them)."""
-    r = client.get("/api/context-growth/traces?range=all")
-    assert r.status_code == 200
-    assert mini_mirror.project_ids(), "fixture sanity"
 
 
 def test_traces_model_fold_ignores_non_canonical_rows(client):

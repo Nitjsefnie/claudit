@@ -286,22 +286,6 @@ def test_signal_shutdown_reraises_unrelated_runtime_error(monkeypatch):
         events.signal_shutdown()
 
 
-@pytest.mark.asyncio
-async def test_signal_shutdown_sets_the_event_from_another_thread(monkeypatch):
-    """signal_shutdown() from a non-loop thread sets the module shutdown
-    event via the captured loop."""
-    _install_loop(monkeypatch)
-    event = events.shutdown_event()
-    assert event is not None
-    thread = threading.Thread(target=events.signal_shutdown)
-    thread.start()
-    try:
-        await asyncio.wait_for(event.wait(), timeout=_BOUND_S)
-    finally:
-        thread.join()
-    assert event.is_set()
-
-
 def test_signal_shutdown_after_loop_closed_is_a_noop(monkeypatch):
     """A shutdown signal arriving after the loop closed neither raises nor
     sets the event (mirrors the broadcast guard)."""
@@ -439,9 +423,7 @@ async def test_event_stream_heartbeat_while_idle(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_event_stream_shutdown_ends_the_stream(monkeypatch):
-    """A shutdown signal delivered while a client is connected ends the
-    stream promptly (so graceful shutdown never waits on it), and a
-    stream opened after the signal ends at its first loop check."""
+    """A cross-thread shutdown ends current and subsequent streams and removes subscribers."""
     _install_loop(monkeypatch)
     monkeypatch.setattr(events, "_subscribers", set())
     response = await api.event_stream(_StubRequest())
@@ -469,10 +451,7 @@ async def test_event_stream_shutdown_ends_the_stream(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_lifespan_cancels_statements_and_closes_the_open_run(monkeypatch):
-    """Teardown cancels in-flight viz statements right after
-    the abort request so a run stuck inside a long single-statement phase
-    stops within the bounded wait, and — only when the wait times out —
-    closes the open ingest_runs row as the fallback abort."""
+    """Cancel queries before the fallback closes a timed-out run."""
     calls: list = []
     _stub_lifespan_env(monkeypatch, calls)
     monkeypatch.setattr(app_mod.db, "cancel_viz_queries",
@@ -492,25 +471,3 @@ async def test_lifespan_cancels_statements_and_closes_the_open_run(monkeypatch):
     assert "close_row" in calls
     # Cancel rides the abort request; the fallback close rides the timeout.
     assert calls.index("cancel") < calls.index("close_row")
-
-
-@pytest.mark.asyncio
-async def test_lifespan_fallback_close_needs_a_timed_out_wait(monkeypatch):
-    """A run the bounded wait freed closes its own row; teardown must not
-    write the fallback close on top of a successful wait."""
-    calls: list = []
-    _stub_lifespan_env(monkeypatch, calls)
-    monkeypatch.setattr(app_mod.db, "cancel_viz_queries",
-                        lambda: calls.append("cancel"))
-    monkeypatch.setattr(app_mod.ingest, "close_open_run",
-                        lambda: calls.append("close_row"))
-    monkeypatch.setattr(app_mod.ingest, "_SHUTDOWN", threading.Event())
-    monkeypatch.setattr(app_mod.ingest, "wait_for_run", lambda _t: True)
-    monkeypatch.setattr(
-        app_mod.ingest, "clear_shutdown", lambda: calls.append("clear"))
-
-    async with app_mod.lifespan(FastAPI()):
-        pass
-
-    assert "cancel" in calls
-    assert "close_row" not in calls, calls

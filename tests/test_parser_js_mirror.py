@@ -1,12 +1,4 @@
-"""SV-PARSER-SPEC: src/parser.js resolves rates like backend/pricing.py.
-
-Both read their rates from src/pricing.json (SV-RATE-DATA), but each carries
-its own resolution logic. If that logic drifts, the Inspector and the
-dashboard disagree on cost for the same file. This asserts parity by driving
-the real parser.js through node — no npm, no build step, matching the repo's
-no-toolchain rule. That both sides derive the same tables from the file is
-pinned in test_pricing_data.py.
-"""
+"""Browser parser rate resolution, record deduplication and usage mirror the backend."""
 from __future__ import annotations
 
 import json
@@ -75,28 +67,6 @@ CASES = [
 
 _KEYMAP = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h",
            "read": "read", "out": "output"}
-
-
-def _node_rates():
-    script = f"""
-      global.window = {{}};
-      require({str(LANES_JS)!r});
-      require({str(LOADER_JS)!r});
-      require({str(RATES_JS)!r});
-      require({str(PARSER_JS)!r});
-      const cases = {json.dumps(CASES)};
-      const out = cases.map(([m, ts]) => {{
-        const r = window.resolveModelRate(m, ts);
-        return {{ model: m, ts, kind: r.kind, rates: r.rates }};
-      }});
-      console.log(JSON.stringify(out));
-    """
-    proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout)
 
 
 def _node_cost(output_tokens: int) -> float:
@@ -323,14 +293,19 @@ class TestNodeDrivenBrowserMirror:
     # Every test below drives node; the class mark is the file's node skip.
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
-    def test_parser_js_rate_table_matches_backend_pricing(self):
-        for got in _node_rates():
-            ts = (
-                datetime.fromisoformat(got["ts"].replace("Z", "+00:00"))
-                if got["ts"] else None
-            )
-            want = pricing.resolve(got["model"], ts)
-            label = f"{got['model']} @ {got['ts']}"
+    @pytest.mark.parametrize("cases", [
+        [(model, ts, None) for model, ts in CASES], PROVIDER_CASES,
+    ], ids=["model-rates", "provider-rates"])
+    def test_parser_js_rates_match_backend(self, cases):
+        got_all = _node_json(f"""
+          const cases = {json.dumps(cases)};
+          console.log(JSON.stringify(cases.map(([m, ts, p]) =>
+            window.resolveModelRate(m, ts, p))));
+        """)
+        for (model, ts, provider), got in zip(cases, got_all):
+            when = datetime.fromisoformat(ts.replace("Z", "+00:00")) if ts else None
+            want = pricing.resolve(model, when, provider)
+            label = f"{model} @ {ts} via {provider}"
             assert got["kind"] == want.kind, f"{label}: kind"
             for js_key, py_key in _KEYMAP.items():
                 assert got["rates"][js_key] == pytest.approx(want.rates[py_key]), (
@@ -487,22 +462,6 @@ class TestNodeDrivenBrowserMirror:
 class TestNodeDrivenBrowserProviderParsing:
     # Every test below drives node; the class mark is the file's node skip.
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-
-    def test_parser_js_resolves_provider_rates_like_the_backend(self):
-        got_all = _node_json(f"""
-          const cases = {json.dumps(PROVIDER_CASES)};
-          console.log(JSON.stringify(cases.map(([m, ts, p]) =>
-            window.resolveModelRate(m, ts, p))));
-        """)
-        for (model, ts, provider), got in zip(PROVIDER_CASES, got_all):
-            when = datetime.fromisoformat(ts.replace("Z", "+00:00")) if ts else None
-            want = pricing.resolve(model, when, provider)
-            label = f"{model} @ {ts} via {provider}"
-            assert got["kind"] == want.kind, f"{label}: kind"
-            for js_key, py_key in _KEYMAP.items():
-                assert got["rates"][js_key] == pytest.approx(want.rates[py_key]), (
-                    f"{label}: {py_key}"
-                )
 
     def test_parser_js_prices_a_provider_record_at_the_stored_cost(self):
         """The Inspector's cost for a transcript whose records name a host is
