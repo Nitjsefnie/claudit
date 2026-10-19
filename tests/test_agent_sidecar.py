@@ -72,14 +72,14 @@ def test_non_transcript_keys_have_no_transcript_stem(key):
     assert transcript_stem(key) is None
 
 
-def test_a_different_agent_does_not_pair():
-    assert (sidecar_stem("-root-x/s1/subagents/agent-a1.meta.json.xz")
-            != transcript_stem("-root-x/s1/subagents/agent-a2.jsonl.xz"))
-
-
-def test_a_lane_main_wire_never_pairs_with_a_subagent_sidecar():
-    assert (transcript_stem("sessions/p1/s1/wire.jsonl.xz")
-            != sidecar_stem("sessions/p1/s1/subagents/a3/meta.json.xz"))
+@pytest.mark.parametrize("wire,meta", [
+    ("-root-x/s1/subagents/agent-a2.jsonl.xz",
+     "-root-x/s1/subagents/agent-a1.meta.json.xz"),
+    ("sessions/p1/s1/wire.jsonl.xz",
+     "sessions/p1/s1/subagents/a3/meta.json.xz"),
+], ids=["different-claude-agents", "lane-main-and-subagent"])
+def test_mismatched_sidecars_and_transcripts_do_not_pair(wire, meta):
+    assert sidecar_stem(meta) != transcript_stem(wire)
 
 
 def test_the_r2_mini_mirror_carries_its_doctrine_sidecar():
@@ -103,24 +103,17 @@ _LANE_KEY = "sessions/p/s/subagents/a1/wire.jsonl"
 _CLAUDE_KEY = "-root-x/s/subagents/agent-a1.jsonl"
 
 
-def test_legacy_wire_takes_the_sidecar_subagent_type():
-    """The top-level value wins; kimi's `coder` profile is the
-    implementer role, not the default bucket."""
+@pytest.mark.parametrize("role,expected", [
+    ("coder", "implementer"),
+    (None, "Explore"),
+], ids=["top-level-role", "launch-spec-fallback"])
+def test_legacy_wire_resolves_the_sidecar_role(role, expected):
     out = agent_sidecar.apply_agent_sidecar(
         _parsed("kimi_legacy_min.jsonl", _LANE_KEY),
-        json.dumps({"subagent_type": "coder",
+        json.dumps({"subagent_type": role,
                     "launch_spec": {"subagent_type": "explore"}}).encode(),
         _LANE_KEY)
-    assert out["agent_type"] == "implementer"
-
-
-def test_legacy_wire_falls_back_to_the_launch_spec_subagent_type():
-    out = agent_sidecar.apply_agent_sidecar(
-        _parsed("kimi_legacy_min.jsonl", _LANE_KEY),
-        json.dumps({"subagent_type": None,
-                    "launch_spec": {"subagent_type": "explore"}}).encode(),
-        _LANE_KEY)
-    assert out["agent_type"] == "Explore"
+    assert out["agent_type"] == expected
 
 
 def test_a_sidecar_role_goes_through_the_lanes_normalisation():
@@ -151,15 +144,6 @@ def test_lane_normalisation_follows_the_key_layout_not_the_sniff():
         parse.parse_file(_CLAUDE_KEY, b""), b'{"agentType":"agent"}',
         _CLAUDE_KEY)
     assert claude["agent_type"] == "agent"
-
-
-def test_in_band_kimi_code_profile_wins_over_the_sidecar():
-    """In-band wins; the wire's `coder` profile is the implementer role
-    , outranking the sidecar's role."""
-    out = agent_sidecar.apply_agent_sidecar(
-        _parsed("kimi_code_agent_dispatch.jsonl", _LANE_KEY),
-        b'{"subagent_type":"explore"}', _LANE_KEY)
-    assert out["agent_type"] == "implementer"
 
 
 _WORKFLOW_KEY = ("-root-x/s/data/subagents/workflows/wf_x/"
@@ -269,34 +253,28 @@ def test_ingest_attributes_subagents_from_their_sidecars(fresh_db, lane_mirror):
     }
 
 
-def test_an_unreadable_sidecar_is_the_default_not_a_failure(
-        fresh_db, lane_mirror):
+@pytest.mark.parametrize("failure", ["corrupt-xz", "vanished"],
+                         ids=["corrupt-xz", "vanished"])
+def test_a_sidecar_read_failure_keeps_the_default_without_failing_ingest(
+        fresh_db, lane_mirror, monkeypatch, failure):
     _put(lane_mirror / _SUB / "a1" / "wire.jsonl",
          _fixture("kimi_legacy_min.jsonl"))
-    # Named .xz but not xz: inflating it raises inside the fetch.
-    (lane_mirror / _SUB / "a1" / "meta.json.xz").write_bytes(b"not xz")
+    if failure == "corrupt-xz":
+        (lane_mirror / _SUB / "a1" / "meta.json.xz").write_bytes(b"not xz")
+    else:
+        meta = lane_mirror / _SUB / "a1" / "meta.json"
+        _put(meta, b'{"subagent_type":"coder"}')
+        real_fetch = ingest._fetch_with_retry  # pylint: disable=protected-access
+
+        def fetch(key: str) -> bytes:
+            if key.endswith("meta.json") and meta.exists():
+                os.unlink(meta)
+            return real_fetch(key)
+
+        monkeypatch.setattr(ingest, "_fetch_with_retry", fetch)
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
     assert result["inserted"] == 1
-    assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": DEFAULT}
-
-
-def test_a_sidecar_that_vanishes_before_its_fetch_is_the_default(
-        fresh_db, lane_mirror, monkeypatch):
-    _put(lane_mirror / _SUB / "a1" / "wire.jsonl",
-         _fixture("kimi_legacy_min.jsonl"))
-    meta = lane_mirror / _SUB / "a1" / "meta.json"
-    _put(meta, b'{"subagent_type":"coder"}')
-    real_fetch = ingest._fetch_with_retry  # pylint: disable=protected-access
-
-    def fetch(key: str) -> bytes:
-        if key.endswith("meta.json") and meta.exists():
-            os.unlink(meta)
-        return real_fetch(key)
-
-    monkeypatch.setattr(ingest, "_fetch_with_retry", fetch)
-    result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
     assert _agent_types() == {f"claude/{_SUB}/a1/wire.jsonl": DEFAULT}
 
 

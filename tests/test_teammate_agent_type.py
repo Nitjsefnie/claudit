@@ -55,86 +55,38 @@ def test_a_teammate_sidecar_names_no_role():
     assert agent_sidecar.sidecar_agent_role(_TEAMMATE_SIDECAR) is None
 
 
-def test_a_sidecar_whose_agent_type_is_its_name_is_a_teammate():
-    """No taskKind: agentType equal to name still cannot be told from the
-    teammate name, so the lead's dispatch decides."""
-    sidecar = b'{"agentType":"scout-2","name":"scout-2","description":"d"}'
+@pytest.mark.parametrize("sidecar,expected_role,expected_name", [
+    (b'{"agentType":"scout-2","name":"scout-2","description":"d"}',
+     DEFAULT, "scout-2"),
+    (b'{"agentType":"implementer","name":"migrate-rest",'
+     b'"taskKind":"in_process_teammate"}', "implementer", "migrate-rest"),
+    (_CANDIDATE_SIDECAR, "worker-1", "worker-1"),
+    (b'{"agentType":"code-reviewer","description":"d","spawnDepth":1}',
+     "code-reviewer", "code-reviewer"),
+], ids=["name-equals-role", "marked-with-fallback", "agent-type-only",
+        "candidate-with-extra-keys"])
+def test_teammate_sidecars_keep_their_role_and_name(
+        sidecar, expected_role, expected_name):
     out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
-    assert out["agent_type"] == DEFAULT
-    assert out["teammate_name"] == "scout-2"
+    assert out["agent_type"] == expected_role
+    assert out["teammate_name"] == expected_name
 
 
-def test_a_marked_teammate_whose_agent_type_is_not_its_name_keeps_it_as_fallback():
-    """taskKind alone marks a teammate; an agentType that differs from the
-    name may be a real role, so it stands until a dispatch joins."""
-    sidecar = (b'{"agentType":"implementer","name":"migrate-rest",'
-               b'"taskKind":"in_process_teammate"}')
+@pytest.mark.parametrize("sidecar,expected_role", [
+    (b'{"agentType":"implementer","name":"implementer",'
+     b'"toolUseId":"toolu_p1"}', "implementer"),
+    (b'{"agentType":"implementer","name":"impl-task1",'
+     b'"description":"d","toolUseId":"toolu_p1"}', "implementer"),
+    (b'{"agentType":"lsp-probe","toolUseId":"toolu_p1"}', "lsp-probe"),
+    (b'{"isFork": true, "agentType":"explorer"}', "Explore"),
+    (b'{"taskKind":"fork","agentType":"scout"}', "scout"),
+], ids=["tool-id-name-equals-role", "tool-id-distinct-name", "tool-id-only",
+        "fork-flag", "fork-task-kind"])
+def test_definite_subagent_sidecars_keep_a_role_without_a_teammate_name(
+        sidecar, expected_role):
     out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
-    assert out["teammate_name"] == "migrate-rest"
-    assert out["agent_type"] == "implementer"
-
-
-def test_a_subagent_named_after_its_role_with_a_tool_use_id_is_not_a_teammate():
-    """A teammate sidecar carries no toolUseId; a plain subagent whose name
-    equals its role keeps that role without depending on the join."""
-    sidecar = (b'{"agentType":"implementer","name":"implementer",'
-               b'"toolUseId":"toolu_p1"}')
-    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
-    assert out["agent_type"] == "implementer"
+    assert out["agent_type"] == expected_role
     assert out.get("teammate_name") is None
-
-
-def test_a_named_plain_subagent_keeps_its_sidecar_role():
-    """An Agent call with a `name` that is not a teammate: the sidecar's
-    agentType is the real role and differs from the name."""
-    sidecar = (b'{"agentType":"implementer","name":"impl-task1",'
-               b'"description":"d","toolUseId":"toolu_p1"}')
-    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
-    assert out["agent_type"] == "implementer"
-    assert out.get("teammate_name") is None
-
-
-def test_an_agent_type_only_sidecar_is_a_teammate_candidate():
-    """An older release wrote a teammate's sidecar as ONLY the agentType.
-    Not a verdict: the parsed role STANDS, and the name is stored for the
-    ingest-time join to decide."""
-    out = agent_sidecar.apply_agent_sidecar(_member(), _CANDIDATE_SIDECAR,
-                                            _MEMBER_KEY)
-    assert out["teammate_name"] == "worker-1"
-    assert out["agent_type"] == "worker-1"
-
-
-def test_an_agent_type_only_sidecar_with_a_tool_use_id_is_a_plain_role():
-    sidecar = b'{"agentType":"lsp-probe","toolUseId":"toolu_p1"}'
-    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
-    assert out["agent_type"] == "lsp-probe"
-    assert out.get("teammate_name") is None
-
-
-def test_a_fork_sidecar_is_not_a_teammate_candidate():
-    sidecar = b'{"isFork": true, "agentType":"explorer"}'
-    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
-    assert out["agent_type"] == "Explore"
-    assert out.get("teammate_name") is None
-
-
-def test_an_agent_type_only_sidecar_with_a_task_kind_is_not_a_candidate():
-    """Any taskKind means the writer marks the kinds it knows; only
-    in_process_teammate is a teammate, via the existing definite path."""
-    sidecar = b'{"taskKind":"fork","agentType":"scout"}'
-    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
-    assert out["agent_type"] == "scout"
-    assert out.get("teammate_name") is None
-
-
-def test_an_agent_type_only_sidecar_with_other_extra_keys_is_still_a_candidate():
-    """Keys the predicate does not name (a description, spawnDepth) do not
-    disqualify a candidate: only a name, a toolUseId, a taskKind or an
-    isFork marks a definite kind."""
-    sidecar = b'{"agentType":"code-reviewer","description":"d","spawnDepth":1}'
-    out = agent_sidecar.apply_agent_sidecar(_member(), sidecar, _MEMBER_KEY)
-    assert out["teammate_name"] == "code-reviewer"
-    assert out["agent_type"] == "code-reviewer"
 
 
 def test_a_teammate_with_an_in_band_role_keeps_it():
@@ -212,64 +164,40 @@ def _rollup_types() -> set[str]:
         ).fetchall()}
 
 
-def test_ingest_takes_a_teammates_role_from_its_leads_dispatch(
-        fresh_db, mirror):
-    _put(mirror, _LEAD_KEY, _fixture("teammate_lead.jsonl"))
-    _put_member(mirror)
-    result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
-    assert _member_type() == "implementer"
-    assert "migrate-rest" not in _rollup_types()
-    assert "implementer" in _rollup_types()
-
-
-def test_a_teammate_with_no_matching_dispatch_is_the_default(
-        fresh_db, mirror):
+@pytest.mark.parametrize("dispatch_name,expected_role", [
+    (b'"migrate-rest"', "implementer"),
+    (b'"someone-else"', DEFAULT),
+], ids=["matching-dispatch", "unmatched-dispatch"])
+def test_ingest_resolves_a_teammates_role_from_a_matching_dispatch(
+        fresh_db, mirror, dispatch_name, expected_role):
     _put(mirror, _LEAD_KEY,
-         _fixture("teammate_lead.jsonl").replace(b'"migrate-rest"',
-                                                 b'"someone-else"'))
+         _fixture("teammate_lead.jsonl").replace(b'"migrate-rest"', dispatch_name))
     _put_member(mirror)
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
-    assert _member_type() == DEFAULT
+    assert _member_type() == expected_role
     assert "migrate-rest" not in _rollup_types()
+    if expected_role == "implementer":
+        assert "implementer" in _rollup_types()
 
 
-def test_a_marked_teammate_with_no_dispatch_keeps_its_sidecar_role(
-        fresh_db, mirror):
+@pytest.mark.parametrize("sidecar,initial_role", [
+    (b'{"agentType":"code-reviewer","name":"migrate-rest",'
+     b'"taskKind":"in_process_teammate"}', "code-reviewer"),
+    (_TEAMMATE_SIDECAR, DEFAULT),
+], ids=["sidecar-role-fallback", "default-role-fallback"])
+def test_a_late_lead_resolves_the_teammates_standing_role(
+        fresh_db, mirror, sidecar, initial_role):
     _put(mirror, _MEMBER_KEY, _fixture("teammate_member.jsonl"))
-    _put(mirror, _MEMBER_KEY.replace(".jsonl", ".meta.json"),
-         b'{"agentType":"code-reviewer","name":"migrate-rest",'
-         b'"taskKind":"in_process_teammate"}')
+    _put(mirror, _MEMBER_KEY.replace(".jsonl", ".meta.json"), sidecar)
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
-    assert _member_type() == "code-reviewer"
-
-    _put(mirror, _LEAD_KEY, _fixture("teammate_lead.jsonl"))
-    ingest.run_ingest(trigger="manual")
-    assert _member_type() == "implementer", "a joined dispatch wins"
-
-
-def test_a_same_named_dispatch_in_another_session_does_not_join(
-        fresh_db, mirror):
-    _put(mirror, "-root-x/sess-u/sess-u.jsonl",
-         _fixture("teammate_lead.jsonl"))
-    _put_member(mirror)
-    result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
-    assert _member_type() == DEFAULT
-
-
-def test_a_lead_archived_after_its_teammate_resolves_it_on_that_run(
-        fresh_db, mirror):
-    _put_member(mirror)
-    ingest.run_ingest(trigger="manual")
-    assert _member_type() == DEFAULT
+    assert _member_type() == initial_role
 
     _put(mirror, _LEAD_KEY, _fixture("teammate_lead.jsonl"))
     result = ingest.run_ingest(trigger="manual")
     assert result["inserted"] == 1 and result["reparsed"] == 0
-    assert _member_type() == "implementer"
+    assert _member_type() == "implementer", "a joined dispatch wins"
 
 
 def _agent_type_only_line(ts: str, call_id: str) -> dict:
@@ -301,22 +229,19 @@ def test_an_agent_type_only_teammate_resolves_from_its_leads_dispatch(
     assert row == ("worker-1",)
 
 
-def test_an_agent_type_only_sidecar_with_no_matching_dispatch_keeps_its_role(
-        fresh_db, mirror):
-    _put_candidate_member(mirror)
+@pytest.mark.parametrize("sidecar,lead,expected_role", [
+    (_TEAMMATE_SIDECAR, _fixture("teammate_lead.jsonl"), DEFAULT),
+    (_CANDIDATE_SIDECAR, json.dumps(_agent_type_only_line(
+        "2026-09-01T12:00:00Z", "toolu_w1")).encode() + b"\n", "worker-1"),
+], ids=["marked-teammate", "agent-type-only-candidate"])
+def test_a_dispatch_in_another_session_does_not_join(
+        fresh_db, mirror, sidecar, lead, expected_role):
+    _put(mirror, "-root-x/sess-u/sess-u.jsonl", lead)
+    _put(mirror, _MEMBER_KEY, _fixture("teammate_member.jsonl"))
+    _put(mirror, _MEMBER_KEY.replace(".jsonl", ".meta.json"), sidecar)
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
-    assert _member_type() == "worker-1"
-
-
-def test_a_candidate_is_joined_only_within_its_own_session(fresh_db, mirror):
-    _put(mirror, "-root-x/sess-u/sess-u.jsonl",
-         json.dumps(_agent_type_only_line(
-             "2026-09-01T12:00:00Z", "toolu_w1")).encode() + b"\n")
-    _put_candidate_member(mirror)
-    result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
-    assert _member_type() == "worker-1"
+    assert _member_type() == expected_role
 
 
 def _dispatch_line(ts: str, call_id: str, role: str) -> dict:
