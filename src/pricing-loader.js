@@ -272,9 +272,10 @@ function _history(entries, where, mayBegin = false, fetchedMs = NaN) {
   entries = flat.entries;
   const { schedules } = _checkHistory(entries, where, mayBegin, fetchedMs, flat.owners);
   const rateState = (entry) => _stable([
-    _ratesOf(entry), entry.web_search || 0, entry.schedule || null]);
+    _ratesOf(entry), entry.web_search ?? null, entry.note ?? null, entry.schedule || null]);
   const priced = entries.filter((entry, i) => i === 0
     || flat.owners[i] === flat.owners[i - 1]
+    || entry.context_length === entries[i - 1].context_length
     || rateState(entry) !== rateState(entries[i - 1]));
   const pricedSchedules = {};
   let index = 0;

@@ -238,9 +238,10 @@ def _priced_history(entries: list[dict], owners: list[int], schedules: dict, whe
     priced = []
     for i, entry in enumerate(entries):
         if i and owners[i] != owners[i - 1] and (
-                effective_rates(entry) == effective_rates(entries[i - 1])
-                and entry.get("web_search", 0) == entries[i - 1].get("web_search", 0)
-                and entry.get("schedule") == entries[i - 1].get("schedule")):
+                entry.get("context_length") != entries[i - 1].get("context_length")
+                and effective_rates(entry) == effective_rates(entries[i - 1])
+                and all(entry.get(field) == entries[i - 1].get(field)
+                        for field in ("web_search", "note", "schedule"))):
             continue
         priced.append((i, entry))
     rates = [dict(effective_rates(entry), **(

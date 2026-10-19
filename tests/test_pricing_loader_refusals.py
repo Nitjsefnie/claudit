@@ -14,11 +14,14 @@ from datetime import timedelta
 import pytest
 
 from backend import pricing
+from backend.pricing_document import serialize_pricing_doc
 from tests.pricing_data_loader_helpers import _node_load
 from tests.refresh_fixture_builders import seed_doc
+from tests.test_pricing_rows import _node
 from tests.test_pricing_data import (
     _GLM_HOST,
     _GLM_MODEL,
+    _at,
     _doc,
     _latest_document_stamp,
     _pricing_json,
@@ -94,6 +97,51 @@ def test_a_repeated_entry_under_a_later_from_is_refused_in_the_browser(
 def test_an_append_that_changes_only_the_schedule_loads_in_the_browser(
         tmp_path):
     assert _node_load(tmp_path, _schedule_only_append()) is None
+
+
+@pytest.mark.parametrize("before, after, priced", [
+    pytest.param({}, {"context_length": 131072}, False, id="context-added"),
+    pytest.param({"context_length": 131072}, {"context_length": 262144},
+                 False, id="context-changed"),
+    pytest.param({"context_length": 131072}, {}, False, id="context-removed"),
+    pytest.param({}, {"note": "annotation"}, True, id="note-only"),
+    pytest.param({"note": "old"}, {"note": "new"}, True, id="note-changed"),
+    pytest.param({}, {"context_length": 131072, "note": "annotation"},
+                 True, id="context-and-note"),
+    pytest.param({}, {"context_length": 131072, "web_search": 0},
+                 True, id="context-and-explicit-zero-search"),
+])
+@pytest.mark.parametrize("reader", ["python", pytest.param("node", marks=needs_node)])
+def test_only_context_changes_skip_price_windows(tmp_path, before, after, priced, reader):
+    """A context-only move between price changes consumes no window;
+    an annotation or other state change retains its own boundary."""
+    model, host = "fixture/provider", "Fixture"
+    history = [
+        {"from": None, "fresh": 1, "read": 0.1, "output": 2},
+        {"from": "2026-01-01T00:00:00Z", "fresh": 2, "read": 0.2,
+         "output": 4, **before},
+        {"from": "2026-01-02T00:00:00Z", "fresh": 2, "read": 0.2,
+         "output": 4, **after},
+        {"from": "2026-01-03T00:00:00Z", "fresh": 3, "read": 0.3,
+         "output": 6, **after},
+    ]
+    doc = seed_doc(providers={model: {host: history}},
+                   tracked={model: {"id": model}})
+    ends = ["2026-01-01T00:00:00Z",
+            *(["2026-01-02T00:00:00Z"] if priced else []), "2026-01-03T00:00:00Z"]
+    if reader == "python":
+        tables = pricing.load_tables(doc)
+        windows = tables["PROVIDER_DATED_RATES"][model, host]
+        assert [end for end, _ in windows] == [_at(end) for end in ends]
+        assert [rates["fresh"] for _, rates in windows] == ([1, 2, 2] if priced else [1, 2])
+    else:
+        got = _node(tmp_path, json.loads(serialize_pricing_doc(doc)))
+        assert got["error"] is None, got["error"]
+        windows = got["tables"]["providerDatedRates"][model][host]
+        assert [window["endExclusive"] for window in windows] == [
+            int(_at(end).timestamp() * 1000) for end in ends]
+        assert [window["rates"]["fresh"] for window in windows] == (
+            [1, 2, 2] if priced else [1, 2])
 
 
 # --- removed bands are refused regardless of their shape --------------------

@@ -146,7 +146,8 @@ string. The optional rest object carries other entry fields:
 `create_5m`, `create_1h`, `web_search`, `context_length`, and `schedule`.
 It cannot override `from`, `fresh`, `output`, `read`, or `note`.
 `context_length` is not a rate, never enters a cost or the rate fingerprint,
-and its move appends a detection-dated entry with unchanged token rates.
+and its move appends a detection-dated entry with unchanged token rates;
+it creates no price window only when all other state, including `note`, is unchanged.
 
 T is mandatory: null means the undated leading entry, an integer means
 one instant, and a non-empty integer list means that state's several
