@@ -366,37 +366,46 @@ def test_band_key_in_stored_grouped_state_refuses_the_owning_row(tmp_path, brows
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='node not available')
 @pytest.mark.parametrize('browser', [False, True])
-def test_context_lengths_survive_both_codecs_and_loaders(tmp_path, browser):
+@pytest.mark.parametrize('provider_context,tracked_context', [
+    (786432, 1048576), (9007199254740991, 9007199254740991)])
+def test_context_lengths_survive_both_codecs_and_loaders(
+        tmp_path, browser, provider_context, tracked_context):
     from backend.pricing_load import load_tables  # pylint: disable=import-outside-toplevel
     doc = _fixture()
     for entry in doc['providers'][ROW_KEY][HOST]:
-        entry['context_length'] = 786432
-    doc['openrouter']['models'][ROW_KEY]['context_length'] = 1048576
+        entry['context_length'] = provider_context
+    doc['openrouter']['models'][ROW_KEY]['context_length'] = tracked_context
     stored = _codec().encode_pricing_doc(doc)
     assert _typed(_codec().decode_pricing_doc(stored)) == _typed(doc)
     tables = load_tables(stored)
-    assert tables['PROVIDER_CONTEXT_LENGTHS'][ROW_KEY, HOST] == 786432
-    assert tables['TRACKED_MODELS'][ROW_KEY]['context_length'] == 1048576
+    assert tables['PROVIDER_CONTEXT_LENGTHS'][ROW_KEY, HOST] == provider_context
+    assert tables['TRACKED_MODELS'][ROW_KEY]['context_length'] == tracked_context
     got = _node(tmp_path, stored, browser=browser)
     assert got['error'] is None, got['error']
     assert _typed(got['decoded']['providers'][ROW_KEY][HOST][-1]['context_length']) == (
-        'int', 786432)
-    assert got['decoded']['openrouter']['models'][ROW_KEY]['context_length'] == 1048576
-    assert got['tables']['providerContextLengths'][ROW_KEY][HOST] == 786432
-    assert got['tables']['trackedModels'][ROW_KEY]['context_length'] == 1048576
+        'int', provider_context)
+    assert got['decoded']['openrouter']['models'][ROW_KEY]['context_length'] == tracked_context
+    assert got['tables']['providerContextLengths'][ROW_KEY][HOST] == provider_context
+    assert got['tables']['trackedModels'][ROW_KEY]['context_length'] == tracked_context
 
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='node not available')
 @pytest.mark.parametrize('kind', ['provider', 'tracked'])
-@pytest.mark.parametrize('bad', [None, True, False, 0, -1, 1.5, 786432.0, '700000', [], {}])
-def test_context_length_refuses_bad_types_in_both_loaders(tmp_path, kind, bad):
+@pytest.mark.parametrize('reader', ['python', 'node', 'browser'])
+@pytest.mark.parametrize('bad', [None, True, False, 0, -1, 1.5, 786432.0, '700000', [], {},
+                                 9007199254740992, 9007199254740993,
+                                 pytest.param(10**400, id='huge-int')])
+def test_context_length_refuses_bad_types_in_both_loaders(tmp_path, kind, reader, bad):
     from backend.pricing_load import load_tables  # pylint: disable=import-outside-toplevel
     doc = _fixture()
     entry = (doc['providers'][ROW_KEY][HOST][1] if kind == 'provider'
              else doc['openrouter']['models'][ROW_KEY])
     entry['context_length'] = bad
     stored = _codec().encode_pricing_doc(doc)
-    with pytest.raises(ValueError, match='context_length'):
-        load_tables(stored)
-    error = _node(tmp_path, stored)['error']
+    if reader == 'python':
+        with pytest.raises(ValueError, match='context_length') as exc:
+            load_tables(stored)
+        error = str(exc.value)
+    else:
+        error = _node(tmp_path, stored, browser=reader == 'browser')['error']
     assert error and 'context_length' in error and ROW_KEY in error

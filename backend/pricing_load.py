@@ -171,7 +171,8 @@ def _check_entry_fields(entry: dict, at: str, provider: bool = False) -> None:
 def _check_context_length(entry: dict, at: str) -> None:
     if "context_length" in entry and (
             not isinstance(entry["context_length"], int)
-            or isinstance(entry["context_length"], bool) or entry["context_length"] <= 0):
+            or isinstance(entry["context_length"], bool)
+            or not 0 < entry["context_length"] <= 9007199254740991):
         raise ValueError(f"{at}: context_length is not a positive integer")
 
 

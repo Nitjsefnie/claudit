@@ -211,7 +211,7 @@ function _checkHistory(entries, where, mayBegin, fetchedMs, owners) {
     const at = `${where}[${owners[i]}]`;
     const fields = Object.keys(entry).filter((k) => !['from', 'note', 'schedule', 'context_length'].includes(k));
     if ('context_length' in entry && (!mayBegin
-        || !Number.isInteger(entry.context_length) || entry.context_length <= 0)) {
+        || !Number.isSafeInteger(entry.context_length) || entry.context_length <= 0)) {
       throw _pricingError(`${at}: context_length is not a positive integer on a provider entry`);
     }
     const hasSearchRate = fields.includes('web_search');
