@@ -59,18 +59,15 @@ def test_kimi_code_tool_call_takes_its_step_record_model():
                                                         "kimi-k3"]
 
 
-def test_kimi_legacy_tool_call_takes_its_step_record_model():
-    out = _parse(FIX / "parser" / "kimi_legacy_min.jsonl")
+@pytest.mark.parametrize("name,after_record", [
+    ("kimi_legacy_min.jsonl", False),
+    ("kimi_code.jsonl", True),
+], ids=["legacy-call-before-record", "code-call-after-last-record"])
+def test_kimi_tool_call_takes_its_step_record_model(name, after_record):
+    out = _parse(FIX / "parser" / name)
     [rec] = out["records"]
     [tu] = out["tool_uses"]
-    assert tu["model"] == rec["model"]
-
-
-def test_kimi_tool_call_after_the_last_record_takes_that_record_model():
-    out = _parse(FIX / "parser" / "kimi_code.jsonl")
-    [rec] = out["records"]
-    [tu] = out["tool_uses"]
-    assert tu["line_num"] > rec["line_num"]
+    assert (tu["line_num"] > rec["line_num"]) is after_record
     assert tu["model"] == rec["model"]
 
 

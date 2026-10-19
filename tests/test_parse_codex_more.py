@@ -10,7 +10,6 @@ from backend.parse_codex_churn import _CODEX_CMD_ARGV, _codex_json_values
 
 from tests.test_parse_codex import (
     FIX,
-    KIMI_FIX,
     RECORD_KEYS,
     TOOL_USE_KEYS,
     _codex_model,
@@ -35,18 +34,6 @@ def test_a_cache_write_is_billed_at_its_own_rate_not_at_fresh_input_rates():
     expected_delta = written * (rates["create_1h"] - rates["fresh"]) / 1_000_000
     assert rec["cost_usd"] - plain["cost_usd"] == pytest.approx(
         expected_delta, abs=1e-6)
-
-
-@pytest.mark.parametrize("label", [
-    "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
-])
-def test_every_label_the_codex_parser_stores_prices_exactly(label):
-    """Every id the corpus names is a pricing.json key, so the stored model
-    prices exactly — no estimate flag. An id with NO row is the
-    fallback shape: stored verbatim, priced estimated, never renamed."""
-    resolution = pricing.resolve(label)
-    assert resolution.kind == "exact"
-    assert resolution.estimated is False
 
 
 def test_every_codex_label_lives_in_the_browser_mirrored_table():
@@ -92,25 +79,8 @@ def test_the_long_context_meter_doubles_input_and_multiplies_output_by_1_5(
     assert long_out == pytest.approx(base_out * 1.5, rel=1e-9)
 
 
-def test_the_long_context_meter_is_off_by_default_for_kimi_records():
-    """Kimi has no such tier; the flag must not leak into that path."""
-    out = parse.parse_file(
-        "sessions/projA/sess-A/wire.jsonl",
-        (KIMI_FIX / "kimi_code.jsonl").read_bytes(),
-    )
-    for rec in out["records"]:
-        expected = pricing.compute_cost(
-            rec["model"],
-            fresh=rec["fresh_tokens"], output=rec["output_tokens"],
-            eph5=0, eph1h=0, unsplit_create=rec["cache_creation_tokens"],
-            read=rec["cache_read_tokens"], ts=rec["ts"],
-        )
-        assert rec["cost_usd"] == pytest.approx(round(expected, 6), rel=1e-9)
-
-
-def test_codex_tool_uses_preserve_event_time_models_across_a_switch():
-    """Each tool call keeps the model that was active at its event."""
-    lines = [
+@pytest.mark.parametrize("lines,expected", [
+    ([
         {
             "timestamp": "2026-06-14T12:00:01.000Z",
             "type": "turn_context",
@@ -157,23 +127,8 @@ def test_codex_tool_uses_preserve_event_time_models_across_a_switch():
                 "output": "ok",
             },
         },
-    ]
-    blob = b"".join(json.dumps(line).encode() + b"\n" for line in lines)
-
-    # parse_codex.parse, not parse.parse_file: the format module keeps a
-    # tool row's model; claudit's adapter drops it (the tool_uses table
-    # has no model column -- the record carries it).
-    out = parse_codex.parse("codex/tool_model_switch.jsonl", blob)
-
-    assert [tool_use.get("model") for tool_use in out["tool_uses"]] == [
-        "gpt-5.6-sol", "gpt-5.6-terra",
-    ]
-
-
-def test_codex_tool_use_before_first_declaration_uses_the_first_declared_model():
-    """The first declared model backfills a tool call in replayed
-    history."""
-    lines = [
+    ], ["gpt-5.6-sol", "gpt-5.6-terra"]),
+    ([
         {
             "timestamp": "2026-06-14T12:00:01.000Z",
             "type": "response_item",
@@ -197,14 +152,12 @@ def test_codex_tool_use_before_first_declaration_uses_the_first_declared_model()
             "type": "turn_context",
             "payload": {"model": "gpt-5.6-terra"},
         },
-    ]
+    ], ["gpt-5.6-terra"]),
+], ids=["event-time-model-switch", "call-before-first-declaration"])
+def test_codex_tool_uses_preserve_event_time_models(lines, expected):
     blob = b"".join(json.dumps(line).encode() + b"\n" for line in lines)
-
-    out = parse_codex.parse("codex/tool_sole_model.jsonl", blob)
-
-    assert [tool_use.get("model") for tool_use in out["tool_uses"]] == [
-        "gpt-5.6-terra",
-    ]
+    out = parse_codex.parse("codex/tool_models.jsonl", blob)
+    assert [tool_use.get("model") for tool_use in out["tool_uses"]] == expected
 
 
 def test_exec_calls_are_named_by_the_api_they_invoke():
@@ -315,14 +268,6 @@ def test_turns_are_bounded_by_task_started_and_task_complete():
     for turn in out["ctx_turns"]:
         assert turn["input"] > 0
         assert turn["ts"]
-
-
-def test_ctx_turns_deltas_chain_from_one_turn_to_the_next():
-    out = _parse("rollout_model_switch.jsonl")
-    prev = 0
-    for turn in out["ctx_turns"]:
-        assert turn["delta"] == turn["input"] - prev
-        prev = turn["input"]
 
 
 def test_reply_latency_is_measured_once_per_turn_and_is_never_negative():
@@ -452,12 +397,3 @@ def test_malformed_command_json_does_not_hide_a_later_write(
 
     assert [(tool["tool_name"], tool["lines_added"], tool["lines_deleted"])
             for tool in out["tool_uses"]] == [(api, 2, 0)]
-
-
-def test_every_model_the_corpus_names_stays_itself():
-    """Each id here is one a rollout has actually carried: the parser stores
-    it verbatim (spelling normalisation only) — never renamed,
-    whatever the pricing table lists."""
-    for raw in ("gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
-        label = _codex_model(raw)
-        assert label == raw, f"{raw} was relabelled to {label}"

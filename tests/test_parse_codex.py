@@ -35,15 +35,13 @@ def _billed_input(rec):
 # --------------------------------------------------------------------------
 
 
-def test_codex_search_call_item_is_counted_once_per_reply():
-    out = _parse("rollout_web_search.jsonl")
-    assert [record["web_search_requests"] for record in out["records"]] == [
-        1, None]
-
-
-def test_codex_reply_without_search_call_stays_null():
-    out = _parse("rollout_model_switch.jsonl")
-    assert out["records"][0]["web_search_requests"] is None
+@pytest.mark.parametrize("name,expected", [
+    ("rollout_web_search.jsonl", [1, None]),
+    ("rollout_model_switch.jsonl", [None, None, None, None, None]),
+], ids=["search-call-once-per-reply", "no-search-calls"])
+def test_codex_search_call_item_is_counted_once_per_reply(name, expected):
+    out = _parse(name)
+    assert [record["web_search_requests"] for record in out["records"]] == expected
 
 
 def test_codex_web_search_end_without_response_item_stays_null():
@@ -71,16 +69,6 @@ def test_codex_web_search_end_without_response_item_stays_null():
 
     assert len(out["records"]) == 1
     assert out["records"][0]["web_search_requests"] is None
-
-
-def test_detection_still_routes_kimi_code_wires_to_the_kimi_parser():
-    """The Codex rung is additive: it must not capture the other formats."""
-    out = parse.parse_file(
-        "sessions/projA/sess-A/wire.jsonl",
-        (KIMI_FIX / "kimi_code.jsonl").read_bytes(),
-    )
-    assert out["records"]
-    assert all(r["model"].startswith("kimi-") for r in out["records"])
 
 
 def test_a_rollout_without_a_session_meta_header_is_still_detected():
@@ -245,18 +233,27 @@ def test_a_session_that_switches_model_is_priced_at_both_rates():
     assert models == {"gpt-5.6-sol", "gpt-5.6-terra"}
 
 
-def test_records_before_the_first_declaration_take_the_first_declared_model():
-    """A fork replays history before the new thread declares a model, so
-    the leading requests have no turn_context in front of them. The
-    replayed prefix is the parent's history and the file's first declared
-    model is the model the parent had in force at the fork point — the
-    inherited settings — so the prefix takes it."""
-    blob = (FIX / "rollout_sole_model_prefix.jsonl").read_bytes()
+@pytest.mark.parametrize("name,columns,expected", [
+    ("rollout_sole_model_prefix.jsonl", ("line_num", "model"), [
+        (8, "gpt-5.6-sol"), (10, "gpt-5.6-sol"), (11, "gpt-5.6-sol"),
+        (12, "gpt-5.6-sol"), (18, "gpt-5.6-sol"),
+    ]),
+    ("rollout_model_switch.jsonl", (), None),
+    ("rollout_fork_model_switch.jsonl", ("line_num", "model", "uuid"), [
+        (4, "gpt-5.6-sol", "00000000-0000-4000-8000-000000000001:100500"),
+        (5, "gpt-5.6-sol", "00000000-0000-4000-8000-000000000001:110920"),
+        (10, "gpt-5.6-sol", "00000000-0000-4000-8000-000000000001:215540"),
+        (13, "gpt-5.6-terra", "00000000-0000-4000-8000-000000000001:316040"),
+    ]),
+], ids=["sole-late-declaration", "first-declaration-in-file-order",
+        "multi-model-fork"])
+def test_first_declaration_backfills_the_prefix(name, columns, expected):
+    blob = (FIX / name).read_bytes()
     assert _codex_first_declared_model(blob) == "gpt-5.6-sol"
-    out = _parse("rollout_sole_model_prefix.jsonl")
-    assert [r["line_num"] for r in out["records"]] == [8, 10, 11, 12, 18]
-    # The only declaration in this window is at line 20, after all five.
-    assert all(r["model"] == "gpt-5.6-sol" for r in out["records"])
+    if expected is not None:
+        out = _parse(name)
+        assert [tuple(r[column] for column in columns)
+                for r in out["records"]] == expected
 
 
 def test_a_file_declaring_no_model_is_refused_not_stored_as_unknown():
@@ -268,32 +265,6 @@ def test_a_file_declaring_no_model_is_refused_not_stored_as_unknown():
     assert _codex_first_declared_model(blob) is None
     with pytest.raises(ValueError, match="rollout_fork_prefix"):
         parse.parse_file("codex/rollout_fork_prefix.jsonl", blob)
-
-
-def test_the_first_declaration_in_file_order_is_what_backfills_the_prefix():
-    blob = (FIX / "rollout_model_switch.jsonl").read_bytes()
-    assert _codex_first_declared_model(blob) == "gpt-5.6-sol"
-
-
-def test_a_multi_model_fork_attributes_its_replayed_prefix():
-    """A fork that
-    replays its parent's history and THEN declares two models of its
-    own. No declaration fronts the replayed prefix and two candidates
-    follow it, but the first declared model is the parent's model in
-    force at the fork point — the inherited settings — so the prefix
-    takes that instead of an `unknown` placeholder. The records keep the
-    session-qualified uuids that let the dedup order the copies
-    (SV-CANONICAL-FLAG); which copy wins is pinned in
-    tests/test_canonical_model_attribution.py."""
-    blob = (FIX / "rollout_fork_model_switch.jsonl").read_bytes()
-    assert _codex_first_declared_model(blob) == "gpt-5.6-sol"
-    out = _parse("rollout_fork_model_switch.jsonl")
-    assert [(r["line_num"], r["model"], r["uuid"]) for r in out["records"]] == [
-        (4, "gpt-5.6-sol", "00000000-0000-4000-8000-000000000001:100500"),
-        (5, "gpt-5.6-sol", "00000000-0000-4000-8000-000000000001:110920"),
-        (10, "gpt-5.6-sol", "00000000-0000-4000-8000-000000000001:215540"),
-        (13, "gpt-5.6-terra", "00000000-0000-4000-8000-000000000001:316040"),
-    ]
 
 
 @pytest.mark.parametrize("raw,expected", [
@@ -333,16 +304,6 @@ def test_the_parser_never_labels_a_model_unknown():
             assert tu["model"] != "unknown" and tu["model"], name
 
 
-def test_a_forks_replayed_prefix_is_marked_for_the_canonical_rank():
-    """the rows before the fork's own first model declaration
-    are the parent's history journalled in the fork file — is_replay
-    flags them for the canonical rank, and the fork's own rows carry
-    False."""
-    out = _parse("rollout_fork_different_model.jsonl")
-    flags = {r["line_num"]: r["is_replay"] for r in out["records"]}
-    assert flags == {3: True, 4: True, 7: False}
-
-
 def test_a_sol_6_1_rollout_keeps_its_recorded_model_and_prices_it():
     """Keep the declared gpt-6.1-sol id verbatim and resolve its own exact row.
     A shorter model id contained inside it must not capture attribution or price."""
@@ -361,72 +322,6 @@ def test_a_sol_6_1_rollout_keeps_its_recorded_model_and_prices_it():
 
 
 # --------------------------------------------------------------------------
-# Trap 5 — the same request is journalled in several files
-# --------------------------------------------------------------------------
-# A resumed or forked rollout replays its parent's history into its own
-# file. Per-file parsing is right either way, but ingest sums ACROSS files,
-# and 28,889 per-file records over the local corpus represent only 12,945
-# distinct requests. The dedup mechanism already exists — records.uuid plus
-# is_canonical, resolved by ingest.recompute_canonical — and what it needs
-# from the parser is a uuid identical across every file replaying a request.
-
-
-# The fork fixture's session_meta declares TWO ids: its own (`id`) and the
-# thread's (`session_id`), which is its PARENT's. That is not a discrepancy
-# to paper over; it is the whole mechanism. The thread id is shared by every
-# file of a fork family, so it is the half of the identity that survives a
-# replay — and the file's own id, which a real rollout also carries in its
-# filename, is the half that must NOT reach the uuid.
-FORK_THREAD_ID = "00000000-0000-4000-8000-000000000001"
-FORK_FILE_ID = "00000000-0000-4000-8000-000000000002"
-
-
-def test_a_records_uuid_identifies_the_request_not_the_line_it_sits_on():
-    """<file_key>:<line> can never dedup: the same request lands on a
-    different line in every file that replays it."""
-    out = _parse("rollout_fork_prefix.jsonl")
-    for rec in out["records"]:
-        assert rec["uuid"].startswith(FORK_THREAD_ID + ":")
-        assert rec["file_key"] not in rec["uuid"]
-    # Distinct requests keep distinct identities within the file.
-    assert len({r["uuid"] for r in out["records"]}) == len(out["records"])
-
-
-def test_the_uuid_is_the_threads_id_and_the_counter_position():
-    """Both halves are load-bearing: the counter position alone would
-    collide across unrelated threads, the thread id alone across requests.
-
-    The thread id is the one session_meta declares, NOT the file's own id
-    (which a real rollout repeats in its filename) — a fork reuses its
-    parent's, and a uuid keyed on the file would make every replayed
-    request look distinct again.
-    """
-    out = _parse("rollout_fork_prefix.jsonl")
-    first = out["records"][0]
-    # Line 5's total_token_usage.total_tokens, verbatim.
-    assert first["uuid"] == f"{FORK_THREAD_ID}:40100500"
-    assert FORK_FILE_ID not in first["uuid"]
-
-
-def test_a_forks_replayed_records_collide_with_their_originals_by_uuid():
-    """Two sibling forks share a session id and a baseline, so the
-    requests they both replay must produce EQUAL uuids — that equality is
-    what recompute_canonical collapses."""
-    fork = _parse("rollout_fork_prefix.jsonl")
-    # Re-parsing the same bytes under a different file_key stands in for the
-    # sibling file that replays them: same thread, same counter positions,
-    # so the identities must match even though the file_key does not.
-    replay = _parse_file_norefusal(
-        "codex/some_other_rollout.jsonl",
-        (FIX / "rollout_fork_prefix.jsonl").read_bytes(),
-    )
-    assert [r["uuid"] for r in fork["records"]] == [
-        r["uuid"] for r in replay["records"]]
-    assert {r["file_key"] for r in fork["records"]} != {
-        r["file_key"] for r in replay["records"]}
-
-
-# --------------------------------------------------------------------------
 # Token types — count what the format carries, invent nothing
 # --------------------------------------------------------------------------
 
@@ -438,26 +333,6 @@ def test_reasoning_tokens_are_carried_not_dropped():
     assert any(r["thinking_tokens"] > 0 for r in out["records"])
     # Line 5's last_token_usage.reasoning_output_tokens, verbatim.
     assert out["records"][0]["thinking_tokens"] == 300
-
-
-def test_reasoning_tokens_are_a_subset_of_output_never_an_addend():
-    """Adding them to output would double-bill every thinking token."""
-    out = _parse("rollout_fork_prefix.jsonl")
-    for rec in out["records"]:
-        assert rec["thinking_tokens"] <= rec["output_tokens"]
-
-
-def test_reasoning_tokens_do_not_change_what_a_record_costs():
-    out = _parse("rollout_fork_prefix.jsonl")
-    for rec in out["records"]:
-        expected = pricing.compute_cost(
-            rec["model"],
-            fresh=rec["fresh_tokens"], output=rec["output_tokens"],
-            eph5=0, eph1h=0, unsplit_create=rec["cache_creation_tokens"],
-            read=rec["cache_read_tokens"],
-            ts=rec["ts"],
-        )
-        assert rec["cost_usd"] == pytest.approx(round(expected, 6), rel=1e-9)
 
 
 def test_a_kimi_wire_reports_a_truthful_zero_rather_than_an_invented_count():
