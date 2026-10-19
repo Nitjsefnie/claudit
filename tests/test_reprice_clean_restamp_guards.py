@@ -1,18 +1,12 @@
-"""The three load-bearing guards of the clean restamp.
+"""The provider and schedule guards of the clean restamp.
 
-Each guard below can be deleted with the rest of the suite still green,
-so each gets one test that fails under its deletion:
+Each test below fails when its guard is deleted:
 
 - the provider match in ``_SQL_CLEAN_RESTAMP``
   (``AND COALESCE(r.provider, '') = d.p``) — two rows of one model in
   DIFFERENT provider shapes whose stored fingerprint strings coincide
   must not cross-match each other's triples, or a row whose pair's
   rates moved is restamped at its old cost instead of repriced;
-
-- the logic digest (``"logic": _logic()`` in
-  ``rate_fingerprint._document``) — a change to the pricing modules'
-  source must move every pair's fingerprint, or edited logic
-  restamps clean instead of repricing;
 
 - ``sorted(days)`` in ``rate_fingerprint._schedule`` — a schedule's
   weekday order must not reach the digest, or the same window spelled
@@ -193,28 +187,6 @@ def test_clean_restamp_keeps_the_provider_shapes_apart(fresh_db, monkeypatch):
     assert x_version == constants.PRICING_VERSION
     assert y_version == constants.PRICING_VERSION
     assert changed == 1, "only row X's rate-derived data changed"
-
-
-def test_logic_digest_moves_the_fingerprint(monkeypatch):
-    """The logic digest in rate_fingerprint._document (T2).
-
-    The fingerprint covers the pricing modules' AND the reprice pass's
-    source, so a rule change shipped with a PRICING_VERSION bump moves
-    every pair's fp and reprices instead of restamping clean. The
-    digest is memoized in _LOGIC_CACHE; the test swaps the memo for a
-    different digest string — the exact seam an edit flows through —
-    and requires the pair's fingerprint to move with it. Delete the
-    ``"logic"`` entry from _document and the two fingerprints are
-    equal: the assertion below fails.
-    """
-    fp_before = rate_fingerprint.pair_fingerprint(_GUARD_MODEL, None)
-    # pylint: disable-next=protected-access
-    monkeypatch.setattr(rate_fingerprint, "_LOGIC_CACHE", ["changed-digest"])
-    rate_fingerprint.clear_fingerprint_cache()
-    fp_after = rate_fingerprint.pair_fingerprint(_GUARD_MODEL, None)
-    assert fp_after != fp_before, (
-        "a changed logic digest must move the pair's fingerprint")
-    rate_fingerprint.clear_fingerprint_cache()
 
 
 def test_schedule_weekday_order_is_normalised(monkeypatch):

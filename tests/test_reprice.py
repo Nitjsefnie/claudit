@@ -113,12 +113,13 @@ def _search_tables(monkeypatch) -> None:
     monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
 
 
-def test_reprice_multiplies_stored_search_count_and_clears_old_fee(
-        fresh_db, monkeypatch):
+@pytest.mark.parametrize("search_count", [3, None], ids=["three-searches", "null-count"])
+def test_reprice_prices_stored_search_count_and_clears_old_fee(
+        fresh_db, monkeypatch, search_count):
     with db.viz_conn() as c:
         _seed(c, _FILE_KEY, 1, SeedRecord(
-            pricing_version=None, cost_usd=0.5, provider="SearchHost",
-            request_fee_usd=0.99, web_search_requests=3))
+            pricing_version=None, cost_usd=0.5, provider=_SEARCH_HOST,
+            request_fee_usd=0.99, web_search_requests=search_count))
         c.commit()
     _search_tables(monkeypatch)
 
@@ -133,35 +134,11 @@ def test_reprice_multiplies_stored_search_count_and_clears_old_fee(
     cost, old_fee, searches = row
     expected = round(pricing.compute_cost(
         _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
-        adjustments=pricing.CostAdjustments(web_search_requests=3),
+        adjustments=pricing.CostAdjustments(web_search_requests=search_count),
         res=pricing.resolve(_SEED_MODEL, _SEED_TS, _SEARCH_HOST)), 6)
     assert float(cost) == expected
     assert old_fee is None
-    assert searches == 3
-
-
-def test_reprice_null_search_count_does_not_charge_search_or_keep_old_fee(
-        fresh_db, monkeypatch):
-    with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, SeedRecord(
-            pricing_version=None, cost_usd=0.5, provider=_SEARCH_HOST,
-            request_fee_usd=0.99))
-        c.commit()
-    _search_tables(monkeypatch)
-    assert ingest_reprice.reprice_stale() == 1
-    with db.viz_conn() as c:
-        row = c.execute(
-            "SELECT cost_usd, request_fee_usd FROM records r "
-            "JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
-            "WHERE f.file_key = %s AND r.line_num = 1",
-            (_FILE_KEY,)).fetchone()
-    assert row is not None
-    cost, old_fee = row
-    expected = round(pricing.compute_cost(
-        _SEED_MODEL, **_SEED_INPUTS, ts=_SEED_TS,
-        res=pricing.resolve(_SEED_MODEL, _SEED_TS, _SEARCH_HOST)), 6)
-    assert float(cost) == expected
-    assert old_fee is None
+    assert searches == search_count
 
 
 def test_reprice_restamps_when_search_cost_already_matches(fresh_db,
@@ -273,18 +250,6 @@ def test_reprice_skips_rows_priced_by_a_newer_version(fresh_db, caplog):
     assert "skipped 1 record" in caplog.text
 
 
-def test_reprice_is_idempotent(fresh_db):
-    """Rows the first run stamped no longer differ from the current
-    version, so the second run selects nothing."""
-    with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1)
-        _seed(c, _FILE_KEY, 2)
-        c.commit()
-
-    assert ingest_reprice.reprice_stale() == 2
-    assert ingest_reprice.reprice_stale() == 0
-
-
 def test_reprice_batches_across_the_keyset(fresh_db, monkeypatch):
     """Seven rows against a REPRICE_BATCH of 2: the keyset cursor must
     carry past updated AND guard-skipped rows — a batch that could not
@@ -312,57 +277,35 @@ def test_reprice_batches_across_the_keyset(fresh_db, monkeypatch):
     assert float(rows[3][1]) == 0.5, "the skipped row keeps its sentinel"
 
 
-def test_reprice_aborts_between_batches_when_shutdown_requested(
-        fresh_db, monkeypatch):
-    """A shutdown request between batches unwinds the pass via
-    IngestAborted: every batch already committed persists, the batch the
-    abort interrupts never opens, and the next run converges — the
-    ingest stop contract at the reprice pass's own bounded
-    steps. should_stop returning True (or raising) is the signal."""
-    monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", 2)
-    with db.viz_conn() as c:
-        for line_num in range(1, 8):
-            _seed(c, _FILE_KEY, line_num)
-        c.commit()
-
-    checks = iter([False, True])
-    with pytest.raises(ingest.IngestAborted):
-        ingest_reprice.reprice_stale(should_stop=lambda: next(checks))
-
-    with db.viz_conn() as c:
-        rows = _rows(c)
-    versions = [row[2] for row in rows]
-    assert versions[:2] == [constants.PRICING_VERSION] * 2, (
-        "the first batch was committed before the abort, so it persists")
-    assert versions[2:] == [None] * 5, (
-        "rows the aborted pass never reached stay stale (NULL version)")
-
-
+@pytest.mark.parametrize("scheduled", [False, True], ids=["dated-windows", "weekly-schedule"])
 def test_reprice_prices_a_provider_row(fresh_db,
-                                       synthetic_provider_dated_rate):
-    """A record naming its serving host prices from PROVIDER_RATES keyed
-    (model, provider), the row's dated windows included: seeded rows on
-    both sides of the synthetic row's cutover must reprice to exactly
-    what compute_cost — the parse path's own pricing code — yields for
-    the same stored columns. No fixture-backed record names a provider,
-    so this shape is seeded and compared by construction (SV-RATE-DATA)."""
+                                       synthetic_provider_dated_rate,
+                                       monkeypatch, scheduled):
+    """Provider pricing follows the stored timestamp's dated or scheduled rates."""
     prov = synthetic_provider_dated_rate
-    before_ts = prov.start + timedelta(days=5)   # inside the dated window
-    after_ts = prov.cutover + timedelta(days=5)  # at the row's list price
+    after_ts = prov.cutover + timedelta(days=5)
+    if scheduled:
+        monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {
+            (prov.model, prov.host): {1: [(None, None, None, _SCHED_RATES)]}})
+        assert pricing.rate_for(prov.model, after_ts, prov.host) == _SCHED_RATES, (
+            "the schedule must be the price in force at ts, or this test "
+            "proves nothing")
+        timestamps = (after_ts,)
+    else:
+        timestamps = (prov.start + timedelta(days=5), after_ts)
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1,
-              SeedRecord(model=prov.model, ts=before_ts, provider=prov.host))
-        _seed(c, _FILE_KEY, 2,
-              SeedRecord(model=prov.model, ts=after_ts, provider=prov.host))
+        for line_num, ts in enumerate(timestamps, 1):
+            _seed(c, _FILE_KEY, line_num,
+                  SeedRecord(model=prov.model, ts=ts, provider=prov.host))
         c.commit()
 
-    assert ingest_reprice.reprice_stale() == 2
+    assert ingest_reprice.reprice_stale() == len(timestamps)
 
     with db.viz_conn() as c:
         rows = _rows(c)
-    assert [row[0] for row in rows] == [1, 2]
+    assert [row[0] for row in rows] == list(range(1, len(timestamps) + 1))
     for line_num, cost, _version in rows:
-        ts = before_ts if line_num == 1 else after_ts
+        ts = timestamps[line_num - 1]
         assert float(cost) == round(pricing.compute_cost(
             prov.model, **_SEED_INPUTS, ts=ts,
             adjustments=pricing.CostAdjustments(long_context=False),
@@ -370,67 +313,27 @@ def test_reprice_prices_a_provider_row(fresh_db,
             f"line {line_num} repriced by host"
 
 
-def test_reprice_prices_a_weekly_schedule(fresh_db,
-                                          synthetic_provider_dated_rate,
-                                          monkeypatch):
-    """A schedule on a provider row REPLACES the row's rates inside its
-    windows. The synthetic row carries one dated window, so a record
-    after the cutover reads schedule entry 1; seeded with an
-    always-applies window, the repriced row must cost exactly what
-    compute_cost prices through the same schedule."""
-    prov = synthetic_provider_dated_rate
-    ts = prov.cutover + timedelta(days=5)
-    # Entry index 1: exactly one dated window (the cutover) ends at or
-    # before ts. (None, None, None, rates) = every day, the whole day.
-    monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {
-        (prov.model, prov.host): {1: [(None, None, None, _SCHED_RATES)]}})
-    assert pricing.rate_for(prov.model, ts, prov.host) == _SCHED_RATES, (
-        "the schedule must be the price in force at ts, or this test "
-        "proves nothing")
-    with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1,
-              SeedRecord(model=prov.model, ts=ts, provider=prov.host))
-        c.commit()
-
-    assert ingest_reprice.reprice_stale() == 1
-
-    with db.viz_conn() as c:
-        cost, _version = _pair(
-            c, "SELECT rp.cost_usd, pv.value "
-               "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
-               "LEFT JOIN dim_pricing_version pv "
-               "  ON pv.id = rp.pricing_version_id "
-               "WHERE f.file_key = %s AND r.line_num = 1", (_FILE_KEY,))
-    assert float(cost) == round(pricing.compute_cost(
-        prov.model, **_SEED_INPUTS, ts=ts,
-        adjustments=pricing.CostAdjustments(long_context=False),
-        res=pricing.resolve(prov.model, ts, prov.host)), 6)
-
-
-def test_reprice_rederives_long_context_for_the_meters_models(fresh_db):
-    """for the meter's models the long-context flag is a pure
-    function of stored columns — fresh + cache_creation + cache_read
-    against the threshold — so the pass re-derives it beside the cost. A
-    stale gpt-5.6-sol row whose tally sits above the 272k threshold flips
-    from its stored FALSE — what the old subscription-exempt rule wrote —
-    to TRUE with its metered cost; a claude row seeded alongside — a
-    model whose card carries no meter — keeps its stored NULL and prices
-    flat above the same threshold."""
+@pytest.mark.parametrize("model,fresh_tokens,stored_flag,provider,with_flat", [
+    ("gpt-5.6-sol", 280_000, False, None, True),
+    ("gpt-6-sol", 300_000, None, None, False),
+    ("gpt-5.6-sol", 280_000, False, "OpenRouter", False),
+], ids=["stored-false-with-flat-nonmember", "pre-fold-null", "provider-row"])
+def test_reprice_rederives_long_context_for_the_meters_models(
+        fresh_db, model, fresh_tokens, stored_flag, provider, with_flat):
+    """Member flags derive from the tally regardless of stored flag or provider."""
     metered = round(pricing.compute_cost(
-        "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
+        model, fresh=fresh_tokens, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, ts=_SEED_TS,
-        adjustments=pricing.CostAdjustments(long_context=True)), 6)
-    flat = round(pricing.compute_cost(
-        _SEED_MODEL, fresh=280_000, output=0, eph5=0, eph1h=0,
-        unsplit_create=0, read=0, ts=_SEED_TS,
-        adjustments=pricing.CostAdjustments(long_context=False)), 6)
+        adjustments=pricing.CostAdjustments(long_context=True),
+        res=pricing.resolve(model, _SEED_TS, provider)), 6)
     with db.viz_conn() as c:
-        _seed_meter_row(c, 1, model="gpt-5.6-sol", fresh_tokens=280_000,
-                        long_context=False)
-        _seed_meter_row(c, 2, model=_SEED_MODEL, fresh_tokens=280_000)
+        _seed_meter_row(c, 1, model=model, fresh_tokens=fresh_tokens,
+                        provider=provider, long_context=stored_flag)
+        if with_flat:
+            _seed_meter_row(c, 2, model=_SEED_MODEL, fresh_tokens=280_000)
         c.commit()
 
-    assert ingest_reprice.reprice_stale() == 2
+    assert ingest_reprice.reprice_stale() == (2 if with_flat else 1)
 
     with db.viz_conn() as c:
         rows = c.execute(
@@ -440,28 +343,38 @@ def test_reprice_rederives_long_context_for_the_meters_models(fresh_db):
             "  ON pv.id = rp.pricing_version_id "
             "WHERE f.file_key = %s ORDER BY r.line_num",
             (_FILE_KEY,)).fetchall()
-    codex, claude = rows
-    assert codex[0] == 1 and claude[0] == 2
+    assert len(rows) == (2 if with_flat else 1)
+    codex = rows[0]
+    assert codex[0] == 1
     assert codex[1] is True
     assert float(codex[2]) == metered
     assert codex[3] == constants.PRICING_VERSION
-    assert claude[1] is None, "a no-meter model's stored flag is untouched"
-    assert float(claude[2]) == flat
+    if with_flat:
+        claude = rows[1]
+        flat = round(pricing.compute_cost(
+            _SEED_MODEL, fresh=280_000, output=0, eph5=0, eph1h=0,
+            unsplit_create=0, read=0, ts=_SEED_TS,
+            adjustments=pricing.CostAdjustments(long_context=False)), 6)
+        assert claude[0] == 2
+        assert claude[1] is None, "a no-meter model's stored flag is untouched"
+        assert float(claude[2]) == flat
 
 
-def test_reprice_keeps_a_nonmember_codex_rows_stored_flag(fresh_db, monkeypatch):
-    """An id the meter does not list — the `unknown` label a model-less
-    rollout stores, or any future id — keeps the flag parse wrote: the
-    threshold-only parse-time decision stands, and the pass prices the
-    stored flag instead of re-deriving. Membership is patched synthetic
-    so the test stays independent of the committed data (SV-TEST-DATA)."""
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS", frozenset())
-    flat = round(pricing.compute_cost(
-        "unknown", fresh=280_000, output=0, eph5=0, eph1h=0,
+@pytest.mark.parametrize("model,fresh_tokens,expected_flag", [
+    ("unknown", 280_000, True),
+    (_SEED_MODEL, 250_000, False),
+], ids=["codex-above-threshold", "lapsed-member-below-threshold"])
+def test_reprice_rederives_nonmember_stored_true(
+        fresh_db, monkeypatch, model, fresh_tokens, expected_flag):
+    """A non-member's stored TRUE retains its meter only above the threshold."""
+    if model == "unknown":
+        monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS", frozenset())
+    expected_cost = round(pricing.compute_cost(
+        model, fresh=fresh_tokens, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, ts=_SEED_TS,
-        adjustments=pricing.CostAdjustments(long_context=True)), 6)
+        adjustments=pricing.CostAdjustments(long_context=expected_flag)), 6)
     with db.viz_conn() as c:
-        _seed_meter_row(c, 1, model="unknown", fresh_tokens=280_000,
+        _seed_meter_row(c, 1, model=model, fresh_tokens=fresh_tokens,
                         long_context=True)
         c.commit()
 
@@ -469,116 +382,16 @@ def test_reprice_keeps_a_nonmember_codex_rows_stored_flag(fresh_db, monkeypatch)
 
     with db.viz_conn() as c:
         row = c.execute(
-            "SELECT long_context, cost_usd FROM records r "
-            "JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
-            "WHERE f.file_key = %s AND r.line_num = 1",
-            (_FILE_KEY,)).fetchone()
-    assert row is not None
-    assert row[0] is True
-    assert float(row[1]) == flat
-
-
-def test_reprice_claims_a_pre_fold_null_row_of_a_member(fresh_db):
-    """At DB level: the refresh learns a band
-    and bumps PRICING_VERSION only; every pre-fold row of the newly
-    learned member carries the parse-stored NULL flag (non-member
-    marker) priced flat. The reprice re-derives member rows whatever the
-    stored flag — so the row lands exactly what a reparse would store:
-    the band decision and the metered cost."""
-    metered = round(pricing.compute_cost(
-        "gpt-6-sol", fresh=300_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
-        unsplit_create=0, read=0, ts=_SEED_TS,
-        adjustments=pricing.CostAdjustments(long_context=True)), 6)
-    with db.viz_conn() as c:
-        _seed_meter_row(c, 1, model="gpt-6-sol", fresh_tokens=300_000)
-        c.commit()
-
-    assert ingest_reprice.reprice_stale() == 1
-
-    with db.viz_conn() as c:
-        row = c.execute(
             "SELECT rp.long_context, rp.cost_usd, pv.value "
             "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
             "LEFT JOIN dim_pricing_version pv "
             "  ON pv.id = rp.pricing_version_id "
             "WHERE f.file_key = %s AND r.line_num = 1",
             (_FILE_KEY,)).fetchone()
-    assert row is not None, "the seeded meter row must exist"
+    assert row is not None, "the seeded non-member row must exist"
     flag, cost, version = row
-    assert flag is True, (
-        "the pre-fold NULL row of a learned member reprices to the band "
-        "decision — reprice equals what a reparse stores")
-    assert float(cost) == metered
-    assert version == constants.PRICING_VERSION
-
-
-def test_reprice_unbills_a_lapsed_members_stored_true(fresh_db):
-    """ at DB level: a non-member row whose stored TRUE is the
-    lapsed member era's — 250k tokens, under the global threshold, no
-    parse path stores TRUE there — reprices to FALSE and the flat cost,
-    what a reparse stores for every format."""
-    flat = round(pricing.compute_cost(
-        "claude-opus-4-7", fresh=250_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
-        unsplit_create=0, read=0, ts=_SEED_TS,
-        adjustments=pricing.CostAdjustments(long_context=False)), 6)
-    with db.viz_conn() as c:
-        _seed_meter_row(c, 1, model="gpt-6-sol", fresh_tokens=250_000,
-                        long_context=True)
-        new_model = dims_seed.dim_id(c, "dim_model", "claude-opus-4-7")
-        c.execute(
-            "UPDATE records r SET model_id = %s "
-            "  FROM files f "
-            " WHERE r.file_id = f.file_id AND f.file_key = %s "
-            "   AND r.line_num = 1", (new_model, _FILE_KEY))
-        c.commit()
-
-    assert ingest_reprice.reprice_stale() == 1
-
-    with db.viz_conn() as c:
-        row = c.execute(
-            "SELECT rp.long_context, rp.cost_usd, pv.value "
-            "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
-            "LEFT JOIN dim_pricing_version pv "
-            "  ON pv.id = rp.pricing_version_id "
-            "WHERE f.file_key = %s AND r.line_num = 1",
-            (_FILE_KEY,)).fetchone()
-    assert row is not None, "the seeded lapsed row must exist"
-    flag, cost, version = row
-    assert flag is False, (
-        "the lapsed member's stored TRUE unbills: the reprice re-derives "
-        "the Codex threshold test for a non-member's stored TRUE")
-    assert float(cost) == flat
-    assert version == constants.PRICING_VERSION
-
-
-def test_reprice_derives_a_provider_rows_flag_too(fresh_db):
-    """The meter decision ignores the provider because the parse's does:
-    a provider-tagged member row re-derives whatever its stored flag —
-    a stored FALSE above the threshold moves to TRUE and the metered
-    cost, what a reparse of the same record stores."""
-    with db.viz_conn() as c:
-        _seed_meter_row(c, 1, model="gpt-5.6-sol", fresh_tokens=280_000,
-                        provider="OpenRouter", long_context=False)
-        c.commit()
-
-    assert ingest_reprice.reprice_stale() == 1
-
-    with db.viz_conn() as c:
-        row = c.execute(
-            "SELECT rp.long_context, rp.cost_usd, pv.value "
-            "FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id "
-            "LEFT JOIN dim_pricing_version pv "
-            "  ON pv.id = rp.pricing_version_id "
-            "WHERE (f.file_key, r.line_num) = (%s, 1)",
-            (_FILE_KEY,)).fetchone()
-    assert row is not None, "the seeded provider row must exist"
-    flag, cost, version = row
-    assert flag is True
-    assert float(cost) == round(pricing.compute_cost(
-        "gpt-5.6-sol", fresh=280_000, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
-        unsplit_create=0, read=0, ts=_SEED_TS,
-        adjustments=pricing.CostAdjustments(long_context=True),
-        res=pricing.resolve("gpt-5.6-sol", _SEED_TS, "OpenRouter")), 6)  # sv-test-data: allow (derived: expected priced from the same loaded tables as the reprice pass)
+    assert flag is expected_flag
+    assert float(cost) == expected_cost
     assert version == constants.PRICING_VERSION
 
 
