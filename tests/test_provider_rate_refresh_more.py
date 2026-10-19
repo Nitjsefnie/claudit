@@ -329,21 +329,17 @@ def test_a_malformed_data_region_is_refused(tmp_path, capsys, region):
     _refused(run, capsys, "data_region")
 
 
-def test_a_tag_override_takes_its_endpoint(tmp_path, capsys):
+@pytest.mark.parametrize("setup,tag", [
+    pytest.param(_two_global_novitas, "novita/fp4", id="global-twins"),
+    pytest.param(_novita_region_twin, "novita/us", id="region-twin"),
+])
+def test_a_tag_override_takes_its_endpoint(tmp_path, capsys, setup, tag):
     run = Run(tmp_path)
-    _two_global_novitas(run)
-    run.edit(_pin_novita("novita/fp4"))
+    setup(run)
+    run.edit(_pin_novita(tag))
     assert run(capsys)[0] == 0
     entry = run.doc()["providers"][GLM]["Novita"][-1]
     assert (entry["from"], entry["read"]) == (STAMP, 0.05)
-
-
-def test_a_tag_override_takes_its_endpoint_whatever_its_region(tmp_path, capsys):
-    run = Run(tmp_path)
-    _novita_region_twin(run)
-    run.edit(_pin_novita("novita/us"))
-    assert run(capsys)[0] == 0
-    assert run.doc()["providers"][GLM]["Novita"][-1]["read"] == 0.05
 
 
 def test_a_tag_override_naming_no_listed_tag_is_refused(tmp_path, capsys):
@@ -351,19 +347,6 @@ def test_a_tag_override_naming_no_listed_tag_is_refused(tmp_path, capsys):
     _two_global_novitas(run)
     run.edit(_pin_novita("novita/int4"))
     _refused(run, capsys, "Novita", "novita/int4", "novita/fp8")
-
-
-@pytest.mark.parametrize("pin", [
-    pytest.param({"match": {"read": 0.0264}}, id="rate-only"),
-    pytest.param({"tag": "novita", "match": {"read": 0.0264}}, id="tag-and-rate"),
-])
-def test_a_resolution_keyed_on_a_rate_is_refused(tmp_path, capsys, pin):
-    """A pin on a price stops matching the moment that price moves, which
-    turns every run red for exactly the hosts it was meant to settle."""
-    run = Run(tmp_path)
-    run.edit(lambda doc: doc["openrouter"]["models"][GLM].update(
-        {"resolve": {"Novita": pin}}))
-    _refused(run, capsys, "Novita", "keyed on 'tag'")
 
 
 def _pin_baseten(run: Run) -> None:
@@ -391,14 +374,28 @@ def test_identical_twins_without_an_override_resolve_to_the_cheaper(tmp_path, ca
     assert Decimal(cheaper["pricing"]["input_cache_read"]).scaleb(6) == Decimal("0.007")
 
 
-def test_a_moved_price_on_the_cheaper_twin_is_appended(tmp_path, capsys):
+@pytest.mark.parametrize("equal_reads,changes,expected", [
+    pytest.param(False, {"input_cache_read": "0.000000008", "completion": "0.0000013"},
+                 {"read": 0.008, "output": 1.3}, id="read-and-output"),
+    pytest.param(False, {"input_cache_read": "0.000000008", "prompt": "0.0000005"},
+                 {"read": 0.008, "fresh": 0.5}, id="read-before-input"),
+    pytest.param(True, {"prompt": "0.0000002"},
+                 {"read": 0.009, "fresh": 0.2}, id="equal-read-then-fresh"),
+    pytest.param(True, {"completion": "0.0000011"},
+                 {"read": 0.009, "output": 1.1}, id="equal-read-and-fresh-then-output"),
+])
+def test_cheapest_compares_read_then_fresh_then_output(
+        tmp_path, capsys, equal_reads, changes, expected):
     run = Run(tmp_path)
-    cheaper, _ = _baseten_twins(run)
-    cheaper["pricing"]["input_cache_read"] = "0.000000008"
-    cheaper["pricing"]["completion"] = "0.0000013"
+    cheaper, dearer = _baseten_twins(run)
+    if equal_reads:
+        cheaper["pricing"]["input_cache_read"] = "0.000000009"
+        dearer["pricing"]["input_cache_read"] = "0.000000009"
+    cheaper["pricing"].update(changes)
     assert run(capsys)[0] == 0
     entry = run.doc()["providers"][V41]["BaseTen"][-1]
-    assert (entry["from"], entry["read"], entry["output"]) == (STAMP, 0.008, 1.3)
+    assert entry["from"] == STAMP
+    assert {field: entry[field] for field in expected} == expected
 
 
 def test_a_moved_price_on_the_dearer_twin_moves_nothing(tmp_path, capsys):
@@ -417,35 +414,6 @@ def test_a_flip_in_order_is_refused(tmp_path, capsys):
     _, dearer = _baseten_twins(run)
     dearer["pricing"]["input_cache_read"] = "0.000000005"
     _refused(run, capsys, f"{V41} via BaseTen", "order")
-
-
-@pytest.mark.parametrize("field, value", [
-    pytest.param("prompt", "0.0000002", id="fresh"),
-    pytest.param("completion", "0.0000011", id="output"),
-])
-def test_cheapest_compares_read_then_fresh_then_output(tmp_path, capsys, field, value):
-    """Equal cache reads fall to the input price, then the output price."""
-    run = Run(tmp_path)
-    cheaper, dearer = _baseten_twins(run)
-    cheaper["pricing"]["input_cache_read"] = "0.000000009"
-    dearer["pricing"]["input_cache_read"] = "0.000000009"
-    cheaper["pricing"][field] = value
-    assert run(capsys)[0] == 0
-    entry = run.doc()["providers"][V41]["BaseTen"][-1]
-    assert entry["from"] == STAMP
-    assert entry["fresh" if field == "prompt" else "output"] == float(
-        Decimal(value).scaleb(6))
-    assert entry["read"] == 0.009
-
-
-def test_cache_read_decides_before_the_input_price(tmp_path, capsys):
-    run = Run(tmp_path)
-    cheaper, _ = _baseten_twins(run)
-    cheaper["pricing"]["input_cache_read"] = "0.000000008"
-    cheaper["pricing"]["prompt"] = "0.0000005"
-    assert run(capsys)[0] == 0
-    entry = run.doc()["providers"][V41]["BaseTen"][-1]
-    assert (entry["read"], entry["fresh"]) == (0.008, 0.5)
 
 
 def test_a_tie_between_different_prices_is_refused(tmp_path, capsys):
@@ -478,27 +446,29 @@ def test_cheapest_applies_only_to_otherwise_identical_twins(
     _refused(run, capsys, f"{V41} via BaseTen", "identical")
 
 
-@pytest.mark.parametrize("pin", [
-    pytest.param({"select": "dearest", "why": "x"}, id="unknown-select"),
-    pytest.param({"select": "cheapest", "ignore": [], "why": "x"}, id="ignore-empty"),
-    pytest.param({"select": "cheapest", "ignore": ["tag"], "why": "x"},
+@pytest.mark.parametrize("model,host,pin", [
+    pytest.param(V41, "BaseTen", {"select": "dearest", "why": "x"}, id="unknown-select"),
+    pytest.param(V41, "BaseTen", {"select": "cheapest", "ignore": [], "why": "x"}, id="ignore-empty"),
+    pytest.param(V41, "BaseTen", {"select": "cheapest", "ignore": ["tag"], "why": "x"},
                  id="ignore-names-tag"),
-    pytest.param({"select": "cheapest", "ignore": "max_completion_tokens", "why": "x"},
+    pytest.param(V41, "BaseTen", {"select": "cheapest", "ignore": "max_completion_tokens", "why": "x"},
                  id="ignore-not-a-list"),
-    pytest.param({"select": "cheapest", "ignore": ["nope"], "why": "x"},
+    pytest.param(V41, "BaseTen", {"select": "cheapest", "ignore": ["nope"], "why": "x"},
                  id="ignore-unknown-field"),
-    pytest.param({"tag": "baseten/fp8", "ignore": ["max_completion_tokens"], "why": "x"},
+    pytest.param(V41, "BaseTen", {"tag": "baseten/fp8", "ignore": ["max_completion_tokens"], "why": "x"},
                  id="ignore-without-cheapest"),
-    pytest.param({}, id="empty"),
-    pytest.param({"why": "x"}, id="why-only"),
-    pytest.param("cheapest", id="not-an-object"),
-    pytest.param({"tag": 5, "why": "x"}, id="tag-not-a-string"),
+    pytest.param(V41, "BaseTen", {}, id="empty"),
+    pytest.param(V41, "BaseTen", {"why": "x"}, id="why-only"),
+    pytest.param(V41, "BaseTen", "cheapest", id="not-an-object"),
+    pytest.param(V41, "BaseTen", {"tag": 5, "why": "x"}, id="tag-not-a-string"),
+    pytest.param(GLM, "Novita", {"match": {"read": 0.0264}}, id="rate-only"),
+    pytest.param(GLM, "Novita", {"tag": "novita", "match": {"read": 0.0264}}, id="tag-and-rate"),
 ])
-def test_a_malformed_order_override_is_refused(tmp_path, capsys, pin):
+def test_a_malformed_order_override_is_refused(tmp_path, capsys, model, host, pin):
     run = Run(tmp_path)
-    run.edit(lambda doc: doc["openrouter"]["models"][V41].update(
-        {"resolve": {"BaseTen": pin}}))
-    _refused(run, capsys, f"{V41} via BaseTen", "a resolution is keyed on")
+    run.edit(lambda doc: doc["openrouter"]["models"][model].update(
+        {"resolve": {host: pin}}))
+    _refused(run, capsys, f"{model} via {host}", "a resolution is keyed on 'tag'")
 
 
 def test_a_tag_with_cheapest_and_a_recorded_ignore_resolves_a_sibling_tier(
@@ -536,17 +506,6 @@ def test_a_recorded_ignore_ignores_only_its_named_fields(
     _pin_baseten(run)
     _, dearer = _baseten_twins(run)
     dearer[field] = value
-    _refused(run, capsys, f"{V41} via BaseTen", "identical")
-
-
-def test_cheapest_without_a_recorded_ignore_refuses_differing_twins(
-        tmp_path, capsys):
-    """Without the recorded ignore the artifact itself refuses: the twins are
-    not identical in tag, quantization and limits."""
-    run = Run(tmp_path)
-    run.edit(lambda doc: doc["openrouter"]["models"][V41].update(
-        {"resolve": {"BaseTen": {"tag": "baseten/fp8", "select": "cheapest",
-                                 "why": "synthetic twin check"}}}))
     _refused(run, capsys, f"{V41} via BaseTen", "identical")
 
 

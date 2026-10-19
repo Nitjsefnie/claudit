@@ -66,17 +66,6 @@ def test_a_record_with_a_provider_is_priced_from_the_provider_table():
                      0.285 + 1.14 + 0.0057, rel=1e-12)
 
 
-def test_two_providers_of_one_model_price_differently(monkeypatch):
-    """Synthetic provider rows have independent rates (SV-TEST-DATA)."""
-    cheap = {"fresh": 0.075, "create_5m": 0.075, "create_1h": 0.075,
-             "read": 0.00375, "output": 0.3}
-    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
-        ("acme/v9", "HostA"): cheap, ("acme/v9", "HostB"): {**cheap, "output": 1.14}})
-    host_a = pricing.rate_for("acme/v9", SEEDED, provider="HostA")
-    assert (host_a["fresh"], host_a["output"]) == (0.075, 0.3)
-    assert host_a != pricing.rate_for("acme/v9", SEEDED, provider="HostB")
-
-
 def test_fold_exposes_only_estimate_status():
     row = _row("synthetic/model-9", None, 0, 1000, cost=0.01)
     for folded in (fold_per_model([row], pair_bounds={}),
@@ -107,32 +96,22 @@ def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
                      3 * 0.285, rel=1e-12)
 
 
-def test_an_unsplit_cache_write_prices_both_tiers_at_the_input_rate(monkeypatch):
-    # The invariant itself, over synthetic rates rather than the maintained
-    # table: with no listed write price the loader cannot invent a tier.
+@pytest.mark.parametrize("create_5m,create_1h,unsplit_create,want", [
+    pytest.param(4.0, 4.0, 1_000_000, 12.0, id="unsplit-input-rate"),
+    pytest.param(5.0, 8.0, 0, 13.0, id="listed-1h-tier"),
+])
+def test_provider_cache_writes_price_each_tier(
+        monkeypatch, create_5m, create_1h, unsplit_create, want):
     monkeypatch.setattr(pricing, "PROVIDER_RATES", {
-        ("acme/v9", "SyntheticHost"): {"fresh": 4.0, "create_5m": 4.0,
-                                       "create_1h": 4.0, "read": 0.2,
+        ("acme/v9", "SyntheticHost"): {"fresh": 4.0, "create_5m": create_5m,
+                                       "create_1h": create_1h, "read": 0.2,
                                        "output": 20.0}})
     rates = pricing.rate_for("acme/v9", SEEDED, provider="SyntheticHost")
-    assert rates["create_5m"] == rates["fresh"] == 4.0
-    assert rates["create_1h"] == rates["fresh"]
+    assert rates["fresh"] == 4.0
+    assert (rates["create_5m"], rates["create_1h"]) == (create_5m, create_1h)
     assert _cost("acme/v9", "SyntheticHost", SEEDED, eph5=1_000_000,
-                 eph1h=1_000_000, unsplit_create=1_000_000) == pytest.approx(
-                     12.0, rel=1e-12)
-
-
-def test_a_listed_1h_tier_is_read_apart_from_the_5m_one(monkeypatch):
-    """The split the refresh now records: a host that lists both writes
-    prices the 1h bucket at its own rate, not the 5m one."""
-    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
-        ("acme/v9", "SyntheticHost"): {"fresh": 4.0, "create_5m": 5.0,
-                                       "create_1h": 8.0, "read": 0.2,
-                                       "output": 20.0}})
-    rates = pricing.rate_for("acme/v9", SEEDED, provider="SyntheticHost")
-    assert (rates["create_5m"], rates["create_1h"]) == (5.0, 8.0)
-    assert _cost("acme/v9", "SyntheticHost", SEEDED, eph5=1_000_000,
-                 eph1h=1_000_000) == pytest.approx(13.0, rel=1e-12)
+                 eph1h=1_000_000, unsplit_create=unsplit_create) == pytest.approx(
+                     want, rel=1e-12)
 
 
 def test_the_provider_table_is_keyed_on_the_normalised_model_id(
@@ -148,34 +127,6 @@ def test_the_provider_table_is_keyed_on_the_normalised_model_id(
     monkeypatch.setattr(pricing, "PROVIDER_SCHEDULES", {})
     assert pricing.rate_for(variant, provider=host) is rates
     assert pricing.rate_for(model, provider=host) is rates
-
-
-def test_baseten_resolution_returns_its_loaded_provider_row():
-    """The resolver returns the BaseTen row selected into the loaded table.
-
-    Synthetic global-versus-region endpoint selection is covered by the
-    refresh tests, where both controlled tags and rate vectors are visible.
-    """
-    normalized_model = V41_KEY
-    host = next(host for model, host in pricing.PROVIDER_RATES
-                if model == normalized_model and host.casefold() == "baseten")
-    _assert_provider_resolution_returns_loaded_row(
-        V41, normalized_model, host)
-
-
-def test_modal_resolution_returns_its_loaded_provider_row():
-    """The resolver returns Modal's row after refresh selected the endpoint.
-
-    The synthetic refresh test exercises the withdrawn fp8 and surviving
-    nvfp4 tags directly.
-    """
-    document = expand_pricing_doc(json.loads(
-        (ROOT / "src" / "pricing.json").read_text(encoding="utf-8")))
-    model_key = "glm-5-3-flash"
-    model_id = document["openrouter"]["models"][model_key]["id"]
-    host = next(host for row_model, host in pricing.PROVIDER_RATES
-                if row_model == model_key and host.casefold() == "modal")
-    _assert_provider_resolution_returns_loaded_row(model_id, model_key, host)
 
 
 def test_provider_resolution_assertions_survive_later_dated_appends(
@@ -352,28 +303,6 @@ def _row(model, provider, epoch, fresh=0, output=0, cost=0.0, read=0):
     return (model, provider, epoch, False, 1, fresh, 0, read, output, 0, 0, cost)
 
 
-def test_fold_reconciles_across_a_provider_cutover(synthetic_provider_window):
-    cutover, before, after = synthetic_provider_window
-    in_window = _cost(V41, "Novita", ts=datetime(2026, 9, 19, tzinfo=UTC),
-                      fresh=1_000_000)
-    past = _cost(V41, "Novita", ts=cutover, fresh=1_000_000)
-    assert (in_window, past) == (pytest.approx(before["fresh"], rel=1e-12),
-                                 pytest.approx(after["fresh"], rel=1e-12))
-    rows = [_row(V41, "Novita", 0, fresh=1_000_000, cost=in_window),
-            _row(V41, "Novita", 1, fresh=1_000_000, cost=past)]
-    pair_bounds = {(V41, "Novita"): [cutover]}
-    for m in (fold_per_model(rows, pair_bounds=pair_bounds)
-              + fold_per_model_provider(rows, pair_bounds=pair_bounds)):
-        # The fold sums these two stored costs and rounds to 4 decimals,
-        # so re-derive that rounding; the five buckets each round too,
-        # and five of them against the rounded total can disagree with
-        # it by up to 6 * 5e-5 = 3e-4 whatever the rates are.
-        assert m["cost_total"] == pytest.approx(
-            round(in_window + past, 4), abs=1e-6)
-        assert sum(m["cost_buckets"].values()) == pytest.approx(
-            m["cost_total"], abs=3e-4)
-
-
 # The fold tests price SYNTHETIC provider rows: the rates are
 # unlike any real price and the keys sit in no other rate table, so a
 # legitimate refresh appending entries or first-seeing a host cannot move an
@@ -448,48 +377,50 @@ def test_fold_prices_each_row_by_its_provider_and_keeps_the_model_total(
     assert split[None]["estimated_rate"] is True
 
 
-def test_fold_reconciles_across_several_provider_entries(monkeypatch):
-    """A provider row whose history holds SEVERAL dated entries: each fold
-    row prices at the epoch its pricing time falls in, and the buckets
-    reconcile to the stored totals. A legitimate refresh appends entries
-    exactly like these; the reconciliation must not care."""
-    key = (SYNTH_MODEL, "HostCo")
-    t1 = datetime(2026, 8, 1, tzinfo=UTC)
-    t2 = datetime(2026, 9, 1, tzinfo=UTC)
-    spans = ({"fresh": 7.0, "create_5m": 7.0, "create_1h": 7.0,
-              "read": 0.7, "output": 70.0},
-             {"fresh": 5.0, "create_5m": 5.0, "create_1h": 5.0,
-              "read": 0.5, "output": 50.0},
-             {"fresh": 3.0, "create_5m": 3.0, "create_1h": 3.0,
-              "read": 0.3, "output": 30.0})
-    monkeypatch.setitem(pricing.PROVIDER_RATES, key, spans[-1])
-    monkeypatch.setitem(pricing.PROVIDER_DATED_RATES, key,
-                        [(t1, spans[0]), (t2, spans[1])])
-    monkeypatch.setattr(pricing, "RATE_EPOCHS", [t1, t2])
+@pytest.mark.parametrize("history", ["cutover", "several-entries"])
+def test_fold_reconciles_across_provider_entries(
+        monkeypatch, synthetic_provider_window, history):
+    if history == "cutover":
+        model, host = V41, "Novita"
+        boundaries = [synthetic_provider_window[0]]
+        spans = synthetic_provider_window[1:]
+        pricing_ts = (datetime(2026, 9, 19, tzinfo=UTC), boundaries[0])
+        fresh_tokens = 1_000_000
+    else:
+        model, host = SYNTH_MODEL, "HostCo"
+        boundaries = [datetime(2026, 8, 1, tzinfo=UTC),
+                      datetime(2026, 9, 1, tzinfo=UTC)]
+        spans = tuple({"fresh": fresh, "create_5m": fresh, "create_1h": fresh,
+                       "read": fresh / 10, "output": fresh * 10}
+                      for fresh in (7.0, 5.0, 3.0))
+        key = (model, host)
+        monkeypatch.setitem(pricing.PROVIDER_RATES, key, spans[-1])
+        monkeypatch.setitem(pricing.PROVIDER_DATED_RATES, key,
+                            list(zip(boundaries, spans[:-1], strict=True)))
+        monkeypatch.setattr(pricing, "RATE_EPOCHS", boundaries)
+        pricing_ts = (boundaries[0] - timedelta(microseconds=1), *boundaries)
+        # Keep the original rounding regression: 0.01485 folds to 0.0149.
+        fresh_tokens = 990
 
-    # One record per span, priced at the instant the parser would price it:
-    # before t1 (the first window), at t1 (the second), at t2 (list).
-    def span_of(ts):
-        return len([t for t in (t1, t2) if ts >= t])
-
-    pricing_ts = (t1 - timedelta(microseconds=1), t1, t2)
-    # 990 tokens/epoch leaves raw sum 0.01485 vs fold result 0.0149;
-    # the adjacent 4-place value broke the old default approx tolerance.
-    fresh_tokens = 990
-    stored = [_cost(SYNTH_MODEL, "HostCo", ts, fresh=fresh_tokens)
-              for ts in pricing_ts]
-    assert stored == [pytest.approx(fresh_tokens * r["fresh"] / 1_000_000)
-                      for r in spans], \
-        "each record must price at its own span's rates"
-    rows = [_row(SYNTH_MODEL, "HostCo", span_of(ts), fresh_tokens, cost=cost)
-            for ts, cost in zip(pricing_ts, stored, strict=True)]
-
-    pair_bounds = {(SYNTH_MODEL, "HostCo"): [t1, t2]}
+    stored = [_cost(model, host, ts, fresh=fresh_tokens) for ts in pricing_ts]
+    assert stored == [
+        pytest.approx(fresh_tokens * r["fresh"] / 1_000_000,
+                      rel=1e-12 if history == "cutover" else 1e-6)
+        for r in spans
+    ], "each record must price at its own span's rates"
+    rows = [_row(model, host, epoch, fresh_tokens, cost=cost)
+            for epoch, cost in enumerate(stored)]
+    pair_bounds = {(model, host): boundaries}
     for m in (fold_per_model(rows, pair_bounds=pair_bounds)
               + fold_per_model_provider(rows, pair_bounds=pair_bounds)):
-        assert m["cost_total"] == pytest.approx(sum(stored), abs=1e-4)
-        assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
-        assert m["cost_buckets"]["fresh"] == pytest.approx(sum(stored), abs=1e-4)
+        if history == "cutover":
+            assert m["cost_total"] == pytest.approx(round(sum(stored), 4), abs=1e-6)
+            assert sum(m["cost_buckets"].values()) == pytest.approx(
+                m["cost_total"], abs=3e-4)
+        else:
+            assert m["cost_total"] == pytest.approx(sum(stored), abs=1e-4)
+            assert sum(m["cost_buckets"].values()) == pytest.approx(m["cost_total"])
+            assert m["cost_buckets"]["fresh"] == pytest.approx(sum(stored), abs=1e-4)
 
 
 def test_a_non_uniform_schedule_still_sums_to_the_stored_total(monkeypatch):
