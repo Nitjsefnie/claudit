@@ -556,11 +556,23 @@ class TestRefreshPricingShards:
 
 class TestPerturbedSuiteExploreShards:
     def setup_method(self) -> None:
-        self.job = yaml.safe_load(
+        self.jobs = yaml.safe_load(
             (WORKFLOWS_DIR / "test-data-explore.yml").read_text(encoding="utf-8")
-        )["jobs"]["perturbed-suite-explore"]
+        )["jobs"]
+        self.job = self.jobs["perturbed-suite-explore"]
         self.step = next(step for step in self.job["steps"]
                          if step.get("name") == "Perturb and test, per wall-clock seed")
+
+    def test_seeds_job_exposes_one_wall_clock_draw_to_all_cells(self) -> None:
+        seeds = self.jobs["seeds"]
+        assert self.job["needs"] == "seeds"
+        assert seeds["runs-on"] == "ubuntu-latest"
+        assert seeds["timeout-minutes"] == 5
+        assert seeds["outputs"] == {"seed-base": "${{ steps.draw.outputs.seed_base }}"}
+        assert seeds["steps"] == [{
+            "id": "draw",
+            "run": 'echo "seed_base=$(date +%s)" >> "$GITHUB_OUTPUT"',
+        }]
 
     def test_three_seeds_run_four_shards_without_cancellation(self) -> None:
         assert self.job["strategy"] == {
@@ -577,7 +589,10 @@ class TestPerturbedSuiteExploreShards:
 
     def test_cell_perturbs_one_wall_clock_seed_and_runs_its_shard(self) -> None:
         run = self.step["run"]
-        assert run.count('SEED="$(date +%s)"') == 1
+        assert [line for line in run.splitlines() if line.startswith("SEED=")] == [
+            'SEED="$(( ${{ needs.seeds.outputs.seed-base }} + ${{ matrix.seed-index }} ))"'
+        ]
+        assert "date +%s" not in run
         assert 'for ' not in run
         perturb = 'python scripts/ci/perturb_test_data.py --seed "$SEED"'
         restore = ("git checkout -- src/pricing.json backend/constants.py "
