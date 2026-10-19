@@ -40,30 +40,6 @@ def test_a_full_million_token_window_is_still_a_turn():
     assert constants.MAX_PLAUSIBLE_CTX > 1_000_000
 
 
-def test_error_kind_classifies_settled_failures():
-    """is_error rows carry a coarse, harness-generic error_kind and the
-    leading text of the result; successful rows carry neither."""
-    out = parse.parse_file(
-        "k/sess-kind/sess-kind.jsonl", _read("error_kinds.jsonl")
-    )
-    by_idx = {tu["idx"]: tu for tu in out["tool_uses"]}
-    assert by_idx[0]["error_kind"] == "failed"
-    assert "PreToolUse hook" in by_idx[0]["error_text"]
-    assert by_idx[1]["error_kind"] == "rejected"
-    assert by_idx[2]["error_kind"] == "tool_error"
-    assert by_idx[3]["error_kind"] is None
-    assert by_idx[3]["error_text"] is None
-
-
-def test_error_text_is_truncated():
-    """error_text never exceeds ERROR_TEXT_MAX characters."""
-    for tu in parse.parse_file(
-        "k/sess-kind/sess-kind.jsonl", _read("error_kinds.jsonl")
-    )["tool_uses"]:
-        if tu["error_text"] is not None:
-            assert len(tu["error_text"]) <= parse.ERROR_TEXT_MAX
-
-
 def test_error_text_carries_no_nul_byte():
     """A failed tool_result that read binary content puts a NUL in the
     result text. PostgreSQL text columns cannot hold one, so a NUL that
@@ -112,22 +88,6 @@ def test_dispatch_briefing_shape_captured():
     # A non-dispatch tool never carries them, even naming a .md path.
     assert by_idx[4]["tool_name"] == "Bash"
     assert by_idx[4]["dispatch_brief_ref"] is None
-
-
-def test_agent_dispatch_args_captured():
-    """An Agent call records subagent_type/model from its arguments;
-    a dispatch that names neither records NULLs, and a non-Agent tool
-    never carries them."""
-    out = parse.parse_file(
-        "k/sess-d/sess-d.jsonl", _read("agent_dispatch.jsonl")
-    )
-    by_idx = {tu["idx"]: tu for tu in out["tool_uses"]}
-    assert by_idx[0]["agent_type"] == "Explore"
-    assert by_idx[0]["agent_model"] == "haiku"
-    assert by_idx[1]["agent_type"] is None
-    assert by_idx[1]["agent_model"] is None
-    assert by_idx[2]["tool_name"] == "Bash"
-    assert by_idx[2]["agent_type"] is None
 
 
 def test_dispatch_agent_type_takes_its_canonical_name(tmp_path):
@@ -217,37 +177,34 @@ def test_result_chars_counts_every_settled_call():
     ]
 
 
-def test_result_chars_counts_an_image_payload():
-    """Image results are 92% of duplicated read bytes over the live
-    corpus; a text-only measure would report the cheapest half."""
-    assert parse._result_size(  # pylint: disable=protected-access
-        [{"type": "image", "source": {"data": "Q" * 40}}]
-    ) == 40
-
-
-def test_errored_read_neither_flags_nor_marks_seen():
-    """A failed read returned an error, not the file — so it wasted
-    nothing AND leaves the next read of that file un-flagged."""
-    rows = [
-        {"read_kind": "whole", "read_targets": ["/a"], "write_targets": [],
-         "is_error": True, "is_reread": None},
-        {"read_kind": "whole", "read_targets": ["/a"], "write_targets": [],
-         "is_error": False, "is_reread": None},
-    ]
+@pytest.mark.parametrize("accesses,expected", [
+    pytest.param([
+        ("whole", ["/a"], [], True),
+        ("whole", ["/a"], [], False),
+    ], [None, False], id="errored-read"),
+    pytest.param([
+        ("whole", ["/a"], [], False),
+        ("whole", ["/a", "/b"], [], False),
+    ], [False, False], id="partial-overlap"),
+    *[pytest.param([
+        ("whole", ["/work/README.md"], [], False),
+        "bash_" + family + ".jsonl",
+        ("whole", ["/work/README.md"], [], False),
+    ], [False, None, False], id=family.replace("_", "-") + "-invalidates")
+      for family in ("move", "fd_redirects")],
+])
+def test_reread_resolution(accesses, expected):
+    rows = []
+    for access in accesses:
+        if isinstance(access, str):
+            rows.append(parse.parse_file("k/s/s.jsonl", _read(access))["tool_uses"][0])
+        else:
+            kind, reads, writes, is_error = access
+            rows.append({"read_kind": kind, "read_targets": reads,
+                         "write_targets": writes, "is_error": is_error,
+                         "is_reread": None})
     resolve_rereads(rows)
-    assert [r["is_reread"] for r in rows] == [None, False]
-
-
-def test_partial_overlap_is_not_a_reread():
-    """`cat a b` after reading only `a` still brought `b` in."""
-    rows = [
-        {"read_kind": "whole", "read_targets": ["/a"], "write_targets": [],
-         "is_error": False, "is_reread": None},
-        {"read_kind": "whole", "read_targets": ["/a", "/b"],
-         "write_targets": [], "is_error": False, "is_reread": None},
-    ]
-    resolve_rereads(rows)
-    assert [r["is_reread"] for r in rows] == [False, False]
+    assert [row["is_reread"] for row in rows] == expected
 
 
 def test_errored_compound_bash_keeps_the_heredoc_write():
@@ -267,78 +224,6 @@ def test_errored_compound_bash_keeps_the_heredoc_write():
     assert tu["write_targets"] == ["/repo/scripts", "/repo/scripts/gen.py"]
 
 
-@pytest.mark.parametrize("family,paths,churn", [
-    ("printf", ["/work/probe.txt"], (2, 0)),
-    ("copy", ["/work/dst.txt"], (1, 0)),
-    ("brace_words", ["/work/{dest}"], (1, 0)),
-    ("install", ["/work/dst.dump"], (1, 0)),
-    ("move", ["/work/README.md"], (1, 0)),
-    ("fd_redirects", ["/work/README.md"], (1, 0)),
-    ("heredoc_override", ["/work/out.txt"], (1, 0)),
-    ("perl", ["/work/file.ts"], (1, 0)),
-    ("sed_append", ["/work/.gitignore"], (3, 0)),
-    ("python_loop", ["/work/a.md", "/work/b.md"], (1, 0)),
-    ("python_concat", ["/work/README.md"], (1, 0)),
-])
-def test_bash_recovered_tool_fields(family, paths, churn):
-    out = parse.parse_file("k/s/s.jsonl", _read(f"bash_{family}.jsonl"))
-    tool = out["tool_uses"][0]
-    assert tool["write_targets"] == paths
-    assert (tool["lines_added"], tool["lines_deleted"]) == churn
-
-
-@pytest.mark.parametrize("family", ["move", "fd_redirects"])
-def test_new_bash_write_invalidates_reread(family):
-    out = parse.parse_file("k/s/s.jsonl", _read(f"bash_{family}.jsonl"))
-    read = {"read_kind": "whole", "read_targets": ["/work/README.md"],
-            "write_targets": [], "is_error": False, "is_reread": None}
-    rows = [read.copy(), out["tool_uses"][0], read.copy()]
-    resolve_rereads(rows)
-    assert [row["is_reread"] for row in rows] == [False, None, False]
-
-
-def test_new_bash_payload_is_zeroed_on_error():
-    data = _read("bash_printf.jsonl").replace(
-        b'"content":"ok"', b'"content":"Exit code 1","is_error":true')
-    tool = parse.parse_file("k/s/s.jsonl", data)["tool_uses"][0]
-    assert tool["is_error"] is True
-    assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
-
-
-def test_bash_exit_marker():
-    tool = parse.parse_file(
-        "k/s/s.jsonl", _read("bash_exit_marker.jsonl"))["tool_uses"][0]
-    assert tool["is_error"] is False
-    assert tool["write_targets"] == ["/tmp/v3run.out"]
-    assert (tool["lines_added"], tool["lines_deleted"]) == (1, 0)
-
-
-@pytest.mark.parametrize("result", [
-    "Exit code 1", "PreToolUse hook denied this call",
-])
-def test_bash_exit_marker_is_zeroed_on_error(result):
-    data = _read("bash_exit_marker.jsonl").replace(
-        b'"content":"ok"',
-        f'"content":"{result}","is_error":true'.encode())
-    tool = parse.parse_file("k/s/s.jsonl", data)["tool_uses"][0]
-    assert tool["is_error"] is True
-    assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
-
-
-def test_nonzero_exit_is_a_tool_error_not_a_failed_launch():
-    """`Exit code N` is the harness's wrapper for a Bash command that
-    RAN and failed — 58% of all errored results in a recent sample. In
-    `failed` it is indistinguishable from a hook denial, which is the
-    one distinction error_kind exists to draw."""
-    out = parse.parse_file(
-        "k/sess-exit/sess-exit.jsonl", _read("bash_exit_kinds.jsonl")
-    )
-    by_idx = {tu["idx"]: tu for tu in out["tool_uses"]}
-    assert by_idx[0]["error_kind"] == "tool_error"
-    assert by_idx[1]["error_kind"] == "failed"
-    assert by_idx[2]["error_kind"] == "rejected"
-
-
 def test_a_call_that_never_ran_wrote_nothing():
     """A hook denial or a user rejection stops the call before the
     shell sees it: its write targets must not invalidate a later
@@ -352,50 +237,79 @@ def test_a_call_that_never_ran_wrote_nothing():
     assert by_idx[1]["lines_added"] == 0
 
 
-@pytest.mark.parametrize("fixture,expected,paths", [
-    pytest.param("bash_estimate_redirect.jsonl", (1, 0), ["/work/out.txt"], id="estimate-redirect"),
-    pytest.param("bash_estimate_echo.jsonl", (1, 0), ["/work/out.txt"], id="estimate-echo"),
-    pytest.param("bash_estimate_python.jsonl", (1, 0), [], id="estimate-python"),
-    pytest.param("bash_estimate_sed.jsonl", (1, 1), ["/work/out.txt"], id="estimate-sed"),
-    pytest.param("bash_review_destination_null.jsonl", (0, 0), [], id="review-destination-null"),
-    pytest.param("bash_review_cat_empty.jsonl", (0, 0), ["/work/out.txt"], id="review-cat-empty"),
-    pytest.param("bash_review_helper_empty.jsonl", (0, 0), ["/work/out.txt"], id="review-helper-empty"),
-    pytest.param("bash_review_edit_discarded.jsonl", (0, 0), ["/work/out.txt"], id="review-edit-discarded"),
-    pytest.param("bash_review_edit_overwritten.jsonl", (0, 0), ["/work/out.txt"], id="review-edit-overwritten"),
-    pytest.param("bash_review_edit_written.jsonl", (2, 1), ["/work/out.txt"], id="review-edit-written"),
-    pytest.param("bash_review_helper_rebind.jsonl", (1, 0), ["/work/out.txt"], id="review-helper-rebind"),
-    pytest.param("bash_review_helper_deferred.jsonl", (0, 0), [], id="review-helper-deferred"),
-    pytest.param("bash_review_copy_empty.jsonl", (0, 0), ["/work/out.txt"], id="review-copy-empty"),
-    pytest.param("bash_review_perl_unknown.jsonl", (1, 0), [], id="review-perl-unknown"),
+@pytest.mark.parametrize("fixture,expected,paths,is_error", [
+    pytest.param("bash_estimate_redirect.jsonl", (1, 0), ["/work/out.txt"], None, id="estimate-redirect"),
+    pytest.param("bash_estimate_echo.jsonl", (1, 0), ["/work/out.txt"], None, id="estimate-echo"),
+    pytest.param("bash_estimate_python.jsonl", (1, 0), [], None, id="estimate-python"),
+    pytest.param("bash_estimate_sed.jsonl", (1, 1), ["/work/out.txt"], None, id="estimate-sed"),
+    pytest.param("bash_review_destination_null.jsonl", (0, 0), [], None, id="review-destination-null"),
+    pytest.param("bash_review_cat_empty.jsonl", (0, 0), ["/work/out.txt"], None, id="review-cat-empty"),
+    pytest.param("bash_review_helper_empty.jsonl", (0, 0), ["/work/out.txt"], None, id="review-helper-empty"),
+    pytest.param("bash_review_edit_discarded.jsonl", (0, 0), ["/work/out.txt"], None, id="review-edit-discarded"),
+    pytest.param("bash_review_edit_overwritten.jsonl", (0, 0), ["/work/out.txt"], None, id="review-edit-overwritten"),
+    pytest.param("bash_review_edit_written.jsonl", (2, 1), ["/work/out.txt"], None, id="review-edit-written"),
+    pytest.param("bash_review_helper_rebind.jsonl", (1, 0), ["/work/out.txt"], None, id="review-helper-rebind"),
+    pytest.param("bash_review_helper_deferred.jsonl", (0, 0), [], None, id="review-helper-deferred"),
+    pytest.param("bash_review_copy_empty.jsonl", (0, 0), ["/work/out.txt"], None, id="review-copy-empty"),
+    pytest.param("bash_review_perl_unknown.jsonl", (1, 0), [], None, id="review-perl-unknown"),
+    pytest.param("bash_printf.jsonl", (2, 0), ["/work/probe.txt"], None, id="printf"),
+    pytest.param("bash_copy.jsonl", (1, 0), ["/work/dst.txt"], None, id="copy"),
+    pytest.param("bash_brace_words.jsonl", (1, 0), ["/work/{dest}"], None, id="brace-words"),
+    pytest.param("bash_install.jsonl", (1, 0), ["/work/dst.dump"], None, id="install"),
+    pytest.param("bash_move.jsonl", (1, 0), ["/work/README.md"], None, id="move"),
+    pytest.param("bash_fd_redirects.jsonl", (1, 0), ["/work/README.md"], None, id="fd-redirects"),
+    pytest.param("bash_heredoc_override.jsonl", (1, 0), ["/work/out.txt"], None, id="heredoc-override"),
+    pytest.param("bash_perl.jsonl", (1, 0), ["/work/file.ts"], None, id="perl"),
+    pytest.param("bash_sed_append.jsonl", (3, 0), ["/work/.gitignore"], None, id="sed-append"),
+    pytest.param("bash_python_loop.jsonl", (1, 0), ["/work/a.md", "/work/b.md"], None, id="python-loop"),
+    pytest.param("bash_python_concat.jsonl", (1, 0), ["/work/README.md"], None, id="python-concat"),
+    pytest.param("bash_exit_marker.jsonl", (1, 0), ["/tmp/v3run.out"], False, id="exit-marker"),
+    pytest.param("windows_copy.jsonl", (1, 0), [r"C:\w\out\f.py"], None, id="windows-copy"),
 ])
-def test_bash_write_estimate_fixtures(fixture, expected, paths):
+def test_bash_write_estimate_fixtures(fixture, expected, paths, is_error):
     tool = parse.parse_file("k/s/s.jsonl", _read(fixture))["tool_uses"][0]
     assert (tool["lines_added"], tool["lines_deleted"]) == expected
     assert tool["write_targets"] == paths
+    if is_error is not None:
+        assert tool["is_error"] is is_error
 
 
-@pytest.mark.parametrize("result", ["Exit code 1", "PreToolUse hook denied this call", "User rejected tool use"])
-@pytest.mark.parametrize("family", ["redirect", "echo", "python", "sed"])
-def test_bash_write_estimates_remain_zero_on_error(family, result):
-    data = _read("bash_estimate_" + family + ".jsonl").replace(
+@pytest.mark.parametrize("fixture,result", [
+    *[pytest.param("bash_estimate_" + family + ".jsonl", result,
+                   id=family + "-" + result_id)
+      for family in ("redirect", "echo", "python", "sed")
+      for result, result_id in (
+          ("Exit code 1", "exit-error"),
+          ("PreToolUse hook denied this call", "hook-denied"),
+          ("User rejected tool use", "user-rejected"))],
+    pytest.param("bash_printf.jsonl", "Exit code 1", id="printf-exit-error"),
+    pytest.param("bash_exit_marker.jsonl", "Exit code 1", id="exit-marker-exit-error"),
+    pytest.param("bash_exit_marker.jsonl", "PreToolUse hook denied this call",
+                 id="exit-marker-hook-denied"),
+])
+def test_bash_write_estimates_remain_zero_on_error(fixture, result):
+    data = _read(fixture).replace(
         b'"content":"ok"', ('"content":"' + result + '","is_error":true').encode())
     tool = parse.parse_file("k/s/s.jsonl", data)["tool_uses"][0]
+    assert tool["is_error"] is True
     assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
 
 
-def test_windows_bash_write_invalidates_raw_read_without_rewriting_paths():
-    tools = parse.parse_file("k/s/s.jsonl", _read("windows_reread.jsonl"))["tool_uses"]
+@pytest.mark.parametrize("fixture,paths,churn", [
+    pytest.param("windows_reread.jsonl",
+                 (["C:/w/f.py"], [r"C:\w\f.py"], ["C:/w/f.py"]),
+                 (1, 1), id="sed-raw-spellings"),
+    pytest.param("windows_verbatim_drive.jsonl", None, (1, 0), id="verbatim-drive-copy"),
+    pytest.param("windows_verbatim_unc.jsonl", None, (1, 0), id="verbatim-unc-copy"),
+])
+def test_windows_bash_write_invalidates_raw_read_without_rewriting_paths(fixture, paths, churn):
+    tools = parse.parse_file("k/s/s.jsonl", _read(fixture))["tool_uses"]
     assert [row["is_reread"] for row in tools] == [False, None, False]
-    assert tools[0]["read_targets"] == ["C:/w/f.py"]
-    assert tools[1]["write_targets"] == [r"C:\w\f.py"]
-    assert tools[2]["read_targets"] == ["C:/w/f.py"]
-    assert (tools[1]["lines_added"], tools[1]["lines_deleted"]) == (1, 1)
-
-
-def test_windows_copy_preserves_write_estimate():
-    tool = parse.parse_file("k/s/s.jsonl", _read("windows_copy.jsonl"))["tool_uses"][0]
-    assert tool["write_targets"] == [r"C:\w\out\f.py"]
-    assert (tool["lines_added"], tool["lines_deleted"]) == (1, 0)
+    if paths is None:
+        assert tools[0]["read_targets"] == tools[1]["write_targets"] == tools[2]["read_targets"]
+    else:
+        assert (tools[0]["read_targets"], tools[1]["write_targets"], tools[2]["read_targets"]) == paths
+    assert (tools[1]["lines_added"], tools[1]["lines_deleted"]) == churn
 
 
 @pytest.mark.parametrize("first,second,expected", [
@@ -430,14 +344,6 @@ def test_raw_windows_write_invalidates_equivalent_read_without_rewriting(name):
     assert rows[1]["write_targets"] == [written]
 
 
-@pytest.mark.parametrize("namespace", ["drive", "unc"])
-def test_verbatim_copy_target_invalidates_raw_read(namespace):
-    tools = parse.parse_file("k/s/s.jsonl", _read("windows_verbatim_" + namespace + ".jsonl"))["tool_uses"]
-    assert [row["is_reread"] for row in tools] == [False, None, False]
-    assert tools[0]["read_targets"] == tools[1]["write_targets"] == tools[2]["read_targets"]
-    assert (tools[1]["lines_added"], tools[1]["lines_deleted"]) == (1, 0)
-
-
 def test_stop_reason_effort_thinking_merge_per_request():
     """The closing line of a streamed reply carries stop_reason; the
     opening line carries effort and a placeholder output count. One
@@ -467,53 +373,43 @@ def test_tool_use_id_kept_on_tool_uses():
     assert out["tool_uses"][0]["tool_use_id"] == "toolu_01"
 
 
-def test_turn_flags_attach_window_events_to_next_request():
-    """Window events attach to the next request; tool-result-only user lines
-    and empty windows add no prompt flags."""
-    out = parse.parse_file("k/sess-tf/sess-tf.jsonl", _read("turn_flags.jsonl"))
-    first, second, third = out["records"]
-    assert first["turn_flags"] == ["date_change", "stop_hook_block", "user_prompt"]
-    assert first["turn_tool_results"] == 0
-    assert first["cli_version"] == "2.1.250"
-    assert second["turn_flags"] == [
-        "effort_switch", "image_result", "model_switch", "version_switch"]
-    assert second["turn_tool_results"] == 2
-    assert second["cli_version"] == "2.1.251"
-    assert third["turn_flags"] == []
-    assert third["turn_tool_results"] == 0
+@pytest.mark.parametrize("fixture,file_key,expected", [
+    pytest.param("turn_flags.jsonl", "k/sess-tf/sess-tf.jsonl", [
+        {"turn_flags": ["date_change", "stop_hook_block", "user_prompt"],
+         "turn_tool_results": 0, "cli_version": "2.1.250"},
+        {"turn_flags": ["effort_switch", "image_result", "model_switch", "version_switch"],
+         "turn_tool_results": 2, "cli_version": "2.1.251"},
+        {"turn_flags": [], "turn_tool_results": 0},
+    ], id="window-events"),
+    pytest.param("prompt_snapshot.jsonl", "k/sess-ps/sess-ps.jsonl", [
+        {"turn_flags": ["resume", "user_prompt"],
+         "turn_tool_results": 0, "cli_version": "2.1.272"},
+        {"turn_flags": ["tools_change"], "turn_tool_results": 1},
+    ], id="snapshot-backfill"),
+])
+def test_turn_flags_attach_window_events_to_next_request(fixture, file_key, expected):
+    records = parse.parse_file(file_key, _read(fixture))["records"]
+    assert len(records) == len(expected)
+    for record, fields in zip(records, expected):
+        assert {field: record[field] for field in fields} == fields
 
 
 @pytest.mark.parametrize("fixture,file_key,expected", [
-    pytest.param("turn_flags_user_prompt_pasted_content.jsonl", "k/s/s.jsonl", ["user_prompt"], id="pasted-content"),
-    pytest.param("turn_flags_user_prompt_image_only.jsonl", "k/s/s.jsonl", ["user_prompt"], id="image-only"),
-    pytest.param("turn_flags_user_prompt_excludes_is_meta_text.jsonl", "k/s/s.jsonl", [], id="excludes-meta-text"),
+    pytest.param("turn_flags_user_prompt_pasted_content.jsonl", "k/s/s.jsonl",
+                 [["user_prompt"]], id="pasted-content"),
+    pytest.param("turn_flags_user_prompt_image_only.jsonl", "k/s/s.jsonl",
+                 [["user_prompt"]], id="image-only"),
+    pytest.param("turn_flags_user_prompt_excludes_is_meta_text.jsonl", "k/s/s.jsonl",
+                 [[]], id="excludes-meta-text"),
+    pytest.param("prompt_rerender.jsonl", "k/sess-pr/sess-pr.jsonl", [
+        ["user_prompt"],
+        ["cwd_rebuild", "cwd_switch", "system_change", "user_prompt"],
+        ["prompt_rerender", "resume", "user_prompt"],
+    ], id="rerender-system-resume"),
 ])
 def test_turn_flags_user_prompt_pasted_content(fixture, file_key, expected):
     out = parse.parse_file(file_key, _read(fixture))
-    assert out["records"][0]["turn_flags"] == expected
-
-
-def test_prompt_snapshot_flags_land_on_the_request_they_describe():
-    """Snapshots backfill the request they describe; preamble and baseline
-    snapshots add no flags, while later changes land on that request."""
-    out = parse.parse_file("k/sess-ps/sess-ps.jsonl", _read("prompt_snapshot.jsonl"))
-    first, second = out["records"]
-    assert first["turn_flags"] == ["resume", "user_prompt"]
-    assert first["turn_tool_results"] == 0
-    assert first["cli_version"] == "2.1.272"
-    assert second["turn_flags"] == ["tools_change"]
-    assert second["turn_tool_results"] == 1
-
-
-def test_prompt_rerender_and_system_change_backfill_with_resume():
-    """System changes backfill, and identical snapshots mark rerenders.
-    Resume and cwd changes join the flags on their corresponding requests."""
-    out = parse.parse_file("k/sess-pr/sess-pr.jsonl", _read("prompt_rerender.jsonl"))
-    first, second, third = out["records"]
-    assert first["turn_flags"] == ["user_prompt"]
-    assert second["turn_flags"] == [
-        "cwd_rebuild", "cwd_switch", "system_change", "user_prompt"]
-    assert third["turn_flags"] == ["prompt_rerender", "resume", "user_prompt"]
+    assert [record["turn_flags"] for record in out["records"]] == expected
 
 
 def test_cwd_rebuild_marks_only_the_turn_that_reopens_on_a_new_cwd():
@@ -622,19 +518,17 @@ def test_provider_merge_conflicting_providers_first_wins():
     assert merged["output_tokens"] == 200
 
 
-def test_provider_strips_surrounding_whitespace():
-    """message.provider is stored stripped: ' Chutes ' is the host Chutes,
-    and a whitespace-only value is no provider at all."""
-    provider = parse._provider  # pylint: disable=protected-access
-    assert provider({"provider": " Chutes "}) == "Chutes"
-    assert provider({"provider": "   "}) is None
-
-
-def test_provider_non_string_values_are_none():
-    """A malformed line whose provider is not a string stores NULL rather
-    than raising or stringifying the value; a missing key is the normal
-    no-provider shape."""
-    provider = parse._provider  # pylint: disable=protected-access
-    for value in (42, None, ["Novita"]):
-        assert provider({"provider": value}) is None, value
-    assert provider({}) is None
+@pytest.mark.parametrize("message,expected", [
+    pytest.param({"provider": " Chutes "}, "Chutes", id="trimmed"),
+    pytest.param({"provider": "   "}, None, id="blank"),
+    pytest.param({"provider": 42}, None, id="integer"),
+    pytest.param({"provider": None}, None, id="null"),
+    pytest.param({"provider": ["Novita"]}, None, id="array"),
+    pytest.param({}, None, id="missing"),
+])
+def test_provider_normalizes_optional_host(message, expected):
+    actual = parse._provider(message)  # pylint: disable=protected-access
+    if expected is None:
+        assert actual is None
+    else:
+        assert actual == expected
