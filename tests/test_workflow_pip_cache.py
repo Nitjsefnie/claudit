@@ -65,9 +65,6 @@ def test_every_cache_restore_runs_on_every_event():
 
 
 def test_every_cache_save_directly_follows_the_dependency_install():
-    # The save's position is deliberate: the install is what populates the
-    # cache, so the save must be its immediate successor. A step moved
-    # after the suite (or before the install) fails here.
     for workflow, job, steps in _jobs():
         for index, step in enumerate(steps):
             if _action(step) != "actions/cache/save":
