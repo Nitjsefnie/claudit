@@ -625,12 +625,16 @@ pass moved.
   resolves through its provider row; an untracked normalized remainder
   stays unchanged and follows the existing fallback (Claude-family tier
   when matched, otherwise default), never a prefixed vendor row.
-- **An already-tracked table entry is never re-added or rewritten.** The
-  listing of a tracked key is still fetched and selected for its meter
-  membership and factor fold, but the tracked table entry stands byte for
-  byte. Entries with no vendor source (a models-table key such as
-  bonsai-2-27b, or a tracked entry without vendor_host — aliases, the
-  delisted) stand untouched, and a quiet source writes nothing.
+- **An already-tracked table entry is never re-added, and its `id` and
+  `vendor_host` are never rewritten.** Those fields stand byte for byte.
+  The listing of a tracked key is still fetched and selected for its meter
+  membership and factor fold; its model-wide `context_length` is refreshed
+  when all vendor-prefix endpoints agree. When they disagree or the model
+  has no vendor-prefix endpoint, the pass records a NOTICE + skip and the
+  tracked entry stands untouched. Entries with no vendor source (a
+  models-table key such as bonsai-2-27b, or a tracked entry without
+  vendor_host — aliases, the delisted) stand untouched, and a quiet source
+  writes nothing.
 - **The long-context band folds to the meter at the band's own threshold
   and multipliers.** A `min_prompt_tokens` override yields its input/output
   factors from the band's fresh input and output prices (issue #878). Every
