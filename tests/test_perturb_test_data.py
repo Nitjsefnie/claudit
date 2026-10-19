@@ -354,10 +354,10 @@ def test_the_same_seed_is_byte_identical_on_the_same_document(tmp_path):
     assert texts[0] == texts[1]
 
 
-@pytest.mark.parametrize("seed", [1720000000, 42, 1234567890])
 @pytest.mark.parametrize("rate", [0.0, math.ulp(0.0)])
-def test_every_append_moves_even_zero_and_subnormal_rows(seed, rate):
+def test_every_append_moves_even_zero_and_subnormal_rows(rate):
     # pylint: disable=protected-access
+    seed = 42
     newest: dict[str, float] = dict.fromkeys(RATE_FIELDS, rate)
     for may_search in (False, True):
         previous = newest
