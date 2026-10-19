@@ -658,8 +658,9 @@ class TestPerturbedSuiteExploreShards:
         step = next(step for step in job["steps"]
                     if step.get("name") == "Perturb and test, per wall-clock seed")
         run = step["run"]
+        assert step["env"]["SEED_BASE"] == "${{ needs.seeds.outputs.seed-base }}"
         assert [line for line in run.splitlines() if line.startswith("SEED=")] == [
-            'SEED="$(( ${{ needs.seeds.outputs.seed-base }} + ${{ matrix.seed-index }} ))"'
+            'SEED="$((SEED_BASE + ${{ matrix.seed-index }}))"'
         ]
         assert "date +%s" not in run
         assert 'for ' not in run

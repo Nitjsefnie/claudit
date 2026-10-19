@@ -510,7 +510,7 @@ def test_tests_and_refresh_share_the_pinned_postgres_action():
     for path, job_name in ((TESTS_WORKFLOW, "pytest-shards"),
                            (TESTS_WORKFLOW, "pytest-thresholds"),
                            (TESTS_WORKFLOW, "js-coverage"),
-                           (REFRESH_WORKFLOW, "refresh")):
+                           (REFRESH_WORKFLOW, "suite")):
         job = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"][job_name]
         assert "services" not in job
         actions = [step.get("uses") for step in job["steps"]]
