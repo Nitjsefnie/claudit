@@ -177,20 +177,17 @@ def test_normalise_accepts_every_documented_pair():
             assert web_metrics.normalise(raw)[:2] == (metric, part)
 
 
-def test_normalise_clamps_rather_than_rejecting_a_wild_value():
-    """A corrupt reading costs one row, never the batch."""
-    metric, part, _r, _p, value = web_metrics.normalise(
-        _beacon(value=1e12))
-    assert (metric, part) == ("dashboard_open", "total")
-    assert value == web_metrics.PART_LIMITS["total"][1]
-    assert web_metrics.normalise(_beacon(value=-5.0))[4] == 0.0
-
-
-def test_normalise_clamps_a_shift_on_its_own_scale():
-    """`shift` is a Layout Instability score, not milliseconds."""
-    raw = {"metric": "layout_shift", "part": "shift", "region": "other",
-           "phase": "post_usable", "value": 1e9}
-    assert web_metrics.normalise(raw)[4] == web_metrics.PART_LIMITS["shift"][1]
+@pytest.mark.parametrize("raw", [
+    {"metric": "dashboard_open", "part": "total", "value": 1e12},
+    {"metric": "layout_shift", "part": "shift", "region": "other",
+     "phase": "post_usable", "value": 1e9},
+], ids=["milliseconds", "shift-score"])
+def test_normalise_clamps_rather_than_rejecting_a_wild_value(raw):
+    """Clamp each part on its own scale, keeping the beacon identity."""
+    metric, part, _r, _p, value = web_metrics.normalise(raw)
+    assert (metric, part) == (raw["metric"], raw["part"])
+    assert value == web_metrics.PART_LIMITS[part][1]
+    assert web_metrics.normalise({**raw, "value": -5.0})[4] == 0.0
 
 
 def test_normalise_refuses_a_non_finite_value():
@@ -226,22 +223,15 @@ def test_normalise_requires_the_tag_each_observed_metric_carries():
             {"metric": "longtask", "part": "block", "value": 1.0})
 
 
-def test_normalise_refuses_an_unknown_observer_term():
+@pytest.mark.parametrize("region", ["sidebar", "panel_not_a_panel"],
+                         ids=["unknown-observer", "unknown-panel"])
+def test_normalise_refuses_an_unknown_observer_term(region):
     with pytest.raises(web_metrics.BeaconError, match="unknown region"):
         web_metrics.normalise({"metric": "layout_shift", "part": "shift",
-                               "region": "sidebar", "value": 0.1})
+                               "region": region, "value": 0.1})
     with pytest.raises(web_metrics.BeaconError, match="unknown phase"):
         web_metrics.normalise({"metric": "longtask", "part": "block",
                                "phase": "during-sse", "value": 1.0})
-
-
-def test_normalise_refuses_an_unknown_panel_term():
-    """A panel-shaped region naming no rendered panel is outside the closed set.
-    Reject it just like any unrelated vocabulary term: free-form selectors
-    would grow the rollup grain without bound."""
-    with pytest.raises(web_metrics.BeaconError, match="unknown region"):
-        web_metrics.normalise({"metric": "layout_shift", "part": "shift",
-                               "region": "panel_not_a_panel", "value": 0.1})
 
 
 def test_parse_batch_bounds_the_batch():
@@ -255,30 +245,26 @@ def test_parse_batch_bounds_the_batch():
     assert len(web_metrics.parse_batch({"beacons": [_beacon()]})) == 1
 
 
-def test_sink_stores_the_batch(viz, client):
-    r = _post(client, _beacon(value=1500.0),
+@pytest.mark.parametrize("user_id", [0, 4242], ids=["guest", "named-session"])
+def test_sink_stores_the_batch(viz, user_id):
+    """The middleware identity is stored on every row of the batch."""
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def _identity(request, call_next):
+        request.state.user_id = user_id
+        return await call_next(request)
+
+    app.include_router(api.router)
+    r = _post(TestClient(app), _beacon(value=1500.0),
               {"metric": "layout_shift", "part": "shift",
                "region": "panel_grid", "phase": "pre_paint", "value": 0.0312})
     assert r.status_code == 202, r.text
     assert r.json() == {"ok": True, "stored": 2}
     assert _rows(viz) == [
-        (0, "dashboard_open", "total", "", "", 1500.0),
-        (0, "layout_shift", "shift", "panel_grid", "pre_paint", 0.0312),
+        (user_id, "dashboard_open", "total", "", "", 1500.0),
+        (user_id, "layout_shift", "shift", "panel_grid", "pre_paint", 0.0312),
     ]
-
-
-def test_sink_records_the_session_it_came_from(viz):
-    """The stored user_id is the one the middleware put on request.state."""
-    app = FastAPI()
-
-    @app.middleware("http")
-    async def _fake(request, call_next):
-        request.state.user_id = 4242
-        return await call_next(request)
-
-    app.include_router(api.router)
-    assert _post(TestClient(app), _beacon()).status_code == 202
-    assert [row[0] for row in _rows(viz)] == [4242]
 
 
 def test_sink_refuses_an_unknown_term_and_stores_nothing(viz, client):
@@ -295,13 +281,12 @@ def test_sink_refuses_a_non_json_body(viz, client):
     assert _rows(viz) == []
 
 
-def test_sink_refuses_a_session_over_its_row_cap(viz, client, monkeypatch):
-    """A loop on the page must not become a row-count problem for the box.
-
-    The router-only client has no session, so it is a GUEST and the ceiling
-    that applies is the guest one — which is the asymmetry the next two
-    cases pin.
-    """
+@pytest.mark.parametrize("client_fixture", ["client", "gated_client"],
+                         ids=["router-identity", "guest-cookie"])
+def test_sink_refuses_a_session_over_its_row_cap(
+        viz, request, monkeypatch, client_fixture):
+    """Both synthetic and real guest sessions receive the guest row cap."""
+    client = request.getfixturevalue(client_fixture)
     monkeypatch.setattr(web_metrics, "MAX_ROWS_PER_GUEST", 2)
     assert _post(client, _beacon(), _beacon()).status_code == 202
     assert len(_rows(viz)) == 2
@@ -321,15 +306,6 @@ def test_a_guest_ceiling_is_lower_than_a_named_one_s(viz):
         web_metrics.MAX_ROWS_PER_GUEST
     assert web_metrics.cap_for(7) == web_metrics.MAX_ROWS_PER_USER
     assert web_metrics.MAX_ROWS_PER_GUEST < web_metrics.MAX_ROWS_PER_USER
-
-
-def test_the_guest_cap_is_enforced_against_the_guest(
-        viz, gated_client, monkeypatch):
-    """And it is the ceiling actually applied to an anonymous POST."""
-    monkeypatch.setattr(web_metrics, "MAX_ROWS_PER_GUEST", 2)
-    assert _post(gated_client, _beacon(), _beacon()).status_code == 202
-    assert _post(gated_client, _beacon()).status_code == 429
-    assert len(_rows(viz)) == 2
 
 
 def test_the_readout_discloses_the_guest_share(viz, pinned, client):
@@ -356,11 +332,6 @@ def test_the_readout_discloses_the_guest_share(viz, pinned, client):
 
 
 # --- the middleware gates (the sink's own route has no gate of its own) ---
-
-
-def test_guest_may_beacon(viz, gated_client):
-    assert _post(gated_client, _beacon()).status_code == 202
-    assert len(_rows(viz)) == 1
 
 
 def test_a_cross_origin_beacon_is_403(viz, gated_client):

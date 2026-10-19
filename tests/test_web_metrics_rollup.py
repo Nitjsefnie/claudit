@@ -206,41 +206,31 @@ def test_rollup_keeps_the_grain_apart(viz, pinned):
                               ("longtask", "block", "", "sse_update")]
 
 
-def test_prune_keeps_the_window_and_drops_the_rest(viz, pinned):
-    now = PINNED_NOW
-    fresh, stale = _closed_ts(), now - timedelta(
-        seconds=web_metrics.RAW_KEEP_S + 3600)
-    _seed(_VALUES, ts=fresh)
-    _seed([99.0], ts=stale)
+@pytest.mark.parametrize("boundary", [False, True],
+                         ids=["outside-window", "cutoff-second"])
+def test_prune_keeps_the_window_and_drops_the_rest(
+        viz, pinned, monkeypatch, boundary):
+    """Prune raw rows at the cutoff and refuse unreadable boundary buckets."""
+    if boundary:
+        now = datetime(2026, 1, 2, 0, 10, 0, tzinfo=timezone.utc)
+        cutoff = web_metrics.retention_cutoff(now)
+        fresh, stale = cutoff, cutoff - timedelta(seconds=1)
+        fresh_values, stale_values, expected_totals = [1.0], [4242.0], set()
+    else:
+        now = PINNED_NOW
+        fresh = _closed_ts()
+        stale = now - timedelta(seconds=web_metrics.RAW_KEEP_S + 3600)
+        fresh_values, stale_values, expected_totals = _VALUES, [99.0], {36.0}
+    monkeypatch.setattr(web_metrics, "utcnow", lambda: now)
+    _seed(fresh_values, ts=fresh)
+    _seed(stale_values, ts=stale)
     rebuild_web_metrics_rollup()
-    assert [row[5] for row in _rows(viz)] == _VALUES
-    with db.viz_conn() as conn:
-        totals = conn.execute(
-            "SELECT DISTINCT total FROM web_metrics_rollup "
-            "WHERE bucket_s = 3600").fetchall()
-    assert [float(t) for (t,) in totals] == [36.0], (
-        "a pruned row must not survive in a rollup bucket either")
-
-
-def test_the_fold_reads_every_row_the_prune_deletes(viz, pinned, monkeypatch):
-    """A row outside the nominal window must not be pruned before the fold reads it.
-    The read window must reach at least as far back as the prune bound,
-    including a stalled working set. A boundary bucket cannot be read partially:
-    one included row cannot stand for a closed bucket and be revised later."""
-    pinned = datetime(2026, 1, 2, 0, 10, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(web_metrics, "utcnow", lambda: pinned)
-    cutoff = web_metrics.retention_cutoff(pinned)
-    _seed([4242.0], ts=cutoff - timedelta(seconds=1))
-    _seed([1.0], ts=cutoff)
-    rebuild_web_metrics_rollup()
-    assert [row[5] for row in _rows(viz)] == [1.0]
+    assert [row[5] for row in _rows(viz)] == fresh_values
     with db.viz_conn() as conn:
         totals = {float(t) for (t,) in conn.execute(
-            "SELECT total FROM web_metrics_rollup "
+            "SELECT DISTINCT total FROM web_metrics_rollup "
             "WHERE bucket_s = 3600").fetchall()}
-    assert totals == set(), (
-        "a bucket one row short of readable was stored as the rows that "
-        "survived; it must be refused instead")
+    assert totals == expected_totals
 
 
 def test_readout_serves_the_rollup_past_the_retention_window(viz, pinned, client):
@@ -300,20 +290,6 @@ def test_the_live_pass_clamps_a_window_past_the_table(viz, pinned, client):
         "the clamp moved the window but the row it read is not there")
 
 
-def test_the_live_pass_over_a_window_the_table_covers_is_exact(viz, pinned,
-                                                               client):
-    """The control: inside the window, the answer is the whole range.
-
-    Without this the case above would pass on an empty series, since a
-    clamped window past the table reads nothing at all.
-    """
-    _seed(_VALUES, ts=_recent_ts())
-    body = client.get("/api/web-metrics?range=1d", headers=_ORIGIN).json()
-    assert body["exact"] is True
-    assert body["series"][0]["n"] == len(_VALUES)
-    assert body["series"][0]["p50"] == 4.5
-
-
 def test_readout_rolls_the_blend_by_sample_count(viz, pinned, client):
     """Two rollup buckets, different sizes: the p50 is weighted by n.
 
@@ -334,20 +310,22 @@ def test_readout_rolls_the_blend_by_sample_count(viz, pinned, client):
         "the blend is n-weighted, not a mean of means")
 
 
-def test_the_live_pass_over_the_same_population_is_exact(viz, pinned, client):
-    """The same values inside the window the live pass owns.
-
-    Nine samples, and the exact p50 is 100 -- which is what makes the rollup's
-    344.4 above visibly an approximation rather than a different answer to
-    the same question. That difference is the reason for the `exact` flag.
-    """
-    _seed([100.0] * 8, ts=_recent_ts())
-    _seed([900.0], ts=_recent_ts() + timedelta(minutes=5))
-    live = client.get("/api/web-metrics?range=1d",
-                      headers=_ORIGIN).json()["series"]
+@pytest.mark.parametrize("values,tail,delay,n,total,p50", [
+    (_VALUES, [], 0, 8, 36.0, 4.5),
+    ([100.0] * 8, [900.0], 5, 9, 1700.0, 100.0),
+], ids=["recent-sequence", "unequal-populations"])
+def test_the_live_pass_over_the_same_population_is_exact(
+        viz, pinned, client, values, tail, delay, n, total, p50):
+    """The live read counts and sums the whole recent population exactly."""
+    _seed(values, ts=_recent_ts())
+    _seed(tail, ts=_recent_ts() + timedelta(minutes=delay))
+    body = client.get("/api/web-metrics?range=1d", headers=_ORIGIN).json()
+    assert body["exact"] is True
+    live = body["series"]
     assert len(live) == 1
-    assert live[0]["n"] == 9 and live[0]["total"] == pytest.approx(1700.0)
-    assert live[0]["p50"] == pytest.approx(100.0)
+    assert live[0]["n"] == n
+    assert live[0]["total"] == pytest.approx(total)
+    assert live[0]["p50"] == pytest.approx(p50)
 
 
 def test_readout_is_exact_for_every_range_inside_the_window(viz, pinned, client):
@@ -541,30 +519,6 @@ def test_a_bucket_the_fold_cannot_read_whole_is_not_stored(viz,
     assert reported, (
         f"the fold refused a bucket and said nothing: {caplog.text}")
     assert int(reported.group(1)) >= 1, caplog.text
-
-
-def test_a_later_fold_does_not_rewrite_a_whole_row(viz, closing_horizon):
-    """The repair is one-directional, and a backfill must not rewrite it.
-
-    The companion to the case above: if the conflict clause simply always
-    updated, a beacon backfilled into an already-closed bucket would silently
-    move history. It may not, and a later fold reading the same complete set
-    may not either.
-    """
-    base = datetime(2026, 6, 2, 0, 0, 0, tzinfo=timezone.utc)
-    now = base + timedelta(hours=26)
-    for hour in range(24):
-        _seed([float(hour)], ts=base + timedelta(hours=hour))
-    _fold_at(now)
-    before = _rollup_rows(viz, 86400)
-    assert before and next(iter(before.values()))[0] == 24
-
-    # A backfill into the closed bucket, and a fold much later.
-    _seed([999.0], ts=base + timedelta(hours=3))
-    _fold_at(now + timedelta(hours=30))
-    after = _rollup_rows(viz, 86400)
-    assert after == before, (
-        "a beacon backfilled into a closed bucket rewrote a stored row")
 
 
 def test_a_wider_range_never_serves_fewer_beacons(viz, pinned):

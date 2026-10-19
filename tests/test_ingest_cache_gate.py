@@ -95,128 +95,118 @@ def test_a_reprice_only_ingest_invalidates_and_broadcasts(
         {"v": "old"}, True), "a reprice-only run must mark responses stale"
 
 
+@pytest.mark.parametrize("tool_only", [False, True],
+                         ids=["records", "orphan-tool-use"])
 def test_a_purge_only_ingest_invalidates_and_broadcasts(
         fresh_db: str, mini_r2_env: Path,
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    """an ingest whose only data change is the suppression
-    purge must mark the response cache stale and broadcast ingest_done —
-    the purge deletes records without inserting, reparsing or deleting a
-    file, so the walk-level counts all stay zero."""
+        monkeypatch: pytest.MonkeyPatch, tool_only: bool) -> None:
+    """Suppression alone must invalidate and broadcast for either row family."""
     assert ingest.run_ingest_locked("manual")["error"] is None
     with db.viz_conn() as c:
+        if tool_only:
+            model = "tool-only-cache-gate-model"
+            row = c.execute(
+                "SELECT file_key FROM files ORDER BY file_key LIMIT 1").fetchone()
+            assert row is not None, "initial ingest must create a files parent"
+            line_num = 2_147_483_000
+            assert _scalar(
+                c, "SELECT COUNT(*) FROM records r "
+                   "JOIN files f ON f.file_id = r.file_id "
+                   "WHERE f.file_key = %s AND r.line_num = %s",
+                (row[0], line_num)) == 0, "tool call must have no record"
+            bash = dims_seed.dim_id(c, "dim_tool_name", "Bash")
+            seed_model = dims_seed.dim_id(c, "dim_model", model)
+            fid = dims_seed.file_id(c, row[0])
+            c.execute(
+                "INSERT INTO tool_uses "
+                "(file_id, line_num, idx, tool_name_id, model_id) "
+                "VALUES (%s, %s, 0, %s, %s)",
+                (fid, line_num, bash, seed_model))
+        else:
+            model = "claude-sonnet%"
+            assert _scalar(
+                c, "SELECT COUNT(*) FROM records r "
+                   "JOIN dim_model dm ON dm.id = r.model_id "
+                   "WHERE dm.value ILIKE 'claude-sonnet%'") > 0, (
+                "the mini mirror must carry records the pattern matches")
         c.execute(
             "INSERT INTO suppressed_models(pattern, note) "
-            "VALUES ('claude-sonnet%', 'issue 256')")
+            "VALUES (%s, 'suppression gate')", (model,))
         c.commit()
-        assert _scalar(
-            c, "SELECT COUNT(*) FROM records r "
-               "JOIN dim_model dm ON dm.id = r.model_id "
-               "WHERE dm.value ILIKE 'claude-sonnet%'") > 0, (
-            "the mini mirror must carry records the pattern matches")
     broadcasts = _prime_and_spy("purge-only-key", monkeypatch)
 
     summary = ingest.run_ingest_locked("manual")
 
     assert summary["error"] is None
     assert (summary["inserted"], summary["reparsed"],
-            summary["deleted"]) == (0, 0, 0), (
-        "orphan deletion is separate from the purge's own deletion — the "
-        "purge removing records is the whole point")
+            summary["deleted"]) == (0, 0, 0)
+    if tool_only:
+        with db.viz_conn() as c:
+            assert _scalar(
+                c, "SELECT COUNT(*) FROM tool_uses t "
+                   "JOIN files f ON f.file_id = t.file_id "
+                   "WHERE f.file_key = %s AND t.line_num = %s",
+                (row[0], line_num)) == 0, "matching tool_use must be purged"
     assert broadcasts, "a purge-only run must broadcast ingest_done"
     assert cache.response_cache.get_entry("purge-only-key") == (
         {"v": "old"}, True), "a purge-only run must mark responses stale"
 
 
-def test_a_tool_use_only_purge_invalidates_and_broadcasts(
-        fresh_db: str, mini_r2_env: Path,
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    """A suppressed tool call without a matching record still changes
-    stored data and must invalidate cached responses and broadcast."""
-    assert ingest.run_ingest_locked("manual")["error"] is None
-    model = "tool-only-cache-gate-model"
-    with db.viz_conn() as c:
-        row = c.execute(
-            "SELECT file_key FROM files ORDER BY file_key LIMIT 1").fetchone()
-        assert row is not None, "the initial ingest must create a files parent"
-        line_num = 2_147_483_000
-        assert _scalar(
-            c, "SELECT COUNT(*) FROM records r "
-               "JOIN files f ON f.file_id = r.file_id "
-               "WHERE f.file_key = %s AND r.line_num = %s",
-            (row[0], line_num)
-        ) == 0, "the seeded tool call must have no record on its line"
-        bash = dims_seed.dim_id(c, "dim_tool_name", "Bash")
-        seed_model = dims_seed.dim_id(c, "dim_model", model)
-        fid = dims_seed.file_id(c, row[0])
-        c.execute(
-            "INSERT INTO tool_uses "
-            "(file_id, line_num, idx, tool_name_id, model_id) "
-            "VALUES (%s, %s, 0, %s, %s)",
-            (fid, line_num, bash, seed_model))
-        c.execute(
-            "INSERT INTO suppressed_models(pattern, note) "
-            "VALUES (%s, 'issue 256 tool-use-only')", (model,))
-        c.commit()
-    broadcasts = _prime_and_spy("tool-use-purge-only-key", monkeypatch)
-
-    summary = ingest.run_ingest_locked("manual")
-
-    assert summary["error"] is None
-    assert (summary["inserted"], summary["reparsed"],
-            summary["deleted"]) == (0, 0, 0)
-    with db.viz_conn() as c:
-        assert _scalar(
-            c, "SELECT COUNT(*) FROM tool_uses t "
-               "JOIN files f ON f.file_id = t.file_id "
-               "WHERE f.file_key = %s AND t.line_num = %s",
-            (row[0], line_num)
-        ) == 0, "the matching tool_use row must be purged"
-    cache_entry = cache.response_cache.get_entry("tool-use-purge-only-key")
-    assert broadcasts and cache_entry == ({"v": "old"}, True), (
-        "a tool_use-only purge must broadcast and mark responses stale; "
-        f"got broadcasts={broadcasts!r}, cache_entry={cache_entry!r}")
-
-
+@pytest.mark.parametrize("relabel_only", [False, True],
+                         ids=["move-files", "reset-label"])
 def test_an_alias_fold_only_ingest_invalidates_and_broadcasts(
         fresh_db: str, mini_r2_env: Path,
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    """an ingest whose only data change is the project_aliases
-    fold must mark the response cache stale and broadcast ingest_done —
-    the fold re-keys stored identity without inserting, reparsing or
-    deleting a file, so the walk-level counts all stay zero."""
+        monkeypatch: pytest.MonkeyPatch, relabel_only: bool) -> None:
+    """Both alias changes must reach the cache and broadcast gate."""
     assert ingest.run_ingest_locked("manual")["error"] is None
     with db.viz_conn() as c:
+        if relabel_only:
+            c.execute("UPDATE projects SET display_name = 'Drifted label' "
+                      "WHERE project_id = 'projA'")
+            pattern, target = "relabel-370-no-match-%", "projA"
+            assert _scalar(
+                c, "SELECT COUNT(*) FROM projects WHERE project_id = 'projA' "
+                   "AND display_name <> project_id") == 1, (
+                "the seeded target must carry a drifted display_name")
+        else:
+            pattern, target = "projA%", "projB"
+            assert _scalar(
+                c, "SELECT COUNT(*) FROM files "
+                   "WHERE project_id = 'projA'") > 0, (
+                "the mini mirror must carry files the alias moves")
+            assert _scalar(
+                c, "SELECT COUNT(*) FROM files WHERE project_id = 'projB' "
+                   "AND session_id = 'sess-A'") == 0, (
+                "the mirror must not already carry sess-A under projB")
         c.execute(
             "INSERT INTO project_aliases(pattern, project_id, note) "
-            "VALUES ('projA%', 'projB', 'issue 341')")
+            "VALUES (%s, %s, 'alias gate')", (pattern, target))
         c.commit()
-        assert _scalar(
-            c, "SELECT COUNT(*) FROM files WHERE project_id = 'projA'") > 0, (
-            "the mini mirror must carry files the alias moves")
-        assert _scalar(
-            c, "SELECT COUNT(*) FROM files WHERE project_id = 'projB' "
-               "AND session_id = 'sess-A'") == 0, (
-            "the mirror must not already carry sess-A under projB — "
-            "the fold is what puts it there")
     broadcasts = _prime_and_spy("alias-fold-only-key", monkeypatch)
 
     summary = ingest.run_ingest_locked("manual")
 
     assert summary["error"] is None
     assert (summary["inserted"], summary["reparsed"],
-            summary["deleted"]) == (0, 0, 0), (
-        "the run must have changed data ONLY through the alias fold")
-    assert broadcasts, "an alias-fold-only run must broadcast ingest_done"
+            summary["deleted"]) == (0, 0, 0)
+    assert broadcasts, "an alias-only run must broadcast ingest_done"
     assert cache.response_cache.get_entry("alias-fold-only-key") == (
-        {"v": "old"}, True), "an alias-fold-only run must mark responses stale"
+        {"v": "old"}, True), "an alias-only run must mark responses stale"
     with db.viz_conn() as c:
-        assert _scalar(
-            c, "SELECT COUNT(*) FROM files WHERE project_id = 'projB' "
-               "AND session_id = 'sess-A'") > 0, (
-            "the fold must move sess-A's files TO the alias target projB")
-        assert _scalar(
-            c, "SELECT COUNT(*) FROM files WHERE project_id = 'projA'") == 0, (
-            "the fold must empty the source project projA")
+        if relabel_only:
+            assert _scalar(
+                c, "SELECT display_name FROM projects "
+                   "WHERE project_id = 'projA'") == "projA", (
+                "the fold relabels its target with the target id")
+        else:
+            assert _scalar(
+                c, "SELECT COUNT(*) FROM files WHERE project_id = 'projB' "
+                   "AND session_id = 'sess-A'") > 0, (
+                "the fold must move sess-A's files to projB")
+            assert _scalar(
+                c, "SELECT COUNT(*) FROM files "
+                   "WHERE project_id = 'projA'") == 0, (
+                "the fold must empty the source project projA")
 
 
 def test_a_no_op_ingest_stays_quiet(
@@ -243,10 +233,8 @@ def test_a_no_op_ingest_stays_quiet(
 # --------------------------------------------------------------------------
 # identity changes that bypass the walk-level counts must
 # reach the same gate. A lane re-key moves files' project id without
-# inserting, reparsing or deleting anything; the fold pass's label reset
-# changes what /api/projects displays. Either alone must invalidate and
-# broadcast, or the cached project list and dashboards keep the old
-# project for up to an hour.
+# inserting, reparsing or deleting anything, so cached dashboards and the
+# project list must be invalidated.
 
 def test_a_lane_marker_rekey_only_ingest_invalidates_and_broadcasts(
         fresh_db, tmp_path, monkeypatch) -> None:
@@ -289,40 +277,3 @@ def test_a_lane_marker_rekey_only_ingest_invalidates_and_broadcasts(
         assert _scalar(
             c, "SELECT COUNT(*) FROM files WHERE project_id = %s",
             (proj,)) == 0, "the hash holds nothing after the re-key"
-
-
-def test_a_relabel_only_alias_pass_invalidates_and_broadcasts(
-        fresh_db: str, mini_r2_env: Path,
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    """The fold pass relabels every alias target with its own id on every
-    run; a pass whose ONLY change is that relabel changes what
-    /api/projects displays and must gate exactly like a fold that moves
-    files."""
-    assert ingest.run_ingest_locked("manual")["error"] is None
-    with db.viz_conn() as c:
-        c.execute("UPDATE projects SET display_name = 'Drifted label' "
-                  "WHERE project_id = 'projA'")
-        c.execute(
-            "INSERT INTO project_aliases(pattern, project_id, note) "
-            "VALUES ('relabel-370-no-match-%', 'projA', 'issue 370')")
-        c.commit()
-        assert _scalar(
-            c, "SELECT COUNT(*) FROM projects WHERE project_id = 'projA' "
-               "AND display_name <> project_id") == 1, (
-            "the seeded target must carry a drifted display_name")
-    broadcasts = _prime_and_spy("relabel-only-key", monkeypatch)
-
-    summary = ingest.run_ingest_locked("manual")
-
-    assert summary["error"] is None
-    assert (summary["inserted"], summary["reparsed"],
-            summary["deleted"]) == (0, 0, 0), (
-        "the run must have changed data ONLY through the label reset")
-    assert broadcasts, "a relabel-only alias pass must broadcast ingest_done"
-    assert cache.response_cache.get_entry("relabel-only-key") == (
-        {"v": "old"}, True), "a relabel-only pass must mark responses stale"
-    with db.viz_conn() as c:
-        assert _scalar(
-            c, "SELECT display_name FROM projects "
-               "WHERE project_id = 'projA'") == "projA", (
-            "the fold relabels its target with the target id")
