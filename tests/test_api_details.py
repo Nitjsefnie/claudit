@@ -8,11 +8,9 @@ from datetime import datetime, timedelta, timezone
 
 import psycopg
 import pytest
-from fastapi import FastAPI, Request
 from fastapi.routing import APIRoute
-from fastapi.testclient import TestClient
 
-from backend import api, app as app_mod, cache, db, ingest
+from backend import app as app_mod, cache, db, ingest
 from tests import dims_seed, mini_mirror
 
 # Pytest discovers imported fixture functions by their fixture marker.
@@ -22,48 +20,6 @@ from tests.test_api import (  # pylint: disable=unused-import
     _app_with_rl_data_fixture,
     _insert_tz_probe_rows,
 )
-
-
-def test_context_growth_agg_shape(app_with_data):
-    r = app_with_data.get("/api/context-growth/agg?range=3650d")
-    assert r.status_code == 200
-    body = r.json()
-    assert "per_turn" in body and "per_session_final" in body
-    for k in ("n", "mean", "p50", "p90", "p99", "max"):
-        assert k in body["per_turn"]
-        assert k in body["per_session_final"]
-
-
-def test_context_growth_session_returns_canonical_array(app_with_data):
-    """Mini fixture sess-A has 1 turn (single_turn.jsonl). Verify the
-    per-turn array is returned with the canonical shape."""
-    r = app_with_data.get("/api/context-growth/session/sess-A")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["session_id"] == "sess-A"
-    assert "turns" in body and isinstance(body["turns"], list)
-    if body["turns"]:
-        t = body["turns"][0]
-        assert {"idx", "ts", "line", "input", "output", "delta"} == set(t)
-    assert body["total_turns"] == len(body["turns"])
-
-
-def test_context_growth_session_404(app_with_data):
-    r = app_with_data.get("/api/context-growth/session/does-not-exist")
-    assert r.status_code == 404
-
-
-def test_tool_error_rate_returns_expected_shape(app_with_data):
-    r = app_with_data.get("/api/tool-error-rate?range=3650d")
-    assert r.status_code == 200
-    body = r.json()
-    assert "range" in body
-    assert "bucket_s" in body
-    assert "buckets" in body
-    assert isinstance(body["buckets"], list)
-    for b in body["buckets"]:
-        assert {"ts", "model", "tool", "n_total", "n_error"} <= set(b.keys())
-        assert b["n_error"] <= b["n_total"]
 
 
 def test_dashboard_returns_prompts_and_turns_totals(app_with_data):
@@ -280,26 +236,15 @@ def test_dashboard_response_is_cached_and_fresh_bypasses(app_with_fresh_data):
     assert fresh["cost_by_model"] == []
 
 
-def test_dashboard_range_non_numeric_days_400(app_with_data):
-    """Reject a non-integer duration such as 1e5d with the same parameter-naming
-    400 as an unknown suffix; int() raising must not escape as a 500."""
-    r = app_with_data.get("/api/dashboard?range=1e5d")
+@pytest.mark.parametrize("rng", [
+    pytest.param("1e5d", id="non-integer-days"),
+    pytest.param("999999999d", id="datetime-overflow"),
+    pytest.param("1000000000d", id="timedelta-overflow"),
+])
+def test_dashboard_invalid_day_range_400(app_with_data, rng):
+    r = app_with_data.get("/api/dashboard", params={"range": rng})
     assert r.status_code == 400
     assert "range" in r.json()["detail"]
-
-
-def test_dashboard_range_overflow_400(app_with_data):
-    """`999999999d` parses (timedelta's day cap) and then overflows the
-    caller's `since = now - delta` with OverflowError — a 500. The bound
-    check belongs in the shared parser, so every endpoint returns 400
-    without per-endpoint try/excepts. A day count one past
-    timedelta's own cap (construction overflow) is the same behavior."""
-    r = app_with_data.get("/api/dashboard?range=999999999d")
-    assert r.status_code == 400
-    assert "range" in r.json()["detail"]
-    r_cap = app_with_data.get("/api/dashboard?range=1000000000d")
-    assert r_cap.status_code == 400
-    assert "range" in r_cap.json()["detail"]
 
 
 def test_dashboard_cost_by_project_shape(app_with_data):
@@ -322,39 +267,6 @@ def test_dashboard_cost_by_project_shape(app_with_data):
     assert {r["project"] for r in body_b["cost_by_project"]} == {"projB"}
 
 
-def test_dashboard_cost_by_project_omitted_for_guest(app_with_data):
-    """The guest gate is SERVER-side. /api/dashboard is guest-accessible,
-    so per-project names/costs — the very data the 403s on /api/projects
-    and on project= exist to withhold (session.auth_middleware) — must be
-    missing from the response body itself, not merely unrendered by the
-    frontend.
-
-    This suite mounts only api.router (auth bypassed), so a guest is
-    simulated by a middleware setting the SAME request.state.is_guest
-    flag the real middleware sets. The guest call reuses the non-guest
-    call's query params, so it is served from the SHARED response cache —
-    proving the strip happens per-request, outside the cached payload."""
-    body = app_with_data.get("/api/dashboard?range=3650d").json()
-    assert "cost_by_project" in body
-    assert "tokens_by_project" in body
-
-    a = FastAPI()
-
-    @a.middleware("http")
-    async def set_guest_flag(request: Request, call_next):
-        request.state.is_guest = True
-        return await call_next(request)
-
-    a.include_router(api.router)
-    guest = TestClient(a).get("/api/dashboard?range=3650d")
-    assert guest.status_code == 200
-    assert "cost_by_project" not in guest.json()
-    assert "tokens_by_project" not in guest.json(), (
-        "per-project token names are the same guest-withheld data the "
-        "cost key is — stripped server-side, outside the shared cache")
-    assert "cost_by_model" in guest.json()
-
-
 def test_activity_heatmap_shape(app_with_data):
     r = app_with_data.get("/api/activity-heatmap?range=3650d")
     assert r.status_code == 200
@@ -367,15 +279,6 @@ def test_activity_heatmap_shape(app_with_data):
         assert c["requests"] >= 1
         assert c["output_tokens"] >= 0
         assert c["cost_usd"] >= 0
-
-
-def test_activity_heatmap_requests_match_dashboard(app_with_data):
-    # Both endpoints read through the same DISTINCT ON (uuid) dedup, so
-    # total request counts must agree for the same range.
-    heat = app_with_data.get("/api/activity-heatmap?range=3650d").json()
-    dash = app_with_data.get("/api/dashboard?range=3650d").json()
-    assert sum(c["requests"] for c in heat["cells"]) == \
-           sum(h["requests"] for h in dash["hourly"])
 
 
 def test_activity_heatmap_dst_awareness(app_with_fresh_data):

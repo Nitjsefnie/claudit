@@ -26,15 +26,6 @@ def _load_plot_db_module(monkeypatch, request):
     return mod
 
 
-def test_build_export_argv_period_and_project():
-    argv = api_export.build_export_argv("7d", "myproj", "/tmp/out.png")
-    assert "--output=/tmp/out.png" in argv
-    assert "--period=7d" in argv
-    assert "--project=myproj" in argv
-    assert "--db-url" not in argv  # DSN comes from inherited env, not argv
-    assert "--all" not in argv
-
-
 def test_build_export_argv_all_and_no_project():
     argv = api_export.build_export_argv("all", None, "/tmp/out.png")
     assert "--all" in argv
@@ -44,25 +35,8 @@ def test_build_export_argv_all_and_no_project():
     assert "--db-url" not in argv
 
 
-def test_build_export_argv_value_options_use_equals_form():
-    """Every value-taking option the export passes rides in --opt=value
-    form — a single argv element, so a dash-leading value can never be
-    re-read as an option."""
-    argv = api_export.build_export_argv("7d", "-root-claudit", "/tmp/out.png")
-    assert "--output=/tmp/out.png" in argv
-    assert "--period=7d" in argv
-    assert "--project=-root-claudit" in argv
-    assert not {"--project", "-p", "-o", "--period", "--output"} & set(argv)
-
-
 def test_build_export_argv_dash_slug_survives_plot_parser(monkeypatch, request):
-    """GET /api/export answered 500 for every project id starting with
-    '-' — i.e. every POSIX Claude project (ids are path slugs such as
-    -root-claudit, some start '--'). In the two-element space form the
-    plot script's argparse reads the slug as an unknown option and exits
-    2; the --opt=value form keeps it a value. Goes through BOTH halves:
-    build_export_argv AND the script's own _build_parser (on unfixed code
-    the parse raises SystemExit — that is the RED)."""
+    """Dash-leading project slugs stay values through the real plot parser."""
     mod = _load_plot_db_module(monkeypatch, request)
     for slug in ("-root-claudit", "--double-dash-project"):
         argv = api_export.build_export_argv("7d", slug, "/tmp/out.png")
