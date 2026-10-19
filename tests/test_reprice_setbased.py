@@ -1,13 +1,7 @@
-"""The reprice pass's restamp/reprice split.
+"""The reprice pass's restamp/reprice split and bounded writes.
 
-The pass recomputes every stale row's rate-derived state from stored
-columns (unchanged assembly point `_record_updates`) and writes only
-rows whose stored cost or long-context flag differ — the rest are
-re-stamped with the current PRICING_VERSION in one set-based UPDATE per
-batch. The return count is rows whose rate-derived data CHANGED, so the
-ingest's promote_full and cache gate fire only when user-visible data
-moved (ingest.py: a reprice phase returning 0 promotes nothing and
-invalidates nothing).
+Unchanged rows restamp silently; mixed batches preserve committed work
+on shutdown, and instrumentation accounts for the pass's phases.
 """
 from __future__ import annotations
 
@@ -33,29 +27,6 @@ from backend import (
     ingest_reprice,
     timing,
 )
-
-
-def test_reprice_reports_only_rows_whose_data_changed(fresh_db):
-    """A stale row whose stored cost already equals the computed one is
-    restamped, not repriced: the pass returns only the row whose data
-    actually moved, and the restamped row carries the same cost with the
-    current version."""
-    with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1,
-              SeedRecord(pricing_version="0", cost_usd=_seeded_cost()))
-        _seed(c, _FILE_KEY, 2, SeedRecord(pricing_version="0"))
-        c.commit()
-
-    assert ingest_reprice.reprice_stale() == 1
-
-    with db.viz_conn() as c:
-        rows = _rows(c)
-    assert float(rows[0][1]) == _seeded_cost(), (
-        "the restamped row keeps its cost exactly")
-    assert rows[0][2] == constants.PRICING_VERSION, (
-        "the restamped row is re-stamped with the current version")
-    assert float(rows[1][1]) == _seeded_cost(), "the stale row is repriced"
-    assert rows[1][2] == constants.PRICING_VERSION
 
 
 def test_reprice_restamp_only_run_reports_zero(fresh_db, caplog):

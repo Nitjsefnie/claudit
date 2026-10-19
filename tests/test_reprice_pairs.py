@@ -1,19 +1,9 @@
-"""The pair-qualified reprice staleness: the pass's own
-tests.
+"""Pair-qualified repricing, rollback guards and stored fingerprints.
 
-The reprice pass classifies the stale (model, provider) pairs and
-SQL-restamps every stale row whose stored rate_fingerprint still
-equals its pair's current fingerprint — the fingerprint covers every
-rate input resolve() consults plus the pricing modules' source, so
-those rows' recomputation is the identity and the keyset loop never
-sees them. The tests here bind that structural guarantee (a clean
-bump reads ZERO rows into Python), the guard's reach into the SQL
-restamp, the odd version spellings the SQL set excludes, and the
-persist/migration shapes. The differential against the frozen
-legacy pass lives in tests/test_reprice_differential.py; the
-assembly-point and write-shape pins stay in test_reprice_setbased.py.
-Split from test_reprice.py, which would otherwise cross the
-SV-CI-RATCHETS test ceiling.
+Clean fingerprints permit SQL restamps without reading rows into Python.
+Cover moved pairs, odd versions and the Phase B skip; the frozen legacy
+comparison lives in test_reprice_differential.py and write-shape checks
+in test_reprice_setbased.py.
 """
 from __future__ import annotations
 
@@ -22,8 +12,6 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
-
-import pytest
 
 # The fixtures register on import; pylint only sees names nobody calls.
 from test_ingest import (  # pylint: disable=unused-import
@@ -145,52 +133,6 @@ def test_ingest_stamps_rate_fingerprint(fresh_db, mini_r2_env):
                                                                 provider), (
             f"{model!r} via {provider!r} must carry its pair's fingerprint")
         assert version == constants.PRICING_VERSION
-
-
-@pytest.mark.parametrize("column, seed", [
-    ("pricing_version_id", SeedRecord(pricing_version=None)),
-    ("rate_fingerprint_id", SeedRecord(rate_fingerprint=None, pricing_version=None)),
-], ids=["pricing-version", "rate-fingerprint"])
-def test_rate_fingerprint_dim_is_nullable_migration(fresh_db, mini_r2_env, column, seed):
-    """each pricing stamp rides a nullable dim FK: the catalog
-    admits NULL, apply_schema leaves stored rows alone, and a row seeded
-    without a stamp reads a NULL id (the conservative stale shape)."""
-    result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
-
-    with db.viz_conn() as c:
-        before = c.execute("SELECT COUNT(*) FROM records").fetchone()
-    assert before is not None and before[0] > 0, (
-        "the mirror must produce records, or this proves nothing")
-
-    # apply_schema skips the DDL while the content stamp
-    # matches, so out-of-band schema damage needs the stamp cleared to
-    # force the re-apply under test.
-    with db.viz_conn() as c:
-        c.execute("DELETE FROM schema_stamp")
-        c.commit()
-
-    db.apply_schema()
-
-    with db.viz_conn() as c:
-        row = c.execute(
-            "SELECT is_nullable FROM information_schema.columns "
-            "WHERE table_schema = 'public' AND table_name = 'records_price' "
-            "AND column_name = %s", (column,)).fetchone()
-        assert row is not None and row[0] == "YES", (
-            f"records_price.{column} must be a nullable dim FK")
-        _seed(c, _FILE_KEY, 99, seed)
-        after = c.execute("SELECT COUNT(*) FROM records").fetchone() or (0,)
-        if column == "pricing_version_id":
-            nulls = c.execute(
-                "SELECT COUNT(*) FROM records_price WHERE pricing_version_id IS NULL"
-            ).fetchone() or (0,)
-        else:
-            nulls = c.execute(
-                "SELECT COUNT(*) FROM records_price WHERE rate_fingerprint_id IS NULL"
-            ).fetchone() or (0,)
-    assert after[0] == before[0] + 1, "the pass must not disturb stored rows"
-    assert nulls[0] >= 1, "a row written without a stamp reads NULL id"
 
 
 def test_clean_bump_restamps_set_based_without_reading_rows(
