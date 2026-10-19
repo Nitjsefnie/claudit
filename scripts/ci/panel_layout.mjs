@@ -147,104 +147,104 @@ const PROBE = () => {
   return out;
 };
 
+async function sweepWidth(browser, base, width, counters) {
+  const ctx = await browser.newContext({
+    viewport: { width, height: 1000 },
+  });
+  await ctx.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/events') {
+      // A live SSE stream never resolves; neither does this one, so
+      // the page does not sit in a reconnect loop.
+      await new Promise(() => {});
+      return;
+    }
+    const name = API[path];
+    if (!name) {
+      await route.fulfill({ status: 200, body: '{}' });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: await readFile(join(FIXTURES, name), 'utf8'),
+    });
+  });
+  const page = await ctx.newPage();
+  const bootstrapErrors = [];
+  page.on('pageerror', err => bootstrapErrors.push(err.message));
+  page.on('console', msg => { if (msg.type() === 'error') bootstrapErrors.push(msg.text()); });
+  page.on('requestfailed', req => bootstrapErrors.push(`${req.url()}: ${req.failure()?.errorText}`));
+  for (const route of ROUTES) {
+    await page.goto(base + '/', { waitUntil: 'load' });
+    if (route.nav) {
+      await page.getByRole('button', { name: route.nav, exact: true }).click();
+    }
+    await page.waitForSelector('[data-panel]', { timeout: 30_000 })
+      .catch(() => { });
+    // The self-fetching panels mount in parallel with /api/dashboard
+    // and re-render when their own response lands; wait for the
+    // layout to settle before reading any box.
+    await page.waitForTimeout(1_500);
+    const found = await page.evaluate(PROBE);
+    if (!found.length) {
+      // A route that renders no marked panel is a guard that checks
+      // nothing, which is worse than no guard: it reads as a pass.
+      counters.failures += 1;
+      console.log('BOOTSTRAP', await page.evaluate(() => ({
+        React: typeof React, Babel: typeof Babel, App: typeof window.App,
+        Dashboard: typeof window.Dashboard, feature: typeof window.featureOn,
+      })), bootstrapErrors);
+      console.log(`NO PANELS  ${width}px ${route.name}  no [data-panel] `
+        + 'rendered — the fixture payloads or the panel hooks changed');
+    }
+    for (const p of found) {
+      counters.panels += 1;
+      if (!p.roles) counters.unmarked += 1;
+      for (const o of p.outside) {
+        const issue = filedFor(p.name, [o.role]);
+        if (issue) counters.known.push(issue);
+        else counters.failures += 1;
+        console.log(`${issue ? 'KNOWN' : 'OVERFLOW'}   ${width}px ${route.name}`
+          + `  ${p.name}\n            ${o.role} "${o.label}" escapes `
+          + `the panel by left ${o.over.left} top ${o.over.top} `
+          + `right ${o.over.right} bottom ${o.over.bottom} px`
+          + `${issue ? `  (filed as #${issue})` : ''}`);
+      }
+      for (const h of p.hits) {
+        const issue = filedFor(p.name, [h.a, h.b]);
+        if (issue) counters.known.push(issue);
+        else counters.failures += 1;
+        console.log(`${issue ? 'KNOWN' : 'OVERLAP'}    ${width}px ${route.name}`
+          + `  ${p.name}\n            ${h.a} "${h.al}" x ${h.b} "${h.bl}"  `
+          + `${h.ox}x${h.oy}px${issue ? `  (filed as #${issue})` : ''}`);
+      }
+      for (const w of p.within) {
+        counters.failures += 1;
+        console.log(`COLLIDED  ${width}px ${route.name}  ${p.name}\n`
+          + `            ${w.part}  ${w.ox}x${w.oy}px`);
+      }
+      if (process.env.CLAUDIT_PANEL_LAYOUT_VERBOSE) {
+        console.log(`  panel ${p.name} roles=${p.roles}`);
+      }
+    }
+  }
+  await ctx.close();
+}
+
 async function main() {
   const server = await serve();
   const base = `http://127.0.0.1:${server.address().port}`;
   const browser = await chromium.launch();
-  let failures = 0;
-  let panels = 0;
-  let unmarked = 0;
-  const known = [];
+  const counters = { failures: 0, panels: 0, unmarked: 0, known: [] };
   try {
-    for (const width of WIDTHS) {
-      const ctx = await browser.newContext({
-        viewport: { width, height: 1000 },
-      });
-      await ctx.route('**/api/**', async route => {
-        const path = new URL(route.request().url()).pathname;
-        if (path === '/api/events') {
-          // A live SSE stream never resolves; neither does this one, so
-          // the page does not sit in a reconnect loop.
-          await new Promise(() => {});
-          return;
-        }
-        const name = API[path];
-        if (!name) {
-          await route.fulfill({ status: 200, body: '{}' });
-          return;
-        }
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: await readFile(join(FIXTURES, name), 'utf8'),
-        });
-      });
-      const page = await ctx.newPage();
-      const bootstrapErrors = [];
-      page.on('pageerror', err => bootstrapErrors.push(err.message));
-      page.on('console', msg => { if (msg.type() === 'error') bootstrapErrors.push(msg.text()); });
-      page.on('requestfailed', req => bootstrapErrors.push(`${req.url()}: ${req.failure()?.errorText}`));
-      for (const route of ROUTES) {
-        await page.goto(base + '/', { waitUntil: 'load' });
-        if (route.nav) {
-          await page.getByRole('button', { name: route.nav, exact: true }).click();
-        }
-        await page.waitForSelector('[data-panel]', { timeout: 30_000 })
-          .catch(() => { });
-        // The self-fetching panels mount in parallel with /api/dashboard
-        // and re-render when their own response lands; wait for the
-        // layout to settle before reading any box.
-        await page.waitForTimeout(1_500);
-        const found = await page.evaluate(PROBE);
-        if (!found.length) {
-          // A route that renders no marked panel is a guard that checks
-          // nothing, which is worse than no guard: it reads as a pass.
-          failures += 1;
-          console.log('BOOTSTRAP', await page.evaluate(() => ({
-            React: typeof React, Babel: typeof Babel, App: typeof window.App,
-            Dashboard: typeof window.Dashboard, feature: typeof window.featureOn,
-          })), bootstrapErrors);
-          console.log(`NO PANELS  ${width}px ${route.name}  no [data-panel] `
-            + 'rendered — the fixture payloads or the panel hooks changed');
-        }
-        for (const p of found) {
-          panels += 1;
-          if (!p.roles) unmarked += 1;
-          for (const o of p.outside) {
-            const issue = filedFor(p.name, [o.role]);
-            if (issue) known.push(issue);
-            else failures += 1;
-            console.log(`${issue ? 'KNOWN' : 'OVERFLOW'}   ${width}px ${route.name}`
-              + `  ${p.name}\n            ${o.role} "${o.label}" escapes `
-              + `the panel by left ${o.over.left} top ${o.over.top} `
-              + `right ${o.over.right} bottom ${o.over.bottom} px`
-              + `${issue ? `  (filed as #${issue})` : ''}`);
-          }
-          for (const h of p.hits) {
-            const issue = filedFor(p.name, [h.a, h.b]);
-            if (issue) known.push(issue);
-            else failures += 1;
-            console.log(`${issue ? 'KNOWN' : 'OVERLAP'}    ${width}px ${route.name}`
-              + `  ${p.name}\n            ${h.a} "${h.al}" x ${h.b} "${h.bl}"  `
-              + `${h.ox}x${h.oy}px${issue ? `  (filed as #${issue})` : ''}`);
-          }
-          for (const w of p.within) {
-            failures += 1;
-            console.log(`COLLIDED  ${width}px ${route.name}  ${p.name}\n`
-              + `            ${w.part}  ${w.ox}x${w.oy}px`);
-          }
-          if (process.env.CLAUDIT_PANEL_LAYOUT_VERBOSE) {
-            console.log(`  panel ${p.name} roles=${p.roles}`);
-          }
-        }
-      }
-      await ctx.close();
-    }
+    await Promise.all(WIDTHS.map(w => sweepWidth(browser, base, w, counters)));
     await featureSurfaces(browser, base);
   } finally {
     await browser.close();
     server.close();
   }
+  const { failures, panels, unmarked, known } = counters;
   const filed = [...new Set(known)].sort((a, b) => a - b);
   console.log(`panel-layout: ${panels} panel instances over ${WIDTHS.length} `
     + `width(s), ${unmarked} without a data-role region, `

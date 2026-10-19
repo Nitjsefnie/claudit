@@ -2133,7 +2133,7 @@ export async function runRules(ruleFilter, casesOnly = false) {
   const fired = [];
   let executed = 0;
   try {
-    for (const width of casesOnly ? [] : WIDTHS) {
+    const runWidth = async width => {
       const ctx = await browser.newContext({
         viewport: { width, height: 900 },
       });
@@ -2201,7 +2201,8 @@ export async function runRules(ruleFilter, casesOnly = false) {
         }
       }
       await ctx.close();
-    }
+    };
+    await Promise.all((casesOnly ? [] : WIDTHS).map(runWidth));
     if (!ruleFilter) {
       const cases = await layoutTiming('picker cases', () => runPickerCases(browser, base, RULES, {
         probe: PICKER_PAGE_PROBE, fit: pickerPageFitFindings,
