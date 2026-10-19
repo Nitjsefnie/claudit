@@ -489,9 +489,13 @@ class TestRefreshPricingShards:
         assert stage["if"] == "needs.refresh.outputs.moved == 'true'"
         staging = next(step["run"] for step in stage["steps"]
                        if step.get("name") == "Stage the tested data")
+        download = next(step for step in stage["steps"]
+                        if step.get("name") == "Download the fetched data")
+        upload = next(step for step in stage["steps"]
+                      if step.get("name") == "Upload the tested data")
         assert {line for line in staging.splitlines() if line.startswith("cp ")} == {
-            f'cp "${{{{ runner.temp }}}}/fetch-data/{filename}" '
-            f'"${{{{ runner.temp }}}}/push-data/{filename}"'
+            f'cp "{download["with"]["path"]}/{filename}" '
+            f'"{upload["with"]["path"]}/{filename}"'
             for filename in ["pricing.json", "constants.py", "pricing_notices.json",
                              "commit-msg.txt", "base.txt"]
         }
@@ -510,15 +514,33 @@ class TestRefreshPricingShards:
             "--shard ${{ matrix.shard }} --of 4) -q --tb=short -ra"
         ) in run
         assert "--cov" not in run
-        setup = next(step for step in steps
-                     if step.get("uses", "").startswith("actions/setup-python@"))
-        assert setup["with"]["python-version"] == "3.13"
+
+    def test_fetch_and_suite_interpreters_match_the_explorer(self) -> None:
+        explorer = yaml.safe_load(
+            (WORKFLOWS_DIR / "test-data-explore.yml").read_text(encoding="utf-8")
+        )["jobs"]
+        versions = []
+        for jobs, required in [(self.jobs, ["refresh", "suite"]),
+                               (explorer, ["perturbed-suite-explore"])]:
+            setups = {name: [step for step in job["steps"]
+                            if "python-version" in step.get("with", {})]
+                      for name, job in jobs.items()}
+            assert all(setups[name] for name in required)
+            versions.extend(step["with"]["python-version"]
+                            for steps in setups.values() for step in steps)
+        assert versions[0] and len(set(versions)) == 1
+        steps = self.jobs["refresh"]["steps"]
+        fetch = next(i for i, step in enumerate(steps) if step.get("id") == "fetch")
+        assert all(i < fetch for i, step in enumerate(steps)
+                   if "python-version" in step.get("with", {}))
 
     def test_suite_overlays_all_fetched_data(self) -> None:
-        overlay = next(step["run"] for step in self.jobs["suite"]["steps"]
+        steps = self.jobs["suite"]["steps"]
+        download = next(step for step in steps if step.get("name") == "Download the fetched data")
+        overlay = next(step["run"] for step in steps
                        if step.get("name") == "Overlay the fetched data")
         assert {line for line in overlay.splitlines() if line.startswith("cp ")} == {
-            f'cp "${{{{ runner.temp }}}}/fetch-data/{filename}" {target}'
+            f'cp "{download["with"]["path"]}/{filename}" {target}'
             for filename, target in [
                 ("pricing.json", "src/pricing.json"),
                 ("constants.py", "backend/constants.py"),
@@ -527,13 +549,50 @@ class TestRefreshPricingShards:
         }
 
     def test_postgres_lives_in_suite_only(self) -> None:
-        for job, expected in [("refresh", 0), ("suite", 1)]:
-            assert sum(step.get("uses") == "$/.github/actions/postgres"
-                       for step in self.jobs[job]["steps"]) == expected
+        for workflow in ["refresh-pricing.yml", "test-data-explore.yml"]:
+            jobs = yaml.safe_load((WORKFLOWS_DIR / workflow).read_text(encoding="utf-8"))["jobs"]
+            consumers = 0
+            for job in jobs.values():
+                steps = job["steps"]
+                tests = [i for i, step in enumerate(steps) if
+                         "python -m pytest $(python3 scripts/ci/pytest_shards.py" in step.get("run", "")]
+                if tests:
+                    consumers += 1
+                    starts = [i for i, step in enumerate(steps) if step.get("name") == "Start cached Postgres"]
+                    assert len(starts) == 1 and starts[0] < min(tests)
+                    assert "uses" in steps[starts[0]] and "if" not in steps[starts[0]]
+            assert consumers
+        assert not any(step.get("name") == "Start cached Postgres"
+                       for step in self.jobs["refresh"]["steps"])
+
+    def test_artifact_names_connect_producers_to_consumers(self) -> None:
+        def named(job: str, name: str) -> dict:
+            return next(step for step in self.jobs[job]["steps"] if step.get("name") == name)
+
+        raw = named("refresh", "Upload the fetched data")
+        staging = named("refresh", "Stage the fetched data")["run"]
+        outputs = {line.rsplit('"', 2)[1].replace("$RUNNER_TEMP", "${{ runner.temp }}")
+                   for line in staging.splitlines() if line.startswith(("cp ", "git rev-parse HEAD > "))}
+        assert outputs == {f'{raw["with"]["path"]}/{filename}' for filename in
+                           ["pricing.json", "constants.py", "pricing_notices.json", "commit-msg.txt", "base.txt"]}
+        for job in ["suite", "stage"]:
+            download = named(job, "Download the fetched data")
+            assert "uses" in download and "run" not in download
+            assert raw["with"]["name"] == download["with"]["name"]
+        tested = named("stage", "Upload the tested data")
+        assert tested["with"]["name"] == named("push", "Download the tested data")["with"]["name"]
 
     def test_fetch_and_moved_commands_are_preserved(self) -> None:
         steps = {step.get("id"): step for step in self.jobs["refresh"]["steps"]}
         fetch = steps["fetch"]["run"]
+        assert self.jobs["refresh"]["outputs"] == {
+            "moved": "${{ steps.moved.outputs.moved }}",
+            "fetch_rc": "${{ steps.fetch.outputs.rc }}",
+        }
+        for job in ["suite", "stage", "push"]:
+            assert self.jobs[job]["if"] == "needs.refresh.outputs.moved == 'true'"
+        verdict, = self.jobs["verdict"]["steps"]
+        assert verdict["env"]["FETCH_RC"] == "${{ needs.refresh.outputs.fetch_rc }}"
         assert "python3 scripts/ci/refresh_provider_rates.py" in fetch
         assert '|| rc=$?' in fetch
         assert 'echo "rc=$rc" >> "$GITHUB_OUTPUT"' in fetch

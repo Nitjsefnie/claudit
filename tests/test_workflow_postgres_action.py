@@ -19,9 +19,9 @@ SITES = (
     ("tests.yml", "pytest-shards", "python -m pytest $(python3 scripts/ci/pytest_shards.py"),
     ("tests.yml", "pytest-thresholds", "python -m pytest $(sed"),
     ("test-data.yml", "perturbed-suite", "scripts/ci/perturbed_leg_bench.py"),
-    ("test-data-explore.yml", "perturbed-suite-explore", "python -m pytest tests/"),
+    ("test-data-explore.yml", "perturbed-suite-explore", "python -m pytest $(python3 scripts/ci/pytest_shards.py"),
     ("smoke.yml", "smoke", "scripts/ci/smoke.py"),
-    ("refresh-pricing.yml", "refresh", "python -m pytest tests/"),
+    ("refresh-pricing.yml", "suite", "python -m pytest $(python3 scripts/ci/pytest_shards.py"),
 )
 
 
