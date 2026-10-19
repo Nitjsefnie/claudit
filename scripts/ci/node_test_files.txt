@@ -49,7 +49,6 @@ tests/test_placeholder_model_refusal.py
 tests/test_pricing_compact.py
 tests/test_pricing_data.py
 tests/test_pricing_vendor.py
-tests/test_pricing_vendor_2.py
 tests/test_pricing_vendor_equality.py
 tests/test_prompt_gate_whitespace.py
 tests/test_provider_rate_log_refresh.py
