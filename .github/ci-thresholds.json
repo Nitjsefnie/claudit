@@ -1901,8 +1901,8 @@
   "schema_version": 1,
   "suite_cost": {
     "collection": {
-      "floor": 26.1,
-      "measured": 24.6
+      "floor": 27.8,
+      "measured": 26.3
     },
     "residual": {
       "floor": 5.6,
