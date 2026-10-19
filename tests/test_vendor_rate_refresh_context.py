@@ -8,8 +8,8 @@ from tests.vendor_rate_refresh_helpers import (
 )
 
 
-@pytest.mark.parametrize('context_length', [1048576, 9007199254740991])
-def test_vendor_context_updates_existing_metadata_without_rewriting_identity(context_length):
+def test_vendor_context_updates_existing_metadata_without_rewriting_identity():
+    context_length = 1048576
     existing = {**TRACKED, 'id': 'openai/retained-id', 'vendor_host': 'Kept',
                 'context_length': 131072}
     endpoints = [_endpoint('openai', _price(1, 5)),

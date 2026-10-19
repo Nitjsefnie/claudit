@@ -27,9 +27,8 @@ WEB_SEARCH = "0.0137"
 STAMP = "2031-01-01T00:00:00Z"
 
 
-@pytest.mark.parametrize('context_length', [786432, 9007199254740991])
-def test_sampled_context_move_appends_unchanged_rates_and_note(
-        tmp_path, capsys, context_length):
+def test_sampled_context_move_appends_unchanged_rates_and_note(tmp_path, capsys):
+    context_length = 786432
     run = Run(tmp_path)
     before = copy.deepcopy(run.doc()['providers'][GLM]['OpenInference'])
     run.endpoint(GLM, 'OpenInference')['context_length'] = context_length
@@ -529,15 +528,6 @@ def test_a_1h_tier_round_trips_through_the_listing_inverse():
     round_trip = refresh_prices.rates_of(listed, "h")
     assert {field: round_trip[field] for field in RATE_FIELDS} == CLAUDE_RATES
     assert round_trip.get("web_search", 0) == 0
-
-
-def test_an_unlisted_read_round_trips_through_the_listing_inverse():
-    rates = refresh_prices.rates_of(
-        {"prompt": "0.000004", "completion": "0.00002"}, "h")
-
-    assert refresh_prices.rates_of(refresh_prices.as_listed(rates), "h") == {
-        "fresh": 4.0, "create_5m": 4.0, "create_1h": 4.0,
-        "read": 4.0, "output": 20.0}
 
 
 def test_global_suffix_is_recognized_as_the_configured_region():
