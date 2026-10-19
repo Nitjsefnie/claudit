@@ -230,7 +230,6 @@ def test_ratchet_push_job_tightens_from_the_artifact():
     job_text = text[text.index("  push:"):]
     for banned in ("actions/checkout", "pip install", "pytest "):
         assert banned not in job_text, banned
-    # The runner sees one line: the quoted script path and its flag.
     tighten = _find_step(job, 'suite_ratchet.py" --tighten')
     assert TIGHTEN_CMD in _run_lines(tighten)
 

@@ -186,7 +186,6 @@ def _cap_readers(root: Path) -> list[str]:
 
 
 class TestNodeDrivenPanelAndCtxAxis:
-    # Every test below drives node; the class mark is the file's node skip.
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
     def test_text_that_already_fits_is_returned_unchanged(self):
@@ -238,7 +237,6 @@ class TestNodeDrivenPanelAndCtxAxis:
         assert got["text"] == "claude-sonnet-4-6"
         assert got["ruleGap"] == pytest.approx(8)
         assert got["countGap"] == pytest.approx(6)
-        # The count begins strictly after the label's own box ends.
         assert got["countX"] >= 9 + len(got["text"]) * ADV
 
     def test_the_count_text_names_the_files_it_summarises(self):
@@ -391,7 +389,6 @@ class TestNodeDrivenPanelAndCtxAxis:
 
 
 class TestNodeDrivenCtxAxis:
-    # Every test below drives node; the class mark is the file's node skip.
     pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
     def test_ctx_peak_is_the_largest_turn_across_every_session(self):

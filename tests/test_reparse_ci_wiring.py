@@ -127,8 +127,6 @@ def test_the_action_measures_once_and_gates_that_same_file():
         "measurement")
     assert "--check" in gate["run"], (
         "the gating invocation no longer checks the measurement")
-    # All three references must read the SAME variable, so a hard-coded
-    # path in any of them is the skew this test exists to catch.
     assert measure["run"].count('"$MEASUREMENT"') == 2, (
         "the measuring invocation does not name the measurement path twice, "
         "via the shared variable")

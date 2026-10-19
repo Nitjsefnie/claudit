@@ -80,10 +80,6 @@ EXPECTED_RULES = {
     "react/jsx-uses-react": "error",
 }
 
-# How many names the config declares as cross-file globals. The count, not
-# the list: every name is checked against the tree by
-# `test_flat_config_keeps_the_cross_file_globals`, so a stale one fails there
-# and a dropped or added one fails here.
 EXPECTED_CROSS_FILE_GLOBALS = 95
 
 # `.jsx` is not a default lint target in flat config, so the files glob has

@@ -64,7 +64,6 @@ MARKER = "<!-- claudit-diff-coverage -->"
 ARTIFACT = "diff-coverage-comment"
 RELEASE_GATE = ROOT / "scripts" / "ci" / "release_gate.py"
 
-# The steps the readout hangs off, in the `coverage-combine` job.
 COMPUTE_STEP = "Patch coverage against the merge base"
 STAGE_STEP = "Stage the patch-coverage comment"
 UPLOAD_STEP = "Upload the patch-coverage comment"
@@ -218,7 +217,6 @@ class TestComputeSide:
         run = _step(_pytest_job(), STAGE_STEP).get("run") or ""
         assert "body.md" in run
         assert "pr-number.txt" in run
-        # Written as data, never spliced into a command that later runs.
         assert 'cp "$RUNNER_TEMP/diff-coverage.md"' in run
 
     def test_the_readout_is_wired_exactly_once(self):
@@ -280,8 +278,6 @@ class TestPostingSide:
             "pull-requests": "write", "actions": "read"}
 
     def test_it_checks_out_nothing(self):
-        # No checkout is the structural half of the safety argument: there
-        # is no working tree for pull-request content to enter.
         assert not [u for u in _uses(_comment_job())
                     if (u or "").startswith("actions/checkout")]
 
@@ -309,7 +305,6 @@ class TestPostingSide:
             in run)
         assert "gh api" in run
         assert '"$RUNNER_TEMP/diff-coverage-comment.zip"' in run
-        # The address is chosen from the event-run's own artifact list.
         assert "artifacts.json" in run
         # Extracted into a FRESH directory in the runner's temp, by
         # fixed member name: no zip entry name reaches the filesystem.
@@ -319,8 +314,6 @@ class TestPostingSide:
             'unzip -p "$RUNNER_TEMP/diff-coverage-comment.zip" body.md'
             in run)
         assert '> "$RUNNER_TEMP/coverage-artifact/body.md"' in run
-        # The step's gate is unchanged, and the post step reads only
-        # from that directory, still behind the shared retry.
         assert step.get("if") == _step(_comment_job(), POST_STEP).get(
             "if")
         post = _step(_comment_job(), POST_STEP).get("run") or ""
@@ -347,7 +340,6 @@ class TestPostingSide:
         # pr-number check were deleted.
         assert "''|*[!0-9]*)" in run
         assert "the artifact names a non-numeric pull request" in run
-        # And the mismatch is loud — refusing, not quietly correcting.
         assert "refusing to post" in run
 
     def test_the_comment_body_has_exactly_one_publisher_repo_wide(self):
