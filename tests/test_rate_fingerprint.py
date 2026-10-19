@@ -380,21 +380,19 @@ def test_parser_and_reprice_derivation_modules_are_hashed():
                      "backend.ingest_reprice"}
 
 
-def test_reprice_pass_source_edit_moves_the_fingerprint(monkeypatch):
-    """A source edit to the reprice pass moves every pair fingerprint:
-    the digest is computed over the pass's module too, so an edit is
-    visible to the clean restamp even though the rate tables stand
-    still. Simulates the edit by mutating what inspect.getsource
-    reports for the pass's module and recomputing the digest the way
-    import does."""
-    model = "fp377-model"
+@pytest.mark.parametrize(("module_name", "model", "edit"), [
+    ("backend.ingest_reprice", "fp377-model", "simulated rule edit (issue #377)"),
+    ("backend.parse", "fp-search-model", "simulated server_tool_use count rule change"),
+], ids=["reprice-pass", "claude-search-count"])
+def test_derivation_source_edit_moves_the_fingerprint(monkeypatch, module_name, model, edit):
+    """Editing either stored-state derivation invalidates the clean restamp."""
     before = rate_fingerprint.pair_fingerprint(model, None)
     real_getsource = inspect.getsource
 
     def _mutated(module):
         text = real_getsource(module)
-        if module.__name__ == "backend.ingest_reprice":
-            text += "\n# simulated rule edit (issue #377)\n"
+        if module.__name__ == module_name:
+            text += f"\n# {edit}\n"
         return text
 
     monkeypatch.setattr(inspect, "getsource", _mutated)
@@ -403,26 +401,7 @@ def test_reprice_pass_source_edit_moves_the_fingerprint(monkeypatch):
     monkeypatch.undo()
     importlib.reload(rate_fingerprint)
     assert after != before, (
-        "editing the reprice pass's source must move the fingerprint")
-
-
-def test_claude_search_count_source_edit_moves_the_fingerprint(monkeypatch):
-    model = "fp-search-model"
-    before = rate_fingerprint.pair_fingerprint(model, None)
-    real_getsource = inspect.getsource
-
-    def _mutated(module):
-        text = real_getsource(module)
-        if module.__name__ == "backend.parse":
-            text += "\n# simulated server_tool_use count rule change\n"
-        return text
-
-    monkeypatch.setattr(inspect, "getsource", _mutated)
-    importlib.reload(rate_fingerprint)
-    after = rate_fingerprint.pair_fingerprint(model, None)
-    monkeypatch.undo()
-    importlib.reload(rate_fingerprint)
-    assert after != before
+        "editing the derivation's source must move the fingerprint")
 
 
 _FAMILY_RATES = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,

@@ -46,14 +46,6 @@ def test_the_global_endpoint_is_taken_over_a_region_one(tmp_path, capsys):
     assert (entry["from"], entry["read"], entry["output"]) == (STAMP, seeded["read"], seeded["output"] * 2)
 
 
-def test_a_region_endpoint_moving_alone_moves_nothing(tmp_path, capsys):
-    run = Run(tmp_path)
-    _novita_region_twin(run)["pricing"]["completion"] = "0.000002"
-    before = run.snapshot()
-    assert run(capsys)[0] == 0
-    assert run.snapshot() == before
-
-
 def test_sail_research_takes_its_global_endpoint(tmp_path, capsys):
     """Its deepseek-v4-flash-0731 is listed as sail-research/fp4 and
     sail-research/us at different prices; the global one applies."""

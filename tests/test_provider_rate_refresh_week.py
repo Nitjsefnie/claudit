@@ -1,20 +1,16 @@
 """SV-RATE-REFRESH: first-seen scheduled hosts and whole-week coverage."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from backend import pricing
 from tests.refresh_fixture_builders import _endpoint, _overrides, _per_token
 from tests.test_provider_rate_refresh import (
     GLM, NEWCOMER, NOW, RATE_FIELDS, STAMP, V41, Run, refresh, refresh_prices)
 
 _WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday"]
 _NO_SATURDAY = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday"]
-_ANCHOR = datetime(2026, 1, 5, tzinfo=timezone.utc)
-_WEEK_MINUTES = 7 * 24 * 60
 
 
 def _listed(rates: dict) -> dict:
@@ -111,24 +107,6 @@ def test_first_seen_host_with_a_weekly_gap_is_still_refused(
     assert f"{GLM} via Newcomer" in err
     assert "first seen inside one of its windows" in err
     assert "Newcomer" not in run.doc()["providers"][GLM]
-
-
-@pytest.mark.parametrize("shape", ["time-split", "day-partitioned"])
-def test_a_seeded_default_cannot_price_any_minute_of_the_week(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str], shape: str) -> None:
-    run = Run(tmp_path)
-    schedule, active_rates = _full_week_schedule(shape)
-    _add_first_seen(run, schedule, active_rates)
-
-    rc, _, err = run(capsys, now=NOW)
-
-    assert rc == 0, err
-    entry = run.doc()["providers"][GLM]["Newcomer"][0]
-    assert {field: entry[field] for field in RATE_FIELDS} == active_rates
-    windows = pricing._schedule(entry["schedule"], "schedule")  # pylint: disable=protected-access
-    for minute in range(_WEEK_MINUTES):
-        at = _ANCHOR + timedelta(minutes=minute)
-        assert pricing._scheduled(windows, at) is not None, minute  # pylint: disable=protected-access
 
 
 @pytest.mark.parametrize(

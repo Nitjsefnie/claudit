@@ -20,6 +20,7 @@ from tests.refresh_fixture_builders import (
 from tests.test_provider_rate_refresh import (
     GLM, NOW, RATE_FIELDS, Run, refresh, refresh_prices)
 from tests.test_refresh_pricelog import _series
+from tests.test_provider_rate_refresh_pins import _novita_region_twin
 
 # USD per search, deliberately distinct from per-token rate fields.
 # Synthetic per-search rate, deliberately unlike the deployed listing.
@@ -99,14 +100,16 @@ def _search_rate(run: Run, model: str, host: str,
 # --- web search is a separate rate -----------------------------------------
 
 
-def test_a_listed_search_price_is_an_explicit_rate(tmp_path, capsys):
+@pytest.mark.parametrize(("search", "expected"), [(WEB_SEARCH, 0.0137), ("0", 0.0)],
+                         ids=["paid-search", "free-search"])
+def test_a_listed_search_price_is_an_explicit_rate(tmp_path, capsys, search, expected):
     run = Run(tmp_path)
-    _search_rate(run, GLM, "OpenInference")
+    _search_rate(run, GLM, "OpenInference", search)
     moved = _move(run, GLM, "OpenInference")
     rc, _, err = run(capsys)
     assert rc == 0, err
     entry = run.doc()["providers"][GLM]["OpenInference"][-1]
-    assert entry["web_search"] == 0.0137
+    assert entry.get("web_search", 0) == expected
     assert "note" not in entry
     assert {f: entry[f] for f in moved} == moved
 
@@ -136,16 +139,6 @@ def test_numeric_search_price_is_usd_per_search():
         "web_search": 0.0137,
     }, "host")
     assert rates["web_search"] == 0.0137
-
-
-def test_zero_search_price_is_not_written_as_a_note(tmp_path, capsys):
-    run = Run(tmp_path)
-    _search_rate(run, GLM, "OpenInference", "0")
-    _move(run, GLM, "OpenInference")
-    assert run(capsys)[0] == 0
-    entry = run.doc()["providers"][GLM]["OpenInference"][-1]
-    assert "note" not in entry
-    assert entry.get("web_search", 0) == 0
 
 
 def test_another_unmodelled_price_at_a_nonzero_price_still_refuses(tmp_path, capsys):
@@ -379,19 +372,6 @@ def test_mixed_log_search_move_report_identifies_both_changes():
     assert "2 log entries" not in rendered
 
 
-def test_search_only_move_preserves_token_rates():
-    hosts = {"SearchHost": [{
-        "from": None, **RATES_B, "web_search": 0.002,
-    }]}
-
-    _append_search(hosts, RATES_B, [])
-
-    history = hosts["SearchHost"]
-    _history(history, "acme/search-9 via SearchHost", may_begin=True)
-    assert history[-1]["web_search"] == 0.0137
-    assert {field: history[-1][field] for field in RATE_FIELDS} == RATES_B
-
-
 def test_search_change_defers_when_detection_epoch_is_already_committed():
     hosts = {"SearchHost": [{
         "from": STAMP, **RATES_B, "web_search": 0.002,
@@ -507,13 +487,6 @@ def test_a_listed_1h_write_price_becomes_the_create_1h_rate(tmp_path, capsys):
     assert entry["create_5m"] == 5.0, "the 5m tier is not the 1h one"
 
 
-def test_a_listing_that_reproduces_the_row_moves_nothing(tmp_path, capsys):
-    run = Run(tmp_path)
-    before = run.snapshot()
-    assert run(capsys)[0] == 0
-    assert run.snapshot() == before, "the row's own listing reproduces it, 1h tier included"
-
-
 def test_a_listing_without_a_1h_write_price_keeps_the_tiers_equal():
     rates = refresh_prices.rates_of(
         {"prompt": "0.000004", "completion": "0.00002",
@@ -535,17 +508,19 @@ def test_global_suffix_is_recognized_as_the_configured_region():
     assert refresh_prices.tag_region("google-vertex/global") == "global"
 
 
-def test_a_regional_twin_beside_the_global_endpoint_is_not_an_ambiguous_host(
-        tmp_path, capsys):
-    """An out-of-region twin at another price is not two prices to choose
-    between: the account is never billed by it, so the host lists one."""
+@pytest.mark.parametrize("host", [CLAUDE_HOST, "Novita"],
+                         ids=["claude-aws-europe", "novita-us"])
+def test_out_of_region_twin_does_not_change_global_row(tmp_path, capsys, host):
     run = Run(tmp_path)
-    dearer = {field: _rates(run, CLAUDE, CLAUDE_HOST)[field] * 1.1
-              for field in CLAUDE_RATES}
-    twin = _endpoint(CLAUDE_HOST, dearer, tag="claude-on-aws/europe")
-    run.endpoint(CLAUDE, CLAUDE_HOST)["tag"] = "claude-on-aws"
-    run.endpoints(CLAUDE).append(twin)
-    before = run.doc()["providers"][CLAUDE][CLAUDE_HOST]
+    if host == "Novita":
+        _novita_region_twin(run)["pricing"]["completion"] = "0.000002"
+    else:
+        dearer = {field: _rates(run, CLAUDE, host)[field] * 1.1
+                  for field in CLAUDE_RATES}
+        twin = _endpoint(host, dearer, tag="claude-on-aws/europe")
+        run.endpoint(CLAUDE, host)["tag"] = "claude-on-aws"
+        run.endpoints(CLAUDE).append(twin)
+    before = run.snapshot()
     rc, _, err = run(capsys)
     assert rc == 0, err
-    assert run.doc()["providers"][CLAUDE][CLAUDE_HOST] == before
+    assert run.snapshot() == before

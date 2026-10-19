@@ -156,6 +156,16 @@ def test_the_prefix_list_is_config():
     assert doc["openrouter"]["models"] == {}
 
 
+def test_a_tracked_entry_is_never_re_added():
+    doc, out = _run(_doc(tracked={GPT_KEY: dict(TRACKED)}),
+                    _catalog(GPT_ID),
+                    {GPT_ID: _payload(_endpoint(
+                        "openai", _price(1.0, 5.0, read=0.1, write=1.25,
+                                         write_1h=2.0)))})
+    assert not out.refusals and out.moves == []
+    assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
+
+
 def test_a_delisted_tracked_id_is_untouched():
     """A delisted tracked key and its membership remain unchanged."""
     doc, out = _run(_doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY]),
