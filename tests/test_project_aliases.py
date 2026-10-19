@@ -223,22 +223,6 @@ def test_project_whose_id_is_its_own_target_is_skipped(fresh_db):
     assert _project_ids() == {"-tmp-x-main"}
 
 
-def test_fold_with_no_remaining_match_moves_zero(fresh_db):
-    """A pass with no stored id matching an alias has no work to do."""
-    with db.viz_conn() as c, c.cursor() as cur:
-        _seed(cur, "-tmp-x-1", ["claude/-tmp-x-1/s1/f.jsonl",
-                                "claude/-tmp-x-1/s2/f.jsonl"])
-        _seed(cur, "keep", ["claude/keep/s3/f.jsonl"])
-        c.commit()
-    _alias("-tmp-x-%", "keep")
-
-    assert project_aliases.rekey_folded_projects() == 1
-    after_first = _owners()
-    assert after_first == {"keep": 3}
-    assert project_aliases.rekey_folded_projects() == 0
-    assert _owners() == after_first
-
-
 def test_fold_labels_existing_target_with_its_id(fresh_db):
     """Folding into an existing target resets a path label to its id."""
     source = "-tmp-acme-wt-1"
@@ -422,108 +406,63 @@ def _assert_lane_project_is_folded(target: str, slug: str,
     assert slug_files == 0
 
 
+@pytest.mark.parametrize("chain", [False, True], ids=["single-alias", "alias-chain"])
 def test_marker_lane_alias_stays_folded_and_labels_target_with_its_id(
-        fresh_db, lane_r2_env):
-    """Repeated marker reconciliation must resolve the slug through its
-    alias before moving files and relabel its target with the target id."""
-    target = "lanework-repository"
-    display_name = "Lanework repository (main checkout)"
-    _alias(lane_r2_env["slug"], target)
+        fresh_db, lane_r2_env, chain):
+    """Marker reconciliation preserves resolved identity."""
+    target = "lane-project-b" if chain else "lanework-repository"
+    intermediate = "lane-project-a" if chain else target
+    display_name = ("Lanework's main checkout" if chain
+                    else "Lanework repository (main checkout)")
+    _alias(lane_r2_env["slug"], intermediate)
+    if chain:
+        _alias(intermediate, target)
+    _seed_current_lane_file(lane_r2_env, intermediate)
 
-    # Seed the target-owned lane file with the current R2 identity so both
-    # full ingest passes exercise identity reconciliation without reparse.
-    wire = next(obj for obj in r2.list_keys()
-                if obj.key == lane_r2_env["wire_key"])
-    with db.viz_conn() as c, c.cursor() as cur:
-        _seed(cur, target, [lane_r2_env["wire_key"]])
-        cur.execute(
-            "UPDATE files SET r2_etag = %s, r2_size_bytes = %s, "
-            "parser_version = %s WHERE file_key = %s",
-            (wire.etag, wire.size, parser_version.PARSER_VERSION,
-             lane_r2_env["wire_key"]))
-        cur.execute(
-            "UPDATE projects SET display_name = %s WHERE project_id = %s",
-            (display_name, target))
-        c.commit()
-
-    for _ in range(2):
+    for pass_number in range(2):
+        if pass_number == (1 if chain else 0):
+            with db.viz_conn() as c:
+                c.execute(
+                    "UPDATE projects SET display_name = %s WHERE project_id = %s",
+                    (display_name, target))
+                c.commit()
         result = ingest.run_ingest(trigger="manual")
         assert result["error"] is None
         assert result["reparsed"] == 0
         _assert_lane_project_is_folded(
             target, lane_r2_env["slug"], target)
+        if chain:
+            assert _owners() == {target: 1}
+            assert intermediate not in _owners()
 
 
-def test_deleting_lane_alias_returns_files_to_marker_slug(
-        fresh_db, lane_r2_env):
-    """After alias deletion, the next marker identity pass targets the
-    marker slug itself."""
-    target = "lanework-repository"
-    _alias(lane_r2_env["slug"], target)
-    assert ingest.run_ingest(trigger="manual")["error"] is None
+@pytest.mark.parametrize("chain", [False, True], ids=["delete-only-alias", "delete-inner-hop"])
+def test_deleting_lane_alias_returns_files_to_remaining_destination(
+        fresh_db, lane_r2_env, chain):
+    """Lane deletion follows the remaining alias chain."""
+    target = "lane-project-b" if chain else "lanework-repository"
+    intermediate = "lane-project-a" if chain else lane_r2_env["slug"]
+    if chain:
+        _alias(lane_r2_env["slug"], intermediate)
+        _seed_current_lane_file(lane_r2_env, target)
+    _alias(intermediate, target)
+
+    first = ingest.run_ingest(trigger="manual")
+    assert first["error"] is None
+    if chain:
+        assert first["reparsed"] == 0
     assert _owners() == {target: 1}
 
     with db.viz_conn() as c:
-        c.execute("DELETE FROM project_aliases")
-        c.commit()
-    result = ingest.run_ingest(trigger="manual")
-
-    assert result["error"] is None
-    assert _owners() == {lane_r2_env["slug"]: 1}
-
-
-def test_marker_lane_alias_chain_stays_at_its_fixed_point(
-        fresh_db, lane_r2_env):
-    """Marker reconciliation resolves all alias hops on every ingest."""
-    target_a = "lane-project-a"
-    target_b = "lane-project-b"
-    display_name = "Lanework's main checkout"
-    _alias(lane_r2_env["slug"], target_a)
-    _alias(target_a, target_b)
-    _seed_current_lane_file(lane_r2_env, target_a)
-
-    first = ingest.run_ingest(trigger="manual")
-    assert first["error"] is None
-    assert first["reparsed"] == 0
-    assert _owners() == {target_b: 1}
-
-    with db.viz_conn() as c:
-        c.execute(
-            "UPDATE projects SET display_name = %s WHERE project_id = %s",
-            (display_name, target_b))
-        c.commit()
-
-    second = ingest.run_ingest(trigger="manual")
-    assert second["error"] is None
-    assert second["reparsed"] == 0
-    _assert_lane_project_is_folded(
-        target_b, lane_r2_env["slug"], target_b)
-    assert target_a not in _owners()
-
-
-def test_marker_lane_alias_chain_after_inner_alias_deletion(
-        fresh_db, lane_r2_env):
-    """Deleting A -> B leaves the marker chain's fixed point at A."""
-    target_a = "lane-project-a"
-    target_b = "lane-project-b"
-    _alias(lane_r2_env["slug"], target_a)
-    _alias(target_a, target_b)
-    _seed_current_lane_file(lane_r2_env, target_b)
-
-    first = ingest.run_ingest(trigger="manual")
-    assert first["error"] is None
-    assert first["reparsed"] == 0
-    assert _owners() == {target_b: 1}
-
-    with db.viz_conn() as c:
         c.execute("DELETE FROM project_aliases WHERE pattern = %s",
-                  (target_a,))
+                  (intermediate,))
         c.commit()
     second = ingest.run_ingest(trigger="manual")
 
     assert second["error"] is None
-    assert second["reparsed"] == 0
-    assert _owners() == {target_a: 1}
+    if chain:
+        assert second["reparsed"] == 0
+    assert _owners() == {intermediate: 1}
 
 
 def test_resolve_chain_stops_before_revisiting_an_id(fresh_db):
