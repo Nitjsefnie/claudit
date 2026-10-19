@@ -202,6 +202,10 @@ def test_provider_resolution_assertions_survive_later_dated_appends(
         values["fresh"] += 0.01
         entries.append({"from": instant.strftime("%Y-%m-%dT%H:%M:%SZ"),
                         **values, "note": "test append"})
+        fetched = datetime.fromisoformat(document["provider_rates_fetched"].replace(
+            "Z", "+00:00"))
+        document["provider_rates_fetched"] = max(fetched, instant).astimezone(UTC).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
 
     append_later(document["providers"][base_model][base_host])
     append_later(document["providers"][modal_model][modal_host])
