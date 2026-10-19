@@ -20,12 +20,6 @@ from backend.bash_reads import scan
     ("mkdir -p /tmp/ai-researcher-wt && git worktree add"
      " /tmp/ai-researcher-wt/issue200 -b issue-200 main",
      ["/tmp/ai-researcher-wt", "/tmp/ai-researcher-wt/issue200"]),
-])
-def test_mkdir_operands_are_write_targets(command, expected):
-    assert scan(command, "/work")[2] == expected
-
-
-@pytest.mark.parametrize("command,expected", [
     ("git worktree add /tmp/wt main", ["/tmp/wt"]),
     ("git worktree add /tmp/wt", ["/tmp/wt"]),
     ("git worktree add -b feat /tmp/wt main", ["/tmp/wt"]),
@@ -39,7 +33,7 @@ def test_mkdir_operands_are_write_targets(command, expected):
     ("git worktree add '$D/wt'", ["/work/$D/wt"]),
     ("git log --oneline -5", []),
 ])
-def test_worktree_add_path_is_a_write_target(command, expected):
+def test_mkdir_and_worktree_write_targets(command, expected):
     assert scan(command, "/work")[2] == expected
 
 

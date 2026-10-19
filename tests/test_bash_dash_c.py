@@ -10,6 +10,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 from backend import bash_churn, bash_dash_c
 
 
@@ -105,9 +107,25 @@ def _differential_inputs():
         yield prefix + rng.choice(("'", '"', "\\"))
 
 
-def test_matchers_and_scripts_match_the_pre_change_reference():
+def _unicode_suffix_inputs():
+    separators = ("\u3000", "\x1c", "\xa0", "\u2028")
+    for separator in separators:
+        for ending in ("'", '"', "\\"):
+            for count in (1, 2, 4, 8, 16, 32):
+                text = f"python{separator}-c{separator}x{separator}" * count
+                yield text + ending
+        for script in ("value", "'a b'", '"c d"', "\\'", '\\"'):
+            yield f"python{separator}-c{separator}{script}{separator}"
+
+
+@pytest.mark.parametrize("inputs,expected_count", [
+    (_differential_inputs, sum(len(_EXHAUSTIVE_TOKENS) ** length for length in range(7))
+     + _RANDOM_INPUT_COUNT + _INVALID_SUFFIX_INPUT_COUNT),
+    (_unicode_suffix_inputs, 4 * (3 * 6 + 5)),
+], ids=["differential", "unicode-suffixes"])
+def test_matchers_and_scripts_match_the_pre_change_reference(inputs, expected_count):
     checked = 0
-    for text in _differential_inputs():
+    for text in inputs():
         expected_stdin = _PYTHON_STDIN.search(text) is not None
         actual_stdin = bash_churn._PYTHON_STDIN.search(text) is not None  # pylint: disable=protected-access
         assert actual_stdin == expected_stdin, f"stdin mismatch for {text!r}"
@@ -115,25 +133,7 @@ def test_matchers_and_scripts_match_the_pre_change_reference():
             f"script mismatch for {text!r}")
         checked += 1
 
-    exhaustive_count = sum(len(_EXHAUSTIVE_TOKENS) ** length
-                           for length in range(7))
-    assert checked == (exhaustive_count + _RANDOM_INPUT_COUNT
-                       + _INVALID_SUFFIX_INPUT_COUNT)
-
-
-def test_unicode_whitespace_invalid_suffixes_match_the_reference():
-    separators = ("\u3000", "\x1c", "\xa0", "\u2028")
-    for separator in separators:
-        for ending in ("'", '"', "\\"):
-            for count in (1, 2, 4, 8, 16, 32):
-                text = f"python{separator}-c{separator}x{separator}" * count
-                text += ending
-                assert bash_churn._dash_c_sources(text) == _dash_c_sources(text), (  # pylint: disable=protected-access
-                    f"script mismatch for invalid suffix {text!r}")
-        for script in ("value", "'a b'", '"c d"', "\\'", '\\"'):
-            text = f"python{separator}-c{separator}{script}{separator}"
-            assert bash_churn._dash_c_sources(text) == _dash_c_sources(text), (  # pylint: disable=protected-access
-                f"script mismatch for token {text!r}")
+    assert checked == expected_count
 
 
 def test_prefix_consumption_and_shlex_suffix_edges():

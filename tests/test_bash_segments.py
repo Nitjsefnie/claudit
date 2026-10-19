@@ -47,19 +47,13 @@ def test_fold_fd_reads_the_fd_by_value(fd, expected):
     # (the un-folded spelling fell to the descriptor-target refusal and
     # dropped the whole command).
     ("tee 01>& f.txt", (None, [], ["f.txt"])),
+    # fd 1 opened for reading is neither stdin nor a write destination.
+    ("cat 01< f.txt", (None, [], [])),
 ])
 def test_scan_reads_a_redirect_fd_by_value(command, expected):
     """`_split_redirects` folds the fd prefix before its fd tests, so a
     zero-padded spelling books the target bash would."""
     assert scan(command) == expected
-
-
-def test_scan_leaves_fd_one_input_redirect_alone():
-    """`01<` is fd 1 — a read-only open of f.txt onto fd 1 — NOT fd 0:
-    bash refuses to write it (`echo out 01< f.txt` -> "Bad file
-    descriptor") and `cat` never reads f.txt through it, so no input is
-    booked. bash's oracle for the fd-0 case is `00<`, pinned above."""
-    assert scan("cat 01< f.txt") == (None, [], [])
 
 
 @pytest.mark.parametrize("command,expected", [

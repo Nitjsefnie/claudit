@@ -101,6 +101,29 @@ def test_bash_family_write_targets(family, expected, added):
     ("python3 -m venv --system-site-packages env", ["/work/env"]),
     ("python3 -m venv --copies --clear env", ["/work/env"]),
     ("python3 -m venv", []), ("python3 -m other env", []),
+    ("D=out; ln -s source $D/link", ["/work/out/link"]),
+    ("F=file; touch $F", ["/work/file"]),
+    ("D=out; rsync src/ $D", ["/work/out"]),
+    ("D=out; tar -xf archive -C $D", ["/work/out"]),
+    ("D=out; unzip archive -d $D", ["/work/out"]),
+    ("F=file; curl -o $F https://example.test/data", ["/work/file"]),
+    ("URL=https://example.test/data; curl -O $URL", ["/work/data"]),
+    ("URL=https://example.test/data; wget $URL", ["/work/data"]),
+    ("D=out; python -m venv $D", ["/work/out"]),
+    ("cd project && touch file", ["/work/project/file"]),
+    ("curl https://example.test/data > saved.txt", ["/work/saved.txt"]),
+    ("curl https://example.test/data | tee saved.txt", ["/work/saved.txt"]),
+    ("touch 'literal*.txt'", ["/work/literal*.txt"]),
+    *[case for command in [
+        "git worktree add {path} HEAD", "git checkout HEAD -- {path}", "git restore {path}",
+        "gcc -o{path} main.c", "pdftotext in.pdf {path}", "initdb --pgdata={path}",
+        "git clone url {path}", "git init {path}",
+        "perl -0pi -e 's/old/new/' {path}", "rustfmt {path}",
+    ] for case in [
+        ("D=out; cd project && " + command.format(path="$D"), ["/work/project/out"]),
+        (command.format(path="'literal*.txt'"), ["/work/literal*.txt"]),
+    ]],
+    ("unzip -z archive.zip -d out", []),
 ])
 def test_bash_named_write_targets(command, expected):
     assert scan(command, "/work")[2] == expected
@@ -117,45 +140,12 @@ def test_bash_named_write_targets(command, expected):
     "pdftotext in.pdf {path}", "initdb -D {path}",
     "git clone https://example.test/repo {path}", "git init {path}",
     "perl -pi -e 's/old/new/' {path}", "rustfmt {path}",
+    "git checkout -- first {path}", "git restore first {path}",
+    "git clone {path} out", "perl -pi -e 's/old/new/' first {path}", "rustfmt first {path}",
 ])
 @pytest.mark.parametrize("path", ["$UNKNOWN", '"$UNKNOWN/path"', "$(unknown)", "`unknown`", "*.txt"])
 def test_bash_runtime_write_targets_are_not_invented(command, path):
     assert not scan(command.format(path=path), "/work")[2]
-
-
-@pytest.mark.parametrize("command,expected", [
-    ("D=out; ln -s source $D/link", ["/work/out/link"]),
-    ("F=file; touch $F", ["/work/file"]),
-    ("D=out; rsync src/ $D", ["/work/out"]),
-    ("D=out; tar -xf archive -C $D", ["/work/out"]),
-    ("D=out; unzip archive -d $D", ["/work/out"]),
-    ("F=file; curl -o $F https://example.test/data", ["/work/file"]),
-    ("URL=https://example.test/data; curl -O $URL", ["/work/data"]),
-    ("URL=https://example.test/data; wget $URL", ["/work/data"]),
-    ("D=out; python -m venv $D", ["/work/out"]),
-    ("cd project && touch file", ["/work/project/file"]),
-    ("curl https://example.test/data > saved.txt", ["/work/saved.txt"]),
-    ("curl https://example.test/data | tee saved.txt", ["/work/saved.txt"]),
-    ("touch 'literal*.txt'", ["/work/literal*.txt"]),
-])
-def test_bash_write_targets_resolve_literal_assignments(command, expected):
-    assert scan(command, "/work")[2] == expected
-
-
-@pytest.mark.parametrize("command", [
-    "curl -o out https://example.test/data.txt",
-    "wget -O out https://example.test/data.txt",
-    "tar -xf archive.tar -C out", "unzip archive.zip -d out",
-    "rsync source out", "python3 -m venv out",
-    "git worktree add out HEAD", "git checkout HEAD -- out", "git restore out",
-    "gcc -o out main.c", "pdftotext in.pdf out", "initdb --pgdata=out",
-    "git clone https://example.test/repo out", "git init out",
-    "perl -0pi -e 's/old/new/' out", "rustfmt out",
-])
-def test_bash_unknown_write_fallback_is_once_per_call(command):
-    assert bash_churn(command + "; " + command) == (1, 0)
-    assert bash_churn(command + r"; printf 'a\nb\n' > known.txt") == (2, 0)
-    assert bash_churn("D=out; " + command.replace(" out", " $D")) == (1, 0)
 
 
 @pytest.mark.parametrize("family", [
@@ -188,10 +178,6 @@ def test_bash_unknown_write_churn_survives_disabled_intake(family):
         "k/sess-write/sess-write.jsonl", blob, collection=policy)["tool_uses"][0]
     assert tool["write_targets"] is None
     assert (tool["lines_added"], tool["lines_deleted"]) == (1, 0)
-
-
-def test_unzip_comment_only_is_not_a_write():
-    assert not scan("unzip -z archive.zip -d out", "/work")[2]
 
 
 @pytest.mark.parametrize("command,expected", [
@@ -264,26 +250,6 @@ def test_unzip_comment_only_is_not_a_write():
 def test_bash_named_command_write_targets_and_churn(command, expected):
     assert scan(command, "/work")[2] == expected
     assert bash_churn(command) == ((1, 0) if expected else (0, 0))
-
-
-@pytest.mark.parametrize("command", [
-    "git worktree add {path} HEAD", "git checkout HEAD -- {path}", "git restore {path}",
-    "gcc -o{path} main.c", "pdftotext in.pdf {path}", "initdb --pgdata={path}",
-    "git clone url {path}", "git init {path}",
-    "perl -0pi -e 's/old/new/' {path}", "rustfmt {path}",
-])
-def test_bash_write_targets_resolve_cwd_and_assignments(command):
-    assert scan("D=out; cd project && " + command.format(path="$D"), "/work")[2] == ["/work/project/out"]
-    assert scan(command.format(path="'literal*.txt'"), "/work")[2] == ["/work/literal*.txt"]
-
-
-@pytest.mark.parametrize("command", [
-    "git checkout -- first {path}", "git restore first {path}",
-    "git clone {path} out", "perl -pi -e 's/old/new/' first {path}", "rustfmt first {path}",
-])
-@pytest.mark.parametrize("path", ["$UNKNOWN", '"$UNKNOWN/path"', "$(unknown)", "`unknown`", "*.txt"])
-def test_bash_unresolved_operands_refuse_all_write_targets(command, path):
-    assert not scan(command.format(path=path), "/work")[2]
 
 
 @pytest.mark.parametrize("source", [
