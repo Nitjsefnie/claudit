@@ -256,7 +256,7 @@ def test_every_postgres_job_uses_the_cached_action() -> None:
             callers.extend(path.name for step in job.get("steps", [])
                            if step.get("uses") == "$/.github/actions/postgres")
     assert sorted(callers) == sorted([
-        "tests.yml", "test-data.yml", "test-data-explore.yml",
+        "tests.yml", "tests.yml", "tests.yml", "test-data.yml", "test-data-explore.yml",
         "smoke.yml", "refresh-pricing.yml"]), callers
 
 
