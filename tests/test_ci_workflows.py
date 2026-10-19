@@ -469,3 +469,86 @@ def test_audit_gate_covers_every_requirements_manifest() -> None:
         f"unaudited: {sorted(manifests - audited)}, "
         f"phantom: {sorted(audited - manifests)}"
     )
+
+
+class TestRefreshPricingShards:
+    def setup_method(self) -> None:
+        self.jobs = yaml.safe_load(
+            (WORKFLOWS_DIR / "refresh-pricing.yml").read_text(encoding="utf-8")
+        )["jobs"]
+
+    def test_fetch_suite_stage_push_jobs(self) -> None:
+        assert set(self.jobs) == {"refresh", "suite", "stage", "push", "verdict"}
+        assert set(self.jobs["push"]["needs"]) == {"refresh", "stage"}
+        assert self.jobs["verdict"]["needs"] == ["refresh", "stage", "push"]
+        assert self.jobs["verdict"]["if"] == "${{ always() }}"
+
+    def test_stage_waits_for_the_suite(self) -> None:
+        stage = self.jobs["stage"]
+        assert set(stage["needs"]) == {"refresh", "suite"}
+        assert stage["if"] == "needs.refresh.outputs.moved == 'true'"
+        staging = next(step["run"] for step in stage["steps"]
+                       if step.get("name") == "Stage the tested data")
+        assert {line for line in staging.splitlines() if line.startswith("cp ")} == {
+            f'cp "${{{{ runner.temp }}}}/fetch-data/{filename}" '
+            f'"${{{{ runner.temp }}}}/push-data/{filename}"'
+            for filename in ["pricing.json", "constants.py", "pricing_notices.json",
+                             "commit-msg.txt", "base.txt"]
+        }
+
+    def test_suite_runs_four_shards_only_when_data_moved(self) -> None:
+        suite = self.jobs["suite"]
+        assert suite["needs"] == "refresh"
+        assert suite["if"] == "needs.refresh.outputs.moved == 'true'"
+        assert suite["strategy"] == {
+            "fail-fast": False, "matrix": {"shard": [1, 2, 3, 4]}
+        }
+        steps = suite["steps"]
+        run = next(step["run"] for step in steps if step.get("name") == "Run tests")
+        assert (
+            "python -m pytest $(python3 scripts/ci/pytest_shards.py "
+            "--shard ${{ matrix.shard }} --of 4) -q --tb=short -ra"
+        ) in run
+        assert "--cov" not in run
+        setup = next(step for step in steps
+                     if step.get("uses", "").startswith("actions/setup-python@"))
+        assert setup["with"]["python-version"] == "3.13"
+
+    def test_suite_overlays_all_fetched_data(self) -> None:
+        overlay = next(step["run"] for step in self.jobs["suite"]["steps"]
+                       if step.get("name") == "Overlay the fetched data")
+        assert {line for line in overlay.splitlines() if line.startswith("cp ")} == {
+            f'cp "${{{{ runner.temp }}}}/fetch-data/{filename}" {target}'
+            for filename, target in [
+                ("pricing.json", "src/pricing.json"),
+                ("constants.py", "backend/constants.py"),
+                ("pricing_notices.json", "src/pricing_notices.json"),
+            ]
+        }
+
+    def test_postgres_lives_in_suite_only(self) -> None:
+        for job, expected in [("refresh", 0), ("suite", 1)]:
+            assert sum(step.get("uses") == "$/.github/actions/postgres"
+                       for step in self.jobs[job]["steps"]) == expected
+
+    def test_fetch_and_moved_commands_are_preserved(self) -> None:
+        steps = {step.get("id"): step for step in self.jobs["refresh"]["steps"]}
+        fetch = steps["fetch"]["run"]
+        assert "python3 scripts/ci/refresh_provider_rates.py" in fetch
+        assert '|| rc=$?' in fetch
+        assert 'echo "rc=$rc" >> "$GITHUB_OUTPUT"' in fetch
+        moved = steps["moved"]["run"]
+        assert "git diff --quiet -- src/pricing.json backend/constants.py" in moved
+        for value in ["true", "false"]:
+            assert f'echo "moved={value}" >> "$GITHUB_OUTPUT"' in moved
+
+    def test_push_steps_and_script_are_preserved(self) -> None:
+        steps = self.jobs["push"]["steps"]
+        assert [step["name"] for step in steps] == [
+            "Download the tested data", "Push the tested tree to master"
+        ]
+        run = steps[1]["run"]
+        assert 'if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then' in run
+        assert 'fetched="$(git ls-remote "$remote" refs/heads/master | cut -f1)"' in run
+        assert 'if [ "$fetched" != "$base" ]; then' in run
+        assert 'push origin HEAD:master' in run
