@@ -31,7 +31,6 @@ from tests.test_pricing_data import (
     _node,
     _pricing_json,
     _stamp,
-    _when,
     _with_newcomer,
     needs_node,
 )
@@ -67,60 +66,61 @@ from tests.pricing_data_loader_helpers import (
 )
 
 
-@pytest.mark.parametrize("damage", DAMAGE)
-def test_a_malformed_history_is_refused(damage):
-    """A misordered or rewritten history, or a rate that is not a finite
-    non-negative number, would silently misprice or crash ingest, so the
-    loader refuses it, naming the row, and the suite goes red instead."""
-    with pytest.raises(ValueError, match=r"bonsai-2-27b\[\d+\]"):
-        pricing.load_tables(_damaged(damage))
+# Factory, backend row matcher, browser row matcher, browser file-prefix check.
+REFUSALS = [
+    *[pytest.param(lambda case=case: _damaged(case.values[0]), r"bonsai-2-27b\[\d+\]",
+                   None if case.id in UNSPELLABLE_IN_JSON
+                   else r"bonsai-2-27b\[\d+\]", True, id=f"history-{case.id}")
+      for case in DAMAGE],
+    *[pytest.param(lambda case=case: _with_schedule(case.values[0]),
+                   r"glm-5-3-flash via Novita\[\d+\]",
+                   r"glm-5-3-flash via Novita\[|spells a schedule", False,
+                   id=f"schedule-{case.id}") for case in SCHEDULE_DAMAGE],
+    pytest.param(_provider_string_rate, "fixture/provider via Fixture",
+                 "fixture/provider via Fixture", False, id="provider-string-rate"),
+    pytest.param(_model_schedule, r"bonsai-2-27b\[\d+\]",
+                 r"bonsai-2-27b\[", False, id="model-schedule"),
+    pytest.param(lambda: seed_doc(models={"": [dict(DEFAULT_ROW)]}), r"models key ''",
+                 None, False, id="empty-model-key"),
+]
+
+
+@pytest.mark.parametrize("factory, match", [
+    pytest.param(case.values[0], case.values[1], id=case.id) for case in REFUSALS
+])
+def test_invalid_pricing_data_is_refused_naming_the_row(factory, match):
+    with pytest.raises(ValueError, match=match):
+        pricing.load_tables(factory())
 
 
 @needs_node
-@pytest.mark.parametrize("damage", DAMAGE)
-def test_a_malformed_history_is_refused_in_the_browser(tmp_path, request, damage):
-    error = _node_load(tmp_path, _damaged(damage))
-    assert error and error.startswith("pricing.json: "), error
-    if request.node.callspec.id not in UNSPELLABLE_IN_JSON:
-        assert re.search(r"bonsai-2-27b\[\d+\]", error), error
-
-
-def test_a_string_provider_rate_is_refused_naming_the_row():
-    with pytest.raises(ValueError, match="fixture/provider via Fixture"):
-        pricing.load_tables(_provider_string_rate())
-
-
-@needs_node
-def test_a_string_provider_rate_is_refused_naming_the_row_in_the_browser(tmp_path):
-    error = _node_load(tmp_path, _provider_string_rate())
-    assert error and "fixture/provider via Fixture" in error, error
-
-
-def test_an_empty_models_key_is_refused_naming_the_row():
-    """A models key must be a non-empty string."""
-    with pytest.raises(ValueError, match=r"models key ''"):
-        pricing.load_tables(seed_doc(models={"": [dict(DEFAULT_ROW)]}))
+@pytest.mark.parametrize("factory, match, file_prefix", [
+    pytest.param(case.values[0], case.values[2], case.values[3], id=case.id)
+    for case in REFUSALS if case.id != "empty-model-key"
+])
+def test_invalid_pricing_data_is_refused_in_the_browser(
+        tmp_path, factory, match, file_prefix):
+    error = _node_load(tmp_path, factory())
+    assert error, error
+    if file_prefix:
+        assert error.startswith("pricing.json: "), error
+    if match is not None:
+        assert re.search(match, error), error
 
 
 @needs_node
-def test_the_browser_loads_the_url_the_page_names_synchronously():
-    got = _browser_load(pricing_attr="/src/pricing.json?v=7")
+@pytest.mark.parametrize("attr, url", [
+    pytest.param("/src/pricing.json?v=7", "/src/pricing.json?v=7", id="page-url"),
+    pytest.param(None, "/src/pricing.json", id="beside-script"),
+])
+def test_the_browser_loads_pricing_synchronously(attr, url):
+    got = _browser_load(pricing_attr=attr)
     assert got["error"] is None
     assert got["requests"] == [{
-        "method": "GET", "url": ORIGIN + "/src/pricing.json?v=7",
+        "method": "GET", "url": ORIGIN + url,
         "async": False, "headers": {"Cache-Control": "no-cache"},
     }]
     assert got["fresh"] == pricing._list_rates("claude-opus-4-7")["fresh"]  # pylint: disable=protected-access
-
-
-@needs_node
-def test_with_no_url_named_the_browser_loads_the_file_beside_the_script():
-    """Resolved against the script, not the page: the page may sit at any
-    depth, the script is always /src/parser.js."""
-    got = _browser_load()
-    assert got["error"] is None
-    assert [r["url"] for r in got["requests"]] == [ORIGIN + "/src/pricing.json"]
-    assert got["requests"][0]["async"] is False
 
 
 @needs_node
@@ -188,17 +188,6 @@ def test_both_sides_read_an_edge_spelling_as_the_same_instant(
                          "console.log(JSON.stringify(window.rateEpochs));")
 
 
-def test_a_provider_row_that_begins_at_a_time_prices_from_then_on(monkeypatch):
-    before = _at(CUT) - timedelta(seconds=1)
-    fallback = pricing.resolve(_GLM_MODEL_ID, before)
-    for name, value in pricing.load_tables(_with_newcomer()).items():
-        monkeypatch.setattr(pricing, name, value)
-    assert _at(CUT) in pricing.RATE_EPOCHS
-    assert pricing.resolve(_GLM_MODEL_ID, before, "Newcomer") == fallback
-    assert pricing.rate_for(_GLM_MODEL_ID, _at(CUT), "Newcomer") == NEWCOMER
-    assert pricing.rate_for(_GLM_MODEL_ID, None, "Newcomer") == NEWCOMER
-
-
 @needs_node
 def test_a_provider_row_that_begins_at_a_time_prices_from_then_on_in_the_browser(
         tmp_path):
@@ -241,28 +230,18 @@ def test_a_model_row_cannot_begin_at_a_time_in_the_browser(tmp_path):
     assert error and "bonsai-2-27b[0]" in error, error
 
 
-@pytest.mark.parametrize("stamp, want", SCHEDULE_CASES)
+@pytest.mark.parametrize("stamp, want", [
+    *SCHEDULE_CASES,
+    pytest.param(datetime(2031, 1, 4, 12), R_WEEKEND, id="naive-utc"),
+    pytest.param(None, None, id="no-timestamp"),
+])
 def test_a_scheduled_entry_prices_by_utc_weekday_and_time(monkeypatch, stamp, want):
     model, host = SCHEDULED
     default = {f: _doc()["providers"][model][host][-1][f] for f in RATE_FIELDS}
     for name, value in pricing.load_tables(_with_schedule()).items():
         monkeypatch.setattr(pricing, name, value)
-    assert pricing.rate_for(model, _at(stamp), host) == (want or default)
-
-
-def test_a_scheduled_entry_prices_a_naive_timestamp_as_utc(monkeypatch):
-    model, host = SCHEDULED
-    for name, value in pricing.load_tables(_with_schedule()).items():
-        monkeypatch.setattr(pricing, name, value)
-    assert pricing.rate_for(model, datetime(2031, 1, 4, 12), host) == R_WEEKEND
-
-
-def test_a_scheduled_entry_with_no_timestamp_is_its_default(monkeypatch):
-    model, host = SCHEDULED
-    default = {f: _doc()["providers"][model][host][-1][f] for f in RATE_FIELDS}
-    for name, value in pricing.load_tables(_with_schedule()).items():
-        monkeypatch.setattr(pricing, name, value)
-    assert pricing.rate_for(model, None, host) == default
+    when = _at(stamp) if isinstance(stamp, str) else stamp
+    assert pricing.rate_for(model, when, host) == (want or default)
 
 
 @needs_node
@@ -304,30 +283,6 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
         json.dumps(r, sort_keys=True) for r in (R_WEEKEND, R_NIGHT, R_WRAP)}
 
 
-@pytest.mark.parametrize("schedule", SCHEDULE_DAMAGE)
-def test_a_malformed_schedule_is_refused(schedule):
-    with pytest.raises(ValueError, match=r"glm-5-3-flash via Novita\[\d+\]"):
-        pricing.load_tables(_with_schedule(schedule))
-
-
-@needs_node
-@pytest.mark.parametrize("schedule", SCHEDULE_DAMAGE)
-def test_a_malformed_schedule_is_refused_in_the_browser(tmp_path, schedule):
-    error = _node_load(tmp_path, _with_schedule(schedule))
-    assert error and ("glm-5-3-flash via Novita[" in error or "spells a schedule" in error), error
-
-
-def test_a_model_row_cannot_carry_a_schedule():
-    with pytest.raises(ValueError, match=r"bonsai-2-27b\[\d+\]"):
-        pricing.load_tables(_model_schedule())
-
-
-@needs_node
-def test_a_model_row_cannot_carry_a_schedule_in_the_browser(tmp_path):
-    error = _node_load(tmp_path, _model_schedule())
-    assert error and "bonsai-2-27b[" in error, error
-
-
 def test_a_row_that_begins_then_moves_prices_each_span(monkeypatch):
     model, host = _GLM_MODEL_ID, "Newcomer"
     before = _at(CUT) - timedelta(seconds=1)
@@ -356,37 +311,6 @@ def test_a_naive_timestamp_against_a_row_that_begins_is_read_as_utc(monkeypatch)
 
 
 @needs_node
-def test_a_row_that_begins_then_moves_prices_alike_in_the_browser(tmp_path):
-    doc = _newcomer_then_moved()
-    model, host = _GLM_MODEL_ID, "Newcomer"
-    stamps = [_stamp(_at(CUT) - timedelta(seconds=1)), CUT,
-              _stamp(_at(LATER) - timedelta(seconds=1)), LATER, None]
-    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
-    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
-    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
-    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
-    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
-    shutil.copy(RATES_JS, tmp_path / "rates.js")
-    shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
-    shutil.copy(PARSER_JS, tmp_path / "parser.js")
-    got = _node(tmp_path / "parser.js", f"""
-      console.log(JSON.stringify({json.dumps(stamps)}.map(
-        ts => window.resolveModelRate({json.dumps(model)}, ts, {json.dumps(host)}))));
-    """)
-    tables = pricing.load_tables(doc)
-    saved = {name: getattr(pricing, name) for name in tables}
-    try:
-        for name, value in tables.items():
-            setattr(pricing, name, value)
-        want = [pricing.resolve(model, _when(s), host) for s in stamps]
-    finally:
-        for name, value in saved.items():
-            setattr(pricing, name, value)
-    assert [(g["kind"], _js_rates(g["rates"])) for g in got] == \
-        [(w.kind, w.rates) for w in want]
-
-
-@needs_node
 def test_rate_epochs_include_provider_window_ends_and_row_starts_in_the_browser(
         tmp_path):
     (tmp_path / "pricing.json").write_text(
@@ -408,62 +332,37 @@ def test_rate_epochs_include_provider_window_ends_and_row_starts_in_the_browser(
 
 
 @needs_node
-@pytest.mark.parametrize("suffix", V_SUFFIXES)
-def test_a_variant_suffix_resolves_to_the_bare_row_in_the_browser(
-        tmp_path, suffix):
-    got = _variant_node(tmp_path, _provider_only_doc(), f"""
-      console.log(JSON.stringify({{
-        variant: window.resolveModelRate(
-          'acme/acme-9{suffix}', {json.dumps(P_CUT)}, 'HostCo'),
-        free: window.resolveModelRate(
-          'acme/acme-9:free', {json.dumps(P_CUT)}, 'HostCo'),
-      }}));
-    """)
-    assert (got["variant"]["kind"], got["variant"]["key"]) == \
-        ("exact", "acme/acme-9")
-    assert _js_rates(got["variant"]["rates"]) == P_AFTER
-    assert _js_rates(got["variant"]["rates"]) != \
-        {f: 0.0 for f in RATE_FIELDS}
-    assert (got["free"]["kind"], got["free"]["key"]) == \
-        ("exact", "acme/acme-9:free")
-    assert _js_rates(got["free"]["rates"]) == {f: 0.0 for f in RATE_FIELDS}
-
-
-@needs_node
-@pytest.mark.parametrize("suffix", V_SUFFIXES)
-def test_a_variant_suffix_prices_by_the_bare_row_dated_window_in_the_browser(
-        tmp_path, suffix):
+@pytest.mark.parametrize("factory, suffix, key", [
+    *[pytest.param(_provider_only_doc, suffix, "acme/acme-9", id=suffix[1:])
+      for suffix in V_SUFFIXES],
+    pytest.param(_variant_row_doc, ":nitro", "acme/acme-9:nitro", id="exact-variant"),
+])
+def test_browser_variants_keep_the_matching_rows_and_dated_windows(
+        tmp_path, factory, suffix, key):
     before_cut = _stamp(_at(P_CUT) - timedelta(seconds=1))
     before_start = _stamp(_at(P_START) - timedelta(seconds=1))
-    got = _variant_node(tmp_path, _provider_only_doc(), f"""
+    got = _variant_node(tmp_path, factory(), f"""
       console.log(JSON.stringify({{
         before: window.resolveModelRate(
           'acme/acme-9{suffix}', {json.dumps(before_cut)}, 'HostCo'),
         at: window.resolveModelRate(
           'acme/acme-9{suffix}', {json.dumps(P_CUT)}, 'HostCo'),
+        free: window.resolveModelRate(
+          'acme/acme-9:free', {json.dumps(P_CUT)}, 'HostCo'),
         beforeStart: window.resolveModelRate(
           'acme/acme-9{suffix}', {json.dumps(before_start)}, 'HostCo'),
         fallback: window.resolveModelRate(
           'acme/acme-9', {json.dumps(before_start)}),
       }}));
     """)
-    assert _js_rates(got["before"]["rates"]) == P_BEFORE
+    assert (got["at"]["kind"], got["at"]["key"]) == ("exact", key)
     assert _js_rates(got["at"]["rates"]) == P_AFTER
+    assert _js_rates(got["at"]["rates"]) != {f: 0.0 for f in RATE_FIELDS}
+    assert (got["free"]["kind"], got["free"]["key"]) == ("exact", "acme/acme-9:free")
+    assert _js_rates(got["free"]["rates"]) == {f: 0.0 for f in RATE_FIELDS}
+    assert _js_rates(got["before"]["rates"]) == P_BEFORE
     assert got["beforeStart"] == got["fallback"]
-    assert (got["beforeStart"]["kind"], got["beforeStart"]["key"]) == \
-        ("default", None)
-
-
-@needs_node
-def test_an_exact_variant_row_wins_over_the_bare_fold_in_the_browser(tmp_path):
-    """The fold is a fallback: when the table holds the variant id itself,
-    that row is the match. Pins the candidate order (exact id first)."""
-    got = _variant_node(tmp_path, _variant_row_doc(), f"""
-      console.log(JSON.stringify(window.resolveModelRate(
-        'acme/acme-9:nitro', {json.dumps(P_CUT)}, 'HostCo')));
-    """)
-    assert (got["kind"], got["key"]) == ("exact", "acme/acme-9:nitro")
-    assert _js_rates(got["rates"]) == P_AFTER
+    assert (got["beforeStart"]["kind"], got["beforeStart"]["key"]) == ("default", None)
 
 
 _METER_MODEL_A = "meter-model-a"
@@ -598,29 +497,20 @@ def test_the_longest_matching_key_wins_in_the_backend():
 
 
 @needs_node
-def test_the_longest_matching_key_wins_in_the_browser():
-    cases = _extending_ids()
-    got = _node(PARSER_JS, f"""
-      const ids = {json.dumps([m for m, _ in cases])};
-      console.log(JSON.stringify(ids.map(m => window.resolveModelRate(m).key)));
-    """)
-    assert got == [key for _, key in cases]
-
-
-@needs_node
-def test_both_sides_resolve_the_dotted_gpt_6_1_sol_id_to_its_own_row():
-    """the dotted transcript id and its dashed form both hit
-    the new exact key in the browser too — never the shorter gpt-6-sol
-    row — at the rates the committed file defines, priced identically on
-    both sides. The ids are literals in a plain list, not rate-call
-    arguments, so no row value is pinned."""
-    ids = ["gpt-6.1-sol", "gpt-6-1-sol", "gpt-6-sol"]
+@pytest.mark.parametrize("cases, kind", [
+    pytest.param(_extending_ids(), None, id="extending-keys"),
+    pytest.param([("gpt-6.1-sol", "gpt-6-1-sol"),
+                  ("gpt-6-1-sol", "gpt-6-1-sol"),
+                  ("gpt-6-sol", "gpt-6-sol")], "exact", id="dotted-sol"),
+])
+def test_browser_ids_resolve_to_their_own_rows(cases, kind):
+    ids = [model for model, _ in cases]
     got = _node(PARSER_JS, f"""
       const ids = {json.dumps(ids)};
       console.log(JSON.stringify(ids.map(m => window.resolveModelRate(m))));
     """)
-    assert [(g["kind"], g["key"]) for g in got] == [
-        ("exact", "gpt-6-1-sol"), ("exact", "gpt-6-1-sol"),
-        ("exact", "gpt-6-sol")]
+    assert [g["key"] for g in got] == [key for _, key in cases]
+    if kind is not None:
+        assert [g["kind"] for g in got] == [kind] * len(cases)
     for g, w in zip(got, (pricing.resolve(m) for m in ids), strict=True):
         assert _js_rates(g["rates"]) == w.rates
