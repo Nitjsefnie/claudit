@@ -435,23 +435,6 @@ def _advisory_holder_pid() -> int:
     return row[0]
 
 
-def test_bounded_step_notices_a_dead_lock_session(fresh_db, mini_r2_env):
-    """A bounded step after the lock session died must unwind the run via
-    IngestAborted naming the lost lock — a session the server ends
-    (pg_terminate_backend, a database restart) releases the db-wide lock,
-    and a run that kept going unlocked would race a second instance."""
-    with ingest._db_run_lock() as acquired:  # pylint: disable=protected-access
-        assert acquired is True
-        with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
-                                     autocommit=True)) as killer:
-            killer.execute(  # pylint: disable=no-member
-                "SELECT pg_terminate_backend(%s)",
-                (_advisory_holder_pid(),))
-        with pytest.raises(ingest.IngestAborted, match="lost ingest lock"):
-            ingest._check_shutdown()  # pylint: disable=protected-access
-    _wait_db_lock_free()
-
-
 def test_holder_lookup_ignores_another_database(fresh_db):
     """while only a backend on another database of the instance
     holds the key, the lookup finds no holder, so the callers' termination
@@ -504,17 +487,18 @@ def test_lost_lock_session_aborts_the_run(fresh_db, mini_r2_env, monkeypatch):
     _wait_db_lock_free()
 
 
-def test_cancelled_statement_during_shutdown_closes_aborted(
-        fresh_db, mini_r2_env, monkeypatch):
-    """Teardown cancels the statement a long single-statement phase is
-    stuck in; the driver surfaces the server's cancel as
-    QueryCanceled. With the shutdown request in force that cancel IS the
-    abort arriving, so the run closes 'aborted' — never 'fatal' — and
-    later rebuilds are skipped."""
+@pytest.mark.parametrize(
+    "shutdown,error_term,cancel_message",
+    [(True, "aborted", "canceling statement due to user request"),
+     (False, "QueryCanceled", "canceling statement due to statement timeout")],
+    ids=["shutdown-aborts", "timeout-is-fatal"])
+def test_cancelled_statement_closes_the_run(
+        fresh_db, mini_r2_env, monkeypatch, shutdown, error_term, cancel_message):
+    """A cancellation is an abort only while shutdown is requested."""
     def cancelled_rollup():
-        ingest._SHUTDOWN.set()  # pylint: disable=protected-access
-        raise psycopg.errors.QueryCanceled(
-            "canceling statement due to user request")
+        if shutdown:
+            ingest._SHUTDOWN.set()  # pylint: disable=protected-access
+        raise psycopg.errors.QueryCanceled(cancel_message)
 
     monkeypatch.setattr(ingest, "rebuild_rollup", cancelled_rollup)
     later: list[int] = []
@@ -525,8 +509,8 @@ def test_cancelled_statement_during_shutdown_closes_aborted(
     finally:
         ingest._SHUTDOWN.clear()  # pylint: disable=protected-access
 
-    assert summary["aborted"] is True, summary
-    assert "aborted" in summary["error"], summary
+    assert summary["aborted"] is shutdown, summary
+    assert error_term in summary["error"], summary
     assert not later, "rebuilds after the cancelled statement must be skipped"
     with db.viz_conn() as c:
         row = c.execute(
@@ -534,7 +518,7 @@ def test_cancelled_statement_during_shutdown_closes_aborted(
             (summary["id"],)).fetchone()
     assert row is not None and row[0] is not None, (
         "a cancelled run must still close its row")
-    assert "aborted" in row[1], row[1]
+    assert error_term in row[1], row[1]
 
 
 def test_close_open_run_closes_the_row_teardown_could_not_free(fresh_db):
@@ -631,34 +615,8 @@ def test_cancel_viz_queries_interrupts_an_inflight_statement(fresh_db):
 
 
 # ---------------------------------------------------------------------------
-# Pins for the guards the round-2 review flagged as unpinned: the
-# QueryCanceled classification must key on the shutdown request (a cancel
-# from any other source is a fatal, not an abort), and the lock guard's
-# lock-gone-but-session-alive branch is the one exists for.
+# The live-session guard must also detect a released advisory lock.
 # ---------------------------------------------------------------------------
-
-
-def test_querycanceled_without_a_shutdown_is_a_fatal(
-        fresh_db, mini_r2_env, monkeypatch):
-    """A QueryCanceled that did not arrive from teardown is run trouble, not
-    an abort: classifying every cancel as the shutdown's would misfile a
-    statement_timeout or an operator cancel as 'aborted: shutdown
-    requested'. With the event clear the run must close fatal."""
-    def cancelled_rollup():
-        raise psycopg.errors.QueryCanceled(
-            "canceling statement due to statement timeout")
-
-    monkeypatch.setattr(ingest, "rebuild_rollup", cancelled_rollup)
-    summary = ingest.run_ingest_locked("manual")
-
-    assert summary["aborted"] is False, summary
-    assert "QueryCanceled" in summary["error"], summary
-    with db.viz_conn() as c:
-        row = c.execute(
-            "SELECT finished_at, error FROM ingest_runs WHERE id = %s",
-            (summary["id"],)).fetchone()
-    assert row is not None and row[0] is not None
-    assert "QueryCanceled" in row[1], row[1]
 
 
 def test_lock_gone_with_a_live_session_aborts(fresh_db):

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import types
 
+import pytest
+
 # The fixtures register on import; pylint only sees names nobody calls.
 from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture, _mini_r2_env_fixture,
@@ -70,9 +72,9 @@ def test_fetch_and_parse_answers_a_cache_hit_without_a_fetch(
     assert second == first
 
 
-def test_parse_wire_passes_the_listing_identity():
-    """The pool child's unit carries the item's etag/size to the parse
-    seam, whatever the seam does with them."""
+@pytest.mark.parametrize("timed", [False, True], ids=["bare", "timed"])
+def test_parse_wire_passes_the_listing_identity(timed):
+    """Both child paths forward the listing identity and return their shape."""
     recorded: list[tuple] = []
 
     def parse_call(key, sidecar_key, etag=None, size=None):
@@ -82,8 +84,12 @@ def test_parse_wire_passes_the_listing_identity():
     item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
                                   sidecar_key=None, etag="e9", size=7),
             None, None)
-    ingest_fetch.parse_wire(item, parse_call, False)
+    result = ingest_fetch.parse_wire(item, parse_call, timed)
     assert recorded == [("claude/p/s/k.jsonl", None, "e9", 7)]
+    if timed:
+        parsed, stages = result
+        assert parsed == {}
+        assert stages == {}
 
 
 def test_ingest_run_populates_and_prunes_the_blob_cache(
@@ -100,22 +106,3 @@ def test_ingest_run_populates_and_prunes_the_blob_cache(
     assert result["failed"] == 0
     assert pruned == [1]
     assert any(cache_dir.rglob("*")), "the run's fetches stored nothing"
-
-
-def test_parse_wire_passes_the_listing_identity_when_timed():
-    """The timed child's unit carries the identity too: a CLAUDIT_TIMING
-    run must not silently re-download the bucket the cache exists to
-    answer (the uncontrolled limb the review caught)."""
-    recorded: list[tuple] = []
-
-    def parse_call(key, sidecar_key, etag=None, size=None):
-        recorded.append((key, sidecar_key, etag, size))
-        return {}
-
-    item = (types.SimpleNamespace(key="claude/p/s/k.jsonl",
-                                  sidecar_key=None, etag="e9", size=7),
-            None, None)
-    parsed, stages = ingest_fetch.parse_wire(item, parse_call, True)
-    assert recorded == [("claude/p/s/k.jsonl", None, "e9", 7)]
-    assert parsed == {}
-    assert stages == {}

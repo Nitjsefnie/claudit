@@ -544,20 +544,6 @@ def _assert_interleave_fires(monkeypatch):
     return summary, executed
 
 
-def test_a_full_reparse_vacuums_between_persist_batches(
-        fresh_db, mini_r2_env, monkeypatch):
-    """With the cadence forced to one file, the full-reparse run issues
-    its interleave vacuums between persist batches: plain VACUUM over
-    the reparse tables, recorded during the walk — before any rollup
-    phase could have run."""
-    transcripts = mini_mirror.counts()["transcripts"]
-    assert transcripts > 4, "the thread pipeline needs >1 chunk to interleave"
-    _summary, executed = _assert_interleave_fires(monkeypatch)
-    batch_calls = [tables for tables, analyze in executed if not analyze]
-    assert batch_calls, "no between-batch vacuum fired during the full reparse"
-    assert batch_calls[0] == ingest_vacuum.REPARSE_TABLES
-
-
 def test_the_between_batch_vacuum_respects_the_cadence(
         fresh_db, mini_r2_env, monkeypatch):
     """The default-side pair: at a cadence above the run's reparsed
@@ -575,11 +561,10 @@ def test_the_between_batch_vacuum_respects_the_cadence(
         "with the cadence unmet no plain between-batch call may fire")
 
 
-@pytest.mark.parametrize("processes", [1, 2])
+@pytest.mark.parametrize("processes", [1, 2], ids=["threads", "process-pool"])
 def test_both_pipelines_vacuum_between_batches(
         fresh_db, mini_r2_env, monkeypatch, processes):
-    """The thread pipeline (INGEST_PARSE_PROCESSES=1, the test default)
-    and the process pool both interleave at their chunk boundaries."""
+    """Both pipelines interleave plain VACUUM over the reparse tables."""
     transcripts = mini_mirror.counts()["transcripts"]
     monkeypatch.setenv("INGEST_PARSE_PROCESSES", str(processes))
     monkeypatch.setattr(ingest_vacuum, "VACUUM_BATCH_FILES", 1)
@@ -587,8 +572,8 @@ def test_both_pipelines_vacuum_between_batches(
         monkeypatch.setattr(ingest_fetch, "worker_count", lambda: 1)
         assert transcripts > 4, "thread pipeline needs >1 chunk"
     else:
-        # pool chunk = processes * 4 = 8 with the default factor
         assert transcripts > 8, "pool pipeline needs >1 chunk"
     _summary, executed = _assert_interleave_fires(monkeypatch)
     batch_calls = [tables for tables, analyze in executed if not analyze]
     assert batch_calls, f"processes={processes}: no between-batch vacuum"
+    assert batch_calls[0] == ingest_vacuum.REPARSE_TABLES
