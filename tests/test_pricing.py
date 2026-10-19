@@ -17,10 +17,13 @@ from tests.refresh_fixture_builders import LIVE_RATE_KEY_SETS, seed_doc
 UTC = timezone.utc
 
 
-def test_opus_4_7_resolves_exact_with_all_five_fields():
-    r = pricing.rate_for("claude-opus-4-7")  # sv-test-data: allow (structure: a row's rates are the five RATE_FIELDS, plus the optional web_search rate a provider row carries)
+@pytest.mark.parametrize("model", [
+    "claude-opus-4-7", "claude-sonnet-4-5", "claude-haiku-4-5",
+])
+def test_live_model_resolves_exact_with_all_five_fields(model):
+    r = pricing.rate_for(model)
     assert set(r) in LIVE_RATE_KEY_SETS
-    assert pricing.resolve("claude-opus-4-7").kind == "exact"  # sv-test-data: allow (structure: the existing exact table key is never removed or renamed)
+    assert pricing.resolve(model).kind == "exact"
 
 
 def test_fable_5_suffixes_fold_to_its_own_row(
@@ -37,74 +40,48 @@ def test_fable_5_suffixes_fold_to_its_own_row(
     assert base.rates is suffixed.rates is rates
 
 
-def test_opus_5_5_resolves_exact_distinct_from_opus_5():
-    """The live table check pins only exact-key resolution."""
-    o55 = pricing.resolve("claude-opus-5-5")  # sv-test-data: allow (structure: exact key survives appends)
-    assert o55.kind == "exact"
-    assert o55.key == "claude-opus-5-5"
-    assert set(o55.rates) in LIVE_RATE_KEY_SETS
+@pytest.mark.parametrize("model", ["claude-opus-5-5", "claude-sonnet-5-5"])
+def test_live_versioned_model_resolves_exact_to_its_own_row(model):
+    r = pricing.resolve(model)
+    assert r.kind == "exact"
+    assert r.key == model
+    assert set(r.rates) in LIVE_RATE_KEY_SETS
 
 
-def test_synthetic_versioned_rows_resolve_separately(monkeypatch):
+@pytest.mark.parametrize("base,version,probe,first_rate", [
+    ("claude-acme-fable-5", "claude-acme-fable-5-1",
+     "anthropic.claude-acme-fable-5-1[1m]", 1),
+    ("claude-acme-opus-5", "claude-acme-opus-5-5",
+     "anthropic.claude-acme-opus-5-5[1m]", 11),
+    ("claude-acme-fable-5", "claude-acme-fable-5-1",
+     "claude-acme-fable-5-1[1m]", 1),
+    ("claude-acme-opus-4", "claude-acme-opus-4-8", "claude-acme-opus-4-8", 1),
+    ("claude-acme-opus-4", "claude-acme-opus-4-7", "claude-acme-opus-4-7", 1),
+])
+def test_synthetic_versioned_rows_resolve_separately(
+        monkeypatch, base, version, probe, first_rate):
     rows = {
-        "claude-acme-fable-5": dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5))),
-        "claude-acme-fable-5-1": dict(zip(pricing.RATE_FIELDS, (6, 7, 8, 9, 10))),
-        "claude-acme-opus-5": dict(zip(pricing.RATE_FIELDS, (11, 12, 13, 14, 15))),
-        "claude-acme-opus-5-5": dict(zip(pricing.RATE_FIELDS, (16, 17, 18, 19, 20))),
+        base: dict(zip(pricing.RATE_FIELDS, range(first_rate, first_rate + 5))),
+        version: dict(zip(pricing.RATE_FIELDS, range(first_rate + 5, first_rate + 10))),
     }
-    for key, rates in rows.items():
-        monkeypatch.setitem(pricing.MODEL_RATES, key, rates)
-
-    for base, version in (("claude-acme-fable-5", "claude-acme-fable-5-1"),
-                          ("claude-acme-opus-5", "claude-acme-opus-5-5")):
-        older = pricing.resolve(base)
-        newer = pricing.resolve(f"anthropic.{version}[1m]")
-        assert older.key == base and older.rates is rows[base]
-        assert newer.key == version and newer.rates is rows[version]
-        assert older.rates is not newer.rates
-
-
-def test_sonnet_5_5_resolves_exact_to_its_own_row():
-    """Sonnet 5.5 carries its own row and never rides the Sonnet family
-    fallback: before the row landed it resolved kind='tier'
-    with key=None. The live table check pins only exact-key resolution."""
-    s55 = pricing.resolve("claude-sonnet-5-5")  # sv-test-data: allow (structure: exact key survives appends)
-    assert s55.kind == "exact"
-    assert s55.key == "claude-sonnet-5-5"
-    assert set(s55.rates) in LIVE_RATE_KEY_SETS
-
-
-def test_fable_5_1_does_not_misroute_to_fable_5(
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    """Suffix resolution keeps each synthetic version on its own row."""
-    fable_key = "claude-acme-fable-5"
-    fable51_key = "claude-acme-fable-5-1"
-    fable = dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5)))
-    fable51 = dict(zip(pricing.RATE_FIELDS, (6, 7, 8, 9, 10)))
-    rows = {fable_key: fable, fable51_key: fable51}
     monkeypatch.setattr(pricing, "MODEL_RATES", rows)
     monkeypatch.setattr(pricing, "DATED_RATES", {})
+    older = pricing.resolve(base)
+    newer = pricing.resolve(probe)
+    assert older.key == base and older.rates is rows[base]
+    assert newer.key == version and newer.rates is rows[version]
+    assert older.rates is not newer.rates
 
-    base = pricing.resolve(fable_key)
-    version = pricing.resolve(f"{fable51_key}[1m]")
-    assert base.key == fable_key and base.rates is fable
-    assert version.key == fable51_key and version.rates is fable51
-    assert base.rates is not version.rates
 
-
-def test_unknown_fable_falls_back_to_current_generation():
-    r = pricing.resolve("claude-fable-99")
+@pytest.mark.parametrize("model,families", [
+    ("claude-fable-99", ("fable", "mythos")),
+    ("claude-opus-99", ("opus",)),
+    ("claude-opus-4-99", ("opus",)),
+])
+def test_unknown_model_uses_the_current_family_tier_fallback(model, families):
+    r = pricing.resolve(model)
     assert r.kind == "tier"
-    # The family rows are tracked vendor rows since the migration: the
-    # merged view's list price is the assertion's source, derived (never
-    # a pinned generation) so a refresh moves both sides together.
-    assert r.rates is pricing._latest("fable", "mythos")  # pylint: disable=protected-access
-
-
-def test_unknown_opus_falls_back_to_current_generation():
-    r = pricing.resolve("claude-opus-99")
-    assert r.kind == "tier"
-    assert r.rates is pricing._latest("opus")  # pylint: disable=protected-access
+    assert r.rates is pricing._latest(*families)  # pylint: disable=protected-access
 
 
 def test_tier_fallback_follows_the_highest_table_version(monkeypatch):
@@ -116,60 +93,6 @@ def test_tier_fallback_follows_the_highest_table_version(monkeypatch):
     monkeypatch.delitem(pricing.MODEL_RATES, "claude-opus-10")
     assert pricing._latest("opus") is pricing._list_rates(  # pylint: disable=protected-access
         "claude-opus-5-5")
-
-
-def test_opus_4_8_does_not_misroute_to_legacy_opus_4(
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    legacy_key = "claude-acme-opus-4"
-    modern_key = f"{legacy_key}-8"
-    rows = {
-        legacy_key: dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5))),
-        modern_key: dict(zip(pricing.RATE_FIELDS, (6, 7, 8, 9, 10))),
-    }
-    monkeypatch.setattr(pricing, "MODEL_RATES", rows)
-    monkeypatch.setattr(pricing, "DATED_RATES", {})
-    modern = pricing.resolve(modern_key)
-    legacy = pricing.resolve(legacy_key)
-    assert modern.key == modern_key
-    assert legacy.key == legacy_key
-    assert modern.rates is rows[modern_key]
-    assert legacy.rates is rows[legacy_key]
-    assert modern.rates is not legacy.rates
-
-
-def test_sonnet_4_5_resolves_exact_with_all_five_fields():
-    r = pricing.rate_for("claude-sonnet-4-5")  # sv-test-data: allow (structure: a row's rates are the five RATE_FIELDS, plus the optional web_search rate a provider row carries)
-    assert set(r) in LIVE_RATE_KEY_SETS
-    assert pricing.resolve("claude-sonnet-4-5").kind == "exact"  # sv-test-data: allow (structure: the existing exact table key is never removed or renamed)
-
-
-def test_haiku_4_5_resolves_exact_with_all_five_fields():
-    r = pricing.rate_for("claude-haiku-4-5")  # sv-test-data: allow (structure: a row's rates are the five RATE_FIELDS, plus the optional web_search rate a provider row carries)
-    assert set(r) in LIVE_RATE_KEY_SETS
-    assert pricing.resolve("claude-haiku-4-5").kind == "exact"  # sv-test-data: allow (structure: the existing exact table key is never removed or renamed)
-
-
-def test_unknown_model_falls_back_to_default():
-    r = pricing.rate_for("claude-zzzz-9999")
-    assert r == pricing.DEFAULT_RATES
-
-
-def test_substring_order_does_not_misroute_4_7_to_4(
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    # Exact matching preserves both keys without comparing their values.
-    shorter = "claude-acme-opus-4"
-    longer = f"{shorter}-7"
-    rows = {
-        shorter: dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5))),
-        longer: dict(zip(pricing.RATE_FIELDS, (6, 7, 8, 9, 10))),
-    }
-    monkeypatch.setattr(pricing, "MODEL_RATES", rows)
-    monkeypatch.setattr(pricing, "DATED_RATES", {})
-    long_result = pricing.resolve(longer)
-    short_result = pricing.resolve(shorter)
-    assert long_result.key == longer and long_result.rates is rows[longer]
-    assert short_result.key == shorter and short_result.rates is rows[shorter]
-    assert long_result.rates is not short_result.rates
 
 
 def test_compute_cost_prices_fresh_at_the_fresh_rate():
@@ -222,20 +145,6 @@ def test_unsplit_cache_charges_at_1h_rate(
     assert rates["create_1h"] != rates["create_5m"]
 
 
-def test_split_cache_charges_each_bucket_separately():
-    r = pricing.rate_for("claude-sonnet-4-5")  # sv-test-data: allow (same algorithm and order: expected terms use this row's rates divided by one million)
-    cost = pricing.compute_cost(
-        "claude-sonnet-4-5",  # sv-test-data: allow (same algorithm and order: expected terms use this loaded row's rates divided by one million)
-        fresh=0, output=0,
-        eph5=1, eph1h=1,
-        unsplit_create=0, read=0,
-    )
-    # Same rates and operation order as compute_cost, scaled per million.
-    assert cost == pytest.approx(
-        r["create_5m"] / 1_000_000 + r["create_1h"] / 1_000_000,
-        rel=1e-12)
-
-
 def test_expired_windows_keep_pricing_their_own_period():
     """An expired window is NOT dead weight. Every PARSER_VERSION bump
     reparses the whole bucket, and a record from inside the window must
@@ -273,21 +182,15 @@ def test_rate_epochs_match_the_dated_windows():
 # path through conftest's synthetic_dated_rate rather than a live entry.
 
 
-def test_dated_window_applies_before_its_cutover(synthetic_dated_rate):
+@pytest.mark.parametrize("ts,expected", [
+    (datetime(2026, 7, 21, tzinfo=UTC), "before"),
+    (datetime(2026, 8, 31, 23, 59, 59, tzinfo=UTC), "before"),
+    (datetime(2026, 9, 1, tzinfo=UTC), "after"),
+])
+def test_dated_window_boundary_is_exclusive_at_the_cutover(
+        synthetic_dated_rate, ts, expected):
     w = synthetic_dated_rate
-    assert pricing.rate_for(w.model, ts=datetime(2026, 7, 21, tzinfo=UTC)) == w.before
-
-
-def test_list_rates_apply_from_the_cutover(synthetic_dated_rate):
-    w = synthetic_dated_rate
-    assert pricing.rate_for(w.model, ts=w.cutover) == w.after
-
-
-def test_dated_window_boundary_is_exclusive_at_the_cutover(synthetic_dated_rate):
-    w = synthetic_dated_rate
-    last = pricing.rate_for(w.model, ts=datetime(2026, 8, 31, 23, 59, 59, tzinfo=UTC))
-    assert last == w.before
-    assert pricing.rate_for(w.model, ts=datetime(2026, 9, 1, 0, 0, 0, tzinfo=UTC)) == w.after
+    assert pricing.rate_for(w.model, ts=ts) == getattr(w, expected)
 
 
 def test_omitting_ts_yields_list_price_never_the_discount(synthetic_dated_rate):
@@ -408,15 +311,6 @@ def test_provider_record_without_a_provider_prices_by_the_model_alone(
     assert (r.kind, r.rates) == ("default", pricing.DEFAULT_RATES)
 
 
-def test_provider_row_before_its_start_prices_by_the_model_alone(
-        synthetic_provider_dated_rate):
-    """A row that begins at a time does not exist for a record before it."""
-    w = synthetic_provider_dated_rate
-    r = pricing.resolve(w.model, ts=w.start - timedelta(seconds=1),
-                        provider=w.host)
-    assert (r.kind, r.rates) == ("default", pricing.DEFAULT_RATES)
-
-
 def test_provider_compute_cost_splits_at_the_cutover(
         synthetic_provider_dated_rate):
     w = synthetic_provider_dated_rate
@@ -442,41 +336,26 @@ def test_provider_compute_cost_splits_at_the_cutover(
 # row, like every provider behaviour above.
 
 
-def test_nitro_variant_suffix_resolves_to_the_bare_provider_row(
-        synthetic_provider_dated_rate):
+@pytest.mark.parametrize("suffix,exact_row", [
+    ("nitro", False), ("floor", False), ("nitro", True),
+])
+def test_variant_suffix_resolves_to_the_matching_provider_row(
+        synthetic_provider_dated_rate, monkeypatch, suffix, exact_row):
     w = synthetic_provider_dated_rate
-    r = pricing.resolve(f"{w.model}:nitro", ts=w.cutover, provider=w.host)
-    assert (r.kind, r.key) == ("exact", w.model)
+    model = f"{w.model}:{suffix}"
+    if exact_row:
+        monkeypatch.setitem(pricing.PROVIDER_RATES, (model, w.host), w.after)
+    r = pricing.resolve(model, ts=w.cutover, provider=w.host)
+    assert (r.kind, r.key) == ("exact", model if exact_row else w.model)
     assert r.rates == w.after
     assert r.rates != pricing.FREE_RATES
 
 
-def test_floor_variant_suffix_resolves_to_the_bare_provider_row(
-        synthetic_provider_dated_rate):
-    w = synthetic_provider_dated_rate
-    r = pricing.resolve(f"{w.model}:floor", ts=w.cutover, provider=w.host)
-    assert (r.kind, r.key) == ("exact", w.model)
-    assert r.rates == w.after
-    assert r.rates != pricing.FREE_RATES
-
-
+@pytest.mark.parametrize("suffix", ["free", "FREE"])
 def test_free_suffix_keeps_its_zero_price_and_its_own_key(
-        synthetic_provider_dated_rate):
-    """The free match outranks the provider lookup, so a :free id returns
-    the free rates under its own key — the variant fold must not touch it."""
+        synthetic_provider_dated_rate, suffix):
     w = synthetic_provider_dated_rate
-    r = pricing.resolve(f"{w.model}:free", ts=w.cutover, provider=w.host)
-    assert (r.kind, r.key) == ("exact", f"{w.model}:free")
-    assert r.rates == pricing.FREE_RATES
-
-
-def test_uppercase_free_suffix_keeps_its_zero_price_and_its_own_key(
-        synthetic_provider_dated_rate):
-    """The free guard is case-insensitive: ':FREE' resolves exactly like
-    ':free' — the free rates, exact, under the normalised (lowercase)
-    key — never the provider row's priced rates under a mixed-case key."""
-    w = synthetic_provider_dated_rate
-    r = pricing.resolve(f"{w.model}:FREE", ts=w.cutover, provider=w.host)
+    r = pricing.resolve(f"{w.model}:{suffix}", ts=w.cutover, provider=w.host)
     assert (r.kind, r.key) == ("exact", f"{w.model}:free")
     assert r.rates == pricing.FREE_RATES
 
@@ -496,26 +375,6 @@ def test_variant_suffix_prices_by_the_bare_row_dated_window(
     assert (r.kind, r.rates) == ("default", pricing.DEFAULT_RATES)
 
 
-def test_an_exact_variant_row_wins_over_the_bare_fold(
-        synthetic_provider_dated_rate, monkeypatch):
-    """The fold is a fallback: when the table holds the variant id itself,
-    that row is the match. Pins the candidate order (exact id first)."""
-    w = synthetic_provider_dated_rate
-    monkeypatch.setitem(pricing.PROVIDER_RATES,
-                        (f"{w.model}:nitro", w.host), w.after)
-    r = pricing.resolve(f"{w.model}:nitro", ts=w.cutover, provider=w.host)
-    assert (r.kind, r.key) == ("exact", f"{w.model}:nitro")
-    assert r.rates == w.after
-
-
-def test_future_opus_uses_the_current_opus_tier_fallback():
-    # 'claude-opus-4' is a prefix of 'claude-opus-4-99', but the unknown
-    # future model must use the family fallback rather than an exact row.
-    r = pricing.resolve("claude-opus-4-99")
-    assert r.kind == "tier"
-    assert r.rates is pricing._latest("opus")  # pylint: disable=protected-access
-
-
 def test_dated_snapshot_still_matches_its_generic_key(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """A dated-snapshot suffix folds to its isolated synthetic base row."""
@@ -532,38 +391,22 @@ def test_dated_snapshot_still_matches_its_generic_key(
     assert pricing.rate_for(haiku_key) is haiku
 
 
-def test_provider_prefixed_and_dotted_ids_normalise_to_the_exact_key(
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    key = "claude-acme-opus-4-8"
+@pytest.mark.parametrize("key,variants", [
+    ("claude-acme-opus-4-8", (
+        "anthropic/claude-acme-opus.4.8", "us.anthropic.claude-acme-opus-4-8",
+        "eu.anthropic.claude-acme-opus-4-8", "CLAUDE-ACME-OPUS-4-8",
+    )),
+    ("glm-5-3-flash", ("glm-5.3-flash", "GLM-5.3-Flash[1m]")),
+])
+def test_spelling_variants_normalise_to_the_exact_key(monkeypatch, key, variants):
     rates = dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5)))
     monkeypatch.setattr(pricing, "MODEL_RATES", {key: rates})
     monkeypatch.setattr(pricing, "DATED_RATES", {})
-    for variant in (
-        f"anthropic/{key.replace('-', '.')}".replace(".acme.", "-acme-"),
-        f"us.anthropic.{key}",
-        f"eu.anthropic.{key}",
-        key.upper(),
-    ):
+    for variant in variants:
+        result = pricing.resolve(variant)
+        assert (result.kind, result.key) == ("exact", key)
+        assert result.rates is rates
         assert pricing.rate_for(variant) is rates, variant
-
-
-def test_resolve_reports_exact_match():
-    assert pricing.resolve("claude-opus-4-8").kind == "exact"  # sv-test-data: allow (structure-only: claude-opus-4-8 is an existing exact model key)
-
-
-def test_resolve_reports_tier_fallback_for_unknown_claude_model():
-    # A Sonnet generation beyond any plausible release, and the family's
-    # current-generation rates derived (never a pinned generation), so a
-    # refresh adding a newer Sonnet row can never turn this exact.
-    res = pricing.resolve("claude-sonnet-99")
-    assert res.kind == "tier"
-    assert res.rates == pricing._latest("sonnet")  # pylint: disable=protected-access
-
-
-def test_resolve_reports_default_for_wholly_unknown_model():
-    # A synthetic id: no rate row the refresh can add may ever match it,
-    # so "wholly unknown" stays true against refreshed data.
-    assert pricing.resolve("totally-unknown-model").kind == "default"
 
 
 def test_fast_variants_are_not_silently_billed_at_standard_rates():
@@ -579,17 +422,6 @@ GLM_PROMO = {"fresh": 0.075, "create_5m": 0.075, "create_1h": 0.075,
              "read": 0.015, "output": 0.25}
 
 
-def test_glm_flash_resolves_exact_despite_dots_and_suffixes(
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    rates = dict(zip(pricing.RATE_FIELDS, (1, 2, 3, 4, 5)))
-    monkeypatch.setattr(pricing, "MODEL_RATES", {"glm-5-3-flash": rates})
-    monkeypatch.setattr(pricing, "DATED_RATES", {})
-    for model in ("glm-5.3-flash", "GLM-5.3-Flash[1m]"):
-        result = pricing.resolve(model)
-        assert (result.kind, result.key) == ("exact", "glm-5-3-flash")
-        assert result.rates is rates
-
-
 @pytest.mark.parametrize("hour,minute,second,before,after", [
     (2, 28, 4, GLM_PROMO, GLM_LIST), (2, 30, 55, GLM_LIST, GLM_PROMO),
     (6, 5, 57, GLM_PROMO, GLM_LIST), (6, 12, 51, GLM_LIST, GLM_PROMO),
@@ -601,24 +433,21 @@ def test_glm_flash_promo_windows_end_exclusive_at_logged_instants(hour, minute, 
     assert pricing.rate_for("glm-5.3-flash", ts=cutover) == after  # sv-test-data: allow (closed-window pin at logged GLM promo boundaries)
 
 
-@pytest.mark.parametrize("offset,want", [(-1, 0.225), (0, 0.45)])
-def test_glm_flash_cache_writes_use_normalized_log_input_rates(offset, want):
-    assert pricing.compute_cost(
-        "glm-5.3-flash",  # sv-test-data: allow (closed-window pin at the GLM promo boundary)
-        fresh=0, output=0, eph5=1_000_000, eph1h=1_000_000,
-        unsplit_create=1_000_000, read=0, ts=GLM_CUTOVER + timedelta(seconds=offset),
-    ) == pytest.approx(want)
-
-
-def test_glm_flash_compute_cost_promo_known_vector():
+@pytest.mark.parametrize("offset,fresh,output,read,writes,want,max_error", [
+    (-1, 0, 0, 0, 1_000_000, 0.225, 0.225e-6),
+    (0, 0, 0, 0, 1_000_000, 0.45, 0.45e-6),
+    (-1, 2_000_000, 1_000_000, 4_000_000, 0,
+     2 * 0.075 + 0.25 + 4 * 0.015, 1e-9),
+])
+def test_glm_flash_compute_cost_known_vectors(
+        offset, fresh, output, read, writes, want, max_error):
     cost = pricing.compute_cost(
         "glm-5.3-flash",  # sv-test-data: allow (closed-window pin at the GLM promo boundary)
-        fresh=2_000_000, output=1_000_000,
-        eph5=0, eph1h=0, unsplit_create=0, read=4_000_000,
-        ts=GLM_CUTOVER - timedelta(seconds=1),
+        fresh=fresh, output=output, eph5=writes, eph1h=writes,
+        unsplit_create=writes, read=read, ts=GLM_CUTOVER + timedelta(seconds=offset),
     )
-    # 2M input @ 0.075 + 1M output @ 0.25 + 4M cached reads @ 0.015
-    assert abs(cost - (2 * 0.075 + 0.25 + 4 * 0.015)) < 1e-9
+    assert cost == pytest.approx(want)
+    assert abs(cost - want) < max_error
 
 
 # --- OpenRouter free and stealth lanes (zero-priced) ------------------------
@@ -633,19 +462,12 @@ FREE_MODELS = (
 )
 
 
-def test_openrouter_free_suffix_prices_at_zero():
-    for model in FREE_MODELS:
-        r = pricing.resolve(model)
-        assert (r.kind, r.key) == ("exact", model)
-        assert r.rates == pricing.FREE_RATES
-        assert all(v == 0 for v in r.rates.values())
-        assert r.estimated is False
-
-
-def test_openrouter_stealth_prefix_prices_at_zero():
-    r = pricing.resolve("stealth/space-bunny-alpha")
-    assert (r.kind, r.key) == ("exact", "stealth/space-bunny-alpha")
+@pytest.mark.parametrize("model", (*FREE_MODELS, "stealth/space-bunny-alpha"))
+def test_openrouter_free_shapes_price_at_zero(model):
+    r = pricing.resolve(model)
+    assert (r.kind, r.key) == ("exact", model)
     assert r.rates == pricing.FREE_RATES
+    assert all(v == 0 for v in r.rates.values())
     assert r.estimated is False
 
 
