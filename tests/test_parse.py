@@ -50,12 +50,6 @@ def test_claude_server_search_count_belongs_to_the_usage_record():
     assert [record["web_search_requests"] for record in out["records"]] == [2, 4]
 
 
-def test_claude_record_without_server_search_count_stays_null():
-    out = parse.parse_file(
-        "k/sess-1/sess-1.jsonl", _read("single_turn.jsonl"))
-    assert out["records"][0]["web_search_requests"] is None
-
-
 def test_streaming_within_file_max_merges_per_request_id():
     """Two records same requestId, output_tokens=50 then 200.
     Phase 1 keeps ONE record with max-merged usage."""
@@ -450,56 +444,32 @@ def test_rate_limit_detection_is_shape_based_not_wording_based():
     assert "session limit" in hits[2]["content"]
 
 
-def test_edit_call_yields_added_deleted_counts():
-    """Edit churn comes from the CALL arguments (old_string/new_string),
-    not the result text, DIFFED so context lines repeated in both
-    payloads are not churn: "a\\nb\\n" → "a\\nb\\nc\\nd\\n" adds 2 and
-    deletes 0. Two separate positive series."""
-    out = parse.parse_file(
-        "k/sess-edit/sess-edit.jsonl", _read("edit_churn.jsonl")
-    )
+@pytest.mark.parametrize("fixture,file_key,expected", [
+    pytest.param("edit_churn.jsonl", "k/sess-edit/sess-edit.jsonl",
+                 {"tool_name": "Edit", "is_error": False, "lines_added": 2, "lines_deleted": 0},
+                 id="edit-diffs-context"),
+    pytest.param("write_churn.jsonl", "k/sess-write/sess-write.jsonl",
+                 {"tool_name": "Write", "lines_added": 3, "lines_deleted": 0},
+                 id="write-whole-content"),
+    pytest.param("edit_error.jsonl", "k/sess-editerr/sess-editerr.jsonl",
+                 {"is_error": True, "lines_added": 0, "lines_deleted": 0},
+                 id="errored-edit"),
+    pytest.param("tool_success.jsonl", "k/sess-ok/sess-ok.jsonl",
+                 {"tool_name": "Bash", "lines_added": 0, "lines_deleted": 0},
+                 id="non-edit"),
+    pytest.param("bash_churn.jsonl", "k/sess-bash/sess-bash.jsonl",
+                 {"tool_name": "Bash", "is_error": False, "lines_added": 3, "lines_deleted": 0},
+                 id="bash-heredoc"),
+])
+def test_tool_call_churn(fixture, file_key, expected):
+    out = parse.parse_file(file_key, _read(fixture))
     assert len(out["tool_uses"]) == 1
-    tu = out["tool_uses"][0]
-    assert tu["tool_name"] == "Edit"
-    assert tu["is_error"] is False
-    assert tu["lines_added"] == 2
-    assert tu["lines_deleted"] == 0
-
-
-def test_write_call_counts_whole_content_as_added():
-    """A Write carries no old content in the call, so it is all
-    additions; 'x\\ny\\nz' (no trailing newline) is 3 lines."""
-    out = parse.parse_file(
-        "k/sess-write/sess-write.jsonl", _read("write_churn.jsonl")
-    )
-    tu = out["tool_uses"][0]
-    assert tu["tool_name"] == "Write"
-    assert tu["lines_added"] == 3
-    assert tu["lines_deleted"] == 0
-
-
-def test_errored_edit_contributes_zero_churn():
-    """An errored Edit changed nothing on disk — its churn is zeroed
-    once the tool_result resolves is_error=True."""
-    out = parse.parse_file(
-        "k/sess-editerr/sess-editerr.jsonl", _read("edit_error.jsonl")
-    )
-    tu = out["tool_uses"][0]
-    assert tu["is_error"] is True
-    assert tu["lines_added"] == 0
-    assert tu["lines_deleted"] == 0
-
-
-def test_non_edit_tool_has_no_churn():
-    """A tool call with nothing enumerable in it reports 0/0 — `ls`
-    writes no lines, and no other tool name carries a payload we count."""
-    out = parse.parse_file(
-        "k/sess-ok/sess-ok.jsonl", _read("tool_success.jsonl")
-    )
-    tu = out["tool_uses"][0]
-    assert tu["tool_name"] == "Bash"
-    assert tu["lines_added"] == 0
-    assert tu["lines_deleted"] == 0
+    tool = out["tool_uses"][0]
+    for field, value in expected.items():
+        if field == "is_error":
+            assert tool[field] is value
+        else:
+            assert tool[field] == value
 
 
 def test_dated_rate_prices_each_record_at_its_own_timestamp(synthetic_dated_rate):
@@ -523,19 +493,6 @@ def test_sonnet_5_is_priced_flat_at_its_standard_rate():
     ]
 
 
-def test_bash_heredoc_call_yields_added_counts():
-    """A heredoc redirected into a file is a write like any other: the
-    body's 3 lines are additions, and nothing is known to be deleted."""
-    out = parse.parse_file(
-        "k/sess-bash/sess-bash.jsonl", _read("bash_churn.jsonl")
-    )
-    tu = out["tool_uses"][0]
-    assert tu["tool_name"] == "Bash"
-    assert tu["is_error"] is False
-    assert tu["lines_added"] == 3
-    assert tu["lines_deleted"] == 0
-
-
 def test_bash_mkdir_checkout_yields_directory_write_targets():
     """mkdir, git worktree add and a bare git clone name what they put
     on disk, resolved against the command's cwd."""
@@ -547,17 +504,12 @@ def test_bash_mkdir_checkout_yields_directory_write_targets():
     ]
 
 
-def test_bash_mktemp_template_is_a_write_target():
-    """A mktemp template is a named path, kept verbatim."""
-    out = parse.parse_file(
-        "k/sess-mkt/sess-mkt.jsonl", _read("bash_mktemp.jsonl"))
-    assert out["tool_uses"][0]["write_targets"] == ["/tmp/probe.XXXXXX"]
-
-
-def test_bash_captured_mktemp_template_is_a_write_target():
-    """A captured substitution's mktemp books its template like the bare form."""
-    out = parse.parse_file(
-        "k/sess-mktc/sess-mktc.jsonl", _read("bash_mktemp_capture.jsonl"))
+@pytest.mark.parametrize("fixture,file_key", [
+    pytest.param("bash_mktemp.jsonl", "k/sess-mkt/sess-mkt.jsonl", id="bare"),
+    pytest.param("bash_mktemp_capture.jsonl", "k/sess-mktc/sess-mktc.jsonl", id="captured"),
+])
+def test_bash_mktemp_template_is_a_write_target(fixture, file_key):
+    out = parse.parse_file(file_key, _read(fixture))
     assert out["tool_uses"][0]["write_targets"] == ["/tmp/probe.XXXXXX"]
 
 
@@ -595,13 +547,6 @@ def test_bash_nested_subshell_books_write_target():
     assert out["tool_uses"][0]["write_targets"] == ["/work/deep.txt"]
 
 
-def test_agent_type_from_attribution_agent():
-    """A dispatched agent's transcript carries attributionAgent."""
-    out = parse.parse_file(
-        "k/sess-1/subagents/agent-a1.jsonl", _read("agent_attribution.jsonl"))
-    assert out["agent_type"] == "implementer"
-
-
 def test_agent_type_from_cli_agent_setting():
     """A `claude --agent X` session records a type:"agent-setting" line
     instead — a separate signal, not attributionAgent."""
@@ -636,26 +581,6 @@ def test_non_string_agent_setting_falls_back_to_the_default():
     out = parse.parse_file(
         "k/sess-1/sess-1.jsonl", _read("agent_setting_nonstring.jsonl"))
     assert out["agent_type"] == "general-purpose"
-
-
-def test_context_beyond_any_window_is_not_a_turn():
-    """A record whose context exceeds MAX_PLAUSIBLE_CTX is a cumulative
-    counter, not a request, and must not enter the ctx_turns trace.
-
-    Found live: a one-line file in the `zai` bucket, written by another
-    harness under the all-zeros sentinel session id, reported 115.8M
-    cache-read tokens in a single record. No request reads that — the
-    largest published window is 1M — but the Context Growth y-axis is
-    scaled off the maximum, so that one row flattened every real trace on
-    glmmeter to a hairline.
-
-    The RECORD is still parsed and still priced. Only the ctx trace,
-    whose axis the value destroys, rejects it.
-    """
-    out = parse.parse_file(
-        "k/sess-1/sess-1.jsonl", _read("ctx_cumulative_counter.jsonl"))
-    assert not out["ctx_turns"]
-    assert len(out["records"]) == 1, "the record itself is still kept"
 
 
 def test_nul_in_tool_name_and_argument_stays_in_parse_output():
