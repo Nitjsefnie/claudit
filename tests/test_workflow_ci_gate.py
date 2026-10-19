@@ -515,6 +515,9 @@ def test_tests_and_refresh_share_the_pinned_postgres_action():
         assert "services" not in job
         actions = [step.get("uses") for step in job["steps"]]
         assert actions.count("$/.github/actions/postgres") == 1
+        if path == REFRESH_WORKFLOW:
+            run = next(step["run"] for step in job["steps"] if step.get("name") == "Run tests")
+            assert "scripts/ci/pytest_shards.py" in run
 
 
 def test_the_pytest_job_pushes_nothing_and_the_deploy_key_has_two_wirings():
