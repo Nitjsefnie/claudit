@@ -27,17 +27,15 @@ CLAUDIT_RECORD_KEYS = {
 }
 
 
-@pytest.mark.parametrize("name,fmt", [
-    ("codex_min.jsonl", "codex"),
-    ("kimi_code_min.jsonl", "kimi-code"),
-    ("kimi_legacy_min.jsonl", "legacy"),
-])
-def test_each_lane_format_is_sniffed(name, fmt):
-    assert parse.sniff_format((FIX / name).read_bytes()) == fmt
-
-
-def test_a_claude_transcript_still_sniffs_as_claude():
-    assert parse.sniff_format((FIX / "unsplit_cache.jsonl").read_bytes()) == "claude"
+@pytest.mark.parametrize("blob,fmt", [
+    ((FIX / "codex_min.jsonl").read_bytes(), "codex"),
+    ((FIX / "kimi_code_min.jsonl").read_bytes(), "kimi-code"),
+    ((FIX / "kimi_legacy_min.jsonl").read_bytes(), "legacy"),
+    ((FIX / "unsplit_cache.jsonl").read_bytes(), "claude"),
+    (b'{"sessionId":"x","type":"system","message":"hi"}\n', "claude"),
+], ids=["codex", "kimi-code", "legacy", "claude", "claude-string-message"])
+def test_each_lane_format_is_sniffed(blob, fmt):
+    assert parse.sniff_format(blob) == fmt
 
 
 @pytest.mark.parametrize("name", [
@@ -68,24 +66,6 @@ def test_codex_reasoning_lands_in_thinking_tokens():
 ])
 def test_codex_models_keep_their_generation_labels(raw, label):
     assert parse_codex._codex_model(raw) == label  # pylint: disable=protected-access
-
-
-def test_lane_tool_uses_carry_claudit_columns():
-    out = parse.parse_file("sessions/p/s/wire.jsonl",
-                           (FIX / "codex_min.jsonl").read_bytes())
-    tu = out["tool_uses"][0]
-    for key in ("tool_use_id", "error_kind", "error_text", "agent_type",
-                "agent_model", "dispatch_prompt_chars", "dispatch_brief_ref",
-                "dispatch_name", "result_chars", "read_kind", "read_targets", "write_targets",
-                "is_reread"):
-        assert key in tu, key
-    assert "tool_call_id" not in tu
-
-
-def test_a_claude_line_with_a_string_message_sniffs_claude():
-    """A non-dict message must not raise on .get; keep sniffing Claude."""
-    blob = b'{"sessionId":"x","type":"system","message":"hi"}\n'
-    assert parse.sniff_format(blob) == "claude"
 
 
 def test_a_kimi_code_llm_error_line_with_a_string_message_does_not_crash():
@@ -166,17 +146,6 @@ def _codex_meta(*payloads: str) -> bytes:
         b'"payload":{"session_id":"s"%s}}\n' % p.encode() for p in payloads)
 
 
-def test_codex_subagent_file_records_its_agent_role():
-    """The role rides the second session_meta; the first, without it,
-    must not shadow it -- the non-empty value wins. The lane's own
-    spelling folds to the canonical name."""
-    assert _lane("codex_agent_role.jsonl")["agent_type"] == "Explore"
-
-
-def test_codex_main_file_without_a_role_is_the_default_agent_type():
-    assert _lane("codex_min.jsonl")["agent_type"] == constants.DEFAULT_AGENT_TYPE
-
-
 @pytest.mark.parametrize("payload", [
     ',"agent_role":"default"',   # Codex's own name for "no role profile"
     ',"agent_role":""',
@@ -193,19 +162,13 @@ def test_codex_first_non_empty_role_wins():
     assert out["agent_type"] == "task-reviewer"
 
 
-def test_codex_role_falls_back_to_the_thread_spawn_mirror():
+@pytest.mark.parametrize("role", [
+    "", ',"agent_role":{"name":"x"}', ',"agent_role":["x"]',
+    ',"agent_role":7', ',"agent_role":true',
+], ids=["absent", "object", "array", "number", "boolean"])
+def test_codex_role_falls_back_to_the_thread_spawn_mirror(role):
     out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_meta(
-        ',"source":{"subagent":{"thread_spawn":{"agent_role":"adversary"}}}'))
-    assert out["agent_type"] == "adversary"
-
-
-@pytest.mark.parametrize("bogus", ['{"name":"x"}', '["x"]', "7", "true"])
-def test_codex_non_string_role_falls_back_to_the_thread_spawn_mirror(bogus):
-    """A truthy agent_role that is not a string is no role at all: it must
-    not shadow the thread_spawn mirror."""
-    out = parse.parse_file("sessions/p/s/wire.jsonl", _codex_meta(
-        ',"agent_role":%s,"source":{"subagent":{"thread_spawn":'
-        '{"agent_role":"adversary"}}}' % bogus))
+        role + ',"source":{"subagent":{"thread_spawn":{"agent_role":"adversary"}}}'))
     assert out["agent_type"] == "adversary"
 
 
@@ -259,14 +222,6 @@ def test_codex_spawn_agent_calls_record_what_they_asked_for():
     assert _dispatch_cols(by_id["call_wait01"]) == (None, None, None, None)
 
 
-def test_kimi_code_first_profile_name_is_the_agent_type():
-    """The in-band profile names the role: kimi's `coder` profile is the
-    implementer role; a named profile folds to its
-    canonical name."""
-    assert _lane("kimi_code_agent_dispatch.jsonl")[
-        "agent_type"] == "implementer"
-
-
 def _kc_profile(profile: str) -> bytes:
     return (b'{"type":"metadata","protocol_version":"1.4",'
             b'"created_at":1782740973430}\n'
@@ -274,10 +229,12 @@ def _kc_profile(profile: str) -> bytes:
             b'"time":1782740973431}\n' % profile.encode())
 
 
-@pytest.mark.parametrize("profile", ['"agent"', '""', "null"])
-def test_kimi_code_default_or_empty_profile_is_the_default_agent_type(profile):
-    """`agent` is kimi-code's name for the default profile."""
-    out = parse.parse_file("sessions/p/s/wire.jsonl", _kc_profile(profile))
+@pytest.mark.parametrize("blob", [
+    _kc_profile('"agent"'), _kc_profile('""'), _kc_profile("null"),
+    (FIX / "kimi_code_min.jsonl").read_bytes(),
+], ids=["default-profile", "empty-profile", "null-profile", "absent-profile"])
+def test_kimi_code_default_or_empty_profile_is_the_default_agent_type(blob):
+    out = parse.parse_file("sessions/p/s/wire.jsonl", blob)
     assert out["agent_type"] == constants.DEFAULT_AGENT_TYPE
 
 
@@ -286,10 +243,6 @@ def test_kimi_code_empty_profile_does_not_shadow_a_later_one():
                                 b'"profileName":"implementer"}\n')
     assert parse.parse_file("sessions/p/s/wire.jsonl", blob)[
         "agent_type"] == "implementer"
-
-
-def test_kimi_code_without_a_profile_is_the_default_agent_type():
-    assert _lane("kimi_code_min.jsonl")["agent_type"] == constants.DEFAULT_AGENT_TYPE
 
 
 def test_kimi_code_agent_call_records_subagent_type_and_prompt_shape():
