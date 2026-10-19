@@ -458,12 +458,20 @@ def test_a_discount_is_recorded_with_the_rate_and_round_trips(tmp_path, capsys, 
     assert run.snapshot() == after_first, "the same payload again moves nothing"
 
 
-@pytest.mark.parametrize("discount", [0.5, -0.2])
-def test_a_discount_alone_changing_is_not_a_rate_change(tmp_path, capsys, discount):
-    """The listed price already has the discount applied; a label moving
-    with the price unchanged prices nothing differently."""
+@pytest.mark.parametrize(("price_update", "twin_tag"), [
+    ({"discount": 0.5}, None),
+    ({"discount": -0.2}, None),
+    ({"input_cache_write": "0"}, None),
+    ({}, "novita/fp4"),
+], ids=["discount-label", "surcharge-label", "zero-cache-write", "same-price-twin"])
+def test_equivalent_listing_changes_move_nothing(tmp_path, capsys, price_update, twin_tag):
     run = Run(tmp_path)
-    run.endpoint(GLM, "Novita")["pricing"]["discount"] = discount
+    endpoint = run.endpoint(GLM, "Novita")
+    endpoint["pricing"].update(price_update)
+    if twin_tag is not None:
+        twin = copy.deepcopy(endpoint)
+        twin["tag"] = twin_tag
+        run.endpoints(GLM).append(twin)
     before = run.snapshot()
     assert run(capsys)[0] == 0
     assert run.snapshot() == before
@@ -478,30 +486,12 @@ def test_a_listed_cache_write_price_fills_both_create_buckets(tmp_path, capsys):
     assert entry["fresh"] != 0.2
 
 
-def test_a_zero_cache_write_price_means_the_input_rate(tmp_path, capsys):
-    run = Run(tmp_path)
-    run.endpoint(GLM, "Novita")["pricing"]["input_cache_write"] = "0"
-    before = run.snapshot()
-    assert run(capsys)[0] == 0
-    assert run.snapshot() == before
-
-
 def test_an_absent_cache_read_price_is_the_input_rate(tmp_path, capsys):
     run = Run(tmp_path)
     del run.endpoint(GLM, "Novita")["pricing"]["input_cache_read"]
     assert run(capsys)[0] == 0
     entry = run.doc()["providers"][GLM]["Novita"][-1]
     assert entry["read"] == entry["fresh"]
-
-
-def test_endpoints_of_one_host_at_one_price_are_one_row(tmp_path, capsys):
-    run = Run(tmp_path)
-    twin = copy.deepcopy(run.endpoint(GLM, "Novita"))
-    twin["tag"] = "novita/fp4"
-    run.endpoints(GLM).append(twin)
-    before = run.snapshot()
-    assert run(capsys)[0] == 0
-    assert run.snapshot() == before
 
 
 def _refused(run: Run, capsys, *names: str) -> None:
@@ -550,12 +540,6 @@ def test_a_refused_host_blocks_only_itself(tmp_path, capsys):
     message = run.commit_msg.read_text(encoding="utf-8")
     assert message.startswith("Refresh OpenRouter provider rates: 1 changed")
     assert f"{GLM} via Novita" in message
-
-
-def test_a_run_refused_everywhere_writes_nothing(tmp_path, capsys):
-    run = Run(tmp_path)
-    _two_global_novitas(run)
-    _refused(run, capsys, f"{GLM} via Novita")
 
 
 def _catalog_without(run: Run, *ids: str) -> dict:

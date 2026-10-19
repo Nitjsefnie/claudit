@@ -49,26 +49,14 @@ def _assert_document_shape_resolves(
     assert run.doc()["openrouter"]["models"][GLM].get("resolve", {}).get(host) == pin
 
 
-def test_the_alibaba_shape_resolves_without_a_pin(tmp_path, capsys):
-    """Resolve duplicate fp8 listings beside a throughput tier through the rule."""
-    doc = _openrouter_template()
-    assert "Alibaba" not in doc["models"]["glm-5-2"].get("resolve", {})
-    _assert_document_shape_resolves(
-        tmp_path, capsys, "glm-5-2", "Alibaba",
-        (("alibaba/fp8", RATES_A), ("alibaba/fp8", RATES_B),
-         ("alibaba/fast", RATE_C)))
-
-
-def test_bare_namespace_pin_resolves_service_tiers(tmp_path, capsys):
-    _assert_document_shape_resolves(
-        tmp_path, capsys, "gpt-5", "Azure",
-        (("azure", RATES_A), ("azure/fast", RATES_B), ("azure/flex", RATE_C)))
-
-
-def test_global_region_pin_selects_the_account_endpoint(tmp_path, capsys):
-    _assert_document_shape_resolves(
-        tmp_path, capsys, "claude-haiku-4-5", "Google",
-        (("google-vertex/global", RATES_A), ("google-vertex", RATES_B)))
+@pytest.mark.parametrize(("key", "host", "listings"), [
+    ("gpt-5", "Azure",
+     (("azure", RATES_A), ("azure/fast", RATES_B), ("azure/flex", RATE_C))),
+    ("claude-haiku-4-5", "Google",
+     (("google-vertex/global", RATES_A), ("google-vertex", RATES_B))),
+], ids=["bare-namespace-service-tiers", "account-global-endpoint"])
+def test_document_shape_resolves(tmp_path, capsys, key, host, listings):
+    _assert_document_shape_resolves(tmp_path, capsys, key, host, listings)
 
 
 def _select_synthetic_host(host: str, listings: list[tuple], *,

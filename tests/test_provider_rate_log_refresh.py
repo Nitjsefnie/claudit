@@ -19,6 +19,7 @@ import pytest
 # The production scripts use sibling imports when run directly.
 # pylint: disable=wrong-import-position,wrong-import-order
 from backend import pricing
+from backend.pricing_document import serialize_pricing_doc
 from tests.pricing_row_helpers import decoded_pricing_doc
 from tests.refresh_fixture_builders import (
     RATE_C, _endpoint as fixture_endpoint, seed_doc,
@@ -227,19 +228,52 @@ def test_rule_selected_endpoint_imports_log_points_only_when_unique(
         assert "sampled" not in out
 
 
-def test_log_changes_at_or_before_the_newest_entry_are_ignored(tmp_path, capsys):
-    row = [_entry(None, RATE_A), _entry("2031-01-01T00:10:00Z", RATE_B)]
-    states = [
-        ("2031-01-01T00:00:00Z", RATE_A),
-        ("2031-01-01T00:10:00Z", RATE_B),
-        ("2031-01-01T00:15:00Z", RATE_A),
-    ]
+def _run_compact_hourly(tmp_path, capsys, *, history, hosts, now):
+    pricing_path, constants_path = tmp_path / "pricing.json", tmp_path / "constants.py"
+    doc = seed_doc(
+        models={MODEL: [{"from": None, **RATE_A}]}, providers={MODEL: hosts},
+        tracked={MODEL: {"id": MODEL_ID}}, fetched="2031-01-01T00:15:00Z")
+    pricing_path.write_text(serialize_pricing_doc(doc))
+    constants_path.write_text('PRICING_VERSION = "31"\n')
+    payload, log_payload = _request_payloads(history, hosts, history[-1][1])
+    fetches = RefreshFetches(payload, log_payload, None, None)
+    rc = refresh.main(
+        [], fetch=fetches.fetch_endpoints, fetch_models=fetches.fetch_models,
+        fetch_log=fetches.fetch_log, now=now,
+        pricing_path=pricing_path, constants_path=constants_path, vendor=None)
+    out, err = capsys.readouterr()
+    return rc, out, err, pricing_path, constants_path
 
-    rc, _, err, pricing_path, _ = _run(tmp_path, capsys, history=states, hosts={HOST: row})
+
+@pytest.mark.parametrize(("field", "change_at", "listed", "detected_at"), [
+    (None, "2031-01-01T00:15:00Z", RATE_A, None),
+    ("create_5m", "2031-01-01T00:20:00Z", RATE_C, "2031-01-01T00:40:00Z"),
+    ("create_1h", "2031-01-01T00:20:00Z", RATE_C, "2031-01-01T00:40:00Z"),
+], ids=["normalized-stored-row", "explicit-free-5m-write", "explicit-free-1h-write"])
+def test_hourly_appends_only_log_states_after_the_stored_row(
+        tmp_path, capsys, field, change_at, listed, detected_at):
+    context = {"context_length": 131072} if field is None else {}
+    row = [{"from": None, **RATE_A, **({field: 0} if field is not None else {}), **context},
+           {"from": "2031-01-01T00:10:00Z", **RATE_B, **context}]
+    states = [("2031-01-01T00:00:00Z", RATE_A),
+              ("2031-01-01T00:10:00Z", RATE_B), (change_at, listed)]
+    expected = [
+        _entry(None, {**RATE_A, **({field: 0} if field is not None else {})},
+               context_length=context.get("context_length")),
+        _entry("2031-01-01T00:10:00Z", RATE_B,
+               context_length=context.get("context_length")),
+        _entry(change_at, listed, context_length=context.get("context_length"))]
+    if detected_at is not None:
+        expected.append(_entry(detected_at, listed))
+
+    rc, out, err, pricing_path, _ = (_run if field is None else _run_compact_hourly)(
+        tmp_path, capsys, history=states, hosts={HOST: row},
+        now=datetime.fromisoformat(detected_at) if detected_at is not None else NOW)
 
     assert rc == 0 and not err
     saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
-    assert saved["providers"][MODEL][HOST] == row + [_entry(states[2][0], RATE_A)]
+    assert saved["providers"][MODEL][HOST] == expected
+    assert f"sampled   {HOST}" not in out
 
 
 @pytest.mark.parametrize("row_at,row_rates,states,endpoint_rates,additions", [
@@ -317,40 +351,21 @@ def test_invalid_generated_log_entry_samples_only_its_host(tmp_path, capsys):
             and "the host was sampled" in out)
 
 
-def test_a_new_host_gets_its_whole_log_history(tmp_path, capsys):
-    states = [("2030-12-31T23:00:00Z", RATE_A),
-              ("2031-01-01T00:10:00Z", RATE_B)]
-
-    rc, _, err, pricing_path, _ = _run(tmp_path, capsys, history=states, hosts={})
-
-    assert rc == 0 and not err
-    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
-    assert saved["providers"][MODEL][HOST] == [_entry(at, rates, context_length=None) for at, rates in states] + [
-        _entry(STAMP, states[-1][1])]
-
-
-def test_first_seen_import_begins_at_the_history_floor(tmp_path, capsys):
-    """SV-RATE-REFRESH's history floor: states dated before the floor
-    price no record the meters hold — the account's OpenRouter-lane
-    records begin at the floor — so a first-seen log-backed host imports
-    its log from the last state in force AT the floor, and the dropped
-    levels price nothing (the whole-log import grew the
-    deployed document 3.4x)."""
-    states = [("2026-01-01T00:00:00Z", RATE_A),
-              ("2026-09-01T12:00:00Z", RATE_B),
-              ("2031-01-01T00:10:00Z", RATE_A)]
-
+@pytest.mark.parametrize(("states", "imported"), [
+    ([("2030-12-31T23:00:00Z", RATE_A), ("2031-01-01T00:10:00Z", RATE_B)],
+     [("2030-12-31T23:00:00Z", RATE_A), ("2031-01-01T00:10:00Z", RATE_B)]),
+    ([("2026-01-01T00:00:00Z", RATE_A), ("2026-09-01T12:00:00Z", RATE_B),
+      ("2031-01-01T00:10:00Z", RATE_A)],
+     [("2026-09-01T12:00:00Z", RATE_B), ("2031-01-01T00:10:00Z", RATE_A)]),
+], ids=["all-after-floor", "state-in-force-at-floor"])
+def test_a_new_host_imports_history_from_the_floor(tmp_path, capsys, states, imported):
     rc, _, err, pricing_path, _ = _run(tmp_path, capsys, history=states, hosts={})
 
     assert rc == 0 and not err
     saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
     assert saved["providers"][MODEL][HOST] == [
-        # The state in force at the floor begins the row, so records at
-        # and after the floor price through it; the superseded level
-        # before it is not imported.
-        _entry("2026-09-01T12:00:00Z", RATE_B, context_length=None),
-        _entry("2031-01-01T00:10:00Z", RATE_A, context_length=None),
-        _entry(STAMP, RATE_A)]
+        _entry(at, rates, context_length=None) for at, rates in imported] + [
+        _entry(STAMP, states[-1][1])]
 
 
 def test_disagreement_samples_the_host_at_detection_time_with_a_notice(tmp_path, capsys):
