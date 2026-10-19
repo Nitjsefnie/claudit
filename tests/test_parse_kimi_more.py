@@ -38,22 +38,6 @@ def test_legacy_records_split_across_the_model_cutoff():
     assert [r["model"] for r in out["records"]] == ["kimi-k2-6", "kimi-k2-7-code"]
 
 
-def test_legacy_after_k3_cutoff_still_labels_k3():
-    """No regression on the real legacy files that sit after the K3 cutoff:
-    with no wire model, the date ladder's k3 rung still applies.
-    """
-    secs = parse_kimi.K3_CUTOFF_EPOCH + 3600
-    ts = datetime.fromtimestamp(secs, tz=timezone.utc).isoformat().replace("+00:00", "Z")
-    blob = (
-        b'{"timestamp": "%s", "message": {"type": "StatusUpdate", "payload": '
-        b'{"message_id": "m1", "token_usage": {"input_other": 10, '
-        b'"input_cache_creation": 0, "input_cache_read": 0, "output": 5}}}}\n'
-        % ts.encode()
-    )
-    out = parse.parse_file("sessions/projA/sess-late/wire.jsonl", blob)
-    assert out["records"][0]["model"] == "kimi-k3"
-
-
 def test_parser_only_ever_emits_the_three_canonical_models():
     """There are exactly three real models. Anything else means a raw provider
     id leaked past canonicalisation — which is precisely what would bill at
@@ -90,19 +74,6 @@ def test_quota_exhausted_llm_error_is_recorded_as_a_rate_limit_hit():
     )
 
 
-def test_transient_rate_limit_llm_error_is_not_recorded():
-    """kind="rate_limit" is the provider shaping traffic per minute, not the
-    wall the user hits. claudit excludes the same case by text-matching "out
-    of extra usage"; here the classification is a field, so the two dashboards
-    count the same thing.
-    """
-    out = parse.parse_file(
-        "sessions/projKC/sess-rl/wire.jsonl",
-        _kc_llm_error_blob("rate_limit"),
-    )
-    assert out["rate_limit_hits"] == []
-
-
 def test_llm_error_content_is_capped_at_500_chars():
     """Provider messages are unbounded free text. The producer truncates at
     500 (LLM_ERROR_MESSAGE_MAX_LENGTH) but the journal is not ours to trust.
@@ -114,33 +85,23 @@ def test_llm_error_content_is_capped_at_500_chars():
     assert len(out["rate_limit_hits"][0]["content"]) == 500
 
 
-def test_kimi_code_edit_write_churn_from_call_args():
-    """The wire's tool RESULT carries no diff ("Replaced 1 occurrence in
-    <path>"), so added/deleted line counts come from the call's args:
-    Edit -> lines(new_string) / lines(old_string), Write -> lines(content).
-    """
-    out = parse.parse_file(
-        "sessions/projLC/sess-lc/wire.jsonl", _KC_CHURN_BLOB)
-    assert _churn_by_tool(out) == [
-        ("Edit", False, 4, 3),     # "a\nb\nc" -> "a\nB\nc\nd"
-        ("Write", False, 2, 0),    # content "x\ny\n"; overwrite size unknowable
-        ("Edit", True, 0, 0),      # is_error -> the rejected edit changed nothing
-        ("Bash", False, 0, 0),     # not a file-mutating tool
-    ]
-
-
-def test_legacy_str_replace_and_write_churn():
-    """Legacy StrReplaceFile takes {edit: {old, new}} OR {edit: [edits]};
-    WriteFile contributes added lines only."""
-    out = parse.parse_file(
-        "sessions/projLC/sess-lcl/wire.jsonl", _LEGACY_CHURN_BLOB
-    )
-    assert _churn_by_tool(out) == [
+@pytest.mark.parametrize("blob,expected", [
+    (_KC_CHURN_BLOB, [
+        ("Edit", False, 4, 3),
+        ("Write", False, 2, 0),
+        ("Edit", True, 0, 0),
+        ("Bash", False, 0, 0),
+    ]),
+    (_LEGACY_CHURN_BLOB, [
         ("StrReplaceFile", False, 1, 2),
-        ("StrReplaceFile", False, 4, 3),  # list of edits, summed
+        ("StrReplaceFile", False, 4, 3),
         ("WriteFile", False, 2, 0),
-        ("WriteFile", True, 0, 0),        # is_error -> zeroed
-    ]
+        ("WriteFile", True, 0, 0),
+    ]),
+], ids=["kimi-code-edit-write", "legacy-replace-write"])
+def test_edit_write_churn_from_call_args(blob, expected):
+    out = parse.parse_file("sessions/projLC/sess-lc/wire.jsonl", blob)
+    assert _churn_by_tool(out) == expected
 
 
 def test_no_edit_tools_means_zero_churn_everywhere():

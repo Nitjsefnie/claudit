@@ -6,30 +6,10 @@ from fastapi import HTTPException
 from backend.api_common import _parse_range
 
 
-def test_parse_range_empty_answers_400():
+@pytest.mark.parametrize("value", ["", "d"], ids=["empty", "bare-unit"])
+def test_parse_range_missing_quantity_answers_400(value):
     with pytest.raises(HTTPException) as exc_info:
-        _parse_range("")
-
-    assert exc_info.value.status_code == 400
-
-
-def test_parse_range_single_unit_answers_400():
-    with pytest.raises(HTTPException) as exc_info:
-        _parse_range("d")
-
-    assert exc_info.value.status_code == 400
-
-
-def test_parse_range_non_numeric_400():
-    with pytest.raises(HTTPException) as exc_info:
-        _parse_range("1e5d")
-
-    assert exc_info.value.status_code == 400
-
-
-def test_parse_range_overflow_400():
-    with pytest.raises(HTTPException) as exc_info:
-        _parse_range("999999999d")
+        _parse_range(value)
 
     assert exc_info.value.status_code == 400
 

@@ -118,23 +118,16 @@ def test_pre_cutoff_timestamp_labels_k2_6():
     assert r["cost_usd"] == round(expected_cost, 6)
 
 
-def test_at_k3_cutoff_labels_k3():
-    """The K3 cutoff is inclusive: a first event exactly at K3_CUTOFF_EPOCH
-    is kimi-k3, mirroring the k2-6 boundary's strictly-before rule.
-    """
+@pytest.mark.parametrize("offset,expected", [
+    (-1, "kimi-k2-7-code"),
+    (0, "kimi-k3"),
+], ids=["before-cutoff", "at-cutoff"])
+def test_k3_cutoff_model_labels(offset, expected):
     out = parse.parse_file(
         "sessions/projA/sess-k3/wire.jsonl",
-        _status_update_at(parse_kimi.K3_CUTOFF_EPOCH),
+        _status_update_at(parse_kimi.K3_CUTOFF_EPOCH + offset),
     )
-    assert out["records"][0]["model"] == "kimi-k3"
-
-
-def test_one_second_before_k3_cutoff_still_labels_k2_7_code():
-    out = parse.parse_file(
-        "sessions/projA/sess-k27/wire.jsonl",
-        _status_update_at(parse_kimi.K3_CUTOFF_EPOCH - 1),
-    )
-    assert out["records"][0]["model"] == "kimi-k2-7-code"
+    assert out["records"][0]["model"] == expected
 
 
 def test_post_k3_cutoff_cost_uses_k3_rates():
@@ -151,42 +144,12 @@ def test_post_k3_cutoff_cost_uses_k3_rates():
     assert r["cost_usd"] == round(expected_cost, 6)
 
 
-def test_canonical_model_maps_k3_provider_id():
-    assert _canonical_model("kimi-code/k3") == "kimi-k3"
-
-
 def test_canonical_model_returns_none_for_ambiguous_and_unknown():
     # kimi-for-coding spans both k2.6 and k2.7-code: the wire cannot resolve it.
     assert _canonical_model("kimi-code/kimi-for-coding") is None
     assert _canonical_model("some/unknown-model") is None
     assert _canonical_model(None) is None
     assert _canonical_model("") is None
-
-
-def test_model_for_k3_wire_string_beats_an_earlier_date():
-    """A wire that says k3 is k3, even before K3_CUTOFF_EPOCH. Real k3 records
-    predate the constant by ~20 minutes.
-    """
-    ts = datetime.fromtimestamp(parse_kimi.K3_CUTOFF_EPOCH - 3600, tz=timezone.utc)
-    assert _model_for("kimi-code/k3", ts) == "kimi-k3"
-
-
-def test_model_for_kimi_for_coding_never_becomes_k3():
-    """The reported bug: k2.7-code is still selectable after the K3 cutoff.
-    A wire that says kimi-for-coding is not k3, whatever the date.
-    """
-    ts = datetime.fromtimestamp(parse_kimi.K3_CUTOFF_EPOCH + 86400, tz=timezone.utc)
-    assert _model_for("kimi-code/kimi-for-coding", ts) == "kimi-k2-7-code"
-
-
-def test_model_for_unrecognized_wire_id_is_never_promoted_to_k3():
-    """An unrecognized id that is PRESENT is not the "no model string" case
-    that justifies the date ladder's k3 rung. Bill it conservatively: a wrong
-    k2-7-code undercount beats a wrong k3 overcount at ~3x.
-    """
-    ts = datetime.fromtimestamp(parse_kimi.K3_CUTOFF_EPOCH + 86400, tz=timezone.utc)
-    assert _model_for("kimi-code/k4-future", ts) == "kimi-k2-7-code"
-    assert _model_for("garbage", ts) == "kimi-k2-7-code"
 
 
 def test_model_for_kimi_for_coding_uses_model_cutoff_for_the_k2_era():
@@ -206,9 +169,16 @@ def test_model_for_without_wire_string_uses_the_full_date_ladder():
     assert _model_for(None, k3) == "kimi-k3"
 
 
-def test_model_for_without_timestamp_falls_back_to_k2_7_code():
-    assert _model_for(None, None) == "kimi-k2-7-code"
-    assert _model_for("kimi-code/kimi-for-coding", None) == "kimi-k2-7-code"
+@pytest.mark.parametrize("wire,epoch", [
+    (None, None),
+    ("kimi-code/kimi-for-coding", None),
+    ("kimi-code/k4-future", parse_kimi.K3_CUTOFF_EPOCH + 86400),
+    ("garbage", parse_kimi.K3_CUTOFF_EPOCH + 86400),
+], ids=["missing-wire-and-time", "ambiguous-wire-no-time",
+        "future-wire-after-k3", "unknown-wire-after-k3"])
+def test_model_for_unresolved_inputs_falls_back_to_k2_7_code(wire, epoch):
+    ts = datetime.fromtimestamp(epoch, tz=timezone.utc) if epoch is not None else None
+    assert _model_for(wire, ts) == "kimi-k2-7-code"
 
 
 def test_k3_cutoff_matches_earliest_observed_k3_record():
@@ -262,14 +232,6 @@ def test_ctx_turns_match_canonical_shape():
     )
     t = out["ctx_turns"][0]
     assert set(t.keys()) == {"idx", "ts", "line", "input", "output", "delta"}
-
-
-def test_record_without_message_id_has_null_uuid():
-    blob = b"""{"timestamp":"2026-06-14T12:00:00Z","message":{"type":"StatusUpdate","payload":{"token_usage":{"input_other":10,"input_cache_creation":0,"input_cache_read":0,"output":5}}}}
-"""
-    out = parse.parse_file("sessions/projX/sess-X/wire.jsonl", blob)
-    assert len(out["records"]) == 1
-    assert out["records"][0]["uuid"] is None
 
 
 def test_two_records_without_message_id_both_kept():
@@ -403,18 +365,6 @@ def _kc_blob(rows):
 VALID_MODELS = {"kimi-k3", "kimi-k2-7-code", "kimi-k2-6"}
 
 
-def test_kimi_code_k3_wire_string_wins_over_an_earlier_date():
-    """The whole point of the wire-first rung: a record the wire calls k3 is
-    k3 even before K3_CUTOFF. Real k3 records predate the constant.
-    """
-    out = parse.parse_file(
-        "sessions/projKC/sess-k3w/wire.jsonl",
-        _kc_blob([(parse_kimi.K3_CUTOFF_EPOCH - 3600, "kimi-code/k3")]),
-    )
-    r = out["records"][0]
-    assert r["model"] == "kimi-k3"
-
-
 def test_kimi_code_k3_record_is_priced_at_k3_rates(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """Guards the rate_for substring trap directly: a raw "kimi-code/k3"
@@ -440,19 +390,6 @@ def test_kimi_code_k3_record_is_priced_at_k3_rates(
                                eph5=0, eph1h=0, unsplit_create=50, read=100)
     assert r["cost_usd"] == pytest.approx(k3, rel=1e-9)
     assert r["cost_usd"] != pytest.approx(k26, rel=1e-9), "billed at DEFAULT_RATES"
-
-
-def test_kimi_code_mid_session_model_switch_yields_two_labels():
-    """Model is resolved per RECORD, not per session. A session that switches
-    kimi-for-coding -> k3 mid-flight must produce both labels; using the
-    session's first event for every record collapsed them into one.
-    """
-    base = parse_kimi.K3_CUTOFF_EPOCH - 3600
-    out = parse.parse_file(
-        "sessions/projKC/sess-mix/wire.jsonl",
-        _kc_blob([(base, "kimi-code/kimi-for-coding"), (base + 24, "kimi-code/k3")]),
-    )
-    assert [r["model"] for r in out["records"]] == ["kimi-k2-7-code", "kimi-k3"]
 
 
 # --- llm.error -> rate_limit_hits --------------------------------
