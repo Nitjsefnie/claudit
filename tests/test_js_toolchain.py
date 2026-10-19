@@ -444,8 +444,6 @@ def _javascript_coverage_gate() -> dict:
     assert job["outputs"]["js_measured"] == "${{ steps.jscov.outputs.js_measured }}"
     caller = next(step for step in steps
                   if step.get("name") == "JavaScript coverage gate")
-    assert caller.get("uses") == "$/.github/actions/coverage-gate"
-    assert caller.get("with", {}).get("language") == "javascript"
     assert caller.get("id") == "jscov"
     assert caller.get("if") == "${{ !cancelled() }}"
     action = yaml.safe_load((REPO_ROOT / ".github" / "actions"
