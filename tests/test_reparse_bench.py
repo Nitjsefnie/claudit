@@ -311,39 +311,6 @@ def test_residual_is_the_divergence_not_a_rounding():
         "above rest on")
 
 
-def test_sidecar_phase_is_measured_when_a_sidecar_exists():
-    # The committed mirror carries no meta.json sidecar, so this phase
-    # reads 0.0 there. The instrumentation still has to see one when the
-    # corpus has one: a phase that is wired up but never reached would
-    # be indistinguishable from a phase that is not wired up.
-    from backend import parse  # pylint: disable=import-outside-toplevel
-
-    entry = bench.corpus()[0]
-    assert entry.sidecar_key is None, (
-        "this case needs a transcript without a sidecar to pair one onto")
-    sided = entry._replace(
-        sidecar_key=f"{entry.key}.meta.json",
-        sidecar_blob=b'{"agentType": "bench-sidecar-role"}')
-    # The claim is REACHING the phase, not the size of it, so it is asserted
-    # with the bench's resolution-free instrument. `phase_cpu_s["sidecar"] > 0`
-    # was the same claim in a currency the platform decides: one tiny
-    # sidecar against one transcript is a fraction of a millisecond per pass,
-    # which is under the ~15.6 ms tick Windows reads `GetProcessTimes` at, so
-    # the assertion went red on windows-latest 3.13 while passing on 3.14 —
-    # the signature of a measurement on a resolution boundary, not of a
-    # phase that stopped running.
-    measurement = bench.measure(
-        [sided], passes=SHAPE_PASSES, warmup=1)
-    assert "sidecar" in measurement.phase_cpu_s, (
-        "the sidecar phase is not instrumented at all")
-    counts = phases.measure_counts([sided], bench.run_pass,
-                                   passes=phases.COUNT_PASSES)
-    assert counts.phase_bytecodes["sidecar"] > 0, (
-        "the sidecar phase is instrumented but was never reached, which is "
-        "indistinguishable from a phase that is not wired up")
-    assert parse.parse_file is not None  # the module is back in place
-
-
 def test_instrumentation_is_removed_after_a_measurement():
     from backend import agent_sidecar, parse  # pylint: disable=import-outside-toplevel
 

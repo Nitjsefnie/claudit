@@ -62,56 +62,44 @@ def test_defaults_reproduce_all_on():
     assert feature_disabled.disabled_features() == ("summary",)
 
 
-@pytest.mark.parametrize(("value", "expected"), [
-    (None, True),
-    ("", False),
-    ("0", False),
-    ("false", False),
-    ("FALSE", False),
-    ("no", False),
-    ("No", False),
-    ("1", True),
-    ("true", True),
-    ("YES", True),
-    ("off", True),
-    ("OFF", True),
-    (" ", True),
-    ("\t", True),
-    (" false", True),
+@pytest.mark.parametrize('value, expected, hide, hidden, visible', [
+    pytest.param(None, True, None, False, True, id='unset'),
+    pytest.param('', False, '', False, False, id='empty'),
+    pytest.param('0', False, '0', False, False, id='zero'),
+    pytest.param('false', False, 'false', False, False, id='false'),
+    pytest.param('FALSE', False, 'FALSE', False, False, id='uppercase-false'),
+    pytest.param('no', False, 'no', False, False, id='no'),
+    pytest.param('No', False, 'No', False, False, id='mixed-no'),
+    pytest.param('1', True, '1', True, False, id='one'),
+    pytest.param('true', True, 'true', True, False, id='true'),
+    pytest.param('YES', True, 'YES', True, False, id='yes'),
+    pytest.param('off', True, 'off', True, False, id='off'),
+    pytest.param('OFF', True, 'OFF', True, False, id='uppercase-off'),
+    pytest.param(' ', True, ' ', True, False, id='space'),
+    pytest.param('\t', True, '\t', True, False, id='tab'),
+    pytest.param(' false', True, ' false', True, False, id='padded-false'),
+    pytest.param('1', True, None, False, True, id='positive-without-alias'),
+    pytest.param('1', True, 'false', False, True, id='false-alias'),
 ])
-def test_positive_flags_and_legacy_hide_truth_table(value, expected, monkeypatch):
+def test_positive_flags_and_legacy_hide_truth_table(value, expected, hide, hidden, visible, monkeypatch):
     env = {} if value is None else {
         "CLAUDIT_COLLECT_TURN_CONTEXT": value,
         "CLAUDIT_COLLECT_GENERATION_SPEED": value,
         "CLAUDIT_FEATURE_RATE_LIMITS": value,
-        "CLAUDIT_HIDE_RATE_LIMITS": value,
     }
+    if hide is not None:
+        env["CLAUDIT_HIDE_RATE_LIMITS"] = hide
     config = resolve_config(env)
 
     assert config.collection.enabled("turn_context") is expected
     assert config.collection.enabled("generation_speed") is expected
-    assert config.legacy_hide_rate_limits is (False if value is None else expected)
+    assert config.legacy_hide_rate_limits is hidden
+    assert config.features["rate_limits"] is visible
     monkeypatch.setattr(flags, "CONFIG", config)
     assert hide_rate_limits.HIDE_RATE_LIMITS is config.legacy_hide_rate_limits
 
     positive_only = {} if value is None else {"CLAUDIT_FEATURE_RATE_LIMITS": value}
     assert resolve_config(positive_only).features["rate_limits"] is expected
-
-
-def test_legacy_hide_wins_over_positive_feature():
-    visible_without_alias = resolve_config({"CLAUDIT_FEATURE_RATE_LIMITS": "1"})
-    assert visible_without_alias.features["rate_limits"] is True
-    hidden_by_alias = resolve_config({
-        "CLAUDIT_FEATURE_RATE_LIMITS": "1",
-        "CLAUDIT_HIDE_RATE_LIMITS": "1",
-    })
-    assert hidden_by_alias.features["rate_limits"] is False
-    assert hidden_by_alias.legacy_hide_rate_limits is True
-    alias_false = resolve_config({
-        "CLAUDIT_FEATURE_RATE_LIMITS": "1",
-        "CLAUDIT_HIDE_RATE_LIMITS": "false",
-    })
-    assert alias_false.features["rate_limits"] is True
 
 
 def test_collection_policy_pickle_and_declarative_extension():

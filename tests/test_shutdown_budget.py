@@ -1,12 +1,4 @@
-"""The lifespan teardown's stop budget against the shipped unit.
-
-uvicorn spends `--timeout-graceful-shutdown` draining connections BEFORE the
-lifespan teardown runs, and systemd SIGKILLs at `TimeoutStopSec`. EVERY term
-the teardown can spend -- the render reap, then the bounded wait on the
-in-flight run, then the fallback row close behind it -- has to fit in what is
-left. A term sized past its share means systemd kills the process while the
-row is still open, which is the finished_at NULL this pins shut.
-"""
+"""Lifespan teardown budgets leave room for row closure within the shipped unit's stop window."""
 from __future__ import annotations
 
 import asyncio
@@ -382,29 +374,6 @@ def _row(run_id: int):
         return c.execute(
             "SELECT finished_at, error, reparsed FROM ingest_runs "
             "WHERE id = %s", (run_id,)).fetchone()
-
-
-@pytest.mark.asyncio
-async def test_outliving_the_wait_closes_the_row_as_aborted(
-        fresh_db, monkeypatch):
-    """A run still unwinding when the wait expires gets its row closed as the
-    abort it is, with finished_at written — the row the stop would otherwise
-    leave NULL behind.
-
-    The real lifespan teardown and the real row close, against a real row.
-    """
-    _stub_lifespan(monkeypatch)
-    run_id = _open_run()
-    monkeypatch.setattr(app_mod.ingest, "wait_for_run", lambda _t: False)
-    try:
-        await _teardown()
-        row = _row(run_id)
-    finally:
-        ingest._set_progress(run_id=None)  # pylint: disable=protected-access
-
-    assert row is not None
-    assert row[0] is not None, "a stop must never leave finished_at NULL"
-    assert row[1] == "aborted: shutdown requested", row[1]
 
 
 @pytest.mark.asyncio

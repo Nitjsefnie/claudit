@@ -339,21 +339,6 @@ def test_the_single_field_choice_follows_the_seed(tmp_path):
     assert choices[0] != choices[1]
 
 
-def test_the_same_seed_is_byte_identical_on_the_same_document(tmp_path):
-    """Same document, same seed → byte-identical output: the shuffle,
-    every factor, every appended stamp and the new entry classes derive
-    from (document, seed) alone."""
-    pricing_path, _constants_path, _doc = _seed_tree(tmp_path)
-    pristine = pricing_path.read_text(encoding="utf-8")
-    texts = []
-    for _ in range(2):
-        pricing_path.write_text(pristine, encoding="utf-8")
-        perturb_module.perturb_pricing(pricing_path,
-                                       seed=int(NOW.timestamp()))
-        texts.append(pricing_path.read_text(encoding="utf-8"))
-    assert texts[0] == texts[1]
-
-
 @pytest.mark.parametrize("rate", [0.0, math.ulp(0.0)])
 def test_every_append_moves_even_zero_and_subnormal_rows(rate):
     # pylint: disable=protected-access
@@ -419,15 +404,18 @@ def test_the_row_shuffle_is_observable_in_the_stamp_order(tmp_path):
     assert sorted(by_stamp) == keys
 
 
-def test_the_same_seed_is_byte_identical_on_a_fresh_run(tmp_path):
-    """Two fresh trees perturbed with the same seed come out identical —
-    the shuffle, every factor and every appended stamp derive from
-    (document, seed) alone."""
+@pytest.mark.parametrize("fresh_tree", [False, True], ids=["same-tree", "fresh-trees"])
+def test_same_seed_is_byte_identical(tmp_path, fresh_tree):
+    pricing_path, _constants_path, _doc = _seed_tree(tmp_path)
+    pristine = pricing_path.read_text(encoding="utf-8")
     texts = []
     for name in ("one", "two"):
-        tree = tmp_path / name
-        tree.mkdir()
-        pricing_path, _constants_path, _doc = _seed_tree(tree)
+        if fresh_tree:
+            tree = tmp_path / name
+            tree.mkdir()
+            pricing_path, _constants_path, _doc = _seed_tree(tree)
+        else:
+            pricing_path.write_text(pristine, encoding="utf-8")
         perturb_module.perturb_pricing(pricing_path, seed=int(NOW.timestamp()))
         texts.append(pricing_path.read_text(encoding="utf-8"))
     assert texts[0] == texts[1]

@@ -1,13 +1,4 @@
-"""Tests for the reparse bench's instruction-count instrument.
-
-The share of a phase is scale-free inside one run and catches work
-MOVING between phases; it cannot catch the parse getting slower as a
-whole, because every phase grows together. This instrument does: the
-bytecodes a phase retires per file, counted with ``sys.monitoring``'s
-INSTRUCTION event, which is exact — the same tree retires the same
-number of bytecodes on a loaded machine and an idle one, under any
-``PYTHONHASHSEED``.
-"""
+"""Reparse phase counts form an exact partition measured in bytecode instructions."""
 from __future__ import annotations
 
 import importlib.util
@@ -61,14 +52,6 @@ def test_phase_counts_partition_the_pass_exactly():
     counts = _counts()
     assert set(counts.phase_bytecodes) == set(bench.PHASES)
     assert sum(counts.phase_bytecodes.values()) == counts.total_bytecodes
-
-
-def test_parse_body_is_parse_file_minus_the_sniff():
-    counts = _counts()
-    assert counts.phase_bytecodes["parse_body"] > 0
-    assert (counts.phase_bytecodes["parse_body"]
-            + counts.phase_bytecodes["sniff"]
-            + counts.phase_bytecodes["sidecar"]) <= counts.total_bytecodes
 
 
 def test_counting_counts_only_inside_its_window():

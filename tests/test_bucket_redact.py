@@ -101,24 +101,17 @@ def _redact_app_fixture(fresh_db, tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_public_key_strips_a_configured_bucket(monkeypatch):
-    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha+beta")
-    assert r2.public_key("alpha/proj/s/x.jsonl") == "proj/s/x.jsonl"
-    assert r2.public_key("beta/proj/s/x.jsonl") == "proj/s/x.jsonl"
-
-
-def test_public_key_keeps_an_unconfigured_first_segment(monkeypatch):
-    """A key whose first segment is not a configured bucket (a legacy
-    bare object key, or an already-public key) is returned unchanged."""
-    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha")
-    assert r2.public_key("proj/s/x.jsonl") == "proj/s/x.jsonl"
-
-
-def test_public_key_edge_cases(monkeypatch):
-    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha")
-    assert r2.public_key("noslash") == "noslash"
-    assert r2.public_key("") == ""
-    assert r2.public_key(None) is None
+@pytest.mark.parametrize("buckets, key, expected", [
+    ("alpha+beta", "alpha/proj/s/x.jsonl", "proj/s/x.jsonl"),
+    ("alpha+beta", "beta/proj/s/x.jsonl", "proj/s/x.jsonl"),
+    ("alpha", "proj/s/x.jsonl", "proj/s/x.jsonl"),
+    ("alpha", "noslash", "noslash"),
+    ("alpha", "", ""),
+    ("alpha", None, None),
+], ids=["first-bucket", "second-bucket", "unconfigured", "no-slash", "empty", "null"])
+def test_public_key_presentation(monkeypatch, buckets, key, expected):
+    monkeypatch.setenv("CLAUDIT_R2_BUCKET", buckets)
+    assert r2.public_key(key) == expected
 
 
 # ---------------------------------------------------------------------------

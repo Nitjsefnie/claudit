@@ -1,13 +1,4 @@
-"""Tests for the reparse bench's GATE — what it compares, and what it refuses.
-
-Split out of `test_reparse_bench.py`: that file pins the
-bench's SHAPE — the corpus it walks, the code path it drives, the
-partition it reports and the arithmetic behind the recorded numbers —
-while this one pins the step CI runs against its output. The
-gate holds a phase to its BYTECODE budget alone and the per-phase share
-is telemetry, so the enforced set, its reader and the fail-closed rule
-for an absent count all live here.
-"""
+"""The reparse gate compares bytecode budgets, keeps shares as telemetry and fails closed."""
 from __future__ import annotations
 
 import importlib.util
@@ -145,19 +136,14 @@ def test_report_table_stays_monospace_aligned():
     assert cells[4].endswith("- "), cells
 
 
-def test_report_marks_an_uncounted_phase_with_a_dash():
-    row = next(line for line in _report_lines(
-                   counted={name: None for name in bench.PHASES})
-               if line.startswith("|") and "parse_body" in line)
-    assert row.strip("| ").split("|")[-1].strip() == "-"
-
-
-def test_report_shows_a_phase_counted_value_in_its_row():
-    counted = {name: Decimal("1.0") for name in bench.PHASES}
-    counted["parse_body"] = Decimal("40.0")
+@pytest.mark.parametrize("value, expected", [(None, "-"), (Decimal("40.0"), "40.0")],
+                         ids=["uncounted", "counted"])
+def test_report_shows_phase_count(value, expected):
+    counted = {name: None if value is None else Decimal("1.0") for name in bench.PHASES}
+    counted["parse_body"] = value
     row = next(line for line in _report_lines(counted=counted)
                if line.startswith("|") and "parse_body" in line)
-    assert row.strip("| ").split("|")[-1].strip() == "40.0"
+    assert row.strip("| ").split("|")[-1].strip() == expected
 
 
 def test_report_totals_and_instrument_notes_stay_prose():
@@ -171,36 +157,28 @@ def test_report_totals_and_instrument_notes_stay_prose():
     assert any(line.lstrip().startswith("perf:") for line in prose)
 
 
-def test_check_passes_while_every_phase_is_within_its_floor(tmp_path):
-    thresholds_path = tmp_path / "ci-thresholds.json"
-    thresholds.write(thresholds_path, _document(_budgets()))
-    path = tmp_path / "m.json"
-    report_module.write_measurement(path, _measurement_with(
-        {name: Decimal("9.0") for name in bench.PHASES},
-        {name: Decimal("1.0") for name in bench.PHASES}))
-    assert bench.main(["--check", str(path), "--thresholds",
-                       str(thresholds_path)]) == 0
-
-
-def test_check_fails_on_a_phase_over_its_bytecode_floor(tmp_path, capsys):
+@pytest.mark.parametrize("phase", ["parse_body", "sniff"], ids=["parse-body", "sniff"])
+def test_check_fails_on_a_phase_over_its_bytecode_floor(tmp_path, capsys, phase):
     # The count is what catches a uniform slowdown, where every share
     # stays put, so it is the one the gate holds a phase to.
     thresholds_path = tmp_path / "ci-thresholds.json"
     thresholds.write(thresholds_path, _document(_budgets()))
     counted = {name: Decimal("1.0") for name in bench.PHASES}
-    counted["parse_body"] = Decimal("40.0")
+    counted[phase] = Decimal("40.0")
     path = tmp_path / "m.json"
     report_module.write_measurement(path, _measurement_with(
         {name: Decimal("9.0") for name in bench.PHASES}, counted))
     assert bench.main(["--check", str(path), "--thresholds",
                        str(thresholds_path)]) == 1
     err = capsys.readouterr().err
-    assert "parse_body: 40.0" in err
-    assert "sniff" not in err, "only the offending phase is named"
+    assert f"{phase}: 40.0" in err
+    if phase == "parse_body":
+        assert "sniff" not in err, "only the offending phase is named"
     assert "never raised by hand" in err
 
 
-def test_check_ignores_a_share_over_its_floor(tmp_path, capsys):
+@pytest.mark.parametrize("committed", [False, True], ids=["synthetic-budgets", "committed-budgets"])
+def test_check_ignores_a_share_over_its_floor(tmp_path, capsys, committed):
     """A share no longer gates — it is telemetry.
 
     A phase share is a proportion of a timed run: its runner-to-runner
@@ -212,29 +190,18 @@ def test_check_ignores_a_share_over_its_floor(tmp_path, capsys):
     compared against them.
     """
     thresholds_path = tmp_path / "ci-thresholds.json"
-    thresholds.write(thresholds_path, _document(_budgets()))
+    if committed:
+        thresholds_path = thresholds.THRESHOLDS
+    else:
+        thresholds.write(thresholds_path, _document(_budgets()))
     shares = {name: Decimal("99.9") for name in bench.PHASES}
     path = tmp_path / "m.json"
     report_module.write_measurement(path, _measurement_with(
-        shares, {name: Decimal("1.0") for name in bench.PHASES}))
+        shares, {name: Decimal("0.0" if committed else "1.0") for name in bench.PHASES}))
     assert bench.main(["--check", str(path), "--thresholds",
                        str(thresholds_path)]) == 0
     out = capsys.readouterr().out
     assert "99.9" in out, "the share is still printed, as telemetry"
-
-
-def test_check_passes_a_share_over_floor_against_the_COMMITTED_budgets(tmp_path):
-    """The same claim against the real document, whose values the ratchet
-    moves on master — so nothing here is pinned, only the invariant: a
-    count of zero is under any floor a positive measured value can
-    produce (thresholds.py refuses floor <= measured, and a measured
-    count is never negative)."""
-    path = tmp_path / "m.json"
-    report_module.write_measurement(path, _measurement_with(
-        {name: Decimal("99.9") for name in bench.PHASES},
-        {name: Decimal("0.0") for name in bench.PHASES}))
-    assert bench.main(["--check", str(path),
-                       "--thresholds", str(thresholds.THRESHOLDS)]) == 0
 
 
 def test_check_fails_when_the_gated_count_was_not_measured(tmp_path, capsys):
@@ -255,21 +222,6 @@ def test_check_fails_when_the_gated_count_was_not_measured(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "NOT MEASURED" in err
     assert "no INSTRUCTION event" in err
-
-
-def test_check_names_the_offending_phase(tmp_path, capsys):
-    thresholds_path = tmp_path / "ci-thresholds.json"
-    thresholds.write(thresholds_path, _document(_budgets()))
-    counted = {name: Decimal("1.0") for name in bench.PHASES}
-    counted["sniff"] = Decimal("40.0")
-    path = tmp_path / "m.json"
-    report_module.write_measurement(path, _measurement_with(
-        {name: Decimal("9.0") for name in bench.PHASES}, counted))
-    assert bench.main(["--check", str(path), "--thresholds",
-                       str(thresholds_path)]) == 1
-    err = capsys.readouterr().err
-    assert "sniff: 40.0" in err
-    assert "never raised by hand" in err
 
 
 def test_the_report_calls_the_share_telemetry_not_a_budget():

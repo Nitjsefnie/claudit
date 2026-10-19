@@ -319,18 +319,26 @@ def test_fallback_map_is_prefixed_and_only_released_names() -> None:
     assert "R2_BLOB_CACHE" not in config.DEPRECATED_ENV_FALLBACKS
 
 
-@pytest.mark.parametrize("legacy", ["DATABASE_URL_VIZ", "R2_BUCKET", "APP_NAME"])
-def test_released_fallback_precedence_and_warning(legacy, monkeypatch, caplog) -> None:
+@pytest.mark.parametrize("legacy, preferred", [
+    ("DATABASE_URL_VIZ", "new-value"),
+    ("R2_BUCKET", "new-value"),
+    ("APP_NAME", "new-value"),
+    ("APP_NAME", ""),
+], ids=["database", "bucket", "brand", "empty-brand"])
+def test_released_fallback_precedence_and_warning(legacy, preferred, monkeypatch, caplog) -> None:
     config = _resolver()
     name = "CLAUDIT_" + legacy
     _clear_config_env(monkeypatch)
     log = logging.getLogger("claudit.env-test")
     caplog.set_level(logging.WARNING, logger=log.name)
     assert config.getenv(name, "default") == "default"
-    monkeypatch.setenv(name, "new-value")
-    assert config.getenv(name) == "new-value"
+    if preferred == "":
+        monkeypatch.setenv(legacy, "old-value")
+        assert config.getenv(name) == "old-value"
+    monkeypatch.setenv(name, preferred)
+    assert config.getenv(name, "default") == preferred
     monkeypatch.setenv(legacy, "old-value")
-    assert config.getenv(name) == "new-value"
+    assert config.getenv(name, "default") == preferred
     config.warn_deprecated_env(log)
     assert not caplog.records
     monkeypatch.delenv(name)
@@ -453,17 +461,6 @@ def test_storage_client_uses_released_credentials(prefix, monkeypatch) -> None:
     client = r2._boto_client()  # pylint: disable=protected-access
     assert client.meta.endpoint_url == "https://r2.invalid/s3"
     client.close()
-
-
-def test_empty_prefixed_value_wins_over_legacy(monkeypatch, caplog) -> None:
-    config = _resolver()
-    _clear_config_env(monkeypatch)
-    monkeypatch.setenv("APP_NAME", "legacy-brand")
-    assert config.getenv("CLAUDIT_APP_NAME") == "legacy-brand"
-    monkeypatch.setenv("CLAUDIT_APP_NAME", "")
-    assert config.getenv("CLAUDIT_APP_NAME", "default") == ""
-    config.warn_deprecated_env(logging.getLogger("claudit.env-test"))
-    assert not caplog.records
 
 
 @pytest.mark.parametrize("name", ["DATABASE_URL_VIZ", "CLAUDIT_DATABASE_URL_VIZ"])

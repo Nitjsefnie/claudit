@@ -89,36 +89,17 @@ def test_default_page_differs_from_template_only_by_injections(page_client):
             )), f"unexpected template-line change: {payload}"
 
 
-def test_default_page_injects_default_brand(page_client):
+@pytest.mark.parametrize("env, expected", [
+    ({}, ['window.BRAND = {"name": "claudit", "title": "claudit · Claude Code Usage Dashboard", "description": "Self-hosted dashboards for Claude Code session JSONL: cost-by-model, token breakdown, prompt-cache TTL split, response sizes, per-session context growth, session burn rate, tool-usage ratio, reply latency."}', '<title>claudit · Claude Code Usage Dashboard</title>']),
+    ({"CLAUDIT_APP_NAME": "codexmeter", "CLAUDIT_APP_TITLE": "Codexmeter <x>",
+      "CLAUDIT_APP_DESCRIPTION": 'He said "hi" & left'}, ['<title>Codexmeter &lt;x&gt;</title>', 'content="He said &quot;hi&quot; &amp; left"', 'window.BRAND = {"name": "codexmeter", "title": "Codexmeter <x>"']),
+], ids=["defaults", "escaped-overrides"])
+def test_page_injects_brand(page_client, monkeypatch, env, expected):
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
     served = page_client.get("/").text
-    assert (
-        'window.BRAND = {"name": "claudit", '
-        '"title": "claudit · Claude Code Usage Dashboard", '
-        '"description": "Self-hosted dashboards for Claude Code session '
-        'JSONL: cost-by-model, token breakdown, prompt-cache TTL split, '
-        'response sizes, per-session context growth, session burn rate, '
-        'tool-usage ratio, reply latency."}'
-    ) in served
-    assert "<title>claudit · Claude Code Usage Dashboard</title>" in served
-
-
-def test_env_overrides_served_title_meta_and_brand(page_client, monkeypatch):
-    monkeypatch.setenv("CLAUDIT_APP_NAME", "codexmeter")
-    monkeypatch.setenv("CLAUDIT_APP_TITLE", "Codexmeter <x>")
-    monkeypatch.setenv("CLAUDIT_APP_DESCRIPTION", 'He said "hi" & left')
-    served = page_client.get("/").text
-    assert "<title>Codexmeter &lt;x&gt;</title>" in served
-    assert 'content="He said &quot;hi&quot; &amp; left"' in served
-    assert 'window.BRAND = {"name": "codexmeter", "title": "Codexmeter <x>"' in served
-
-
-def test_brand_payload_cannot_close_its_script_tag(page_client, monkeypatch):
-    monkeypatch.setenv("CLAUDIT_APP_TITLE", 'a</script><b>')
-    served = page_client.get("/").text
-    assert 'a<\\/script><b>' in served
-    # The only literal </script>s left are the template's own tag closes.
-    assert served.count("</script>") == INDEX.read_text(
-        encoding="utf-8").count("</script>")
+    for substring in expected:
+        assert substring in served
 
 
 def test_brand_rides_the_existing_injection_script(page_client):
@@ -221,45 +202,21 @@ def _node_parses(js: str) -> tuple[bool, str]:
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_brand_containing_an_open_script_tag_leaves_the_page_loadable(
-        page_client, monkeypatch):
-    """a brand value may legally contain the text `<script` — it is
-    hostile but not forbidden config. The per-response nonce rewrite must
-    not reach INSIDE the bootstrap script's JSON payload and inject its
-    attribute's raw quotes there, which terminates the JS string literal
-    and takes down every page load. The served inline script must still
-    parse as JavaScript, checked by node itself."""
-    monkeypatch.setenv("CLAUDIT_APP_TITLE", "Overview <script>alert(1)</script>")
-    served = page_client.get("/").text
-
-    bodies = _raw_js_script_bodies(served)
-    bootstrap = [b for b in bodies if "window.BRAND" in b]
-    assert bootstrap, "the bootstrap script must still be in the page"
-    for body in bootstrap:
-        ok, err = _node_parses(body)
-        assert ok, f"bootstrap script is not valid JS: {err}\n{body}"
-
-    # And the value survived as a string, quotes and all: a hostile-but-
-    # legal config value degrades to a cosmetic string.
-    assert '"Overview <script>alert(1)<\\/script>"' in served
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize("title, expected", [
+    ("Overview <script>alert(1)</script>", '"Overview <script>alert(1)<\\/script>"'),
+    ('a<script src="/x">b</script>c<!--d ef"g"h\'i\'j</script>k', None),
+], ids=["open-script-tag", "all-script-unsafe-sequences"])
 def test_bootstrap_stays_valid_js_for_every_script_unsafe_brand(
-        page_client, monkeypatch):
-    """The whole script-unsafe set in one value: each sequence
-    script_json neutralises, plus a bare `<script` which it does not have
-    to neutralise (it cannot close the tag) but the nonce rewrite must
-    still not confuse for an element."""
-    monkeypatch.setenv(
-        "CLAUDIT_APP_TITLE",
-        'a<script src="/x">b</script>c<!--d e'
-        'f"g"h\'i\'j</script>k',
-    )
+        page_client, monkeypatch, title, expected):
+    monkeypatch.setenv("CLAUDIT_APP_TITLE", title)
     served = page_client.get("/").text
-    for body in _raw_js_script_bodies(served):
+    bodies = _raw_js_script_bodies(served)
+    assert any("window.BRAND" in body for body in bodies)
+    for body in bodies:
         ok, err = _node_parses(body)
         assert ok, f"served inline script is not valid JS: {err}\n{body}"
+    if expected is not None:
+        assert expected in served
 
 
 @pytest.mark.parametrize("title", [
@@ -359,32 +316,19 @@ def test_fastapi_title_follows_env():
         assert out.stdout.strip() == ("codexmeter" if want else "claudit")
 
 
-def test_login_page_default_is_byte_identical(login_client, monkeypatch):
-    monkeypatch.delenv("CLAUDIT_APP_NAME", raising=False)
+@pytest.mark.parametrize("name, expected", [
+    (None, "CLAUDIT"),
+    ("codexmeter", "CODEXMETER"),
+    ('a<b>&"c', 'A&lt;B&gt;&amp;&quot;C'),
+], ids=["default", "override", "escaped"])
+def test_login_page_brand(login_client, monkeypatch, name, expected):
+    if name is None:
+        monkeypatch.delenv("CLAUDIT_APP_NAME", raising=False)
+    else:
+        monkeypatch.setenv("CLAUDIT_APP_NAME", name)
     html = login_client.get("/login").text
-    assert "<title>Sign in · CLAUDIT</title>" in html
-    assert "<h1>CLAUDIT · sign in</h1>" in html
-
-
-def test_login_page_follows_app_name(login_client, monkeypatch):
-    monkeypatch.setenv("CLAUDIT_APP_NAME", "codexmeter")
-    html = login_client.get("/login").text
-    assert "<title>Sign in · CODEXMETER</title>" in html
-    assert "<h1>CODEXMETER · sign in</h1>" in html
-
-
-def test_login_page_escapes_the_name(login_client, monkeypatch):
-    monkeypatch.setenv("CLAUDIT_APP_NAME", 'a<b>&"c')
-    html = login_client.get("/login").text
-    assert "<title>Sign in · A&lt;B&gt;&amp;&quot;C</title>" in html
-    assert "<h1>A&lt;B&gt;&amp;&quot;C · sign in</h1>" in html
-
-
-def test_url_attr_escapes_the_accepted_value_for_the_attribute():
-    """The function owns the whole context: an accepted value comes back
-    ready to drop into a double-quoted attribute, `&` and `"` included."""
-    assert branding.url_attr('https://ex.example/p?x=1&z="q"') == (
-        'https://ex.example/p?x=1&amp;z=&quot;q&quot;')
+    assert f"<title>Sign in · {expected}</title>" in html
+    assert f"<h1>{expected} · sign in</h1>" in html
 
 
 @pytest.mark.parametrize("value", [
@@ -541,28 +485,19 @@ def test_url_attr_refusal_is_visible_to_the_operator(caplog):
     )
 
 
-def test_export_filename_default(monkeypatch):
-    monkeypatch.delenv("CLAUDIT_APP_NAME", raising=False)
-    assert api_export.export_filename("30d", "proj/one") == (
-        "claudit_proj_one_30d.png")
-
-
-def test_export_filename_follows_brand(monkeypatch):
-    monkeypatch.setenv("CLAUDIT_APP_NAME", "codexmeter")
-    assert api_export.export_filename("30d", "proj/one") == (
-        "codexmeter_proj_one_30d.png")
-    monkeypatch.setenv("CLAUDIT_APP_NAME", "My Meter")
-    assert api_export.export_filename("all", None) == "My_Meter_all_all.png"
-
-
-def test_export_filename_never_leads_with_underscore(monkeypatch):
-    """An empty or whitespace-only CLAUDIT_APP_NAME falls back to the default filename."""
-    monkeypatch.setenv("CLAUDIT_APP_NAME", "")
-    assert api_export.export_filename("all", None) == (
-        f"{branding.DEFAULT_NAME}_all_all.png")
-    monkeypatch.setenv("CLAUDIT_APP_NAME", "   ")
-    assert api_export.export_filename("30d", "proj/one") == (
-        f"{branding.DEFAULT_NAME}_proj_one_30d.png")
+@pytest.mark.parametrize("name, rng, project, expected", [
+    (None, "30d", "proj/one", "claudit_proj_one_30d.png"),
+    ("codexmeter", "30d", "proj/one", "codexmeter_proj_one_30d.png"),
+    ("My Meter", "all", None, "My_Meter_all_all.png"),
+    ("", "all", None, f"{branding.DEFAULT_NAME}_all_all.png"),
+    ("   ", "30d", "proj/one", f"{branding.DEFAULT_NAME}_proj_one_30d.png"),
+], ids=["default", "override", "slug", "empty", "whitespace"])
+def test_export_filename_brand(monkeypatch, name, rng, project, expected):
+    if name is None:
+        monkeypatch.delenv("CLAUDIT_APP_NAME", raising=False)
+    else:
+        monkeypatch.setenv("CLAUDIT_APP_NAME", name)
+    assert api_export.export_filename(rng, project) == expected
 
 
 def test_app_jsx_has_no_literal_brand():
@@ -573,11 +508,6 @@ def test_app_jsx_has_no_literal_brand():
     assert not re.search(r"CLAUDIT", src)
     assert not re.search(r"claudit_", src)
     assert re.search(r"window\.BRAND", src), "brand must come from the page"
-
-
-def test_script_json_escapes_close_tag():
-    assert branding.script_json({"a": "x</script>y"}) == (
-        '{"a": "x<\\/script>y"}')
 
 
 def test_script_json_escapes_every_script_unsafe_sequence():

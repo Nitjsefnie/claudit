@@ -1,5 +1,4 @@
-"""The smoke script must remove both scratch databases on every exit path.
-Fail provision at controlled points to exercise cleanup after partial setup."""
+"""Smoke scratch databases are cleaned up after failed provisioning."""
 from __future__ import annotations
 
 import importlib.util
@@ -56,29 +55,21 @@ def _argv(*extra: str):
 
 
 @pytest.mark.db
-def test_a_failed_run_drops_what_it_created(monkeypatch, capsys):
+@pytest.mark.parametrize("extra, kept", [
+    ((), False),
+    (("--keep-databases",), True),
+], ids=["cleanup", "keep-databases"])
+def test_failed_run_database_cleanup(monkeypatch, capsys, extra, kept):
     _failing_provision(monkeypatch)
     name = scratch_db.db_name("smoke")
-    old = _argv()
+    old = _argv(*extra)
     try:
         assert ci_smoke.main() == 1
+        assert _exists(name) is kept
     finally:
         sys.argv = old
-    assert not _exists(name)
-    capsys.readouterr()
-
-
-@pytest.mark.db
-def test_keep_databases_spares_them_even_on_failure(monkeypatch, capsys):
-    _failing_provision(monkeypatch)
-    name = scratch_db.db_name("smoke")
-    old = _argv("--keep-databases")
-    try:
-        assert ci_smoke.main() == 1
-    finally:
-        sys.argv = old
-    assert _exists(name)
-    scratch_db.drop_database(name)
+        if kept:
+            scratch_db.drop_database(name)
     capsys.readouterr()
 
 
