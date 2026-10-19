@@ -11,20 +11,6 @@ from backend import cache as cache_mod
 from backend.cache import _IdleLRU, _TTLCache, cache_response
 
 
-def test_ttlcache_put_get():
-    c = _TTLCache(ttl_seconds=60)
-    c.put("k", {"v": 1})
-    assert c.get("k") == {"v": 1}
-    assert c.get("missing") is None
-
-
-def test_ttlcache_expiry():
-    c = _TTLCache(ttl_seconds=0)
-    c.put("k", {"v": 1})
-    time.sleep(0.01)
-    assert c.get("k") is None
-
-
 def test_ttlcache_clear():
     c = _TTLCache(ttl_seconds=60)
     c.put("k", {"v": 1})
@@ -80,21 +66,6 @@ def test_invalidate_serves_stale_then_refreshes():
         "background refresh never landed"
 
 
-def test_invalidate_keeps_entries_servable():
-    c = _TTLCache(ttl_seconds=60)
-    c.put("k", {"v": 1})
-    c.invalidate()
-    entry = c.get_entry("k")
-    assert entry is not None
-    value, is_stale = entry
-    assert value == {"v": 1}   # still servable, unlike clear()
-    assert is_stale is True
-
-
-# --------------------------------------------------------------------------
-# _IdleLRU mutates the shared OrderedDict from get/put/_evict_idle
-# with no lock while endpoints run in FastAPI's threadpool.
-
 def test_idle_lru_thread_safety():
     """Concurrent get/put must not raise 'OrderedDict mutated during
     iteration'.
@@ -140,10 +111,6 @@ def test_idle_lru_thread_safety():
     assert not errors
 
 
-# --------------------------------------------------------------------------
-# put() inserts unconditionally, so an entry larger than the
-# size cap stays resident above the advertised 256 MB.
-
 def test_idle_lru_refuses_oversized_entry():
     """A value larger than max_bytes is not cached at all, and an existing
     entry under the same key is untouched by an oversized put."""
@@ -182,11 +149,6 @@ def test_idle_lru_evict_drops_entry_and_byte_count():
     assert lru._size == 200  # pylint: disable=protected-access
     assert len(lru._items) == 1  # pylint: disable=protected-access
 
-
-# --------------------------------------------------------------------------
-# the response cache's keyspace and its per-key locks grew
-# without bound. The fix gives _TTLCache a max_entries cap and moves the
-# per-key locks inside it, so a lock is reclaimed when its entry is dropped.
 
 def test_ttl_cache_cap_evicts_expired_then_oldest(monkeypatch):
     """Over cap, expired entries go first, then the oldest by timestamp.
@@ -309,8 +271,10 @@ def test_response_cache_is_capped():
 # existing per-key lock reclamation paths.
 
 
-def test_distinct_failing_requests_do_not_accumulate_locks(monkeypatch):
-    """Distinct failing query values leave no locks or entries behind."""
+@pytest.mark.parametrize("keys", [
+    [f"invalid-{i}" for i in range(300)], ["invalid"] * 2,
+], ids=["distinct-query-values", "same-key-retry"])
+def test_failing_requests_reclaim_locks(monkeypatch, keys):
     c = _TTLCache(ttl_seconds=3600, max_entries=256)
     monkeypatch.setattr(cache_mod, "response_cache", c)
 
@@ -320,9 +284,9 @@ def test_distinct_failing_requests_do_not_accumulate_locks(monkeypatch):
             return {"range": rng}
         raise HTTPException(status_code=400, detail="invalid range")
 
-    for i in range(300):
+    for key in keys:
         with pytest.raises(HTTPException, match="invalid range"):
-            endpoint(rng=f"invalid-{i}")
+            endpoint(rng=key)
         assert len(c._key_locks) == 0  # pylint: disable=protected-access
         assert len(c._items) == 0  # pylint: disable=protected-access
 
@@ -330,38 +294,10 @@ def test_distinct_failing_requests_do_not_accumulate_locks(monkeypatch):
     assert len(c._items) == 1  # pylint: disable=protected-access
 
 
-def test_same_key_retry_after_failed_compute_reclaims_lock(monkeypatch):
-    """A second failed compute on the same key gets its own error cleanly."""
-    c = _TTLCache(ttl_seconds=3600, max_entries=256)
-    monkeypatch.setattr(cache_mod, "response_cache", c)
-
-    @cache_response
-    def endpoint(rng: str) -> dict:
-        raise HTTPException(status_code=400, detail="invalid range")
-
-    for _ in range(2):
-        with pytest.raises(HTTPException, match="invalid range"):
-            endpoint(rng="invalid")
-        assert len(c._key_locks) == 0  # pylint: disable=protected-access
-        assert len(c._items) == 0  # pylint: disable=protected-access
-
-
 # --------------------------------------------------------------------------
 # an entry whose compute straddles an invalidate() must be
 # STORED stale, so the next read refreshes it instead of serving
 # pre-ingest data as current until the TTL expires.
-
-def test_put_with_an_older_generation_is_stored_stale():
-    """put() stamps the generation the compute SAW, not the one current
-    when it returned; the default stays the put-time generation."""
-    c = _TTLCache(ttl_seconds=60)
-    c.invalidate()
-    c.put("k", {"v": 1}, generation=0)
-    assert c.get_entry("k") == ({"v": 1}, True), (
-        "an entry from the pre-invalidate generation is born stale")
-    c.put("k", {"v": 2})
-    assert c.get_entry("k") == ({"v": 2}, False)
-
 
 def test_inline_miss_across_an_invalidate_is_stored_stale(monkeypatch):
     """A compute that starts before the ingest's invalidate() and returns

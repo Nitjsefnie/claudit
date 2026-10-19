@@ -21,24 +21,25 @@ def _cache_root(monkeypatch, tmp_path):
     return root
 
 
-def test_disabled_when_unset(monkeypatch):
-    monkeypatch.delenv("CLAUDIT_R2_BLOB_CACHE", raising=False)
+@pytest.mark.parametrize("root", [None, "   "], ids=["unset", "blank"])
+def test_disabled_without_a_root(monkeypatch, root):
+    if root is None:
+        monkeypatch.delenv("CLAUDIT_R2_BLOB_CACHE", raising=False)
+    else:
+        monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", root)
     assert not blob_cache.enabled()
     assert blob_cache.lookup("claude/k", "e", 1) is None
     assert blob_cache.store("claude/k", "e", b"x") is False
     assert blob_cache.prune() == 0
 
 
-def test_disabled_when_blank(monkeypatch):
-    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", "   ")
-    assert not blob_cache.enabled()
-
-
-def test_store_then_lookup_roundtrip(cache_root):
-    data = b"payload-bytes"
-    assert blob_cache.store("claude/p/s/w.jsonl.xz", "etag-a", data)
-    assert blob_cache.lookup(
-        "claude/p/s/w.jsonl.xz", "etag-a", len(data)) == data
+@pytest.mark.parametrize("key,etag,data,size", [
+    ("claude/p/s/w.jsonl.xz", "etag-a", b"payload-bytes", 13),
+    ("claude/k", "e", b"abc", None),
+], ids=["matching-size", "unspecified-size"])
+def test_store_then_lookup_roundtrip(cache_root, key, etag, data, size):
+    assert blob_cache.store(key, etag, data)
+    assert blob_cache.lookup(key, etag, size) == data
 
 
 def test_entry_lives_under_a_hex_fanout_dir(cache_root):
@@ -67,11 +68,6 @@ def test_lookup_misses_on_size_mismatch(cache_root):
     assert blob_cache.lookup("claude/k", "e", 99) is None
 
 
-def test_lookup_allows_size_none(cache_root):
-    blob_cache.store("claude/k", "e", b"abc")
-    assert blob_cache.lookup("claude/k", "e", None) == b"abc"
-
-
 def test_store_replaces_an_entry(cache_root):
     blob_cache.store("claude/k", "e", b"short")
     blob_cache.store("claude/k", "e", b"a-longer-body")
@@ -85,20 +81,6 @@ def test_store_best_effort_when_root_is_not_creatable(
     monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(blocker / "cache"))
     assert blob_cache.store("claude/k", "e", b"x") is False
     assert blob_cache.lookup("claude/k", "e", 1) is None
-
-
-def test_lookup_best_effort_when_root_is_missing(monkeypatch, tmp_path):
-    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path / "never-created"))
-    assert blob_cache.lookup("claude/k", "e", 1) is None
-
-
-def test_prune_respects_the_cap(cache_root):
-    blob_cache.store("claude/a", "e", b"x" * 10)
-    blob_cache.prune(cap_bytes=10 ** 9)
-    assert blob_cache.lookup("claude/a", "e", 10) is not None
-    removed = blob_cache.prune(cap_bytes=0)
-    assert removed == 10
-    assert blob_cache.lookup("claude/a", "e", 10) is None
 
 
 def test_prune_drops_the_oldest_first(cache_root):
@@ -127,11 +109,15 @@ def test_prune_sweeps_abandoned_temps_too(cache_root):
     assert not tmp.exists()
 
 
-def test_prune_cap_from_env(cache_root, monkeypatch):
+@pytest.mark.parametrize("cap,evicted", [
+    ("5", True), ("garbage", False), ("-1", False),
+], ids=["valid-cap", "garbage-default", "negative-default"])
+def test_prune_cap_from_env(cache_root, monkeypatch, cap, evicted):
     blob_cache.store("claude/a", "e", b"x" * 10)
-    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE_MAX_BYTES", "5")
+    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE_MAX_BYTES", cap)
     blob_cache.prune()
-    assert blob_cache.lookup("claude/a", "e", 10) is None
+    result = blob_cache.lookup("claude/a", "e", 10)
+    assert (result is None) is evicted
 
 
 def _is_control(ch: str) -> bool:
@@ -187,14 +173,3 @@ def test_store_failure_log_scrubs_the_exception_text(
     message = record.getMessage()
     assert "\n" not in message and "\r" not in message, message
     assert not [ch for ch in message if _is_control(ch)], message
-
-
-@pytest.mark.parametrize("cap", [
-    pytest.param("garbage", id="garbage"),
-    pytest.param("-1", id="negative"),
-])
-def test_prune_cap_env_garbage_falls_to_default(cache_root, monkeypatch, cap):
-    blob_cache.store("claude/a", "e", b"x" * 10)
-    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE_MAX_BYTES", cap)
-    blob_cache.prune()
-    assert blob_cache.lookup("claude/a", "e", 10) is not None

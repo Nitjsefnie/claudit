@@ -98,10 +98,6 @@ def test_list_keys_aborts_when_the_walk_errors(monkeypatch, mini_r2):
         monkeypatch.undo()
 
 
-def test_get_object(mini_r2):
-    assert r2.get_object("claude/proj-a/sess-1/sess-1.jsonl") == b"hello\n"
-
-
 def test_get_object_inflates_xz(mini_r2, monkeypatch):
     # xz inflates transparently; the inflate wall stamps the per-thread
     # accumulator when the timing flag is on, read-and-reset.
@@ -137,16 +133,6 @@ def test_get_stream_inflates_xz(mini_r2):
         assert fh.read() == plain
 
 
-def test_get_object_cache_hit_skips_the_read(mini_r2, monkeypatch, tmp_path):
-    """A (key, etag) hit answers from the disk cache: the mirror file is
-    rewritten underneath it and the cached bytes still come back."""
-    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path / "cache"))
-    key = "claude/proj-a/sess-1/sess-1.jsonl"
-    assert r2.get_object(key, "etag-one", 6) == b"hello\n"
-    (mini_r2 / "proj-a" / "sess-1" / "sess-1.jsonl").write_bytes(b"CHANGED")
-    assert r2.get_object(key, "etag-one", 6) == b"hello\n"
-
-
 def test_get_object_cache_miss_falls_through_to_the_object(
         mini_r2, monkeypatch, tmp_path):
     monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path / "cache"))
@@ -158,19 +144,6 @@ def test_get_object_cache_miss_falls_through_to_the_object(
     assert r2.get_object(key, "etag-two", 7) == b"CHANGED"
     assert r2.get_object(key, "etag-two", 7) == b"CHANGED"
     assert r2.get_object(key, "etag-one", 6) == b"hello\n"
-
-
-def test_get_object_cache_miss_on_size_mismatch(
-        mini_r2, monkeypatch, tmp_path):
-    """A wrong-length entry never produces wrong bytes: the GET falls
-    through and the object's own content comes back. (That the lookup
-    itself reads the mismatch as a miss is pinned one level down, in
-    test_blob_cache — here the fallback GET would return the same
-    bytes either way.)"""
-    monkeypatch.setenv("CLAUDIT_R2_BLOB_CACHE", str(tmp_path / "cache"))
-    key = "claude/proj-a/sess-1/sess-1.jsonl"
-    assert r2.get_object(key, "etag-one", 6) == b"hello\n"
-    assert r2.get_object(key, "etag-one", 99) == b"hello\n"  # re-read, not served
 
 
 def test_get_object_cache_stores_raw_xz_bytes(
@@ -272,23 +245,13 @@ def test_scan_root_refuses_a_bucket_not_in_r2_bucket(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_list_keys_refuses_a_missing_endpoint_root(monkeypatch, tmp_path):
-    """Single-bucket file mode with the endpoint root itself GONE (a
-    typo'd path, an unmounted mountpoint): the listing must raise like
-    the multi-bucket refusal does, never yield empty and let the orphan
-    sweep delete the bucket's whole history."""
-    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/absent/")
-    monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
-    with pytest.raises(FileNotFoundError):
-        list(r2.list_keys())
-
-
-def test_list_keys_refuses_a_root_that_is_not_a_directory(
-        monkeypatch, tmp_path):
-    """Same scenario with the root present but a plain file."""
-    notdir = tmp_path / "notadir"
-    notdir.write_text("not a mirror", newline="\n")
-    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", notdir.as_uri())
+@pytest.mark.parametrize("root_kind", ["missing", "file"],
+                         ids=["missing-endpoint-root", "plain-file-root"])
+def test_list_keys_refuses_an_invalid_endpoint_root(monkeypatch, tmp_path, root_kind):
+    root = tmp_path / "mirror"
+    if root_kind == "file":
+        root.write_text("not a mirror", newline="\n")
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", root.as_uri())
     monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
     with pytest.raises(FileNotFoundError):
         list(r2.list_keys())

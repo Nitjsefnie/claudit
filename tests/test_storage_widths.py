@@ -172,26 +172,18 @@ def _assert_canonical(conn) -> None:
 
 
 @pytest.mark.db
-def test_fresh_database_carries_the_canonical_widths_and_order():
-    """The CREATE TABLE declarations themselves (fresh apply)."""
-    name = scratch_db.create_database("width_fresh")
-    try:
-        with psycopg.connect(f"postgresql:///{name}") as conn:
-            _assert_canonical(conn)
-    finally:
-        scratch_db.drop_database(name)
-
-
-@pytest.mark.db
-def test_migrated_database_carries_the_canonical_widths_and_order(
-        monkeypatch,
-):
-    """A legacy database converges to the SAME types and order."""
-    name = scratch_db.create_database("width_migrate", schema=scratch_db.OLD_SCHEMA)
+@pytest.mark.parametrize("deployment", ["fresh", "legacy"],
+                         ids=["fresh-schema", "migrated-schema"])
+def test_database_carries_the_canonical_widths_and_order(monkeypatch, deployment):
+    if deployment == "fresh":
+        name = scratch_db.create_database("width_fresh")
+    else:
+        name = scratch_db.create_database("width_migrate", schema=scratch_db.OLD_SCHEMA)
     monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")
     db.reset_viz_pool()
     try:
-        db.apply_schema()
+        if deployment == "legacy":
+            db.apply_schema()
         with psycopg.connect(f"postgresql:///{name}") as conn:
             _assert_canonical(conn)
     finally:

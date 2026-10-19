@@ -46,46 +46,22 @@ def _bad_pool_env(
 
 
 @pytest.mark.db
-def test_viz_pool_failure_names_the_driver_error(bad_pool_env) -> None:
+@pytest.mark.parametrize("pool_factory,env_var,dsn,driver_message", [
+    (db.viz_pool, "CLAUDIT_DATABASE_URL_VIZ", _BAD_DSN, "does not exist"),
+    (db.auth_pool, "CLAUDIT_DATABASE_URL_AUTH", _BAD_DSN, "does not exist"),
+    (db.auth_pool, "CLAUDIT_DATABASE_URL_AUTH",
+     "postgresql://postgres@127.0.0.1:1/nowhere", None),
+], ids=["viz-missing-database", "auth-missing-database", "auth-unreachable-server"])
+def test_pool_failure_names_the_driver_error(
+        bad_pool_env, monkeypatch, pool_factory, env_var, dsn, driver_message) -> None:
+    monkeypatch.setenv(env_var, dsn)
     with pytest.raises(RuntimeError) as excinfo:
-        db.viz_pool()
+        pool_factory()
     msg = str(excinfo.value)
-    # The driver's FATAL reaches the surfaced message...
-    assert "does not exist" in msg
-    # ..naming the env var whose DSN to check (fail-fast baseline).
-    assert "CLAUDIT_DATABASE_URL_VIZ" in msg
-    # The driver's exception is chained, not swallowed.
+    if driver_message is not None:
+        assert driver_message in msg
+    assert env_var in msg
     assert isinstance(excinfo.value.__cause__, psycopg.OperationalError)
-
-
-@pytest.mark.db
-def test_auth_pool_failure_names_the_driver_error(bad_pool_env) -> None:
-    with pytest.raises(RuntimeError) as excinfo:
-        db.auth_pool()
-    msg = str(excinfo.value)
-    assert "does not exist" in msg
-    assert "CLAUDIT_DATABASE_URL_AUTH" in msg
-    assert isinstance(excinfo.value.__cause__, psycopg.OperationalError)
-
-
-@pytest.mark.db
-def test_auth_pool_failure_on_an_unreachable_server_names_the_env_var(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """ title mechanism: a server that cannot be dialled at
-    all fails the same way — the driver's dial error chained, with
-    CLAUDIT_DATABASE_URL_AUTH named — not a bare PoolTimeout that names
-    neither the env var nor the database."""
-    monkeypatch.setenv(
-        "CLAUDIT_DATABASE_URL_AUTH", "postgresql://postgres@127.0.0.1:1/nowhere")
-    db.reset_auth_pool()
-    try:
-        with pytest.raises(RuntimeError) as excinfo:
-            db.auth_pool()
-        assert "CLAUDIT_DATABASE_URL_AUTH" in str(excinfo.value)
-        assert isinstance(excinfo.value.__cause__, psycopg.OperationalError)
-    finally:
-        db.reset_auth_pool()
 
 
 @pytest.mark.db

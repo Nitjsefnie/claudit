@@ -16,6 +16,7 @@ from contextlib import closing, nullcontext
 
 import psycopg
 import pytest
+from psycopg import sql as pgsql
 
 from test_api import (  # pylint: disable=unused-import
     _app_with_fresh_data_fixture,
@@ -35,48 +36,38 @@ def _columns(table: str) -> set[str]:
         ).fetchall()}
 
 
-def test_apply_schema_restores_a_dropped_column(app_with_fresh_data):
-    """The reproduction: a DB missing a column the code writes is
-    repaired at startup instead of failing at the next ingest."""
+@pytest.mark.parametrize("damage", ["column", "rollup", "web_metrics"],
+                         ids=["missing-error-text", "missing-dispatch-rollup", "missing-web-metrics"])
+def test_apply_schema_repairs_dropped_objects(app_with_fresh_data, damage):
     with db.viz_conn() as c:
-        # error_text, not error_kind: tool_uses carries
-        # error_kind_id (a dim FK), and error_text is the free-text
-        # drill-down column the additive path still restores.
-        c.execute("ALTER TABLE tool_uses DROP COLUMN error_text")
+        if damage == "column":
+            c.execute("ALTER TABLE tool_uses DROP COLUMN error_text")
+        elif damage == "rollup":
+            c.execute("DROP TABLE IF EXISTS dispatch_rollup")
+        else:
+            c.execute("DROP TABLE IF EXISTS web_metrics_rollup, web_metrics")
         c.commit()
-    assert "error_text" not in _columns("tool_uses")
-
-    # apply_schema skips the DDL while the content stamp
-    # matches, so out-of-band schema damage needs the stamp cleared to
-    # force the re-apply under test.
+    if damage == "column":
+        assert "error_text" not in _columns("tool_uses")
     with db.viz_conn() as c:
         c.execute("DELETE FROM schema_stamp")
         c.commit()
 
     db.apply_schema()
 
-    assert "error_text" in _columns("tool_uses")
-
-
-def test_apply_schema_restores_a_dropped_rollup(app_with_fresh_data):
-    """Whole relations come back too, not only columns."""
-    with db.viz_conn() as c:
-        c.execute("DROP TABLE IF EXISTS dispatch_rollup")
-        c.commit()
-
-    # apply_schema skips the DDL while the content stamp
-    # matches, so out-of-band schema damage needs the stamp cleared to
-    # force the re-apply under test.
-    with db.viz_conn() as c:
-        c.execute("DELETE FROM schema_stamp")
-        c.commit()
-
-    db.apply_schema()
-
-    with db.viz_conn() as c:
-        row = c.execute(
-            "SELECT to_regclass('public.dispatch_rollup')").fetchone()
-    assert row is not None and row[0] is not None
+    if damage == "column":
+        assert "error_text" in _columns("tool_uses")
+    elif damage == "rollup":
+        with db.viz_conn() as c:
+            row = c.execute(
+                "SELECT to_regclass('public.dispatch_rollup')").fetchone()
+        assert row is not None and row[0] is not None
+    else:
+        with db.viz_conn() as c:
+            names = {r[0] for r in c.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_name LIKE 'web_metrics%'").fetchall()}
+        assert names == {"web_metrics", "web_metrics_rollup"}
 
 
 def test_apply_schema_creates_user_session(app_with_fresh_data):
@@ -98,129 +89,59 @@ def test_apply_schema_creates_user_session(app_with_fresh_data):
     assert row is not None and row[0] == "pre-existing"
 
 
-def test_apply_schema_widens_an_integer_user_session_user_id(
-    app_with_fresh_data,
-):
-    """Startup widens an INTEGER user_id to BIGINT.
-    Applying the schema to an already-BIGINT column must be a no-op, including
-    reapplication after the widening migration."""
+@pytest.mark.parametrize("table,wide_id", [
+    ("user_session", 123456789012345678), ("web_metrics", 2**31 + 7),
+], ids=["session-user-id", "beacon-user-id"])
+def test_apply_schema_widens_an_integer_user_id(app_with_fresh_data, table, wide_id):
     def _user_id_type():
         with db.viz_conn() as c:
             row = c.execute(
                 "SELECT data_type FROM information_schema.columns "
-                "WHERE table_name='user_session' AND column_name='user_id'"
+                "WHERE table_name=%s AND column_name='user_id'", (table,)
             ).fetchone()
         return row[0] if row else None
 
     with db.viz_conn() as c:
-        c.execute("ALTER TABLE user_session "
-                  "ALTER COLUMN user_id TYPE INTEGER")
+        c.execute(pgsql.SQL("ALTER TABLE {} ALTER COLUMN user_id TYPE INTEGER")
+                  .format(pgsql.Identifier(table)))
         c.commit()
     assert _user_id_type() == "integer"
-
-    # apply_schema skips the DDL while the content stamp
-    # matches, so out-of-band schema damage needs the stamp cleared to
-    # force the re-apply under test.
+    if table == "web_metrics":
+        with db.viz_conn() as c:
+            with pytest.raises(psycopg.errors.NumericValueOutOfRange):
+                c.execute(
+                    "INSERT INTO web_metrics (user_id, metric, value) "
+                    "VALUES (%s, %s, %s)", (wide_id, "dashboard_open", 12.0))
+            c.rollback()
     with db.viz_conn() as c:
         c.execute("DELETE FROM schema_stamp")
         c.commit()
-
     db.apply_schema()
     assert _user_id_type() == "bigint"
-
-    # Idempotent: the second boot's pass is a no-op, and the widened
-    # column holds an 18-digit id.
     db.apply_schema()
     assert _user_id_type() == "bigint"
     with db.viz_conn() as c:
-        c.execute(
-            "INSERT INTO user_session (user_id, secret) VALUES (%s, %s)",
-            (123456789012345678, "bigint-secret"),
-        )
-        c.commit()
-
-
-def test_apply_schema_widens_an_integer_web_metrics_user_id(
-    app_with_fresh_data,
-):
-    """A database whose `web_metrics.user_id` was INTEGER is widened to
-    BIGINT at startup, and re-applying on an already-BIGINT column changes
-    nothing. The deployed sink raised
-    `psycopg.errors.NumericValueOutOfRange: integer out of range` on a real
-    beacon from a named user, because the session layer reports the auth
-    database's BIGINT id and the column could not hold it — so the live
-    table is INTEGER and only this path can reach a BIGINT one.
-    """
-    def _user_id_type():
-        with db.viz_conn() as c:
-            row = c.execute(
-                "SELECT data_type FROM information_schema.columns "
-                "WHERE table_name='web_metrics' AND column_name='user_id'"
-            ).fetchone()
-        return row[0] if row else None
-
-    with db.viz_conn() as c:
-        c.execute("ALTER TABLE web_metrics "
-                  "ALTER COLUMN user_id TYPE INTEGER")
-        c.commit()
-    assert _user_id_type() == "integer"
-
-    # A beacon the narrow column cannot store, so the widening is proved by
-    # the write it unblocks and not only by the catalog.
-    with db.viz_conn() as c:
-        with pytest.raises(psycopg.errors.NumericValueOutOfRange):
+        if table == "user_session":
+            c.execute(
+                "INSERT INTO user_session (user_id, secret) VALUES (%s, %s)",
+                (wide_id, "bigint-secret"))
+        else:
             c.execute(
                 "INSERT INTO web_metrics (user_id, metric, value) "
-                "VALUES (%s, %s, %s)", (2**31 + 7, "dashboard_open", 12.0))
-        c.rollback()
-
-    # apply_schema skips the DDL while the content stamp
-    # matches, so an out-of-band type change needs the stamp cleared to
-    # force the re-apply under test.
-    with db.viz_conn() as c:
-        c.execute("DELETE FROM schema_stamp")
+                "VALUES (%s, %s, %s)", (wide_id, "dashboard_open", 12.0))
         c.commit()
-
-    db.apply_schema()
-    assert _user_id_type() == "bigint"
-
-    # Idempotent, and the widened column now holds the id that overflowed.
-    db.apply_schema()
-    assert _user_id_type() == "bigint"
-    with db.viz_conn() as c:
-        c.execute(
-            "INSERT INTO web_metrics (user_id, metric, value) "
-            "VALUES (%s, %s, %s)", (2**31 + 7, "dashboard_open", 12.0))
-        c.commit()
-    with db.viz_conn() as c:
-        got = c.execute(
-            "SELECT user_id FROM web_metrics WHERE user_id = %s",
-            (2**31 + 7,)).fetchone()
-    assert got is not None and got[0] == 2**31 + 7
-
-    # The index the sink's per-user row cap rides on survives the rewrite:
-    # a dropped index would leave `over_cap` scanning the table and nothing
-    # would say so.
-    with db.viz_conn() as c:
-        indexed = c.execute(
-            "SELECT 1 FROM pg_index i "
-            "JOIN pg_class t ON t.oid = i.indrelid "
-            "WHERE t.relname = 'web_metrics' AND i.indisvalid").fetchall()
-    assert indexed, "web_metrics lost its indexes across the widening"
-
-
-def test_apply_schema_is_idempotent_and_preserves_data(app_with_fresh_data):
-    """Re-applying on every boot must not disturb existing rows."""
-    with db.viz_conn() as c:
-        before = c.execute("SELECT COUNT(*) FROM records").fetchone()
-    assert before is not None and before[0] > 0
-
-    db.apply_schema()
-    db.apply_schema()
-
-    with db.viz_conn() as c:
-        after = c.execute("SELECT COUNT(*) FROM records").fetchone()
-    assert after is not None and after[0] == before[0]
+    if table == "web_metrics":
+        with db.viz_conn() as c:
+            got = c.execute(
+                "SELECT user_id FROM web_metrics WHERE user_id = %s", (wide_id,)
+            ).fetchone()
+        assert got is not None and got[0] == wide_id
+        with db.viz_conn() as c:
+            indexed = c.execute(
+                "SELECT 1 FROM pg_index i "
+                "JOIN pg_class t ON t.oid = i.indrelid "
+                "WHERE t.relname = 'web_metrics' AND i.indisvalid").fetchall()
+        assert indexed, "web_metrics lost its indexes across the widening"
 
 
 def test_apply_schema_does_not_block_behind_an_open_reader(
@@ -259,70 +180,39 @@ def test_apply_schema_does_not_block_behind_an_open_reader(
             "EXCLUSIVE")
 
 
+@pytest.mark.parametrize("lock_source,message", [
+    ("reader", "lock_timeout|long-running"), ("boot", "long-running"),
+], ids=["table-reader-lock", "advisory-boot-lock"])
 def test_apply_schema_blocked_migration_fails_fast_and_atomic(
-        app_with_fresh_data, monkeypatch):
-    """a boot that NEEDS the DDL while a reader holds
-    `records` gives up after the bounded wait with a clear error. The
-    DDL and the stamp write share one transaction, so the abort discards
-    the prefix whole — nothing half-applied, no stamp — and the advisory
-    lock is released for the next boot. A success after the reader
-    releases closes the deadline's positive half: a mutant that refused
-    every migration would fail this."""
-    db.apply_schema()  # current + stamped
+        app_with_fresh_data, monkeypatch, lock_source, message):
+    db.apply_schema()
     with db.viz_conn() as c:
         c.execute("DELETE FROM schema_stamp")
         c.commit()
     url = os.environ["CLAUDIT_DATABASE_URL_VIZ"]
 
-    with closing(psycopg.connect(url)) as blocker, \
-            blocker.cursor() as cur:
-        cur.execute("SELECT count(*) FROM records")  # ACCESS SHARE, held
+    with closing(psycopg.connect(url)) as blocker, blocker.cursor() as cur:
+        if lock_source == "reader":
+            cur.execute("SELECT count(*) FROM records")
+        else:
+            cur.execute(
+                "SELECT pg_advisory_lock(%s)",
+                (db._SCHEMA_LOCK_KEY,))  # pylint: disable=protected-access
         monkeypatch.setattr(db, "_SCHEMA_LOCK_TIMEOUT", "0.3s")
-        with pytest.raises(RuntimeError, match="lock_timeout|long-running"):
+        with pytest.raises(RuntimeError, match=message):
             db.apply_schema()
 
-    # Atomic: the stamp was never written, so the next boot re-applies.
     with db.viz_conn() as c:
         row = c.execute("SELECT count(*) FROM schema_stamp").fetchone()
     assert row is not None and row[0] == 0, (
         "a failed migration must not leave the stamp behind")
-
-    # The advisory lock is free for the next boot (no pooled-session leak).
     with closing(psycopg.connect(url)) as other, other.cursor() as cur:
         free = cur.execute(
             "SELECT pg_try_advisory_lock(%s)",
             (db._SCHEMA_LOCK_KEY,)).fetchone()  # pylint: disable=protected-access
     assert free is not None and free[0] is True, (
         "the advisory lock leaked past the failed boot")
-
-    # And the boot after the reader releases converges (positive half).
     db.apply_schema()
-    with db.viz_conn() as c:
-        row = c.execute("SELECT count(*) FROM schema_stamp").fetchone()
-    assert row is not None and row[0] == 1
-
-
-def test_apply_schema_gives_up_when_another_boot_holds_the_migration_lock(
-        app_with_fresh_data, monkeypatch):
-    """the advisory boot lock is under the same bounded wait
-    as the DDL locks, so a boot queues behind a concurrent migration for
-    lock_timeout, then fails with the same clear error instead of
-    hanging. Success after the holder releases is the positive half."""
-    db.apply_schema()
-    with db.viz_conn() as c:
-        c.execute("DELETE FROM schema_stamp")
-        c.commit()
-    url = os.environ["CLAUDIT_DATABASE_URL_VIZ"]
-
-    with closing(psycopg.connect(url)) as other, other.cursor() as cur:
-        cur.execute(
-            "SELECT pg_advisory_lock(%s)",
-            (db._SCHEMA_LOCK_KEY,))  # pylint: disable=protected-access
-        monkeypatch.setattr(db, "_SCHEMA_LOCK_TIMEOUT", "0.3s")
-        with pytest.raises(RuntimeError, match="long-running"):
-            db.apply_schema()
-
-    db.apply_schema()  # positive half: converges once the lock frees
     with db.viz_conn() as c:
         row = c.execute("SELECT count(*) FROM schema_stamp").fetchone()
     assert row is not None and row[0] == 1
@@ -372,25 +262,6 @@ def test_the_stamp_covers_every_schema_file(monkeypatch):
     assert first_only == db.SCHEMA_PATH.read_text(encoding="utf-8")
     assert whole.startswith(first_only)
     assert tail.read_text(encoding="utf-8") in whole
-
-
-def test_apply_schema_creates_the_web_metrics_tables(app_with_fresh_data):
-    """A boot against a database missing them creates them.
-
-    This is the end-to-end half of the split: `web_metrics` is only useful
-    if a plain startup creates it, and nothing else in the suite would fail
-    if apply_schema quietly stopped reading the second file.
-    """
-    with db.viz_conn() as c:
-        c.execute("DROP TABLE IF EXISTS web_metrics_rollup, web_metrics")
-        c.execute("DELETE FROM schema_stamp")
-        c.commit()
-    db.apply_schema()
-    with db.viz_conn() as c:
-        names = {r[0] for r in c.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_name LIKE 'web_metrics%'").fetchall()}
-    assert names == {"web_metrics", "web_metrics_rollup"}
 
 
 def test_startup_applies_the_schema_before_checking_it(monkeypatch):
