@@ -71,20 +71,32 @@ def _all_steps() -> list[tuple[str, dict]]:
             for step in (job.get("steps") or [])]
 
 
-def test_jobs_are_exactly_refresh_push_and_verdict():
-    assert set(_workflow()["jobs"]) == {"refresh", "push", "verdict"}
+def test_jobs_are_exactly_refresh_suite_stage_push_and_verdict():
+    assert set(_workflow()["jobs"]) == {"refresh", "suite", "stage", "push", "verdict"}
 
 
-def test_refresh_job_stays_the_keyless_suite_runner():
+def test_refresh_fetches_and_suite_runs_tests_without_the_key():
     job = _job("refresh")
     assert job["if"] == "github.ref == 'refs/heads/master'"
     assert job["timeout-minutes"] == 30
     assert job["permissions"] == {"contents": "read"}
+    assert not any("pytest" in step.get("run", "") for step in job["steps"])
+    assert not any(step.get("name") == "Start cached Postgres" for step in job["steps"])
+    assert not any(key.startswith("PG") for key in job.get("env", {}))
+    suite = _job("suite")
+    assert suite["permissions"] == {"contents": "read"}
+    assert suite["needs"] == "refresh"
+    assert suite["if"] == "needs.refresh.outputs.moved == 'true'"
+    postgres = _step("suite", "Start cached Postgres")
+    assert "uses" in postgres and "if" not in postgres
+    tests = _step("suite", "Run tests")
+    assert "python -m pytest $(python3 scripts/ci/pytest_shards.py" in tests["run"]
+    assert suite["steps"].index(postgres) < suite["steps"].index(tests)
     # The shared composite owns the image pin; test_workflow_ci_gate.py
     # holds the tests/refresh callers together, and
     # test_workflow_postgres_action.py compares its digest with Compose.
-    assert (job["env"]["PGHOST"], job["env"]["PGPORT"],
-            job["env"]["PGUSER"], job["env"]["PGPASSWORD"]) == (
+    assert (suite["env"]["PGHOST"], suite["env"]["PGPORT"],
+            suite["env"]["PGUSER"], suite["env"]["PGPASSWORD"]) == (
         "localhost", "5432", "postgres", "postgres")
 
 
@@ -105,16 +117,20 @@ def test_the_key_appears_once_in_the_file_and_only_in_the_push_job():
     assert env_lines == [
         "MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}"]
     assert raw.count("secrets.MASTER_PUSH_DEPLOY_KEY") == 1
-    for job_id in ("refresh", "verdict"):
-        for step in (_job(job_id).get("steps") or []):
+    for job_id, job in _workflow()["jobs"].items():
+        if job_id == "push":
+            continue
+        assert "environment" not in job, job_id
+        assert "MASTER_PUSH_DEPLOY_KEY" not in repr(job.get("env", {})), job_id
+        for step in (job.get("steps") or []):
             blob = repr(step.get("env") or {}) + (step.get("run") or "")
             assert "MASTER_PUSH_DEPLOY_KEY" not in blob, (job_id, step.get("name"))
             assert "git push" not in (step.get("run") or ""), (job_id, step.get("name"))
             assert "ssh-agent" not in (step.get("run") or ""), (job_id, step.get("name"))
 
 
-def test_refresh_job_stages_and_uploads_the_tested_data():
-    stage = _step("refresh", "Stage the tested data")
+def test_refresh_stages_fetched_data_and_stage_uploads_only_after_the_suite():
+    stage = _step("refresh", "Stage the fetched data")
     assert stage["if"] == "steps.moved.outputs.moved == 'true'"
     run = stage["run"]
     assert 'mkdir -p "$RUNNER_TEMP/push-data"' in run
@@ -127,17 +143,27 @@ def test_refresh_job_stages_and_uploads_the_tested_data():
             '"$RUNNER_TEMP/push-data/commit-msg.txt"' in run)
     assert 'git rev-parse HEAD > "$RUNNER_TEMP/push-data/base.txt"' in run
 
-    upload = _step("refresh", "Upload the tested data")
+    upload = _step("refresh", "Upload the fetched data")
     assert upload["if"] == "steps.moved.outputs.moved == 'true'"
-    assert upload["uses"].startswith("actions/upload-artifact@"), upload
-    # The action's own inputs (name, path, if-no-files-found, retention)
-    # are contract: fleet-rules "Merging and CI" with:-inputs ruling — no
-    # assertion on them; a legitimate reconfiguration must pass.
+    assert "uses" in upload and "run" not in upload
+    assert _job("refresh")["steps"].index(stage) < _job("refresh")["steps"].index(upload)
+    tested = _job("stage")
+    assert set(tested["needs"]) == {"refresh", "suite"}
+    assert tested["if"] == "needs.refresh.outputs.moved == 'true'"
+    assert _job("suite").get("continue-on-error", False) is False
+    tested_stage = _step("stage", "Stage the tested data")
+    tested_upload = _step("stage", "Upload the tested data")
+    assert "uses" in tested_upload and "run" not in tested_upload
+    assert tested["steps"].index(tested_stage) < tested["steps"].index(tested_upload)
+    for filename in ("pricing.json", "constants.py", "pricing_notices.json",
+                     "commit-msg.txt", "base.txt"):
+        assert (f'cp "${{{{ runner.temp }}}}/fetch-data/{filename}" '
+                f'"${{{{ runner.temp }}}}/push-data/{filename}"') in tested_stage["run"]
 
 
 def test_push_job_is_the_only_job_that_loads_the_key():
     job = _job("push")
-    assert job["needs"] == "refresh"
+    assert set(job["needs"]) == {"refresh", "stage"}
     assert job["if"] == "needs.refresh.outputs.moved == 'true'"
     assert job["environment"] == "master-push"
     assert job["runs-on"] == "ubuntu-latest"
@@ -146,8 +172,8 @@ def test_push_job_is_the_only_job_that_loads_the_key():
     steps = job["steps"]
     assert len(steps) == 2
     download, = [step for step in steps if "uses" in step]
-    assert download["uses"].startswith(
-        "actions/download-artifact@"), download
+    assert download["name"] == "Download the tested data"
+    assert "run" not in download
 
 
 def test_push_run_block_pins_the_key_preamble_and_host_keys():
@@ -195,7 +221,7 @@ def test_push_run_block_pins_the_order_and_never_forces_or_tokens():
 
 def test_verdict_job_turns_a_refused_fetch_red_even_when_nothing_moved():
     job = _job("verdict")
-    assert job["needs"] == ["refresh", "push"]
+    assert job["needs"] == ["refresh", "stage", "push"]
     assert job["if"] == "${{ always() }}"
     assert job["permissions"] == {}
     assert job["timeout-minutes"] == 15
