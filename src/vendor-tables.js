@@ -41,7 +41,7 @@
         throw _pricingError(`${where} carries no 'id'`);
       }
       if ('context_length' in entry
-          && (!Number.isInteger(entry.context_length) || entry.context_length <= 0)) {
+          && (!Number.isSafeInteger(entry.context_length) || entry.context_length <= 0)) {
         throw _pricingError(`${where}: context_length is not a positive integer`);
       }
       // A key pinned in BOTH resolve tables names one endpoint: when both

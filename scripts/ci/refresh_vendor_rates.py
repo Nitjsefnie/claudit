@@ -277,7 +277,8 @@ def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
         contexts = [endpoint.get("context_length") for endpoint in endpoints
                     if isinstance(endpoint, dict) and isinstance(endpoint.get("tag"), str)
                     and endpoint["tag"].partition("/")[0] == model_id.partition("/")[0]]
-        if any(not isinstance(value, int) or isinstance(value, bool) or value <= 0
+        if any(not isinstance(value, int) or isinstance(value, bool)
+               or not 0 < value <= 9007199254740991
                for value in contexts):
             raise RefreshError(f"{model_id}: context_length is not a positive integer")
         if len(set(contexts)) != 1:

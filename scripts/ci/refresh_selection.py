@@ -94,7 +94,8 @@ def _listing(endpoint: object, where: str, at: datetime,
         raise RefreshError(f"{where}: discount {discount!r} is not a fraction")
     identity = {k: endpoint.get(k) for k in _IDENTITY}
     if (not isinstance(identity['context_length'], int)
-            or isinstance(identity['context_length'], bool) or identity['context_length'] <= 0):
+            or isinstance(identity['context_length'], bool)
+            or not 0 < identity['context_length'] <= 9007199254740991):
         raise RefreshError(f"{where}: context_length is not a positive integer")
     rates, schedule = rates_of(price, where), entry_schedule(price, where)
     if schedule and in_a_window(schedule, at):

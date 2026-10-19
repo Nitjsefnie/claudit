@@ -27,18 +27,20 @@ WEB_SEARCH = "0.0137"
 STAMP = "2031-01-01T00:00:00Z"
 
 
-def test_sampled_context_move_appends_unchanged_rates_and_note(tmp_path, capsys):
+@pytest.mark.parametrize('context_length', [786432, 9007199254740991])
+def test_sampled_context_move_appends_unchanged_rates_and_note(
+        tmp_path, capsys, context_length):
     run = Run(tmp_path)
     before = copy.deepcopy(run.doc()['providers'][GLM]['OpenInference'])
-    run.endpoint(GLM, 'OpenInference')['context_length'] = 786432
+    run.endpoint(GLM, 'OpenInference')['context_length'] = context_length
     rc, _, err = run(capsys)
     assert rc == 0, err
     history = run.doc()['providers'][GLM]['OpenInference']
     assert history[:-1] == before
-    assert history[-1] == {**before[-1], 'from': STAMP, 'context_length': 786432}
+    assert history[-1] == {**before[-1], 'from': STAMP, 'context_length': context_length}
 
 
-@pytest.mark.parametrize('bad', [None, True, 0, -1, 1.5, '786432'])
+@pytest.mark.parametrize('bad', [None, True, 0, -1, 1.5, '786432', 9007199254740992])
 def test_bad_listed_context_refuses_only_its_host(tmp_path, capsys, bad):
     run = Run(tmp_path)
     before = copy.deepcopy(run.doc()['providers'][GLM]['OpenInference'])
