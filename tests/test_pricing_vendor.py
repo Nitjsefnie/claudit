@@ -1,10 +1,9 @@
-"""Task A of: vendor first-party rows live in the tracked table.
+"""Vendor first-party rows live in the tracked table.
 
 `openrouter.vendor.prefixes` configures the namespaces; a tracked entry
 carrying `vendor_host` points at the (tracked key, host) provider row whose
 history prices the vendor's bare first-party id. resolve() matches the BARE
-form (the models table's own suffix rules), pricing exactly as the old
-models-table rows did — the migration's cost-equality contract. A transcript
+form (the models table's own suffix rules). A transcript
 id with a tracked vendor prefix folds to its tracked bare form before the
 provider and vendor rows are resolved.
 

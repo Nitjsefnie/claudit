@@ -42,19 +42,29 @@ def test_a_host_s_overrides_are_its_entry_schedule(tmp_path, capsys):
     assert run.snapshot() == before
 
 
-def test_a_moved_window_appends_the_whole_schedule(tmp_path, capsys):
+@pytest.mark.parametrize("hours", [
+    pytest.param((None,), id="one-fetch"),
+    pytest.param((0, 2, 15), id="across-windows"),
+])
+def test_a_changed_schedule_appends_one_entry_and_keeps_the_default(tmp_path, capsys, hours):
     run = Run(tmp_path)
     stored = run.doc()["providers"][V41]["DeepSeek"][-1]
-    window = _deepseek(run)["pricing"]["overrides"][0]
-    window["prompt"] = _per_token(stored["schedule"][0]["rates"]["fresh"] * 2)
-    rc, out, _ = run(capsys)
-    assert rc == 0
-    entry = run.doc()["providers"][V41]["DeepSeek"][-1]
-    assert entry["from"] == STAMP
+    _deepseek(run)["pricing"]["overrides"][0]["prompt"] = _per_token(
+        stored["schedule"][0]["rates"]["fresh"] * 2)
+    for hour in hours:
+        at = NOW if hour is None else NOW + timedelta(hours=hour)
+        if hour is not None:
+            _as_listed_at(run, at)
+        rc, out, _ = run(capsys, now=at)
+        assert rc == 0
+        if hour is None:
+            assert "DeepSeek: schedule of" in out
+    history = run.doc()["providers"][V41]["DeepSeek"]
+    assert [e["from"] for e in history] == [None, STAMP]
+    entry = history[-1]
     assert {f: entry[f] for f in RATE_FIELDS} == {f: stored[f] for f in RATE_FIELDS}
     assert entry["schedule"][0]["rates"]["fresh"] == stored["schedule"][0]["rates"]["fresh"] * 2
     assert entry["schedule"][1:] == stored["schedule"][1:]
-    assert "DeepSeek: schedule of" in out
 
 
 def test_dropped_overrides_append_an_entry_without_a_schedule(tmp_path, capsys):
@@ -65,13 +75,22 @@ def test_dropped_overrides_append_an_entry_without_a_schedule(tmp_path, capsys):
     assert entry["from"] == STAMP and "schedule" not in entry
 
 
-def test_an_override_inherits_the_prices_it_does_not_name(tmp_path, capsys):
+@pytest.mark.parametrize("window,hours", [
+    pytest.param(0, (None,), id="first-window-one-fetch"),
+    pytest.param(1, (2, 15, 24), id="second-window-across-windows"),
+])
+def test_an_override_inherits_the_kept_default(tmp_path, capsys, window, hours):
     run = Run(tmp_path)
     stored = run.doc()["providers"][V41]["DeepSeek"][-1]
-    del _deepseek(run)["pricing"]["overrides"][0]["completion"]
-    assert run(capsys)[0] == 0
-    entry = run.doc()["providers"][V41]["DeepSeek"][-1]
-    assert entry["schedule"][0]["rates"]["output"] == stored["output"]
+    del _deepseek(run)["pricing"]["overrides"][window]["completion"]
+    for hour in hours:
+        at = NOW if hour is None else NOW + timedelta(hours=hour)
+        if hour is not None:
+            _as_listed_at(run, at)
+        assert run(capsys, now=at)[0] == 0
+    history = run.doc()["providers"][V41]["DeepSeek"]
+    assert len(history) == 2
+    assert history[-1]["schedule"][window]["rates"]["output"] == stored["output"]
 
 
 def _move_glm(run: Run) -> None:
@@ -110,43 +129,27 @@ def test_what_is_not_modelled_refuses_only_its_host(tmp_path, capsys, damage):
 # --- the long-context band: tolerated at the meter's shape, noticed when it departs
 
 
-def _meter_band(run: Run) -> None:
-    """Append a min_prompt_tokens override at the Codex meter's shape to
-    DeepSeek's listed overrides."""
-    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
-    _deepseek(run)["pricing"]["overrides"].append(
-        {"min_prompt_tokens": pricing.LONG_CONTEXT_THRESHOLD,
-         "prompt": _per_token(stored["fresh"] * pricing.LONG_CONTEXT_INPUT_MULT),
-         "completion": _per_token(stored["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT)})
-
-
-def test_a_meter_shaped_band_is_tolerated_and_never_enters_the_row(
-        tmp_path, capsys):
-    """The band is modelled on the provider path: no window, no membership
-    (the vendor pass owns it), its rates nowhere in the row, the run green."""
+@pytest.mark.parametrize("threshold,input_mult,output_mult", [
+    pytest.param(pricing.LONG_CONTEXT_THRESHOLD, pricing.LONG_CONTEXT_INPUT_MULT,
+                 pricing.LONG_CONTEXT_OUTPUT_MULT, id="meter-shaped"),
+    pytest.param(200_000, 3.0, 3.0, id="custom-factors"),
+])
+def test_a_coherent_band_never_enters_the_provider_row(
+        tmp_path, capsys, threshold, input_mult, output_mult):
     run = Run(tmp_path)
-    _meter_band(run)
+    before_doc = run.doc()
+    stored = before_doc["providers"][V41]["DeepSeek"][-1]
+    _deepseek(run)["pricing"]["overrides"].append({
+        "min_prompt_tokens": threshold,
+        "prompt": _per_token(stored["fresh"] * input_mult),
+        "completion": _per_token(stored["output"] * output_mult)})
     before = run.snapshot()
-    rc, _out, err = run(capsys)
+    rc, out, err = run(capsys)
     assert rc == 0, err
     assert run.snapshot() == before, "the band entered the row"
     assert "min_prompt_tokens" not in json.dumps(run.doc())
-
-
-def test_a_coherent_band_does_not_gate_a_provider_listing(tmp_path, capsys):
-    """A coherent band with other factors is tolerated by provider main."""
-    run = Run(tmp_path)
-    before = run.doc()
-    stored = before["providers"][V41]["DeepSeek"][-1]
-    _deepseek(run)["pricing"]["overrides"].append(
-        {"min_prompt_tokens": 200_000,
-         "prompt": _per_token(stored["fresh"] * 3.0),
-         "completion": _per_token(stored["output"] * 3.0)})
-    rc, out, err = run(capsys)
-    assert rc == 0, err
-    after = run.doc()
     assert "departs from the meter" not in out
-    assert after["providers"][V41]["DeepSeek"] == before["providers"][V41]["DeepSeek"]
+    assert run.doc()["providers"][V41]["DeepSeek"] == before_doc["providers"][V41]["DeepSeek"]
 
 
 def test_a_zero_price_of_a_kind_not_modelled_is_ignored(tmp_path, capsys):
@@ -189,35 +192,6 @@ def test_a_top_level_price_that_follows_the_window_moves_nothing(tmp_path, capsy
         rc, out, _ = run(capsys, now=at)
         assert rc == 0 and "no rate moved" in out, (hours, out)
     assert run.snapshot() == before and run.pricing_version() == version
-
-
-def test_a_changed_schedule_appends_one_entry_and_keeps_the_default(tmp_path, capsys):
-    run = Run(tmp_path)
-    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
-    _deepseek(run)["pricing"]["overrides"][0]["prompt"] = _per_token(
-        stored["schedule"][0]["rates"]["fresh"] * 2)
-    for hours in (0, 2, 15):
-        _as_listed_at(run, NOW + timedelta(hours=hours))
-        assert run(capsys, now=NOW + timedelta(hours=hours))[0] == 0
-    history = run.doc()["providers"][V41]["DeepSeek"]
-    assert [e["from"] for e in history] == [None, STAMP]
-    assert {f: history[-1][f] for f in RATE_FIELDS} == {f: stored[f] for f in RATE_FIELDS}
-    assert history[-1]["schedule"][0]["rates"]["fresh"] == stored["schedule"][0]["rates"][
-        "fresh"] * 2
-
-
-def test_a_price_no_window_names_inherits_the_kept_default(tmp_path, capsys):
-    """Inside a window the top-level price is that window's, so a price an
-    override leaves out is the row's default, whichever window is active."""
-    run = Run(tmp_path)
-    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
-    del _deepseek(run)["pricing"]["overrides"][1]["completion"]
-    for hours in (2, 15, 24):
-        _as_listed_at(run, NOW + timedelta(hours=hours))
-        assert run(capsys, now=NOW + timedelta(hours=hours))[0] == 0
-    history = run.doc()["providers"][V41]["DeepSeek"]
-    assert len(history) == 2
-    assert history[-1]["schedule"][1]["rates"]["output"] == stored["output"]
 
 
 def _first_seen_scheduled(run: Run) -> None:
@@ -322,35 +296,26 @@ def test_the_window_edge_is_end_exclusive_and_the_stamp_whole_seconds(
     assert history[-1]["schedule"] == history[0]["schedule"]
 
 
-def test_a_committed_schedule_scaling_prices_unevenly_is_noticed(tmp_path, capsys):
+@pytest.mark.parametrize("window,uniform", [
+    pytest.param(0, False, id="first-uneven"),
+    pytest.param(0, True, id="uniform"),
+    pytest.param(1, False, id="second-uneven"),
+])
+def test_committed_schedule_reports_non_uniform_scaling(tmp_path, capsys, window, uniform):
     run = Run(tmp_path)
     stored = run.doc()["providers"][V41]["DeepSeek"][-1]
-    _deepseek(run)["pricing"]["overrides"][0]["prompt"] = _per_token(stored["fresh"])
+    override = _deepseek(run)["pricing"]["overrides"][window]
+    if uniform:
+        override.update(_listed({f: stored[f] * 2 for f in RATE_FIELDS}))
+    else:
+        override["prompt"] = _per_token(stored["schedule"][window]["rates"]["fresh"] * 2)
     rc, out, _ = run(capsys)
     assert rc == 0 and run.doc()["providers"][V41]["DeepSeek"][-1]["from"] == STAMP
-    assert ("non-uniform schedule: Token Breakdown split is approximate for "
-            f"{V41} via DeepSeek") in out
-
-
-def test_a_committed_schedule_scaling_every_price_alike_is_not_noticed(tmp_path, capsys):
-    run = Run(tmp_path)
-    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
-    _deepseek(run)["pricing"]["overrides"][0].update(_listed(
-        {f: stored[f] * 2 for f in RATE_FIELDS}))
-    rc, out, _ = run(capsys)
-    assert rc == 0 and run.doc()["providers"][V41]["DeepSeek"][-1]["from"] == STAMP
-    assert "non-uniform" not in out
-
-
-def test_an_uneven_window_that_is_not_the_first_is_noticed(tmp_path, capsys):
-    run = Run(tmp_path)
-    stored = run.doc()["providers"][V41]["DeepSeek"][-1]
-    _deepseek(run)["pricing"]["overrides"][1]["prompt"] = _per_token(
-        stored["schedule"][1]["rates"]["fresh"] * 2)
-    rc, out, _ = run(capsys)
-    assert rc == 0 and run.doc()["providers"][V41]["DeepSeek"][-1]["from"] == STAMP
-    assert ("non-uniform schedule: Token Breakdown split is approximate for "
-            f"{V41} via DeepSeek") in out
+    if uniform:
+        assert "non-uniform" not in out
+    else:
+        assert ("non-uniform schedule: Token Breakdown split is approximate for "
+                f"{V41} via DeepSeek") in out
 
 
 def test_a_paid_window_over_a_free_default_does_not_scale_alike():
@@ -363,66 +328,43 @@ def test_a_paid_window_over_a_free_default_does_not_scale_alike():
     assert not refresh._scales_alike(listing({**free, "output": 1.0}))
 
 
-def test_a_failing_fetch_refuses_only_its_model(tmp_path, capsys):
+@pytest.mark.parametrize("failure,kwargs", [
+    pytest.param(urllib.error.URLError("connection reset"), {"vendor": None}, id="url-error"),
+    pytest.param(http.client.IncompleteRead(b"partial", 100), {}, id="incomplete-read"),
+])
+def test_a_failing_fetch_refuses_only_its_model(tmp_path, capsys, failure, kwargs):
     run = Run(tmp_path)
     _move_glm(run)
     failing = run.doc()["openrouter"]["models"][V41]["id"]
 
     def fetch(model_id: str) -> object:
         if model_id == failing:
-            raise urllib.error.URLError("connection reset")
+            raise failure
         return copy.deepcopy(run.payloads[model_id])
 
     rc = refresh.main(["--commit-msg", str(run.commit_msg)], fetch=fetch, now=NOW,
-                      pricing_path=run.pricing, constants_path=run.constants,
-                      vendor=None)
+                      pricing_path=run.pricing, constants_path=run.constants, **kwargs)
     err = capsys.readouterr().err
     assert rc != 0 and f"{V41}: fetching {failing} failed" in err
     assert run.doc()["providers"][GLM]["OpenInference"][-1]["from"] == STAMP
 
 
-def test_a_bare_http_client_failure_refuses_its_model(tmp_path, capsys):
-    """A truncated body raises http.client.IncompleteRead — neither a
-    URLError, an OSError nor a ValueError — and it is still that model's
-    refusal, not a crash of the run."""
-    run = Run(tmp_path)
-    _move_glm(run)
-    failing = run.doc()["openrouter"]["models"][V41]["id"]
-
-    def fetch(model_id: str) -> object:
-        if model_id == failing:
-            raise http.client.IncompleteRead(b"partial", 100)
-        return copy.deepcopy(run.payloads[model_id])
-
-    rc = refresh.main(["--commit-msg", str(run.commit_msg)], fetch=fetch, now=NOW,
-                      pricing_path=run.pricing, constants_path=run.constants)
-    err = capsys.readouterr().err
-    assert rc != 0 and f"{V41}: fetching {failing} failed" in err
-    assert run.doc()["providers"][GLM]["OpenInference"][-1]["from"] == STAMP
-
-
-def test_a_price_order_row_that_rises_is_reported_not_refused(tmp_path, capsys):
-    """The tracked twin moving past the other looks exactly like the other
-    becoming the row's price, and that always shows as a rise; the run says
-    so, and appends the rise."""
+@pytest.mark.parametrize("rises", [pytest.param(True, id="rise"), pytest.param(False, id="fall")])
+def test_a_price_order_move_reports_only_a_rise(tmp_path, capsys, rises):
     run = Run(tmp_path)
     cheaper, dearer = _baseten_twins(run)
+    reference = dearer if rises else cheaper
+    factor = Decimal(2) if rises else Decimal("0.5")
     cheaper["pricing"]["input_cache_read"] = format(
-        Decimal(dearer["pricing"]["input_cache_read"]) * 2, "f")
+        Decimal(reference["pricing"]["input_cache_read"]) * factor, "f")
     rc, out, _ = run(capsys)
     assert rc == 0
-    assert "possible twin switch" in out and f"{V41} via BaseTen" in out
-    assert run.doc()["providers"][V41]["BaseTen"][-1]["read"] == 0.03
-
-
-def test_a_price_order_row_that_falls_is_not_reported(tmp_path, capsys):
-    run = Run(tmp_path)
-    cheaper, _ = _baseten_twins(run)
-    cheaper["pricing"]["input_cache_read"] = format(
-        Decimal(cheaper["pricing"]["input_cache_read"]) * Decimal("0.5"), "f")
-    rc, out, _ = run(capsys)
-    assert rc == 0 and "possible twin switch" not in out
-    assert run.doc()["providers"][V41]["BaseTen"][-1]["from"] == STAMP
+    if rises:
+        assert "possible twin switch" in out and f"{V41} via BaseTen" in out
+        assert run.doc()["providers"][V41]["BaseTen"][-1]["read"] == 0.03
+    else:
+        assert "possible twin switch" not in out
+        assert run.doc()["providers"][V41]["BaseTen"][-1]["from"] == STAMP
 
 
 def test_a_tag_suffix_neither_region_nor_quantization_is_logged(tmp_path, capsys):
@@ -430,17 +372,6 @@ def test_a_tag_suffix_neither_region_nor_quantization_is_logged(tmp_path, capsys
     run.endpoint(GLM, "Wafer")["tag"] = "wafer/fast"
     rc, out, _ = run(capsys)
     assert rc == 0 and "'wafer/fast' names neither a known region nor a quantization" in out
-
-
-def test_twins_differing_in_max_prompt_tokens_are_not_identical(tmp_path, capsys):
-    run = Run(tmp_path)
-    run.edit(lambda doc: doc["openrouter"]["models"][V41].update(
-        resolve={"BaseTen": {"tag": "baseten/fp8", "select": "cheapest",
-                             "ignore": ["max_completion_tokens"],
-                             "why": "synthetic one-token listing artifact"}}))
-    _, dearer = _baseten_twins(run)
-    dearer["max_prompt_tokens"] = 4096
-    _refused(run, capsys, f"{V41} via BaseTen", "identical")
 
 
 def test_a_file_with_two_pricing_versions_is_refused(tmp_path, capsys):

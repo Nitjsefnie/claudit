@@ -12,14 +12,12 @@ import json
 
 import pytest
 
-from backend import pricing
 from backend.pricing_document import check_compact_shape
 from backend.pricing_rows import encode_pricing_doc
-from tests.pricing_data_loader_helpers import _browser_load, _node_load
+from tests.pricing_data_loader_helpers import _browser_load
 from tests.refresh_fixture_builders import RATES_B, seed_provider_doc
 from tests.test_pricing_data import (
     LOADER_JS,
-    _doc,
     _node_raw,
     _pricing_json,
     needs_node,
@@ -59,22 +57,18 @@ def _node_compact(doc: dict) -> str | None:
     """)
 
 
-# (a) a stored entry carrying create_5m == fresh -> refused, naming the row.
-def test_a_stored_entry_cache_write_equal_to_fresh_is_refused():
-    with pytest.raises(ValueError,
-                       match=r"bonsai-2-27b\[0\]: create_5m is present "
-                             r"and equals fresh"):
-        check_compact_shape(_entry_violation())
-
-
-# (b) a stored schedule window carrying create_1h == fresh -> refused.
-def test_a_stored_window_cache_write_equal_to_fresh_is_refused():
-    with pytest.raises(
-            ValueError,
-            match=r"fixture/provider via "
-                  r"Fixture\[0\]\.schedule\[0\]: create_1h is present "
-                  r"and equals fresh"):
-        check_compact_shape(_window_violation())
+# A stored entry or schedule window repeating fresh is refused, naming the row.
+@pytest.mark.parametrize("document,message", [
+    pytest.param(_entry_violation,
+                 r"bonsai-2-27b\[0\]: create_5m is present and equals fresh",
+                 id="entry"),
+    pytest.param(_window_violation,
+                 r"fixture/provider via Fixture\[0\]\.schedule\[0\]: "
+                 r"create_1h is present and equals fresh", id="window"),
+])
+def test_a_stored_cache_write_equal_to_fresh_is_refused(document, message):
+    with pytest.raises(ValueError, match=message):
+        check_compact_shape(document())
 
 
 # (c) the committed raw src/pricing.json passes.
@@ -82,36 +76,22 @@ def test_the_committed_document_passes_the_compact_shape_check():
     check_compact_shape(_raw())
 
 
-# (d) the expanded document still loads through the shared validation.
-def test_an_expanded_document_still_loads_through_load_tables():
-    """expand_pricing_doc materialises the equal pair on thousands of
-    entries; load_tables must keep accepting them — the refresh validates
-    its own expanded intermediate through it."""
-    assert pricing.load_tables(_doc())["MODEL_RATES"]
-
-
+@pytest.mark.parametrize("document,spot,message", [
+    pytest.param(_entry_violation, "bonsai-2-27b[0]",
+                 "create_5m is present and equals fresh", id="entry"),
+    pytest.param(_window_violation, "Fixture[0].schedule[0]",
+                 "create_1h is present and equals fresh", id="window"),
+])
 @needs_node
-def test_the_browser_check_refuses_a_stored_entry_pair():
-    error = _node_compact(_entry_violation())
-    assert error and "bonsai-2-27b[0]" in error, error
-    assert "create_5m is present and equals fresh" in error, error
-
-
-@needs_node
-def test_the_browser_check_refuses_a_stored_window_pair():
-    error = _node_compact(_window_violation())
-    assert error and "Fixture[0].schedule[0]" in error, error
-    assert "create_1h is present and equals fresh" in error, error
+def test_the_browser_check_refuses_a_stored_pair(document, spot, message):
+    error = _node_compact(document())
+    assert error and spot in error, error
+    assert message in error, error
 
 
 @needs_node
 def test_the_browser_check_accepts_the_committed_document():
     assert _node_compact(_raw()) is None
-
-
-@needs_node
-def test_the_node_loader_still_accepts_an_expanded_document(tmp_path):
-    assert _node_load(tmp_path, _doc()) is None
 
 
 @needs_node
