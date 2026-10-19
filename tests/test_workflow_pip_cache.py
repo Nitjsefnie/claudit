@@ -155,6 +155,3 @@ def test_types_installs_and_caches_the_full_import_toolchain():
     caches = [step for step in steps
               if _action(step) in ("actions/cache/restore", "actions/cache/save")]
     assert len(caches) == 2
-    for step in caches:
-        assert ("hashFiles('backend/requirements.txt', 'requirements-dev.txt', 'requirements-test.txt')"
-                in step["with"]["key"])

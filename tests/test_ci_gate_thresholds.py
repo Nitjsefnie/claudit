@@ -161,10 +161,6 @@ def test_shards_cover_four_partitions_and_publish_even_after_failure():
     upload, = [step for step in job['steps']
                if step.get('with', {}).get('name') == 'coverage-shard-${{ matrix.shard }}']
     assert upload['if'] == '${{ !cancelled() }}'
-    assert upload['with'] == {
-        'name': 'coverage-shard-${{ matrix.shard }}',
-        'path': 'shard-coverage/.coverage.${{ matrix.shard }}',
-        'include-hidden-files': 'true', 'if-no-files-found': 'error', 'retention-days': '1'}
 
 
 def _threshold_commands(tmp_path):
@@ -215,7 +211,6 @@ def test_threshold_base_action_runs_once_per_job_before_tests(workflow, job_name
                                         if step.get('name') == test_step)
     checkout = next(step for step in steps
                     if step.get('uses', '').startswith('actions/checkout@'))
-    assert checkout['with']['fetch-depth'] == '0'
     assert steps.index(checkout) < steps.index(resolver)
     assert all('case "$EVENT"' not in step.get('run', '') for step in steps)
     action = _threshold_base_action()

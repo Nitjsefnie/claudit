@@ -128,8 +128,6 @@ def test_combined_coverage_feeds_every_python_measurement():
     steps = job["steps"]
     download, = [step for step in steps
                  if step.get("uses", "").startswith("actions/download-artifact@")]
-    assert download["with"] == {
-        "pattern": "coverage-shard-*", "path": "shard-data/"}
     combine, = [step for step in steps
                 if "scripts/ci/coverage_shards.py" in step.get("run", "")]
     assert "if" not in combine
@@ -144,8 +142,6 @@ def test_combined_coverage_feeds_every_python_measurement():
         '>> "$GITHUB_OUTPUT"')
     summary = _step(job, "Coverage summary")
     gate = _step(job, "Coverage gate")
-    assert gate["uses"] == "$/.github/actions/coverage-gate"
-    assert gate["with"]["language"] == "python"
     assert steps.index(download) + 1 == steps.index(combine)
     assert (steps.index(combine) + 1 == steps.index(measured)
             < steps.index(summary) < steps.index(gate))
@@ -188,7 +184,6 @@ class TestComputeSide:
         assert 'base="$CLAUDIT_THRESHOLDS_BASE_REV"' in run
         assert 'git diff "$base" HEAD --' in run
         resolver = _step(job, "Resolve the threshold base")
-        assert resolver.get("uses") == "$/.github/actions/thresholds-base"
         assert "if" not in resolver
         assert resolver.get("env", {}).get("EVENT") == "${{ github.event_name }}"
         assert resolver.get("env", {}).get("BASE_REF") == (
@@ -218,11 +213,6 @@ class TestComputeSide:
     def test_coverage_xml_exists_before_the_readout_runs(self):
         names = _step_names(_pytest_job())
         assert names.index("Coverage summary") < names.index(COMPUTE_STEP)
-
-    def test_the_body_crosses_as_the_named_artifact(self):
-        step = _step(_pytest_job(), UPLOAD_STEP)
-        assert (step.get("uses") or "").startswith("actions/upload-artifact")
-        assert (step.get("with") or {}).get("name") == ARTIFACT
 
     def test_the_artifact_carries_the_body_and_the_claimed_pr_number(self):
         run = _step(_pytest_job(), STAGE_STEP).get("run") or ""

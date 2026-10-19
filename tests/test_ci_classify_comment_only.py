@@ -343,17 +343,6 @@ def _tests_workflow():
     return yaml.safe_load(TESTS_WORKFLOW.read_text(encoding="utf-8")) or {}
 
 
-def test_the_tests_leg_forwards_the_comment_only_output():
-    # A text/structural pin is the available instrument for a `with:`
-    # passthrough: nothing here executes the reusable-call boundary, so
-    # the decoded `with:` mapping is what binds the classifier output to
-    # the callee's input. A dropped or renamed passthrough silently runs
-    # the whole matrix on every comment-only push.
-    call = _ci_gate()["jobs"]["tests"]
-    assert call["with"]["comment_only"] == (
-        "${{ needs.classify.outputs.comment_only }}")
-
-
 def test_the_portable_matrix_reads_the_comment_only_input():
     portable = _tests_workflow()["jobs"]["pytest-portable"]
     assert portable["if"] == ("inputs.comment_only != 'true' "

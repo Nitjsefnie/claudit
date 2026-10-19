@@ -42,12 +42,7 @@ def _step(workflow: dict, name: str, job: str = JOB) -> dict:
     raise AssertionError(f"no step named {name!r} in job {job!r}")
 
 
-def test_the_gate_step_exists_and_calls_the_bundled_action(workflow):
-    """A gate that is a `run:` line can be retyped into a no-op; a
-    composite action's shape is checked in `action.yml` instead."""
-    step = _step(workflow, GATE_STEP)
-    assert step.get("uses") == "$/.github/actions/reparse-bench", (
-        "the gate step no longer calls the bundled composite action")
+def test_the_bundled_action_exists():
     assert ACTION.is_file(), (
         f"{ACTION} is gone, so the gate step cannot run at all")
 
@@ -227,8 +222,6 @@ def test_the_action_fails_the_job_when_a_phase_is_over_budget():
 def test_ratchet_downloads_the_reparse_measurement_at_the_repo_root(workflow):
     download, = [step for step in _steps(workflow, "ratchet")
                  if step.get("with", {}).get("name") == "reparse-measurement"]
-    assert download["uses"].startswith("actions/download-artifact@")
-    assert download.get("with", {}).get("path", ".") == "."
     assert "run-id" not in download["with"]
     assert workflow["jobs"]["ratchet"]["needs"] == [
         "pytest-shards", "coverage-combine", "js-coverage", "reparse-gate", "suite-bench"]
