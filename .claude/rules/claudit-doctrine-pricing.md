@@ -284,7 +284,8 @@ same rules:
   price already has any promotional discount applied; the discount goes
   in `note` (`N% off`), never a rate. Cache writes take the listed
   write price when nonzero, else the input rate; an unlisted cache-read
-  price is 0. A listed `input_cache_write_1h` is the `create_1h` rate,
+  price is the input rate: a host that does not list a cache-read price
+  bills cache reads at its fresh rate. A listed `input_cache_write_1h` is the `create_1h` rate,
   the one number the TTL split turns on (SV-COST-SPLIT); absent or
   zero, the 5m tier is it too, so a listing that does not split them
   changes nothing. A host whose listing splits them is sampled, never
@@ -367,7 +368,7 @@ same rules:
   - **Change points to entries.** A series' state at an instant is each
     field's newest value at or before it, and exists once `input` and
     `output` both have a point. Each instant at which the five rates
-    change — normalised like the listing: cache read null/absent is 0,
+    change — normalised like the listing: cache read null/absent is the input rate,
     cache write null/absent/0 is the input rate, values rounded to 10
     decimal places — is one entry, `from` truncated to whole seconds
     (points in one second collapse to its last state). A discount-only

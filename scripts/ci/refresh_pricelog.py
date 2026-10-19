@@ -120,7 +120,7 @@ def _rates(state: dict[str, float | None]) -> dict[str, float] | None:
     return {
         "fresh": _rounded(fresh), "create_5m": _rounded(create),
         "create_1h": _rounded(create),
-        "read": _rounded(0 if cache_read is None else cache_read),
+        "read": _rounded(fresh if cache_read is None else cache_read),
         "output": _rounded(output),
     }
 

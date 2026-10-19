@@ -13,7 +13,7 @@ also uses this module for endpoint tag/region normalisation and weekly
 schedule coverage checks for first-seen hosts.
 
 Cache writes take the listed write price when it is nonzero, the input
-rate otherwise; no listed cache-read price is 0. OpenRouter lists USD per
+rate otherwise; an unlisted cache-read price is the input rate. OpenRouter lists USD per
 token as a decimal string and the table is USD per million tokens, so
 Decimal keeps "0.0000001275" exactly 0.1275.
 """
@@ -216,12 +216,12 @@ def rates_of(price: dict, where: str) -> dict:
     """The token rates and optional per-search rate of one listing.
 
     Cache writes take the listed write
-    price when it is nonzero, the input rate otherwise; no listed cache-read
-    price is 0. The 1h write takes the listed 1h price when there is one,
+    price when it is nonzero, the input rate otherwise; an unlisted cache-read
+    price is the input rate. The 1h write takes the listed 1h price when there is one,
     else the 5m tier: a listing that splits them states both."""
     fresh = _per_million(price.get("prompt"), where)
     output = _per_million(price.get("completion"), where)
-    read = _per_million(price["input_cache_read"], where) if "input_cache_read" in price else 0.0
+    read = _per_million(price["input_cache_read"], where) if "input_cache_read" in price else fresh
     write = (_per_million(price["input_cache_write"], where)
              if "input_cache_write" in price else 0.0)
     create = write or fresh
