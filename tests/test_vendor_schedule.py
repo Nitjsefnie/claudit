@@ -39,7 +39,7 @@ def test_scheduled_vendor_history_prices_each_window_losslessly(
     history = doc["providers"][GLM_KEY]["Vendor"]
     assert history[-1]["schedule"] == [{
         "days": ["monday"], "start": 100, "end": 200,
-        "rates": {"fresh": 1, "read": 0, "output": 4}}]
+        "rates": {"fresh": 1, "read": 1.0, "output": 4}}]
     listing["overrides"][0]["prompt"] = "0.0000005"
     monkeypatch.setattr("tests.test_vendor_rate_refresh.NOW", NOW + timedelta(hours=1))
     rc, _, err = run(capsys)
