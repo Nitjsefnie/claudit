@@ -34,7 +34,6 @@
     "deepseek-v4-1-flash via BaseTen: rule-resolved (bare namespace): took the bare namespace endpoint 'baseten' over service tiers 'baseten/fast'",
     "deepseek-v4-1-flash via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-1-flash via Fireworks: rule-resolved (data region): the global data region leaves 'fireworks'; dropped 'fireworks/us'",
-    "deepseek-v4-1-flash-1017 via Alibaba: first seen inside one of its windows, whose schedule covers the whole week: no record is ever priced by the entry default, so the default starts as the listed top-level price",
     "deepseek-v4-1-flash-1017 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-flash-0731 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "deepseek-v4-flash-0731 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
@@ -449,8 +448,7 @@
       "Reka"
     ],
     "glm-5-2": [
-      "InferenceNet",
-      "Relace"
+      "InferenceNet"
     ],
     "glm-5-3": [
       "OpenInference"
