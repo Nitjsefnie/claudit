@@ -129,10 +129,16 @@ def test_combined_coverage_feeds_every_python_measurement():
     download, = [step for step in steps
                  if step.get("uses", "").startswith("actions/download-artifact@")]
     assert download["with"] == {
-        "pattern": "coverage-shard-*", "path": "shard-data/",
-        "github-token": "${{ secrets.GITHUB_TOKEN }}"}
+        "pattern": "coverage-shard-*", "path": "shard-data/"}
+    validator = _step(job, "Validate the shard data")
+    assert "if" not in validator
+    assert "continue-on-error" not in validator
+    assert 'for i in 1 2 3 4; do' in validator["run"]
+    assert 'compgen -G "shard-data/coverage-shard-$i/.coverage.*"' in validator["run"]
     combine, = [step for step in steps
                 if step.get("run", "").strip().startswith("python -m coverage combine ")]
+    assert "if" not in combine
+    assert "continue-on-error" not in combine
     assert combine["run"].strip() == "python -m coverage combine shard-data/coverage-shard-*"
     measured, = [step for step in steps if step.get("id") == "measured"]
     assert measured["run"].strip() == (
@@ -142,10 +148,49 @@ def test_combined_coverage_feeds_every_python_measurement():
     gate = _step(job, "Coverage gate")
     assert gate["uses"] == "$/.github/actions/coverage-gate"
     assert gate["with"]["language"] == "python"
-    assert (steps.index(download) < steps.index(combine) < steps.index(measured)
+    assert (steps.index(download) + 1 == steps.index(validator)
+            and steps.index(validator) + 1 == steps.index(combine))
+    assert (steps.index(combine) < steps.index(measured)
             < steps.index(summary) < steps.index(gate))
     for step in (summary, _step(job, "Upload coverage.xml"), gate):
         assert step["if"] == "${{ !cancelled() }}"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the canary validator runs under Bash")
+@pytest.mark.parametrize("missing", [None, 1, 2, 3, 4])
+def test_shard_validator_requires_every_shard(tmp_path, missing):
+    for shard in (1, 2, 3, 4):
+        if shard != missing:
+            path = tmp_path / f"shard-data/coverage-shard-{shard}/.coverage.{shard}"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"coverage data")
+    run = _step(_pytest_job(), "Validate the shard data")["run"]
+    result = subprocess.run(["bash", "-e", "-c", run], cwd=tmp_path,
+                            capture_output=True, text=True, check=False)
+    if missing is None:
+        assert result.returncode == 0, result.stderr
+    else:
+        assert result.returncode != 0
+        assert f"shard {missing}" in result.stderr
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the canary validator runs under Bash")
+@pytest.mark.parametrize("extra", ["file", "directory"])
+def test_shard_validator_refuses_duplicate_or_nonfile_data(tmp_path, extra):
+    for shard in (1, 2, 3, 4):
+        path = tmp_path / f"shard-data/coverage-shard-{shard}/.coverage.{shard}"
+        path.parent.mkdir(parents=True)
+        if shard == 3 and extra == "directory":
+            path.mkdir()
+        else:
+            path.write_bytes(b"coverage data")
+    if extra == "file":
+        (tmp_path / "shard-data/coverage-shard-3/.coverage.duplicate").write_bytes(b"extra")
+    run = _step(_pytest_job(), "Validate the shard data")["run"]
+    result = subprocess.run(["bash", "-e", "-c", run], cwd=tmp_path,
+                            capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+    assert "shard 3" in result.stderr
 
 
 def _comment_job():

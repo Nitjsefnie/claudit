@@ -138,9 +138,12 @@ def test_canary_skips_only_the_unrelated_gates():
     assert 'needs' not in jobs['baselines']
     steps = {step.get('name'): step for step in jobs['baselines']['steps']}
     for name in ('Module size baseline', 'Pylint suppression baseline'):
-        assert steps[name]['if'] == "inputs.thresholds_only != 'true'"
+        assert steps[name]['if'] == "${{ !cancelled() && inputs.thresholds_only != 'true' }}"
     assert steps['Threshold direction guard']['if'] == (
-        "github.event_name == 'pull_request' || github.event_name == 'push'")
+        "${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}")
+    for step in jobs['js-coverage']['steps']:
+        if step.get('name') in ('Comment share baseline', 'JavaScript coverage gate'):
+            assert step['if'] == '${{ !cancelled() }}'
     assert jobs['pytest-portable']['if'] == (
         "inputs.comment_only != 'true' && inputs.thresholds_only != 'true'")
 
@@ -159,7 +162,8 @@ def test_shards_cover_four_partitions_and_publish_even_after_failure():
                if step.get('with', {}).get('name') == 'coverage-shard-${{ matrix.shard }}']
     assert upload['if'] == '${{ !cancelled() }}'
     assert upload['with'] == {
-        'name': 'coverage-shard-${{ matrix.shard }}', 'path': 'shard-coverage/',
+        'name': 'coverage-shard-${{ matrix.shard }}',
+        'path': 'shard-coverage/.coverage.${{ matrix.shard }}',
         'include-hidden-files': 'true', 'if-no-files-found': 'error', 'retention-days': '1'}
 
 
