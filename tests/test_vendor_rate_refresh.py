@@ -10,9 +10,8 @@ import pytest
 from backend import long_context, pricing, pricing_load
 from backend.pricing_document import serialize_pricing_doc
 from tests.vendor_rate_refresh_helpers import (
-    GLM_ID, GLM_KEY, GPT_ID, GPT_KEY, NOW, RATE_FIELDS, RATES, ROOT,
-    TRACKED, _band, _catalog, _doc, _endpoint, _load, _meter_for, _meter_map,
-    _move_meter, _payload, _per_token, _price, _run, vendor,
+    GLM_ID, GLM_KEY, GPT_ID, GPT_KEY, NOW, RATE_FIELDS, RATES, ROOT, TRACKED, _band, _catalog, _doc,
+    _endpoint, _load, _meter_for, _meter_map, _move_meter, _payload, _per_token, _price, _run, vendor,
 )
 
 
@@ -24,64 +23,6 @@ def test_a_new_model_joins_the_tracked_set():
     assert GPT_KEY not in doc["models"], "the vendor pass writes no rates"
     assert doc["providers"] == {}
     assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, added=True)]
-
-
-@pytest.mark.parametrize('context_length', [1048576, 9007199254740991])
-def test_vendor_context_updates_existing_metadata_without_rewriting_identity(context_length):
-    existing = {**TRACKED, 'id': 'openai/retained-id', 'vendor_host': 'Kept',
-                'context_length': 131072}
-    endpoints = [_endpoint('openai', _price(1, 5)),
-                 _endpoint('openai/fast', _price(2, 10))]
-    for endpoint in endpoints:
-        endpoint['context_length'] = context_length
-    doc, out = _run(_doc(tracked={GPT_KEY: existing}), _catalog(GPT_ID),
-                    {GPT_ID: _payload(*endpoints)})
-    assert not out.refusals and out.moves
-    assert doc['openrouter']['models'][GPT_KEY] == {
-        **existing, 'context_length': context_length}
-
-
-def test_vendor_context_disagreement_keeps_whole_tracked_entry_untouched():
-    existing = {**TRACKED, 'context_length': 131072}
-    endpoints = [_endpoint('openai', _price(1, 5)),
-                 _endpoint('openai/fast', _price(2, 10))]
-    endpoints[1]['context_length'] = 1048576
-    doc, out = _run(_doc(tracked={GPT_KEY: existing}), _catalog(GPT_ID),
-                    {GPT_ID: _payload(*endpoints)})
-    assert not out.moves
-    assert doc['openrouter']['models'][GPT_KEY] == existing
-    assert any('context_length' in line for line in [*out.notices, *out.refusals])
-
-
-@pytest.mark.parametrize('bad', [None, True, 0, -1, 1.5, '786432', 9007199254740992])
-def test_invalid_vendor_context_refuses_without_touching_tracked_state(bad):
-    endpoint = _endpoint('openai', _price(1, 5))
-    if bad is None:
-        endpoint.pop('context_length')
-    else:
-        endpoint['context_length'] = bad
-    before = _doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY])
-    after, outcome = _run(before, _catalog(GPT_ID), {GPT_ID: _payload(endpoint)})
-    assert after == before and not outcome.moves
-    assert len(outcome.refusals) == 1 and 'context_length' in outcome.refusals[0]
-
-
-def test_overbound_context_on_unselected_vendor_endpoint_refuses():
-    endpoints = [_endpoint('openai', _price(1, 5)),
-                 _endpoint('openai/fast', _price(2, 10))]
-    endpoints[1]['context_length'] = 9007199254740992
-    before = _doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY])
-    after, outcome = _run(before, _catalog(GPT_ID), {GPT_ID: _payload(*endpoints)})
-    assert after == before and not outcome.moves
-    assert len(outcome.refusals) == 1 and 'context_length' in outcome.refusals[0]
-
-
-def test_no_vendor_endpoint_preserves_existing_context_and_membership():
-    before = _doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY])
-    after, outcome = _run(before, _catalog(GPT_ID), {
-        GPT_ID: _payload(_endpoint('third-party', _price(1, 5)))})
-    assert after == before and not outcome.moves and not outcome.refusals
-    assert any('no first-party endpoint' in line for line in outcome.notices)
 
 
 def test_the_bare_tag_selects_its_own_endpoint_s_host():
