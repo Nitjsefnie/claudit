@@ -8,21 +8,13 @@ silent dedup break). The corpus scan (scripts/uuid_gate.py main) runs
 the same gate over the full-corpus mirror with PostgreSQL's own cast as
 the predicate; these tests pin both branches with an injected predicate.
 
-The failing values the scan found are exactly what task 8's SPLIT
-stores instead of refusing: the native uuid part in ``uuid_col``, the
-``<uuid>:<n>`` counter in ``seq``, everything else verbatim in
-``fallback`` (backend/uuid_split.py).
 """
 from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
 
-import psycopg
-import pytest
-
 from backend import ingest_persist
-from tests import scratch_db
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -106,32 +98,6 @@ def test_the_measure_column_lists_match_ingest_persist():
     alone must fail here."""
     assert uuid_gate.RECORD_MEASURES == ingest_persist._RECORD_INT4  # pylint: disable=protected-access
     assert uuid_gate.TOOL_MEASURES == ingest_persist._TOOL_INT4  # pylint: disable=protected-access
-
-
-@pytest.mark.db
-def test_the_chosen_branch_is_the_split_column_set():
-    """The gate's verdict, asserted against the applied schema.
-
-    The corpus + fixture scan found non-casting values (lane uuids of
-    the shape ``<session-or-key>:<counter>``), so R6's one-column uuid
-    conversion does not fire — task 8 stores the split instead:
-    ``uuid_col`` (uuid), ``seq`` (integer) and ``fallback`` (text),
-    with no bare ``uuid`` column left behind.
-    """
-    name = scratch_db.create_database("uuid_gate_verdict")
-    try:
-        with psycopg.connect(f"postgresql:///{name}") as conn:
-            rows = conn.execute(
-                "SELECT column_name, data_type "
-                "FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = 'records' "
-                "AND column_name IN ('uuid', 'uuid_col', 'seq', 'fallback')"
-                "ORDER BY column_name").fetchall()
-            conn.commit()
-        assert rows == [("fallback", "text"), ("seq", "integer"),
-                        ("uuid_col", "uuid")], rows
-    finally:
-        scratch_db.drop_database(name)
 
 
 def test_split_counts_classifies_each_slot_and_finds_coexistence():

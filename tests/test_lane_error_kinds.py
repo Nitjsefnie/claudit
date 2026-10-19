@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from backend import parse
 from backend.tool_errors import ERROR_TEXT_MAX, classify_lane_error
 
@@ -29,27 +31,15 @@ def _tool_uses(blob: bytes) -> list[dict]:
 # --------------------------------------------------------------------------
 
 
-def test_lane_classifier_defaults_a_ran_and_failed_call_to_tool_error():
-    assert classify_lane_error("Script failed to start: exit 1") == (
-        "tool_error"
-    )
-    assert classify_lane_error("collab spawn failed: no such agent") == (
-        "tool_error"
-    )
-
-
-def test_lane_classifier_honours_the_harness_generic_markers():
-    assert classify_lane_error(
-        "The user doesn't want to proceed with this tool use"
-    ) == "rejected"
-    assert classify_lane_error("Exit code 1") == "tool_error"
-    assert classify_lane_error("<tool_use_error>InputValidationError"
-                               "</tool_use_error>") == "tool_error"
-
-
-def test_lane_classifier_keeps_a_textless_failure_at_failed():
-    assert classify_lane_error("") == "failed"
-    assert classify_lane_error("   \n  ") == "failed"
+@pytest.mark.parametrize("text,kind", [
+    ("The user doesn't want to proceed with this tool use", "rejected"),
+    ("Exit code 1", "tool_error"),
+    ("<tool_use_error>InputValidationError</tool_use_error>", "tool_error"),
+    ("", "failed"),
+    ("   \n  ", "failed"),
+], ids=["rejected", "exit-code", "tool-use-error", "empty", "whitespace"])
+def test_lane_classifier_honours_the_harness_generic_markers(text, kind):
+    assert classify_lane_error(text) == kind
 
 
 # --------------------------------------------------------------------------
@@ -81,23 +71,25 @@ def _codex_blob(output_text: str | None) -> bytes:
     return b"".join(json.dumps(line).encode() + b"\n" for line in lines)
 
 
-def test_codex_failed_script_classifies_tool_error():
-    tus = _tool_uses(_codex_blob(
-        "Script failed with exit code 2\nstderr tail"))
+@pytest.mark.parametrize("output,is_error,kind,error_prefix", [
+    ("Script failed with exit code 2\nstderr tail", True, "tool_error",
+     "Script failed with exit code 2"),
+    ("Script completed\nWall time 1.0 seconds", False, None, None),
+    (None, None, None, None),
+], ids=["failed-script", "successful-call", "unsettled-call"])
+def test_codex_result_classification(output, is_error, kind, error_prefix):
+    tus = _tool_uses(_codex_blob(output))
     assert len(tus) == 1
     tu = tus[0]
-    assert tu["is_error"] is True
-    assert tu["error_kind"] == "tool_error"
-    assert tu["error_text"].startswith("Script failed with exit code 2")
-
-
-def test_codex_successful_call_keeps_error_kind_null():
-    tus = _tool_uses(_codex_blob("Script completed\nWall time 1.0 seconds"))
-    assert len(tus) == 1
-    tu = tus[0]
-    assert tu["is_error"] is False
-    assert tu["error_kind"] is None
-    assert tu["error_text"] is None
+    assert tu["is_error"] is is_error
+    if kind is None:
+        assert tu["error_kind"] is None
+    else:
+        assert tu["error_kind"] == kind
+    if error_prefix is not None:
+        assert tu["error_text"].startswith(error_prefix)
+    elif is_error is False:
+        assert tu["error_text"] is None
 
 
 def _kimi_code_blob(result: dict | None) -> bytes:
@@ -118,14 +110,21 @@ def _kimi_code_blob(result: dict | None) -> bytes:
     return b"".join(json.dumps(line).encode() + b"\n" for line in lines)
 
 
-def test_kimi_code_errored_result_with_text_classifies_tool_error():
+@pytest.mark.parametrize("is_error,text,kind", [
+    (True, "command not found", "tool_error"),
+    (False, "done", None),
+], ids=["errored-result", "successful-result"])
+def test_kimi_code_result_classification(is_error, text, kind):
     tus = _tool_uses(_kimi_code_blob(
-        {"isError": True,
-         "output": [{"type": "text", "text": "command not found"}]}))
+        {"isError": is_error, "output": [{"type": "text", "text": text}]}))
     assert len(tus) == 1
-    assert tus[0]["is_error"] is True
-    assert tus[0]["error_kind"] == "tool_error"
-    assert tus[0]["error_text"] == "command not found"
+    assert tus[0]["is_error"] is is_error
+    if kind is None:
+        assert tus[0]["error_kind"] is None
+    else:
+        assert tus[0]["error_kind"] == kind
+    if is_error:
+        assert tus[0]["error_text"] == text
 
 
 def test_kimi_code_textless_errored_result_stays_failed():
@@ -134,15 +133,6 @@ def test_kimi_code_textless_errored_result_stays_failed():
     assert tus[0]["is_error"] is True
     assert tus[0]["error_kind"] == "failed"
     assert tus[0]["error_text"] is None
-
-
-def test_kimi_code_successful_result_keeps_error_kind_null():
-    tus = _tool_uses(_kimi_code_blob(
-        {"isError": False,
-         "output": [{"type": "text", "text": "done"}]}))
-    assert len(tus) == 1
-    assert tus[0]["is_error"] is False
-    assert tus[0]["error_kind"] is None
 
 
 def _legacy_blob(return_value: object) -> bytes:
@@ -159,28 +149,19 @@ def _legacy_blob(return_value: object) -> bytes:
     return b"".join(json.dumps(line).encode() + b"\n" for line in lines)
 
 
-def test_legacy_errored_result_classifies_from_its_output():
-    tus = _tool_uses(_legacy_blob({"is_error": True, "output": "nope"}))
+@pytest.mark.parametrize("is_error,text,kind", [
+    (True, "nope", "tool_error"), (False, "ok", None),
+], ids=["errored-result", "successful-result"])
+def test_legacy_result_classification(is_error, text, kind):
+    tus = _tool_uses(_legacy_blob({"is_error": is_error, "output": text}))
     assert len(tus) == 1
-    assert tus[0]["is_error"] is True
-    assert tus[0]["error_kind"] == "tool_error"
-    assert tus[0]["error_text"] == "nope"
-
-
-def test_legacy_successful_result_keeps_error_kind_null():
-    tus = _tool_uses(_legacy_blob({"is_error": False, "output": "ok"}))
-    assert len(tus) == 1
-    assert tus[0]["is_error"] is False
-    assert tus[0]["error_kind"] is None
-
-
-def test_a_lane_row_without_a_result_stays_unsettled():
-    """is_error NULL (no tool_result in the file at all): not a settled
-    call, so no kind — the same contract as the Claude path."""
-    tus = _tool_uses(_codex_blob(None))
-    assert len(tus) == 1
-    assert tus[0]["is_error"] is None
-    assert tus[0]["error_kind"] is None
+    assert tus[0]["is_error"] is is_error
+    if kind is None:
+        assert tus[0]["error_kind"] is None
+    else:
+        assert tus[0]["error_kind"] == kind
+    if is_error:
+        assert tus[0]["error_text"] == text
 
 
 def test_error_text_is_truncated_to_the_kept_prefix():

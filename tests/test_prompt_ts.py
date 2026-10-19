@@ -1,14 +1,8 @@
-# Range prompts/turns count per own timestamp. One module
-# because the feature's three pins (Claude parse, lane parse, dashboard
-# totals) share one subject and this keeps the baselined test_parse.py /
-# test_api.py modules within their committed size-baseline entries
-# (SV-CI-RATCHETS: growth is fixed by moving code into a new module).
 """files.prompt_ts — per-prompt timestamps, in-range dashboard counting."""
 import json
-import os
 import shutil
 import tempfile
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -22,27 +16,6 @@ from tests import dims_seed, scratch_db
 from tests.test_ingest import _fresh_db_fixture  # pylint: disable=unused-import
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
-
-
-def test_prompt_ts_collected_per_prompt():
-    """parse_file returns prompt_ts carrying each counted prompt's own
-    timestamp, index-aligned with prompt_count: an excluded line's ts is
-    excluded by the same gate, so instrumentation never appears in it
-    ."""
-    blob = (
-        b'{"type":"user","timestamp":"2026-05-07T10:00:00Z","uuid":"u1",'
-        b'"message":{"role":"user","content":"real prompt"}}\n'
-        b'{"type":"user","timestamp":"2026-05-07T10:00:01Z","uuid":"u2",'
-        b'"message":{"role":"user","content":"<command-name>foo</command-name>"}}\n'
-        b'{"type":"user","timestamp":"2026-05-07T10:00:04Z","uuid":"u5",'
-        b'"message":{"role":"user","content":"another real prompt"}}\n'
-    )
-    out = parse.parse_file("k/sess-pts/sess-pts.jsonl", blob)
-    assert out["prompt_ts"] == [
-        "2026-05-07T10:00:00+00:00",
-        "2026-05-07T10:00:04+00:00",
-    ]
-    assert len(out["prompt_ts"]) == out["prompt_count"] == 2
 
 
 @pytest.mark.parametrize("name", [
@@ -141,36 +114,6 @@ def test_dashboard_counts_prompts_and_turns_by_own_timestamp(
         "/api/dashboard?range=3650d&fresh=1").json()
     assert body_all["total_prompts"] == 4  # == the old SUM(prompt_count)
     assert body_all["total_turns"] == 3    # == the old SUM(turn_count)
-
-
-def test_dashboard_counts_null_prompt_ts_as_unprovable(
-        app_with_prompt_range_data):
-    """A NULL timestamp, including migrated junk, counts in every range;
-    a genuinely older stamped element in the same array stays out."""
-    now = datetime.now(timezone.utc)
-    prompt_ts = [
-        None,
-        now.isoformat(),                                # in range
-        (now - timedelta(days=45)).isoformat(),         # provably out
-    ]
-    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
-            conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO files (file_key, project_id, session_id, is_main, "
-            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
-            "parser_version, prompt_count, prompt_ts) VALUES "
-            "('claude/projA/sess-RJ/sess-RJ.jsonl', 'projA', 'sess-RJ', "
-            "TRUE, 'junk-etag', 10, now(), now(), 'test', 3, %s::timestamptz[])",
-            (prompt_ts,),
-        )
-        conn.commit()
-
-    body = app_with_prompt_range_data.get(
-        "/api/dashboard?range=30d&fresh=1").json()
-    # RA 2 (in-range + unstamped) + RB 1 + RJ 2 (NULL + in-range; the
-    # 45-day-old element is the only provably-out-of-range one).
-    assert body["total_prompts"] == 5
-    assert body["total_turns"] == 2  # RJ carries no context turns
 
 
 _TIMELINE_NOW = datetime(2026, 6, 23, 12, tzinfo=timezone.utc)

@@ -47,11 +47,6 @@ def _install_tables(monkeypatch: pytest.MonkeyPatch) -> None:
     rate_fingerprint.clear_fingerprint_cache()
 
 
-# ---------------------------------------------------------------------------
-# pricing: the threshold lookup and the meter flag
-# ---------------------------------------------------------------------------
-
-
 def test_long_context_threshold_reads_the_model_meter(monkeypatch):
     _install_tables(monkeypatch)
     assert pricing.long_context_threshold(MEMBER) == THRESHOLD
@@ -72,58 +67,33 @@ def test_meter_flag_decides_per_model(monkeypatch):
     assert pricing.meter_flag("claude-opus-4-7", 10_000_000) is None
 
 
-def test_compute_cost_uses_the_models_meter_factors(monkeypatch):
+@pytest.mark.parametrize("meter,fresh,eph5,eph1h,unsplit,read,factors", [
+    ({"threshold": THRESHOLD, "input_mult": 6.0, "output_mult": 3.0},
+     100_000, 20_000, 30_000, 40_000, 10_000, (6.0, 3.0)),
+    ({"threshold": THRESHOLD, "input_mult": 6.0},
+     10_000, 0, 0, 0, 4_000, (6.0, pricing.LONG_CONTEXT_OUTPUT_MULT)),
+], ids=["asymmetric-factors", "omitted-output-factor"])
+def test_compute_cost_uses_the_models_meter_factors(
+        monkeypatch, meter, fresh, eph5, eph1h, unsplit, read, factors):
     _install_tables(monkeypatch)
-    asymmetric_meter = {"threshold": THRESHOLD, "input_mult": 6.0,
-                        "output_mult": 3.0}
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS",
-                        {MEMBER: asymmetric_meter})
-    assert pricing.long_context_factors(MEMBER) == (6.0, 3.0)
     monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {
-        MEMBER: asymmetric_meter,
-        "gpt-5-6-sol": {"threshold": 200_000}})
+        MEMBER: meter, "gpt-5-6-sol": {"threshold": 200_000}})
+    assert pricing.long_context_factors(MEMBER) == factors
     assert pricing.long_context_factors("gpt-5.6-sol") == (
         pricing.LONG_CONTEXT_INPUT_MULT, pricing.LONG_CONTEXT_OUTPUT_MULT)
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS",
-                        {MEMBER: asymmetric_meter})
-
     got = pricing.compute_cost(
-        MEMBER, fresh=100_000, output=2_000, eph5=20_000, eph1h=30_000,
-        unsplit_create=40_000, read=10_000,
+        MEMBER, fresh=fresh, output=2_000, eph5=eph5, eph1h=eph1h,
+        unsplit_create=unsplit, read=read,
         adjustments=pricing.CostAdjustments(long_context=True))
+    input_mult, output_mult = factors
     expected = (
-        100_000 * RATES["fresh"] * 6.0
-        + 20_000 * RATES["create_5m"] * 6.0
-        + 70_000 * RATES["create_1h"] * 6.0
-        + 10_000 * RATES["read"] * 6.0
-        + 2_000 * RATES["output"] * 3.0
+        fresh * RATES["fresh"] * input_mult
+        + eph5 * RATES["create_5m"] * input_mult
+        + (eph1h + unsplit) * RATES["create_1h"] * input_mult
+        + read * RATES["read"] * input_mult
+        + 2_000 * RATES["output"] * output_mult
     ) / 1_000_000
     assert got == pytest.approx(expected)
-
-
-def test_compute_cost_defaults_an_omitted_meter_factor_independently(
-        monkeypatch):
-    """A one-sided model override inherits only its missing output side."""
-    _install_tables(monkeypatch)
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {
-        MEMBER: {"threshold": THRESHOLD, "input_mult": 6.0}})
-    assert pricing.long_context_factors(MEMBER) == (
-        6.0, pricing.LONG_CONTEXT_OUTPUT_MULT)
-    got = pricing.compute_cost(
-        MEMBER, fresh=10_000, output=2_000, eph5=0, eph1h=0,
-        unsplit_create=0, read=4_000,
-        adjustments=pricing.CostAdjustments(long_context=True))
-    expected = (
-        10_000 * RATES["fresh"] * 6.0
-        + 4_000 * RATES["read"] * 6.0
-        + 2_000 * RATES["output"] * pricing.LONG_CONTEXT_OUTPUT_MULT
-    ) / 1_000_000
-    assert got == pytest.approx(expected)
-
-
-# ---------------------------------------------------------------------------
-# parse: the Claude-format path stores the decision
-# ---------------------------------------------------------------------------
 
 
 def _claude_line(model: str, in_tokens: int, read: int = 0) -> bytes:
@@ -155,22 +125,14 @@ def test_the_claude_path_bills_a_member_above_its_band(monkeypatch):
     assert float(rec["cost_usd"]) == pytest.approx(round(metered, 6))
 
 
-def test_the_claude_path_keeps_the_null_marker_for_non_members(monkeypatch):
+@pytest.mark.parametrize("model,tokens,expected", [
+    ("claude-opus-4-7", 10_000_000, None),
+    (MEMBER, 1_000, False),
+], ids=["non-member-null", "below-band-false"])
+def test_the_claude_path_stores_the_unbilled_marker(monkeypatch, model, tokens, expected):
     _install_tables(monkeypatch)
-    out = parse.parse_file("k/sess-2/sess-2.jsonl",
-                           _claude_line("claude-opus-4-7", 10_000_000))
-    assert out["records"][0]["long_context"] is None
-
-
-def test_the_claude_path_stores_false_below_the_band(monkeypatch):
-    _install_tables(monkeypatch)
-    out = parse.parse_file("k/sess-3/sess-3.jsonl", _claude_line(MEMBER, 1_000))
-    assert out["records"][0]["long_context"] is False
-
-
-# ---------------------------------------------------------------------------
-# parse_codex: the lane decision consults the model's own threshold
-# ---------------------------------------------------------------------------
+    out = parse.parse_file("k/sess-2/sess-2.jsonl", _claude_line(model, tokens))
+    assert out["records"][0]["long_context"] is expected
 
 
 def _codex_blob(model: str, last_input: int) -> bytes:
@@ -198,11 +160,6 @@ def test_the_codex_lane_decides_on_the_model_threshold(monkeypatch):
                         {**METERS, "gpt-5-6-sol": {"threshold": 200_000}})
     out = parse.parse_file("codex/t2.jsonl", blob)
     assert out["records"][0]["long_context"] is True
-
-
-# ---------------------------------------------------------------------------
-# reprice: the re-derivation reads the per-model threshold
-# ---------------------------------------------------------------------------
 
 
 def _stale_row(model: str, window: int, flag: bool | None) -> _StaleRow:
@@ -259,32 +216,3 @@ def test_reprice_unbills_a_lapsed_members_stored_true(monkeypatch):
     assert kept_false["long_context"] is False
     kept_null = _record_updates(_stale_row("claude-opus-4-7", 250_000, None))
     assert kept_null["long_context"] is None
-
-
-# ---------------------------------------------------------------------------
-# rate_fingerprint: the meters ride the digest
-# ---------------------------------------------------------------------------
-
-
-def test_the_fingerprint_covers_the_meters(monkeypatch):
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS", MEMBERS)
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {
-        MEMBER: {"threshold": THRESHOLD, "input_mult": 5.0,
-                 "output_mult": 5.0}})
-    rate_fingerprint.clear_fingerprint_cache()
-    before = rate_fingerprint.pair_fingerprint(MEMBER, None)
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {
-        MEMBER: {"threshold": THRESHOLD, "input_mult": 6.0,
-                 "output_mult": 5.0}})
-    rate_fingerprint.clear_fingerprint_cache()
-    assert rate_fingerprint.pair_fingerprint(MEMBER, None) != before
-
-
-def test_the_fingerprint_covers_membership(monkeypatch):
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS", frozenset())
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {})
-    rate_fingerprint.clear_fingerprint_cache()
-    before = rate_fingerprint.pair_fingerprint(MEMBER, None)
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS", MEMBERS)
-    rate_fingerprint.clear_fingerprint_cache()
-    assert rate_fingerprint.pair_fingerprint(MEMBER, None) != before

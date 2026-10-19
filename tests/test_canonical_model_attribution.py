@@ -155,57 +155,20 @@ def _replay_rows():
         ).fetchall()
 
 
-def test_a_replayed_copy_loses_to_the_parents_original(
-        fresh_db, monkeypatch, tmp_path):
-    """Parent and fork declare DIFFERENT models, so neither half of the
-    rank can hide: the fork's first declaration is gpt-5.6-terra while the
-    parent ran gpt-5.6-sol, and the fork was spawned with the child's own
-    model (a spawn_agent `model` argument). The replayed uuids' parent
-    copies — carrying the model the parent had in force — win the dedup
-    whatever the key order, so replayed history counts once, as the main
-    session's, under the parent's model; the fork's losing copies ADOPT
-    the parent's model in force, so the stored row a later
-    promotion surfaces agrees with the winner instead of carrying the
-    fork's first declaration."""
-    _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE,
-            _parent_rollout())
-
-    result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
-
-    rows = _replay_rows()
-    # The competition must exist: both copies of each replayed uuid.
-    assert len(rows) == 4, rows
-    by_file = {(u, fk.split("toyproj/")[1]): (m, canon)
-               for u, fk, m, canon in rows}
-    for uuid in REPLAY_UUIDS:
-        fork_model, fork_canon = by_file[(uuid, "sessA/subagents/forkthread/wire.jsonl")]
-        parent_model, parent_canon = by_file[(uuid, "sessA/wire.jsonl")]
-        assert parent_model == "gpt-5.6-sol"
-        assert fork_model == "gpt-5.6-sol"
-        assert parent_canon is True, f"the original copy of {uuid} must win"
-        assert fork_canon is False, f"the replayed copy of {uuid} must lose"
-
-
+@pytest.mark.parametrize("parent_bytes,models", [
+    (_parent_rollout(), ("gpt-5.6-sol", "gpt-5.6-sol")),
+    (_switching_parent_rollout(), ("gpt-5.6-sol", "gpt-5.6-terra")),
+], ids=["uniform-parent-model", "switching-parent-model"])
 def test_a_replayed_copy_takes_the_model_the_parent_had_in_force(
-        fresh_db, monkeypatch, tmp_path):
-    """ core: the fork's first declaration is the model at
-    the fork point, not the model each replayed request ran on. The
-    parent switches sol -> terra mid-history and the fork (cut after the
-    switch) declares terra, so the fork's parse-time copy of the parent's
-    SOL request is wrong and only the parent's copy can correct it."""
-    _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE,
-            _switching_parent_rollout())
-
+        fresh_db, monkeypatch, tmp_path, parent_bytes, models):
+    _mirror(monkeypatch, tmp_path, DIFFERENT_MODEL_FORK_FIXTURE, parent_bytes)
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
-
     rows = _replay_rows()
     assert len(rows) == 4, rows
     by_file = {(u, fk.split("toyproj/")[1]): (m, canon)
                for u, fk, m, canon in rows}
-    for uuid, parent_model in zip(REPLAY_UUIDS,
-                                  ("gpt-5.6-sol", "gpt-5.6-terra")):
+    for uuid, parent_model in zip(REPLAY_UUIDS, models):
         fork_model, fork_canon = by_file[
             (uuid, "sessA/subagents/forkthread/wire.jsonl")]
         stored, parent_canon = by_file[(uuid, "sessA/wire.jsonl")]

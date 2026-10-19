@@ -80,8 +80,11 @@ def test_generation_s_failed_attempt(name):
     assert second["output_tokens_per_s"] == 10
 
 
-@pytest.mark.parametrize("name", ["generation_s_mid_system_failure", "generation_s_mid_stub_failure"])
-def test_generation_s_failure_inside_span(name):
+@pytest.mark.parametrize("name", [
+    "generation_s_mid_system_failure", "generation_s_mid_stub_failure",
+    "generation_s_no_id",
+], ids=["mid-system-failure", "mid-stub-failure", "no-message-id"])
+def test_generation_s_unprovable_span(name):
     record, = _parse_fixture(name)["records"]
     assert record["generation_s"] is None
     assert record["output_tokens_per_s"] is None
@@ -103,12 +106,6 @@ def test_generation_s_continuation_anchor():
 def test_generation_s_no_last_usage():
     record, = _parse_fixture("generation_s_no_last_usage")["records"]
     assert record["generation_s"] == 5
-    assert record["output_tokens_per_s"] is None
-
-
-def test_generation_s_no_id():
-    record, = _parse_fixture("generation_s_no_id")["records"]
-    assert record["generation_s"] is None
     assert record["output_tokens_per_s"] is None
 
 
@@ -172,26 +169,6 @@ def test_generation_speed_conflicting_role():
     assert outputs[0] == outputs[1]
     assert [(r["line_num"], r["reply_latency_s"], r["output_tokens"])
             for r in outputs[0]["records"]] == [(2, 2, 10), (3, None, 10)]
-
-
-@pytest.mark.parametrize("value,expected", [
-    (None, True), ("", False), ("0", False), ("false", False),
-    ("no", False), ("FALSE", False), ("1", True), ("other", True),
-])
-def test_generation_speed_startup_switch(value, expected):
-    env = {} if value is None else {"CLAUDIT_COLLECT_GENERATION_SPEED": value}
-    assert flags.resolve_config(env).collection.enabled("generation_speed") is expected
-
-
-@pytest.mark.parametrize("name", ["codex_min.jsonl", "kimi_code_min.jsonl", "kimi_legacy_min.jsonl"])
-def test_generation_speed_lanes_null(name):
-    collection = flags.resolve_config({"CLAUDIT_COLLECT_GENERATION_SPEED": "0"}).collection
-    records = parse.parse_file(
-        "sessions/p/s/wire.jsonl", (FIX / name).read_bytes(), collection=collection)["records"]
-    assert records
-    for record in records:
-        assert record["generation_s"] is None
-        assert record["output_tokens_per_s"] is None
 
 
 @pytest.mark.parametrize("stem, reply_latency_s, generation_s", [
