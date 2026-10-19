@@ -229,11 +229,24 @@ def _js_rates(js: dict) -> dict:
 
 def test_the_file_has_every_cutover_the_backend_prices_by():
     doc = _doc()
+    priced_cutovers = set()
+    context_only_cutovers = set()
+    for _, _, history in _histories(doc):
+        previous = None
+        for entry in history:
+            state = (tuple(entry.get(field, entry["fresh"])
+                           for field in RATE_FIELDS),
+                     entry.get("web_search", 0), entry.get("schedule"))
+            if entry["from"]:
+                cutovers = (context_only_cutovers if state == previous
+                            else priced_cutovers)
+                cutovers.add(_at(entry["from"]))
+            previous = state
     # Offset spellings are loader-accepted; compare instants (SV-RATE-DATA).
-    assert pricing.RATE_EPOCHS == sorted({
-        _at(entry["from"]) for _, _, history in _histories(doc)
-        for entry in history if entry["from"]
-    })
+    assert pricing.RATE_EPOCHS == sorted(priced_cutovers)
+    # A shared instant may still price another row's actual rate change.
+    assert not (context_only_cutovers - priced_cutovers).intersection(
+        pricing.RATE_EPOCHS)
     assert pricing.PROVIDER_RATES_FETCHED == _at(doc["provider_rates_fetched"])
 
 
