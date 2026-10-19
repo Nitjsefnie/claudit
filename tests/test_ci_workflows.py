@@ -471,20 +471,21 @@ def test_audit_gate_covers_every_requirements_manifest() -> None:
     )
 
 
-class TestRefreshPricingShards:
-    def setup_method(self) -> None:
-        self.jobs = yaml.safe_load(
-            (WORKFLOWS_DIR / "refresh-pricing.yml").read_text(encoding="utf-8")
-        )["jobs"]
+def _workflow_jobs(name: str) -> dict:
+    return yaml.safe_load((WORKFLOWS_DIR / name).read_text(encoding="utf-8"))["jobs"]
 
+
+class TestRefreshPricingShards:
     def test_fetch_suite_stage_push_jobs(self) -> None:
-        assert set(self.jobs) == {"refresh", "suite", "stage", "push", "verdict"}
-        assert set(self.jobs["push"]["needs"]) == {"refresh", "stage"}
-        assert self.jobs["verdict"]["needs"] == ["refresh", "stage", "push"]
-        assert self.jobs["verdict"]["if"] == "${{ always() }}"
+        refresh_jobs = _workflow_jobs("refresh-pricing.yml")
+        assert set(refresh_jobs) == {"refresh", "suite", "stage", "push", "verdict"}
+        assert set(refresh_jobs["push"]["needs"]) == {"refresh", "stage"}
+        assert refresh_jobs["verdict"]["needs"] == ["refresh", "stage", "push"]
+        assert refresh_jobs["verdict"]["if"] == "${{ always() }}"
 
     def test_stage_waits_for_the_suite(self) -> None:
-        stage = self.jobs["stage"]
+        refresh_jobs = _workflow_jobs("refresh-pricing.yml")
+        stage = refresh_jobs["stage"]
         assert set(stage["needs"]) == {"refresh", "suite"}
         assert stage["if"] == "needs.refresh.outputs.moved == 'true'"
         staging = next(step["run"] for step in stage["steps"]
@@ -501,7 +502,8 @@ class TestRefreshPricingShards:
         }
 
     def test_suite_runs_four_shards_only_when_data_moved(self) -> None:
-        suite = self.jobs["suite"]
+        refresh_jobs = _workflow_jobs("refresh-pricing.yml")
+        suite = refresh_jobs["suite"]
         assert suite["needs"] == "refresh"
         assert suite["if"] == "needs.refresh.outputs.moved == 'true'"
         assert suite["strategy"] == {
@@ -516,26 +518,30 @@ class TestRefreshPricingShards:
         assert "--cov" not in run
 
     def test_fetch_and_suite_interpreters_match_the_explorer(self) -> None:
+        refresh_jobs = _workflow_jobs("refresh-pricing.yml")
         explorer = yaml.safe_load(
             (WORKFLOWS_DIR / "test-data-explore.yml").read_text(encoding="utf-8")
         )["jobs"]
         versions = []
-        for jobs, required in [(self.jobs, ["refresh", "suite"]),
-                               (explorer, ["perturbed-suite-explore"])]:
+        for jobs, required in [
+            (refresh_jobs, ["refresh", "suite"]),
+            (explorer, ["perturbed-suite-explore"]),
+        ]:
             setups = {name: [step for step in job["steps"]
-                            if "python-version" in step.get("with", {})]
+                             if "python-version" in step.get("with", {})]
                       for name, job in jobs.items()}
             assert all(setups[name] for name in required)
             versions.extend(step["with"]["python-version"]
                             for steps in setups.values() for step in steps)
         assert versions[0] and len(set(versions)) == 1
-        steps = self.jobs["refresh"]["steps"]
+        steps = refresh_jobs["refresh"]["steps"]
         fetch = next(i for i, step in enumerate(steps) if step.get("id") == "fetch")
         assert all(i < fetch for i, step in enumerate(steps)
                    if "python-version" in step.get("with", {}))
 
     def test_suite_overlays_all_fetched_data(self) -> None:
-        steps = self.jobs["suite"]["steps"]
+        refresh_jobs = _workflow_jobs("refresh-pricing.yml")
+        steps = refresh_jobs["suite"]["steps"]
         download = next(step for step in steps if step.get("name") == "Download the fetched data")
         overlay = next(step["run"] for step in steps
                        if step.get("name") == "Overlay the fetched data")
@@ -549,6 +555,7 @@ class TestRefreshPricingShards:
         }
 
     def test_postgres_lives_in_suite_only(self) -> None:
+        refresh_jobs = _workflow_jobs("refresh-pricing.yml")
         for workflow in ["refresh-pricing.yml", "test-data-explore.yml"]:
             jobs = yaml.safe_load((WORKFLOWS_DIR / workflow).read_text(encoding="utf-8"))["jobs"]
             consumers = 0
@@ -563,11 +570,13 @@ class TestRefreshPricingShards:
                     assert "uses" in steps[starts[0]] and "if" not in steps[starts[0]]
             assert consumers
         assert not any(step.get("name") == "Start cached Postgres"
-                       for step in self.jobs["refresh"]["steps"])
+                       for step in refresh_jobs["refresh"]["steps"])
 
     def test_artifact_names_connect_producers_to_consumers(self) -> None:
+        refresh_jobs = _workflow_jobs("refresh-pricing.yml")
+
         def named(job: str, name: str) -> dict:
-            return next(step for step in self.jobs[job]["steps"] if step.get("name") == name)
+            return next(step for step in refresh_jobs[job]["steps"] if step.get("name") == name)
 
         raw = named("refresh", "Upload the fetched data")
         staging = named("refresh", "Stage the fetched data")["run"]
@@ -583,15 +592,16 @@ class TestRefreshPricingShards:
         assert tested["with"]["name"] == named("push", "Download the tested data")["with"]["name"]
 
     def test_fetch_and_moved_commands_are_preserved(self) -> None:
-        steps = {step.get("id"): step for step in self.jobs["refresh"]["steps"]}
+        refresh_jobs = _workflow_jobs("refresh-pricing.yml")
+        steps = {step.get("id"): step for step in refresh_jobs["refresh"]["steps"]}
         fetch = steps["fetch"]["run"]
-        assert self.jobs["refresh"]["outputs"] == {
+        assert refresh_jobs["refresh"]["outputs"] == {
             "moved": "${{ steps.moved.outputs.moved }}",
             "fetch_rc": "${{ steps.fetch.outputs.rc }}",
         }
         for job in ["suite", "stage", "push"]:
-            assert self.jobs[job]["if"] == "needs.refresh.outputs.moved == 'true'"
-        verdict, = self.jobs["verdict"]["steps"]
+            assert refresh_jobs[job]["if"] == "needs.refresh.outputs.moved == 'true'"
+        verdict, = refresh_jobs["verdict"]["steps"]
         assert verdict["env"]["FETCH_RC"] == "${{ needs.refresh.outputs.fetch_rc }}"
         assert "python3 scripts/ci/refresh_provider_rates.py" in fetch
         assert '|| rc=$?' in fetch
@@ -602,7 +612,8 @@ class TestRefreshPricingShards:
             assert f'echo "moved={value}" >> "$GITHUB_OUTPUT"' in moved
 
     def test_push_steps_and_script_are_preserved(self) -> None:
-        steps = self.jobs["push"]["steps"]
+        refresh_jobs = _workflow_jobs("refresh-pricing.yml")
+        steps = refresh_jobs["push"]["steps"]
         assert [step["name"] for step in steps] == [
             "Download the tested data", "Push the tested tree to master"
         ]
@@ -614,17 +625,11 @@ class TestRefreshPricingShards:
 
 
 class TestPerturbedSuiteExploreShards:
-    def setup_method(self) -> None:
-        self.jobs = yaml.safe_load(
-            (WORKFLOWS_DIR / "test-data-explore.yml").read_text(encoding="utf-8")
-        )["jobs"]
-        self.job = self.jobs["perturbed-suite-explore"]
-        self.step = next(step for step in self.job["steps"]
-                         if step.get("name") == "Perturb and test, per wall-clock seed")
-
     def test_seeds_job_exposes_one_wall_clock_draw_to_all_cells(self) -> None:
-        seeds = self.jobs["seeds"]
-        assert self.job["needs"] == "seeds"
+        jobs = _workflow_jobs("test-data-explore.yml")
+        job = jobs["perturbed-suite-explore"]
+        seeds = jobs["seeds"]
+        assert job["needs"] == "seeds"
         assert seeds["runs-on"] == "ubuntu-latest"
         assert seeds["timeout-minutes"] == 5
         assert seeds["outputs"] == {"seed-base": "${{ steps.draw.outputs.seed_base }}"}
@@ -634,20 +639,25 @@ class TestPerturbedSuiteExploreShards:
         }]
 
     def test_three_seeds_run_four_shards_without_cancellation(self) -> None:
-        assert self.job["strategy"] == {
+        job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
+        assert job["strategy"] == {
             "fail-fast": False,
             "matrix": {"seed-index": [1, 2, 3], "shard": [1, 2, 3, 4]},
         }
-        assert self.job["name"] == (
+        assert job["name"] == (
             "perturbed suite (explorer) seed ${{ matrix.seed-index }} "
             "shard ${{ matrix.shard }}"
         )
 
     def test_cell_timeout_is_thirty_minutes(self) -> None:
-        assert self.job["timeout-minutes"] == 30
+        job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
+        assert job["timeout-minutes"] == 30
 
     def test_cell_perturbs_one_wall_clock_seed_and_runs_its_shard(self) -> None:
-        run = self.step["run"]
+        job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
+        step = next(step for step in job["steps"]
+                    if step.get("name") == "Perturb and test, per wall-clock seed")
+        run = step["run"]
         assert [line for line in run.splitlines() if line.startswith("SEED=")] == [
             'SEED="$(( ${{ needs.seeds.outputs.seed-base }} + ${{ matrix.seed-index }} ))"'
         ]
@@ -663,10 +673,13 @@ class TestPerturbedSuiteExploreShards:
             "  python -m pytest $(python3 scripts/ci/pytest_shards.py "
             "--shard ${{ matrix.shard }} --of 4) -q --tb=short -ra\n}; then"
         ) in run
-        assert self.step["env"]["CLAUDIT_PERTURBED_DATA"] == "1"
+        assert step["env"]["CLAUDIT_PERTURBED_DATA"] == "1"
 
     def test_cell_reports_seed_and_shard_and_fails_nonzero(self) -> None:
-        run = self.step["run"]
+        job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
+        step = next(step for step in job["steps"]
+                    if step.get("name") == "Perturb and test, per wall-clock seed")
+        run = step["run"]
         assert 'echo "::notice::perturbed-suite seed=$SEED shard=${{ matrix.shard }}"' in run
         assert (
             'echo "seed=$SEED shard=${{ matrix.shard }} ok" >> "$GITHUB_STEP_SUMMARY"'
@@ -677,6 +690,7 @@ class TestPerturbedSuiteExploreShards:
         ) in run
 
     def test_pip_cache_save_requires_first_shard(self) -> None:
-        save = next(step for step in self.job["steps"]
+        job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
+        save = next(step for step in job["steps"]
                     if step.get("name") == "Save the pip cache")
         assert "&& matrix.shard == 1" in save["if"]
