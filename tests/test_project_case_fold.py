@@ -43,68 +43,43 @@ def _fresh_db_fixture(monkeypatch):
     yield from scratch_db.scratch_viz_database(monkeypatch, "case_fold")
 
 
-def test_windows_case_variants_are_one_project(fresh_db, tmp_path,
-                                               monkeypatch):
-    """Two Claude-layout slugs of one Windows directory — cased as the
-    shell happened to case each session — must end as ONE project row
-    holding both files, displayed by an original-case slug (the side
-    holding the most files; ties by first seen), never the folded id."""
+@pytest.mark.parametrize("seed_pre53, inserted, reparsed", [
+    (False, 3, 0),
+    (True, 2, 1),
+], ids=["fresh", "pre53-rekey"])
+def test_windows_case_variants_are_one_project(
+        fresh_db, tmp_path, monkeypatch, seed_pre53, inserted, reparsed):
+    """Fresh and pre-53 rows converge on one id with the majority-case label."""
     bucket = tmp_path / "r2" / "claude"
     _plant(bucket, "C--Users-M-kvalita", "s-up-a", "error_kinds.jsonl")
     _plant(bucket, "C--Users-M-kvalita", "s-up-b", "error_kinds.jsonl")
     _plant(bucket, "c--users-m-kvalita", "s-low", "error_kinds.jsonl")
     monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
 
+    if seed_pre53:
+        with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
+                conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO projects (project_id, display_name, "
+                "first_seen_at, last_seen_at) "
+                "VALUES ('C--Users-M-kvalita', 'C--Users-M-kvalita', "
+                "now(), now())")
+            cur.execute(
+                "INSERT INTO files (file_key, project_id, session_id, is_main, "
+                "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
+                "parser_version) VALUES "
+                "('claude/C--Users-M-kvalita/s-up-a/s-up-a.jsonl', "
+                "'C--Users-M-kvalita', 's-up-a', TRUE, 'old-etag', 1, now(), "
+                "now(), '52')")
+            conn.commit()
+
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
-    assert result["inserted"] == 3
+    assert result["reparsed"] == reparsed
+    assert result["inserted"] == inserted
     with db.viz_conn() as c:
         pids = [r[0] for r in c.execute(
             "SELECT DISTINCT project_id FROM files ORDER BY 1")]
-        projects = c.execute(
-            "SELECT project_id, display_name FROM projects "
-            "WHERE project_id <> ''").fetchall()
-    assert pids == ["c--users-m-kvalita"]
-    assert projects == [
-        ("c--users-m-kvalita", "C--Users-M-kvalita"),
-    ], "one project, displayed by the original-case slug with the most files"
-
-
-def test_pre53_mixed_case_project_rekeys_without_orphan(fresh_db, tmp_path,
-                                                        monkeypatch):
-    """A DB written by parser version 52 holds the project under the
-    mixed-case slug. The migration run reparses every file, re-keys the
-    stored rows onto the folded id, and leaves no orphan project row;
-    the display_name stays the cased form that was stored."""
-    bucket = tmp_path / "r2" / "claude"
-    _plant(bucket, "C--Users-M-kvalita", "s-up-a", "error_kinds.jsonl")
-    _plant(bucket, "C--Users-M-kvalita", "s-up-b", "error_kinds.jsonl")
-    _plant(bucket, "c--users-m-kvalita", "s-low", "error_kinds.jsonl")
-    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
-
-    with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
-            conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO projects (project_id, display_name, "
-            "first_seen_at, last_seen_at) "
-            "VALUES ('C--Users-M-kvalita', 'C--Users-M-kvalita', "
-            "now(), now())")
-        cur.execute(
-            "INSERT INTO files (file_key, project_id, session_id, is_main, "
-            "r2_etag, r2_size_bytes, r2_last_modified, parsed_at, "
-            "parser_version) VALUES "
-            "('claude/C--Users-M-kvalita/s-up-a/s-up-a.jsonl', "
-            "'C--Users-M-kvalita', 's-up-a', TRUE, 'old-etag', 1, now(), "
-            "now(), '52')")
-        conn.commit()
-
-    result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
-    assert result["reparsed"] == 1, "the seeded pre-53 file reparses"
-    assert result["inserted"] == 2, "the two unseen files insert"
-    with db.viz_conn() as c:
-        pids = [r[0] for r in c.execute(
-            "SELECT DISTINCT project_id FROM files")]
         projects = c.execute(
             "SELECT project_id, display_name FROM projects "
             "WHERE project_id <> ''").fetchall()
@@ -112,7 +87,7 @@ def test_pre53_mixed_case_project_rekeys_without_orphan(fresh_db, tmp_path,
         "every file, stored and new, is re-keyed onto the folded id")
     assert projects == [
         ("c--users-m-kvalita", "C--Users-M-kvalita"),
-    ], "the mixed-case project row is gone and the cased display survives"
+    ], "one project, displayed by the original-case slug with the most files"
 
 
 def test_lane_marker_windows_path_meets_the_claude_project(
