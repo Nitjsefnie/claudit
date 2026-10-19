@@ -69,8 +69,8 @@
       2323
     ],
     ".github/workflows/panel-layout.yml": [
-      2783,
-      3782
+      1612,
+      2630
     ],
     ".github/workflows/pr-gate.yml": [
       1797,
@@ -108,13 +108,9 @@
       2520,
       5034
     ],
-    ".github/workflows/tests.yml": [
-      4906,
-      15602
-    ],
     ".github/workflows/types.yml": [
       989,
-      2172
+      2243
     ],
     ".github/workflows/version-guard.yml": [
       2475,
@@ -589,8 +585,8 @@
       1907
     ],
     "scripts/ci/panel_interactions.mjs": [
-      12088,
-      30449
+      11708,
+      29961
     ],
     "scripts/ci/panel_interactions_seeds.mjs": [
       786,
@@ -598,11 +594,11 @@
     ],
     "scripts/ci/panel_layout.mjs": [
       3077,
-      8343
+      8562
     ],
     "scripts/ci/panel_layout_rules.mjs": [
       16609,
-      69412
+      69457
     ],
     "scripts/ci/panel_server.mjs": [
       779,
@@ -1078,7 +1074,7 @@
     ],
     "tests/test_ci_classify_comment_only.py": [
       3331,
-      13471
+      13810
     ],
     "tests/test_ci_classify_verified_base.py": [
       3626,
@@ -1102,7 +1098,7 @@
     ],
     "tests/test_ci_workflows.py": [
       5091,
-      15797
+      15821
     ],
     "tests/test_classic_script_scope.py": [
       2688,
@@ -1298,7 +1294,7 @@
     ],
     "tests/test_js_toolchain.py": [
       8719,
-      19977
+      20198
     ],
     "tests/test_key_layout.py": [
       2189,
@@ -1378,15 +1374,15 @@
     ],
     "tests/test_panel_interactions_js.py": [
       7239,
-      24867
+      25442
     ],
     "tests/test_panel_layout_js.py": [
       6675,
-      21452
+      23334
     ],
     "tests/test_panel_layout_rules_js.py": [
       6203,
-      19120
+      19735
     ],
     "tests/test_panel_wiring.py": [
       11184,
@@ -1589,8 +1585,8 @@
       17959
     ],
     "tests/test_reparse_ci_wiring.py": [
-      2835,
-      8221
+      2383,
+      8250
     ],
     "tests/test_reparse_count.py": [
       2170,
@@ -1701,8 +1697,8 @@
       19902
     ],
     "tests/test_suite_ci_wiring.py": [
-      3596,
-      14919
+      3132,
+      16665
     ],
     "tests/test_suite_cost_pricing_growth.py": [
       2240,
@@ -1789,8 +1785,8 @@
       22953
     ],
     "tests/test_workflow_ci_gate.py": [
-      8163,
-      23357
+      8103,
+      25155
     ],
     "tests/test_workflow_concurrency.py": [
       867,
@@ -1801,16 +1797,16 @@
       10927
     ],
     "tests/test_workflow_patch_coverage.py": [
-      5505,
-      17673
+      5545,
+      19141
     ],
     "tests/test_workflow_pg_client_install.py": [
-      1581,
-      4704
+      1530,
+      4665
     ],
     "tests/test_workflow_pip_cache.py": [
       1579,
-      4109
+      5302
     ],
     "tests/test_workflow_release.py": [
       7471,
