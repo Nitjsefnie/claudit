@@ -131,7 +131,7 @@ def test_tests_job_measures_and_gates_on_every_event():
     pytest_steps = [step for step in _steps(job)
                     if "pytest" in step.get("run", "")
                     or step.get("uses") in {"$/.github/actions/suite-bench",
-                                             "$/.github/actions/coverage-gate"}]
+                                            "$/.github/actions/coverage-gate"}]
     assert pytest_steps == [bench]
     upload, = [step for step in _steps(job)
                if step.get("with", {}).get("name") == "suite-measurement"]

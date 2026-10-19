@@ -91,7 +91,7 @@ def test_partition_greedy_ties_and_path_sorted_results():
     (2, "tests/nested/test_c.py tests/test_y.py tests/test_z.py\n"),
 ])
 def test_cli_prints_only_recursive_test_files(mini_tree: Path, shard: int,
-                                            expected: str):
+                                              expected: str):
     result = _run(mini_tree, "--shard", str(shard), "--of", "2")
     assert result.returncode == 0, result.stderr
     assert result.stdout == expected
