@@ -27,9 +27,10 @@ concurrency:
 
 jobs:
   perturbed-suite-explore:
-    name: perturbed suite (explorer)
+    name: perturbed suite (explorer) seed ${{ matrix.seed-index }} shard ${{ matrix.shard }}
+    strategy: {fail-fast: false, matrix: {seed-index: [1, 2, 3], shard: [1, 2, 3, 4]}}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
 
     permissions:
       contents: read
@@ -110,7 +111,7 @@ jobs:
       # schedule/dispatch-only workflow, is every run of it.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.shard == 1
         with:
           path: |
             ~/.cache/pip
@@ -121,24 +122,18 @@ jobs:
       - name: Perturb and test, per wall-clock seed
         env:
           CLAUDIT_PERTURBED_DATA: "1"
-        # Three seeds per run, drawn straight off the clock. Every seed
-        # runs even after one fails; each failing seed is appended to
-        # the run summary by name, and the step goes red at the end so
-        # the run is seen. The clean-tree restore precedes every
-        # perturb, so no seed ever perturbs a perturbed tree.
+        # Each cell draws a seed off the clock and reports its shard.
+        # Fail-fast is off so every cell finishes after another fails.
+        # Restore the clean tree before perturbing it.
         run: |
-          fail=0
-          for _ in 1 2 3; do
-            SEED="$(date +%s)"
-            echo "::notice::perturbed-suite seed=$SEED"
-            git checkout -- src/pricing.json backend/constants.py \
-              backend/parser_version.py
-            if python scripts/ci/perturb_test_data.py --seed "$SEED" \
-               && python -m pytest tests/ -q --tb=short -ra; then
-              echo "seed=$SEED ok" >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "seed=$SEED failed" >> "$GITHUB_STEP_SUMMARY"
-              fail=1
-            fi
-          done
-          exit "$fail"
+          SEED="$(date +%s)"
+          echo "::notice::perturbed-suite seed=$SEED shard=${{ matrix.shard }}"
+          git checkout -- src/pricing.json backend/constants.py \
+            backend/parser_version.py
+          if python scripts/ci/perturb_test_data.py --seed "$SEED" \
+             && python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra; then
+            echo "seed=$SEED shard=${{ matrix.shard }} ok" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "seed=$SEED shard=${{ matrix.shard }} failed" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

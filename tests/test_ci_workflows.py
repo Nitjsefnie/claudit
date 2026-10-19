@@ -552,3 +552,56 @@ class TestRefreshPricingShards:
         assert 'fetched="$(git ls-remote "$remote" refs/heads/master | cut -f1)"' in run
         assert 'if [ "$fetched" != "$base" ]; then' in run
         assert 'push origin HEAD:master' in run
+
+
+class TestPerturbedSuiteExploreShards:
+    def setup_method(self) -> None:
+        self.job = yaml.safe_load(
+            (WORKFLOWS_DIR / "test-data-explore.yml").read_text(encoding="utf-8")
+        )["jobs"]["perturbed-suite-explore"]
+        self.step = next(step for step in self.job["steps"]
+                         if step.get("name") == "Perturb and test, per wall-clock seed")
+
+    def test_three_seeds_run_four_shards_without_cancellation(self) -> None:
+        assert self.job["strategy"] == {
+            "fail-fast": False,
+            "matrix": {"seed-index": [1, 2, 3], "shard": [1, 2, 3, 4]},
+        }
+        assert self.job["name"] == (
+            "perturbed suite (explorer) seed ${{ matrix.seed-index }} "
+            "shard ${{ matrix.shard }}"
+        )
+
+    def test_cell_timeout_is_thirty_minutes(self) -> None:
+        assert self.job["timeout-minutes"] == 30
+
+    def test_cell_perturbs_one_wall_clock_seed_and_runs_its_shard(self) -> None:
+        run = self.step["run"]
+        assert run.count('SEED="$(date +%s)"') == 1
+        assert 'for ' not in run
+        perturb = 'python scripts/ci/perturb_test_data.py --seed "$SEED"'
+        restore = ("git checkout -- src/pricing.json backend/constants.py "
+                   "backend/parser_version.py")
+        normalized = " ".join(run.replace("\\\n", " ").split())
+        assert normalized.index(restore) < normalized.index(perturb)
+        assert (
+            "&& python -m pytest $(python3 scripts/ci/pytest_shards.py "
+            "--shard ${{ matrix.shard }} --of 4) -q --tb=short -ra; then"
+        ) in run
+        assert self.step["env"]["CLAUDIT_PERTURBED_DATA"] == "1"
+
+    def test_cell_reports_seed_and_shard_and_fails_nonzero(self) -> None:
+        run = self.step["run"]
+        assert 'echo "::notice::perturbed-suite seed=$SEED shard=${{ matrix.shard }}"' in run
+        assert (
+            'echo "seed=$SEED shard=${{ matrix.shard }} ok" >> "$GITHUB_STEP_SUMMARY"'
+        ) in run
+        assert (
+            'else\n  echo "seed=$SEED shard=${{ matrix.shard }} failed" '
+            '>> "$GITHUB_STEP_SUMMARY"\n  exit 1\nfi'
+        ) in run
+
+    def test_pip_cache_save_requires_first_shard(self) -> None:
+        save = next(step for step in self.job["steps"]
+                    if step.get("name") == "Save the pip cache")
+        assert "&& matrix.shard == 1" in save["if"]
