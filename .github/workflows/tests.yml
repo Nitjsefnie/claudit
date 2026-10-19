@@ -19,80 +19,32 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  pytest:
-    # The name IS the check-run name; the job id stays.
-    name: pytest + calibration gates (canary, pinned 3.13.14)
+  pytest-shards:
+    name: pytest shard ${{ matrix.shard }} (canary, pinned 3.13.14)
+    if: inputs.thresholds_only != 'true'
+    strategy: {fail-fast: false, matrix: {shard: [1, 2, 3, 4]}}
     runs-on: ubuntu-latest
     timeout-minutes: 40
-
-    permissions:
-      # Read-only: this job executes proposed code, so it must hold no write
-      # token. It uploads a rendered patch-coverage body for the separate
-      # coverage-comment.yml workflow, which runs no proposed code and owns
-      # the conversation token. The readout remains informational.
-      contents: read
-
-    env:
-      # Fixtures build DSNs as `postgresql:///<db>`, so libpq resolves
-      # the connection from these (and the fixtures' psql calls).
-      PGHOST: localhost
-      PGPORT: "5432"
-      PGUSER: postgres
-      PGPASSWORD: postgres
-
+    env: {PGHOST: localhost, PGPORT: "5432", PGUSER: postgres, PGPASSWORD: postgres}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # Full history: patch coverage reads the merge-base; the
-          # direction guard reads git log base..head for
-          # Thresholds-Removed trailers and feat: subjects.
-          fetch-depth: 0
-          # No step in this job pushes; persist-credentials: false keeps
-          # the job token out of .git/config for any later step to reuse.
-          persist-credentials: false
-
+        with: {fetch-depth: 0, persist-credentials: false}
       - name: Start cached Postgres
         uses: $/.github/actions/postgres
-
+      # Pin runtimes: interpreter and V8 drift move the calibration.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        # Pin the interpreter micro: a cheaper 3.13.x could move instruction
-        # counts under committed ceilings and feed false tighten data.
-        with:
-          python-version: "3.13.14"
-
+        with: {python-version: "3.13.14"}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        # The JavaScript coverage ratchet measures V8 block coverage, which
-        # can shift across V8 minors; pin the EXACT node the seed was
-        # measured with so a runner-side drift cannot move the measurement
-        # out from under the committed floor.
-        with:
-          node-version: "24.17.0"
-
+        with: {node-version: "24.17.0"}
       - name: Resolve the threshold base
         id: threshold_base
+        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
-        env:
-          REPO: ${{ github.repository }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-
-      # The pip cache restores on every event but is saved only from a
-      # push of master, never from a pull-request checkout.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cache/pip
-            ~/Library/Caches/pip
-            ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
-          restore-keys: |
-            pip-${{ runner.os }}-3.13-
-
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
       - name: Install postgresql-client
         timeout-minutes: 5
-        # Fixtures shell out to psql; client must match container major.
         run: |
           echo "==> adding the PGDG apt source"
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
@@ -102,44 +54,65 @@ jobs:
           sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
           echo "==> installing postgresql-client-16"
           sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 postgresql-client-16
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -r requirements-test.txt
-
-      # Saved here, not in a post-job step, so the cache is written only
-      # from a master push.
+      # A shared cache key has exactly one matrix writer, on master.
       - name: Save the pip cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.shard == 1
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        with:
-          path: |
-            ~/.cache/pip
-            ~/Library/Caches/pip
-            ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
-
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}"}
       - name: Run tests
-        id: pytest
-        # No --cov-fail-under: the gate is its own step below, so
-        # "tests failed" and "coverage dropped" stay distinguishable.
-        env:
-          CLAUDIT_THRESHOLDS_ONLY: ${{ inputs.thresholds_only }}
+        env: {"COVERAGE_FILE": "${{ github.workspace }}/shard-coverage/.coverage.${{ matrix.shard }}"}
         run: |
-          if [ "$CLAUDIT_THRESHOLDS_ONLY" = 'true' ]; then
-            # The list is derived and pinned by test_ci_gate_thresholds.py.
-            # shellcheck disable=SC2046
-            python -m pytest $(sed '/^#/d;/^$/d' scripts/ci/thresholds_test_files.txt) -q --tb=short -ra
-          else
-            python -m pytest tests/ -q --tb=short -ra --cov=backend --cov-report=term
-          fi
+          # shellcheck disable=SC2046
+          python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra --cov=backend --cov-report=
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: coverage-shard-${{ matrix.shard }}
+          path: shard-coverage/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
 
+  coverage-combine:
+    needs: [pytest-shards]
+    if: ${{ !cancelled() && inputs.thresholds_only != 'true' }}
+    permissions: {contents: read}
+    outputs: {python_measured: "${{ steps.measured.outputs.python_measured }}"}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      # Keep each artifact directory: identically named hidden files must not collide.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with: {python-version: "3.13.14"}
+      - name: Resolve the threshold base
+        id: threshold_base
+        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        uses: $/.github/actions/thresholds-base
+      - name: Restore the pip cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r requirements-test.txt
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-shard-*
+          path: shard-data/
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Combine shard coverage
+        run: python -m coverage combine shard-data/coverage-shard-*
+      - id: measured
+        run: |
+          echo "python_measured=$(python -m coverage report --format=total --precision=1)" >> "$GITHUB_OUTPUT"
       - name: Coverage summary
-        # Renders whether or not the gate below passes: a coverage
-        # regression is only actionable if you can see WHICH file lost
-        # lines. Recorded ratchet values sit beside the report.
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
+        if: ${{ !cancelled() }}
         run: |
           recorded_measured="$(python3 scripts/ci/thresholds.py \
             --coverage-measured python)"
@@ -168,21 +141,12 @@ jobs:
             python -m coverage report --format=markdown --precision=1
           } >> "$GITHUB_STEP_SUMMARY"
           python -m coverage xml -o coverage.xml
-
       - name: Upload coverage.xml
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: coverage-xml
-          path: coverage.xml
-          if-no-files-found: error
-
+        with: {"name": "coverage-xml", "path": "coverage.xml", "if-no-files-found": "error"}
       - name: Patch coverage against the merge base
-        # Informational readout: of the lines this pull
-        # request ADDED, which did the suite execute. PR-only, and
-        # INFORMATIONAL BY DESIGN: no threshold, no gate; the module
-        # exits 0 for any result it computed, even 0%.
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' && inputs.thresholds_only != 'true' }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         run: |
           base="$CLAUDIT_THRESHOLDS_BASE_REV"
           echo "Patch base: $(git log -1 --format='%h %s' "$base")"
@@ -192,18 +156,9 @@ jobs:
             --diff "$RUNNER_TEMP/pr.diff" \
             --summary-file "$GITHUB_STEP_SUMMARY" \
             > "$RUNNER_TEMP/diff-coverage.md"
-
       - name: Stage the patch-coverage comment
-        # The RENDERED BODY is the only thing that crosses into the
-        # workflow that posts it; no token that can write pull-request
-        # conversation is live in this job. `pr-number.txt`
-        # travels beside it and is CHECKED, never obeyed, over there:
-        # this artifact is produced by a run of the pull request's own
-        # tests.yml, so its claim about which pull request it belongs to
-        # carries no authority.
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' && inputs.thresholds_only != 'true' }}
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env: {"PR_NUMBER": "${{ github.event.pull_request.number }}"}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/coverage-comment"
@@ -212,67 +167,44 @@ jobs:
           printf '%s\n' "$PR_NUMBER" \
             > "$RUNNER_TEMP/coverage-comment/pr-number.txt"
           wc -c < "$RUNNER_TEMP/coverage-comment/body.md"
-
       - name: Upload the patch-coverage comment
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && github.event_name == 'pull_request' && inputs.thresholds_only != 'true' }}
-        # A missing artifact is not this job's failure: coverage-comment.yml
-        # reads its absence as "not measured" and refreshes the marker, and
-        # the readout is informational.
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: diff-coverage-comment
-          path: ${{ runner.temp }}/coverage-comment
-          if-no-files-found: error
-          retention-days: 5
-
+        with: {"name": "diff-coverage-comment", "path": "${{ runner.temp }}/coverage-comment", "if-no-files-found": "error", "retention-days": "5"}
       - name: Coverage gate
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
+        if: ${{ !cancelled() }}
         uses: $/.github/actions/coverage-gate
-        with:
-          language: python
+        with: {"language": "python"}
 
-      - name: Install the JS toolchain from the lockfile
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
-        # npm ci installs the exact toolchain pins Dependabot owns (#361).
-        # eslint.yml installs the same lockfile.
-        run: npm ci --no-audit --no-fund
-
-      - name: Comment share baseline
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
-        run: python3 scripts/ci/comment_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
-
-      - name: JavaScript coverage gate
-        id: jscov
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
-        uses: $/.github/actions/coverage-gate
-        with:
-          language: javascript
-
-      - name: Reparse CPU gate
-        id: reparse
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' }}
-        uses: $/.github/actions/reparse-bench
+  baselines:
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      # Independent gates still run when a pytest job fails.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with: {python-version: "3.13.14"}
+      - name: Resolve the threshold base
+        id: threshold_base
+        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        uses: $/.github/actions/thresholds-base
+      - name: Restore the pip cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r requirements-test.txt
       - name: Module size baseline
-        # Growth is fixed by moving code into a new module, never by
-        # raising the recorded ceiling: a file that outgrew its entry
-        # or crossed its ceiling fails here; master tightens below.
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
+        if: inputs.thresholds_only != 'true'
         run: python3 scripts/ci/size_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
-
       - name: Pylint suppression baseline
-        # The same only-shrinks ratchet for inline complexity
-        # suppressions: a file's count never rises past its
-        # record; an unrecorded file stays at zero. Master tightens below.
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && inputs.thresholds_only != 'true' }}
+        if: inputs.thresholds_only != 'true'
         run: python3 scripts/ci/suppression_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
-
       - name: Threshold direction guard
-        # Lowered coverage and raised baseline entries fail here; suite-cost
-        # and reparse raises require a feat: or feat(scope): commit in the
-        # judged range. Runs on
-        # pull_request (merge base) and push; dispatch skips -- the PR
-        # is the gate.
-        if: ${{ !cancelled() && steps.pytest.conclusion != 'skipped' && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         run: |
           base="${CLAUDIT_THRESHOLDS_BASE_REV?Threshold base resolution failed}"
           if [ -z "$base" ]; then
@@ -286,53 +218,176 @@ jobs:
             --head .github/ci-thresholds.json \
             --base-rev "$base" --head-rev HEAD
 
-      - name: Measure and gate the suite cost
-        # One bench pass per run: the shared composite
-        # action measures the pinned fixture and holds every phase to
-        # its committed ceiling -- speed.yml's gate, folded here.
-        # Master pushes feed the same measurement to the tighten bot
-        # (ratchet-push.yml) via the upload below.
-        id: suite_bench
-        if: ${{ !cancelled() && steps.pytest.outcome == 'success'
-                && (steps.jscov.outcome == 'success' || inputs.thresholds_only == 'true') }}
-        uses: $/.github/actions/suite-bench
-        with:
-          measurement: ${{ runner.temp }}/suite-measurement.json
+  js-coverage:
+    if: inputs.thresholds_only != 'true'
+    outputs: {js_measured: "${{ steps.jscov.outputs.js_measured }}"}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env: {PGHOST: localhost, PGPORT: "5432", PGUSER: postgres, PGPASSWORD: postgres}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Start cached Postgres
+        uses: $/.github/actions/postgres
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with: {python-version: "3.13.14"}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: {node-version: "24.17.0"}
+      - name: Resolve the threshold base
+        id: threshold_base
+        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        uses: $/.github/actions/thresholds-base
+      - name: Restore the pip cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r requirements-test.txt
+      - name: Install the JS toolchain from the lockfile
+        run: npm ci --no-audit --no-fund
+      - name: Comment share baseline
+        run: python3 scripts/ci/comment_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
+      - name: JavaScript coverage gate
+        id: jscov
+        uses: $/.github/actions/coverage-gate
+        with: {"language": "javascript"}
 
+  reparse-gate:
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with: {python-version: "3.13.14"}
+      - name: Resolve the threshold base
+        id: threshold_base
+        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        uses: $/.github/actions/thresholds-base
+      - name: Restore the pip cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r requirements-test.txt
+      - name: Reparse CPU gate
+        id: reparse
+        uses: $/.github/actions/reparse-bench
+
+  suite-bench:
+    needs: [pytest-shards, pytest-thresholds, js-coverage]
+    if: ${{ !cancelled() && (needs.pytest-shards.result == 'success' || needs.pytest-thresholds.result == 'success') && (needs.js-coverage.result == 'success' || inputs.thresholds_only == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      # This job starts no pytest session before the measured bench.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with: {python-version: "3.13.14"}
+      - name: Resolve the threshold base
+        id: threshold_base
+        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        uses: $/.github/actions/thresholds-base
+      - name: Restore the pip cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r requirements-test.txt
+      - name: Save the pip cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}"}
+      - name: Measure and gate the suite cost
+        id: suite_bench
+        uses: $/.github/actions/suite-bench
+        with: {"measurement": "${{ runner.temp }}/suite-measurement.json"}
       - name: Upload the suite measurement
-        # The artifact is the tested state the bot job tightens from,
-        # and a red gate's numbers stay inspectable: it uploads
-        # whenever the bench RAN, not only when its gate passed.
         if: ${{ !cancelled() && steps.suite_bench.outcome != 'skipped' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: {"name": "suite-measurement", "path": "${{ runner.temp }}/suite-measurement.json", "if-no-files-found": "error", "retention-days": "1"}
+
+  pytest-thresholds:
+    if: inputs.thresholds_only == 'true'
+    name: pytest thresholds subset (canary, pinned 3.13.14)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env: {PGHOST: localhost, PGPORT: "5432", PGUSER: postgres, PGPASSWORD: postgres}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Start cached Postgres
+        uses: $/.github/actions/postgres
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with: {python-version: "3.13.14"}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: {node-version: "24.17.0"}
+      - name: Resolve the threshold base
+        id: threshold_base
+        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        uses: $/.github/actions/thresholds-base
+      - name: Restore the pip cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+      - name: Install postgresql-client
+        timeout-minutes: 5
+        run: |
+          echo "==> adding the PGDG apt source"
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          echo "==> fetching the PostgreSQL signing key"
+          curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          echo "==> apt-get update"
+          sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
+          echo "==> installing postgresql-client-16"
+          sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 postgresql-client-16
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r requirements-test.txt
+      - name: Run tests
+        run: |
+          # shellcheck disable=SC2046
+          python -m pytest $(sed '/^#/d;/^$/d' scripts/ci/thresholds_test_files.txt) -q --tb=short -ra
+
+  ratchet:
+    needs: [pytest-shards, coverage-combine, js-coverage, reparse-gate, suite-bench]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.pytest-shards.result == 'success' && needs.coverage-combine.result == 'success' && needs.js-coverage.result == 'success' && needs.reparse-gate.result == 'success' && needs.suite-bench.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with: {python-version: "3.13.14"}
+      - name: Resolve the threshold base
+        id: threshold_base
+        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        uses: $/.github/actions/thresholds-base
+      - name: Restore the pip cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r requirements-test.txt
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: reparse-measurement
+          path: .
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: suite-measurement
-          path: ${{ runner.temp }}/suite-measurement.json
-          if-no-files-found: error
-          retention-days: 1
-
+          path: ${{ runner.temp }}/suite-data
       - name: Ratchet the thresholds
-        # Only measurements from a master push may move the recorded
-        # calibration — a pull request runs untrusted code and must not
-        # be able to write it. The ratchets raise either coverage floor
-        # and tighten the reparse phase bytecode counts (the per-phase
-        # shares are telemetry and nothing tightens them);
-        # growth is never written here, the gates stay gates.
         id: ratchet
-        if: ${{ !cancelled() && steps.pytest.outcome == 'success'
-                && steps.jscov.outcome == 'success'
-                && steps.reparse.outcome == 'success'
-                && steps.suite_bench.outcome == 'success'
-                && github.event_name == 'push'
-                && github.ref == 'refs/heads/master' }}
-        # JS_MEASURED travels by env, not by template expansion, so the
-        # run block carries no injection surface (zizmor
-        # template-injection): it is a toFixed(1) number the JS gate step
-        # itself printed.
-        env:
-          JS_MEASURED: ${{ steps.jscov.outputs.js_measured }}
+        env: {"JS_MEASURED": "${{ needs.js-coverage.outputs.js_measured }}", "PY_MEASURED": "${{ needs.coverage-combine.outputs.python_measured }}"}
         run: |
-          measured="$(python -m coverage report --format=total --precision=1)"
+          measured="$PY_MEASURED"
           python3 scripts/ci/ratchet.py --measured "${measured}"
           python3 scripts/ci/ratchet.py --language javascript \
             --measured "${JS_MEASURED}"
@@ -356,26 +411,16 @@ jobs:
               "${JS_MEASURED}% and unchanged module sizes" \
               "justify no raise."
           fi
-
       - name: Stage the ratchet data
-        # The tested state: the measured file and the tip it was
-        # measured on — the ratchet-push workflow's base check
-        # compares against it.
         if: steps.ratchet.outputs.changed == 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/ratchet-data"
           cp .github/ci-thresholds.json "$RUNNER_TEMP/ratchet-data/ci-thresholds.json"
           git rev-parse HEAD > "$RUNNER_TEMP/ratchet-data/base.txt"
-
       - name: Upload the ratchet data
         if: steps.ratchet.outputs.changed == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ratchet-push
-          path: ${{ runner.temp }}/ratchet-data
-          if-no-files-found: error
-          retention-days: 1
-
+        with: {"name": "ratchet-push", "path": "${{ runner.temp }}/ratchet-data", "if-no-files-found": "error", "retention-days": "1"}
   pytest-portable:
     # The suite minus every DB-touching test (tests/db_marker.py's
     # mechanical split), where no Postgres container runs: the full

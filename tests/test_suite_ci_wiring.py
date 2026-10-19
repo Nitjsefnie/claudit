@@ -115,48 +115,60 @@ def test_speed_yml_is_gone():
 
 def test_tests_job_measures_and_gates_on_every_event():
     doc = _load("tests.yml")
-    job = _job(doc, "pytest")
-    steps = _steps(job)
-    bench = [step for step in steps
-             if step.get("id") == "suite_bench"]
-    assert len(bench) == 1
-    bench = bench[0]
-    guard = next(step for step in steps
-                 if step.get("name") == "Threshold direction guard")
-    assert steps.index(guard) + 1 == steps.index(bench)
-    # The gate runs wherever the canary runs -- every non-docs,
-    # non-data event. Only a green suite and a green JavaScript
-    # coverage pass are worth measuring. The bench action's own input
-    # (measurement) is contract and deliberately unread — fleet-rules,
-    # "Merging and CI" with:-inputs ruling.
-    assert bench["if"] == (
-        "${{ !cancelled() && steps.pytest.outcome == 'success' "
-        "&& (steps.jscov.outcome == 'success' "
+    job = _job(doc, "suite-bench")
+    bench, = [step for step in _steps(job) if step.get("id") == "suite_bench"]
+    assert bench["uses"] == "$/.github/actions/suite-bench"
+    assert bench["with"]["measurement"] == "${{ runner.temp }}/suite-measurement.json"
+    assert "if" not in bench
+    assert job["needs"] == ["pytest-shards", "pytest-thresholds", "js-coverage"]
+    assert job["if"] == (
+        "${{ !cancelled() && (needs.pytest-shards.result == 'success' "
+        "|| needs.pytest-thresholds.result == 'success') "
+        "&& (needs.js-coverage.result == 'success' "
         "|| inputs.thresholds_only == 'true') }}")
-
-    # One upload, located by its condition (the workflow's behaviour,
-    # never a with: input — fleet-rules, "Merging and CI" with:-inputs
-    # ruling). A red gate's numbers stay inspectable: the upload runs
-    # whenever the bench ran at all.
-    uploads = [step for step in _steps(job)
-               if (step.get("uses") or "").startswith(
-                   "actions/upload-artifact")
-               and "steps.suite_bench" in (step.get("if") or "")]
-    assert len(uploads) == 1
-    upload = uploads[0]
+    # A fresh job is part of the workload: no earlier pytest session may
+    # warm imports or collection before the bench action measures it.
+    pytest_steps = [step for step in _steps(job)
+                    if "pytest" in step.get("run", "")
+                    or step.get("uses") in {"$/.github/actions/suite-bench",
+                                             "$/.github/actions/coverage-gate"}]
+    assert pytest_steps == [bench]
+    upload, = [step for step in _steps(job)
+               if step.get("with", {}).get("name") == "suite-measurement"]
     assert upload["if"] == (
         "${{ !cancelled() && steps.suite_bench.outcome != 'skipped' }}")
+    assert upload["with"]["path"] == "${{ runner.temp }}/suite-measurement.json"
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert "needs.suite-bench.result == 'success'" in _job(doc, "ratchet")["if"]
 
-    # A red bench gate must not stage ratchet data inside the failed
-    # job, whatever the run-level fold does with it.
-    ratchet = [step for step in _steps(job)
-               if step.get("name") == "Ratchet the thresholds"]
-    assert len(ratchet) == 1
-    ratchet_if = ratchet[0].get("if") or ""
-    assert "steps.suite_bench.outcome == 'success'" in ratchet_if
 
-    # The push lives in ratchet-push.yml, not here.
-    assert not _job(doc, "pytest").get("outputs")
+def test_ratchet_reads_job_outputs_and_stages_the_tested_tip():
+    job = _job(_load("tests.yml"), "ratchet")
+    assert job["needs"] == ["pytest-shards", "coverage-combine", "js-coverage",
+                            "reparse-gate", "suite-bench"]
+    assert job["if"] == (
+        "${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/master' "
+        "&& needs.pytest-shards.result == 'success' && needs.coverage-combine.result == 'success' "
+        "&& needs.js-coverage.result == 'success' && needs.reparse-gate.result == 'success' "
+        "&& needs.suite-bench.result == 'success' }}")
+    ratchet, = [step for step in _steps(job) if step.get("id") == "ratchet"]
+    assert ratchet["env"] == {
+        "JS_MEASURED": "${{ needs.js-coverage.outputs.js_measured }}",
+        "PY_MEASURED": "${{ needs.coverage-combine.outputs.python_measured }}"}
+    assert 'measured="$PY_MEASURED"' in _run_lines(ratchet)
+    assert "coverage report" not in ratchet["run"]
+    download, = [step for step in _steps(job)
+                 if step.get("with", {}).get("name") == "suite-measurement"]
+    assert download["with"]["path"] == "${{ runner.temp }}/suite-data"
+    assert "run-id" not in download["with"]
+    stage, = [step for step in _steps(job) if step.get("name") == "Stage the ratchet data"]
+    assert 'git rev-parse HEAD > "$RUNNER_TEMP/ratchet-data/base.txt"' in _run_lines(stage)
+    assert ('cp .github/ci-thresholds.json "$RUNNER_TEMP/ratchet-data/ci-thresholds.json"'
+            in _run_lines(stage))
+    upload, = [step for step in _steps(job)
+               if step.get("with", {}).get("name") == "ratchet-push"]
+    assert upload["with"]["path"] == "${{ runner.temp }}/ratchet-data"
+    assert stage["if"] == upload["if"] == "steps.ratchet.outputs.changed == 'true'"
 
 
 def test_the_suite_measurement_upload_is_unique_repo_wide():
@@ -184,7 +196,8 @@ def test_the_suite_measurement_upload_is_unique_repo_wide():
                         "actions/upload-artifact") and name in download_names:
                     uploaders.append(f"{path.name}:{job_id}:{name}")
     assert sorted(uploaders) == sorted(
-        f"tests.yml:pytest:{name}" for name in download_names), sorted(
+        f"tests.yml:{'suite-bench' if name == 'suite-measurement' else 'ratchet'}:{name}"
+        for name in download_names), sorted(
             uploaders)
 
 
@@ -405,8 +418,13 @@ def test_the_bench_runner_pins_the_seed_interpreter():
     # Budgets count instructions for one interpreter; gate and recording
     # must use the same exact patch version.
     doc = _load("tests.yml")
-    job = _job(doc, "pytest")
-    setups = [step for step in _steps(job)
-              if (step.get("uses") or "").startswith("actions/setup-python")]
-    assert len(setups) == 1
-    assert setups[0]["with"]["python-version"] == "3.13.14"
+    for job_id, job in doc["jobs"].items():
+        if job_id == "pytest-portable":
+            continue
+        setups = [step for step in _steps(job)
+                  if (step.get("uses") or "").startswith("actions/setup-python")]
+        assert len(setups) == 1
+        assert setups[0]["with"]["python-version"] == "3.13.14"
+        for step in _steps(job):
+            if step.get("uses", "").startswith("actions/setup-node"):
+                assert step["with"]["node-version"] == "24.17.0"

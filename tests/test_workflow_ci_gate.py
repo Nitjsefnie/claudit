@@ -222,7 +222,7 @@ def test_setup_docs_runs_only_the_guard_with_the_tests_python_pin():
     steps = job["steps"]
     python_step, = [step for step in steps
                     if step.get("uses", "").startswith("actions/setup-python@")]
-    tests_python, = [step for step in _tests_workflow()["jobs"]["pytest"]["steps"]
+    tests_python, = [step for step in _tests_workflow()["jobs"]["pytest-shards"]["steps"]
                      if step.get("uses", "").startswith("actions/setup-python@")]
     assert python_step["uses"] == tests_python["uses"]
     assert python_step["with"]["python-version"] == tests_python["with"]["python-version"]
@@ -430,7 +430,9 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "MASTER_PUSH_DEPLOY_KEY" not in tests_raw
     assert "ssh-agent" not in tests_raw
     assert "x-access-token" not in tests_raw
-    assert set(_tests_workflow()["jobs"]) == {"pytest", "pytest-portable"}
+    assert set(_tests_workflow()["jobs"]) == {
+        "pytest-shards", "coverage-combine", "baselines", "js-coverage",
+        "reparse-gate", "suite-bench", "pytest-thresholds", "ratchet", "pytest-portable"}
 
 
 def test_the_tests_callee_is_capped_at_what_its_jobs_use():
@@ -460,19 +462,52 @@ def test_the_tests_callee_is_capped_at_what_its_jobs_use():
 def test_the_canary_job_is_named_for_what_it_is():
     # Name the canary distinctly from portability jobs and include its pinned
     # interpreter version so a failed check identifies the measured runtime.
-    # Keep the job id pytest: needs, aggregate and classifier wiring use it.
-    pytest_job = _tests_workflow()["jobs"]["pytest"]
+    pytest_job = _tests_workflow()["jobs"]["pytest-shards"]
     assert pytest_job.get("name") == (
-        "pytest + calibration gates (canary, pinned 3.13.14)")
+        "pytest shard ${{ matrix.shard }} (canary, pinned 3.13.14)")
     portable = _tests_workflow()["jobs"]["pytest-portable"]
     assert portable.get("name") == (
         "pytest (${{ matrix.os }}, ${{ matrix.python-version }})")
 
 
+def test_parallel_canary_jobs_keep_the_gate_step_order():
+    preparation = ["actions/checkout", "actions/setup-python",
+                   "Resolve the threshold base", "Restore the pip cache", "Install dependencies"]
+    database = ["actions/checkout", "Start cached Postgres", "actions/setup-python",
+                "actions/setup-node", "Resolve the threshold base", "Restore the pip cache",
+                "Install postgresql-client", "Install dependencies"]
+    expected = {
+        "pytest-shards": [*database, "Save the pip cache", "Run tests", "actions/upload-artifact"],
+        "coverage-combine": [*preparation, "actions/download-artifact", "Combine shard coverage",
+                             "measured", "Coverage summary", "Upload coverage.xml",
+                             "Patch coverage against the merge base", "Stage the patch-coverage comment",
+                             "Upload the patch-coverage comment", "Coverage gate"],
+        "baselines": [*preparation, "Module size baseline", "Pylint suppression baseline",
+                      "Threshold direction guard"],
+        "js-coverage": ["actions/checkout", "Start cached Postgres", "actions/setup-python",
+                        "actions/setup-node", "Resolve the threshold base", "Restore the pip cache",
+                        "Install dependencies", "Install the JS toolchain from the lockfile",
+                        "Comment share baseline", "JavaScript coverage gate"],
+        "reparse-gate": [*preparation, "Reparse CPU gate"],
+        "suite-bench": [*preparation, "Save the pip cache", "Measure and gate the suite cost",
+                        "Upload the suite measurement"],
+        "pytest-thresholds": [*database, "Run tests"],
+        "ratchet": [*preparation, "actions/download-artifact", "actions/download-artifact",
+                    "Ratchet the thresholds", "Stage the ratchet data", "Upload the ratchet data"],
+    }
+    for job_id, want in expected.items():
+        steps = _tests_workflow()["jobs"][job_id]["steps"]
+        actual = [step.get("name") or step.get("id") or step["uses"].split("@")[0]
+                  for step in steps]
+        assert actual == want, job_id
+
+
 def test_tests_and_refresh_share_the_pinned_postgres_action():
     # Both publishing measurements come from the same composite; its digest
     # and compose lockstep are pinned by test_workflow_postgres_action.py.
-    for path, job_name in ((TESTS_WORKFLOW, "pytest"),
+    for path, job_name in ((TESTS_WORKFLOW, "pytest-shards"),
+                           (TESTS_WORKFLOW, "pytest-thresholds"),
+                           (TESTS_WORKFLOW, "js-coverage"),
                            (REFRESH_WORKFLOW, "refresh")):
         job = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"][job_name]
         assert "services" not in job
@@ -492,9 +527,9 @@ def test_the_pytest_job_pushes_nothing_and_the_deploy_key_has_two_wirings():
         text = path.read_text(encoding="utf-8")
         assert text.count("secrets.MASTER_PUSH_DEPLOY_KEY") >= 1, name
     assert raw.count("secrets.MASTER_PUSH_DEPLOY_KEY") == 0
-    pytest_job = _tests_workflow()["jobs"]["pytest"]
-    for step in pytest_job.get("steps") or []:
-        assert "git push" not in (step.get("run") or ""), step.get("name")
+    for job in _tests_workflow()["jobs"].values():
+        for step in job.get("steps") or []:
+            assert "git push" not in (step.get("run") or ""), step.get("name")
 
 
 def test_ci_gate_triggers():

@@ -28,7 +28,7 @@ def _workflow_fixture() -> dict:
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
 
 
-JOB = "pytest"   # the leg the gate and the ratchet both live in
+JOB = "reparse-gate"
 
 
 def _steps(workflow: dict, job: str = JOB) -> list[dict]:
@@ -60,11 +60,8 @@ def test_the_gate_runs_on_every_event_not_only_on_master(workflow):
         "the gate is conditioned on the event, so a pull request skips it")
     assert "github.ref" not in condition, (
         "the gate is conditioned on the ref, so a branch push skips it")
-    # It is allowed to defer to a skipped pytest leg (a docs-only change
-    # classifies the expensive legs out), and to a cancelled run. Anything
-    # else in the condition narrows when it runs.
-    assert set(re.findall(r"steps\.\w+\.\w+", condition)) <= {
-        "steps.pytest.conclusion"}
+    assert workflow["jobs"][JOB]["if"] == "${{ !cancelled() }}"
+    assert "if" not in step
 
 
 def test_the_gate_is_not_continue_on_error(workflow):
@@ -75,26 +72,20 @@ def test_the_gate_is_not_continue_on_error(workflow):
 
 
 def test_the_gate_step_is_identified_so_the_ratchet_can_require_it(workflow):
-    """The ratchet conditions on `steps.reparse.outcome`, so the id is load-bearing.
-
-    Delete or rename the `id:` and the ratchet's condition silently
-    evaluates false -- the ratchet stops running, and nothing says so.
-    """
+    """Keep the gate step identifiable in the measurement job."""
     assert _step(workflow, GATE_STEP).get("id") == "reparse"
 
 
 def test_only_a_master_push_may_tighten_the_reparse_bytecodes(workflow):
     """A pull request runs untrusted code and must not write the recorded data.
 
-    All four conditions are checked by name, because dropping ANY of them
-    opens the same hole differently: no `steps.reparse.outcome` tightens on a
-    failed measurement, no `steps.pytest.outcome` tightens on a failed suite,
-    and no master-push condition lets a fork's push write the document.
+    Success dependencies prevent tightening from failed measurements;
+    the event and ref checks restrict recording to master pushes.
     """
-    condition = _step(workflow, RATCHET_STEP).get("if", "")
-    for required in ("steps.pytest.outcome == 'success'",
-                     "steps.jscov.outcome == 'success'",
-                     "steps.reparse.outcome == 'success'",
+    condition = workflow["jobs"]["ratchet"]["if"]
+    for required in ("needs.pytest-shards.result == 'success'",
+                     "needs.js-coverage.result == 'success'",
+                     "needs.reparse-gate.result == 'success'",
                      "github.event_name == 'push'",
                      "github.ref == 'refs/heads/master'"):
         assert required in condition, f"the ratchet no longer requires {required!r}"
@@ -102,7 +93,7 @@ def test_only_a_master_push_may_tighten_the_reparse_bytecodes(workflow):
 
 def test_the_ratchet_actually_runs_the_reparse_ratchet(workflow):
     """The condition can be perfect while the command is gone."""
-    body = _step(workflow, RATCHET_STEP).get("run", "")
+    body = _step(workflow, RATCHET_STEP, "ratchet").get("run", "")
     assert "scripts/ci/reparse_ratchet.py" in body, (
         "the ratchet step no longer runs the reparse ratchet")
     assert "--measured-file" in body, (
@@ -184,7 +175,7 @@ def test_the_measurement_default_is_the_file_the_ratchet_reads(workflow):
         "inputs"]["measurement"]["default"]
     found = re.search(
         r"reparse_ratchet\.py\s+--measured-file\s+(\S+)",
-        _step(workflow, RATCHET_STEP).get("run", ""))
+        _step(workflow, RATCHET_STEP, "ratchet").get("run", ""))
     assert found, "the ratchet step no longer names its measurement file"
     assert default == found.group(1), (
         f"the measurement input's default {default!r} is not the path the "
@@ -231,3 +222,13 @@ def test_the_action_fails_the_job_when_a_phase_is_over_budget():
         "the gating invocation absorbs its own failure")
     assert check.rstrip().endswith('"$MEASUREMENT"'), (
         "the gating invocation does not end on the measurement it checked")
+
+
+def test_ratchet_downloads_the_reparse_measurement_at_the_repo_root(workflow):
+    download, = [step for step in _steps(workflow, "ratchet")
+                 if step.get("with", {}).get("name") == "reparse-measurement"]
+    assert download["uses"].startswith("actions/download-artifact@")
+    assert download.get("with", {}).get("path", ".") == "."
+    assert "run-id" not in download["with"]
+    assert workflow["jobs"]["ratchet"]["needs"] == [
+        "pytest-shards", "coverage-combine", "js-coverage", "reparse-gate", "suite-bench"]

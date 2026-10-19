@@ -104,9 +104,10 @@ def test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value():
             # carries: a substring check would be satisfied by
             # `matrix.seed != ...`, which excludes nothing, and a gate
             # naming two of them admits a second saver.
-            pinned = re.findall(r"matrix\.(\w+) == '([^']*)'", gate)
+            pinned = re.findall(r"matrix\.(\w+) == (?:'([^']*)'|(\d+))", gate)
             assert len(pinned) == 1, (workflow, job_id, gate)
-            axis, value = pinned[0]
+            axis, quoted, numeric = pinned[0]
+            value = quoted if quoted else int(numeric)
             assert value in strategy["matrix"].get(axis, []), (
                 workflow, job_id, gate)
 
@@ -127,4 +128,18 @@ def test_restore_and_save_steps_share_their_cache_key():
                 save_keys.add(key)
         if not restore_keys and not save_keys:
             continue
-        assert restore_keys == save_keys, (workflow, job)
+        restore_only = {"coverage-combine", "js-coverage", "reparse-gate",
+                        "pytest-thresholds", "ratchet", "baselines"}
+        if workflow == "tests.yml" and job in restore_only:
+            assert len(restore_keys) == 1 and not save_keys, (workflow, job)
+        else:
+            assert restore_keys == save_keys, (workflow, job)
+
+
+def test_only_one_pytest_shard_saves_the_shared_pip_cache():
+    steps = next(steps for workflow, job, steps in _jobs()
+                 if (workflow, job) == ("tests.yml", "pytest-shards"))
+    save, = [step for step in steps if _action(step) == "actions/cache/save"]
+    assert save["if"] == (
+        "github.event_name == 'push' && github.ref == 'refs/heads/master' "
+        "&& matrix.shard == 1")
