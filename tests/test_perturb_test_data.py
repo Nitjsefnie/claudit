@@ -1,16 +1,7 @@
-"""SV-TEST-DATA's second half: scripts/ci/perturb_test_data.py under test.
+"""Perturbation tests over synthetic pricing and version homes in tmp_path.
 
-The CI leg this script serves runs the suite against a perturbed tree
-that simulates what the automated refresh does — every rate row gains
-five appended entries per run (×2.0, ×0.37, and a per-row irregular
-factor in [0.61, 1.47) scaling the whole row; then five independent
-per-field factors; then a single-field move) and the three version
-constants move up one — so a test that pins repository-managed data
-fails as a test failure. These tests drive the perturbation over a
-MINIMAL synthetic pricing.json and synthetic version homes — a
-constants module and a parser-version module — in tmp_path; one pin test perturbs a tmp COPY of the
-committed document, which it only ever reads — the tree's own file is
-never mutated.
+The harness appends five chained price moves and bumps three constants.
+Real pricing data is only perturbed on temporary copies.
 """
 from __future__ import annotations
 
@@ -172,9 +163,7 @@ def test_every_new_entry_comes_after_its_predecessor(tmp_path):
 
 
 def test_the_first_three_new_notes_name_the_whole_row_factors(tmp_path):
-    """The three whole-row classes keep their notes: the appended set is
-    now five entries, so these are the FIRST three appended notes; the
-    two new classes' notes are the dedicated tests' business."""
+    """Whole-row notes name the applied factors."""
     doc, perturbed, _text, _path = _run(tmp_path)
     for entries, original in zip(_histories(perturbed), _histories(doc)):
         appended = entries[len(original):]
@@ -202,44 +191,40 @@ def test_two_rows_get_different_irregular_factors(tmp_path):
 
 
 def test_the_new_rates_differ_and_scale_the_previous_newest(tmp_path):
-    """The three WHOLE-ROW entries scale the row's previous newest
-    entry, and every appended entry's every field differs from that
-    newest (the zero→1.0 convention covers zero, and the single-field
-    entry copies the per-field entry — which moved every field)."""
+    """Every append moves the predecessor's effective billing vector."""
     doc, perturbed, _text, _path = _run(tmp_path)
     for entries, original in zip(_histories(perturbed), _histories(doc)):
-        base = original[-1]
+        base = _effective_rates(original[-1])
         appended = entries[len(original):]
         for entry in appended:
             rates = _effective_rates(entry)
-            for field in RATE_FIELDS:
-                assert rates[field] != base[field]
-                assert math.isfinite(rates[field]) and rates[field] >= 0
+            assert rates != base
+            assert all(math.isfinite(rate) and rate >= 0 for rate in rates.values())
+            base = rates
+        base = _effective_rates(original[-1])
         for entry in appended[:3]:
             factor = float(_note_factor(entry))
             rates = _effective_rates(entry)
             for field in RATE_FIELDS:
                 expected = base[field] * factor if base[field] else 1.0
                 assert rates[field] == expected
+            base = rates
 
 
 def test_the_note_names_the_factor_that_was_applied(tmp_path):
-    """Each WHOLE-ROW entry's note spells out its factor exactly, and
-    the rates are the row's previous newest under that factor."""
+    """Notes describe the factor and zero mapping actually applied."""
     doc, perturbed, _text, _path = _run(tmp_path)
-    checked = 0
     for entries, original in zip(_histories(perturbed), _histories(doc)):
-        base = original[-1]
+        base = _effective_rates(original[-1])
         for entry in entries[len(original):][:3]:
             text = _note_factor(entry)
-            assert entry["note"] == (
-                f"{NOTE_PREFIX}{text} (a zero rate becomes one)")
-            checked += 1
+            suffix = " (a zero rate becomes one)" if 0 in base.values() else ""
+            assert entry["note"] == f"{NOTE_PREFIX}{text}{suffix}"
             factor, rates = float(text), _effective_rates(entry)
             for field in RATE_FIELDS:
                 expected = base[field] * factor if base[field] else 1.0
                 assert rates[field] == expected
-    assert checked == len(_histories(perturbed)) * 3
+            base = rates
 
 
 def test_an_offset_spelled_newest_stamp_perturbs_cleanly(tmp_path):
@@ -275,15 +260,11 @@ def test_an_offset_spelled_newest_stamp_perturbs_cleanly(tmp_path):
 
 
 def test_every_row_gains_a_per_field_entry(tmp_path):
-    """The fourth appended entry scales each field by its OWN seeded
-    factor — from (seed, row key, field), in [0.61, 1.47), never 1.0 —
-    so a within-row ratio the data once had does not survive. The five
-    factors of one row are DISTINCT: dropping `field` from the digest
-    preserves every ratio the entry exists to break."""
+    """The fourth entry scales its predecessor by independent factors."""
     doc, perturbed, _text, _path = _run(tmp_path)
     for (key, entries), (_key, original) in zip(
             _rows_of(perturbed), _rows_of(doc), strict=True):
-        base = original[-1]
+        base = _effective_rates(entries[-3])
         assert len(entries) == len(original) + 5
         entry = entries[len(original) + 3]
         assert entry["note"] == "sv-test-data perturbation: independent per-field factors"
@@ -301,15 +282,11 @@ def test_every_row_gains_a_per_field_entry(tmp_path):
 
 
 def test_every_row_gains_a_single_field_entry(tmp_path):
-    """The fifth appended entry moves EXACTLY one seeded field — scaled
-    by its own seeded factor, zero→1.0 — and copies the per-field
-    entry's other four: a ratio pin (read == fresh * k) flips the
-    moment the seeded choice lands on one of its fields, whatever the
-    row prices."""
+    """The fifth entry moves one field from its per-field predecessor."""
     doc, perturbed, _text, _path = _run(tmp_path)
     for (key, entries), (_key, original) in zip(
             _rows_of(perturbed), _rows_of(doc), strict=True):
-        base = original[-1]
+        base = _effective_rates(entries[-2])
         assert len(entries) == len(original) + 5
         entry, per_field = (entries[len(original) + 4],
                             entries[len(original) + 3])
@@ -339,8 +316,11 @@ def test_provider_entries_carry_the_web_search_rate(tmp_path):
             previous = entries[-6].get("web_search", 0.0)
             factor = float(perturb_module._search_factor(  # pylint: disable=protected-access
                 int(NOW.timestamp()), f"{model} via {host}"))
-            want = perturb_module._scaled(previous, factor)  # pylint: disable=protected-access
-            assert all(e["web_search"] == want for e in entries[-5:]), (model, host)
+            for entry in entries[-5:-1]:
+                want = previous * factor if previous else 1.0
+                assert entry["web_search"] == want, (model, host)
+                previous = want
+            assert entries[-1]["web_search"] == previous
 
 
 def test_the_single_field_choice_follows_the_seed(tmp_path):
@@ -374,11 +354,36 @@ def test_the_same_seed_is_byte_identical_on_the_same_document(tmp_path):
     assert texts[0] == texts[1]
 
 
-def test_zeros_become_one_under_every_factor(tmp_path):
-    _doc, perturbed, _text, _path = _run(tmp_path)
-    for entry in perturbed["models"]["free/acme-0"][-5:]:
-        assert all(_effective_rates(entry)[field] == 1
-                   for field in RATE_FIELDS)
+@pytest.mark.parametrize("seed", [1720000000, 42, 1234567890])
+@pytest.mark.parametrize("rate", [0.0, math.ulp(0.0)])
+def test_every_append_moves_even_zero_and_subnormal_rows(seed, rate):
+    # pylint: disable=protected-access
+    newest: dict[str, float] = dict.fromkeys(RATE_FIELDS, rate)
+    for may_search in (False, True):
+        previous = newest
+        for _note, entry in perturb_module._appended_specs(seed, "free", newest, may_search):
+            assert (_effective_rates(entry), entry.get("web_search", 0)) != (
+                _effective_rates(previous), previous.get("web_search", 0))
+            assert all(math.isfinite(value) and value >= 0 for value in entry.values())
+            previous = entry
+        first = perturb_module._appended_specs(seed, "free", newest, may_search)[0][1]
+        if rate == 0:
+            assert set(_effective_rates(first).values()) == {1.0}
+        elif not may_search:
+            _, applied = perturb_module._progressing_move(seed, "tiny", newest, dict.fromkeys(RATE_FIELDS, "1.01"))
+            assert applied == {"fresh": "1.5"}
+        assert perturb_module._appended_specs(seed, "free", newest, may_search) == \
+            perturb_module._appended_specs(seed, "free", newest, may_search)
+
+
+def test_a_rounded_noop_retries_with_a_seeded_factor_and_honest_note(monkeypatch):
+    # pylint: disable=protected-access
+    monkeypatch.setattr(perturb_module, "_irregular_factor", lambda *_: "1.000000")
+    specs = perturb_module._appended_specs(42, "rounded", RATES_A, False)
+    before, (note, after) = specs[1][1], specs[2]
+    factor = float(note[len(NOTE_PREFIX):])
+    assert factor != 1.0 and before != after
+    assert after == {field: value * factor for field, value in before.items()}
 
 
 def test_appended_stamps_step_one_second_apart_per_row(tmp_path):
@@ -450,6 +455,9 @@ def test_the_perturbed_doc_passes_the_loaders_validation(tmp_path):
     for key in doc["models"]:
         base = doc["models"][key][-1]
         moved = perturb_module._moved_field(seed, key)  # pylint: disable=protected-access
+        for factor in (2.0, 0.37, float(perturb_module._irregular_factor(seed, key))):  # pylint: disable=protected-access
+            base = {field: value * factor if value else 1.0 for field, value in base.items()
+                    if field in RATE_FIELDS}
         per_field = {
             field: (base[field] * float(
                 perturb_module._field_factor(  # pylint: disable=protected-access
@@ -460,9 +468,8 @@ def test_the_perturbed_doc_passes_the_loaders_validation(tmp_path):
             perturb_module._single_field_factor(  # pylint: disable=protected-access
                 seed, key, moved))
         expected = {**per_field,
-                    moved: base[moved] * factor if base[moved] else 1.0}
+                    moved: per_field[moved] * factor}
         assert tables["MODEL_RATES"][key] == expected, key
-        irregular = float(perturb_module._irregular_factor(seed, key))  # pylint: disable=protected-access
         # The window the FINAL stamp closes holds the per-field entry;
         # the one behind it, the seeded irregular whole-row entry.
         windows = tables["DATED_RATES"][key]
@@ -471,8 +478,7 @@ def test_the_perturbed_doc_passes_the_loaders_validation(tmp_path):
             per_field)
         assert windows[-2] == (datetime.fromisoformat(
             perturbed["models"][key][-2]["from"].replace("Z", "+00:00")),
-            {field: base[field] * irregular if base[field] else 1.0
-             for field in RATE_FIELDS})
+            base)
     assert len(tables["RATE_EPOCHS"]) > 0
 
 

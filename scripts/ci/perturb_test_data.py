@@ -3,17 +3,20 @@
 
 The perturbed-data CI leg runs the suite against a tree that simulates
 what the automated refresh does: every rate row in src/pricing.json
-gains FIVE appended entries per run — the newest entry's five rates
+gains FIVE appended entries per run — the predecessor's five rates
 scaled whole by ×2.0, by ×0.37, and by a per-row irregular factor in
 [0.61, 1.47) derived from (run seed, row key); then each field scaled
 by its OWN seeded factor, derived from (run seed, row key, field), in
 the same range; then a single-field move, exactly one seeded field
 scaled by its own seeded factor and the other four copying the
 per-field entry — so any within-row ratio the data once had (read ==
-fresh * k, say) can flip. A zero rate becomes one under every factor,
-so every field differs. Every PROVIDER row's appended entries also
-carry the optional `web_search` rate (SV-RATE-REFRESH carries it
-forward), scaled off the row's previous one by its own seeded factor,
+fresh * k, say) can flip. A zero rate becomes one on its first move.
+Each append derives from its predecessor, with bounded seeded retries
+and a minimal nonzero-field nudge if rounding would leave it unchanged.
+Every PROVIDER row's appended entries also carry the optional
+`web_search` rate (SV-RATE-REFRESH carries it forward). The first four
+moves scale their predecessor's search rate by its own seeded factor;
+the single-field move copies it,
 so the leg exercises the shape a refresh appends; a
 models-table row never carries it, the loader refusing the field
 there. The rows are processed in a seeded-shuffled
@@ -46,6 +49,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import random
 import re
 import sys
@@ -77,15 +81,14 @@ def perturb_pricing(path: Path,
                     seed: int | None = None) -> tuple[int, int, str]:
     """Append five scaled entries to every rate row; report the run.
 
-    The first three scale the row's previous newest entry whole: by
+    Each append scales its predecessor. The first three scale whole: by
     ×2.0, by ×0.37, and by a per-row irregular factor in [0.61, 1.47)
     derived from (run seed, row key). The fourth scales each field by
     its OWN seeded factor, derived from (run seed, row key, field), in
     the same range. The fifth moves exactly one seeded field — scaled
     by its own seeded factor — and copies the fourth's other four, so
     any within-row ratio the data once had can flip. A zero rate
-    becomes one under every factor, so every field differs whatever the
-    row prices.
+    becomes one on its first move; every append changes billing state.
 
     The seed drives the factors and the row order ONLY — never a `from`
     stamp. The appended stamps come from a global counter
@@ -204,55 +207,69 @@ def _shuffled(rows: list[tuple[str, list, bool]], seed: int
 
 def _appended_specs(seed: int, row_key: str, newest: dict,
                     may_search: bool) -> list[tuple[str, dict]]:
-    """The five appended entries' (note, rates) pairs, in stamp order.
-
-    The first three scale the row's previous newest entry WHOLE: by
-    ×2.0, by ×0.37, and by the per-row irregular factor. The fourth
-    scales each field by its own seeded factor; the fifth moves exactly
-    one seeded field and copies the fourth's other four — so a
-    within-row ratio the data once had can flip. Every factor is
-    deterministic in its inputs, so the same (document, seed)
-    reproduces the run byte for byte.
-
-    A PROVIDER row's entries also carry the optional `web_search` rate
-    (SV-RATE-REFRESH), scaled off the row's previous one by its own
-    seeded factor — a zero rate becoming one, like every other field —
-    so the leg exercises the shape a refresh appends. Every provider row
-    gains it, a superset of the live hosts that list one.
-    """
-    previous_rates = effective_rates(newest)
-    extra = (_search_rates(seed, row_key, newest) if may_search else {})
-    whole_row = [
-        (f"{NOTE_PREFIX}{factor_text}{NOTE_SUFFIX}",
-         {**extra,
-          **{field: _scaled(previous_rates[field], float(factor_text))
-             for field in pricing.RATE_FIELDS}})
-        for factor_text in (*FIXED_FACTORS, _irregular_factor(seed, row_key))
-    ]
-    per_field = (
-        PER_FIELD_NOTE,
-        {**extra,
-         **{field: _scaled(previous_rates[field],
-                           float(_field_factor(seed, row_key, field)))
-            for field in pricing.RATE_FIELDS}},
-    )
-    moved = _moved_field(seed, row_key)
-    single_field = (
-        f"{SINGLE_FIELD_NOTE_PREFIX}{moved}{SINGLE_FIELD_NOTE_SUFFIX}",
-        {**per_field[1],
-         moved: _scaled(previous_rates[moved],
-                        float(_single_field_factor(seed, row_key, moved)))},
-    )
-    return [*whole_row, per_field, single_field]
+    """Five genuine moves, each derived from its immediate predecessor."""
+    specs = []
+    previous = newest
+    for index, factor in enumerate((*FIXED_FACTORS, _irregular_factor(seed, row_key),
+                                    None, None)):
+        if factor is not None:
+            factors: dict[str, str] = dict.fromkeys(pricing.RATE_FIELDS, factor)
+        elif index == 3:
+            factors = {field: _field_factor(seed, row_key, field)
+                       for field in pricing.RATE_FIELDS}
+        else:
+            moved = _moved_field(seed, row_key)
+            factors = {moved: _single_field_factor(seed, row_key, moved)}
+        if may_search and index < 4:
+            factors["web_search"] = _search_factor(seed, row_key)
+        rates, applied = _progressing_move(
+            seed, f"{row_key}:{index}", previous, factors)
+        token_factors = {field: value for field, value in applied.items()
+                         if field in pricing.RATE_FIELDS}
+        if len(token_factors) == 1:
+            moved = next(iter(token_factors))
+            note = f"{SINGLE_FIELD_NOTE_PREFIX}{moved}{SINGLE_FIELD_NOTE_SUFFIX}"
+        elif index == 3:
+            note = PER_FIELD_NOTE
+        else:
+            suffix = NOTE_SUFFIX if 0 in effective_rates(previous).values() else ""
+            note = f"{NOTE_PREFIX}{token_factors['fresh']}{suffix}"
+        specs.append((note, rates))
+        previous = rates
+    return specs
 
 
-def _search_rates(seed: int, row_key: str, newest: dict) -> dict:
-    """A provider row's appended `web_search` rate, as {field: value}:
-    the row's previous rate under its own seeded factor, a zero rate
-    becoming one — the same convention every other field follows.
-    """
-    return {"web_search": _scaled(newest.get("web_search", 0.0),
-                                  float(_search_factor(seed, row_key)))}
+def _billing_state(entry: dict) -> tuple:
+    return (effective_rates(entry), entry.get("web_search", 0.0),
+            entry.get("schedule"))
+
+
+def _progressing_move(seed: int, key: str, previous: dict,
+                      factors: dict[str, str]) -> tuple[dict, dict[str, str]]:
+    """Retry rounded no-ops eight times, then nudge one nonzero token rate."""
+    source = effective_rates(previous)
+    if "web_search" in previous or "web_search" in factors:
+        source["web_search"] = previous.get("web_search", 0.0)
+    independent = len({factor for field, factor in factors.items()
+                       if field in pricing.RATE_FIELDS}) > 1
+    for attempt in range(9):
+        applied = (factors if attempt == 0 else {
+            field: _bounded_factor(f"{seed}:{key}:retry:{attempt}"
+                                   + (f":{field}" if independent else ""))
+            for field in factors})
+        rates = {**source, **{field: _scaled(source[field], float(factor))
+                             for field, factor in applied.items()}}
+        if _billing_state(rates) != _billing_state(previous):
+            return rates, applied
+    field = next(field for field in factors
+                 if field in pricing.RATE_FIELDS and source[field])
+    value = source[field]
+    factor = math.nextafter(1.0, math.inf)
+    if value * factor == value:
+        factor = 1.0 + math.ulp(value) / (2 * value)
+        if value * factor == value:
+            factor = math.nextafter(factor, math.inf)
+    return {**source, field: value * factor}, {field: repr(factor)}
 
 
 def _bounded_factor(digest_input: str) -> str:
@@ -288,10 +305,7 @@ def _field_factor(seed: int, row_key: str, field: str) -> str:
 
 
 def _single_field_factor(seed: int, row_key: str, field: str) -> str:
-    """The single-field move's factor for `field`, same range — keyed
-    APART from the per-field entry's factor for the same field, so the
-    move actually moves the field off the per-field entry's value.
-    """
+    """A separately seeded factor applied to the per-field predecessor."""
     return _bounded_factor(f"{seed}:{row_key}:single:{field}")
 
 
