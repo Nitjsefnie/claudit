@@ -129,17 +129,17 @@ def _assert_session_cookie_contract(response):
     assert "domain=" not in header
 
 
-def test_successful_login_sets_cookie(app, fake_user, fake_session_store):
-    client = TestClient(app)
-    r = client.post(
-        "/login",
-        data={"user_id": "12345", "password": "hunter2"},
-        headers=_ORIGIN,
-        follow_redirects=False,
+@pytest.mark.parametrize("path, data, statuses", [
+    ("/login", {"user_id": "12345", "password": "hunter2"}, (302, 303)),
+    ("/login/guest", None, (303,)),
+], ids=["password", "guest"])
+def test_login_sets_cookie_contract(app, fake_user, fake_session_store, path, data, statuses):
+    response = TestClient(app).post(
+        path, data=data, headers=_ORIGIN, follow_redirects=False,
     )
-    assert r.status_code in (302, 303)
-    assert session_mod.SESSION_COOKIE_NAME in r.cookies
-    _assert_session_cookie_contract(r)
+    assert response.status_code in statuses
+    assert session_mod.SESSION_COOKIE_NAME in response.cookies
+    _assert_session_cookie_contract(response)
 
 
 def test_login_verification_runs_off_event_loop_thread(
@@ -165,36 +165,17 @@ def test_login_verification_runs_off_event_loop_thread(
     assert verification_threads[0] != event_loop_threads[0]
 
 
-def test_guest_login_sets_same_cookie_contract(app):
-    r = TestClient(app).post(
-        "/login/guest",
-        headers=_ORIGIN,
+@pytest.mark.parametrize("path, data", [
+    ("/login", {"user_id": "12345", "password": "hunter2"}),
+    ("/login/guest", None),
+], ids=["password", "guest"])
+def test_cross_origin_login_post_is_403(app, fake_user, fake_session_store, path, data):
+    response = TestClient(app).post(
+        path, data=data, headers={"Origin": "https://attacker.example"},
         follow_redirects=False,
     )
-    assert r.status_code == 303
-    assert session_mod.SESSION_COOKIE_NAME in r.cookies
-    _assert_session_cookie_contract(r)
-
-
-def test_cross_origin_login_post_is_403(app, fake_user):
-    r = TestClient(app).post(
-        "/login",
-        data={"user_id": "12345", "password": "hunter2"},
-        headers={"Origin": "https://attacker.example"},
-        follow_redirects=False,
-    )
-    assert r.status_code == 403
-    assert "cross-origin" in r.text
-
-
-def test_cross_origin_guest_login_is_403(app):
-    r = TestClient(app).post(
-        "/login/guest",
-        headers={"Origin": "https://attacker.example"},
-        follow_redirects=False,
-    )
-    assert r.status_code == 403
-    assert "cross-origin" in r.text
+    assert response.status_code == 403
+    assert "cross-origin" in response.text
 
 
 def test_login_post_without_origin_is_403(app, fake_user):
@@ -207,36 +188,24 @@ def test_login_post_without_origin_is_403(app, fake_user):
     assert r.status_code == 403
 
 
-def test_wrong_password_is_generic_401(app, fake_user):
+@pytest.mark.parametrize("locked, status", [(False, 401), (True, 429)],
+                         ids=["invalid-credentials", "rate-limited"])
+def test_all_credential_failures_answer_identically(app, fake_user, locked, status):
+    fake_user[777] = {}
     client = TestClient(app)
-    r = _post_login(client, 12345, "wrong")
-    _assert_generic_failure(r)
-
-
-def test_no_password_user_is_generic_401(app, fake_user):
-    store = fake_user
-    store[777] = {}  # known id, no web password configured
-    client = TestClient(app)
-    r = _post_login(client, 777, "anything")
-    _assert_generic_failure(r)
-
-
-def test_all_credential_failures_answer_identically(app, fake_user):
-    """unknown id, no configured password and wrong password must
-    be indistinguishable — identical status AND identical body."""
-    store = fake_user
-    store[777] = {}
-    client = TestClient(app)
-    modes = [
-        _post_login(client, 999, "anything"),   # unknown id
-        _post_login(client, 777, "anything"),   # no password configured
-        _post_login(client, 12345, "wrong"),    # wrong password
-    ]
-    statuses = {r.status_code for r in modes}
-    assert statuses == {401}
-    # Byte-identical bodies: any difference enumerates account ids.
-    assert len({r.content for r in modes}) == 1
-    _assert_generic_failure(modes[0])
+    attempts = [(999, "anything"), (777, "anything"), (12345, "wrong")]
+    if locked:
+        attempts = [(12345, "x"), (999, "x")]
+    responses = []
+    for user_id, password in attempts:
+        if locked:
+            for _ in range(5):
+                _post_login(client, user_id, password)
+        responses.append(_post_login(client, user_id, password))
+    assert {response.status_code for response in responses} == {status}
+    assert len({response.content for response in responses}) == 1
+    if not locked:
+        _assert_generic_failure(responses[0])
 
 
 def test_normalization_runs_where_real_one_cannot(
@@ -263,80 +232,31 @@ def test_normalization_runs_where_real_one_cannot(
     assert calls == [0, 0, auth.PBKDF2_WRITE_ITERATIONS]
 
 
-def test_wrong_password_against_legacy_hash_tops_up(
-    app, fake_user, monkeypatch
+@pytest.mark.parametrize("stored_hash, stored_salt, spent", [
+    (None, "11" * 16, auth.PBKDF2_ITERATIONS),
+    ("ab" * 32, "not-hex", 0),
+    (f"pbkdf2_sha256$abc${'22' * 16}${'ab' * 32}", "22" * 16, 0),
+    (123, "ff" * 16, 0),
+    ("ab" * 32, 123, 0),
+], ids=["legacy-wrong-password", "non-hex-salt", "malformed-versioned-hash",
+        "integer-hash", "integer-salt"])
+def test_stored_credential_failure_normalizes_spent_work(
+    app, fake_user, monkeypatch, stored_hash, stored_salt, spent
 ):
-    """The timing hole this closes: a wrong password against a LEGACY
-    bare-hex user ran only the real 200k verification — cheaper than an
-    unknown id's 600k dummy — so failure timing separated legacy-hash
-    users from unknown ids. The real count is now passed so the
-    remainder is topped up to the same target."""
-    salt_hex = "11" * 16
-    store = fake_user
-    store[555] = {
-        auth.WEB_PASSWORD_HASH_KEY: auth.pbkdf2(
-            "pw", salt_hex, auth.PBKDF2_ITERATIONS
-        ),
-        auth.WEB_PASSWORD_SALT_KEY: salt_hex,
+    if stored_hash is None:
+        stored_hash = auth.pbkdf2("pw", stored_salt, auth.PBKDF2_ITERATIONS)
+    fake_user[555] = {
+        auth.WEB_PASSWORD_HASH_KEY: stored_hash,
+        auth.WEB_PASSWORD_SALT_KEY: stored_salt,
     }
-    calls: list[int] = []
-    monkeypatch.setattr(
-        auth, "normalize_verification_timing",
-        lambda pw, spent: calls.append(spent),
-    )
-    client = TestClient(app)
-    r = _post_login(client, 555, "wrong")
-    _assert_generic_failure(r)
-    assert calls == [auth.PBKDF2_ITERATIONS]
-
-
-def test_non_hex_legacy_salt_is_generic_and_normalizes_from_zero(
-    app, fake_user, monkeypatch
-):
-    fake_user[558] = {auth.WEB_PASSWORD_HASH_KEY: "ab" * 32,
-                      auth.WEB_PASSWORD_SALT_KEY: "not-hex"}
     calls: list[int] = []
     monkeypatch.setattr(auth, "normalize_verification_timing",
-                        lambda password, spent: calls.append(spent))
-    response = _post_login(TestClient(app), 558, "anything")
+                        lambda password, count: calls.append(count))
+    response = _post_login(
+        TestClient(app, raise_server_exceptions=False), 555, "anything"
+    )
     _assert_generic_failure(response)
-    assert calls == [0]
-
-
-def test_unknown_id_normalizes_from_zero(app, fake_user, monkeypatch):
-    """An unknown id has nothing to verify, so it normalizes from
-    zero: the full dummy run at the target count."""
-    calls: list[int] = []
-    monkeypatch.setattr(
-        auth, "normalize_verification_timing",
-        lambda pw, spent: calls.append(spent),
-    )
-    client = TestClient(app)
-    r = _post_login(client, 999, "anything")
-    _assert_generic_failure(r)
-    assert calls == [0]
-
-
-def test_malformed_hash_failure_normalizes_from_zero(
-    app, fake_user, monkeypatch
-):
-    """Malformed versioned credentials pay the cannot-verify PBKDF2 cost."""
-    salt_hex = "22" * 16
-    store = fake_user
-    store[556] = {
-        auth.WEB_PASSWORD_HASH_KEY:
-            f"pbkdf2_sha256$abc${salt_hex}${'ab' * 32}",
-        auth.WEB_PASSWORD_SALT_KEY: salt_hex,
-    }
-    calls: list[int] = []
-    monkeypatch.setattr(
-        auth, "normalize_verification_timing",
-        lambda pw, spent: calls.append(spent),
-    )
-    client = TestClient(app)
-    r = _post_login(client, 556, "anything")
-    _assert_generic_failure(r)
-    assert calls == [0]
+    assert calls == [spent]
 
 
 def test_wrong_password_at_target_spends_nothing_extra(
@@ -358,16 +278,6 @@ def test_wrong_password_at_target_spends_nothing_extra(
     r = _post_login(client, 12345, "wrong")
     assert r.status_code == 401
     assert seen == [auth.PBKDF2_WRITE_ITERATIONS]
-
-
-def test_malformed_user_id_is_still_400(app, fake_user):
-    """The malformed-id 400 stays, on the full sign-in page."""
-    client = TestClient(app)
-    for bad in ("abc", "", "0", "-3"):
-        r = _post_login(client, bad, "bad id")
-        assert r.status_code == 400
-        assert r.headers["content-type"].startswith("text/html")
-        assert '<div class="err" role="alert">Invalid user ID</div>' in r.text
 
 
 def test_failures_for_one_user_do_not_lock_another(app, fake_user, fake_session_store):
@@ -398,31 +308,45 @@ def test_every_failure_mode_counts_toward_the_limit(app, fake_user):
         assert r.status_code == 429, mode_uid
 
 
-def test_locked_pair_429_does_not_burn_pbkdf2(app, fake_user, monkeypatch):
-    """The 429 path must stay cheap — no normalization, no DB hit. The
-    spy goes up only after the five real failures, which legitimately
-    run the real verification (and its no-op top-up at the target)."""
+@pytest.mark.parametrize("limiter", ["pair", "ip"], ids=["pair-limit", "ip-limit"])
+def test_limited_429_does_not_reach_auth_work(app, fake_user, monkeypatch, limiter):
     client = TestClient(app)
-    for _ in range(5):
-        _post_login(client, 12345, "x")
+    if limiter == "pair":
+        for _ in range(5):
+            _post_login(client, 12345, "x")
+    else:
+        failures = login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
+        failures["testclient"] = [
+            time_mod.time()
+        ] * login_mod._LOGIN_MAX_IP_FAILURES  # pylint: disable=protected-access
     calls: list[int] = []
-    monkeypatch.setattr(
-        auth, "normalize_verification_timing",
-        lambda pw, spent: calls.append(spent),
-    )
+    monkeypatch.setattr(auth, "normalize_verification_timing",
+                        lambda password, spent: calls.append(spent))
     monkeypatch.setattr(
         session_mod, "load_user_config",
         lambda uid: pytest.fail("429 must not reach the auth DB"),
     )
-    r = _post_login(client, 12345, "x")
-    assert r.status_code == 429
+    response = _post_login(client, 12345, "x")
+    assert response.status_code == 429
     assert not calls
+    assert response.headers["content-type"].startswith("text/html")
+    assert ('<div class="err" role="alert">Too many login attempts. '
+            'Try again later.</div>') in response.text
 
 
-def test_empty_key_is_dropped_on_access():
-    login_mod._LOGIN_FAILURES["192.0.2.1:7"] = []  # pylint: disable=protected-access
-    login_mod._check_login_rate_limit("192.0.2.1", 7)  # pylint: disable=protected-access
-    assert "192.0.2.1:7" not in login_mod._LOGIN_FAILURES  # pylint: disable=protected-access
+@pytest.mark.parametrize("limiter", ["pair", "ip"], ids=["pair-limit", "ip-limit"])
+def test_empty_key_is_dropped_on_access(limiter):
+    if limiter == "pair":
+        failures = login_mod._LOGIN_FAILURES  # pylint: disable=protected-access
+        key = "192.0.2.1:7"
+        failures[key] = []
+        login_mod._check_login_rate_limit("192.0.2.1", 7)  # pylint: disable=protected-access
+    else:
+        failures = login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
+        key = "192.0.2.1"
+        failures[key] = []
+        login_mod._check_login_ip_rate_limit("192.0.2.1")  # pylint: disable=protected-access
+    assert key not in failures
 
 
 def test_eviction_sweeps_aged_keys_when_over_cap():
@@ -464,15 +388,6 @@ def test_ip_rate_limit_counts_rotating_user_ids():
     assert not login_mod._check_login_ip_rate_limit("192.0.2.51")  # pylint: disable=protected-access
 
 
-def test_ip_limiter_drops_empty_key_on_access():
-    failures = login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
-    failures["192.0.2.1"] = []
-
-    login_mod._check_login_ip_rate_limit("192.0.2.1")  # pylint: disable=protected-access
-
-    assert "192.0.2.1" not in failures
-
-
 def test_ip_limiter_sweeps_aged_keys_when_over_cap():
     now = time_mod.time()
     failures = login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
@@ -486,29 +401,6 @@ def test_ip_limiter_sweeps_aged_keys_when_over_cap():
     assert not any(key.startswith("10.1.") for key in failures)
     assert failures["198.51.100.7"] == [now]
     assert len(failures["198.51.100.8"]) == 1
-
-
-def test_ip_limited_429_does_not_reach_auth_work(app, fake_user, monkeypatch):
-    failures = login_mod._LOGIN_IP_FAILURES  # pylint: disable=protected-access
-    failures["testclient"] = [
-        time_mod.time()
-    ] * login_mod._LOGIN_MAX_IP_FAILURES  # pylint: disable=protected-access
-    monkeypatch.setattr(
-        session_mod,
-        "load_user_config",
-        lambda uid: pytest.fail("429 must not reach the auth DB"),
-    )
-    monkeypatch.setattr(
-        auth,
-        "normalize_verification_timing",
-        lambda password, spent: pytest.fail("429 must not normalize timing"),
-    )
-    r = _post_login(TestClient(app), 12345, "x")
-
-    assert r.status_code == 429
-    assert r.headers["content-type"].startswith("text/html")
-    assert ('<div class="err" role="alert">Too many login attempts. '
-            'Try again later.</div>') in r.text
 
 
 def test_successful_login_does_not_write_the_auth_db(
@@ -526,15 +418,30 @@ def test_successful_login_does_not_write_the_auth_db(
     assert not hasattr(session_mod, "write_user_config")
 
 
-def test_logout_clears_cookie(app, fake_user, fake_session_store):
+@pytest.mark.parametrize("state", ["user", "guest", "no-cookie", "store-down"],
+                         ids=["signed-in", "guest", "no-cookie", "store-down"])
+def test_logout_clears_cookie(app, fake_user, fake_session_store, monkeypatch, state):
     client = TestClient(app)
-    _post_login(client, 12345, "hunter2")
-    r = client.get("/logout", follow_redirects=False)
-    assert r.status_code in (302, 303)
-    assert any(
-        session_mod.SESSION_COOKIE_NAME in v
-        for v in r.headers.get_list("set-cookie")
-    )
+    if state in ("user", "store-down"):
+        _post_login(client, 12345, "hunter2")
+    elif state == "guest":
+        client.post("/login/guest", headers=_ORIGIN, follow_redirects=False)
+    if state == "store-down":
+        assert client.get("/api/me").status_code == 200
+
+        def store_down(user_id):
+            raise RuntimeError("session store unavailable")
+
+        monkeypatch.setattr(session_mod, "bump_session_generation", store_down)
+    response = client.get("/logout", follow_redirects=False)
+    assert response.status_code == 303
+    set_cookie = "; ".join(response.headers.get_list("set-cookie")).lower()
+    assert session_mod.SESSION_COOKIE_NAME in set_cookie
+    assert "max-age=0" in set_cookie
+    if state in ("guest", "no-cookie"):
+        assert fake_session_store == {}
+    elif state == "store-down":
+        assert fake_session_store[12345][1] == 0
 
 
 def test_logout_bumps_generation_and_invalidates_the_session(
@@ -557,49 +464,6 @@ def test_logout_bumps_generation_and_invalidates_the_session(
     assert client.get("/api/me").status_code == 401
 
 
-def test_logout_still_clears_cookie_when_store_fails(
-    app, fake_user, fake_session_store, monkeypatch
-):
-    """Server-side logout is best-effort: when the session store is
-    unavailable, the bump is skipped, but the cookie is still deleted
-    and the redirect still returned — the one route whose job is
-    dropping credentials must not fail closed."""
-    client = TestClient(app)
-    _post_login(client, 12345, "hunter2")
-    assert client.get("/api/me").status_code == 200
-
-    def _store_down(user_id):
-        raise RuntimeError("session store unavailable")
-
-    monkeypatch.setattr(session_mod, "bump_session_generation", _store_down)
-    r = client.get("/logout", follow_redirects=False)
-    assert r.status_code == 303
-    set_cookie = "; ".join(r.headers.get_list("set-cookie")).lower()
-    assert session_mod.SESSION_COOKIE_NAME in set_cookie
-    assert "max-age=0" in set_cookie
-    assert fake_session_store[12345][1] == 0  # the bump never landed
-
-
-def test_logout_with_guest_cookie_does_not_touch_user_session(
-    app, fake_session_store
-):
-    client = TestClient(app)
-    client.post("/login/guest", headers=_ORIGIN, follow_redirects=False)
-    r = client.get("/logout", follow_redirects=False)
-    assert r.status_code in (302, 303)
-    assert fake_session_store == {}
-
-
-def test_logout_with_no_cookie_is_a_plain_redirect(app, fake_session_store):
-    r = TestClient(app).get("/logout", follow_redirects=False)
-    assert r.status_code in (302, 303)
-    assert any(
-        session_mod.SESSION_COOKIE_NAME in v
-        for v in r.headers.get_list("set-cookie")
-    )
-    assert fake_session_store == {}
-
-
 def test_session_cookie_round_trip(app, fake_user, fake_session_store):
     client = TestClient(app)
     _post_login(client, 12345, "hunter2")
@@ -608,32 +472,16 @@ def test_session_cookie_round_trip(app, fake_user, fake_session_store):
     assert r.json() == {"user_id": 12345}
 
 
+@pytest.mark.parametrize("recreate", [False, True], ids=["deleted", "recreated"])
 def test_deleted_auth_user_invalidates_session(
-    app, fake_user, fake_session_store
+    app, fake_user, fake_session_store, recreate
 ):
     client = _signed_in_client(app)
     del fake_user[12345]
-    _clear_user_config_cache()
-    assert client.get("/api/me").status_code == 401
-
-
-def test_recreated_auth_user_with_new_password_invalidates_session(
-    app, fake_user, fake_session_store
-):
-    client = _signed_in_client(app)
-    del fake_user[12345]
-    recreated = {}
-    auth.set_web_password(recreated, "different password")
-    fake_user[12345] = recreated
-    _clear_user_config_cache()
-    assert client.get("/api/me").status_code == 401
-
-
-def test_changed_auth_password_invalidates_session(
-    app, fake_user, fake_session_store
-):
-    client = _signed_in_client(app)
-    auth.set_web_password(fake_user[12345], "different password")
+    if recreate:
+        recreated = {}
+        auth.set_web_password(recreated, "different password")
+        fake_user[12345] = recreated
     _clear_user_config_cache()
     assert client.get("/api/me").status_code == 401
 

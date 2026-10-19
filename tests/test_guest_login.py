@@ -76,21 +76,6 @@ def test_sign_in_guest_markup_is_preserved(monkeypatch: pytest.MonkeyPatch) -> N
     assert disabled == enabled.replace(_ORIGINAL_GUEST_HTML, "")
 
 
-def test_guest_route_disabled_returns_404_without_cookie(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    headers = {"Origin": "http://testserver"}
-    default = client.post("/login/guest", headers=headers, follow_redirects=False)
-    assert default.status_code == 303
-    assert session.SESSION_COOKIE_NAME in default.cookies
-    assert "session=" in default.headers["set-cookie"]
-
-    monkeypatch.setenv("CLAUDIT_GUEST_LOGIN", "0")
-    disabled = client.post("/login/guest", headers=headers, follow_redirects=False)
-    assert disabled.status_code == 404
-    assert "set-cookie" not in disabled.headers
-
-
 def test_disabled_guest_route_never_mints_token(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
