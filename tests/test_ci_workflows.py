@@ -585,8 +585,9 @@ class TestPerturbedSuiteExploreShards:
         normalized = " ".join(run.replace("\\\n", " ").split())
         assert normalized.index(restore) < normalized.index(perturb)
         assert (
-            "&& python -m pytest $(python3 scripts/ci/pytest_shards.py "
-            "--shard ${{ matrix.shard }} --of 4) -q --tb=short -ra; then"
+            "# shellcheck disable=SC2046\n"
+            "  python -m pytest $(python3 scripts/ci/pytest_shards.py "
+            "--shard ${{ matrix.shard }} --of 4) -q --tb=short -ra\n}; then"
         ) in run
         assert self.step["env"]["CLAUDIT_PERTURBED_DATA"] == "1"
 

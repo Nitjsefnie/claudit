@@ -130,8 +130,10 @@ jobs:
           echo "::notice::perturbed-suite seed=$SEED shard=${{ matrix.shard }}"
           git checkout -- src/pricing.json backend/constants.py \
             backend/parser_version.py
-          if python scripts/ci/perturb_test_data.py --seed "$SEED" \
-             && python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra; then
+          if python scripts/ci/perturb_test_data.py --seed "$SEED" && {
+            # shellcheck disable=SC2046
+            python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra
+          }; then
             echo "seed=$SEED shard=${{ matrix.shard }} ok" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "seed=$SEED shard=${{ matrix.shard }} failed" >> "$GITHUB_STEP_SUMMARY"
