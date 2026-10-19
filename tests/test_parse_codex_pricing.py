@@ -87,7 +87,7 @@ def test_a_codex_record_is_priced_at_the_rate_of_its_own_timestamp(
                  [("2026-08-24T12:00:00.000Z", 1_000_000, 10_000, 100_000, 1_000),
                   ("2026-08-24T12:05:00.000Z", 1_300_000, 11_000, 300_000, 1_000)], [False, True], id="per-record"),
 ])
-def test_records_bill_the_long_context_meter(
+def test_records_bill_the_long_context_meter(  # pylint: disable=too-many-locals
         model, plan, file_key, check_fresh, check_membership, snapshots, flags):
     if check_membership:
         assert pricing.is_long_context_model(model)
