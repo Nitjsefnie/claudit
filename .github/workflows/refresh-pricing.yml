@@ -31,9 +31,11 @@ name: refresh-pricing
 # is committed with the data, so a run that appends nothing publishes no
 # commit and does not move the baseline.
 #
-# THE SUITE GATES THE PUSH. The suite runs in the keyless refresh job and
-# only a green run stages the tested data; the data travels to the push
-# job as an artifact. The push job runs no test, dependency or upstream
+# THE SUITE GATES THE PUSH. The keyless refresh job fetches the data;
+# the keyless suite job tests it in a 4-shard matrix. Every shard must
+# pass before the stage job re-stages the tested data and the push job
+# runs. A failed shard stages and pushes nothing. The data travels to
+# the push job as an artifact. The push job runs no test, dependency or upstream
 # code — no checkout, no pip, no npm — and stops its ssh-agent when the
 # step ends. The deploy key lives in the master-push environment,
 # reachable only from master. The push starts workflow runs, unlike a
@@ -87,12 +89,6 @@ jobs:
     permissions:
       contents: read  # nothing here pushes; this job only reads the tree
 
-    env:
-      PGHOST: localhost
-      PGPORT: "5432"
-      PGUSER: postgres
-      PGPASSWORD: postgres
-
     outputs:
       moved: ${{ steps.moved.outputs.moved }}
       fetch_rc: ${{ steps.fetch.outputs.rc }}
@@ -105,15 +101,6 @@ jobs:
           # No step in this job pushes; persist-credentials: false keeps
           # the token out of .git/config for any later step to reuse.
           persist-credentials: false
-
-      - name: Start cached Postgres
-        uses: $/.github/actions/postgres
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          # No dependency cache: this job writes to master, and a cache any
-          # other workflow can populate is not an input it should trust.
-          python-version: "3.13"
 
       - name: Fetch and append
         id: fetch
@@ -151,9 +138,60 @@ jobs:
             echo "moved=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Stage the fetched data
+        if: steps.moved.outputs.moved == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/push-data"
+          cp src/pricing.json "$RUNNER_TEMP/push-data/pricing.json"
+          cp backend/constants.py "$RUNNER_TEMP/push-data/constants.py"
+          cp src/pricing_notices.json "$RUNNER_TEMP/push-data/pricing_notices.json"
+          cp "$RUNNER_TEMP/commit-msg.txt" "$RUNNER_TEMP/push-data/commit-msg.txt"
+          git rev-parse HEAD > "$RUNNER_TEMP/push-data/base.txt"
+
+      - name: Upload the fetched data
+        if: steps.moved.outputs.moved == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pricing-refresh-raw
+          path: ${{ runner.temp }}/push-data
+          if-no-files-found: error
+          retention-days: 1
+
+  suite:
+    needs: refresh
+    if: needs.refresh.outputs.moved == 'true'
+    strategy: {fail-fast: false, matrix: {shard: [1, 2, 3, 4]}}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Refresh and suite read the checked-out tree, not ancestry;
+          # the default shallow checkout supplies HEAD for artifact provenance.
+          # No step in this job pushes; persist-credentials: false keeps
+          # the token out of .git/config for any later step to reuse.
+          persist-credentials: false
+
+      - name: Start cached Postgres
+        uses: $/.github/actions/postgres
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # No dependency cache: this job writes to master, and a cache any
+          # other workflow can populate is not an input it should trust.
+          python-version: "3.13"
+
       - name: Install postgresql-client
         timeout-minutes: 5
-        if: steps.moved.outputs.moved == 'true'
         run: |
           echo "==> adding the PGDG apt source"
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
@@ -165,32 +203,53 @@ jobs:
           sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 postgresql-client-16
 
       - name: Install dependencies
-        if: steps.moved.outputs.moved == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -r requirements-test.txt
 
+      - name: Download the fetched data
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pricing-refresh-raw
+          path: ${{ runner.temp }}/fetch-data
+
+      - name: Overlay the fetched data
+        run: |
+          cp "${{ runner.temp }}/fetch-data/pricing.json" src/pricing.json
+          cp "${{ runner.temp }}/fetch-data/constants.py" backend/constants.py
+          cp "${{ runner.temp }}/fetch-data/pricing_notices.json" src/pricing_notices.json
+
       # Rate/version mutations on master have no judged removal range.
       # No base means no exemptions, including a snapshot awaiting re-seeding.
-      - name: Run the suite against the new rates
-        if: steps.moved.outputs.moved == 'true'
-        run: python -m pytest tests/ -q --tb=short -ra
+      - name: Run tests
+        run: |
+          # shellcheck disable=SC2046
+          python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra
+
+  stage:
+    needs: [refresh, suite]
+    if: needs.refresh.outputs.moved == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Download the fetched data
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pricing-refresh-raw
+          path: ${{ runner.temp }}/fetch-data
 
       - name: Stage the tested data
-        if: steps.moved.outputs.moved == 'true'
-        # The artifact is the tested state: the two data files, the commit
-        # message the script wrote, and the master tip the suite ran on —
-        # the push job's base check compares that tip against master's now.
         run: |
-          mkdir -p "$RUNNER_TEMP/push-data"
-          cp src/pricing.json "$RUNNER_TEMP/push-data/pricing.json"
-          cp backend/constants.py "$RUNNER_TEMP/push-data/constants.py"
-          cp src/pricing_notices.json "$RUNNER_TEMP/push-data/pricing_notices.json"
-          cp "$RUNNER_TEMP/commit-msg.txt" "$RUNNER_TEMP/push-data/commit-msg.txt"
-          git rev-parse HEAD > "$RUNNER_TEMP/push-data/base.txt"
+          mkdir -p "${{ runner.temp }}/push-data"
+          cp "${{ runner.temp }}/fetch-data/pricing.json" "${{ runner.temp }}/push-data/pricing.json"
+          cp "${{ runner.temp }}/fetch-data/constants.py" "${{ runner.temp }}/push-data/constants.py"
+          cp "${{ runner.temp }}/fetch-data/pricing_notices.json" "${{ runner.temp }}/push-data/pricing_notices.json"
+          cp "${{ runner.temp }}/fetch-data/commit-msg.txt" "${{ runner.temp }}/push-data/commit-msg.txt"
+          cp "${{ runner.temp }}/fetch-data/base.txt" "${{ runner.temp }}/push-data/base.txt"
 
       - name: Upload the tested data
-        if: steps.moved.outputs.moved == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pricing-refresh
@@ -204,7 +263,7 @@ jobs:
     # no repo checkout, no pip, no npm, no test suite, no
     # upstream-response parsing. The pinned download action is the only
     # action, and it runs before the key is loaded.
-    needs: refresh
+    needs: [refresh, stage]
     if: needs.refresh.outputs.moved == 'true'
     environment: master-push
     runs-on: ubuntu-latest
@@ -287,7 +346,7 @@ jobs:
     # always() is load-bearing: it is what turns a refusal RED even when
     # nothing moved and the push job skipped. The empty-check keeps a
     # branch dispatch — where the refresh job skipped — green.
-    needs: [refresh, push]
+    needs: [refresh, stage, push]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
