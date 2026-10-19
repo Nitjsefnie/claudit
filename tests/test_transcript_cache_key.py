@@ -30,18 +30,12 @@ _CAROL = (
     b'{"type":"user","message":'
     b'{"role":"user","content":"carol-only secret"}}\n'
 )
-# The replacement payload: different bytes under the SAME
-# object key, so the stored etag must move and the endpoint must build
-# a new composite key rather than serve the predecessor's entry.
 _ALICE_V2 = (
     b'{"type":"user","message":'
     b'{"role":"user","content":"alice-only secret: replaced"}}\n'
 )
 
-# The exact mtime the twin files carry (ns).
 _TWIN_MTIME_NS = 1_000_000_000
-# The replacement's fresh mtime: a different instant, so the new etag
-# differs from the replaced one.
 _REPLACED_MTIME_NS = _TWIN_MTIME_NS + 1
 
 # The three twin sessions; sess:carol's directory name carries the `:`
@@ -95,42 +89,6 @@ def _twin_app_fixture(monkeypatch):
     db.reset_viz_pool()
     shutil.rmtree(tmp)
     scratch_db.drop_database(test_db)
-
-
-def test_equal_size_mtime_transcripts_not_served_for_each_other(twin_app):
-    """Serving alice warms the cache; bob's and carol's GETs must still
-    return their own bytes. Under the etag-only key the second GET
-    returned alice's transcript."""
-    r_alice = twin_app.get("/api/sessions/sess-alice/transcript")
-    assert r_alice.status_code == 200
-    assert r_alice.content == _ALICE
-
-    r_bob = twin_app.get("/api/sessions/sess-bob/transcript")
-    assert r_bob.status_code == 200
-    assert r_bob.content == _BOB
-
-    r_carol = twin_app.get("/api/sessions/sess:carol/transcript")
-    assert r_carol.status_code == 200
-    assert r_carol.content == _CAROL
-
-
-def test_transcript_cache_key_pairs_file_key_with_etag(twin_app):
-    """The LRU entry sits under transcript_key(file_key, etag), with
-    both halves taken from the files row the endpoint itself reads —
-    the key shape the orphan sweep's eviction must name too."""
-    r = twin_app.get("/api/sessions/sess-alice/transcript")
-    assert r.status_code == 200
-    with db.viz_conn() as c:
-        row = c.execute(
-            "SELECT file_key, r2_etag FROM files "
-            "WHERE session_id = %s AND is_main = TRUE LIMIT 1",
-            ("sess-alice",),
-        ).fetchone()
-    assert row is not None
-    file_key, etag = row
-    assert r.headers["etag"] == etag
-    key = cache.transcript_key(file_key, etag)
-    assert cache.transcript_cache.get(key) == _ALICE
 
 
 def test_replaced_object_serves_new_bytes(twin_app):

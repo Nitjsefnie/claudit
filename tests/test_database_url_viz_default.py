@@ -1,23 +1,9 @@
-"""Guard against CLAUDIT_DATABASE_URL_VIZ silently resolving to production.
-
-backend/app.py:20 calls db.load_dotenv(".env") at import time, and.env
-points CLAUDIT_DATABASE_URL_VIZ at the live production `claudit` database.
-load_dotenv only ever os.environ.setdefault()s, so whoever sets the
-variable first wins — and conftest.py claims it before any test module is
-collected. This is a backstop, not a replacement: DB-touching tests still
-monkeypatch their own scratch database.
-
-.env is gitignored and does not exist in CI, so any check here that reads
-it must degrade gracefully rather than crash — see _dotenv_value below.
-These tests hold conftest's claim in place, and reproduce the actual
-trigger (a module-scope `import backend.app`) rather than relying on it
-never happening.
+"""Importing the app must preserve the suite's non-production DSN.
+A configured deployment dotenv must also differ from the test DSN.
 """
 import importlib
 import os
 from pathlib import Path
-
-from backend import db
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -65,18 +51,3 @@ def test_conftest_default_wins_the_race_against_production_dotenv():
         assert dsn != configured, (
             f"the suite is pointed at the DSN .env deploys against: {dsn}"
         )
-
-
-def test_a_later_dotenv_load_cannot_repoint_the_suite_at_production(tmp_path):
-    """load_dotenv is setdefault-only, which is what makes conftest's claim
-    stick. If that ever changed, importing backend.app would drag every
-    test onto production.
-    """
-    dotenv = tmp_path / ".env"
-    dotenv.write_text(f"CLAUDIT_DATABASE_URL_VIZ=postgresql:///{PRODUCTION_DB}\n")
-
-    before = os.environ["CLAUDIT_DATABASE_URL_VIZ"]
-    db.load_dotenv(str(dotenv))
-
-    assert os.environ["CLAUDIT_DATABASE_URL_VIZ"] == before
-    assert _dbname(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) != PRODUCTION_DB

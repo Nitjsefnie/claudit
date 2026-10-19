@@ -74,46 +74,27 @@ def test_happy_path_returns_none(auth_env):
     assert db.schema_check() is None
 
 
-def test_column_absent_reports_missing_column(auth_env):
-    """Genuinely absent config keeps the original message — case (c)."""
+@pytest.mark.parametrize("columns,missing", [
+    ("user_id bigint PRIMARY KEY", "config"),
+    ("id bigint PRIMARY KEY, config jsonb", "user_id"),
+], ids=["missing-config", "missing-user-id"])
+def test_absent_auth_column_reports_missing_column(auth_env, columns, missing):
     name = auth_env("schema_chk_nocol")
     with closing(_auth_conn(name)) as c:
-        c.execute("CREATE TABLE public.users (user_id bigint PRIMARY KEY)")
-    with pytest.raises(RuntimeError, match=r"no 'config' column"):
+        c.execute(sql.SQL("CREATE TABLE public.users ({})").format(sql.SQL(columns)))
+    with pytest.raises(RuntimeError, match=f"no '{missing}' column"):
         db.schema_check()
 
 
-def test_user_id_absent_reports_missing_column(auth_env):
-    """An auth table keyed by another name (for example, `id`
-    instead of user_id) aborts startup naming the missing key column,
-    instead of passing the check and 500ing every login."""
-    name = auth_env("schema_chk_nouid")
-    with closing(_auth_conn(name)) as c:
-        c.execute("CREATE TABLE public.users (id bigint PRIMARY KEY, "
-                  "config jsonb)")
-    with pytest.raises(RuntimeError, match=r"no 'user_id' column"):
-        db.schema_check()
-
-
-def test_user_id_wrong_type_pinned(auth_env):
-    """A non-integer user_id fails the same first login lookup (no
-    `integer = text` operator), so the check pins the type too."""
-    name = auth_env("schema_chk_uidtype")
-    with closing(_auth_conn(name)) as c:
-        c.execute("CREATE TABLE public.users (user_id text PRIMARY KEY, "
-                  "config jsonb)")
-    with pytest.raises(RuntimeError,
-                       match=r"users\.user_id must be an integer type"):
-        db.schema_check()
-
-
-def test_wrong_type_reports_jsonb(auth_env):
-    """Non-JSONB config keeps the type message."""
+@pytest.mark.parametrize("columns,message", [
+    ("user_id text PRIMARY KEY, config jsonb", r"users\.user_id must be an integer type"),
+    ("user_id bigint PRIMARY KEY, config text", r"must be JSONB"),
+], ids=["text-user-id", "text-config"])
+def test_wrong_auth_column_type_reports_expected_type(auth_env, columns, message):
     name = auth_env("schema_chk_type")
     with closing(_auth_conn(name)) as c:
-        c.execute("CREATE TABLE public.users (user_id bigint PRIMARY KEY, "
-                  "config text)")
-    with pytest.raises(RuntimeError, match=r"must be JSONB"):
+        c.execute(sql.SQL("CREATE TABLE public.users ({})").format(sql.SQL(columns)))
+    with pytest.raises(RuntimeError, match=message):
         db.schema_check()
 
 

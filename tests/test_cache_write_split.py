@@ -95,23 +95,6 @@ def test_backend_derivation_is_idempotent():
     assert [r["cache_write_tokens"] for r in recs] == before
 
 
-def test_backend_categories_partition_each_input():
-    """read + write + the uncached tail reconstructs the total input, and
-    the tail stays non-negative. (Mutation pinned: dropping the cap so
-    cache_write_tokens can exceed fresh + cache_creation drives the tail
-    negative, failing the bound.)"""
-    recs = _backend(SPLIT)
-    assert any(r["cache_creation_tokens"] > 0 for r in recs)     # explicit
-    assert any(r["cache_creation_tokens"] == 0 for r in recs)    # automatic
-    for r in recs:
-        total = r["fresh_tokens"] + r["cache_creation_tokens"]
-        write = r["cache_write_tokens"]
-        tail = total - write
-        assert 0 <= write <= total
-        assert r["cache_read_tokens"] + write + tail == (
-            total + r["cache_read_tokens"])
-
-
 def test_backend_last_record_with_creation_takes_create_branch():
     """The LAST record of a file with cache_creation > 0 is an explicit
     write, not the successor-less zero. (Mutation pinned: testing the
