@@ -985,92 +985,80 @@
       5807
     ],
     "tests/test_agent_fold_js.py": [
-      2374,
-      7414
+      1932,
+      6166
     ],
     "tests/test_agent_list_caps_js.py": [
       1171,
       4806
     ],
     "tests/test_agent_sidecar.py": [
-      2204,
-      13745
+      1976,
+      13025
     ],
     "tests/test_agent_type_names.py": [
-      527,
-      1905
+      251,
+      926
     ],
     "tests/test_api.py": [
-      5998,
-      22983
+      5136,
+      20807
     ],
     "tests/test_api_details.py": [
-      4060,
-      15284
-    ],
-    "tests/test_api_export_argv.py": [
-      588,
-      2433
+      2916,
+      11840
     ],
     "tests/test_api_token_types.py": [
-      1519,
-      4687
+      707,
+      2387
     ],
     "tests/test_auth.py": [
-      1458,
-      7816
+      1240,
+      6939
     ],
     "tests/test_bash_churn_loops.py": [
-      1128,
-      2967
+      1045,
+      2997
     ],
     "tests/test_bash_groups.py": [
       1353,
       3760
     ],
     "tests/test_bash_segments.py": [
-      1262,
-      2569
+      1103,
+      2350
     ],
     "tests/test_bash_stream_redirects.py": [
-      728,
-      2188
+      253,
+      884
     ],
     "tests/test_branding.py": [
-      7094,
-      21358
+      6221,
+      19178
     ],
     "tests/test_breakdown_exact_rate.py": [
       2869,
       13776
     ],
     "tests/test_bucket_redact.py": [
-      3236,
-      10218
+      3123,
+      10009
     ],
     "tests/test_cache.py": [
-      7667,
-      18569
+      6741,
+      16625
     ],
     "tests/test_cache_outcomes.py": [
       2967,
       10975
     ],
-    "tests/test_cache_payload_shape.py": [
-      188,
-      777
-    ],
     "tests/test_cache_write_split.py": [
-      1703,
-      4672
-    ],
-    "tests/test_canonical_dims_parity.py": [
-      1292,
-      7406
+      1480,
+      4082
     ],
     "tests/test_canonical_model_attribution.py": [
-      5241,
-      20837
+      4387,
+      19500
     ],
     "tests/test_ci_classify_comment_only.py": [
       3331,
@@ -1113,8 +1101,8 @@
       7638
     ],
     "tests/test_cost_buckets.py": [
-      5487,
-      20829
+      4275,
+      16237
     ],
     "tests/test_crash_recovery.py": [
       2860,
@@ -1125,8 +1113,8 @@
       1340
     ],
     "tests/test_ctx_growth_traces.py": [
-      1304,
-      5151
+      879,
+      4256
     ],
     "tests/test_ctx_input_js.py": [
       1070,
@@ -1149,8 +1137,8 @@
       9850
     ],
     "tests/test_database_url_viz_default.py": [
-      1465,
-      2639
+      758,
+      1544
     ],
     "tests/test_db_marker.py": [
       8204,
@@ -1169,16 +1157,16 @@
       3954
     ],
     "tests/test_db_pool_errors.py": [
-      1440,
-      3585
+      1104,
+      2979
     ],
     "tests/test_db_pool_stale_checkout.py": [
       1257,
       3569
     ],
     "tests/test_db_schema_check.py": [
-      1782,
-      5262
+      1424,
+      4804
     ],
     "tests/test_deferred_js.py": [
       1307,
@@ -1205,8 +1193,8 @@
       5384
     ],
     "tests/test_events.py": [
-      4942,
-      15979
+      4509,
+      14594
     ],
     "tests/test_export_launch.py": [
       205,
@@ -1217,8 +1205,8 @@
       11072
     ],
     "tests/test_fuzz_test_data.py": [
-      5550,
-      23235
+      5067,
+      22282
     ],
     "tests/test_fuzz_test_data_edges.py": [
       2737,
@@ -1237,44 +1225,44 @@
       2991
     ],
     "tests/test_hide_rate_limits_flag.py": [
-      530,
-      2728
+      272,
+      1807
     ],
     "tests/test_hover_treatment.py": [
       3667,
       7966
     ],
     "tests/test_ingest.py": [
-      6022,
-      23819
+      5146,
+      20966
     ],
     "tests/test_ingest_blob_cache.py": [
-      1148,
-      3748
+      962,
+      3286
     ],
     "tests/test_ingest_cache_evict.py": [
       533,
       2474
     ],
     "tests/test_ingest_cache_gate.py": [
-      3185,
-      11687
+      2493,
+      9603
     ],
     "tests/test_ingest_fetch.py": [
       4757,
       19080
     ],
     "tests/test_ingest_lock.py": [
-      8949,
-      23341
+      8049,
+      21722
     ],
     "tests/test_ingest_markers.py": [
       2302,
       11918
     ],
     "tests/test_ingest_more.py": [
-      4140,
-      18515
+      3935,
+      17774
     ],
     "tests/test_ingest_pipeline.py": [
       1150,
@@ -1285,24 +1273,20 @@
       5375
     ],
     "tests/test_ingest_vacuum.py": [
-      6615,
-      21004
-    ],
-    "tests/test_int4_measures.py": [
-      941,
-      4686
+      6323,
+      20364
     ],
     "tests/test_js_toolchain.py": [
       8719,
       20198
     ],
     "tests/test_key_layout.py": [
-      2189,
-      7054
+      951,
+      5449
     ],
     "tests/test_lane_error_kinds.py": [
-      1032,
-      5649
+      926,
+      5222
     ],
     "tests/test_lane_rekey_rollups.py": [
       1665,
@@ -1313,24 +1297,24 @@
       12623
     ],
     "tests/test_login.py": [
-      3752,
-      19335
+      2626,
+      16038
     ],
     "tests/test_login_a11y.py": [
-      1621,
-      7789
+      968,
+      6347
     ],
     "tests/test_login_privacy.py": [
-      521,
-      2300
+      414,
+      1975
     ],
     "tests/test_long_context_fold.py": [
       2351,
       12783
     ],
     "tests/test_long_context_meters.py": [
-      2696,
-      10951
+      1639,
+      8457
     ],
     "tests/test_loop_scope_span.py": [
       563,
@@ -1353,12 +1337,12 @@
       10022
     ],
     "tests/test_multi_bucket.py": [
-      3513,
-      12876
+      2921,
+      11309
     ],
     "tests/test_no_pinned_version_literals.py": [
-      7750,
-      23009
+      6553,
+      21384
     ],
     "tests/test_node_skip_guard.py": [
       3733,
@@ -1389,40 +1373,40 @@
       28167
     ],
     "tests/test_parse.py": [
-      7674,
-      24288
+      6368,
+      22200
     ],
     "tests/test_parse_codex.py": [
-      9545,
-      23378
+      6750,
+      18472
     ],
     "tests/test_parse_codex_more.py": [
-      3112,
-      15057
+      2469,
+      13161
     ],
     "tests/test_parse_codex_pricing.py": [
-      1927,
-      6644
+      1529,
+      5928
     ],
     "tests/test_parse_kimi.py": [
-      5338,
-      22383
+      4541,
+      20208
     ],
     "tests/test_parse_kimi_more.py": [
-      1910,
-      6352
+      1149,
+      4922
     ],
     "tests/test_parse_lanes.py": [
-      4491,
-      25748
+      4034,
+      24279
     ],
     "tests/test_parse_more.py": [
-      4952,
-      24333
+      3546,
+      21038
     ],
     "tests/test_parse_user_prompt.py": [
-      956,
-      2344
+      605,
+      1941
     ],
     "tests/test_parser_js_dedup_merge.py": [
       2646,
@@ -1433,8 +1417,8 @@
       2660
     ],
     "tests/test_parser_js_mirror.py": [
-      5396,
-      22808
+      5059,
+      21666
     ],
     "tests/test_parser_js_user_prompt.py": [
       421,
@@ -1465,8 +1449,8 @@
       1660
     ],
     "tests/test_perturb_test_data.py": [
-      4682,
-      24665
+      4402,
+      24236
     ],
     "tests/test_perturbed_leg_bench.py": [
       1423,
@@ -1489,12 +1473,12 @@
       332
     ],
     "tests/test_pricing.py": [
-      7846,
-      26231
+      5285,
+      19247
     ],
     "tests/test_pricing_compact_shape.py": [
-      971,
-      3565
+      696,
+      3023
     ],
     "tests/test_pricing_data.py": [
       2563,
@@ -1509,44 +1493,40 @@
       3704
     ],
     "tests/test_pricing_vendor.py": [
-      3437,
-      21256
+      3349,
+      20854
     ],
     "tests/test_pricing_vendor_equality.py": [
       1992,
       11101
     ],
     "tests/test_project_aliases.py": [
-      4143,
-      18697
+      3759,
+      17076
     ],
     "tests/test_project_case_fold.py": [
-      1663,
-      6954
+      1289,
+      5889
     ],
     "tests/test_prompt_gate.py": [
-      1749,
-      3516
+      463,
+      1733
     ],
     "tests/test_provider_pricing.py": [
-      5827,
-      23281
+      4635,
+      20364
     ],
     "tests/test_provider_rate_refresh.py": [
-      4667,
-      22316
+      4560,
+      21890
     ],
     "tests/test_provider_rate_refresh_alternation.py": [
-      862,
-      4675
-    ],
-    "tests/test_provider_rate_refresh_hosts.py": [
-      2728,
-      16739
+      738,
+      4380
     ],
     "tests/test_provider_rate_refresh_notices.py": [
-      2497,
-      7400
+      1678,
+      5605
     ],
     "tests/test_provider_rate_refresh_pins.py": [
       463,
@@ -1565,12 +1545,12 @@
       1469
     ],
     "tests/test_r2.py": [
-      6299,
-      15584
+      5677,
+      14111
     ],
     "tests/test_rate_fingerprint.py": [
-      4444,
-      16134
+      4231,
+      15609
     ],
     "tests/test_records_price.py": [
       5425,
@@ -1581,20 +1561,20 @@
       15221
     ],
     "tests/test_reparse_bench.py": [
-      8153,
-      17959
+      7439,
+      16546
     ],
     "tests/test_reparse_ci_wiring.py": [
       2383,
       8250
     ],
     "tests/test_reparse_count.py": [
-      2170,
-      5255
+      1825,
+      4665
     ],
     "tests/test_reparse_gate.py": [
-      2895,
-      10663
+      2299,
+      8974
     ],
     "tests/test_reparse_seed.py": [
       1289,
@@ -1605,28 +1585,28 @@
       17995
     ],
     "tests/test_reprice.py": [
-      5865,
-      21306
+      3126,
+      14430
     ],
     "tests/test_reprice_clean_restamp_guards.py": [
-      3866,
-      9510
+      3125,
+      8358
     ],
     "tests/test_reprice_differential.py": [
       6232,
       18813
     ],
     "tests/test_reprice_pairs.py": [
-      7344,
-      25692
+      6574,
+      23593
     ],
     "tests/test_reprice_parity.py": [
       5075,
       14496
     ],
     "tests/test_reprice_setbased.py": [
-      2317,
-      8644
+      1830,
+      7582
     ],
     "tests/test_requirements_pins.py": [
       2316,
@@ -1641,8 +1621,8 @@
       2500
     ],
     "tests/test_schema_autoapply.py": [
-      5686,
-      14980
+      2920,
+      11109
     ],
     "tests/test_scratch_db.py": [
       3615,
@@ -1653,8 +1633,8 @@
       5262
     ],
     "tests/test_security_headers.py": [
-      2939,
-      8968
+      2836,
+      8868
     ],
     "tests/test_sequence_allocation.py": [
       1786,
@@ -1669,16 +1649,16 @@
       2397
     ],
     "tests/test_shutdown_budget.py": [
-      6484,
-      16341
+      5906,
+      15352
     ],
     "tests/test_signin_perf_marker.py": [
-      2883,
-      6418
+      2022,
+      5222
     ],
     "tests/test_smoke_cleanup.py": [
-      427,
-      2248
+      358,
+      2049
     ],
     "tests/test_smoke_client.py": [
       768,
@@ -1689,8 +1669,8 @@
       1469
     ],
     "tests/test_storage_widths.py": [
-      3079,
-      10755
+      2971,
+      10599
     ],
     "tests/test_suite_bench.py": [
       5588,
@@ -1708,10 +1688,6 @@
       3343,
       17314
     ],
-    "tests/test_teammate_agent_type.py": [
-      2336,
-      14796
-    ],
     "tests/test_timeline_selection.py": [
       1089,
       4420
@@ -1721,12 +1697,12 @@
       1935
     ],
     "tests/test_token_type_suppression.py": [
-      736,
-      2011
+      493,
+      1547
     ],
     "tests/test_tokens_by_project.py": [
-      1764,
-      4902
+      884,
+      3131
     ],
     "tests/test_tool_canonical.py": [
       901,
@@ -1741,24 +1717,24 @@
       2077
     ],
     "tests/test_transcript_cache_key.py": [
-      1952,
-      5973
+      1371,
+      4548
     ],
     "tests/test_ttl_legend_wiring.py": [
       1890,
       4678
     ],
     "tests/test_turn_flag_bits.py": [
-      1006,
-      5596
+      863,
+      5190
     ],
     "tests/test_uuid_gate.py": [
-      2035,
-      5281
+      1518,
+      4197
     ],
     "tests/test_uuid_split.py": [
-      4542,
-      14294
+      4197,
+      13622
     ],
     "tests/test_vbar_label_geometry.py": [
       1909,
@@ -1777,12 +1753,12 @@
       2374
     ],
     "tests/test_web_metrics.py": [
-      8470,
-      22777
+      8077,
+      21991
     ],
     "tests/test_web_metrics_rollup.py": [
-      8854,
-      22953
+      8045,
+      21422
     ],
     "tests/test_workflow_ci_gate.py": [
       8103,
