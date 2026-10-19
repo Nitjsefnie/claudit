@@ -447,6 +447,7 @@ def _javascript_coverage_gate() -> dict:
     assert caller.get("uses") == "$/.github/actions/coverage-gate"
     assert caller.get("with", {}).get("language") == "javascript"
     assert caller.get("id") == "jscov"
+    assert caller.get("if") == "${{ !cancelled() }}"
     action = yaml.safe_load((REPO_ROOT / ".github" / "actions"
                              / "coverage-gate" / "action.yml").read_text(
                                  encoding="utf-8"))

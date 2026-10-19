@@ -478,7 +478,8 @@ def test_parallel_canary_jobs_keep_the_gate_step_order():
                 "Install postgresql-client", "Install dependencies"]
     expected = {
         "pytest-shards": [*database, "Save the pip cache", "Run tests", "actions/upload-artifact"],
-        "coverage-combine": [*preparation, "actions/download-artifact", "Combine shard coverage",
+        "coverage-combine": [*preparation, "Download coverage shards", "Validate the shard data",
+                             "Combine shard coverage",
                              "measured", "Coverage summary", "Upload coverage.xml",
                              "Patch coverage against the merge base", "Stage the patch-coverage comment",
                              "Upload the patch-coverage comment", "Coverage gate"],
@@ -492,7 +493,8 @@ def test_parallel_canary_jobs_keep_the_gate_step_order():
         "suite-bench": [*preparation, "Save the pip cache", "Measure and gate the suite cost",
                         "Upload the suite measurement"],
         "pytest-thresholds": [*database, "Run tests"],
-        "ratchet": [*preparation, "actions/download-artifact", "actions/download-artifact",
+        "ratchet": [*preparation, "actions/setup-node", "Install the JS toolchain from the lockfile",
+                    "actions/download-artifact", "actions/download-artifact",
                     "Ratchet the thresholds", "Stage the ratchet data", "Upload the ratchet data"],
     }
     for job_id, want in expected.items():

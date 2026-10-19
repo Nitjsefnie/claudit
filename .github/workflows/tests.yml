@@ -70,13 +70,7 @@ jobs:
           python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra --cov=backend --cov-report=
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
-        with:
-          name: coverage-shard-${{ matrix.shard }}
-          path: shard-coverage/
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 1
-
+        with: {name: "coverage-shard-${{ matrix.shard }}", path: "shard-coverage/.coverage.${{ matrix.shard }}", include-hidden-files: true, if-no-files-found: error, retention-days: 1}
   coverage-combine:
     needs: [pytest-shards]
     if: ${{ !cancelled() && inputs.thresholds_only != 'true' }}
@@ -85,7 +79,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      # Keep each artifact directory: identically named hidden files must not collide.
+      # Keep artifact directories so every shard is checked before combining.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -101,11 +95,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -r requirements-test.txt
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: coverage-shard-*
-          path: shard-data/
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download coverage shards
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {pattern: coverage-shard-*, path: shard-data/}
+      - name: Validate the shard data
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4; do
+            mapfile -t data < <(compgen -G "shard-data/coverage-shard-$i/.coverage.*")
+            if (( ${#data[@]} != 1 )) || [[ ! -f "${data[0]}" ]]; then
+              echo "::error::Missing or invalid coverage data for shard $i (expected exactly one file, found ${#data[@]})" >&2
+              exit 1
+            fi
+          done
       - name: Combine shard coverage
         run: python -m coverage combine shard-data/coverage-shard-*
       - id: measured
@@ -198,13 +200,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -r requirements-test.txt
       - name: Module size baseline
-        if: inputs.thresholds_only != 'true'
+        if: ${{ !cancelled() && inputs.thresholds_only != 'true' }}
         run: python3 scripts/ci/size_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
       - name: Pylint suppression baseline
-        if: inputs.thresholds_only != 'true'
+        if: ${{ !cancelled() && inputs.thresholds_only != 'true' }}
         run: python3 scripts/ci/suppression_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
       - name: Threshold direction guard
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
         run: |
           base="${CLAUDIT_THRESHOLDS_BASE_REV?Threshold base resolution failed}"
           if [ -z "$base" ]; then
@@ -247,9 +249,11 @@ jobs:
       - name: Install the JS toolchain from the lockfile
         run: npm ci --no-audit --no-fund
       - name: Comment share baseline
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/comment_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
       - name: JavaScript coverage gate
         id: jscov
+        if: ${{ !cancelled() }}
         uses: $/.github/actions/coverage-gate
         with: {"language": "javascript"}
 
@@ -375,14 +379,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -r requirements-test.txt
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: {node-version: "24.17.0"}
+      - name: Install the JS toolchain from the lockfile
+        run: npm ci --no-audit --no-fund
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: reparse-measurement
-          path: .
+        with: {name: reparse-measurement, path: .}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: suite-measurement
-          path: ${{ runner.temp }}/suite-data
+        with: {name: suite-measurement, path: "${{ runner.temp }}/suite-data"}
       - name: Ratchet the thresholds
         id: ratchet
         env: {"JS_MEASURED": "${{ needs.js-coverage.outputs.js_measured }}", "PY_MEASURED": "${{ needs.coverage-combine.outputs.python_measured }}"}

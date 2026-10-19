@@ -183,11 +183,11 @@ def test_comment_only_runs_check_with_dependencies():
     assert shlex.split(check['run']) == [
         'python3', 'scripts/ci/comment_baseline.py',
         '--base-rev', '$CLAUDIT_THRESHOLDS_BASE_REV', '--head-rev', 'HEAD']
-    assert 'if' not in check
+    assert check['if'] == '${{ !cancelled() }}'
     installs = [step for step in steps if step.get('run') == 'npm ci --no-audit --no-fund']
     assert len(installs) == 1
     install = installs[0]
-    assert install.get('if') == check.get('if')
+    assert 'if' not in install
     assert steps.index(install) + 1 == steps.index(check)
     assert any('-r requirements-test.txt' in step.get('run', '')
                for step in steps[:steps.index(check)])

@@ -157,6 +157,12 @@ def test_ratchet_reads_job_outputs_and_stages_the_tested_tip():
         "PY_MEASURED": "${{ needs.coverage-combine.outputs.python_measured }}"}
     assert 'measured="$PY_MEASURED"' in _run_lines(ratchet)
     assert "coverage report" not in ratchet["run"]
+    steps = _steps(job)
+    node, = [step for step in steps if step.get("uses", "").startswith("actions/setup-node@")]
+    assert node["with"]["node-version"] == "24.17.0"
+    npm, = [step for step in steps if step.get("run") == "npm ci --no-audit --no-fund"]
+    pip = next(step for step in steps if step.get("name") == "Install dependencies")
+    assert steps.index(pip) < steps.index(node) < steps.index(npm) < steps.index(ratchet)
     download, = [step for step in _steps(job)
                  if step.get("with", {}).get("name") == "suite-measurement"]
     assert download["with"]["path"] == "${{ runner.temp }}/suite-data"
