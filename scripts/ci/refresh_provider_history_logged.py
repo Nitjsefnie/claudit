@@ -8,7 +8,7 @@ from refresh_common import detection_stamp
 from refresh_prices import RefreshError
 from refresh_provider_history import (
     Move, _entry, _floored_log, _new_log_states, _occurrences, _price_instant,
-    _set_search_rate,
+    _sampled_state, _set_sampled_state,
 )
 from refresh_selection import Listing
 from backend.pricing_document import effective_rates
@@ -22,17 +22,22 @@ class _LogChange:
     history: list[dict]
     prior_length: int
     original: dict | None
-    old_search: float
+    old_sampled: dict
     move: Move | None = None
+
+
+def _sampled_label(change: _LogChange) -> str:
+    fields = _sampled_state({**change.listing.rates, **change.listing.identity})
+    return ", ".join(key for key, value in fields.items()
+                     if value != change.old_sampled[key])
 
 
 def _append_token_states(change: _LogChange, additions: list[dict]) -> None:
     """Append every new logged token state at its change point."""
     if not additions:
         return
-    if change.old_search:
-        for entry in additions:
-            entry["web_search"] = change.old_search
+    for entry in additions:
+        _set_sampled_state(entry, change.old_sampled)
     original = change.original
     assert original is not None
     change.history.extend(additions)
@@ -46,9 +51,9 @@ def _prepare_log_change(model: str, hosts: dict, host: str,
     history = list(_occurrences(stored, f"{model} via {host}")) if stored else []
     prior_length = len(history)
     original = history[-1] if history else None
-    old_search = original.get("web_search", 0.0) if original else 0.0
+    old_sampled = _sampled_state(original or {})
     change = _LogChange(model, host, listing, history or [], prior_length,
-                        original, old_search)
+                        original, old_sampled)
     if stored is None:
         additions = _floored_log(model, host, entries)
         change.history = copy.deepcopy(additions)
@@ -82,11 +87,11 @@ def _append_endpoint_state(change: _LogChange, at: datetime) -> None:
     change.move.reason = reason
 
 
-def _defer_committed_search_change(
+def _defer_committed_sampled_change(
         change: _LogChange, stamp: str, detected_at: datetime,
-        new_search: float, where: str,
+        new_sampled: dict, where: str,
         deferred_notices: list[str] | None) -> bool:
-    """Defer a search update blocked by an already committed entry."""
+    """Defer sampled state blocked by an already committed entry."""
     committed = [entry for entry in change.history[:change.prior_length]
                  if (entry.get("from") is not None
                      and _price_instant(entry["from"], where) >= detected_at)]
@@ -102,13 +107,13 @@ def _defer_committed_search_change(
         for entry in change.history[next_append:]:
             if (entry.get("from") is not None
                     and _price_instant(entry["from"], where) > detected_at):
-                _set_search_rate(entry, new_search)
+                _set_sampled_state(entry, new_sampled)
         deferred_at = change.history[next_append]["from"]
-        message = (f"{change.model} via {change.host}: web_search change deferred "
+        message = (f"{change.model} via {change.host}: {_sampled_label(change)} change deferred "
                    f"from {stamp} to the next append at {deferred_at}; the "
                    f"entry dated {blocker['from']} is already committed")
     else:
-        message = (f"{change.model} via {change.host}: web_search change deferred "
+        message = (f"{change.model} via {change.host}: {_sampled_label(change)} change deferred "
                    f"from {stamp} until the next append; the entry dated "
                    f"{blocker['from']} is already committed")
     if deferred_notices is not None:
@@ -116,10 +121,10 @@ def _defer_committed_search_change(
     return True
 
 
-def _carry_search_to_detected_entries(
-        change: _LogChange, detected_at: datetime, new_search: float,
+def _carry_sampled_to_detected_entries(
+        change: _LogChange, detected_at: datetime, new_sampled: dict,
         where: str) -> bool:
-    """Merge a search update into entries created at its detection instant."""
+    """Merge sampled state into entries created at its detection instant."""
     index = next((i for i in range(change.prior_length, len(change.history))
                  if (change.history[i].get("from") is not None
                      and _price_instant(
@@ -129,74 +134,75 @@ def _carry_search_to_detected_entries(
     for entry in change.history[index:]:
         if (entry.get("from") is not None
                 and _price_instant(entry["from"], where) >= detected_at):
-            _set_search_rate(entry, new_search)
+            _set_sampled_state(entry, new_sampled)
     return True
 
 
-def _defer_search_without_predecessor(
-        change: _LogChange, stamp: str, new_search: float,
+def _defer_sampled_without_predecessor(
+        change: _LogChange, stamp: str, new_sampled: dict,
         deferred_notices: list[str] | None) -> None:
-    """Carry a search update to the next append when no predecessor exists."""
+    """Carry sampled state to the next append when no predecessor exists."""
     next_append = next((i for i in range(change.prior_length, len(change.history))
                         if change.history[i].get("from") is not None), None)
     if next_append is not None:
         for entry in change.history[next_append:]:
-            _set_search_rate(entry, new_search)
+            _set_sampled_state(entry, new_sampled)
         deferred_at = change.history[next_append]["from"]
-        message = (f"{change.model} via {change.host}: web_search change deferred "
+        message = (f"{change.model} via {change.host}: {_sampled_label(change)} change deferred "
                    f"from {stamp} to the next append at {deferred_at}; no "
                    "predecessor entry exists at detection")
     else:
-        message = (f"{change.model} via {change.host}: web_search change deferred "
+        message = (f"{change.model} via {change.host}: {_sampled_label(change)} change deferred "
                    f"from {stamp} until the next append; no predecessor entry "
                    "exists at detection")
     if deferred_notices is not None:
         deferred_notices.append(message)
 
 
-def _insert_search_entry(change: _LogChange, insert_at: int, stamp: str,
-                         detected_at: datetime, new_search: float,
-                         where: str) -> None:
-    """Insert a search-only state and carry it through later states."""
+def _insert_sampled_entry(change: _LogChange, insert_at: int, stamp: str,
+                          detected_at: datetime, new_sampled: dict,
+                          where: str) -> None:
+    """Insert sampled state and carry it through later states."""
     previous = change.history[insert_at - 1]
-    search_entry = _entry(stamp, change.listing)
-    search_entry.update(effective_rates(previous))
-    _set_search_rate(search_entry, new_search)
-    change.history.insert(insert_at, search_entry)
+    sampled_entry = {**previous, "from": stamp}
+    _set_sampled_state(sampled_entry, new_sampled)
+    change.history.insert(insert_at, sampled_entry)
     for entry in change.history[insert_at + 1:]:
         if (entry.get("from") is not None
                 and _price_instant(entry["from"], where) > detected_at):
-            _set_search_rate(entry, new_search)
+            _set_sampled_state(entry, new_sampled)
 
 
-def _append_search_change(change: _LogChange, at: datetime,
-                          deferred_notices: list[str] | None) -> Move | None:
-    """Append or defer the listing's search-rate change."""
-    new_search = change.listing.rates.get("web_search", 0.0)
-    if new_search == change.old_search:
+def _append_sampled_change(change: _LogChange, at: datetime,
+                           deferred_notices: list[str] | None) -> Move | None:
+    """Append or defer the listing's sampled-state change."""
+    new_sampled = _sampled_state({**change.listing.rates, **change.listing.identity})
+    if new_sampled == change.old_sampled:
         return change.move
     stamp = at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     where = f"{change.model} via {change.host}"
     detected_at = _price_instant(stamp, where)
-    if _defer_committed_search_change(
-            change, stamp, detected_at, new_search, where, deferred_notices):
+    if _defer_committed_sampled_change(
+            change, stamp, detected_at, new_sampled, where, deferred_notices):
         return change.move
-    if _carry_search_to_detected_entries(
-            change, detected_at, new_search, where):
+    if _carry_sampled_to_detected_entries(
+            change, detected_at, new_sampled, where):
         return change.move
     insert_at = next((i for i, entry in enumerate(change.history)
                       if (entry.get("from") is not None
                           and _price_instant(entry["from"], where) > detected_at)),
                      len(change.history))
     if insert_at == 0:
-        _defer_search_without_predecessor(
-            change, stamp, new_search, deferred_notices)
+        _defer_sampled_without_predecessor(
+            change, stamp, new_sampled, deferred_notices)
         return change.move
-    _insert_search_entry(change, insert_at, stamp, detected_at,
-                         new_search, where)
+    _insert_sampled_entry(change, insert_at, stamp, detected_at,
+                          new_sampled, where)
     if change.move is None:
         change.move = Move(change.model, change.host, change.original,
-                           change.listing, 1, "search")
+                           change.listing, 1,
+                           "context" if new_sampled["context_length"] !=
+                           change.old_sampled["context_length"] else "search")
     return change.move
 
 
@@ -207,14 +213,14 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
 
     A row still out of step with the listing appends its listed state at
     detection, or refuses when that instant cannot follow its newest entry.
-    Search changes share an entry newly created at that instant; a collision
+    Sampled changes share an entry newly created at that instant; a collision
     with committed history is deferred to the next actual append
     (SV-RATE-REFRESH).
     """
     stored = hosts.get(host)
     change = _prepare_log_change(model, hosts, host, listing, entries)
     _append_endpoint_state(change, at)
-    move = _append_search_change(change, at, deferred_notices)
+    move = _append_sampled_change(change, at, deferred_notices)
     if stored is not None:
         hosts[host] = [*stored, *change.history[change.prior_length:]]
     return move

@@ -24,8 +24,8 @@ def _backfilled(tmp_path, capsys, last_group):
     if last_group:
         states.append(("2031-01-01T00:22:00Z", RATE_B))
     rc, _, err, path, constants, _ = _run(
-        tmp_path, capsys, {"Wafer": [_entry(states[0][0], RATE_C)],
-                           "OtherHost": [_entry(None, RATE_B)]},
+        tmp_path, capsys, {"Wafer": [{**_entry(states[0][0], RATE_C), "context_length": 131072}],
+                           "OtherHost": [{**_entry(None, RATE_B), "context_length": 131072}]},
         states, as_of="2031-01-01T00:25:00Z")
     assert rc == 0, err
     grouped = expand_pricing_doc(json.loads(path.read_text()))["providers"][MODEL]["Wafer"]
@@ -36,7 +36,8 @@ def _backfilled(tmp_path, capsys, last_group):
 
 
 def _listing(states, mode):
-    listed = {**(RATE_C if mode in {"logged", "sampled"} else states[-1][1])}
+    listed = {**(RATE_C if mode in {"logged", "sampled"} else states[-1][1]),
+              "context_length": 131072}
     log_states = [*states, ("2031-01-01T00:30:00Z", RATE_C)] if mode == "logged" else states
     if mode == "search":
         listed["web_search"] = 0.03
@@ -69,6 +70,7 @@ def test_backfill_serialize_refresh_preserves_groups_with_independent_move(
         "from": "2031-01-01T00:30:00Z" if mode == "logged" else DETECTED,
         **listed, **({"schedule": schedule} if mode == "schedule" else {})}])
     assert saved["providers"][MODEL]["OtherHost"] == [
-        _entry(None, RATE_B), _entry(DETECTED, RATE_C)]
+        {**_entry(None, RATE_B), "context_length": 131072},
+        {**_entry(DETECTED, RATE_C), "context_length": 131072}]
     assert path.read_text() == serialize_pricing_doc(saved)
     pricing.load_tables(json.loads(path.read_text()))

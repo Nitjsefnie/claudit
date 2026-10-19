@@ -37,6 +37,8 @@ class RateTables(TypedDict):
     MODEL_RATES: dict[str, dict]
     DATED_RATES: dict[str, Windows]
     PROVIDER_RATES: dict[tuple[str, str], dict]
+    PROVIDER_CONTEXT_LENGTHS: dict[tuple[str, str], int]
+    TRACKED_MODELS: dict[str, dict]
     PROVIDER_DATED_RATES: dict[tuple[str, str], Windows]
     PROVIDER_STARTS: dict[tuple[str, str], datetime]
     PROVIDER_SCHEDULES: dict[tuple[str, str], dict[int, list[ScheduleWindow]]]
@@ -145,7 +147,11 @@ def _schedule(schedule: object, at: str) -> list[ScheduleWindow]:
 
 def _check_entry_fields(entry: dict, at: str, provider: bool = False) -> None:
     """An entry's field set and rate values, checked."""
-    fields = set(entry) - {"from", "note", "schedule"}
+    fields = set(entry) - {"from", "note", "schedule", "context_length"}
+    if "context_length" in entry:
+        _check_context_length(entry, at)
+        if not provider:
+            raise ValueError(f"{at}: only a provider entry carries context_length")
     has_search_rate = "web_search" in fields
     if has_search_rate:
         fields.remove("web_search")
@@ -160,6 +166,13 @@ def _check_entry_fields(entry: dict, at: str, provider: bool = False) -> None:
         bad.append("web_search")
     if bad:
         raise ValueError(f"{at}: {bad} not a finite non-negative number")
+
+
+def _check_context_length(entry: dict, at: str) -> None:
+    if "context_length" in entry and (
+            not isinstance(entry["context_length"], int)
+            or isinstance(entry["context_length"], bool) or entry["context_length"] <= 0):
+        raise ValueError(f"{at}: context_length is not a positive integer")
 
 
 def _history(entries: list[dict], where: str, may_begin: bool = False,
@@ -183,7 +196,6 @@ def _history(entries: list[dict], where: str, may_begin: bool = False,
     """
     entries, owners = (flatten_provider_history(entries, where, _instant) if may_begin
                        else (entries, list(range(len(entries)))))
-    rates: list[dict] = []
     starts: list[datetime] = []
     schedules: dict[int, list[ScheduleWindow]] = {}
     for i, entry in enumerate(entries):
@@ -214,15 +226,31 @@ def _history(entries: list[dict], where: str, may_begin: bool = False,
                 == {k: v for k, v in entries[i - 1].items()
                     if k != "from"}):
             raise ValueError(f"{at}: equal to the previous entry except 'from'")
-        row_rates = effective_rates(entry)
-        if may_begin and "web_search" in entry:
-            row_rates["web_search"] = entry["web_search"]
-        rates.append(row_rates)
-    if not rates:
+    if not entries:
         raise ValueError(f"{where}: empty history")
+    return _priced_history(entries, owners, schedules, where)
+
+
+def _priced_history(entries: list[dict], owners: list[int], schedules: dict, where: str
+                    ) -> tuple[dict, Windows, datetime | None, dict]:
+    """Keep context metadata moves outside rate windows and their schedules."""
+    priced = []
+    for i, entry in enumerate(entries):
+        if i and owners[i] != owners[i - 1] and (
+                effective_rates(entry) == effective_rates(entries[i - 1])
+                and entry.get("web_search", 0) == entries[i - 1].get("web_search", 0)
+                and entry.get("schedule") == entries[i - 1].get("schedule")):
+            continue
+        priced.append((i, entry))
+    rates = [dict(effective_rates(entry), **(
+        {"web_search": entry["web_search"]} if "web_search" in entry else {}))
+        for _, entry in priced]
+    starts = [_instant(entry["from"], where) for _, entry in priced
+              if entry.get("from") is not None]
     begin = entries[0].get("from") is not None
     return (rates[-1], list(zip(starts[begin:], rates[:-1])),
-            starts[0] if begin else None, schedules)
+            starts[0] if begin else None,
+            {j: schedules[i] for j, (i, _) in enumerate(priced) if i in schedules})
 
 
 # The tracked table's namespace prefixes (SV-RATE-DATA): a tracked key
@@ -271,6 +299,7 @@ def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[s
             raise ValueError(f"pricing.json: {where} is not a mapping")
         if not isinstance(entry.get("id"), str) or not entry["id"]:
             raise ValueError(f"pricing.json: {where} carries no 'id'")
+        _check_context_length(entry, where)
         host = entry.get("vendor_host")
         if host is not None and (not isinstance(host, str) or not host):
             raise ValueError(
@@ -370,6 +399,14 @@ def load_tables(doc: dict) -> RateTables:
         "MODEL_RATES": model_rates,
         "DATED_RATES": dated_rates,
         "PROVIDER_RATES": provider_rates,
+        "PROVIDER_CONTEXT_LENGTHS": {
+            (model, host): newest["context_length"]
+            for model, hosts in doc["providers"].items()
+            for host, entries in hosts.items()
+            for newest in [flatten_provider_history(
+                entries, f"{model} via {host}", _instant)[0][-1]]
+            if "context_length" in newest},
+        "TRACKED_MODELS": doc["openrouter"]["models"],
         "PROVIDER_DATED_RATES": provider_dated,
         "PROVIDER_STARTS": provider_starts,
         "PROVIDER_SCHEDULES": provider_schedules,
@@ -408,6 +445,8 @@ DATED_RATES = _TABLES["DATED_RATES"]
 # (an entry's note records one); both create buckets carry the listed cache
 # write price when it is nonzero, the input rate otherwise.
 PROVIDER_RATES = _TABLES["PROVIDER_RATES"]
+PROVIDER_CONTEXT_LENGTHS = _TABLES["PROVIDER_CONTEXT_LENGTHS"]
+TRACKED_MODELS = _TABLES["TRACKED_MODELS"]
 PROVIDER_DATED_RATES = _TABLES["PROVIDER_DATED_RATES"]
 # Provider-row start: earlier requests from that host use model rates.
 PROVIDER_STARTS = _TABLES["PROVIDER_STARTS"]

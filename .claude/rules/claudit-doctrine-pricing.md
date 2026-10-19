@@ -73,7 +73,8 @@ history), `providers` (normalised model → provider → history),
 each provider-table model's OpenRouter id (SV-RATE-REFRESH), the vendor
 configuration, and the tracked table. `openrouter.vendor.prefixes` lists
 the namespaces whose first-party list pricing the file tracks; a tracked
-entry `openrouter.models[key]` carries `id` and — when the key prices a
+entry `openrouter.models[key]` carries `id`, optional model-wide
+`context_length`, and — when the key prices a
 first-party vendor model — `vendor_host`: the host whose provider row
 `providers[key][vendor_host]` holds that model's history, which the
 vendor's BARE first-party id resolves through. A bare id prices from
@@ -142,8 +143,10 @@ a non-empty list of positional rows: `[T, F, O, R]`, `[T, F, O, R, N]`,
 optional note N is a number only when rendering it as `n% off` restores
 the identical string in both loaders; otherwise it is the original
 string. The optional rest object carries other entry fields:
-`create_5m`, `create_1h`, `web_search`, and `schedule`.
+`create_5m`, `create_1h`, `web_search`, `context_length`, and `schedule`.
 It cannot override `from`, `fresh`, `output`, `read`, or `note`.
+`context_length` is not a rate, never enters a cost or the rate fingerprint,
+and its move appends a detection-dated entry with unchanged token rates.
 
 T is mandatory: null means the undated leading entry, an integer means
 one instant, and a non-empty integer list means that state's several

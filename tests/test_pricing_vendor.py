@@ -626,8 +626,8 @@ def test_every_migrated_row_keeps_the_models_shape_rules():
 def test_the_vendor_pass_never_re_adds_a_tracked_key():
     """The tracked table's business: the pass selects a tracked key's
     first-party listing — the band below folds the meter membership, so the
-    listing was read — but re-adds or rewrites nothing, and the models
-    table is never written."""
+    listing was read — and adds its model-wide window while keeping the
+    tracked identity and the models table untouched."""
     doc = _doc()
     before = json.loads(json.dumps(doc))
     catalog = {"data": [{"id": "acme/claude-opus.9", "architecture": {
@@ -647,7 +647,7 @@ def test_the_vendor_pass_never_re_adds_a_tracked_key():
     assert KEY in pricing.load_tables(doc)["LONG_CONTEXT_MODELS"]
     assert doc["models"] == before["models"], "the models table was written"
     assert (doc["openrouter"]["models"][KEY]
-            == before["openrouter"]["models"][KEY]), "the entry was rewritten"
+            == {**before["openrouter"]["models"][KEY], "context_length": 131072})
 
 
 @pytest.mark.parametrize("probe,family", [

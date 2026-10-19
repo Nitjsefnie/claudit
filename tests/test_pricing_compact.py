@@ -155,6 +155,36 @@ def test_rate_fingerprints_are_equal_for_old_and_sparse_spellings(monkeypatch):
     assert fingerprints[0] == fingerprints[1]
 
 
+def test_context_metadata_and_context_only_appends_leave_fingerprints_unchanged(monkeypatch):
+    from backend.rate_boundaries import rate_boundaries  # pylint: disable=import-outside-toplevel
+    doc = _synthetic_doc()
+    history = doc['providers'][ROW_KEY][HOST]
+    history.append({**history[-1], 'from': '2027-01-01T12:00:00Z', 'note': 'annotation'})
+    doc['provider_rates_fetched'] = '2027-01-01T12:00:00Z'
+    fingerprints, boundaries = [], []
+    for context in (None, 'row-only', 786432, 1048576, 'append'):
+        if context == 'append':
+            history = doc['providers'][ROW_KEY][HOST]
+            history.append({**history[-1], 'from': '2027-01-02T00:00:00Z',
+                            'context_length': 2097152})
+            doc['provider_rates_fetched'] = '2027-01-02T00:00:00Z'
+        elif context == 'row-only':
+            doc['providers'][ROW_KEY][HOST][-1]['context_length'] = 786432
+        elif context is not None:
+            for entry in doc['providers'][ROW_KEY][HOST]:
+                entry['context_length'] = context
+            doc['openrouter']['models'][ROW_KEY]['context_length'] = context
+        for name, value in load_tables(doc).items():
+            if hasattr(pricing, name):
+                monkeypatch.setattr(pricing, name, value)
+        rate_fingerprint.clear_fingerprint_cache()
+        fingerprints.append(rate_fingerprint.pair_fingerprint(ROW_KEY, HOST))
+        boundaries.append(rate_boundaries(ROW_KEY, HOST))
+        assert 'context_length' not in pricing.resolve(ROW_KEY, None, HOST).rates
+    assert len(set(fingerprints)) == 1
+    assert all(value == boundaries[0] for value in boundaries)
+
+
 def _convert(path: Path) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, str(CONVERTER), "--pricing", str(path)],
                           capture_output=True, text=True, timeout=60, check=False)

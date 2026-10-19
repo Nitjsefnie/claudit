@@ -139,6 +139,16 @@
         // A malformed token (a bare '-', a leading zero) is not an offense:
         // JSON.parse refuses the file and names it.
         if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(token)) return;
+        if (t.obj && t.key === 'context_length' && !/^-?\d+$/.test(token)) {
+          const provider = t.path[0] === 'providers' && t.path.length === 5;
+          const tracked = t.path[0] === 'openrouter' && t.path[1] === 'models'
+            && t.path.length === 3;
+          if (provider || tracked) {
+            const where = provider ? `${t.path[1]} via ${t.path[2]}[${t.path[3]}]`
+              : `openrouter.models[${JSON.stringify(t.path[2])}]`;
+            throw _pricingError(`${where}: context_length must be spelled a plain JSON integer`);
+          }
+        }
         if (!t.obj && t.path[0] === 'providers'
             && ((t.path.length === 4 && t.index === 0)
                 || (t.path.length === 5 && t.path[4] === 0))

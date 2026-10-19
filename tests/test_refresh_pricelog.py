@@ -94,7 +94,8 @@ def _endpoint(host: str, tag: str, rates: dict, *, scheduled: bool = False,
         pricing["web_search"] = web_search
     if scheduled:
         pricing["overrides"] = [{"utc_days": ["monday"]}]
-    return {"provider_name": host, "tag": tag, "pricing": pricing}
+    return {"provider_name": host, "tag": tag, "context_length": 131072,
+            "pricing": pricing}
 
 
 # After every fixture series point, so the default join reads each series whole.

@@ -138,6 +138,8 @@ def _seeded(doc: dict) -> dict:
                              "vendor_host")))
         }
         if seeded_hosts:
+            for history in seeded_hosts.values():
+                history[0]["context_length"] = 131072
             providers[model] = seeded_hosts
     doc["providers"] = providers
     # The vendor rows this fixture world drops carry the claude families;
@@ -296,7 +298,7 @@ def test_a_moved_price_appends_an_entry_from_the_detection_time(tmp_path, capsys
     after = run.doc()
     history = after["providers"][GLM]["OpenInference"]
     assert history[:-1] == before["providers"][GLM]["OpenInference"]
-    assert history[-1] == {"from": STAMP, **moved}
+    assert history[-1] == {"from": STAMP, "context_length": 131072, **moved}
     # Nothing else in the file moved but the fetch stamp.
     after["providers"][GLM]["OpenInference"] = history[:-1]
     assert after == {**before, "provider_rates_fetched": STAMP}
@@ -353,7 +355,7 @@ def test_a_new_provider_gets_a_row_that_begins_at_the_detection_time(
     run.endpoints(GLM).append(_endpoint("Newcomer", NEWCOMER))
     rc, out, _ = run(capsys)
     assert rc == 0
-    assert run.doc()["providers"][GLM]["Newcomer"] == [{"from": STAMP, **NEWCOMER}]
+    assert run.doc()["providers"][GLM]["Newcomer"] == [{"from": STAMP, "context_length": 131072, **NEWCOMER}]
     assert "Newcomer" in out
     cut = datetime.fromisoformat(STAMP)
     model = "z-ai/glm-5.3-flash"
@@ -461,7 +463,7 @@ def test_a_discount_is_recorded_with_the_rate_and_round_trips(tmp_path, capsys, 
     assert rc == 0
     assert (f"({note})" in out) if note else "% off" not in out and "% over base" not in out
     assert run.doc()["providers"][GLM]["OpenInference"][-1] == {
-        "from": STAMP, **moved, **({"note": note} if note else {})}
+        "from": STAMP, "context_length": 131072, **moved, **({"note": note} if note else {})}
     after_first = run.snapshot()
     assert run(capsys, now=NOW + timedelta(hours=1))[0] == 0
     assert run.snapshot() == after_first, "the same payload again moves nothing"
@@ -550,7 +552,7 @@ def test_a_refused_host_blocks_only_itself(tmp_path, capsys):
     rc, out, err = run(capsys)
     assert rc != 0
     after = run.doc()
-    assert after["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, **moved}
+    assert after["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, "context_length": 131072, **moved}
     assert after["providers"][GLM]["Novita"] == before["providers"][GLM]["Novita"]
     assert run.pricing_version() == 74
     assert "OpenInference" in out and f"{GLM} via Novita" in out
@@ -589,7 +591,7 @@ def test_a_delisted_model_is_skipped_with_a_notice_and_blocks_nothing(
     assert rc == 0, "a delisted model is not a refusal"
     after = run.doc()
     assert after["providers"][GLM]["OpenInference"] == [
-        *before["providers"][GLM]["OpenInference"], {"from": STAMP, **moved}]
+        *before["providers"][GLM]["OpenInference"], {"from": STAMP, "context_length": 131072, **moved}]
     assert (after["providers"]["stealth/space-bunny-alpha"]
             == before["providers"]["stealth/space-bunny-alpha"]), "row kept"
     assert run.pricing_version() == 74

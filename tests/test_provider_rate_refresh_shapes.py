@@ -44,7 +44,7 @@ def _assert_document_shape_resolves(
     rc, _, err = run(capsys)
     assert rc == 0, f"refresh refused {key} via {host}: {err}"
     assert run.doc()["providers"][GLM][host][-1] == {
-        "from": STAMP, **RATES_A,
+        "from": STAMP, "context_length": 131072, **RATES_A,
     }
     assert run.doc()["openrouter"]["models"][GLM].get("resolve", {}).get(host) == pin
 

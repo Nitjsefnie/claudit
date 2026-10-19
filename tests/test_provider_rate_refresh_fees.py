@@ -11,6 +11,8 @@ import copy
 from datetime import timedelta
 from decimal import Decimal
 
+import pytest
+
 from backend.pricing_load import _history
 from tests.refresh_fixture_builders import (
     RATES_A, RATES_B, _endpoint, _per_token,
@@ -23,6 +25,48 @@ from tests.test_refresh_pricelog import _series
 # Synthetic per-search rate, deliberately unlike the deployed listing.
 WEB_SEARCH = "0.0137"
 STAMP = "2031-01-01T00:00:00Z"
+
+
+def test_sampled_context_move_appends_unchanged_rates_and_note(tmp_path, capsys):
+    run = Run(tmp_path)
+    before = copy.deepcopy(run.doc()['providers'][GLM]['OpenInference'])
+    run.endpoint(GLM, 'OpenInference')['context_length'] = 786432
+    rc, _, err = run(capsys)
+    assert rc == 0, err
+    history = run.doc()['providers'][GLM]['OpenInference']
+    assert history[:-1] == before
+    assert history[-1] == {**before[-1], 'from': STAMP, 'context_length': 786432}
+
+
+@pytest.mark.parametrize('bad', [None, True, 0, -1, 1.5, '786432'])
+def test_bad_listed_context_refuses_only_its_host(tmp_path, capsys, bad):
+    run = Run(tmp_path)
+    before = copy.deepcopy(run.doc()['providers'][GLM]['OpenInference'])
+    endpoint = run.endpoint(GLM, 'OpenInference')
+    if bad is None:
+        endpoint.pop('context_length')
+    else:
+        endpoint['context_length'] = bad
+    rc, _, err = run(capsys)
+    assert rc != 0 and 'context_length' in err and 'OpenInference' in err
+    assert run.doc()['providers'][GLM]['OpenInference'] == before
+
+
+def test_log_context_comes_from_listing_at_detection_and_carries_forward():
+    hosts = {'SearchHost': [{'from': None, **RATES_A,
+                             'note': 'kept', 'context_length': 131072}]}
+    listing = refresh.Listing('fixture', {'context_length': 786432}, RATES_B,
+                              None, Decimal(0))
+    log_stamp = '2030-12-30T00:00:00Z'
+    move = refresh._append_logged(  # pylint: disable=protected-access
+        'acme/context', hosts, 'SearchHost', listing,
+        [{'from': log_stamp, **RATES_B}], NOW)
+    assert move is not None
+    assert hosts['SearchHost'][-2]['context_length'] == 131072
+    assert hosts['SearchHost'][-1] == {
+        **hosts['SearchHost'][-2], 'from': STAMP, 'context_length': 786432}
+    assert 'context_length' in _render_move(move)
+
 
 # anthropic/claude-opus-5.5: every endpoint lists the 1h cache write at 8
 # per million beside the 5m tier's 5, and charges $0.01 a web search.

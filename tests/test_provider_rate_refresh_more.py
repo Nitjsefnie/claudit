@@ -69,7 +69,7 @@ def test_sail_research_takes_its_global_endpoint(tmp_path, capsys):
         _endpoint("Sail Research", fp4, tag="sail-research/fp4"),
         _endpoint("Sail Research", us_region, tag="sail-research/us")]
     assert run(capsys)[0] == 0
-    assert run.doc()["providers"][model]["Sail Research"][-1] == {"from": STAMP, **fp4}
+    assert run.doc()["providers"][model]["Sail Research"][-1] == {"from": STAMP, "context_length": 131072, **fp4}
 
 
 def test_baseten_selects_the_global_synthetic_endpoint_over_a_cheaper_region() -> None:
@@ -518,7 +518,7 @@ def test_a_tag_with_cheapest_and_a_recorded_ignore_resolves_a_sibling_tier(
     rc, out, _ = run(capsys)
     assert rc == 0
     entry = run.doc()["providers"][V41]["BaseTen"][-1]
-    assert entry == {"from": STAMP, "fresh": 0.28, "create_5m": 0.28,
+    assert entry == {"from": STAMP, "context_length": 131072, "fresh": 0.28, "create_5m": 0.28,
                      "create_1h": 0.28, "read": 0.007, "output": 1.2}
     assert "possible twin switch" not in out
 

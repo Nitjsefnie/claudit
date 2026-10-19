@@ -82,7 +82,9 @@ def _doc(hosts: dict[str, list[dict]], resolve: dict | None = None) -> dict:
 
 
 def _entry(at: str | None, rates: dict, **extra) -> dict:
-    entry = {"from": at, **rates, **extra}
+    entry = {"from": at, **rates, "context_length": 131072, **extra}
+    if entry["context_length"] is None:
+        entry.pop("context_length")
     for field in ("create_5m", "create_1h"):
         if entry.get(field, entry["fresh"]) == entry["fresh"]:
             entry.pop(field, None)
@@ -323,7 +325,8 @@ def test_a_new_host_gets_its_whole_log_history(tmp_path, capsys):
 
     assert rc == 0 and not err
     saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
-    assert saved["providers"][MODEL][HOST] == [_entry(at, rates) for at, rates in states]
+    assert saved["providers"][MODEL][HOST] == [_entry(at, rates, context_length=None) for at, rates in states] + [
+        _entry(STAMP, states[-1][1])]
 
 
 def test_first_seen_import_begins_at_the_history_floor(tmp_path, capsys):
@@ -345,8 +348,9 @@ def test_first_seen_import_begins_at_the_history_floor(tmp_path, capsys):
         # The state in force at the floor begins the row, so records at
         # and after the floor price through it; the superseded level
         # before it is not imported.
-        _entry("2026-09-01T12:00:00Z", RATE_B),
-        _entry("2031-01-01T00:10:00Z", RATE_A)]
+        _entry("2026-09-01T12:00:00Z", RATE_B, context_length=None),
+        _entry("2031-01-01T00:10:00Z", RATE_A, context_length=None),
+        _entry(STAMP, RATE_A)]
 
 
 def test_disagreement_samples_the_host_at_detection_time_with_a_notice(tmp_path, capsys):

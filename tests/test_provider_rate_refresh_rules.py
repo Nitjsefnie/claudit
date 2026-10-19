@@ -393,7 +393,7 @@ def test_the_alibaba_shape_resolves_without_its_stopgap_pins(tmp_path, capsys):
     assert rc == 0, err
     assert "rule-resolved (same quantization)" in out
     for key in keys:
-        assert run.doc()["providers"][key]["Alibaba"][-1] == {"from": STAMP, **cheap}
+        assert run.doc()["providers"][key]["Alibaba"][-1] == {"from": STAMP, "context_length": 131072, **cheap}
 
 
 @pytest.mark.parametrize("quantization, suffixes", [
