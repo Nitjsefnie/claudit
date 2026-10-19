@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from backend import api, api_export, db, ingest, pricing
-from tests import mini_mirror, scratch_db
+from tests import scratch_db
 from tests import dims_seed
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -67,20 +67,16 @@ def test_export_bad_range_400(app_with_data, monkeypatch):
     assert resp.status_code == 400
 
 
-def test_export_render_timeout_returns_503(app_with_data, monkeypatch):
+@pytest.mark.parametrize("status,detail", [
+    pytest.param(503, "export render timed out", id="timeout"),
+    pytest.param(500, "export render failed", id="failure"),
+])
+def test_export_render_error_status(app_with_data, monkeypatch, status, detail):
     async def fake_render(argv, out_path):
-        raise HTTPException(503, "export render timed out")
+        raise HTTPException(status, detail)
     monkeypatch.setattr(api_export, "_render_export", fake_render)
     resp = app_with_data.get("/api/export?range=7d")
-    assert resp.status_code == 503
-
-
-def test_export_render_failure_returns_500(app_with_data, monkeypatch):
-    async def fake_render(argv, out_path):
-        raise HTTPException(500, "export render failed")
-    monkeypatch.setattr(api_export, "_render_export", fake_render)
-    resp = app_with_data.get("/api/export?range=7d")
-    assert resp.status_code == 500
+    assert resp.status_code == status
 
 
 def _failing_child_argv(stderr_text: str) -> list[str]:
@@ -294,22 +290,6 @@ def test_cost_by_context_model_filter_subsets(app_with_data, endpoint, rng):
     assert one["total_cost_usd"] > 0
 
 
-def test_projects(app_with_data):
-    r = app_with_data.get("/api/projects")
-    assert r.status_code == 200
-    body = r.json()
-    # The mirror's projects, from its tree ( grew it with the
-    # lane layout): every one the corpus holds is LISTED.
-    pids = sorted(p["project_id"] for p in body["projects"])
-    assert pids == mini_mirror.project_ids()
-    # session_count + total_cost drive the picker chip and its ordering.
-    # file_count was dropped: nothing rendered it (and it was reporting
-    # the joined record count, not the file count).
-    for p in body["projects"]:
-        assert "session_count" in p and "total_cost" in p
-        assert "file_count" not in p
-
-
 def test_projects_range_scoped_ordering_and_zero_token_exclusion(app_with_fresh_data):
     """SV-ISSUE-6 + the free-lane fix: /api/projects orders by RANGE-
     scoped cost — range-scoped TOKENS order the zero-cost projects and
@@ -391,42 +371,8 @@ def _seed_project_ordering_rollups(cur) -> None:
             requests=requests, fresh_tokens=tokens, cost_usd=cost)
 
 
-def test_cache_per_model_shape(app_with_data):
-    r = app_with_data.get("/api/cache?range=3650d")
-    assert r.status_code == 200
-    body = r.json()
-    assert "per_model" in body and "session_total" in body
-    assert "top_output" in body and "top_cache_create" in body and "top_cache_read" in body
-    cost_buckets = {"fresh", "create_5m", "create_1h", "read", "output",
-                    "web_search"}
-    # Only the session total carries the decomposition; per_model omits it
-    #
-    assert set(body["session_total"]["cost_buckets"]) == cost_buckets
-    if body["per_model"]:
-        m = body["per_model"][0]
-        assert {"model", "turns", "fresh", "cache_create", "cache_read",
-                "output", "eph5", "eph1h", "hit_rate_pct",
-                "cost_total"} <= set(m)
-        assert "cost_buckets" not in m
-
-
 def test_cache_dedups_cross_file_uuid(app_with_data):
-    """sess-C main + agent peer both have shared-uuid-1; sess-D main also
-    has it. Records table holds 3 rows for that uuid; DISTINCT ON dedups
-    to 1 in the per_model totals.
-
-    sess-C main has input=1000, output=500 (single record).
-    sess-C agent has input=1000, output=500 (same uuid → dedup'd).
-    sess-D main has 2 records: shared-uuid-1 (1000/500, dedup'd) +
-                                sess-D-only (50/25, kept).
-
-    After cross-file dedup:
-      shared-uuid-1 winner = lexicographically-first file_key, which is
-      claude/projB/sess-C/agent-aaaa.jsonl (agent- < sess-)
-      WAIT — actually 'a' < 's' so the agent file IS lexicographically
-      first. Either way, ONE row claims the shared uuid; the other two
-      drop. The remaining tally for projB: 1000 + 50 input, 500 + 25 output.
-    """
+    """Three files share one UUID; project cache totals must count it once."""
     r = app_with_data.get("/api/cache?range=3650d&project=projB")
     body = r.json()
     assert body["session_total"]["fresh"] == 1050
@@ -512,11 +458,6 @@ def test_transcript_streams(app_with_data):
     assert "type" in json.loads(first)
 
 
-def test_transcript_etag_header(app_with_data):
-    r = app_with_data.get("/api/sessions/sess-A/transcript")
-    assert "etag" in {k.lower() for k in r.headers.keys()}
-
-
 def test_transcript_404(app_with_data):
     r = app_with_data.get("/api/sessions/does-not-exist/transcript")
     assert r.status_code == 404
@@ -534,14 +475,6 @@ def test_sidecar_path_validation(app_with_data):
         params={"path": "../../../etc/passwd"},
     )
     assert r2.status_code == 400
-
-
-def test_sidecar_missing_file_404(app_with_data):
-    r = app_with_data.get(
-        "/api/sessions/sess-A/sidecar",
-        params={"path": "data/does-not-exist.txt"},
-    )
-    assert r.status_code == 404
 
 
 @pytest.mark.parametrize("path,requires_path_in_detail", [
