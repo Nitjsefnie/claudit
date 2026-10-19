@@ -132,7 +132,7 @@ def test_pr_check_accepts_lower_shares_and_master_tightens(tmp_path, monkeypatch
     data['comment_share_baseline'] = {'x.py': [30, 100]}
     thresholds.write(target, data)
     monkeypatch.setattr(module.comment_share, 'measure_files', lambda _root: {'x.py': (20, 100)})
-    steps = yaml.load((ROOT / '.github/workflows/tests.yml').read_text(), Loader=yaml.BaseLoader)['jobs']['pytest']['steps']
+    steps = yaml.load((ROOT / '.github/workflows/tests.yml').read_text(), Loader=yaml.BaseLoader)['jobs']['js-coverage']['steps']
     check = next(step for step in steps if step.get('name') == 'Comment share baseline')
     args = [arg.replace('$CLAUDIT_THRESHOLDS_BASE_REV', '')
             for arg in shlex.split(check['run'])[2:]] + ['--thresholds', str(target)]
@@ -174,8 +174,8 @@ def test_comment_only_runs_check_with_dependencies():
     assert caller['if'] == ("needs.classify.outputs.docs_only != 'true' "
                             "&& needs.classify.outputs.data_only != 'true' "
                             "&& needs.classify.outputs.setup_only != 'true'")
-    job = workflow('tests.yml')['jobs']['pytest']
-    assert 'if' not in job
+    job = workflow('tests.yml')['jobs']['js-coverage']
+    assert job['if'] == "inputs.thresholds_only != 'true'"
     steps = job['steps']
     checks = [step for step in steps if step.get('name') == 'Comment share baseline']
     assert len(checks) == 1
@@ -183,20 +183,19 @@ def test_comment_only_runs_check_with_dependencies():
     assert shlex.split(check['run']) == [
         'python3', 'scripts/ci/comment_baseline.py',
         '--base-rev', '$CLAUDIT_THRESHOLDS_BASE_REV', '--head-rev', 'HEAD']
-    assert check['if'] == (
-        "${{ !cancelled() && steps.pytest.conclusion != 'skipped' "
-        "&& inputs.thresholds_only != 'true' }}")
+    assert 'if' not in check
     installs = [step for step in steps if step.get('run') == 'npm ci --no-audit --no-fund']
     assert len(installs) == 1
     install = installs[0]
-    assert install['if'] == check['if']
+    assert install.get('if') == check.get('if')
     assert steps.index(install) + 1 == steps.index(check)
     assert any('-r requirements-test.txt' in step.get('run', '')
                for step in steps[:steps.index(check)])
-    ratchet = next(step for step in steps if step.get('id') == 'ratchet')
+    ratchet_job = workflow('tests.yml')['jobs']['ratchet']
+    ratchet = next(step for step in ratchet_job['steps'] if step.get('id') == 'ratchet')
     assert 'python3 scripts/ci/comment_baseline.py --tighten' in ratchet['run']
-    assert "github.ref == 'refs/heads/master'" in ratchet['if']
-    assert "github.event_name == 'push'" in ratchet['if']
+    assert "github.ref == 'refs/heads/master'" in ratchet_job['if']
+    assert "github.event_name == 'push'" in ratchet_job['if']
 
 
 def test_deleted_entry_passes_pr_and_master_tighten_removes_it(tmp_path, monkeypatch):
