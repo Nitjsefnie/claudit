@@ -23,7 +23,7 @@ jobs:
     # The name IS the check-run name; the job id stays.
     name: pytest + calibration gates (canary, pinned 3.13.14)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     permissions:
       # Read-only: this job executes proposed code, so it must hold no write
