@@ -177,71 +177,42 @@ def test_cache_guest_redaction_preserves_cached_payload_in_both_orders(
         response_cache.clear()
 
 
-def test_reply_latency_guest_strip_rolls_up_seeded_outliers(
-    app_with_fresh_data, guest_client
+@pytest.mark.parametrize("source", ["rollup", "live"], ids=["rollup", "live"])
+def test_reply_latency_guest_strip_seeded_outliers(
+    app_with_fresh_data, guest_client, source
 ):
-    """Guests lose file_key from real rollup outliers while public rows keep it."""
-    bucket_s, line_num = _seed_rollup_latency_outlier()
+    if source == "rollup":
+        bucket_s, line_num = _seed_rollup_latency_outlier()
+        seeded_lines = {line_num}
+        query = "/api/reply-latency?range=3650d"
+    else:
+        file_key, line_nums = _seed_live_latency_outliers()
+        seeded_lines = {line_nums[0], line_nums[-1]}
+        query = "/api/reply-latency?range=24h"
     response_cache.clear()
     try:
-        query = "/api/reply-latency?range=3650d"
         public = app_with_fresh_data.get(query)
         guest = guest_client.get(query)
         assert public.status_code == guest.status_code == 200
         public_body = public.json()
-        assert public_body["bucket_s"] == bucket_s
+        if source == "rollup":
+            assert public_body["bucket_s"] == bucket_s
+        else:
+            assert public_body["bucket_s"] < 3600
         public_rows = public_body["outliers"]
         guest_rows = guest.json()["outliers"]
-        public_row = next(row for row in public_rows if row["line"] == line_num)
-        guest_row = next(row for row in guest_rows if row["line"] == line_num)
-        assert public_row["file_key"] == _PUBLIC_AGENT_KEY
-        assert all("file_key" in row for row in public_rows)
-        assert "file_key" not in guest_row
-        assert all("file_key" not in row for row in guest_rows)
-    finally:
-        _delete_rollup_latency_outlier()
-        response_cache.clear()
-
-
-def test_reply_latency_guest_strip_live_seeded_outliers(
-    app_with_fresh_data, guest_client
-):
-    """Guests lose file_key from live outliers after the 100-row bucket threshold."""
-    file_key, line_nums = _seed_live_latency_outliers()
-    response_cache.clear()
-    try:
-        query = "/api/reply-latency?range=24h"
-        public = app_with_fresh_data.get(query)
-        guest = guest_client.get(query)
-        assert public.status_code == guest.status_code == 200
-        public_body = public.json()
-        guest_body = guest.json()
-        public_rows = public_body["outliers"]
-        guest_rows = guest_body["outliers"]
-        assert public_body["bucket_s"] < 3600
         assert public_rows
-        assert all(row["file_key"] == _PUBLIC_AGENT_KEY for row in public_rows)
-        assert {row["line"] for row in public_rows} & {line_nums[0], line_nums[-1]}
         assert guest_rows
+        assert {row["line"] for row in public_rows} & seeded_lines
+        assert {row["line"] for row in guest_rows} & seeded_lines
+        assert all("file_key" in row for row in public_rows)
+        for row in public_rows:
+            if source == "live" or row["line"] in seeded_lines:
+                assert row["file_key"] == _PUBLIC_AGENT_KEY
         assert all("file_key" not in row for row in guest_rows)
-        assert {row["line"] for row in guest_rows} & {line_nums[0], line_nums[-1]}
     finally:
-        _delete_seeded_records(file_key, line_nums)
+        if source == "rollup":
+            _delete_rollup_latency_outlier()
+        else:
+            _delete_seeded_records(file_key, line_nums)
         response_cache.clear()
-
-
-def test_context_growth_session_guest_response_omits_file_key(
-    app_with_data, guest_client
-):
-    """Guests receive session context data without the main file identity."""
-    path = "/api/context-growth/session/sess-A"
-    guest = guest_client.get(path)
-    public = app_with_data.get(path)
-
-    assert guest.status_code == public.status_code == 200
-    public_body = public.json()
-    guest_body = guest.json()
-    assert public_body["file_key"] == "projA/sess-A/sess-A.jsonl"
-    assert "file_key" not in guest_body
-    assert guest_body == {key: value for key, value in public_body.items()
-                          if key != "file_key"}

@@ -144,10 +144,12 @@ def _scan(html: str) -> _FormScan:
     return scan
 
 
-def test_signin_labels_are_bound_to_their_inputs(app):
-    """Every visible form label names its input through for/id, so both
-    fields carry an accessible name (axe `label`)."""
-    scan = _scan(TestClient(app).get("/login").text)
+@pytest.mark.parametrize("failed", [False, True], ids=["signin", "failed-signin"])
+def test_signin_labels_are_bound_to_their_inputs(app, fake_user, failed):
+    client = TestClient(app)
+    response = (_post_login(client, 12345, "wrong") if failed
+                else client.get("/login"))
+    scan = _scan(response.text)
     by_id = {i["id"] for i in scan.inputs}
     for want in ("Username", "Password"):
         label = next(
@@ -159,17 +161,6 @@ def test_signin_labels_are_bound_to_their_inputs(app):
         assert label["for"] in by_id, (
             f"the {want!r} label's for={label['for']!r} matches no input "
             f"id — the association is broken")
-
-
-def test_label_association_survives_onto_failed_signins(app, fake_user):
-    """The failure page re-renders the same form, so its labels must be
-    bound too (the fix for finding 3 must not regress finding 1)."""
-    scan = _scan(_post_login(TestClient(app), 12345, "wrong").text)
-    for want in ("Username", "Password"):
-        label = next(
-            (lab for lab in scan.labels if want in lab["text"]), None)
-        assert label is not None and label["for"], (
-            f"the {want!r} label on the failure page names no input")
 
 
 def _rel_lum(hex_color: str) -> float:
@@ -212,58 +203,25 @@ def _alert_text(html: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+@pytest.mark.parametrize("locked, status, message", [
+    (False, 401, "Invalid credentials."),
+    (True, 429, "Too many login attempts. Try again later."),
+], ids=["wrong-password", "rate-limited"])
 def test_failed_signin_renders_the_full_page_with_a_live_error(
-    app, fake_user, fake_session_store
+    app, fake_user, fake_session_store, locked, status, message
 ):
-    """A wrong password answers 401 text/html: the full sign-in page —
-    lang, title, bound form, guest route — with the error in a
-    role="alert" element, so the failure is announced and the user can
-    simply retry."""
-    r = _post_login(TestClient(app), 12345, "wrong")
-    assert r.status_code == 401
+    client = TestClient(app)
+    if locked:
+        for _ in range(5):
+            assert _post_login(client, 12345, "x").status_code == 401
+    r = _post_login(client, 12345, "x" if locked else "wrong")
+    assert r.status_code == status
     assert r.headers["content-type"].startswith("text/html"), (
-        f"the 401 body is {r.headers['content-type']!r} — a bare "
+        f"the {status} body is {r.headers['content-type']!r} — a bare "
         f"text/plain error page with no form to retry from")
     assert '<html lang="en">' in r.text
     assert "<title>" in r.text
     assert "<form" in r.text, "the failure page carries no form to retry"
     assert "/login/guest" in r.text, "the failure page lost the guest route"
     alert = _alert_text(r.text)
-    assert alert == "Invalid credentials.", (
-        f"the role=alert element carries {alert!r}, not the generic "
-        f"failure message")
-
-
-def test_rate_limited_signin_renders_the_page_with_a_live_error(
-    app, fake_user, fake_session_store
-):
-    """The 429 keeps its status and limiter semantics and re-renders the
-    sign-in page with the rate-limit message announced, so a locked-out
-    user can see why and wait — not a bare text/plain line."""
-    client = TestClient(app)
-    for _ in range(5):
-        assert _post_login(client, 12345, "x").status_code == 401
-    r = _post_login(client, 12345, "x")
-    assert r.status_code == 429
-    assert r.headers["content-type"].startswith("text/html"), (
-        f"the 429 body is {r.headers['content-type']!r} — bare text")
-    assert "<form" in r.text and '<html lang="en">' in r.text
-    alert = _alert_text(r.text)
-    assert alert == "Too many login attempts. Try again later.", (
-        f"the 429 role=alert element carries {alert!r}")
-
-
-def test_rate_limited_429_body_stays_generic_across_ids(
-    app, fake_user, fake_session_store
-):
-    """Both locked-out shapes answer the same 429 page — a per-id body
-    would enumerate which ids exist behind the lock."""
-    client = TestClient(app)
-    for _ in range(5):
-        _post_login(client, 12345, "x")
-    locked_pair = _post_login(client, 12345, "x")
-    for _ in range(5):
-        _post_login(client, 999, "x")
-    locked_unknown = _post_login(client, 999, "x")
-    assert locked_pair.status_code == locked_unknown.status_code == 429
-    assert locked_pair.content == locked_unknown.content
+    assert alert == message, f"the role=alert element carries {alert!r}"

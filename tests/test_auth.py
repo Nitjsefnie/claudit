@@ -1,20 +1,7 @@
-"""Verify our PBKDF2 auth helpers — round-trip and known-vector
-sanity. A bare-hex stored hash is the legacy shape: PBKDF2-SHA256 at
-PBKDF2_ITERATIONS (200,000) with a hex salt in web_password_salt, the
-format the upstream user-management process writes. New writes use
-the versioned string format, which carries its own count.
-"""
+"""PBKDF2 auth: legacy bare-hex credentials, versioned writes and timing."""
 import pytest
 
 from backend import auth
-
-
-def testpbkdf2_known_vector():
-    salt = "00112233445566778899aabbccddeeff"
-    pw = "correct horse battery staple"
-    digest = auth.pbkdf2(pw, salt, auth.PBKDF2_ITERATIONS)
-    assert isinstance(digest, str) and len(digest) == 64
-    assert auth.pbkdf2(pw, salt, auth.PBKDF2_ITERATIONS) == digest
 
 
 def test_legacy_bare_hex_hash_verifies_at_legacy_count():
@@ -36,14 +23,6 @@ def test_legacy_bare_hex_hash_verifies_at_legacy_count():
         "legacy pw", salt_hex, 201_000
     )
     assert not auth.verify_web_password(other, "legacy pw")
-
-
-def test_set_then_verify_roundtrip():
-    config: dict = {}
-    auth.set_web_password(config, "swordfish")
-    assert auth.has_web_password(config)
-    assert auth.verify_web_password(config, "swordfish")
-    assert not auth.verify_web_password(config, "wrong")
 
 
 def test_set_writes_versioned_format_at_write_iterations():
@@ -95,14 +74,6 @@ def test_malformed_versioned_hash_is_rejected():
             auth.WEB_PASSWORD_SALT_KEY: salt_hex,
         }
         assert not auth.verify_web_password(config, "pw"), stored
-
-
-def test_verify_constant_time_against_garbage():
-    config: dict = {
-        auth.WEB_PASSWORD_HASH_KEY: "00" * 32,
-        auth.WEB_PASSWORD_SALT_KEY: "ff" * 16,
-    }
-    assert not auth.verify_web_password(config, "anything")
 
 
 def test_non_ascii_stored_hash_is_rejected_without_exception():

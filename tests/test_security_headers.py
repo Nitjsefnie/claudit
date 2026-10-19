@@ -47,19 +47,13 @@ def test_auth_middleware_redirect_gets_nosniff():
     assert resp.headers["x-content-type-options"] == "nosniff"
 
 
-def test_json_401_gets_nosniff_only():
-    """JSON responses carry nosniff; the framing headers are a document
-    protection and stay off non-document responses."""
-    resp = TestClient(app).get("/api/me")
-    assert resp.status_code == 401
-    assert resp.headers["x-content-type-options"] == "nosniff"
-    assert "content-security-policy" not in resp.headers
-    assert "x-frame-options" not in resp.headers
-
-
-def test_static_css_gets_nosniff_only(guest_client):
-    resp = guest_client.get("/app.css")
-    assert resp.status_code == 200
+@pytest.mark.parametrize("client_fixture, path, status", [
+    (None, "/api/me", 401), ("guest_client", "/app.css", 200),
+], ids=["unauthorized-json", "static-css"])
+def test_non_document_gets_nosniff_only(request, client_fixture, path, status):
+    client = request.getfixturevalue(client_fixture) if client_fixture else TestClient(app)
+    resp = client.get(path)
+    assert resp.status_code == status
     assert resp.headers["x-content-type-options"] == "nosniff"
     assert "content-security-policy" not in resp.headers
     assert "x-frame-options" not in resp.headers

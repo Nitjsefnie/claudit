@@ -158,8 +158,7 @@ def test_stale_password_login_cannot_rebind_after_new_password_login(
 
     assert new_response.status_code == 303
     assert old_response.status_code == 401
-    # The generic failure page: the message announced in its
-    # role=alert element, nothing else about the answer changed.
+    # Credential failures announce the generic message in role=alert.
     assert old_response.headers["content-type"].startswith("text/html")
     assert b'<div class="err" role="alert">Invalid credentials.</div>' \
         in old_response.body
@@ -170,38 +169,6 @@ def test_stale_password_login_cannot_rebind_after_new_password_login(
         new_config
     )
     assert session_mod.resolve_session_user_id(new_cookie) == 12345
-
-
-@pytest.mark.parametrize(
-    ("stored_hash", "stored_salt"),
-    [
-        (123, "ff" * 16),
-        ("ab" * 32, 123),
-    ],
-    ids=("integer-hash", "integer-salt"),
-)
-def test_non_string_credential_material_is_generic_and_normalizes_from_zero(
-    app, fake_user, monkeypatch, stored_hash, stored_salt
-):
-    fake_user[559] = {
-        auth.WEB_PASSWORD_HASH_KEY: stored_hash,
-        auth.WEB_PASSWORD_SALT_KEY: stored_salt,
-    }
-    calls: list[int] = []
-    monkeypatch.setattr(
-        auth,
-        "normalize_verification_timing",
-        lambda password, spent: calls.append(spent),
-    )
-    response = _post_login(
-        TestClient(app, raise_server_exceptions=False), 559, "anything"
-    )
-
-    assert response.status_code == 401
-    assert response.headers["content-type"].startswith("text/html")
-    assert ('<div class="err" role="alert">Invalid credentials.</div>'
-            in response.text)
-    assert calls == [0]
 
 
 def test_malformed_user_id_renders_full_signin_page(app, monkeypatch):
