@@ -81,8 +81,8 @@
       9988
     ],
     ".github/workflows/refresh-pricing.yml": [
-      5280,
-      11825
+      5611,
+      13849
     ],
     ".github/workflows/release.yml": [
       4513,
@@ -101,8 +101,8 @@
       3137
     ],
     ".github/workflows/test-data-explore.yml": [
-      1844,
-      4480
+      1934,
+      5040
     ],
     ".github/workflows/test-data.yml": [
       2520,
@@ -1086,7 +1086,7 @@
     ],
     "tests/test_ci_workflows.py": [
       5091,
-      15821
+      24421
     ],
     "tests/test_classic_script_scope.py": [
       2688,
@@ -1762,7 +1762,7 @@
     ],
     "tests/test_workflow_ci_gate.py": [
       8103,
-      25155
+      25290
     ],
     "tests/test_workflow_concurrency.py": [
       867,
