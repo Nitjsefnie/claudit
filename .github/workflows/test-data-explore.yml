@@ -26,7 +26,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  seeds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      seed-base: ${{ steps.draw.outputs.seed_base }}
+    steps:
+      - id: draw
+        # One wall-clock draw per run: the base every seed derives from.
+        # Each seed-index adds its own offset, so the four shards of one
+        # seed-index share an identical perturbation while the three seeds
+        # stay distinct — and a new run draws a fresh base off the clock.
+        run: echo "seed_base=$(date +%s)" >> "$GITHUB_OUTPUT"
+
   perturbed-suite-explore:
+    needs: seeds
     name: perturbed suite (explorer) seed ${{ matrix.seed-index }} shard ${{ matrix.shard }}
     strategy: {fail-fast: false, matrix: {seed-index: [1, 2, 3], shard: [1, 2, 3, 4]}}
     runs-on: ubuntu-latest
@@ -122,11 +136,10 @@ jobs:
       - name: Perturb and test, per wall-clock seed
         env:
           CLAUDIT_PERTURBED_DATA: "1"
-        # Each cell draws a seed off the clock and reports its shard.
-        # Fail-fast is off so every cell finishes after another fails.
-        # Restore the clean tree before perturbing it.
+        # One wall-clock draw from the seeds job per run; each seed-index
+        # adds its offset, shared by all four shards.
         run: |
-          SEED="$(date +%s)"
+          SEED="$(( ${{ needs.seeds.outputs.seed-base }} + ${{ matrix.seed-index }} ))"
           echo "::notice::perturbed-suite seed=$SEED shard=${{ matrix.shard }}"
           git checkout -- src/pricing.json backend/constants.py \
             backend/parser_version.py
