@@ -34,12 +34,6 @@ from backend.bash_literals import shell_tokens
     ('echo "EXIT=$?$UNKNOWN" > out.txt', (1, 0)),
     ('echo "EXIT=$?" "$UNKNOWN" > out.txt', (1, 0)),
     ('echo -e "EXIT=$?" > out.txt', (1, 0)),
-])
-def test_exit_marker_payloads(command, expected):
-    assert bash_churn(command) == expected
-
-
-@pytest.mark.parametrize("command,expected", [
     ('echo "EXIT=$?" | tee out.txt < /dev/null', (0, 0)),
     ('echo "EXIT=$?" | tee out.txt < input.txt', (1, 0)),
     ('echo "EXIT=$?" | tee out.txt 0<&3', (1, 0)),
@@ -54,45 +48,16 @@ def test_exit_marker_payloads(command, expected):
     # set stdin_replaced — so ONLY the fd-value limb can decide this one,
     # and a widening that accepted fd 1 would sever real.txt to (0, 0).
     ('cat < real.txt 1< /dev/null > f.txt', (1, 0)),
+    *[(r"printf 'a\nb\n' | tee out.txt " + redirect, expected) for redirect, expected in [
+        ("< /dev/null", (0, 0)), ("< input.txt", (1, 0)), ("0<&3", (1, 0)),
+        ("<&-", (0, 0)), ("0< input.txt", (1, 0)),
+    ]],
+    (r"printf 'a\nb\n' < input.txt | tee out.txt", (2, 0)),
+    (r"printf 'a\nb\n' | tee out.txt 3< input.txt", (2, 0)),
+    (r"printf 'a\nb\n' | tee first.txt | tee second.txt < input.txt", (2, 0)),
 ])
-def test_receiving_stdin_redirect_severs_exit_marker(command, expected):
+def test_exit_marker_payloads(command, expected):
     assert bash_churn(command) == expected
-
-
-@pytest.mark.parametrize("command,expected", [
-    ("printf '%s' {text} > out.txt", (1, 0)),
-    ("printf '%s\\n' a{b,c} > out.txt", (0, 0)),
-    ("printf '%s\\n' '{a,b}' > out.txt", (1, 0)),
-    ("{ printf '%s\\n' {text}; } > out.txt", (1, 0)),
-])
-def test_brace_words_preserve_literal_payload_and_group_boundaries(command, expected):
-    assert bash_churn(command) == expected
-
-
-@pytest.mark.parametrize("command,expected", [
-    ("printf 'a\\nb\\n' | tee out.txt <<'EOF'\nx\nEOF", (1, 0)),
-    ("printf 'a\\nb\\n' | tee out.txt 0<<'EOF'\nx\nEOF", (1, 0)),
-    ("printf 'a\\nb\\n' | tee out.txt <<-'EOF'\nx\nEOF", (1, 0)),
-    ("printf 'a\\nb\\n' | tee out.txt", (2, 0)),
-    ("tee out.txt <<'EOF'\nx\nEOF", (1, 0)),
-    ("printf 'a\\nb\\n' | tee first.txt\ntee out.txt <<'EOF'\nx\nEOF", (3, 0)),
-])
-def test_heredoc_override_preserves_receiving_stdin_provenance(command, expected):
-    assert bash_churn(command) == expected
-
-
-@pytest.mark.parametrize("redirect", ["< /dev/null", "< input.txt", "0<&3", "<&-", "0< input.txt"])
-def test_receiving_stdin_redirect_severs_printf_payload(redirect):
-    assert bash_churn(r"printf 'a\nb\n' | tee out.txt " + redirect) == (0 if redirect in ("< /dev/null", "<&-") else 1, 0)
-
-
-@pytest.mark.parametrize("command", [
-    r"printf 'a\nb\n' < input.txt | tee out.txt",
-    r"printf 'a\nb\n' | tee out.txt 3< input.txt",
-    r"printf 'a\nb\n' | tee first.txt | tee second.txt < input.txt",
-])
-def test_stdin_redirect_does_not_erase_independent_file_payload(command):
-    assert bash_churn(command) == (2, 0)
 
 
 def test_loop_carried_path_bindings_do_not_multiply_churn():
@@ -318,6 +283,22 @@ def test_loop_carried_path_bindings_do_not_multiply_churn():
                  id='test_word_adjacent_digit_is_a_word_not_an_fd_prefix'),
     pytest.param("cat <<EOF 0> f.txt\nline1\nline2\nline3\nEOF\n", (0, 0),
                  id='test_heredoc_sink_line_stays_off_for_a_bare_fd_zero'),
+    ("printf '%s' {text} > out.txt", (1, 0)),
+    ("printf '%s\\n' a{b,c} > out.txt", (0, 0)),
+    ("printf '%s\\n' '{a,b}' > out.txt", (1, 0)),
+    ("{ printf '%s\\n' {text}; } > out.txt", (1, 0)),
+    ("printf 'a\\nb\\n' | tee out.txt <<'EOF'\nx\nEOF", (1, 0)),
+    ("printf 'a\\nb\\n' | tee out.txt 0<<'EOF'\nx\nEOF", (1, 0)),
+    ("printf 'a\\nb\\n' | tee out.txt <<-'EOF'\nx\nEOF", (1, 0)),
+    ("printf 'a\\nb\\n' | tee out.txt", (2, 0)),
+    ("tee out.txt <<'EOF'\nx\nEOF", (1, 0)),
+    ("printf 'a\\nb\\n' | tee first.txt\ntee out.txt <<'EOF'\nx\nEOF", (3, 0)),
+    ("echo hi 01> f.txt", (1, 0)),
+    ("echo hi 001> f.txt", (1, 0)),
+    ("echo hi 01> /dev/null", (0, 0)),
+    *[(f"{interp} - <<'PY'\np = 'f.md'\nt = open(p).read()\n"
+       "open(p, 'w').write(t.replace('a\\nb', 'c'))\nPY\n", (1, 2))
+      for interp in (".venv/bin/python", "/usr/bin/python3", "./venv/bin/python3.13")],
 ])
 def test_literal_shell_payloads(command, expected):
     assert bash_churn(command) == expected
@@ -334,19 +315,13 @@ def test_literal_shell_payloads(command, expected):
     ("p=Path('a'); new=p + 'b'\nopen('f','w').write(text.replace('b',new))", (1, 0)),
     ("for p in ['a.md', 'b.md']:\n    if Path(p).exists():\n"
      "        Path(p).write_text(text.replace('old','new\\nnew'))", (1, 0)),
+    pytest.param("x='a'\n" + "x=x+x\n" * 30 + "open('f','w').write(x)", (1, 0),
+                 id="payload-growth-bound"),
+    pytest.param("new=" + "+".join(["'a'"] * 100) + "\nopen('f','w').write(new)", (1, 0),
+                 id="concatenation-depth-bound"),
 ])
 def test_python_bounded_literal_expressions(body, expected):
     assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == expected
-
-
-def test_python_concatenation_payload_growth_is_bounded():
-    body = "x='a'\n" + "x=x+x\n" * 30 + "open('f','w').write(x)"
-    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (1, 0)
-
-
-def test_python_concatenation_depth_is_bounded():
-    body = "new=" + "+".join(["'a'"] * 100) + "\nopen('f','w').write(new)"
-    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (1, 0)
 
 
 def test_parsing_a_body_with_a_bad_escape_emits_no_warning():
@@ -364,109 +339,9 @@ def test_parsing_a_body_with_a_bad_escape_emits_no_warning():
     assert [str(w.message) for w in caught] == []
 
 
-def test_heredoc_write_followed_by_other_stages_survives_an_error():
-    """`cat > f <<EOF … EOF && python3 f` failing in python3 wrote f
-    all the same; the exit status belongs to the last stage."""
-    cmd = "cat > f.py <<'EOF'\nraise SystemExit(1)\nEOF\npython3 f.py"
-    assert churn_survives_error(cmd, "Exit code 1") is True
-
-
 def test_lone_heredoc_write_does_not_survive_an_error():
     cmd = "cat > missing/f.py <<'EOF'\nx\nEOF\n"
     assert churn_survives_error(cmd, "bash: missing/f.py: No such file or directory") is False
-
-
-def test_heredoc_write_whose_target_failed_does_not_survive():
-    cmd = "mkdir -p d && cat > d/f.py <<'EOF'\nx\nEOF\npython3 d/f.py"
-    text = "bash: d/f.py: Permission denied"
-    assert churn_survives_error(cmd, text) is False
-
-
-@pytest.mark.parametrize("text", ["No space left on device", "Read-only file system"])
-def test_disk_failure_never_survives(text):
-    cmd = "cat > f.py <<'EOF'\nx\nEOF\npython3 f.py"
-    assert churn_survives_error(cmd, text) is False
-
-
-def test_python_edit_body_does_not_survive_an_error():
-    """A python body that raised may have raised BEFORE its write —
-    `assert old in t` is put there to do exactly that."""
-    cmd = ("python3 - <<'PY'\n"
-           "t = open('f').read(); assert 'a' in t\n"
-           "open('f', 'w').write(t.replace('a', 'b'))\n"
-           "PY\n"
-           "git diff --stat")
-    assert churn_survives_error(cmd, "AssertionError") is False
-
-
-@pytest.mark.parametrize("interp", [
-    ".venv/bin/python", "/usr/bin/python3", "./venv/bin/python3.13",
-])
-def test_interpreter_given_by_path_is_still_python(interp):
-    """A venv's python is the common spelling in a repo with one;
-    `.venv/bin/python -` edits exactly like `python3 -` does."""
-    cmd = (f"{interp} - <<'PY'\n"
-           "p = 'f.md'\n"
-           "t = open(p).read()\n"
-           "open(p, 'w').write(t.replace('a\\nb', 'c'))\n"
-           "PY\n")
-    assert bash_churn(cmd) == (1, 2)
-
-
-@pytest.mark.parametrize("redirect", [">", ">|", "&>", "&>>", ">&"])
-def test_heredoc_cat_books_churn_through_every_stream_spelling(redirect):
-    """Bash writes the heredoc body into the target whatever the
-    redirect spelling: `>|` clobbers, `&>`/`&>>` and `>& file` take
-    stdout+stderr, and each books the body like plain `>`."""
-    command = f"cat <<EOF {redirect} f.txt\nline1\nline2\nline3\nEOF\n"
-    assert bash_churn(command) == (3, 0)
-
-
-@pytest.mark.parametrize("redirect", [">&2", "2>&1", ">&-"])
-def test_heredoc_cat_through_an_fd_dup_books_no_churn(redirect):
-    """`>& digits` duplicates and `>&-` closes: the body goes to a
-    stream, never a file, so no churn is booked."""
-    command = f"cat <<EOF {redirect}\nline1\nline2\nline3\nEOF\n"
-    assert bash_churn(command) == (0, 0)
-
-
-def test_fd_dup_target_is_not_an_error_line_path():
-    """A bare digit `>&` target is filtered as a descriptor, so an error
-    line naming a digit-leading path (`2.py`) cannot match it and zero
-    counted tee churn; the real tee target beside it keeps the write
-    alive: the filter limb in bash_churn_errors is load-bearing."""
-    command = "cat <<E | tee >&2 real.txt\nbody\nE\npython3 2.py"
-    text = "python3: cannot open file '2.py': No such file or directory"
-    assert churn_survives_error(command, text) is True
-
-
-def test_tee_into_stderr_alone_has_no_survivable_write():
-    """With the operator token filtered, `tee >&2` books no file
-    target at all: the counted body churn has no verbatim write behind
-    it, so an errored later stage zeroes it."""
-    command = "cat <<E | tee >&2\nbody\nE\npython3 2.py"
-    text = "python3: cannot open file '2.py': No such file or directory"
-    assert churn_survives_error(command, text) is False
-
-
-@pytest.mark.parametrize("redirect", ["1>", "1>>", "1>|", "1>&",
-                                      "01>", "001>", "01>>", "01>|", "01>&"])
-def test_heredoc_cat_books_churn_through_fd_one_stdout_spellings(redirect):
-    """fd 1 IS stdout: bash lands the heredoc body in the target through
-    the fd-spelled stdout forms exactly like plain `>`. Leading zeros are
-    insignificant, so a zero-padded fd reads as fd 1 too."""
-    command = f"cat <<EOF {redirect} f.txt\nline1\nline2\nline3\nEOF\n"
-    assert bash_churn(command) == (3, 0)
-
-
-@pytest.mark.parametrize("redirect", ["2>", "21>"])
-def test_heredoc_cat_with_a_higher_fd_redirect_keeps_the_sink_line(redirect):
-    """A higher fd's redirect (`2>`, `21>`) points another descriptor at
-    f.txt — the body lands on stdout (no heredoc churn), but bash creates
-    f.txt, and the redirect itself is a recognized write of unknown
-    addition size: the one unknown-size line, `2>`'s parity."""
-    command = f"cat <<EOF {redirect} f.txt\nline1\nline2\nline3\nEOF\n"
-    assert bash_churn(command) == (1, 0)
 
 
 @pytest.mark.parametrize("context,expected", [
@@ -475,6 +350,11 @@ def test_heredoc_cat_with_a_higher_fd_redirect_keeps_the_sink_line(redirect):
     ("cat <<E | tee f.txt >&2", ["f.txt"]),
     ("cat <<E | tee -a log.txt", ["log.txt"]),
     ("cat <<E | tee 2.py", ["2.py"]),
+    ("cat <<E | tee <f.txt", []),
+    ("cat <<E | tee <f.txt out.txt", ["out.txt"]),
+    ("cat <<E | tee 2<f.txt", []),
+    ("cat <<E | tee 3<in.txt", []),
+    ("cat <<E | tee 2<f.txt out.txt", ["out.txt"]),
 ])
 def test_tee_arm_books_no_operator_tokens(context, expected):
     """The tee arm reads raw shlex tokens, so a redirect operator rides
@@ -493,31 +373,6 @@ def test_heredoc_sink_line_through_multi_digit_fds(fd):
     assert bash_churn(command) == (1, 0)
 
 
-@pytest.mark.parametrize("context,expected", [
-    ("cat <<E | tee <f.txt", []),
-    ("cat <<E | tee <f.txt out.txt", ["out.txt"]),
-    ("cat <<E | tee 2<f.txt", []),
-    ("cat <<E | tee 3<in.txt", []),
-    ("cat <<E | tee 2<f.txt out.txt", ["out.txt"]),
-])
-def test_tee_arm_books_no_stdin_redirect_target(context, expected):
-    """A `<` token is tee's INPUT redirect, never a file the tee writes:
-    bash opens f.txt for reading and the body lands on stdout, so the
-    stdin-redirect shape filters with the other operators while real
-    targets book. An fd-prefixed `<` (`2<f.txt`) is the same input
-    redirect and filters too."""
-    assert _verbatim_targets(context) == expected
-
-
-def test_echo_pipeline_reads_fd_prefix_by_value():
-    """The pipeline fold reads an explicit fd by VALUE too: `echo hi 01>
-    f.txt` books its payload like plain `>` (fd 1 is stdout), and a null
-    sink still books nothing."""
-    assert bash_churn("echo hi 01> f.txt") == (1, 0)
-    assert bash_churn("echo hi 001> f.txt") == (1, 0)
-    assert bash_churn("echo hi 01> /dev/null") == (0, 0)
-
-
 def test_folded_fd_zero_narrows_other_sink_and_replaces_stdin():
     """`00>` folds to fd 0, so it stops booking the unknown-size other
     sink and narrows to the pinned `0>` shape; `00<` folds to fd 0 and
@@ -525,3 +380,48 @@ def test_folded_fd_zero_narrows_other_sink_and_replaces_stdin():
     assert bash_churn("cat /dev/null 00> f.txt") == (0, 0)
     assert bash_churn("cat /dev/null 0> f.txt") == (0, 0)
     assert _redirects(shell_tokens("cat 00< f.txt"))[2] is True
+
+
+@pytest.mark.parametrize("redirect,expected", [
+    ('> f.txt', (3, 0)),
+    ('>| f.txt', (3, 0)),
+    ('&> f.txt', (3, 0)),
+    ('&>> f.txt', (3, 0)),
+    ('>& f.txt', (3, 0)),
+    ('1> f.txt', (3, 0)),
+    ('1>> f.txt', (3, 0)),
+    ('1>| f.txt', (3, 0)),
+    ('1>& f.txt', (3, 0)),
+    ('01> f.txt', (3, 0)),
+    ('001> f.txt', (3, 0)),
+    ('01>> f.txt', (3, 0)),
+    ('01>| f.txt', (3, 0)),
+    ('01>& f.txt', (3, 0)),
+    ('>&2', (0, 0)),
+    ('2>&1', (0, 0)),
+    ('>&-', (0, 0)),
+    ('2> f.txt', (1, 0)),
+    ('21> f.txt', (1, 0)),
+])
+def test_heredoc_cat_redirects(redirect, expected):
+    """Only stdout-to-file redirects book the body; higher fds book a sink line."""
+    command = f"cat <<EOF {redirect}\nline1\nline2\nline3\nEOF\n"
+    assert bash_churn(command) == expected
+
+
+@pytest.mark.parametrize("command,text,expected", [
+    pytest.param("mkdir -p d && cat > d/f.py <<'EOF'\nx\nEOF\npython3 d/f.py", 'bash: d/f.py: Permission denied', False,
+                 id='heredoc_write_whose_target_failed_does_not_survive'),
+    pytest.param("cat > f.py <<'EOF'\nx\nEOF\npython3 f.py", 'No space left on device', False,
+                 id='disk_failure_never_survives-No space left on device'),
+    pytest.param("cat > f.py <<'EOF'\nx\nEOF\npython3 f.py", 'Read-only file system', False,
+                 id='disk_failure_never_survives-Read-only file system'),
+    pytest.param("python3 - <<'PY'\nt = open('f').read(); assert 'a' in t\nopen('f', 'w').write(t.replace('a', 'b'))\nPY\ngit diff --stat", 'AssertionError', False,
+                 id='python_edit_body_does_not_survive_an_error'),
+    pytest.param('cat <<E | tee >&2 real.txt\nbody\nE\npython3 2.py', "python3: cannot open file '2.py': No such file or directory", True,
+                 id='fd_dup_target_is_not_an_error_line_path'),
+    pytest.param('cat <<E | tee >&2\nbody\nE\npython3 2.py', "python3: cannot open file '2.py': No such file or directory", False,
+                 id='tee_into_stderr_alone_has_no_survivable_write'),
+])
+def test_heredoc_error_survival(command, text, expected):
+    assert churn_survives_error(command, text) is expected

@@ -10,11 +10,6 @@ from tests.test_bash_churn import (
 )
 
 
-def test_interpreter_given_by_path_dash_c_is_still_python():
-    cmd = ".venv/bin/python -c \"open('f','w').write('x\\ny')\""
-    assert bash_churn(cmd) == (2, 0)
-
-
 @pytest.mark.parametrize("command,expected", [
     ("generate > out.txt", (1, 0)),
     ("generate > out.txt; cp a.txt b.txt; cp c.txt d.txt", (1, 0)),
@@ -42,6 +37,28 @@ def test_interpreter_given_by_path_dash_c_is_still_python():
     (r"sed -i 's/(old)/\1/g' out.txt", (1, 0)),
     ("sed -i 's/.*old/new/' out.txt", (1, 0)),
     ("sed -i 's/old/new/' /dev/null", (0, 0)),
+    ('cat /dev/null > out.txt', (0, 0)),
+    ('cat /dev/null /dev/null > out.txt', (0, 0)),
+    ('cat < /dev/null > out.txt', (0, 0)),
+    ('cat source.txt > out.txt', (1, 0)),
+    ('cat /dev/null source.txt > out.txt', (1, 0)),
+    ('cat /dev/null - > out.txt', (1, 0)),
+    ('cat < source.txt > out.txt', (1, 0)),
+    ('cat "$SOURCE" > out.txt', (1, 0)),
+    *[case for command in [
+        "curl -o out https://example.test/data.txt",
+        "wget -O out https://example.test/data.txt",
+        "tar -xf archive.tar -C out", "unzip archive.zip -d out",
+        "rsync source out", "python3 -m venv out",
+        "git worktree add out HEAD", "git checkout HEAD -- out", "git restore out",
+        "gcc -o out main.c", "pdftotext in.pdf out", "initdb --pgdata=out",
+        "git clone https://example.test/repo out", "git init out",
+        "perl -0pi -e 's/old/new/' out", "rustfmt out",
+    ] for case in [
+        (command + "; " + command, (1, 0)),
+        (command + r"; printf 'a\nb\n' > known.txt", (2, 0)),
+        ("D=out; " + command.replace(" out", " $D"), (1, 0)),
+    ]],
 ])
 def test_write_estimates_and_declared_payloads(command, expected):
     assert bash_churn(command) == expected
@@ -63,6 +80,10 @@ def test_write_estimates_and_declared_payloads(command, expected):
     # Removing text inside a line modifies that line, as git counts it.
     ("open(path, 'w').write(text.replace('old', ''))", (1, 1)),
     ("open(path, 'w').write(text.replace('old', '')); open(other, 'w').write(computed)", (1, 1)),
+    ("open(path, 'w').write(text.replace(old, 'new'))", (1, 0)),
+    ("open(path, 'w').write(text.replace(old, ''))", (0, 0)),
+    ("with open(path, 'w') as f:\n    f.write(computed)", (1, 0)),
+    ("with open(path, 'w') as f:\n    f.write('')", (0, 0)),
 ])
 def test_python_write_estimate_boundaries(body, expected):
     assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == expected
@@ -83,16 +104,6 @@ def test_additional_write_boundaries(command, expected):
     assert bash_churn(command) == expected
 
 
-@pytest.mark.parametrize("body,expected", [
-    ("open(path, 'w').write(text.replace(old, 'new'))", (1, 0)),
-    ("open(path, 'w').write(text.replace(old, ''))", (0, 0)),
-    ("with open(path, 'w') as f:\n    f.write(computed)", (1, 0)),
-    ("with open(path, 'w') as f:\n    f.write('')", (0, 0)),
-])
-def test_python_replacement_and_handle_sizes(body, expected):
-    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == expected
-
-
 def test_python_helper_does_not_infer_file_write_from_arbitrary_method():
     command = "python3 - <<'PY'\ndef send(obj):\n    obj.write(data)\nsend(client)\nPY"
     assert bash_churn(command) == (0, 0)
@@ -106,16 +117,6 @@ def test_python_helper_does_not_infer_file_write_from_arbitrary_method():
 ])
 def test_known_no_additions_in_helpers_and_loops(body):
     assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (0, 0)
-
-
-@pytest.mark.parametrize("command,expected", [
-    ("python3 - <<'PY'\ndef emit(path, text):\n    open(path, 'w').write(text)\nemit('out.txt', '')\nPY", (0, 0)),
-    ("python3 - <<'PY'\ndef outer(path):\n    def inner():\n        open(path, 'w').write('x')\nouter('out.txt')\nPY", (0, 0)),
-    ("cp -f /dev/null out.txt", (0, 0)),
-    ("perl -pi -e 's/a/b/' \"$OUT\"", (1, 0)),
-])
-def test_review_write_estimate_boundaries(command, expected):
-    assert bash_churn(command) == expected
 
 
 @pytest.mark.parametrize("command,expected", [
@@ -209,20 +210,6 @@ def test_helper_destination_binding_at_each_write(body, argument, expected, path
     assert python_write_paths(command) == paths
 
 
-@pytest.mark.parametrize("command,expected", [
-    ('cat /dev/null > out.txt', (0, 0)),
-    ('cat /dev/null /dev/null > out.txt', (0, 0)),
-    ('cat < /dev/null > out.txt', (0, 0)),
-    ('cat source.txt > out.txt', (1, 0)),
-    ('cat /dev/null source.txt > out.txt', (1, 0)),
-    ('cat /dev/null - > out.txt', (1, 0)),
-    ('cat < source.txt > out.txt', (1, 0)),
-    ('cat "$SOURCE" > out.txt', (1, 0)),
-])
-def test_cat_empty_source_and_unknown_controls(command, expected):
-    assert bash_churn(command) == expected
-
-
 @pytest.mark.parametrize("old,new,expected", [
     # Anchor re-emitted after an insertion: only the inserted lines count.
     ("def f():", "x = 1\n\ndef f():", (2, 0)),
@@ -240,10 +227,3 @@ def test_cat_empty_source_and_unknown_controls(command, expected):
 ])
 def test_replace_churn_counts_like_git(old, new, expected):
     assert replace_churn(old, new) == expected
-
-
-def test_python_replace_anchor_is_not_counted_as_churn():
-    """Inserting before an anchor that is re-emitted is pure addition."""
-    body = ("s = s.replace('def f():', 'x = 1\\n\\ndef f():')\n"
-            "open('f.py', 'w').write(s)")
-    assert bash_churn("python3 - <<'PY'\n" + body + "\nPY") == (2, 0)
