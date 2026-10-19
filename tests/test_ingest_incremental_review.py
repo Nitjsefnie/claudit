@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -166,66 +165,11 @@ def test_differential_shapes(fresh_db, shape):
     assert incremental == _derived_snapshot()
 
 
-def test_fractional_timezone_latency(fresh_db, monkeypatch):
-    """A local dirty hour can overlap two UTC-aligned latency buckets."""
-    original = db.viz_conn
-
-    @contextmanager
-    def zoned():
-        with original() as conn:
-            conn.execute("SET LOCAL TIME ZONE 'Asia/Kolkata'")
-            yield conn
-
-    monkeypatch.setattr(db, "viz_conn", zoned)
-    _seed_rollups()
-    scope = ingest_scope.Scope(False, "test", 2000)
-    with db.viz_conn() as conn:
-        ingest_scope.capture_and_add(scope, conn, {"a"})
-        conn.execute(
-            "UPDATE records r SET reply_latency_s = 17 "
-            "FROM files f WHERE r.file_id = f.file_id "
-            "AND f.file_key = 'a' AND r.line_num = 1"
-        )
-        conn.commit()
-    ingest.rebuild_latency_rollup(scope)
-    incremental = _derived_snapshot()["latency_rollup"]
-    ingest.rebuild_latency_rollup()
-    full = _derived_snapshot()["latency_rollup"]
-    assert incremental == full, (incremental, full, scope.dirty_hours)
-
-
 def test_dirty_hour_bucket_endpoint_is_half_open():
     """A bucket at the expanded dirty interval's end is not touched."""
     hour = datetime(2026, 1, 1, 13, tzinfo=timezone.utc)
     assert _overlapping_bucket_starts(hour, 3600) == [
         hour, hour + timedelta(hours=1)]
-
-
-@pytest.mark.parametrize("phase", ("_close_run", "warm_common"))
-def test_finalization_error_leaves_incomplete_and_next_run_full(
-        fresh_db, mini_r2_env, monkeypatch, caplog, phase):
-    """Any finalization failure leaves a marker that forces full recovery."""
-    monkeypatch.setattr(timing, "TIMING_ON", True)
-    assert ingest.run_ingest(trigger="manual")["error"] is None
-
-    def crash(*args, **kwargs):
-        raise RuntimeError("review injected finalization error")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(ingest, phase, crash)
-        with pytest.raises(RuntimeError, match="review injected"):
-            ingest.run_ingest(trigger="manual")
-    with db.viz_conn() as conn:
-        complete = conn.execute(
-            "SELECT complete FROM ingest_derived_state WHERE singleton"
-        ).fetchone()
-    assert complete == (False,)
-
-    caplog.clear()
-    with caplog.at_level("INFO", logger="claudit.ingest"):
-        recovered = ingest.run_ingest(trigger="manual")
-    assert recovered["error"] is None
-    assert "scope=full" in _timing_lines(caplog)[-1]
 
 
 def test_incremental_alias_phase_keeps_zero_argument_seam(

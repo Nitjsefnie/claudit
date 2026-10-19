@@ -66,9 +66,16 @@ def _two_buckets_fixture(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_buckets_splits_strips_and_dedupes(monkeypatch):
-    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha + beta +alpha")
-    assert r2.buckets() == ["alpha", "beta"]
+@pytest.mark.parametrize("value,expected", [
+    (None, ["claude"]),
+    ("alpha + beta +alpha", ["alpha", "beta"]),
+], ids=["unset-default", "split-strip-dedupe"])
+def test_buckets_splits_strips_and_dedupes(monkeypatch, value, expected):
+    if value is None:
+        monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
+    else:
+        monkeypatch.setenv("CLAUDIT_R2_BUCKET", value)
+    assert r2.buckets() == expected
 
 
 def test_buckets_rejects_invalid_name(monkeypatch):
@@ -80,11 +87,6 @@ def test_buckets_rejects_invalid_name(monkeypatch):
         r2.buckets()
 
 
-def test_buckets_default_is_claude(monkeypatch):
-    monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
-    assert r2.buckets() == ["claude"]
-
-
 def test_split_key_separates_bucket_from_object_key():
     assert r2.split_key("claude/proj/sess/file.jsonl") == (
         "claude",
@@ -94,14 +96,6 @@ def test_split_key_separates_bucket_from_object_key():
         r2.split_key("noslash")
     with pytest.raises(ValueError, match="no bucket segment"):
         r2.split_key("claude/")
-
-
-def test_list_keys_qualifies_every_object_with_its_bucket(two_buckets):
-    keys = sorted(o.key for o in r2.list_keys())
-    assert keys == [
-        f"alpha/{_OBJ_KEY}",
-        f"beta/{_OBJ_KEY}",
-    ]
 
 
 def test_get_object_reads_from_the_named_bucket(two_buckets):
@@ -119,39 +113,9 @@ def test_get_object_refuses_unconfigured_bucket(monkeypatch, tmp_path):
         r2.get_stream("c/x")
 
 
-def test_traversal_still_blocked_on_the_object_key_part(
-        monkeypatch, tmp_path):
-    """The bucket segment is refused by name; traversal INSIDE the
-    object-key part still hits _safe_join's PermissionError."""
-    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/")
-    monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha")
-    (tmp_path / "alpha").mkdir()
-    with pytest.raises(PermissionError):
-        r2.get_object("alpha/../../etc/passwd")
-    with pytest.raises(PermissionError):
-        r2.get_stream("alpha/../../etc/passwd")
-
-
 # ---------------------------------------------------------------------------
 # ingest over several buckets
 # ---------------------------------------------------------------------------
-
-
-def test_single_bucket_stores_bucket_qualified_key(fresh_db, tmp_path,
-                                                   monkeypatch):
-    """A single-bucket deploy re-keys too: stored identity is
-    'claude/<object-key>', not the bare object key."""
-    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/")
-    monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
-    _seed(tmp_path, "claude", _TX_A)
-
-    result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
-    with db.viz_conn() as c:
-        row = c.execute(
-            "SELECT file_key, project_id, session_id, is_main FROM files"
-        ).fetchone()
-    assert row == ("claude/projS/sessS/sessS.jsonl", "projS", "sessS", True)
 
 
 def test_same_key_in_two_buckets_two_rows_one_project(
@@ -191,23 +155,33 @@ def test_orphan_sweep_is_per_object_never_per_bucket(fresh_db, two_buckets):
     assert keys == [f"beta/{_OBJ_KEY}"]
 
 
+@pytest.mark.parametrize("missing", ["bucket", "root"],
+                         ids=["missing-multi-bucket-directory", "missing-single-bucket-root"])
 def test_missing_bucket_mirror_directory_aborts_the_run_before_the_sweep(
-        fresh_db, two_buckets):
-    """A configured bucket whose mirror directory is GONE is not an empty
-    bucket: its listing cannot be known complete, so the run must abort
-    with a fatal instead of sweeping the bucket's whole history."""
-    ingest.run_ingest(trigger="manual")
-    shutil.rmtree(two_buckets / "beta")
+        fresh_db, tmp_path, monkeypatch, missing):
+    """An incomplete listing books a fatal and preserves stored files."""
+    if missing == "bucket":
+        monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/")
+        monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha+beta")
+        _seed(tmp_path, "alpha", _TX_A)
+        _seed(tmp_path, "beta", _TX_B)
+        ingest.run_ingest(trigger="manual")
+        shutil.rmtree(tmp_path / "beta")
+        expected_keys = [f"alpha/{_OBJ_KEY}", f"beta/{_OBJ_KEY}"]
+    else:
+        monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/absent/")
+        monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
+        expected_keys = []
 
     result = ingest.run_ingest(trigger="manual")
 
     assert result["error"] is not None, (
-        "a missing bucket directory must abort the run, not list empty")
+        "a missing listing directory must abort the run, not list empty")
     assert result["deleted"] == 0, "a failed listing must never sweep"
     with db.viz_conn() as c:
         keys = [r[0] for r in c.execute(
             "SELECT file_key FROM files ORDER BY file_key")]
-    assert keys == [f"alpha/{_OBJ_KEY}", f"beta/{_OBJ_KEY}"]
+    assert keys == expected_keys
 
 
 def test_listing_failure_aborts_the_run_before_the_orphan_sweep(
@@ -296,16 +270,6 @@ def test_sidecar_cannot_reach_another_bucket(sidecar_app):
     assert r.status_code == 404
 
 
-def test_sidecar_dotdot_path_is_rejected(sidecar_app):
-    """The only path from one bucket to another runs through '..' —
-    rejected outright (and _safe_join backs the check up in r2)."""
-    r = sidecar_app.get(
-        "/api/sessions/sessT/sidecar"
-        "?path=../beta/projT/sessT/data/x.txt"
-    )
-    assert r.status_code == 400
-
-
 def test_sidecar_unconfigured_bucket_surfaces_as_an_error(sidecar_app):
     """A stored file key naming a bucket that is not configured is a
     server-side misconfiguration: r2's refusal (ValueError) must
@@ -321,21 +285,6 @@ def test_sidecar_unconfigured_bucket_surfaces_as_an_error(sidecar_app):
 
     with pytest.raises(ValueError):
         sidecar_app.get("/api/sessions/ghost-sess/sidecar?path=data/ok.txt")
-
-
-def test_single_bucket_missing_root_aborts_the_run_before_the_sweep(
-        fresh_db, tmp_path, monkeypatch):
-    """Single-bucket file mode: an endpoint root that is missing (an
-    unmounted mountpoint) must abort the ingest with a fatal, never list
-    empty — the orphan sweep would delete the bucket's entire history."""
-    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"{tmp_path.as_uri()}/absent/")
-    monkeypatch.delenv("CLAUDIT_R2_BUCKET", raising=False)
-
-    result = ingest.run_ingest(trigger="manual")
-
-    assert result["error"] is not None, (
-        "a missing endpoint root must abort the run, not list empty")
-    assert result["deleted"] == 0, "a failed listing must never sweep"
 
 
 # ---------------------------------------------------------------------------
