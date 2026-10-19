@@ -7,8 +7,7 @@ name: claim
 # `/claim` assigns the commenter to an unassigned open issue. `/unclaim` and
 # `/release` are the same command under two names — both remove the
 # commenter's OWN assignment and nobody else's, a DELETE naming exactly one
-# login, so a second assignee is left in place. Two names because the
-# reference implementation calls it `/release` and people expect that word.
+# login, so a second assignee is left in place.
 #
 # A command on a closed issue or PR is declined loudly by the action.
 # Its issue_comment run attaches to the default branch tip, so release's
@@ -23,7 +22,7 @@ name: claim
 # no trim(). It saves starting a runner rather than being the only enforcement.
 
 on:
-  issue_comment:
+  issue_comment:  # zizmor: ignore[dangerous-triggers]
     types: [created]
 
 concurrency:
@@ -60,7 +59,7 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: Nitjsefnie-Actions/claim@cd8ffd8227e94cdf60ed2580016187353b055cf4 # v2.0.4
+      - uses: Nitjsefnie-Actions/claim@4c781a9b0ce62ff263a65226f6005d412cea6ae1 # v2.0.5
         with:
           max-claims: 'read=2, triage=4, write=6, maintain=10, admin=-1'
           expire: '7'
