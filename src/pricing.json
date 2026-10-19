@@ -641,7 +641,8 @@
         "deepseek",
         "xiaomi",
         "stepfun",
-        "tencent"
+        "tencent",
+        "minimax"
       ],
       "resolve": {
         "kimi-k2-7-code": {
