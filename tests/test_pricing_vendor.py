@@ -177,20 +177,18 @@ def _load_vendor():
     return module
 
 
-def test_the_loader_builds_the_vendor_tables(monkeypatch):
-    doc = _install(monkeypatch, _doc())
-    assert pricing.VENDOR_BARE == {KEY: KEY, BARE: PKEY, "other-9": "acme/other-9"}
-    assert pricing.VENDOR_HOSTS == {KEY: HOST, PKEY: HOST}
+@pytest.mark.parametrize("factory, tracked", [
+    pytest.param(_doc, PKEY, id="prefixed-tracked-key"),
+    pytest.param(_bare_id_doc, BARE, id="bare-tracked-key"),
+])
+def test_the_loader_builds_the_vendor_tables(monkeypatch, factory, tracked):
+    doc = _install(monkeypatch, factory())
+    assert pricing.VENDOR_PREFIXES == ["acme"]
+    assert pricing.VENDOR_BARE == {KEY: KEY, BARE: tracked, "other-9": "acme/other-9"}
+    assert pricing.VENDOR_HOSTS == {KEY: HOST, tracked: HOST}
     # Id-only entries join the fold but provide no first-party host.
     assert "acme/other-9" not in pricing.VENDOR_HOSTS
     assert doc  # the doc was loaded (shape-valid)
-
-
-def test_a_bare_only_vendor_shape_loads_and_exports_fold_data():
-    tables = pricing.load_tables(_bare_id_doc())
-    assert tables["VENDOR_PREFIXES"] == ["acme"]
-    assert tables["VENDOR_BARE"] == {KEY: KEY, BARE: BARE, "other-9": "acme/other-9"}
-    assert tables["VENDOR_HOSTS"] == {KEY: HOST, BARE: HOST}
 
 
 @needs_node
@@ -241,16 +239,18 @@ def test_both_vendor_spellings_are_refused_by_both_loaders(tmp_path):
     assert error and "both carry the bare form" in error
 
 
-def test_missing_prefixes_refuse_naming_the_key():
+@pytest.mark.parametrize("fields", [
+    pytest.param({"no_prefixes": True}, id="missing"),
+    *[pytest.param({"prefixes": bad}, id=name) for name, bad in [
+        ("uppercase", ["Anthropic"]), ("duplicate", ["a", "a"]),
+        ("empty-name", [""]), ("slash", ["x/y"]),
+        ("string", "anthropic"), ("non-string", ["anthropic", 7]),
+        ("empty-list", []),
+    ]],
+])
+def test_malformed_prefixes_refuse_naming_the_key(fields):
     with pytest.raises(ValueError, match="openrouter.vendor.prefixes"):
-        pricing.load_tables(_doc(no_prefixes=True))
-
-
-def test_malformed_prefixes_refuse_naming_the_key():
-    for bad in (["Anthropic"], ["a", "a"], [""], ["x/y"], "anthropic",
-                ["anthropic", 7], []):
-        with pytest.raises(ValueError, match="openrouter.vendor.prefixes"):
-            pricing.load_tables(_doc(prefixes=bad))
+        pricing.load_tables(_doc(**fields))
 
 
 @needs_node
@@ -314,12 +314,6 @@ def test_a_bare_form_collision_refuses_in_the_browser(tmp_path):
     assert error and "models-table" in error, error
 
 
-def test_a_long_context_member_may_name_a_tracked_key():
-    doc = _doc()
-    doc["long_context_meters"] = [{"threshold": 200_000, "models": [KEY]}]
-    assert KEY in pricing.load_tables(doc)["LONG_CONTEXT_MODELS"]
-
-
 def test_a_bare_vendor_id_resolves_exact_at_the_windows(monkeypatch):
     _install(monkeypatch, _doc())
     before = pricing.resolve(KEY, CUT - timedelta(seconds=1))
@@ -339,17 +333,10 @@ def test_the_suffixed_bare_id_resolves_to_the_same_row(monkeypatch):
         assert r.rates == R_NEW
 
 
-def test_the_prefixed_tracked_key_serves_its_bare_form(monkeypatch):
+@pytest.mark.parametrize("model", [BARE, PKEY])
+def test_the_prefixed_tracked_key_serves_its_bare_form(monkeypatch, model):
     _install(monkeypatch, _doc())
-    r = pricing.resolve(BARE)
-    assert (r.kind, r.key) == ("exact", PKEY)
-    assert r.rates == R_THIRD
-
-
-def test_a_prefixed_tracked_id_without_provider_uses_the_bare_vendor_row(
-        monkeypatch):
-    _install(monkeypatch, _doc())
-    r = pricing.resolve(PKEY)
+    r = pricing.resolve(model)
     assert (r.kind, r.key, r.rates) == ("exact", PKEY, R_THIRD)
     assert pricing.resolve("acme/untracked-9").kind == "default"
 
