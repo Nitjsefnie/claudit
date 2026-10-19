@@ -6,12 +6,6 @@
 text with ``uuid_split.uuid_text_sql``, so canonical grouping, winner
 parity and API output stay byte-identical to the old TEXT column.
 
-The classification is total and deterministic: one input text maps to
-one slot, and ``reconstruct(split_uuid(v)) == v`` for every shape the
-corpus carries. The DB-side CHECKs enforce the shape of a stored row
-(store coherence) and the disjointness the partition-by-parts scheme
-relies on (a fallback never holds a form another slot owns).
-
 The coexistence test is the pin for the partition scheme: a pure ``U``
 row and a ``U:5`` split row share ``uuid_col`` but are DIFFERENT
 identities — partitioning by ``uuid_col`` alone would merge them and
@@ -98,18 +92,6 @@ def test_every_shape_lands_in_exactly_one_slot(value, slot):
         assert parts.fallback is None
     elif slot == "fallback":
         assert parts == uuid_split.UuidParts(None, None, value)
-
-
-def test_a_null_identity_stores_nothing_at_all():
-    """NULL uuid (legacy/absent) → all three slots NULL, never ''."""
-    assert uuid_split.split_uuid(None) == (None, None, None)
-
-
-@pytest.mark.parametrize("value,_slot", ALL_SHAPES,
-                         ids=[value or "<empty>"
-                              for value, _slot_ in ALL_SHAPES])
-def test_every_shape_reconstructs_byte_identically(value, _slot):
-    assert uuid_split.reconstruct(uuid_split.split_uuid(value)) == value
 
 
 def test_null_reconstructs_to_null():

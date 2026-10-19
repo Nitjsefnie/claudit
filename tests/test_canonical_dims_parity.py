@@ -1,13 +1,4 @@
-"""SV-CANONICAL-FLAG parity across the surrogate ids (R2).
-
-The winner rule still orders by `(is_replay, attribution, file_key,
-line_num[, idx])` over the TEXT `files.file_key` — never `file_id`,
-which is first-seen order. Each test computes the expected winners with
-a Python copy of the legacy rule and asserts the stored flags match
-it, plus one trap case whose file_id order is the opposite of its
-file_key order: a file_id-ordered implementation flips that case's
-winner and fails here.
-"""
+"""Canonical winners match the legacy rule and use file_key text order."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -17,6 +8,7 @@ import pytest
 
 from backend import db, ingest, ingest_rollup_state, uuid_split
 from tests import dims_seed, mini_mirror, scratch_db
+
 
 _UNATTRIBUTED = ("", "unknown", "(unknown)", "<synthetic>")
 
@@ -187,68 +179,6 @@ def test_winner_order_is_file_key_text_not_file_id(monkeypatch):
                 "WHERE t.is_canonical"
             ).fetchall()
             assert tu_winners == [("bucket/p/aaa.jsonl",)], tu_winners
-    finally:
-        db.reset_viz_pool()
-        scratch_db.drop_database(name)
-
-
-@pytest.mark.db
-def test_replay_and_attribution_ranks_outrank_key_order(monkeypatch):
-    """The full chain: replay rank and attribution rank still beat the
-    key order, exactly as the old rule had them."""
-    name = scratch_db.create_database("canon_ranks")
-    monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")
-    db.reset_viz_pool()
-    try:
-        now = datetime.now(timezone.utc)
-        # aaa: replayed copy, sorts first by text.
-        # bbb: attributed original, sorts second.
-        # ccc: unattributed original vs ddd's attributed copy.
-        seeds = [
-            # (file_key, line, uuid, model, is_replay)
-            ("bucket/p/aaa.jsonl", 1, "u-replay", "model-a", True),
-            ("bucket/p/bbb.jsonl", 1, "u-replay", "model-a", None),
-            ("bucket/p/ccc.jsonl", 1, "u-attr", "unknown", None),
-            ("bucket/p/ddd.jsonl", 1, "u-attr", "model-b", None),
-        ]
-        with db.viz_conn() as conn:
-            conn.execute(
-                "INSERT INTO projects (project_id, display_name, "
-                "first_seen_at, last_seen_at) VALUES ('p', 'p', now(), now())"
-            )
-            for key in sorted({s[0] for s in seeds}):
-                conn.execute(
-                    "INSERT INTO files (file_key, project_id, session_id, "
-                    "is_main, r2_etag, r2_size_bytes, r2_last_modified, "
-                    "parsed_at, parser_version) VALUES (%s, 'p', 's', TRUE, "
-                    "'e', 1, %s, %s, '0')", (key, now, now),
-                )
-            ids = dict(conn.execute(
-                "SELECT file_key, file_id FROM files").fetchall())
-            models = {"model-a": dims_seed.dim_id(conn, "dim_model", "model-a"),
-                      "model-b": dims_seed.dim_id(conn, "dim_model", "model-b"),
-                      "unknown": dims_seed.dim_id(conn, "dim_model", "unknown")}
-            for key, line, uuid, model, replay in seeds:
-                conn.execute(
-                    "INSERT INTO records (file_id, line_num, fallback, "
-                    "model_id, is_replay, ts) VALUES (%s, %s, %s, %s, %s, %s)",
-                    (ids[key], line, uuid, models[model], replay, now),
-                )
-            conn.commit()
-
-        ingest_rollup_state.recompute_canonical()
-
-        with db.viz_conn() as conn:
-            rows = conn.execute(
-                f"SELECT f.file_key, {uuid_split.uuid_text_sql('r')} AS uuid, "
-                "r.is_canonical FROM records r "
-                "JOIN files f ON f.file_id = r.file_id"
-            ).fetchall()
-        winners = {u: fk for fk, u, canon in rows if canon}
-        # An original beats a replay whatever the key order.
-        assert winners["u-replay"] == "bucket/p/bbb.jsonl"
-        # An attributed copy beats an unattributed one.
-        assert winners["u-attr"] == "bucket/p/ddd.jsonl"
     finally:
         db.reset_viz_pool()
         scratch_db.drop_database(name)

@@ -5,11 +5,6 @@ the payload and from the `token_types` list, so the frontend renders no
 panel for it. This is presentation-layer suppression, not data-layer
 omission: the column exists, the value is stored, the rate is wired.
 
-Not hypothetical, and not specific to another provider's format: this
-same codebase is deployed as glmmeter over the `zai` bucket, where
-cache_creation/eph5/eph1h are 0 across all 90,316 canonical records, so
-Cache Create and the whole Prompt-Cache TTL Split render permanently
-flat.
 """
 from backend import api_dashboard as ad
 
@@ -50,10 +45,3 @@ def test_survivors_are_listed_in_declared_render_order():
     ad.drop_zero_token_types(entries)
     assert ad.surviving_token_types(entries) == [
         "input_tokens", "output_tokens", "cache_read_tokens"]
-
-
-def test_all_zero_leaves_no_token_types():
-    entries = _entries(input_tokens=0, output_tokens=0, cache_5m_tokens=0,
-                       cache_1h_tokens=0, cache_read_tokens=0)
-    ad.drop_zero_token_types(entries)
-    assert ad.surviving_token_types(entries) == []

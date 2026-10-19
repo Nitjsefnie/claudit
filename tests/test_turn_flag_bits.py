@@ -34,10 +34,12 @@ def test_bits_are_distinct_powers_of_two_inside_a_signed_int4():
     assert len(bits) <= turn_flag_bits.MAX_FLAGS
 
 
-def test_round_trip_every_flag_on_its_own():
-    for flag in turn_flag_bits.FLAG_BITS:
-        mask = turn_flag_bits.flags_to_mask([flag])
-        assert turn_flag_bits.mask_to_flags(mask) == [flag]
+@pytest.mark.parametrize("flags,expected", [
+    *[([flag], [flag]) for flag in turn_flag_bits.FLAG_BITS],
+    (["compact", "compact"], ["compact"]),
+], ids=[*turn_flag_bits.FLAG_BITS, "repeated-compact"])
+def test_round_trip_flags(flags, expected):
+    assert turn_flag_bits.mask_to_flags(turn_flag_bits.flags_to_mask(flags)) == expected
 
 
 def test_round_trip_the_whole_vocabulary_and_the_empty_set():
@@ -47,11 +49,6 @@ def test_round_trip_the_whole_vocabulary_and_the_empty_set():
     assert turn_flag_bits.flags_to_mask([]) == 0
     assert turn_flag_bits.flags_to_mask(None) == 0
     assert turn_flag_bits.mask_to_flags(0) == []
-
-
-def test_a_repeated_name_folds_into_one_bit():
-    assert turn_flag_bits.mask_to_flags(
-        turn_flag_bits.flags_to_mask(["compact", "compact"])) == ["compact"]
 
 
 def test_an_unknown_flag_name_is_refused_loudly():
@@ -141,31 +138,15 @@ def test_persist_stores_the_mask_and_the_column_is_int4():
 
 
 @pytest.mark.db
-def test_persist_refuses_a_measure_that_cannot_fit_int4():
-    """The overflow guard fails loudly BEFORE the INSERT (no silent wrap)."""
+@pytest.mark.parametrize("field", ["fresh_tokens", "lines_added"],
+                         ids=["record-measure", "tool-churn"])
+def test_persist_refuses_a_measure_that_cannot_fit_int4(field):
     name = scratch_db.create_database("tf_overflow")
     try:
         with psycopg.connect(f"postgresql:///{name}") as conn:
             file_id = _seed_file(conn)
             too_big = _record_with_flags([])
             too_big["fresh_tokens"] = 1 << 31
-            parsed = {"records": [too_big], "tool_uses": []}
-            with conn.cursor() as cur:
-                with pytest.raises(ValueError, match="fresh_tokens"):
-                    ingest_persist._write_facts(  # pylint: disable=protected-access
-                        cur, parsed, file_id)
-            conn.rollback()
-    finally:
-        scratch_db.drop_database(name)
-
-
-@pytest.mark.db
-def test_persist_refuses_tool_churn_that_cannot_fit_int4():
-    """Same guard on tool_uses' per-call churn columns."""
-    name = scratch_db.create_database("tf_overflow_tool")
-    try:
-        with psycopg.connect(f"postgresql:///{name}") as conn:
-            file_id = _seed_file(conn)
             tool = {
                 "line_num": 1,
                 "idx": 0,
@@ -189,9 +170,11 @@ def test_persist_refuses_tool_churn_that_cannot_fit_int4():
                 "write_targets": None,
                 "is_reread": None,
             }
-            parsed = {"records": [], "tool_uses": [tool]}
+            parsed = ({"records": [too_big], "tool_uses": []}
+                      if field == "fresh_tokens" else
+                      {"records": [], "tool_uses": [tool]})
             with conn.cursor() as cur:
-                with pytest.raises(ValueError, match="lines_added"):
+                with pytest.raises(ValueError, match=field):
                     ingest_persist._write_facts(  # pylint: disable=protected-access
                         cur, parsed, file_id)
             conn.rollback()
