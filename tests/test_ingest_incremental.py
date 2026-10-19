@@ -262,7 +262,10 @@ def test_incremental_rebuild_matches_full_after_mixed_changes(
     _force_full_and_compare(caplog, _derived_snapshot())
 
 
-@pytest.mark.parametrize("changed_input", ("suppressed", "aliases", "version"))
+@pytest.mark.parametrize(
+    "changed_input", ("suppressed", "aliases", "version", "pricing"),
+    ids=["suppressed-models", "project-aliases", "derived-version", "repriced-rates"],
+)
 def test_fingerprint_changes_force_full_rebuild(
         fresh_db, mini_r2_env, monkeypatch, caplog, changed_input):
     """Every input to the derived fingerprint invalidates incremental state."""
@@ -285,6 +288,21 @@ def test_fingerprint_changes_force_full_rebuild(
             constants, "DERIVED_STATE_VERSION",
             constants.DERIVED_STATE_VERSION + "-test",
         )
+    elif changed_input == "pricing":
+        monkeypatch.setattr(pricing, "MODEL_RATES", {
+            **pricing.MODEL_RATES,
+            "claude-opus-4-7": _BUMP_RATES,
+        })
+        monkeypatch.setattr(pricing, "DATED_RATES", {
+            **pricing.DATED_RATES,
+            # The window covers every fixture timestamp, so the synthetic
+            # vector applies on the dated path too — replacing the whole row
+            # in BOTH tables is what makes the move perturbation-proof (the
+            # perturbed tree appends dated entries to every row).
+            "claude-opus-4-7": [(datetime(2099, 1, 1, tzinfo=UTC), _BUMP_RATES)],
+        })
+        monkeypatch.setattr(constants, "PRICING_VERSION",
+                            str(int(constants.PRICING_VERSION) + 1))
 
     caplog.clear()
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
@@ -325,34 +343,6 @@ def test_dirty_file_threshold_forces_full(fresh_db, mini_r2_env,
     for session in ("sess-A", "sess-B"):
         path = mini_r2_env / "projA" / session / f"{session}.jsonl"
         path.write_bytes(path.read_bytes().rstrip(b"\n") + b"\n")
-    caplog.clear()
-    with caplog.at_level(logging.INFO, logger="claudit.ingest"):
-        result = ingest.run_ingest(trigger="manual")
-    assert result["error"] is None
-    assert "scope=full" in _timing_lines(caplog)[-1]
-
-
-def test_reprice_changes_force_full_rebuild(fresh_db, mini_r2_env,
-                                            monkeypatch, caplog):
-    # only rows whose rate-derived data moved count as
-    # reprice changes, so the simulated bump mutates the loaded rate
-    # tables (a restamp-only bump would rebuild nothing).
-    monkeypatch.setattr(timing, "TIMING_ON", True)
-    assert ingest.run_ingest(trigger="manual")["error"] is None
-    monkeypatch.setattr(pricing, "MODEL_RATES", {
-        **pricing.MODEL_RATES,
-        "claude-opus-4-7": _BUMP_RATES,
-    })
-    monkeypatch.setattr(pricing, "DATED_RATES", {
-        **pricing.DATED_RATES,
-        # The window covers every fixture timestamp, so the synthetic
-        # vector applies on the dated path too — replacing the whole row
-        # in BOTH tables is what makes the move perturbation-proof (the
-        # perturbed tree appends dated entries to every row).
-        "claude-opus-4-7": [(datetime(2099, 1, 1, tzinfo=UTC), _BUMP_RATES)],
-    })
-    monkeypatch.setattr(constants, "PRICING_VERSION",
-                        str(int(constants.PRICING_VERSION) + 1))
     caplog.clear()
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
         result = ingest.run_ingest(trigger="manual")

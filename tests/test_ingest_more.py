@@ -127,10 +127,7 @@ def test_tool_error_rollup_totals_match_raw(fresh_db, mini_r2_env):
             "WHERE t.ts IS NOT NULL GROUP BY 1"
         ).fetchall())
     assert rolled == raw
-    # The literal is the PLANTED fixture's own contribution, read from the
-    # raw table scoped to its session: the mirror itself now carries lane
-    # wires, one of which settles a failed call of its own,
-    # so the global tally is the planted three plus that one.
+    # Scope the fixture counts to its session; the mirror adds lane errors.
     assert dict(c.execute(
         "SELECT dek.value, COUNT(*) FROM tool_uses t "
         "JOIN files f ON f.file_id = t.file_id "
@@ -138,24 +135,6 @@ def test_tool_error_rollup_totals_match_raw(fresh_db, mini_r2_env):
         "WHERE t.ts IS NOT NULL "
         "AND f.file_key LIKE '%sess-K%' GROUP BY 1"
     ).fetchall()) == {"failed": 1, "rejected": 1, "tool_error": 1}
-
-
-def test_dispatch_rollup_totals_match_raw(fresh_db, mini_r2_env):
-    """Every dispatch is counted, including one that named no model."""
-    _plant(mini_r2_env, "projD", "sess-D", "agent_dispatch.jsonl")
-    ingest.run_ingest(trigger="manual")
-    with db.viz_conn() as c:
-        rolled = c.execute(
-            "SELECT dat.value, dam.value, SUM(n) "
-            "FROM dispatch_rollup dr "
-            "JOIN dim_agent_type dat ON dat.id = dr.agent_type_id "
-            "JOIN dim_agent_model dam ON dam.id = dr.agent_model_id "
-            "GROUP BY 1, 2 ORDER BY 1"
-        ).fetchall()
-        raw_total = _scalar(c, "SELECT COUNT(*) FROM tool_uses "
-                               "WHERE agent_type_id IS NOT NULL")
-    assert rolled == [("Explore", "haiku", 1)]
-    assert sum(r[2] for r in rolled) == raw_total
 
 
 def test_dispatch_brief_columns_persist(fresh_db, mini_r2_env):

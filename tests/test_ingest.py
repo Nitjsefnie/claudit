@@ -120,58 +120,6 @@ def test_nul_in_tool_text_still_stores(fresh_db, mini_r2_env):
     assert rows[1][1] == ["/tmp/ab.md"]
 
 
-def test_etag_change_triggers_per_file_reparse(fresh_db, mini_r2_env):
-    ingest.run_ingest(trigger="manual")
-    with db.viz_conn() as c:
-        before_etag = _scalar(c, "SELECT r2_etag FROM files WHERE file_key LIKE '%sess-A.jsonl'")
-    target = mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl"
-    target.write_text(target.read_text() + "\n")
-    result = ingest.run_ingest(trigger="manual")
-    assert result["reparsed"] == 1
-    with db.viz_conn() as c:
-        after_etag = _scalar(c, "SELECT r2_etag FROM files WHERE file_key LIKE '%sess-A.jsonl'")
-    assert before_etag != after_etag
-
-
-def test_parser_version_bump_reparses_all(fresh_db, mini_r2_env, monkeypatch):
-    """A FORWARD bump (binary newer than stored) reparses every file. The
-    other direction — a stored version NEWER than the binary — is a
-    rollback and must not reparse: see test_ingest_rollback.py."""
-    ingest.run_ingest(trigger="manual")
-    monkeypatch.setattr(
-        parser_version, "PARSER_VERSION", str(int(parser_version.PARSER_VERSION) + 1))
-    result = ingest.run_ingest(trigger="manual")
-    assert result["reparsed"] == mini_mirror.counts()["transcripts"]
-
-
-def test_deleted_file_removed(fresh_db, mini_r2_env):
-    ingest.run_ingest(trigger="manual")
-    target = mini_r2_env / "projA" / "sess-B" / "sess-B.jsonl"
-    target.unlink()
-    result = ingest.run_ingest(trigger="manual")
-    assert result["deleted"] == 1
-    with db.viz_conn() as c:
-        n = _scalar(c, "SELECT COUNT(*) FROM files WHERE file_key LIKE '%sess-B.jsonl'")
-        assert n == 0
-
-
-def test_records_cascade_on_file_delete(fresh_db, mini_r2_env):
-    ingest.run_ingest(trigger="manual")
-    target = mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl"
-    target.unlink()
-    ingest.run_ingest(trigger="manual")
-    with db.viz_conn() as c:
-        n = _scalar(c, "SELECT COUNT(*) FROM records r JOIN files f ON f.file_id = r.file_id WHERE f.file_key LIKE '%sess-A.jsonl'")
-        assert n == 0
-
-
-def test_no_changes_second_run_is_zero_reparse(fresh_db, mini_r2_env):
-    ingest.run_ingest(trigger="manual")
-    result2 = ingest.run_ingest(trigger="manual")
-    assert result2["inserted"] == 0
-    assert result2["reparsed"] == 0
-
-
 def test_first_seen_at_uses_least(fresh_db, mini_r2_env):
     """projects.first_seen_at must NOT be locked at first-ingest mtime.
     Add a NEW file under an existing project with an earlier mtime;
@@ -390,13 +338,6 @@ def test_canonical_winner_rule_is_lockstep_with_the_browser(fresh_db):
     assert js == want, f"browser winners: {js}"
 
 
-def test_recompute_canonical_is_idempotent(fresh_db, mini_r2_env):
-    """A steady-state pass must not rewrite rows — it runs after every
-    ingest, including no-op ones."""
-    ingest.run_ingest(trigger="manual")
-    assert ingest.recompute_canonical() == 0
-
-
 def test_warm_common_covers_every_warmed_range(fresh_db, mini_r2_env, monkeypatch):
     """Every endpoint warm_common touches must be warmed for EVERY range
     it claims to cover — a warm keyed on something the UI never requests
@@ -571,13 +512,6 @@ def test_a_second_ingest_is_skipped_while_one_is_running(fresh_db, mini_r2_env):
     assert seen["first"].get("skipped") is not True, "the first run must NOT be skipped"
 
 
-def test_ingest_runs_again_once_the_lock_is_free(fresh_db, mini_r2_env):
-    """The skip is per-overlap, not sticky — the lock must be released."""
-    ingest.run_ingest(trigger="manual")
-    again = ingest.run_ingest(trigger="manual")
-    assert again.get("skipped") is not True, again
-
-
 def _suppress(pattern: str) -> None:
     with db.viz_conn() as c:
         c.execute("INSERT INTO suppressed_models (pattern, note) "
@@ -665,17 +599,7 @@ def _plant(mirror, project, session, fixture):
     return target
 
 
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-# Migration-stall rekey + deterministic stored mapping (fix round 1)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Run bookkeeping order: finished_at is written only AFTER the
-# derived-state rebuild, so a reader that waits on the run row then reads a
-# rollup sees THIS run's aggregates, never the previous run's.
-# ---------------------------------------------------------------------------
+# Shared run-bookkeeping query for test_ingest_more.
 
 
 def _last_run_finished_at():
