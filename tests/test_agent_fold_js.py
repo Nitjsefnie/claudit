@@ -2,10 +2,7 @@
 
 The backend folds an agent role to its canonical name at parse time
 (backend/agent_types.py): files.agent_type and the dispatch
-columns store it, and Cost by Agent Type reports it. The Inspector's
-agent_spawn events were built from the dispatch's RAW argument
-(c.input.name / c.input.subagent_type), so a transcript and its stored
-columns disagreed on one screen.
+columns store it, and the Inspector's agent_spawn events show it.
 
 The fold TABLE stays backend-owned (SV-WHY-COLUMNS' canonical-name
 paragraph; the brief's constraint: no second literal table in the
@@ -131,38 +128,23 @@ def test_browser_fold_matches_backend_over_the_case_set():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_a_subagent_type_only_dispatch_folds_the_same():
-    """The Kimi-shaped argument (subagent_type, no name) folds through the
-    same helper, not around it."""
+@pytest.mark.parametrize("tool,input_args", [
+    ("Task", {"subagent_type": "superpowers:code-reviewer"}),
+    ("Agent", {"name": "my-instance",
+               "subagent_type": "superpowers:code-reviewer", "prompt": "go"}),
+], ids=["subagent-type-only", "role-before-instance-name"])
+def test_dispatch_shapes_fold_the_stored_role(tool, input_args):
     tool_use = {
-        "type": "tool_use", "id": "tu-1", "name": "Task",
-        "input": {"subagent_type": "superpowers:code-reviewer"},
-    }
-    message = {
-        "role": "assistant",
-        "content": [tool_use],
-        "usage": {"input_tokens": 10, "output_tokens": 5},
+        "type": "tool_use", "id": "tu-1", "name": tool, "input": input_args,
     }
     line = json.dumps(
         {"type": "assistant", "timestamp": "2026-10-06T10:00:00Z",
          "uuid": "u-1", "requestId": "r-1", "sessionId": "sessS",
-         "message": message},
+         "message": {"role": "assistant", "content": [tool_use],
+                     "usage": {"input_tokens": 10, "output_tokens": 5}}},
         separators=(",", ":"),
     ) + "\n"
-    script = f"""
-      global.window = {{}};
-      require({str(AGENT_TYPES_JS)!r});
-      window.AGENT_TYPE_FOLD = {json.dumps(agent_types.fold_table())};
-      require({str(RECORD_DEDUP_JS)!r});
-      require({str(LANES_JS)!r});
-      require({str(LOADER_JS)!r});
-      require({str(RATES_JS)!r});
-      require({str(PARSER_JS)!r});
-      const {{ events }} = window.parseTranscript({json.dumps(line)}, {{}});
-      console.log(JSON.stringify(
-        events.filter(e => e.type === 'agent_spawn').map(e => e.agent_name)));
-    """
-    assert json.loads(_node(script)) == ["code-reviewer"]
+    assert _folded_names(line) == ["code-reviewer"]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
@@ -181,28 +163,6 @@ def test_without_the_served_table_the_lookup_degrades_to_the_namespace_split():
     """
     assert json.loads(_node(script)) == ["code-reviewer", "explore",
                                          "custom-role"]
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_a_dispatch_carrying_both_fields_names_the_stored_role():
-    """The stored dispatch column reads subagent_type only
-    (backend/parse.py _dispatch_args): a dispatch carrying both an
-    instance name and a namespaced subagent_type names the folded
-    subagent_type in the Inspector, never the instance name."""
-    tool_use = {
-        "type": "tool_use", "id": "tu-1", "name": "Agent",
-        "input": {"name": "my-instance",
-                  "subagent_type": "superpowers:code-reviewer",
-                  "prompt": "go"},
-    }
-    line = json.dumps(
-        {"type": "assistant", "timestamp": "2026-10-06T10:00:00Z",
-         "uuid": "u-1", "requestId": "r-1", "sessionId": "sessS",
-         "message": {"role": "assistant", "content": [tool_use],
-                     "usage": {"input_tokens": 10, "output_tokens": 5}}},
-        separators=(",", ":"),
-    ) + "\n"
-    assert _folded_names(line) == ["code-reviewer"]
 
 
 def test_the_dispatch_summary_line_folds_the_shown_name():
