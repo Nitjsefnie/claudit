@@ -478,7 +478,7 @@ def test_parallel_canary_jobs_keep_the_gate_step_order():
                 "Install postgresql-client", "Install dependencies"]
     expected = {
         "pytest-shards": [*database, "Save the pip cache", "Run tests", "actions/upload-artifact"],
-        "coverage-combine": [*preparation, "Download coverage shards", "Validate the shard data",
+        "coverage-combine": [*preparation, "Download coverage shards",
                              "Combine shard coverage",
                              "measured", "Coverage summary", "Upload coverage.xml",
                              "Patch coverage against the merge base", "Stage the patch-coverage comment",
