@@ -125,28 +125,42 @@ def test_every_non_tests_leg_skips_thresholds_only():
             assert "&& needs.classify.outputs.thresholds_only != 'true'" in condition
 
 
-SKIPPED_STEPS = {
-    'Coverage summary', 'Upload coverage.xml',
-    'Patch coverage against the merge base', 'Stage the patch-coverage comment',
-    'Upload the patch-coverage comment', 'Coverage gate',
-    'Install the JS toolchain from the lockfile', 'Comment share baseline',
-    'JavaScript coverage gate', 'Module size baseline',
-    'Pylint suppression baseline',
-}
-
-
 def test_canary_skips_only_the_unrelated_gates():
     jobs = _workflow('tests.yml')['jobs']
-    steps = {step.get('name'): step for step in jobs['pytest']['steps']}
-    for name in SKIPPED_STEPS:
-        condition = steps[name]['if']
-        assert "&& inputs.thresholds_only != 'true'" in condition, name
-        assert "!cancelled() && steps.pytest.conclusion != 'skipped'" in condition
-    for name in ('Reparse CPU gate', 'Threshold direction guard',
-                 'Upload the suite measurement', 'Ratchet the thresholds'):
-        assert 'thresholds_only' not in steps[name]['if'], name
+    for name in ('pytest-shards', 'js-coverage'):
+        assert jobs[name]['if'] == "inputs.thresholds_only != 'true'"
+    assert jobs['coverage-combine']['needs'] == ['pytest-shards']
+    assert jobs['coverage-combine']['if'] == (
+        "${{ !cancelled() && inputs.thresholds_only != 'true' }}")
+    assert jobs['pytest-thresholds']['if'] == "inputs.thresholds_only == 'true'"
+    assert jobs['reparse-gate']['if'] == "${{ !cancelled() }}"
+    assert jobs['baselines']['if'] == "${{ !cancelled() }}"
+    assert 'needs' not in jobs['baselines']
+    steps = {step.get('name'): step for step in jobs['baselines']['steps']}
+    for name in ('Module size baseline', 'Pylint suppression baseline'):
+        assert steps[name]['if'] == "inputs.thresholds_only != 'true'"
+    assert steps['Threshold direction guard']['if'] == (
+        "github.event_name == 'pull_request' || github.event_name == 'push'")
     assert jobs['pytest-portable']['if'] == (
         "inputs.comment_only != 'true' && inputs.thresholds_only != 'true'")
+
+
+def test_shards_cover_four_partitions_and_publish_even_after_failure():
+    job = _workflow('tests.yml')['jobs']['pytest-shards']
+    assert job['strategy'] == {'fail-fast': 'false', 'matrix': {'shard': ['1', '2', '3', '4']}}
+    run, = [step for step in job['steps'] if step.get('name') == 'Run tests']
+    commands = [line for line in run['run'].splitlines() if not line.startswith('#')]
+    assert commands == [
+        'python -m pytest $(python3 scripts/ci/pytest_shards.py '
+        '--shard ${{ matrix.shard }} --of 4) -q --tb=short -ra --cov=backend --cov-report=']
+    assert run['env']['COVERAGE_FILE'] == (
+        '${{ github.workspace }}/shard-coverage/.coverage.${{ matrix.shard }}')
+    upload, = [step for step in job['steps']
+               if step.get('with', {}).get('name') == 'coverage-shard-${{ matrix.shard }}']
+    assert upload['if'] == '${{ !cancelled() }}'
+    assert upload['with'] == {
+        'name': 'coverage-shard-${{ matrix.shard }}', 'path': 'shard-coverage/',
+        'include-hidden-files': 'true', 'if-no-files-found': 'error', 'retention-days': '1'}
 
 
 def _threshold_commands(tmp_path):
@@ -167,8 +181,15 @@ def _threshold_base_action():
 
 
 @pytest.mark.parametrize('workflow,job_name,test_step', [
-    ('tests.yml', 'pytest', 'Run tests'),
+    ('tests.yml', 'pytest-shards', 'Run tests'),
+    ('tests.yml', 'pytest-thresholds', 'Run tests'),
     ('tests.yml', 'pytest-portable', 'Run tests'),
+    ('tests.yml', 'coverage-combine', 'Combine shard coverage'),
+    ('tests.yml', 'baselines', 'Module size baseline'),
+    ('tests.yml', 'js-coverage', 'JavaScript coverage gate'),
+    ('tests.yml', 'reparse-gate', 'Reparse CPU gate'),
+    ('tests.yml', 'suite-bench', 'Measure and gate the suite cost'),
+    ('tests.yml', 'ratchet', 'Ratchet the thresholds'),
     ('test-data.yml', 'perturbed-suite', 'Perturb and test'),
     ('test-data-explore.yml', 'perturbed-suite-explore', 'Perturb and test, per wall-clock seed'),
 ])
@@ -192,7 +213,6 @@ def test_threshold_base_action_runs_once_per_job_before_tests(workflow, job_name
                     if step.get('uses', '').startswith('actions/checkout@'))
     assert checkout['with']['fetch-depth'] == '0'
     assert steps.index(checkout) < steps.index(resolver)
-    assert 'needs' not in job
     assert all('case "$EVENT"' not in step.get('run', '') for step in steps)
     action = _threshold_base_action()
     assert action['runs']['using'] == 'composite'
@@ -207,7 +227,7 @@ def test_threshold_base_action_runs_once_per_job_before_tests(workflow, job_name
     ('push', 3, ''), ('push', 1, None), ('workflow_dispatch', 0, ''),
 ])
 def test_threshold_base_resolved_before_tests_and_shared(event, status, expected, tmp_path):
-    steps = _workflow('tests.yml')['jobs']['pytest']['steps']
+    steps = _workflow('tests.yml')['jobs']['baselines']['steps']
     resolver = _threshold_base_action()['runs']['steps'][0]
     _threshold_commands(tmp_path)
     exported, calls = tmp_path / 'env', tmp_path / 'calls'
@@ -238,7 +258,8 @@ def test_threshold_base_resolved_before_tests_and_shared(event, status, expected
     for name, script in [('Comment share baseline', 'comment_baseline'),
                          ('Module size baseline', 'size_baseline'),
                          ('Pylint suppression baseline', 'suppression_baseline')]:
-        step = next(step for step in steps if step.get('name') == name)
+        step = next(step for job in _workflow('tests.yml')['jobs'].values()
+                    for step in job['steps'] if step.get('name') == name)
         subprocess.run(['bash', '-e', '-c', step['run']], cwd=ROOT, env=env,
                        check=True, capture_output=True, text=True)
         assert calls.read_text().splitlines()[-1] == (
@@ -254,30 +275,21 @@ def test_threshold_base_resolved_before_tests_and_shared(event, status, expected
 
 
 @pytest.mark.skipif(os.name == 'nt', reason='the canary runs under POSIX Bash')
-@pytest.mark.parametrize('narrowed', [True, False])
-def test_canary_run_tests_selects_threshold_checks_without_coverage(
-        narrowed, tmp_path):
-    step = next(step for step in _workflow('tests.yml')['jobs']['pytest']['steps']
+def test_thresholds_job_selects_threshold_checks_without_coverage(tmp_path):
+    step = next(step for step in _workflow('tests.yml')['jobs']['pytest-thresholds']['steps']
                 if step.get('name') == 'Run tests')
-    assert step.get('env', {}).get('CLAUDIT_THRESHOLDS_ONLY') == (
-        '${{ inputs.thresholds_only }}')
     fake_python = tmp_path / 'python'
     fake_python.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$ARGV_CAPTURE"\n')
     fake_python.chmod(0o755)
     capture = tmp_path / 'argv'
     env = dict(os.environ, PATH=f'{tmp_path}{os.pathsep}{os.environ["PATH"]}',
-               CLAUDIT_THRESHOLDS_ONLY=str(narrowed).lower(), ARGV_CAPTURE=str(capture))
+               ARGV_CAPTURE=str(capture))
     subprocess.run(['bash', '-e', '-c', step['run']], cwd=ROOT, env=env,
                    check=True, capture_output=True, text=True)
-    args = capture.read_text().splitlines()
-    if narrowed:
-        listed = (ROOT / 'scripts/ci/thresholds_test_files.txt').read_text().splitlines()
-        files = [line for line in listed if line and not line.startswith('#')]
-        assert files
-        assert args == ['-m', 'pytest', *files, '-q', '--tb=short', '-ra']
-    else:
-        assert args == ['-m', 'pytest', 'tests/', '-q', '--tb=short', '-ra',
-                        '--cov=backend', '--cov-report=term']
+    listed = (ROOT / 'scripts/ci/thresholds_test_files.txt').read_text().splitlines()
+    files = [line for line in listed if line and not line.startswith('#')]
+    assert files
+    assert capture.read_text().splitlines() == ['-m', 'pytest', *files, '-q', '--tb=short', '-ra']
 
 
 def test_thresholds_file_list_matches_tests_using_the_loader():

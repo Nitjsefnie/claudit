@@ -360,6 +360,16 @@ def test_the_portable_matrix_reads_the_comment_only_input():
                               "&& inputs.thresholds_only != 'true'")
 
 
+def test_comment_only_keeps_the_parallel_canary_gates():
+    jobs = _tests_workflow()["jobs"]
+    assert set(jobs) == {
+        "pytest-shards", "coverage-combine", "js-coverage", "reparse-gate",
+        "suite-bench", "pytest-thresholds", "baselines", "ratchet", "pytest-portable"}
+    for name, job in jobs.items():
+        if name != "pytest-portable":
+            assert "comment_only" not in job.get("if", ""), name
+
+
 def test_the_espree_dir_env_name_matches_the_workflow():
     # A wrong name silently disables the whole class with a green gate:
     # the classifier reads one env key and the workflow sets another.

@@ -438,7 +438,10 @@ def test_flat_config_lints_js_and_jsx() -> None:
 
 
 def _javascript_coverage_gate() -> dict:
-    steps = _workflow("tests.yml")["jobs"]["pytest"]["steps"]
+    steps = _workflow("tests.yml")["jobs"]["js-coverage"]["steps"]
+    job = _workflow("tests.yml")["jobs"]["js-coverage"]
+    assert job["if"] == "inputs.thresholds_only != 'true'"
+    assert job["outputs"]["js_measured"] == "${{ steps.jscov.outputs.js_measured }}"
     caller = next(step for step in steps
                   if step.get("name") == "JavaScript coverage gate")
     assert caller.get("uses") == "$/.github/actions/coverage-gate"

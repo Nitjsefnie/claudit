@@ -18,9 +18,9 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 # What an install step's run block does, independent of how it is named.
 _INSTALL_MARKERS = ("apt.postgresql.org", "postgresql-client")
 
-# The workflows that install the client, and nothing else. A sixth site
-# must be added here (and to every assertion below) in the same commit.
+# Each client-installing job contributes one site; both pytest modes need it.
 INSTALL_SITES = (
+    "tests.yml",
     "tests.yml",
     "test-data.yml",
     "test-data-explore.yml",
@@ -86,7 +86,7 @@ def _run_text(step: dict) -> str:
     return step.get("run") or ""
 
 
-def test_the_install_sites_are_exactly_the_known_five():
+def test_the_install_sites_are_exactly_the_known_jobs():
     # Anti-drift: the covered set is every workflow that actually installs
     # the client, so a new install site cannot pass by being unlisted.
     names = sorted(name for name, _ in _install_steps())

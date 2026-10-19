@@ -1,6 +1,6 @@
 """Workflow shape: the informational patch-coverage readout.
 
-tests.yml's `pytest` job already produces `coverage.xml`; on a pull
+tests.yml's `coverage-combine` job already produces `coverage.xml`; on a pull
 request it also computes the patch-coverage readout against the merge
 base. The compute job uploads the rendered body; coverage-comment.yml posts
 it without checking out or running pull-request code. Only the posting side
@@ -11,7 +11,7 @@ The readout is INFORMATIONAL either way: no threshold, no gate, no
 required check anywhere — the module's own exit contract is pinned in
 tests/test_diff_coverage.py. The invariants here:
 
-COMPUTE SIDE (tests.yml, the `pytest` job)
+COMPUTE SIDE (tests.yml, the `coverage-combine` job)
 - the compute step exists, runs the module, and reads the merge base;
 - it is pull-request-only, and the readout also lands on
   `$GITHUB_STEP_SUMMARY`;
@@ -19,7 +19,7 @@ COMPUTE SIDE (tests.yml, the `pytest` job)
 - the workflow carries exactly one wiring of the module.
 
 TOKEN GRANTS
-- the `pytest` job and ci-gate's `tests` leg hold `contents: read` and
+- the `coverage-combine` job and ci-gate's `tests` leg hold `contents: read` and
   NOTHING else, and neither file grants pull-request write anywhere;
 - the body crosses as an artifact named `diff-coverage-comment`, staged
   with the pull-request number it claims.
@@ -64,7 +64,7 @@ MARKER = "<!-- claudit-diff-coverage -->"
 ARTIFACT = "diff-coverage-comment"
 RELEASE_GATE = ROOT / "scripts" / "ci" / "release_gate.py"
 
-# The steps the readout hangs off, in the `pytest` job.
+# The steps the readout hangs off, in the `coverage-combine` job.
 COMPUTE_STEP = "Patch coverage against the merge base"
 STAGE_STEP = "Stage the patch-coverage comment"
 UPLOAD_STEP = "Upload the patch-coverage comment"
@@ -116,7 +116,36 @@ BODIES = _variant_bodies()
 
 
 def _pytest_job():
-    return _load(TESTS_WF)["jobs"]["pytest"]
+    return _load(TESTS_WF)["jobs"]["coverage-combine"]
+
+
+def test_combined_coverage_feeds_every_python_measurement():
+    job = _pytest_job()
+    assert job["needs"] == ["pytest-shards"]
+    assert job["if"] == "${{ !cancelled() && inputs.thresholds_only != 'true' }}"
+    assert job["outputs"] == {
+        "python_measured": "${{ steps.measured.outputs.python_measured }}"}
+    steps = job["steps"]
+    download, = [step for step in steps
+                 if step.get("uses", "").startswith("actions/download-artifact@")]
+    assert download["with"] == {
+        "pattern": "coverage-shard-*", "path": "shard-data/",
+        "github-token": "${{ secrets.GITHUB_TOKEN }}"}
+    combine, = [step for step in steps
+                if step.get("run", "").strip().startswith("python -m coverage combine ")]
+    assert combine["run"].strip() == "python -m coverage combine shard-data/coverage-shard-*"
+    measured, = [step for step in steps if step.get("id") == "measured"]
+    assert measured["run"].strip() == (
+        'echo "python_measured=$(python -m coverage report --format=total --precision=1)" '
+        '>> "$GITHUB_OUTPUT"')
+    summary = _step(job, "Coverage summary")
+    gate = _step(job, "Coverage gate")
+    assert gate["uses"] == "$/.github/actions/coverage-gate"
+    assert gate["with"]["language"] == "python"
+    assert (steps.index(download) < steps.index(combine) < steps.index(measured)
+            < steps.index(summary) < steps.index(gate))
+    for step in (summary, _step(job, "Upload coverage.xml"), gate):
+        assert step["if"] == "${{ !cancelled() }}"
 
 
 def _comment_job():
@@ -174,7 +203,7 @@ class TestComputeSide:
         for name in (COMPUTE_STEP, STAGE_STEP, UPLOAD_STEP):
             cond = _step(job, name).get("if") or ""
             assert "github.event_name == 'pull_request'" in cond, name
-            assert "steps.pytest.conclusion != 'skipped'" in cond, name
+            assert cond == "${{ !cancelled() && github.event_name == 'pull_request' }}", name
 
     def test_the_readout_also_lands_on_the_step_summary(self):
         run = _step(_pytest_job(), COMPUTE_STEP).get("run") or ""
@@ -206,7 +235,7 @@ class TestComputeSide:
                 for step in (job or {}).get("steps") or []:
                     if MODULE_REF in (step.get("run") or ""):
                         wired.append(f"{path.name}:{job_id}")
-        assert wired == ["tests.yml:pytest"]
+        assert wired == ["tests.yml:coverage-combine"]
 
 
 class TestTokenGrants:
@@ -345,7 +374,7 @@ class TestPostingSide:
                         continue
                     if (step.get("with") or {}).get("name") == ARTIFACT:
                         uploaders.append(f"{path.name}:{job_id}")
-        assert uploaders == ["tests.yml:pytest"]
+        assert uploaders == ["tests.yml:coverage-combine"]
 
     def test_the_body_must_be_an_ordinary_file_and_is_size_capped(self):
         run = _step(_comment_job(), POST_STEP).get("run") or ""
