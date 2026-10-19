@@ -166,7 +166,7 @@ def test_a_series_becomes_change_entries_with_rounding_and_discount_notes(discou
         "2026-09-01T00:00:00Z", "2026-09-01T00:00:01Z", "2026-09-01T00:00:03Z"]
     assert {key: entries[0].get(key, entries[0]["fresh"])
             for key in ("fresh", "create_5m", "create_1h", "read", "output")} \
-        == _rates(0.1, 0.6)
+        == _rates(0.1, 0.6, 0.1)
     assert "create_5m" not in entries[0] and "create_1h" not in entries[0]
     assert entries[0]["note"] == "10% off"
     assert entries[1]["note"] == "25% off"
@@ -174,6 +174,30 @@ def test_a_series_becomes_change_entries_with_rounding_and_discount_notes(discou
     assert entries[2]["create_5m"] == 0.05
     assert entries[2]["create_1h"] == 0.05
     assert entries[1]["read"] == 0.01
+
+
+@pytest.mark.parametrize("cache_read", ["absent", "empty", "null"])
+def test_unlisted_cache_read_tracks_each_change_points_input_rate(cache_read):
+    item = _series()
+    if cache_read == "absent":
+        del item["cacheRead"]
+    else:
+        item["cacheRead"] = ([] if cache_read == "empty" else
+                             [_point("2026-09-01T00:00:00Z", None)])
+    item["input"].append(_point("2026-09-02T00:00:00Z", 0.4))
+
+    assert [entry["read"] for entry in _entries(item)] == [0.3, 0.4]
+
+
+def test_null_cache_read_resets_to_input_but_listed_zero_stays_free():
+    item = _series()
+    item["cacheRead"].extend([
+        _point("2026-09-02T00:00:00Z", None),
+        _point("2026-09-04T00:00:00Z", 0),
+    ])
+    item["input"].append(_point("2026-09-03T00:00:00Z", 0.4))
+
+    assert [entry["read"] for entry in _entries(item)] == [0.01, 0.3, 0.4, 0]
 
 
 def test_generated_log_entry_timestamp_zero_pads_the_year():

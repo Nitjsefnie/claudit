@@ -495,11 +495,12 @@ def test_a_zero_cache_write_price_means_the_input_rate(tmp_path, capsys):
     assert run.snapshot() == before
 
 
-def test_an_absent_cache_read_price_is_zero(tmp_path, capsys):
+def test_an_absent_cache_read_price_is_the_input_rate(tmp_path, capsys):
     run = Run(tmp_path)
     del run.endpoint(GLM, "Novita")["pricing"]["input_cache_read"]
     assert run(capsys)[0] == 0
-    assert run.doc()["providers"][GLM]["Novita"][-1]["read"] == 0.0
+    entry = run.doc()["providers"][GLM]["Novita"][-1]
+    assert entry["read"] == entry["fresh"]
 
 
 def test_endpoints_of_one_host_at_one_price_are_one_row(tmp_path, capsys):
