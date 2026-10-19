@@ -258,7 +258,7 @@ def _progressing_move(seed: int, key: str, previous: dict,
                                    + (f":{field}" if independent else ""))
             for field in factors})
         rates = {**source, **{field: _scaled(source[field], float(factor))
-                             for field, factor in applied.items()}}
+                              for field, factor in applied.items()}}
         if _billing_state(rates) != _billing_state(previous):
             return rates, applied
     field = next(field for field in factors

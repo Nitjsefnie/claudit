@@ -13,7 +13,7 @@ sys.path.insert(0, str(REPO_ROOT))
 # The band names its own threshold; its coherent price ratios yield the
 # model's input/output factors. `min_prompt_tokens` names the band; the
 # other three keys are the utc fields a weekly window carries.
-from refresh_prices_rates import (
+from refresh_prices_rates import (  # noqa: E402
     TOKEN_PRICED,
     PRICED,
     _OVERRIDE_KEYS,
