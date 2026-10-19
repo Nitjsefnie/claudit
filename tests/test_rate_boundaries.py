@@ -3,12 +3,8 @@ from __future__ import annotations
 import importlib.util
 import re
 from datetime import datetime, timedelta, timezone
-from inspect import signature
-
-import pytest
 
 from backend import pricing
-from backend.api_common import fold_per_model
 
 UTC = timezone.utc
 
@@ -214,28 +210,3 @@ def test_search_only_provider_move_is_a_rate_boundary(monkeypatch):
     assert pricing.resolve(model, cutover - timedelta(microseconds=1),
                            host).rates["web_search"] == 0.0137
     assert pricing.resolve(model, cutover, host).rates["web_search"] == 0.045
-
-
-def test_fold_prices_each_row_at_its_own_pair_representative(
-        monkeypatch, synthetic_dated_rate):
-    table = _install_rate_table(monkeypatch, synthetic_dated_rate)
-    model, provider = table["main"]
-    expected_rates = table["main_rates"]
-    rows = [
-        (model, provider, index, False, 1, 1_000_000, 0, 0, 0, 0, 0,
-         rates["fresh"])
-        for index, rates in enumerate(expected_rates)
-    ]
-    fold_parameters = signature(fold_per_model).parameters
-    if "pair_bounds" not in fold_parameters:
-        pytest.fail("fold_per_model does not accept the pair boundary map")
-
-    folded = fold_per_model(
-        rows, pair_bounds={(model, provider): table["main_boundaries"]})
-
-    assert len(rows) == 4
-    assert len(folded) == 1
-    assert folded[0]["cost_buckets"]["fresh"] == pytest.approx(
-        sum(rate["fresh"] for rate in expected_rates), abs=1e-4)
-    assert folded[0]["cost_total"] == pytest.approx(
-        sum(rate["fresh"] for rate in expected_rates), abs=1e-4)

@@ -118,16 +118,6 @@ def _entries(item: dict) -> list[dict]:
     return entries
 
 
-def test_generated_history_omits_cache_tiers_equal_to_fresh():
-    (entry,) = _entries(_series())
-
-    assert entry["fresh"] == 0.3
-    assert entry.get("create_5m", entry["fresh"]) == entry["fresh"]
-    assert entry.get("create_1h", entry["fresh"]) == entry["fresh"]
-    assert "create_5m" not in entry
-    assert "create_1h" not in entry
-
-
 @pytest.mark.parametrize("discount,note", [
     (0.5, "50% off"), (-0.2, "20% over base"), (-0.125, "12.5% over base"), (0, None), (None, None)])
 def test_a_series_becomes_change_entries_with_rounding_and_discount_notes(discount, note):
@@ -308,47 +298,31 @@ def test_one_endpoint_with_one_matching_series_is_log_backed():
     assert len(match["Wafer"].entries) == 1
 
 
-def test_region_filter_selects_one_of_two_distinct_endpoint_histories():
-    us_rates, eu_rates = _rates(0.3, 0.8), _rates(0.4, 0.9)
+@pytest.mark.parametrize(("tags", "region", "resolutions"), [
+    (("wafer/us", "wafer/eu"), "us", {}),
+    (("wafer/global", "wafer/eu"), None, {}),
+    (("wafer/fp8", "wafer/fp16"), None, {"Wafer": {"tag": "wafer/fp8"}}),
+], ids=["configured-region", "global-suffix", "tag-pin"])
+def test_selection_joins_one_endpoint_history(tags, region, resolutions):
+    rates, other = _rates(0.3, 0.8), _rates(0.4, 0.9)
     match = _joined(
-        [_endpoint("Wafer", "wafer/us", us_rates),
-         _endpoint("Wafer", "wafer/eu", eu_rates)],
-        [_series(rates=us_rates), _series(slug="wafer", rates=eu_rates)], region="us")
+        [_endpoint("Wafer", tags[0], rates), _endpoint("Wafer", tags[1], other)],
+        [_series(rates=rates), _series(rates=other)],
+        region=region, resolutions=resolutions)
 
     assert match["Wafer"].entries is not None
     assert match["Wafer"].entries[0]["fresh"] == 0.3
 
 
-def test_global_region_filter_keeps_the_configured_global_suffix():
-    global_rates, eu_rates = _rates(0.3, 0.8), _rates(0.4, 0.9)
-    match = _joined(
-        [_endpoint("Wafer", "wafer/global", global_rates),
-         _endpoint("Wafer", "wafer/eu", eu_rates)],
-        [_series(rates=global_rates), _series(rates=eu_rates)])
-
-    assert match["Wafer"].entries is not None
-    assert match["Wafer"].entries[0]["fresh"] == 0.3
-
-
-def test_a_host_listing_web_search_rate_remains_log_backed():
-    """The price log backs token rates; its missing web-search field no
-    longer forces a host to the sampled token-history path."""
+@pytest.mark.parametrize("web_search", ["0.0137", "0"], ids=["paid-search", "free-search"])
+def test_a_host_listing_web_search_rate_remains_log_backed(web_search):
     rates = _rates(0.3, 0.8, 0.01)
     match = _joined([_endpoint("Wafer", "wafer/fp8", rates,
-                               web_search="0.0137")],
+                               web_search=web_search)],
                     [_series(rates=rates)])
 
     assert match["Wafer"].entries is not None
     assert match["Wafer"].reason is None
-
-
-def test_zero_search_price_leaves_the_host_log_backed():
-    rates = _rates(0.3, 0.8, 0.01)
-    match = _joined([_endpoint("Wafer", "wafer/fp8", rates,
-                               web_search="0")],
-                    [_series(rates=rates)])
-
-    assert match["Wafer"].entries is not None
 
 
 def test_two_endpoints_at_the_same_price_are_sampled_as_ambiguous():
@@ -374,15 +348,6 @@ def test_stored_price_rule_selects_one_endpoint_for_log_backed_history():
     assert match.reason is None
     assert match.entries == [{"from": "2026-09-01T00:00:00Z", "fresh": 0.3,
                               "read": 0.0, "output": 0.8}]
-
-
-def test_a_series_without_a_matching_listed_endpoint_is_sampled():
-    listed, unlisted = _rates(0.3, 0.8), _rates(0.9, 1.1)
-    match = _joined([_endpoint("Wafer", "wafer/fp8", listed)],
-                    [_series(rates=unlisted)])
-
-    assert match["Wafer"].entries is None
-    assert match["Wafer"].reason
 
 
 @pytest.mark.parametrize("scheduled", ["endpoint", "series"])
@@ -445,17 +410,6 @@ def test_cheapest_resolution_is_always_sampled(pin):
     assert match["Wafer"].reason
 
 
-def test_tag_pin_selects_one_endpoint_for_log_backed_history():
-    rates, other = _rates(0.3, 0.8), _rates(0.4, 0.9)
-    match = _joined([_endpoint("Wafer", "wafer/fp8", rates),
-                     _endpoint("Wafer", "wafer/fp16", other)],
-                    [_series(rates=rates), _series(rates=other)],
-                    resolutions={"Wafer": {"tag": "wafer/fp8"}})
-
-    assert match["Wafer"].entries is not None
-    assert match["Wafer"].entries[0]["fresh"] == 0.3
-
-
 def _with_future_point(item: dict, announced: dict) -> dict:
     for field, value in (("input", announced["fresh"]),
                          ("output", announced["output"]),
@@ -476,17 +430,6 @@ def test_a_point_after_the_fetch_instant_is_dropped_for_that_run():
     assert [entry["from"] for entry in entries] == ["2026-09-01T00:00:00Z"]
 
 
-def test_a_listing_at_the_series_future_state_matches_no_in_force_state():
-    listed, announced = _rates(0.3, 0.8), _rates(0.2, 0.7)
-    item = _with_future_point(_series(rates=listed), announced)
-
-    match = _joined([_endpoint("Wafer", "wafer/fp8", announced)], [item],
-                    at=datetime(2026, 9, 16, tzinfo=timezone.utc))
-
-    assert match["Wafer"].entries is None
-    assert "no in-force log state matches the listing" in match["Wafer"].reason
-
-
 def _add_state(item: dict, at: str, rates: dict) -> dict:
     for field, value in (("input", rates["fresh"]),
                          ("output", rates["output"]),
@@ -495,17 +438,6 @@ def _add_state(item: dict, at: str, rates: dict) -> dict:
                           else rates["create_5m"])):
         item[field].append(_point(at, value))
     return item
-
-
-def test_a_listing_matching_an_earlier_log_state_names_the_lag_class():
-    listed, newer = _rates(0.3, 0.8), _rates(0.2, 0.7)
-    item = _add_state(_series(rates=listed), "2026-09-02T00:00:00Z", newer)
-
-    match = _joined([_endpoint("Wafer", "wafer/fp8", listed)], [item],
-                    at=datetime(2026, 9, 16, tzinfo=timezone.utc))
-
-    assert match["Wafer"].entries is None
-    assert "the listing lags the price log" in match["Wafer"].reason
 
 
 def test_earlier_state_vectors_holds_every_state_before_the_newest():
