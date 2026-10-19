@@ -858,18 +858,7 @@ async function main() {
       }
       await ctx.close();
     };
-    // Widths run concurrently, TWO at a time — the leg's wall time
-    // approaches two widths, not their four-wide sum, while every page
-    // load still gets the CPU an in-browser Babel compile needs: at full
-    // four-wide parallelism starved renders can exceed the selector wait
-    // and render no panels at all. The findings ledger and the failure
-    // count fold into shared single-threaded maps, and the summary below
-    // reads them only after every width finishes.
-    const queue = [...WIDTHS];
-    await Promise.all(Array.from(
-      { length: Math.min(2, queue.length) }, async () => {
-        while (queue.length) await runWidth(queue.shift());
-      }));
+    await Promise.all(WIDTHS.map(runWidth));
   } finally {
     await browser.close();
     server.close();

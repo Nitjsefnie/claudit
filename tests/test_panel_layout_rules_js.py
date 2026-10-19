@@ -11,6 +11,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts" / "ci" / "panel_layout_rules.mjs"
@@ -228,8 +229,20 @@ class TestRuleRegistry:
 def test_workflow_runs_the_harness():
     """The browser leg must run the harness, or the classifier above is
     dead code and ships green again."""
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "node scripts/ci/panel_layout_rules.mjs" in text
+    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["panel-layout"]
+    assert {"id": "rules", "script": "scripts/ci/panel_layout_rules.mjs",
+            "name": "rules"} in job["strategy"]["matrix"]["sweep"]
+
+
+def test_rule_widths_join_before_picker_cases_with_per_width_red_proofs():
+    src = MODULE.read_text(encoding="utf-8")
+    join = "await Promise.all((casesOnly ? [] : WIDTHS).map(runWidth))"
+    assert join in src
+    sweep = src[src.index("const runWidth = async width =>"):src.index(join)]
+    assert "browser.newContext" in sweep and "ctx.route(" in sweep
+    assert "await page.reload(" in sweep and "await rule.seed(page)" in sweep
+    assert "executed++" in sweep and "await ctx.close()" in sweep
+    assert src.index(join) < src.index("const cases = await layoutTiming('picker cases'")
 
 
 class TestLegendBelowViolations:

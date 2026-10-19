@@ -18,6 +18,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts" / "ci" / "panel_interactions.mjs"
@@ -413,9 +414,19 @@ def test_the_agent_panel_modules_are_loaded_by_the_page():
 
 
 def test_the_workflow_runs_the_sweep():
-    src = WORKFLOW.read_text(encoding="utf-8")
-    assert "node scripts/ci/panel_interactions.mjs" in src, (
+    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["panel-layout"]
+    assert {"id": "interactions", "script": "scripts/ci/panel_interactions.mjs",
+            "name": "interactions"} in job["strategy"]["matrix"]["sweep"], (
         "panel-layout.yml no longer runs the interaction sweep")
+
+
+def test_interaction_widths_all_run_concurrently_in_their_own_contexts():
+    src = MODULE.read_text(encoding="utf-8")
+    assert "await Promise.all(WIDTHS.map(runWidth))" in src
+    sweep = src[src.index("const runWidth = async width =>"):
+                src.index("await Promise.all(WIDTHS.map(runWidth))")]
+    assert "browser.newContext" in sweep and "ctx.route(" in sweep
+    assert "await ctx.close()" in sweep
 
 
 def test_both_guards_share_one_server_module():
@@ -654,8 +665,9 @@ def test_the_seeded_violations_are_wired_end_to_end():
     for kind in ("no-targets", "other-region"):
         assert f"'{kind}'" in runner, (
             f"the seeds runner does not verify the {kind} kind by name")
-    workflow = WORKFLOW.read_text(encoding="utf-8")
-    assert "node scripts/ci/panel_interactions_seeds.mjs" in workflow, (
+    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["panel-layout"]
+    assert {"id": "seeds", "script": "scripts/ci/panel_interactions_seeds.mjs",
+            "name": "seeds"} in job["strategy"]["matrix"]["sweep"], (
         "panel-layout.yml no longer runs the seeded-violation proof")
 
 

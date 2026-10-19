@@ -23,6 +23,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 LAYOUT_JS = ROOT / "src" / "panel-layout.js"
@@ -635,3 +636,43 @@ def test_the_removed_cap_is_not_still_declared_as_an_eslint_global():
     # name it named is gone, and a declaration left behind is how a
     # reintroduced cap sails past the lint gate unnoticed.
     assert "capForModel" not in ESLINT_CONFIG.read_text(encoding="utf-8")
+
+
+def test_panel_workflow_runs_four_independent_sweeps():
+    path = ROOT / ".github" / "workflows" / "panel-layout.yml"
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    job, = workflow["jobs"].values()
+    assert job["strategy"] == {"fail-fast": False, "matrix": {"sweep": [
+        {"id": "layout", "script": "scripts/ci/panel_layout.mjs", "name": "layout"},
+        {"id": "interactions", "script": "scripts/ci/panel_interactions.mjs", "name": "interactions"},
+        {"id": "rules", "script": "scripts/ci/panel_layout_rules.mjs", "name": "rules"},
+        {"id": "seeds", "script": "scripts/ci/panel_interactions_seeds.mjs", "name": "seeds"},
+    ]}}
+    assert job["name"] == "panel layout (${{ matrix.sweep.name }})"
+    assert job["timeout-minutes"] == 30
+    assert "if" not in job and "needs" not in job
+    assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["concurrency"] == {
+        "group": "panel-layout-${{ github.event.pull_request.number || github.ref }}",
+        "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+    }
+    checkout, setup, install, browser, sweep = job["steps"]
+    assert checkout["uses"].startswith("actions/checkout@")
+    assert checkout["with"] == {"persist-credentials": False}
+    assert setup["uses"].startswith("actions/setup-node@")
+    assert setup["with"] == {"node-version": "24.17.0"}
+    assert install["run"] == "npm ci --no-audit --no-fund"
+    assert browser["run"] == "npx --no-install playwright install --with-deps chromium"
+    assert sweep["run"] == "node ${{ matrix.sweep.script }}"
+    assert all("if" not in step and "continue-on-error" not in step
+               for step in job["steps"])
+
+
+def test_layout_widths_join_before_feature_surfaces():
+    src = (ROOT / "scripts" / "ci" / "panel_layout.mjs").read_text(encoding="utf-8")
+    sweep, main = src.split("async function main()", 1)
+    assert "async function sweepWidth(browser, base, width, counters)" in sweep
+    assert "browser.newContext" in sweep and "ctx.route(" in sweep
+    join = "await Promise.all(WIDTHS.map(w => sweepWidth(browser, base, w, counters)))"
+    assert join in main
+    assert main.index(join) < main.index("await featureSurfaces(browser, base)")

@@ -19,6 +19,8 @@ name: panel-layout
 #
 # The pinned versions live in package.json, not here, so Dependabot sees
 # them; inline pins in a workflow are invisible to it.
+# The sweeps run as parallel jobs over one checkout SHA, so the seeded
+# proof runs against the same code as the sweep it proves.
 
 on:
   workflow_call:
@@ -37,9 +39,25 @@ concurrency:
 jobs:
   panel-layout:
     # The name IS the check-run name.
-    name: panel layout (headless Chromium, 4 widths)
+    name: panel layout (${{ matrix.sweep.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        sweep:
+          - id: layout
+            script: scripts/ci/panel_layout.mjs
+            name: layout
+          - id: interactions
+            script: scripts/ci/panel_interactions.mjs
+            name: interactions
+          - id: rules
+            script: scripts/ci/panel_layout_rules.mjs
+            name: rules
+          - id: seeds
+            script: scripts/ci/panel_interactions_seeds.mjs
+            name: seeds
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -66,41 +84,5 @@ jobs:
       - name: Install the headless browser
         run: npx --no-install playwright install --with-deps chromium
 
-      - name: Read back every panel's rendered boxes
-        # The panels under test, the viewport widths and the assertion are
-        # the script's; this step is only the command. A non-zero exit is a
-        # panel whose legend, axis, title or plot overlaps another or
-        # escapes its panel — the script prints which, at which width, by
-        # how many pixels.
-        run: node scripts/ci/panel_layout.mjs
-
-      - name: Sweep every panel's hover response
-        # The same REAL page and fixture set: cold-load CLS,
-        # a hover sweep over every marked bar/bucket/point asserting the
-        # tooltip and the highlight, tooltip overflow, sweep-shift
-        # attribution through src/perf.js, and the 2-vs-30+-models panel
-        # height check. The KNOWN ledger it prints carries the defects
-        # that predate the sweep, each with its issue number; a new
-        # violation, a panel that renders none, a sweep with no marked
-        # target anywhere, or a ledger entry that never fired exits
-        # non-zero.
-        run: node scripts/ci/panel_interactions.mjs
-
-      - name: Check the rendered layout-consistency rules
-        # The same REAL page and fixture set: one page load
-        # per width, every registered rule measured on it, including the
-        # vertical-gap rule (no vertically adjacent sections or charts flush) —
-        # and then each rule's seeded red case, which must fire or the
-        # run fails as a lying guard. New layout rules register in
-        # scripts/ci/panel_layout_rules.mjs's RULES array and are covered
-        # automatically.
-        run: node scripts/ci/panel_layout_rules.mjs
-
-      - name: Prove the sweep fails on one seeded violation per category
-        # Each Expected-Behavior bullet is only as good as the
-        # seeded violation that fails the sweep on it. The runner plants
-        # one violation per category (a stripped panel, an unnamed sweep
-        # shift, an unnamed cold-load shift), asserts exit 1 per seed,
-        # and greps for the finding kind each seed exists to prove — so
-        # a seed that fails for the wrong reason is not a proof.
-        run: node scripts/ci/panel_interactions_seeds.mjs
+      - name: Run the ${{ matrix.sweep.name }} sweep
+        run: node ${{ matrix.sweep.script }}
