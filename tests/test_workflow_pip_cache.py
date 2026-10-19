@@ -143,3 +143,18 @@ def test_only_one_pytest_shard_saves_the_shared_pip_cache():
     assert save["if"] == (
         "github.event_name == 'push' && github.ref == 'refs/heads/master' "
         "&& matrix.shard == 1")
+
+
+def test_types_installs_and_caches_the_full_import_toolchain():
+    steps = next(steps for workflow, job, steps in _jobs()
+                 if (workflow, job) == ("types.yml", "pyright"))
+    install, = [step for step in steps if step.get("name") == "Install dependencies"]
+    assert install["run"].splitlines() == [
+        "python -m pip install --upgrade pip",
+        "pip install -r backend/requirements.txt -r requirements-dev.txt -r requirements-test.txt"]
+    caches = [step for step in steps
+              if _action(step) in ("actions/cache/restore", "actions/cache/save")]
+    assert len(caches) == 2
+    for step in caches:
+        assert ("hashFiles('backend/requirements.txt', 'requirements-dev.txt', 'requirements-test.txt')"
+                in step["with"]["key"])
