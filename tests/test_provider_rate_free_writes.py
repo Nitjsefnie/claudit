@@ -47,5 +47,6 @@ def test_hourly_uses_log_change_points_despite_stored_explicit_free_writes(
     assert rc == 0, err
     saved = expand_pricing_doc(json.loads(path.read_text()))
     assert saved["providers"][MODEL]["Wafer"] == [
-        *history, _entry("2031-01-01T00:20:00Z", RATE_C)]
-    assert "sampled" not in out
+        *history, _entry("2031-01-01T00:20:00Z", RATE_C),
+        {**_entry("2031-01-01T00:40:00Z", RATE_C), "context_length": 131072}]
+    assert "sampled   Wafer" not in out

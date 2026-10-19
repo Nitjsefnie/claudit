@@ -48,7 +48,7 @@ def _endpoint(host: str, rates: dict, discount: float = 0, tag: str = "") -> dic
     return {
         "name": f"{host} | fixture", "provider_name": host,
         "tag": tag or host.lower(), "quantization": "fp8", "status": 0,
-        "context_length": 131072, "uptime_last_30m": 100,
+        "context_length": rates.get("context_length", 131072), "uptime_last_30m": 100,
         "pricing": pricing,
     }
 

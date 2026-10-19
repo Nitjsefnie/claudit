@@ -7,10 +7,32 @@ import pytest
 
 from tests.refresh_fixture_builders import RATES_A, _endpoint
 from tests.test_provider_rate_refresh import refresh, refresh_prices
+from tests.vendor_rate_refresh_helpers import vendor as vendor_refresh
 
 
 def _result(*, vanished=(), sampled=None, notices=()):
     return refresh.Result({}, [], list(vanished), [], list(notices), sampled or {})
+
+
+def test_context_and_search_move_reports_both_sampled_fields():
+    from decimal import Decimal  # pylint: disable=import-outside-toplevel
+    listing = refresh.Listing('fixture', {'context_length': 786432},
+                              {**RATES_A, 'web_search': 0.02}, None, Decimal(0))
+    move = refresh.Move('model', 'Fixture', {
+        **RATES_A, 'web_search': 0.01, 'context_length': 131072},
+        listing, source='context')
+    result = refresh.Result({}, [move], [], [], [], {})
+    output = refresh.report('2031-01-01T00:00:00Z', result, {'model': {'id': 'model'}})
+    assert 'context_length 131072 → 786432, sampled at detection' in output
+    assert 'web_search 0.01 → 0.02, sampled at detection' in output
+
+
+def test_vendor_context_only_move_has_a_commit_count_and_window():
+    outcome = vendor_refresh.VendorOutcome(moves=[vendor_refresh.VendorMove(
+        'vendor/model', 'model', context_length=786432)])
+    output = refresh.vendor_report('2031-01-01T00:00:00Z', outcome)
+    assert 'context_length 786432' in output
+    assert 'vendor table: 1 updated' in refresh.commit_message(_result(), output, outcome)
 
 
 def test_report_groups_vanished_and_sampled_hosts_by_model_and_reason():

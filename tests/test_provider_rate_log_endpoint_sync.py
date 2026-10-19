@@ -79,7 +79,7 @@ def test_stale_selected_endpoint_appends_at_detection(tmp_path, capsys, monkeypa
     assert rc == 0 and not err
     saved = run.saved()
     assert saved["providers"][MODEL][HOST] == [
-        {"from": ROW_AT, **RATE_A}, {"from": STAMP, **LISTED}]
+        {"from": ROW_AT, "context_length": 131072, **RATE_A}, {"from": STAMP, "context_length": 131072, **LISTED}]
     assert saved["provider_rates_fetched"] == STAMP
     assert 'PRICING_VERSION = "14"' in run.constants.read_text(encoding="utf-8")
     assert f"changed   {HOST}" in out and f"sampled   {HOST}" not in out
@@ -99,7 +99,7 @@ def test_sampling_also_appends_stale_selected_endpoint(tmp_path, capsys, shape):
     rc, out, err = run.run(capsys, sampled=True)
 
     assert rc == 0 and not err
-    assert run.saved()["providers"][MODEL][HOST][-1] == {"from": STAMP, **LISTED}
+    assert run.saved()["providers"][MODEL][HOST][-1] == {"from": STAMP, "context_length": 131072, **LISTED}
     assert f"sampled   {HOST}" in out and f"changed   {HOST}" in out
 
 
@@ -156,7 +156,7 @@ def test_oscillating_logged_states_all_append_at_their_change_points(tmp_path, c
 
     assert rc == 0 and not err
     assert run.saved()["providers"][MODEL][HOST] == [
-        {"from": stamp, **rates} for stamp, rates in states]
+        {"from": stamp, "context_length": 131072, **rates} for stamp, rates in states]
     assert "5 log entries" in out
 
 
@@ -172,7 +172,7 @@ def test_detected_token_state_shares_separately_sampled_search_change(
     history = run.saved()["providers"][MODEL][HOST]
     assert len(history) == 2
     assert history[0].get("web_search", 0.0) == old_search
-    assert history[-1] == {"from": STAMP, **LISTED, "web_search": 0.03}
+    assert history[-1] == {"from": STAMP, "context_length": 131072, **LISTED, "web_search": 0.03}
     assert "web_search" in out and "sampled at detection" in out
     assert "out of step with its endpoint's listed price" in out
 
@@ -192,7 +192,7 @@ def test_blocked_endpoint_refusal_still_publishes_other_hosts_move(tmp_path, cap
 
     assert rc == 1 and HOST in err
     saved = run.saved()["providers"][MODEL]
-    assert saved[HOST] == [{"from": STAMP, **RATE_A}]
-    assert saved[other] == [{"from": ROW_AT, **RATE_A}, {"from": STAMP, **LISTED}]
+    assert saved[HOST] == [{"from": STAMP, "context_length": 131072, **RATE_A}]
+    assert saved[other] == [{"from": ROW_AT, "context_length": 131072, **RATE_A}, {"from": STAMP, "context_length": 131072, **LISTED}]
     assert f"changed   {other}" in out
     assert "1 changed, 1 refused" in run.message.read_text(encoding="utf-8")

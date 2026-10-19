@@ -30,6 +30,8 @@ class Move:
 
 def _entry(stamp: str, listing: Listing) -> dict:
     entry = {"from": stamp, **listing.rates}
+    if "context_length" in listing.identity:
+        entry["context_length"] = listing.identity["context_length"]
     if entry.get("web_search") == 0:
         entry.pop("web_search")
     if listing.discount:
@@ -67,6 +69,7 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str,
                 for f in RATE_FIELDS)
                 and newest.get("web_search", 0.0)
                 == listing.rates.get("web_search", 0.0)
+                and newest.get("context_length") == listing.identity.get("context_length")
                 and newest.get("schedule") == listing.schedule):
             continue
         newest_from = newest.get("from")
@@ -78,11 +81,18 @@ def _append(model: str, hosts: dict, rows: dict[str, Listing], stamp: str,
             continue
         notice = refresh_alternation.notice(
             occurrences, listing.rates, listing.schedule, newest, at,
-            f"{model} via {host}")
+            f"{model} via {host}") if (
+                effective_rates(newest) != {f: listing.rates[f] for f in RATE_FIELDS}
+                or newest.get("web_search", 0) != listing.rates.get("web_search", 0)) else None
         if notice:
             notices.append(notice)
             continue
-        history.append(_entry(stamp, listing))
+        entry = _entry(stamp, listing)
+        if (effective_rates(newest) == effective_rates(entry)
+                and newest.get("schedule") == listing.schedule
+                and "note" in newest):
+            entry["note"] = newest["note"]
+        history.append(entry)
         moves.append(Move(model, host, newest, listing))
     return moves
 
@@ -120,12 +130,19 @@ def _new_log_states(model: str, host: str, entries: list[dict],
     return additions
 
 
-def _set_search_rate(entry: dict, rate: float) -> None:
-    """Set the optional search rate without writing a zero-valued field."""
-    if rate:
-        entry["web_search"] = rate
-    else:
-        entry.pop("web_search", None)
+def _sampled_state(entry: dict) -> dict:
+    """Listing fields absent from the token log, with their absent defaults."""
+    return {"web_search": entry.get("web_search", 0.0),
+            "context_length": entry.get("context_length")}
+
+
+def _set_sampled_state(entry: dict, state: dict) -> None:
+    """Carry optional listing state without writing absent/default fields."""
+    for field, value in state.items():
+        if value:
+            entry[field] = value
+        else:
+            entry.pop(field, None)
 
 
 # The history floor (SV-RATE-REFRESH): the account's OpenRouter-lane

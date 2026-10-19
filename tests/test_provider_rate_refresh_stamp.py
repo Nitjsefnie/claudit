@@ -62,7 +62,7 @@ def test_a_postdated_host_does_not_block_other_hosts_moves(
     assert after["providers"]["example/model"] == {
         "Wafer": [{**old, "from": datetime.fromisoformat(stored_stamp)
                    .astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}],
-        "OtherHost": [{"from": None, **old}, {"from": STAMP, **other_listed}]}
+        "OtherHost": [{"from": None, **old}, {"from": STAMP, "context_length": 131072, **other_listed}]}
     assert constants_path.read_text(encoding="utf-8") == 'PRICING_VERSION = "74"\n'
     assert "OtherHost" in (tmp_path / "commit-msg.txt").read_text(encoding="utf-8")
     assert "example/model via Wafer" in out

@@ -80,9 +80,9 @@ def test_deepseek_v4_pro_0813_hand_seeded_shapes_start_without_manual_seeding(
     assert rc == 0, err
     assert not err
     assert run.doc()["providers"][GLM]["Newcomer"] == [
-        {"from": STAMP, **active_rates, "schedule": schedule}]
+        {"from": STAMP, "context_length": 131072, **active_rates, "schedule": schedule}]
     assert run.doc()["providers"][V41]["OtherNewcomer"] == [
-        {"from": STAMP, **NEWCOMER}]
+        {"from": STAMP, "context_length": 131072, **NEWCOMER}]
     assert (
         f"{GLM} via Newcomer: first seen inside one of its windows, whose schedule "
         "covers the whole week: no record is ever priced by the entry default, so "

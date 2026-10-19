@@ -42,6 +42,25 @@ MODEL = "synthetic/model"
 MODEL_ID = "synthetic/model-id"
 SLUG = "synthetic/canonical-model"
 AS_OF = "2031-01-01T00:15:00Z"
+
+
+def test_backfill_overlays_dated_context_and_search_without_losing_token_changes():
+    history = [
+        {**_entry(None, RATE_A), 'context_length': 131072, 'web_search': 0.01},
+        {**_entry('2031-01-01T00:03:00Z', RATE_A),
+         'context_length': 786432, 'web_search': 0.01},
+        {**_entry('2031-01-01T00:08:00Z', RATE_B),
+         'context_length': 786432, 'web_search': 0.02},
+        {**_entry(AS_OF, RATE_B), 'context_length': 1048576, 'web_search': 0.03}]
+    entries = [_entry('2031-01-01T00:00:00Z', RATE_A),
+               _entry('2031-01-01T00:06:00Z', RATE_B)]
+    rewritten = backfill._rewrite(history, entries, AS_OF)  # pylint: disable=protected-access
+    assert rewritten == [history[0], history[1],
+                         {**_entry('2031-01-01T00:06:00Z', RATE_B),
+                          'context_length': 786432, 'web_search': 0.01},
+                         history[2]]
+
+
 # After every fixture series point, so the join reads each series whole.
 NOW = datetime(2031, 1, 1, 0, 30, tzinfo=timezone.utc)
 RATE_A = {"fresh": 0.3, "create_5m": 0.3, "create_1h": 0.3,

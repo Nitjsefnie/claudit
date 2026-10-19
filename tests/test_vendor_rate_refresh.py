@@ -26,6 +26,53 @@ def test_a_new_model_joins_the_tracked_set():
     assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, added=True)]
 
 
+def test_vendor_context_updates_existing_metadata_without_rewriting_identity():
+    existing = {**TRACKED, 'id': 'openai/retained-id', 'vendor_host': 'Kept',
+                'context_length': 131072}
+    endpoints = [_endpoint('openai', _price(1, 5)),
+                 _endpoint('openai/fast', _price(2, 10))]
+    for endpoint in endpoints:
+        endpoint['context_length'] = 1048576
+    doc, out = _run(_doc(tracked={GPT_KEY: existing}), _catalog(GPT_ID),
+                    {GPT_ID: _payload(*endpoints)})
+    assert not out.refusals and out.moves
+    assert doc['openrouter']['models'][GPT_KEY] == {
+        **existing, 'context_length': 1048576}
+
+
+def test_vendor_context_disagreement_keeps_whole_tracked_entry_untouched():
+    existing = {**TRACKED, 'context_length': 131072}
+    endpoints = [_endpoint('openai', _price(1, 5)),
+                 _endpoint('openai/fast', _price(2, 10))]
+    endpoints[1]['context_length'] = 1048576
+    doc, out = _run(_doc(tracked={GPT_KEY: existing}), _catalog(GPT_ID),
+                    {GPT_ID: _payload(*endpoints)})
+    assert not out.moves
+    assert doc['openrouter']['models'][GPT_KEY] == existing
+    assert any('context_length' in line for line in [*out.notices, *out.refusals])
+
+
+@pytest.mark.parametrize('bad', [None, True, 0, -1, 1.5, '786432'])
+def test_invalid_vendor_context_refuses_without_touching_tracked_state(bad):
+    endpoint = _endpoint('openai', _price(1, 5))
+    if bad is None:
+        endpoint.pop('context_length')
+    else:
+        endpoint['context_length'] = bad
+    before = _doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY])
+    after, outcome = _run(before, _catalog(GPT_ID), {GPT_ID: _payload(endpoint)})
+    assert after == before and not outcome.moves
+    assert len(outcome.refusals) == 1 and 'context_length' in outcome.refusals[0]
+
+
+def test_no_vendor_endpoint_preserves_existing_context_and_membership():
+    before = _doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY])
+    after, outcome = _run(before, _catalog(GPT_ID), {
+        GPT_ID: _payload(_endpoint('third-party', _price(1, 5)))})
+    assert after == before and not outcome.moves and not outcome.refusals
+    assert any('no first-party endpoint' in line for line in outcome.notices)
+
+
 def test_the_bare_tag_selects_its_own_endpoint_s_host():
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(
         _endpoint("openai", _price(1.0, 5.0), host="OpenAI"),
@@ -41,7 +88,8 @@ def test_equal_price_suffixed_endpoints_collapse():
         _endpoint("z-ai/fp4", _price(0.2, 1.0, read=0.02)))})
     assert not out.refusals
     assert doc["openrouter"]["models"][GLM_KEY] == {"id": GLM_ID,
-                                                    "vendor_host": "Vendor"}
+                                                    "vendor_host": "Vendor",
+                                                    "context_length": 131072}
 
 
 def test_third_party_hosts_alone_are_a_notice():
@@ -72,7 +120,8 @@ def test_resolve_pin_picks_one_price():
                                     host="OpenAI"))})
     assert not out.refusals
     assert doc["openrouter"]["models"][GPT_KEY] == {"id": GPT_ID,
-                                                    "vendor_host": "OpenAI"}
+                                                    "vendor_host": "OpenAI",
+                                                    "context_length": 131072}
 
 
 def test_stale_pin_refuses():
@@ -126,7 +175,7 @@ def test_only_exact_text_output_models_reach_vendor_selection() -> None:
     assert out.moves == [vendor.VendorMove(text_id, text_key, added=True)]
     assert doc["openrouter"]["models"] == {
         image_key: existing,
-        text_key: {"id": text_id, "vendor_host": "Vendor"},
+        text_key: {"id": text_id, "vendor_host": "Vendor", "context_length": 131072},
     }
     assert doc["long_context_meters"] == [
         {"threshold": 200_000, "models": [image_key]}]
@@ -412,7 +461,7 @@ def test_weekly_schedule_adds_the_vendor_host():
                                              "completion": _per_token(0.5)}])))})
     assert not out.refusals and not out.notices
     assert doc["openrouter"]["models"][GLM_KEY] == {
-        "id": GLM_ID, "vendor_host": "Vendor"}
+        "id": GLM_ID, "vendor_host": "Vendor", "context_length": 131072}
 
 
 def test_unmodelled_override_kind_refuses():
@@ -467,7 +516,8 @@ def test_a_discounted_listing_still_auto_adds(discount):
     doc, out = _run(_doc(), _catalog(GLM_ID), {GLM_ID: _payload(endpoint)})
     assert not out.refusals and not out.notices
     assert doc["openrouter"]["models"][GLM_KEY] == {"id": GLM_ID,
-                                                    "vendor_host": "Vendor"}
+                                                    "vendor_host": "Vendor",
+                                                    "context_length": 131072}
 
 
 @pytest.mark.parametrize("discount", ["half", None, True, False, float("nan"), float("inf"), float("-inf"), 1, 1.5, 10**400, -(10**400)])
@@ -638,7 +688,7 @@ def test_main_quiet_vendor_run_writes_nothing(tmp_path, capsys):
     doc = _doc(tracked={GPT_KEY: dict(TRACKED)})
     doc["providers"][GPT_KEY] = {"Vendor": [
         {"from": None, "fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
-         "read": 0.1, "output": 5.0}]}
+         "read": 0.1, "output": 5.0, "context_length": 131072}]}
     run = MainRun(tmp_path, doc, _catalog(GPT_ID),
                   {GPT_ID: _payload(_endpoint(
                       "openai", _price(1.0, 5.0, read=0.1, write=1.25,
@@ -674,7 +724,8 @@ def test_a_broken_endpoints_fetch_refuses_only_its_model():
     assert len(outcome.refusals) == 1 and GPT_ID in outcome.refusals[0]
     assert "fetching its endpoints failed" in outcome.refusals[0]
     assert doc["openrouter"]["models"][GLM_KEY] == {"id": GLM_ID,
-                                                    "vendor_host": "Vendor"}
+                                                    "vendor_host": "Vendor",
+                                                    "context_length": 131072}
 
 
 def test_a_pass_added_document_loads():

@@ -111,22 +111,24 @@ def _instant(stamp: str | None) -> datetime:
             else datetime.min.replace(tzinfo=timezone.utc))
 
 
-def _search_changes(history: list[dict], as_of: str) -> list[dict]:
-    """Read old sampled search moves strictly before the rewrite cutoff."""
+def _sampled_changes(history: list[dict], as_of: str,
+                     field: str) -> list[dict]:
+    """Read old sampled field moves strictly before the rewrite cutoff."""
     changes: list[dict] = []
     previous = 0
     for entry in _flatten(history):
         if _instant(entry.get("from")) >= _instant(as_of):
             break
-        search = entry.get("web_search", 0)
+        search = entry.get(field, 0)
         if search != previous:
-            changes.append({"from": entry.get("from"), "web_search": search})
+            changes.append({"from": entry.get("from"), field: search})
             previous = search
     return changes
 
 
-def _overlay_search(entries: list[dict], changes: list[dict]) -> list[dict]:
-    """Carry sampled search rates across token states, splitting at search moves."""
+def _overlay_sampled(entries: list[dict], changes: list[dict],
+                     field: str) -> list[dict]:
+    """Carry a sampled field across token states, splitting at its moves."""
     if not changes:
         return entries
     events = [(_instant(entry.get("from")), kind, entry)
@@ -136,15 +138,15 @@ def _overlay_search(entries: list[dict], changes: list[dict]) -> list[dict]:
     search = 0
     for instant, is_search, entry in events:
         if is_search:
-            search = entry["web_search"]
+            search = entry[field]
             if _instant(overlaid[-1].get("from")) != instant:
                 overlaid.append({**overlaid[-1], "from": entry["from"]})
         else:
             overlaid.append(entry)
         if search:
-            overlaid[-1]["web_search"] = search
+            overlaid[-1][field] = search
         else:
-            overlaid[-1].pop("web_search", None)
+            overlaid[-1].pop(field, None)
     return overlaid
 
 
@@ -153,7 +155,9 @@ def _rewrite(history: list[dict], entries: list[dict], as_of: str) -> list[dict]
     if not kept:
         return None
     kept[0]["from"] = _earlier_start(_flatten(history)[0].get("from"), kept[0]["from"])
-    return _merge_history(_overlay_search(kept, _search_changes(history, as_of)))
+    for field in ("web_search", "context_length"):
+        kept = _overlay_sampled(kept, _sampled_changes(history, as_of, field), field)
+    return _merge_history(kept)
 
 
 def _hosts_from_listing(payload: object) -> set[str]:
@@ -255,8 +259,9 @@ def _rewrite_host(host: str, history: list[dict] | None, listing: ModelListing,
                     lines.append(f"  newest log state through {as_of} differs from "
                                  f"the old row for {host}; the log replaces it")
                 providers[host] = rewritten
-                if _search_changes(history, as_of):
-                    lines.append(f"  overlaid sampled web_search history for {host}")
+                for field in ("web_search", "context_length"):
+                    if _sampled_changes(history, as_of, field):
+                        lines.append(f"  overlaid sampled {field} history for {host}")
                 lines.append(f"  rewritten {host}: {len(history)} → {len(rewritten)} entries")
                 return True, lines
     if history is None:

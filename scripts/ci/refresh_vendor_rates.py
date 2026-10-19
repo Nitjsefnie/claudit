@@ -16,9 +16,9 @@ ADDED to openrouter.models as ``{"id": <catalog id>, "vendor_host":
 NO RATES: the provider pass carries the (key, vendor_host) row from the
 NEXT hourly run, so a newly added model prices nothing for one run — the
 one-run pickup delay is the design, and resolve()'s bare path falls
-through until the row exists. An already-tracked key is never re-added or
-rewritten: its tracked table entry stands byte for byte. Its listing still
-controls the grouped meter membership, threshold, and per-model factors.
+through until the row exists. An already-tracked key keeps its id and
+vendor_host. Its listing controls the grouped meter membership, threshold,
+per-model factors, and model-wide context_length when vendor endpoints agree.
 
 The vendor's own endpoint is selected refusing rather than guessing:
 
@@ -99,6 +99,7 @@ class VendorMove:
     added: bool = False
     membership: str = ""  # "+" joined a group, "-" left, "" untouched
     meter: dict | None = None  # full effective meter when the move changes it
+    context_length: int | None = None
 
 
 @dataclass
@@ -264,14 +265,26 @@ def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
             f"{model_id}: fetching its endpoints failed: {str(exc) or type(exc).__name__}")
         return None
     try:
+        endpoints = _extract_endpoints(model_id, payload)
         selected = _choose(
-            model_id, _extract_endpoints(model_id, payload),
+            model_id, endpoints,
             ((doc.get("openrouter") or {}).get("vendor") or {}).get(
                 "resolve", {}).get(key))
         if selected is None:
             outcome.notices.append(
                 f"{model_id}: the vendor lists no first-party endpoint; skipped")
-        return selected
+            return None
+        contexts = [endpoint.get("context_length") for endpoint in endpoints
+                    if isinstance(endpoint, dict) and isinstance(endpoint.get("tag"), str)
+                    and endpoint["tag"].partition("/")[0] == model_id.partition("/")[0]]
+        if any(not isinstance(value, int) or isinstance(value, bool) or value <= 0
+               for value in contexts):
+            raise RefreshError(f"{model_id}: context_length is not a positive integer")
+        if len(set(contexts)) != 1:
+            outcome.notices.append(f"{model_id}: vendor endpoints disagree on "
+                                   "context_length; tracked entry left untouched")
+            return None
+        return (*selected, contexts[0])
     except Untracked as exc:
         outcome.refusals.append(str(exc))
     except RefreshError as exc:
@@ -342,26 +355,32 @@ def _one_model(doc: dict, groups: list, model_id: str,
                fetch_endpoints, outcome: VendorOutcome) -> None:
     """One catalog id's selection, auto-add or fold; findings land in
     outcome. An unmodelled listing refuses the run. A tracked key is never
-    re-added or rewritten."""
+    re-added, and its id/vendor_host stand untouched."""
     key = derive_key(model_id)
     selected = _select(model_id, fetch_endpoints, doc, key, outcome)
     if selected is None:
         return
-    _rates, meter, host = selected
+    meter, context_length = selected[1], selected[3]
     metered = meter is not None
     # setdefault, never `or {}`: an empty tracked table is falsy, and a
     # fresh dict here would drop the auto-add's write on the floor.
     tracked = (doc.get("openrouter") or {}).setdefault("models", {})
     was_metered = _meter_location(groups, key) is not None
     if key in tracked:
+        context_changed = tracked[key].get("context_length") != context_length
+        if context_changed:
+            tracked[key]["context_length"] = context_length
         meter_changed = _fold_meter(groups, key, meter)
         membership = ("+" if metered and not was_metered else
                       "-" if not metered and was_metered else "")
-        if membership or meter_changed:
+        if membership or meter_changed or context_changed:
             outcome.moves.append(VendorMove(model_id, key,
-                                            membership=membership, meter=meter))
+                                            membership=membership, meter=meter,
+                                            context_length=(context_length
+                                                            if context_changed else None)))
         return
-    tracked[key] = {"id": model_id, "vendor_host": host}
+    tracked[key] = {"id": model_id, "vendor_host": selected[2],
+                    "context_length": context_length}
     membership = ("+" if metered and not was_metered else
                   "-" if not metered and was_metered else "")
     _fold_meter(groups, key, meter)

@@ -209,7 +209,11 @@ function _checkHistory(entries, where, mayBegin, fetchedMs, owners) {
   const schedules = {};
   entries.forEach((entry, i) => {
     const at = `${where}[${owners[i]}]`;
-    const fields = Object.keys(entry).filter((k) => !['from', 'note', 'schedule'].includes(k));
+    const fields = Object.keys(entry).filter((k) => !['from', 'note', 'schedule', 'context_length'].includes(k));
+    if ('context_length' in entry && (!mayBegin
+        || !Number.isInteger(entry.context_length) || entry.context_length <= 0)) {
+      throw _pricingError(`${at}: context_length is not a positive integer on a provider entry`);
+    }
     const hasSearchRate = fields.includes('web_search');
     const tokenFields = fields.filter((k) => k !== 'web_search');
     const required = Object.values(_RATE_FIELDS)
@@ -267,8 +271,21 @@ function _history(entries, where, mayBegin = false, fetchedMs = NaN) {
     : { entries, owners: entries.map((_, i) => i) };
   entries = flat.entries;
   const { schedules } = _checkHistory(entries, where, mayBegin, fetchedMs, flat.owners);
+  const rateState = (entry) => _stable([
+    _ratesOf(entry), entry.web_search || 0, entry.schedule || null]);
+  const priced = entries.filter((entry, i) => i === 0
+    || flat.owners[i] === flat.owners[i - 1]
+    || rateState(entry) !== rateState(entries[i - 1]));
+  const pricedSchedules = {};
+  let index = 0;
+  entries.forEach((entry, i) => {
+    if (entry !== priced[index]) return;
+    if (schedules[i]) pricedSchedules[index] = schedules[i];
+    index++;
+  });
+  entries = priced;
   return {
-    schedules,
+    schedules: pricedSchedules,
     list: _ratesOf(entries[entries.length - 1], mayBegin),
     windows: entries.slice(0, -1).map((entry, i) => (
       { endExclusive: _instantMs(entries[i + 1].from),
@@ -297,11 +314,16 @@ for (const [key, entries] of Object.entries(_PRICING.models)) {
   if (windows.length) window.datedRates[key] = windows;
 }
 window.providerRates = {};
+window.providerContextLengths = {};
 window.providerDatedRates = {};
 window.providerStarts = {};
 window.providerSchedules = {};
 for (const [model, hosts] of Object.entries(_PRICING.providers)) {
   for (const [host, entries] of Object.entries(hosts)) {
+    const newest = _pricingRows.flattenPricingHistory(entries, `${model} via ${host}`, _instantMs).entries.at(-1);
+    if ('context_length' in newest) {
+      (window.providerContextLengths[model] = window.providerContextLengths[model] || {})[host] = newest.context_length;
+    }
     const { list, windows, start, schedules } = _history(
       entries, `${model} via ${host}`, true, _fetchedMs);
     if (Object.keys(schedules).length) {
@@ -338,6 +360,7 @@ window.vendorBare = {};
 window.vendorHosts = {};
 _buildVendorTables(_PRICING, window.modelRates, window.vendorBare,
                    window.vendorHosts);
+window.trackedModels = _PRICING.openrouter.models;
 window.vendorPrefixes = [..._PRICING.openrouter.vendor.prefixes];
 window.vendorBareForms = Object.keys(window.vendorBare);
 window.keyListRates = _vendorTables.keyListRates;

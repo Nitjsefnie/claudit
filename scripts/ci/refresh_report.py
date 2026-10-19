@@ -137,6 +137,15 @@ def _search_change(move: Move) -> str | None:
 
 
 def _move_text(move: Move) -> str:
+    text = _price_move_text(move)
+    old = move.old.get("context_length") if move.old else None
+    new = move.new.identity.get("context_length")
+    if old != new:
+        text += f"; context_length {old!r} → {new!r}, sampled at detection"
+    return text
+
+
+def _price_move_text(move: Move) -> str:
     new = move.new
     old_rates = effective_rates(move.old) if move.old is not None else None
     off = f" ({_discount_note(new.discount)})" if new.discount else ""
@@ -144,6 +153,9 @@ def _move_text(move: Move) -> str:
     search = _search_change(move)
     if move.source == "search":
         return _search_move_text(move, off)
+    if move.source == "context":
+        return (f"  changed   {move.host}: token rates unchanged"
+                f"{'; ' + search if search else ''}{off}")
     if move.source == "log" and (move.entries_appended > 1 or search):
         return _logged_move_text(move, new, old_rates, search, off)
     if move.old is None:
@@ -268,9 +280,11 @@ def commit_message(result: Result, body: str, vendor=None) -> str:
                         if not m.added and m.membership == "+")
         v_unmetered = sum(1 for m in vendor.moves
                           if not m.added and m.membership == "-")
+        v_updated = sum(1 for m in vendor.moves if not m.added and not m.membership)
         segments = [f"{v_added} added" if v_added else "",
                     f"{v_metered} metered" if v_metered else "",
-                    f"{v_unmetered} unmetered" if v_unmetered else ""]
+                    f"{v_unmetered} unmetered" if v_unmetered else "",
+                    f"{v_updated} updated" if v_updated else ""]
         subject += "; vendor table: " + ", ".join(s for s in segments if s)
     return f"{subject}\n\n{body}\n\nCaptured by .github/workflows/refresh-pricing.yml.\n"
 
@@ -299,6 +313,8 @@ def vendor_report(stamp: str, vendor,
         meter_off = move.membership == "-" and move.meter is None
         tail = (" [metered]" if meter_on
                 else " [unmetered]" if meter_off else "")
+        if move.context_length is not None:
+            tail += f" [context_length {move.context_length}]"
         if move.meter is not None:
             meter = move.meter
             tail += (f" [threshold {meter['threshold']}, "

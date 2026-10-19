@@ -22,7 +22,7 @@ GLM_ID = "z-ai/glm-test-1"
 GLM_KEY = "glm-test-1"
 RATES = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0, "read": 0.1,
          "output": 5.0}
-TRACKED = {"id": GPT_ID, "vendor_host": "Vendor"}
+TRACKED = {"id": GPT_ID, "vendor_host": "Vendor", "context_length": 131072}
 
 
 def _load(name: str):

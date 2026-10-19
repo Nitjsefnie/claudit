@@ -62,7 +62,7 @@ def test_a_genuine_move_still_appends(tmp_path, capsys):
     rc, out, _ = run(capsys)
     assert rc == 0
     assert "alternating price" not in out
-    assert run.doc()["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, **moved}
+    assert run.doc()["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, "context_length": 131072, **moved}
     assert run.pricing_version() == version + 1, "a real move still bumps"
 
 
@@ -72,7 +72,7 @@ def test_a_match_older_than_the_lookback_does_not_fire(tmp_path, capsys):
     rc, out, _ = run(capsys)
     assert rc == 0
     assert "alternating price" not in out
-    assert run.doc()["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, **a}
+    assert run.doc()["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, "context_length": 131072, **a}
 
 
 def test_a_match_exactly_at_the_lookback_does_not_fire(tmp_path, capsys):
@@ -83,7 +83,7 @@ def test_a_match_exactly_at_the_lookback_does_not_fire(tmp_path, capsys):
     rc, out, _ = run(capsys)
     assert rc == 0
     assert "alternating price" not in out
-    assert run.doc()["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, **a}
+    assert run.doc()["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, "context_length": 131072, **a}
 
 
 def test_a_newest_entry_with_a_schedule_is_exempt_from_the_alternation_notice(
@@ -96,7 +96,7 @@ def test_a_newest_entry_with_a_schedule_is_exempt_from_the_alternation_notice(
     rc, out, _ = run(capsys)
     assert rc == 0
     assert "alternating price" not in out
-    assert run.doc()["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, **a}
+    assert run.doc()["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, "context_length": 131072, **a}
 
 
 def test_an_incoming_listing_with_a_schedule_is_exempt_from_the_alternation_notice(
@@ -109,4 +109,25 @@ def test_an_incoming_listing_with_a_schedule_is_exempt_from_the_alternation_noti
     assert rc == 0
     assert "alternating price" not in out
     assert run.doc()["providers"][GLM]["OpenInference"][-1] == {
-        "from": STAMP, **a, "schedule": schedule}
+        "from": STAMP, "context_length": 131072, **a, "schedule": schedule}
+
+
+def test_search_only_alternation_keeps_its_existing_guard(tmp_path, capsys):
+    run = Run(tmp_path)
+    rates = {field: run.doc()['providers'][GLM]['OpenInference'][-1][field]
+             for field in RATE_FIELDS}
+
+    def edit(doc):
+        doc['providers'][GLM]['OpenInference'] = [
+            {'from': '2030-12-28T00:00:00Z', **rates,
+             'web_search': 0.01, 'context_length': 131072},
+            {'from': '2030-12-31T00:00:00Z', **rates,
+             'web_search': 0.02, 'context_length': 131072}]
+        doc['provider_rates_fetched'] = '2030-12-31T00:00:00Z'
+    run.edit(edit)
+    run.endpoint(GLM, 'OpenInference')['pricing']['web_search'] = '0.01'
+    before = run.snapshot()
+    rc, out, err = run(capsys)
+    assert rc == 0, err
+    assert run.snapshot() == before
+    assert 'alternating price' in out
