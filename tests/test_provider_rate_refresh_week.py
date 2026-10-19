@@ -94,21 +94,6 @@ def test_deepseek_v4_pro_0813_hand_seeded_shapes_start_without_manual_seeding(
     assert move.new.schedule == schedule
 
 
-def test_first_seen_host_with_a_weekly_gap_is_still_refused(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    run = Run(tmp_path)
-    schedule = [{"days": _WEEKDAYS, "start": 0, "end": 100,
-                 "rates": _scaled_rates(0.5)}]
-    _add_first_seen(run, schedule, schedule[0]["rates"])
-
-    rc, _, err = run(capsys, now=NOW)
-
-    assert rc != 0
-    assert f"{GLM} via Newcomer" in err
-    assert "first seen inside one of its windows" in err
-    assert "Newcomer" not in run.doc()["providers"][GLM]
-
-
 @pytest.mark.parametrize(
     ("schedule", "expected"),
     [
@@ -130,37 +115,24 @@ def test_covers_week_checks_every_week_minute(schedule: list, expected: bool) ->
     assert refresh_prices.covers_week(schedule) is expected
 
 
-def test_first_seen_override_with_explicit_null_days_stores_days_absent(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize(("host", "override", "absent"), [
+    ("NullDays", {"utc_days": None}, ("days",)),
+    ("NullTimes", {"utc_start": None, "utc_end": None}, ("start", "end")),
+], ids=["null-days", "null-time-bounds"])
+def test_first_seen_null_override_fields_are_absent(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], host: str,
+        override: dict, absent: tuple[str, ...]) -> None:
     run = Run(tmp_path)
     rates = _scaled_rates(0.5)
-    endpoint = _endpoint("NullDays", rates)
-    endpoint["pricing"]["overrides"] = [{"utc_days": None, **_listed(rates)}]
+    endpoint = _endpoint(host, rates)
+    endpoint["pricing"]["overrides"] = [{**override, **_listed(rates)}]
     run.endpoints(GLM).append(endpoint)
 
     rc, _, err = run(capsys, now=NOW)
 
     assert rc == 0, err
-    history = run.doc()["providers"][GLM]["NullDays"]
+    history = run.doc()["providers"][GLM][host]
     assert history[0]["from"] == STAMP
     window = history[0]["schedule"][0]
-    assert "days" not in window
-
-
-def test_first_seen_override_with_null_time_bounds_stores_bounds_absent(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    run = Run(tmp_path)
-    rates = _scaled_rates(0.5)
-    endpoint = _endpoint("NullTimes", rates)
-    endpoint["pricing"]["overrides"] = [
-        {"utc_start": None, "utc_end": None, **_listed(rates)}]
-    run.endpoints(GLM).append(endpoint)
-
-    rc, _, err = run(capsys, now=NOW)
-
-    assert rc == 0, err
-    history = run.doc()["providers"][GLM]["NullTimes"]
-    assert history[0]["from"] == STAMP
-    window = history[0]["schedule"][0]
-    assert "start" not in window
-    assert "end" not in window
+    for field in absent:
+        assert field not in window

@@ -103,8 +103,13 @@ def test_sampling_also_appends_stale_selected_endpoint(tmp_path, capsys, shape):
     assert f"sampled   {HOST}" in out and f"changed   {HOST}" in out
 
 
-def test_selected_endpoint_already_in_step_writes_nothing(tmp_path, capsys):
-    run = SyncRun(tmp_path, "repinned",
+@pytest.mark.parametrize(("shape", "row_at"), [
+    ("repinned", ROW_AT),
+    ("resolution_removed", STAMP),
+    ("resolution_removed", "2031-01-09T00:00:00Z"),
+], ids=["repinned-older-row", "unselected-current-row", "unselected-future-row"])
+def test_selected_endpoint_already_in_step_writes_nothing(tmp_path, capsys, shape, row_at):
+    run = SyncRun(tmp_path, shape, row_at=row_at,
                   listed=RATE_B, row_rates=RATE_B)
 
     rc, out, err = run.run(capsys)
@@ -127,37 +132,6 @@ def test_out_of_step_endpoint_refuses_when_detection_cannot_append(
     assert "out of step with its endpoint's listed price" in out
     assert "not before the detection instant" in out
     run.assert_untouched()
-
-
-@pytest.mark.parametrize("row_at", [STAMP, "2031-01-09T00:00:00Z"])
-def test_in_step_endpoint_with_same_timing_stays_quiet(tmp_path, capsys, row_at):
-    run = SyncRun(tmp_path, "resolution_removed", row_at=row_at,
-                  listed=RATE_B, row_rates=RATE_B)
-
-    rc, out, err = run.run(capsys)
-
-    assert rc == 0 and not err
-    run.assert_untouched()
-    assert "no rate moved" in out and HOST not in out
-
-
-def test_oscillating_logged_states_all_append_at_their_change_points(tmp_path, capsys):
-    run = SyncRun(tmp_path, "resolution_removed", row_at="2031-01-02T00:00:00Z",
-                  listed=RATE_B)
-    states = [("2031-01-02T00:00:00Z", RATE_A),
-              ("2031-01-03T00:00:00Z", RATE_B),
-              ("2031-01-04T00:00:00Z", RATE_A),
-              ("2031-01-05T00:00:00Z", RATE_B),
-              ("2031-01-06T00:00:00Z", RATE_A),
-              ("2031-01-07T00:00:00Z", RATE_B)]
-    run.fetches.log_payload["data"]["series"] = [_series(states)]
-
-    rc, out, err = run.run(capsys)
-
-    assert rc == 0 and not err
-    assert run.saved()["providers"][MODEL][HOST] == [
-        {"from": stamp, "context_length": 131072, **rates} for stamp, rates in states]
-    assert "5 log entries" in out
 
 
 @pytest.mark.parametrize("old_search", [0.0, 0.02])

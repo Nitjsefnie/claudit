@@ -8,6 +8,8 @@ network.
 """
 from __future__ import annotations
 
+import pytest
+
 from tests.refresh_fixture_builders import _per_token
 from tests.test_provider_rate_refresh import (
     GLM, RATE_FIELDS, STAMP, Run, _overrides)
@@ -66,20 +68,12 @@ def test_a_genuine_move_still_appends(tmp_path, capsys):
     assert run.pricing_version() == version + 1, "a real move still bumps"
 
 
-def test_a_match_older_than_the_lookback_does_not_fire(tmp_path, capsys):
+@pytest.mark.parametrize("first_from", [
+    "2030-12-24T00:00:00Z", "2030-12-25T00:00:00Z",
+], ids=["older-than-lookback", "exclusive-lookback-edge"])
+def test_a_match_outside_the_lookback_does_not_fire(tmp_path, capsys, first_from):
     run = Run(tmp_path)
-    a, _ = _alternating_row(run, "2030-12-24T00:00:00Z", "2030-12-31T00:00:00Z")
-    rc, out, _ = run(capsys)
-    assert rc == 0
-    assert "alternating price" not in out
-    assert run.doc()["providers"][GLM]["OpenInference"][-1] == {"from": STAMP, "context_length": 131072, **a}
-
-
-def test_a_match_exactly_at_the_lookback_does_not_fire(tmp_path, capsys):
-    """The sample is exactly seven days before at, on the exclusive lookback edge.
-    The > cutoff excludes it, so the move appends like any older entry."""
-    run = Run(tmp_path)
-    a, _ = _alternating_row(run, "2030-12-25T00:00:00Z", "2030-12-31T00:00:00Z")
+    a, _ = _alternating_row(run, first_from, "2030-12-31T00:00:00Z")
     rc, out, _ = run(capsys)
     assert rc == 0
     assert "alternating price" not in out
