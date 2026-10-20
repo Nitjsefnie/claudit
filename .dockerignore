@@ -26,6 +26,10 @@ public/*
 !public/*.css
 !public/*.html
 !public/favicon.ico
+!public/vendor/
+public/vendor/*
+!public/vendor/*.js
+!public/vendor/*.txt
 
 # ---- src/ — browser modules served at /src/* -------------------------------
 !src/

@@ -38,8 +38,9 @@ RUN useradd --system --user-group --home /opt/claudit \
 # scripts/plots/ module backend/api_export.py runs as its /api/export
 # subprocess (resolved relative to backend/, so the in-image path
 # /opt/claudit/scripts/plots/ccusage_plot_db.py must exist). The schema
-# files (db.SCHEMA_PATHS) travel with backend/; there is no node/npm stage
-# because React and Babel load from unpkg at run time. What does NOT ship:
+# files (db.SCHEMA_PATHS) travel with backend/; no node/npm stage is needed
+# because public/vendor/ ships the pinned React, ReactDOM and Babel builds
+# and their upstream licence notices. What does NOT ship:
 # the render interpreter and its dependencies — the default
 # CLAUDIT_EXPORT_PYTHON (/usr/bin/python3) is absent from python:slim and matplotlib
 # is not in backend/requirements.txt, so in-container /api/export needs
