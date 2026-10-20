@@ -79,6 +79,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - uses: $/.github/actions/apt-install
+        timeout-minutes: 1
 
       # --with-deps installs the shared libraries a headless Chromium
       # needs on the runner image; without them the launch fails with a
