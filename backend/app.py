@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import mimetypes
 import re
 import secrets
 from contextlib import asynccontextmanager
@@ -43,6 +44,9 @@ log = logging.getLogger("claudit.app")
 
 _PUBLIC = _REPO_ROOT / "public"
 _SRC = _REPO_ROOT / "src"
+_VENDOR = _PUBLIC / "vendor"
+# Keep classic scripts executable under nosniff on every host MIME registry.
+mimetypes.add_type("text/javascript", ".js")
 
 
 def validate_bucket_config() -> None:
@@ -160,9 +164,9 @@ class _SelectiveGZip(GZipMiddleware):
 
 # The document policy both HTML surfaces get, instantiated per response
 # with a fresh nonce:
-# - script-src: unpkg.com carries the pinned, SRI-hashed React,
-#   ReactDOM and Babel builds (SRI pins their bytes independently of the
-#   host allowance); /src/* is 'self'; every <script> tag the dashboard
+# - script-src: /vendor/* carries the pinned, SRI-hashed React,
+#   ReactDOM and Babel builds; /vendor/* and /src/* are 'self'. SRI
+#   pins the vendored bytes independently; every <script> tag the dashboard
 #   serves carries the response's nonce (root_index injects it), which
 #   is what admits in-browser Babel: babel.min.js 7.29.0 reads each
 #   text/babel source tag's nonce and sets it on the inline script
@@ -185,7 +189,7 @@ class _SelectiveGZip(GZipMiddleware):
 #   frame-ancestors 'none' are the deny-by-default floor.
 _CSP_TEMPLATE = (
     "default-src 'none'; "
-    "script-src 'self' https://unpkg.com 'nonce-{nonce}'; "
+    "script-src 'self' 'nonce-{nonce}'; "
     "style-src 'self' https://fonts.googleapis.com 'nonce-{nonce}'; "
     "font-src https://fonts.gstatic.com; "
     "connect-src 'self'; "
@@ -297,26 +301,28 @@ async def root_index(request: Request) -> Response:
         'href="/app.css"',
         f'href="/app.css?v={int((_PUBLIC / "app.css").stat().st_mtime)}"',
     )
-    # Also bust /src/* JSX/JS modules so Babel always picks up the latest,
-    # and the pricing.json URL pricing-loader.js reads from its tag.
-    src_root = _PUBLIC.parent / "src"
+    # Also bust /src/* JSX/JS modules, the pricing.json URL read from its
+    # tag, and /vendor/* scripts so new bytes always match their SRI pins.
+    asset_root = _PUBLIC.parent
 
-    def _bust_src(m: re.Match) -> str:
+    def _bust_asset(m: re.Match) -> str:
         path = m.group(1)
         try:
-            v = int((src_root / path.lstrip("/").removeprefix("src/")).stat().st_mtime)
+            asset = (_VENDOR / path.removeprefix("/vendor/")
+                     if path.startswith("/vendor/") else asset_root / path.lstrip("/"))
+            v = int(asset.stat().st_mtime)
         except OSError:
             return m.group(0)
         return m.group(0).replace(path, f"{path}?v={v}")
 
-    html = re.sub(r'(?:src|data-pricing)="(/src/[^"?]+)"', _bust_src, html)
+    html = re.sub(r'(?:src|data-pricing)="(/(?:src|vendor)/[^"?]+)"', _bust_asset, html)
     # Every script ELEMENT's open tag carries the response's CSP nonce
     # (kept LAST so it sees the final HTML). The two inline scripts are
     # admitted by it directly, and Babel standalone propagates a
     # text/babel source tag's nonce onto the inline script element it
     # generates for the compiled output (see _CSP_TEMPLATE), so
-    # script-src needs no 'unsafe-inline'. The unpkg tags need no nonce
-    # (host + SRI admit them); marking them is harmless.
+    # script-src needs no 'unsafe-inline'. The external script files are
+    # also admitted by 'self'.
     nonce = getattr(request.state, "csp_nonce", None)
     if nonce:
         html = _nonce_script_elements(html, nonce)
@@ -390,6 +396,7 @@ async def root_favicon() -> Response:
     )
 
 
-# /src/* is mounted via StaticFiles. The middleware gates it because the
+# /src/* and /vendor/* use StaticFiles. The middleware gates both because the
 # path doesn't start with /api or /admin and isn't in _AUTH_PUBLIC_PATHS.
 app.mount("/src", StaticFiles(directory=str(_SRC)), name="src")
+app.mount("/vendor", StaticFiles(directory=str(_VENDOR)), name="vendor")

@@ -7,14 +7,16 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_cdn_route_js import CDN_PAGE_SETUP
+
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts" / "ci" / "panel_layout_rules.mjs"
 PROJECTS_FIXTURE = ROOT / "fixtures" / "layout" / "projects.json"
 
 
-def _node(body: str):
+def _node(body: str, setup: str = ""):
     url = MODULE.as_uri()
-    script = f"const mod = await import({json.dumps(url)});\n{body}\n"
+    script = f"{setup}\nconst mod = await import({json.dumps(url)});\n{body}\n"
     proc = subprocess.run(
         ["node", "--input-type=module"], input=script, capture_output=True,
         text=True, timeout=60, check=False, encoding="utf-8", errors="strict", cwd=ROOT,
@@ -326,7 +328,7 @@ def test_width_sweep_resets_at_its_own_viewport_before_sampling():
 
 
 def _wait_node(body: str):
-    """Run the real wait callbacks with a clock advanced by the control."""
+    """Run real waits with a controlled clock and the helper's legacy CDN page."""
     return _node(r"""
       const waits = await import('./scripts/ci/layout_waits.mjs');
       const {pickerProbe} = await import('./scripts/ci/picker_probe.mjs');
@@ -363,7 +365,7 @@ def _wait_node(body: str):
           error => Object.assign(result, {status: 'rejected', error: error.message}));
         return result;
       };
-    """ + body)
+    """ + body, setup=CDN_PAGE_SETUP)
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")

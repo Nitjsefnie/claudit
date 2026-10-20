@@ -25,7 +25,7 @@ readable off the command text (SV-BASH-CHURN).
 ## Technology stack
 
 - **Backend**: Python 3.13+, FastAPI, Uvicorn, psycopg3 (pooled)
-- **Frontend**: React 18 from CDN, in-browser Babel, vanilla JS/JSX —
+- **Frontend**: vendored React 18, in-browser Babel, vanilla JS/JSX —
   no webpack, vite or npm install. The root `package.json` holds the
   **CI toolchain only** (eslint, eslint-plugin-react, AST coverage, globals —
   devDependencies, nothing served), so the eslint gate can be pinned
@@ -39,9 +39,11 @@ readable off the command text (SV-BASH-CHURN).
 - **Testing**: pytest, pytest-asyncio, httpx2 (TestClient)
 - **Deployment**: systemd (`examples/claudit.service`)
 
-React, ReactDOM and Babel load from unpkg.com via pinned, SRI-hashed
-tags in `public/index.html`; if unreachable the page renders blank
-(README: Client-side internet requirement).
+React, ReactDOM and Babel are pinned builds in `public/vendor/`, served
+from `/vendor/` via SRI-hashed tags in `public/index.html`. The JavaScript
+has comments and source-map references stripped; upstream notices live in
+`public/vendor/LICENSES.txt`. Google Fonts still loads off-site (README:
+Client-side internet requirement).
 
 ## Project structure
 

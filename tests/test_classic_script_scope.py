@@ -1,4 +1,4 @@
-"""Every classic script public/index.html loads runs in one shared realm.
+"""Every application classic script in public/index.html runs in one shared realm.
 
 A <script src> without type="text/babel" is a classic script: the browser
 instantiates its top level into the page's one shared global scope. A
@@ -16,9 +16,10 @@ vm in index.html tag order: vm.runInContext gives each script the
 browser's classic-script instantiation over one shared context, the same
 semantics the page has, so the same collisions throw here as there.
 The tag list is parsed from index.html at test time, at load order, so a
-newly added classic script is guarded by construction. External CDN tags
-(React, ReactDOM, Babel) are skipped: they are not ours to collide with
-and the guard runs offline. type="text/babel" tags are out of scope too -
+newly added application classic script is guarded by construction. Third-party
+/vendor/ scripts (React, ReactDOM, Babel) and external CDN tags are skipped:
+this checks our modules' shared globals without loading browser runtimes into
+the offline node realm. type="text/babel" tags are out of scope too -
 babel-standalone transpiles and evaluates those itself, outside the
 classic-script instantiation.
 
@@ -140,8 +141,9 @@ def _classic_scripts() -> list[tuple[str, str]]:
 
     Classic = no type attribute (or a JS one). Babel tags are
     transpiled and evaluated by babel-standalone, not instantiated as
-    classic scripts. CDN srcs (the unpkg.com trio) are skipped: not
-    ours to collide with, and the guard runs offline.
+    classic scripts. Third-party /vendor/ files and CDN srcs are skipped:
+    this guard checks our modules' shared globals, without loading React,
+    ReactDOM or Babel's browser runtime into the offline node realm.
     """
     collector = _ScriptTagCollector()
     collector.feed(INDEX_HTML.read_text(encoding="utf-8"))
@@ -153,7 +155,7 @@ def _classic_scripts() -> list[tuple[str, str]]:
         srcs = [v for k, v in attrs if k == "src" and v is not None]
         if srcs:
             url = srcs[0]
-            if not url.startswith("/"):
+            if not url.startswith("/") or url.startswith("/vendor/"):
                 continue
             path = ROOT / url.lstrip("/")
             out.append((url, path.read_text(encoding="utf-8")))
