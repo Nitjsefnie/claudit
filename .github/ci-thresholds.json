@@ -586,7 +586,7 @@
     ],
     "scripts/ci/panel_interactions.mjs": [
       11708,
-      29961
+      30025
     ],
     "scripts/ci/panel_interactions_seeds.mjs": [
       786,
@@ -594,11 +594,11 @@
     ],
     "scripts/ci/panel_layout.mjs": [
       3077,
-      8562
+      8618
     ],
     "scripts/ci/panel_layout_rules.mjs": [
       16609,
-      69457
+      69513
     ],
     "scripts/ci/panel_server.mjs": [
       779,
@@ -1354,15 +1354,15 @@
     ],
     "tests/test_panel_interactions_js.py": [
       7239,
-      25442
+      25451
     ],
     "tests/test_panel_layout_js.py": [
       6510,
-      23011
+      23020
     ],
     "tests/test_panel_layout_rules_js.py": [
       6203,
-      19735
+      19744
     ],
     "tests/test_panel_wiring.py": [
       11184,
