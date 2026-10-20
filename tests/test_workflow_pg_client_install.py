@@ -81,6 +81,7 @@ def test_browser_dependencies_follow_sanitize_only_step():
     assert index > 0
     assert steps[index - 1].get("uses") == ACTION_REF
     assert not steps[index - 1].get("with", {}).get("packages")
+    assert 0 < int(steps[index - 1]["timeout-minutes"]) <= 5
 
 
 def test_sanitization_always_runs_and_package_setup_is_optional():
@@ -88,7 +89,7 @@ def test_sanitization_always_runs_and_package_setup_is_optional():
     assert len(steps) == 2
     sanitize, install = steps
     assert "if" not in sanitize
-    assert re.search(r"sudo rm -f\s+/etc/apt/sources.list.d/microsoft-prod.list"
+    assert re.search(r"sudo timeout \d+s rm -f\s+/etc/apt/sources.list.d/microsoft-prod.list"
                      r"\s+/etc/apt/sources.list.d/microsoft-prod.sources",
                      sanitize["run"])
     assert "apt-get" not in sanitize["run"]
@@ -106,7 +107,7 @@ def test_sanitization_always_runs_and_package_setup_is_optional():
 def test_composite_bounds_download_and_both_apt_retry_loops():
     run = _action_steps()[1]["run"]
     curls = [line for line in run.splitlines()
-             if line.strip().startswith("curl ")]
+             if re.match(r"timeout \d+s curl ", line.strip())]
     assert len(curls) == 1
     for bound in CURL_BOUNDS:
         assert bound in curls[0]
@@ -117,6 +118,7 @@ def test_composite_bounds_download_and_both_apt_retry_loops():
                 if line.strip().startswith("if sudo ")]
         assert len(apts) == 1
         assert f"apt-get {operation} " in apts[0]
+        assert re.search(r"sudo timeout \d+s (?:env \S+ )?apt-get ", apts[0])
         for bound in APT_BOUNDS:
             assert bound in apts[0]
         assert "break" in loop
@@ -126,10 +128,35 @@ def test_composite_bounds_download_and_both_apt_retry_loops():
         assert loop.index("exit 1") < loop.index("sleep 5")
 
 
+def test_update_retries_any_index_fetch_failure():
+    updates = [line for line in _action_steps()[1]["run"].splitlines()
+               if line.strip().startswith("if sudo ") and "apt-get update " in line]
+    assert len(updates) == 1
+    assert "-o APT::Update::Error-Mode=any" in updates[0]
+
+
+def test_composite_shell_timeouts_fit_calling_steps():
+    sanitize, install = _action_steps()
+    sanitize_bound, = re.findall(r"timeout (\d+)s rm ", sanitize["run"])
+    assert 0 < int(sanitize_bound) < 60
+    run = install["run"]
+    setup = run.split("for attempt", 1)[0]
+    for command in ("sh", "curl", "gpg"):
+        assert re.search(rf"timeout \d+s {command} ", setup)
+    bounds = [int(value) for value in re.findall(r"timeout (\d+)s ", setup)]
+    setup_budget = sum(max(map(int, matches)) for line in setup.splitlines()
+                       if (matches := re.findall(r"timeout (\d+)s ", line)))
+    attempts = [int(value) for value in re.findall(r"timeout (\d+)s (?:env \S+ )?apt-get ", run)]
+    assert len(attempts) == 2 and all(value > 0 for value in bounds + attempts)
+    budget = int(sanitize_bound) + setup_budget + 3 * sum(attempts) + 4 * 5
+    callers = _client_steps()
+    assert callers
+    assert all(budget < int(step["timeout-minutes"]) * 60 for _, _, step in callers)
+
+
 def test_composite_commands_are_announced_and_failures_remain_visible():
     for step in _action_steps():
         assert step.get("shell") == "bash"
-        assert 0 < int(step["timeout-minutes"]) <= 5
         run = step["run"]
         assert "set -euo pipefail" in run
         assert "${{" not in run
@@ -139,7 +166,7 @@ def test_composite_commands_are_announced_and_failures_remain_visible():
             segments = [part.strip() for part in re.split(r"\|\||&&|;", code)
                         if part.strip()]
             assert not segments or segments[-1] not in ("true", ":", "exit 0")
-            if re.match(r"(?:if )?(?:sudo|curl|sleep|read|exit)\b", line):
+            if re.match(r"(?:if )?(?:sudo|timeout|curl|sleep|read|exit)\b", line):
                 assert index > 0 and lines[index - 1].startswith("echo ")
                 assert lines[index - 1][5:].strip("\"'")
     install = _action_steps()[1]
