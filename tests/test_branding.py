@@ -67,9 +67,7 @@ def _diff_lines(template: str, served: str) -> list[str]:
 
 
 def test_default_page_differs_from_template_only_by_injections(page_client):
-    """Nothing set: today's page, byte-identical, except the injected
-    window.BRAND (which rides the same <script> line as BACKEND_URL) and
-    the mtime cache-busts the page always carried."""
+    """Only bootstrap/brand injections, nonces and mtime cache-busts change the template."""
     served = page_client.get("/").text
     template = INDEX.read_text(encoding="utf-8")
     ops = _diff_lines(template, served)
