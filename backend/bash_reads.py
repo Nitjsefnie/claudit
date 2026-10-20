@@ -22,7 +22,7 @@ from backend.bash_segments import (_ASSIGN, _DECLARATION_BUILTINS,
                                    _capture_split, _matching_paren,
                                    _segments, _split_redirects,
                                    _unmatched_close)
-from backend.bash_literals import ShellWord, literal_path, shell_tokens
+from backend.bash_literals import ShellWord, literal_path, shell_tokens, _brace_tokens
 from backend.bash_operand import _looks_like_path, _operand_paths
 from backend.bash_effects import destination_paths, sed_parts
 from backend.bash_directories import directory_targets
@@ -178,6 +178,19 @@ def _copy_targets(name: str, operands: list[str], base: str | None) -> list[str]
     return paths
 
 
+def _command_braces(segment: list[str]) -> list[str]:
+    words: list[str] = []
+    assignment_prefix = True
+    for word in segment:
+        assignment_prefix = assignment_prefix and bool(_ASSIGN.match(word))
+        raw = getattr(word, "brace_raw", None)
+        if raw is not None and not assignment_prefix:
+            words.extend(_brace_tokens(raw))
+        else:
+            words.append(word)
+    return words
+
+
 class _Scan:
     """One command's running state: the cwd as `cd` moves it, the
     variables the command itself assigned, and the three answers."""
@@ -232,7 +245,7 @@ class _Scan:
         if (capture := _capture_split(body)) is not None:
             self._captured(*capture)
             return
-        segment = _strip_env_prefix(body, self.env, self)
+        segment = _strip_env_prefix(_command_braces(body), self.env, self)
         if not segment:
             return
         name = posixpath.basename(segment[0])
@@ -332,6 +345,7 @@ class _Scan:
             return
         nested = _Scan(self.base or "", self.depth + 1)
         nested.env = dict(self.env)
+        prefix = _command_braces(prefix)
         _strip_env_prefix(prefix, nested.env, nested)
         _strip_env_prefix(prefix, self.env, self)
         for sub in _segments(inner):
@@ -411,7 +425,7 @@ def scan_command(command: BashCommand, cwd: str = "") -> tuple[str | None, list[
     # mentions INDEX.md did not read it.
     tokens = command.tokens
     if not tokens and "{" in command.parts[1]:
-        tokens = shell_tokens(command.parts[1], expand_braces=True)
+        tokens = shell_tokens(command.parts[1], recover_braces=True)
     for raw_segment in _segments(tokens):
         state.segment(raw_segment)
     for path in command.write_paths():

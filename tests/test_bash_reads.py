@@ -95,6 +95,32 @@ def test_brace_expansion_write_targets(command, expected):
 
 
 @pytest.mark.parametrize("command,expected", [
+    ('D={a,b}; mkdir "$D"', ["/tmp/{a,b}"]),
+    ('D={a,b}; cp source "$D"', ["/tmp/{a,b}"]),
+    ('D={a,b}; mkdir "$D"; echo {x,y}', ["/tmp/{a,b}"]),
+    ('D={a,b} E=destination; mkdir "$D" "$E"', ["/tmp/{a,b}", "/tmp/destination"]),
+    ("mkdir D={a,b}", ["/tmp/D=a", "/tmp/D=b"]),
+    ('export D={a,b}; mkdir "$D"', ["/tmp/b"]),
+])
+def test_brace_recovery_preserves_scalar_assignment_values(command, expected):
+    assert scan(command, "/tmp")[2] == expected
+
+
+@pytest.mark.parametrize("quote", ["", '"'])
+@pytest.mark.parametrize("inner,expected", [
+    ("mkdir {one,two}", ["/tmp/one", "/tmp/two"]),
+    ("mkdir -p /tmp/a && echo {a,b}", ["/tmp/a"]),
+    ("cat input.txt; mkdir {one,two}", ["/tmp/one", "/tmp/two"]),
+    ("D={a,b}; mkdir $D", ["/tmp/{a,b}"]),
+    ("gh repo clone o/r", ["/tmp/r"]),
+])
+def test_brace_recovery_in_captured_substitutions(inner, expected, quote):
+    command = BashCommand(f"d={quote}$({inner}){quote}")
+    assert scan_command(command, "/tmp") == (None, [], expected)
+    assert command.churn() == (0, 0)
+
+
+@pytest.mark.parametrize("command,expected", [
     ("gh repo clone o/r /tmp/d", ["/tmp/d"]),
     ("gh repo clone o/r", ["/tmp/r"]),
     ("gh repo clone https://example.test/o/r.git", ["/tmp/r"]),

@@ -143,7 +143,7 @@ def _quoted_capture_value(value: str) -> list[ShellWord] | None:
     close = _capture_close(value)
     if close is None:
         return None
-    return shell_tokens(value[2:close])
+    return shell_tokens(value[2:close], recover_braces=True)
 
 
 def _capture_split(raw_segment: list[str]) -> tuple[list[str], list[ShellWord]] | None:

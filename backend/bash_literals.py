@@ -28,6 +28,7 @@ class ShellWord(str):
     unquoted_expansion: bool
     double_paren: bool
     brace_unknown: bool
+    brace_raw: str
 
     def __new__(cls, value: str, literal: bool = True,
                 operator: bool = False) -> ShellWord:
@@ -119,7 +120,7 @@ def _brace_tokens(raw: str) -> list[ShellWord]:
     return words
 
 
-def shell_tokens(command: str, *, expand_braces: bool = False) -> list[ShellWord]:
+def shell_tokens(command: str, *, recover_braces: bool = False) -> list[ShellWord]:
     """Tokenize a small shell grammar; malformed/unsupported syntax is empty."""
     if "\x00" in command:
         return []
@@ -153,10 +154,12 @@ def shell_tokens(command: str, *, expand_braces: bool = False) -> list[ShellWord
             return []
         raw = match.group()
         if _brace_expands(raw):
-            if not expand_braces:
+            if not recover_braces:
                 # Churn keeps its conservative tokenizer-rejected estimate.
                 return []
-            tokens.extend(_brace_tokens(raw))
+            word = _decode_word(raw)
+            word.brace_raw = raw
+            tokens.append(word)
         else:
             tokens.append(ShellWord(raw, operator=True) if raw in ("{", "}") else _decode_word(raw))
         idx = match.end()
