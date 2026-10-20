@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
 import pytest
 
@@ -216,8 +215,7 @@ def test_a_changed_notice_line_still_appears():
 
 
 def test_vendor_report_omits_an_unchanged_notice_line():
-    vendor = SimpleNamespace(
-        moves=[], refusals=[],
+    vendor = vendor_refresh.VendorOutcome(
         notices=[
             f"openai/alpha: {_NO_ENDPOINT_MSG}",
             f"openai/beta: {_NO_ENDPOINT_MSG}",
@@ -231,8 +229,7 @@ def test_vendor_report_omits_an_unchanged_notice_line():
 
 
 def test_vendor_report_groups_missing_first_party_endpoint_notices():
-    vendor = SimpleNamespace(
-        moves=[], refusals=[],
+    vendor = vendor_refresh.VendorOutcome(
         notices=[
             "openai/alpha: the vendor lists no first-party endpoint; skipped",
             "openai/beta: the vendor lists no first-party endpoint; skipped",

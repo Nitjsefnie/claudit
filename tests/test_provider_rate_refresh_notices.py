@@ -16,12 +16,12 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from tests.test_provider_rate_refresh import (_catalog_without,
                                               _move_openinference, NOW, Run)
+from tests.vendor_rate_refresh_helpers import vendor as vendor_refresh
 
 _NOTICES_JSON = (Path(__file__).resolve().parents[1]
                  / "src" / "pricing_notices.json")
@@ -111,7 +111,7 @@ _VENDOR_LINE = "the vendor lists no first-party endpoint; skipped: openai/alpha"
 def _vendor_pass(*_args):
     """A vendor pass carrying one notice, so the baseline's vendor half is
     exercised end to end."""
-    return SimpleNamespace(moves=[], refusals=[], notices=[_VENDOR_NOTICE])
+    return vendor_refresh.VendorOutcome(notices=[_VENDOR_NOTICE])
 
 
 @pytest.mark.parametrize("vendor, needle", [
