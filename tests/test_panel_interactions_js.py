@@ -425,7 +425,7 @@ def test_interaction_widths_all_run_concurrently_in_their_own_contexts():
     assert "await Promise.all(WIDTHS.map(runWidth))" in src
     sweep = src[src.index("const runWidth = async width =>"):
                 src.index("await Promise.all(WIDTHS.map(runWidth))")]
-    assert "browser.newContext" in sweep and "ctx.route(" in sweep
+    assert "createSweepContext(browser," in sweep and "ctx.route(" in sweep
     assert "await ctx.close()" in sweep
 
 

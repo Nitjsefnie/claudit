@@ -1,4 +1,5 @@
 // Independent API fixtures for picker states that the dashboard fixture lacks.
+import { createSweepContext } from './cdn_route.mjs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { API, FIXTURES } from './panel_server.mjs';
@@ -62,7 +63,7 @@ export async function runPickerCases(browser, base, rules, checks) {
       project_id: `project-${i}-with-a-long-selected-identifier`,
       display_name: i < 4 ? `p${i}` : `project-${i}-with-a-wide-display-name`,
     }));
-    const context = await withDeadline(() => browser.newContext({viewport: {width, height: 900}}),
+    const context = await withDeadline(() => createSweepContext(browser, {viewport: {width, height: 900}}),
       'picker fixture context');
     try {
       await withDeadline(() => context.route('**/api/**', async (route) => {

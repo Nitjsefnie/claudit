@@ -239,7 +239,7 @@ def test_rule_widths_join_before_picker_cases_with_per_width_red_proofs():
     join = "await Promise.all((casesOnly ? [] : WIDTHS).map(runWidth))"
     assert join in src
     sweep = src[src.index("const runWidth = async width =>"):src.index(join)]
-    assert "browser.newContext" in sweep and "ctx.route(" in sweep
+    assert "createSweepContext(browser," in sweep and "ctx.route(" in sweep
     assert "await page.reload(" in sweep and "await rule.seed(page)" in sweep
     assert "executed++" in sweep and "await ctx.close()" in sweep
     assert src.index(join) < src.index("const cases = await layoutTiming('picker cases'")
