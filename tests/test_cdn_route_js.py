@@ -1,7 +1,9 @@
-"""The rendered sweeps recover CDN resets without changing the served page."""
+"""Sweeps support local scripts and recover resets for any CDN scripts."""
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -9,11 +11,12 @@ from pathlib import Path
 
 import pytest
 
+from backend.js_min import minify_js
+
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts" / "ci" / "cdn_route.mjs"
 
-# The current helper requires a page with unpkg URLs. Supply that legacy
-# input at its filesystem boundary; the real page now uses local vendors.
+# Supply a legacy page at its filesystem boundary to exercise CDN recovery.
 CDN_PAGE_SETUP = """
   const {default: fs} = await import('node:fs');
   const {syncBuiltinESMExports} = await import('node:module');
@@ -45,10 +48,10 @@ def test_every_sweep_creates_contexts_through_cdn_helper():
     assert not bypasses, f"CDN recovery bypassed: {bypasses}"
 
 
-def _node(body: str) -> dict:
+def _node(body: str, *, cdn_page: bool = True) -> dict:
     script = (
         "import assert from 'node:assert/strict';\n"
-        f"{CDN_PAGE_SETUP}\n"
+        f"{CDN_PAGE_SETUP if cdn_page else ''}\n"
         f"const mod = await import({json.dumps(MODULE.as_uri())});\n"
         f"{body}\n"
     )
@@ -59,6 +62,135 @@ def _node(body: str) -> dict:
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
     return json.loads(proc.stdout)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_local_page_creates_context_without_fetching_or_routing():
+    out = _node("""
+      const {readFileSync} = await import('node:fs');
+      const html = readFileSync('public/index.html', 'utf8');
+      assert.ok(!html.includes('https://unpkg.com/'));
+      const options = {viewport: {width: 375, height: 900}};
+      const page = {local: true};
+      const context = {
+        async route() { assert.fail('local scripts need no CDN route'); },
+        async newPage() { return page; },
+      };
+      const browser = {async newContext(received) {
+        assert.deepEqual(received, options);
+        return context;
+      }};
+      const actual = await mod.createSweepContext(browser, options, {
+        fetchImpl() { assert.fail('local scripts need no CDN fetch'); },
+        wait() { assert.fail('local scripts need no retry'); },
+      });
+      assert.equal(actual, context);
+      assert.equal(await actual.newPage(), page);
+      console.log(JSON.stringify({local: true}));
+    """, cdn_page=False)
+    assert out["local"] is True
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_sweep_server_serves_backend_bytes_and_cleans_up():
+    expected = {}
+    for path in sorted((ROOT / "src").rglob("*")):
+        if path.suffix not in {".js", ".jsx", ".json"}:
+            continue
+        body = path.read_bytes()
+        if path.suffix != ".json":
+            body = minify_js(body.decode("utf-8")).encode("utf-8")
+        expected["/" + path.relative_to(ROOT).as_posix()] = hashlib.sha256(body).hexdigest()
+    for path in sorted((ROOT / "public" / "vendor").glob("*.js")):
+        expected["/vendor/" + path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    out = _node(f"const expected = {json.dumps(expected)};\n" + """
+      const fs = await import('node:fs/promises');
+      const {default: childProcess} = await import('node:child_process');
+      const {syncBuiltinESMExports} = await import('node:module');
+      const {createHash} = await import('node:crypto');
+      const {tmpdir} = await import('node:os');
+      const {join, sep} = await import('node:path');
+      let children = 0, output;
+      const execOriginal = childProcess.execFile;
+      childProcess.execFile = (...args) => {
+        children++;
+        output = args[1].at(-1);
+        return execOriginal(...args);
+      };
+      syncBuiltinESMExports();
+      const {serve, REPO} = await import('./scripts/ci/panel_server.mjs');
+      process.chdir(tmpdir());
+      const server = await serve();
+      try {
+        assert.equal(children, 1, 'transform all scripts in one child at startup');
+        assert.ok(!output.startsWith(REPO + sep), 'transformed copies must be outside the repo');
+        assert.ok(output.startsWith(join(tmpdir(), 'claudit-')));
+        assert.ok((await fs.stat(output)).isDirectory());
+        const base = `http://127.0.0.1:${server.address().port}`;
+        for (const [path, digest] of Object.entries(expected)) {
+          const response = await fetch(base + path + '?v=fixture');
+          assert.equal(response.status, 200, path);
+          const type = path.endsWith('.jsx') ? 'text/babel'
+            : path.endsWith('.json') ? 'application/json' : 'text/javascript';
+          assert.equal(response.headers.get('content-type'), type + '; charset=utf-8', path);
+          const bytes = Buffer.from(await response.arrayBuffer());
+          assert.equal(createHash('sha256').update(bytes).digest('hex'), digest, path);
+        }
+        assert.equal(children, 1, 'requests must reuse the startup transform');
+        assert.equal((await fetch(base + '/absent.js')).status, 404);
+      } finally { await new Promise(resolve => server.close(resolve)); }
+      await assert.rejects(() => fs.stat(output), {code: 'ENOENT'});
+      console.log(JSON.stringify({served: Object.keys(expected).length}));
+    """, cdn_page=False)
+    assert out["served"] == len(expected)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_sweep_server_cleans_up_on_immediate_exit():
+    out = _node("""
+      const {default: childProcess} = await import('node:child_process');
+      const {syncBuiltinESMExports} = await import('node:module');
+      let output;
+      const execOriginal = childProcess.execFile;
+      childProcess.execFile = (...args) => {
+        output = args[1].at(-1);
+        return execOriginal(...args);
+      };
+      syncBuiltinESMExports();
+      const {serve} = await import('./scripts/ci/panel_server.mjs');
+      const server = await serve();
+      console.log(JSON.stringify({output}));
+      server.close();
+      process.exit(0);
+    """, cdn_page=False)
+    output = Path(out["output"])
+    assert not output.is_relative_to(ROOT)
+    assert not output.exists()
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_sweep_server_rejects_failed_transform(tmp_path: Path, monkeypatch):
+    python = tmp_path / "python3"
+    python.write_text(
+        "#!/bin/sh\nprintf '%s' \"$3\"\nprintf 'minify fixture failed\\n' >&2\nexit 42\n",
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    out = _node("""
+      const {stat} = await import('node:fs/promises');
+      let output;
+      const {serve} = await import('./scripts/ci/panel_server.mjs');
+      await assert.rejects(() => serve().then(server => { server.close(); }), error => {
+        output = error.stdout;
+        return error.code === 42 && error.stderr.includes('minify fixture failed');
+      });
+      assert.equal(typeof output, 'string');
+      assert.ok(output.length > 0, 'the failing child must name its output directory');
+      await assert.rejects(() => stat(output), {code: 'ENOENT'});
+      console.log(JSON.stringify({rejected: true}));
+    """, cdn_page=False)
+    assert out["rejected"] is True
 
 
 SETUP = r"""
