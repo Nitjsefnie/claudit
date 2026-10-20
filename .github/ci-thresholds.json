@@ -81,8 +81,8 @@
       9988
     ],
     ".github/workflows/refresh-pricing.yml": [
-      5611,
-      13849
+      5608,
+      13846
     ],
     ".github/workflows/release.yml": [
       4513,
@@ -629,12 +629,12 @@
       2776
     ],
     "scripts/ci/refresh_provider_history.py": [
-      1475,
-      5100
+      1049,
+      4178
     ],
     "scripts/ci/refresh_provider_rates.py": [
-      6275,
-      14594
+      6254,
+      14573
     ],
     "scripts/ci/refresh_selection.py": [
       4410,
@@ -940,10 +940,6 @@
       919,
       1551
     ],
-    "tests/gpt56_cuts.py": [
-      568,
-      847
-    ],
     "tests/mini_mirror.py": [
       1605,
       3170
@@ -957,8 +953,8 @@
       10502
     ],
     "tests/refresh_fixture_builders.py": [
-      1567,
-      4968
+      1644,
+      6523
     ],
     "tests/reprice_fixture_builders.py": [
       490,
@@ -1037,8 +1033,8 @@
       19178
     ],
     "tests/test_breakdown_exact_rate.py": [
-      2869,
-      13776
+      2479,
+      14542
     ],
     "tests/test_bucket_redact.py": [
       3123,
@@ -1373,8 +1369,8 @@
       28167
     ],
     "tests/test_parse.py": [
-      6368,
-      22200
+      6313,
+      22426
     ],
     "tests/test_parse_codex.py": [
       6750,
@@ -1417,8 +1413,8 @@
       2660
     ],
     "tests/test_parser_js_mirror.py": [
-      5059,
-      21666
+      4991,
+      21680
     ],
     "tests/test_parser_js_user_prompt.py": [
       421,
@@ -1473,8 +1469,8 @@
       332
     ],
     "tests/test_pricing.py": [
-      5285,
-      19247
+      4805,
+      19386
     ],
     "tests/test_pricing_compact_shape.py": [
       696,
@@ -1493,8 +1489,8 @@
       3704
     ],
     "tests/test_pricing_vendor.py": [
-      3349,
-      20854
+      3209,
+      20613
     ],
     "tests/test_pricing_vendor_equality.py": [
       1992,
@@ -1513,12 +1509,12 @@
       1733
     ],
     "tests/test_provider_pricing.py": [
-      4635,
-      20364
+      3684,
+      20903
     ],
     "tests/test_provider_rate_refresh.py": [
-      4560,
-      21890
+      3517,
+      20491
     ],
     "tests/test_provider_rate_refresh_alternation.py": [
       738,
