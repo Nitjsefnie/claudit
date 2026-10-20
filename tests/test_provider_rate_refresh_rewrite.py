@@ -138,3 +138,26 @@ def test_stored_schedule_disagreement_samples_only_that_host(tmp_path, capsys):
     assert run.saved()["providers"][MODEL][HOST] == [
         {**before[0], **RATE_A}, {"from": STAMP, **RATE_B, "context_length": 131072}]
     assert "log rewrite" not in out
+
+
+@pytest.mark.parametrize("context_length", [131072, 262144])
+def test_unchanged_detection_time_search_epoch_emits_no_move_or_writes(
+        tmp_path, capsys, context_length):
+    rates = {**RATE_A, "web_search": 0.02, "context_length": context_length}
+    run = RewriteRun(tmp_path, [_entry(STAMP, rates, context_length=context_length)],
+                     [(STAMP, RATE_A)],
+                     listed=rates, fetched=STAMP)
+    run.state.write_text('{"notices": ["existing notice"]}\n', encoding="utf-8")
+    before = run.path.read_bytes(), run.constants.read_bytes(), run.state.read_bytes()
+
+    result = refresh.refresh(
+        json.loads(run.path.read_text(encoding="utf-8")),
+        run.fetches.fetch_endpoints, STAMP,
+        run.fetches.fetch_models, run.fetches.fetch_log)
+
+    assert serialize_pricing_doc(result.doc).encode() == before[0]
+    assert not result.moves
+    for _ in range(2):
+        assert "no rate moved" in run.run(capsys)
+        assert (run.path.read_bytes(), run.constants.read_bytes(), run.state.read_bytes()) == before
+        assert not run.message.exists()
