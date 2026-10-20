@@ -79,6 +79,32 @@ def test_wrapped_targets_literal_arguments(program, kind, reads, writes):
     assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (kind, reads, writes)
 
 
+@pytest.mark.parametrize("program,kind,reads,writes", [
+    ('tools.exec_command({"cmd":"pwd"});', None, [], []),
+    ('tools.exec_command({"cmd":"cat"});', None, [], []),
+    ('tools.exec_command({"cmd":"/usr/bin/true"});', None, [], []),
+    ('tools.exec_command({"cmd":"cat real.py","workdir":"/workspace/toy-project"});',
+     "whole", ["/workspace/toy-project/real.py"], []),
+    ('await tools.exec_command({"workdir":42,"cmd":"cat real.py","budget":1e3});',
+     "whole", ["real.py"], []),
+    ('tools.exec_command({"cmd":"cat wrong.py","cmd":"cat real.py"});',
+     "whole", ["real.py"], []),
+    ('tools.monitor({"command":["bash","-lc","cat real.py"],"workdir":null});',
+     "whole", ["real.py"], []),
+    ('tools.exec_command({"cmd":"cat real.py > output.py"});', "whole", ["real.py"], ["output.py"]),
+    ('tools.exec_command({"\\u0063md":"cat hidden.py"});', None, [], []),
+    ('tools . /* gap */ exec_command({"cmd":"cat real.py"});', "whole", ["real.py"], []),
+    ('tools.exec_command({"cmd":"cat real.py"}).then(handle);', "whole", ["real.py"], []),
+    ('// tools.exec_command({"cmd":"cat ghost.py"});\n', None, [], []),
+    ('tools.exec_command({"cmd":"cat real.py","other":"\u2028"});', None, [], []),
+], ids=["bare-command", "bare-reader", "absolute-command", "literal-cwd", "scalar-options",
+        "last-key-wins", "argv", "redirect", "escaped-key", "call-trivia", "chained-call", "comment",
+        "raw-string-line-separator"])
+def test_wrapped_targets_complete_json_calls(program, kind, reads, writes):
+    row = _parse_program(program)
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (kind, reads, writes)
+
+
 def test_wrapped_tool_error_preserves_targets_and_existing_zero_churn_rule():
     blob = FIXTURE.read_bytes().replace(b'Tool use was rejected by user', b'Exit code 1')
     row = parse_file("codex/exec-targets.jsonl", blob)["tool_uses"][-1]

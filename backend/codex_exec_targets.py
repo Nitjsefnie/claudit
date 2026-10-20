@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
 from collections.abc import Iterator
 from enum import Enum, auto
@@ -27,6 +28,23 @@ _EXPRESSION_WORDS = frozenset({
     "instanceof", "in", "of", "yield", "await", "new",
 })
 _CONTROL_WORDS = frozenset({"if", "while", "for", "with", "switch", "catch"})
+_LINE_END = re.compile(r"[\r\n\u2028\u2029]")
+_REGEX_FLAGS_END = re.compile(r"[^\w$]")
+_SUPPORTED_API = re.compile(r"\b(?:exec_command|monitor|apply_patch)\b")
+_BARE_COMMAND = re.compile(r"\s*[A-Za-z0-9_./-]*\s*\Z")
+_JSON_STRING = r'"(?:[^"\\\r\n\u2028\u2029]|\\.)*"'
+_JSON_VALUE = (
+    rf'(?:{_JSON_STRING}|\[\s*(?:{_JSON_STRING}(?:\s*,\s*{_JSON_STRING})*)?\s*\]'
+    r'|true|false|null|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)'
+)
+_JSON_FIELD = rf'"[A-Za-z_][A-Za-z_0-9]*"\s*:\s*{_JSON_VALUE}'
+_DIRECT_SHELL_CALL = re.compile(
+    rf'\s*(?:await\s+)?tools\.(exec_command|monitor)\s*\(\s*'
+    rf'(\{{\s*(?:{_JSON_FIELD}(?:\s*,\s*{_JSON_FIELD})*)?\s*\}})\s*\)\s*;?\s*',
+    re.DOTALL,
+)
+_JSON_DECODER = json.JSONDecoder()
+_MAX_DIRECT_CHARS = 4096
 
 
 class _Expect(Enum):
@@ -70,8 +88,8 @@ def _trivia_end(src: str, start: int) -> int:
         if src[offset].isspace():
             offset += 1
         elif src.startswith("//", offset):
-            end = re.search(r"[\r\n\u2028\u2029]", src[offset + 2:])
-            offset = offset + 2 + end.end() if end else len(src)
+            end = _LINE_END.search(src, offset + 2)
+            offset = end.end() if end else len(src)
         elif src.startswith("/*", offset):
             end = src.find("*/", offset + 2)
             if end < 0:
@@ -162,8 +180,8 @@ def _regex_end(src: str, start: int) -> int:
         elif char == "]":
             in_class = False
         elif char == "/" and not in_class:
-            end = re.search(r"[^\w$]", src[offset + 1:])
-            return offset + 1 + end.start() if end else len(src)
+            end = _REGEX_FLAGS_END.search(src, offset + 1)
+            return end.start() if end else len(src)
         offset += 1
     return len(src) + 1
 
@@ -383,16 +401,15 @@ def _call_patch(program: str, tokens: list[_Token], start: int, stop: int,
     return _literal_value(program[tokens[start].start:tokens[stop - 1].end])
 
 
-def _shell_targets(program: str, start: int, name: str) -> tuple[str | None, list[str], list[str]]:
-    args = _literal_object(program, start)
+def _shell_targets(args: dict, name: str) -> tuple[str | None, list[str], list[str]]:
     cwd = args.get("workdir")
     command = args.get("cmd") if name == "exec_command" else _argv_command(args.get("command"))
-    if not isinstance(command, str):
+    if not isinstance(command, str) or _BARE_COMMAND.fullmatch(command):
         return None, [], []
     return scan_command(BashCommand(command), cwd if isinstance(cwd, str) else "")
 
 
-def program_targets(program: str) -> tuple[str | None, list[str], list[str]]:
+def _scanned_targets(program: str) -> tuple[str | None, list[str], list[str]]:
     """Fold literal inner calls onto one wrapper row; any slice wins its kind."""
     kind = None
     reads: list[str] = []
@@ -407,9 +424,24 @@ def program_targets(program: str) -> tuple[str | None, list[str], list[str]]:
             continue
         if tokens[start].text != "{" or pairs.get(start) != stop - 1:
             continue
-        call_kind, call_reads, call_writes = _shell_targets(program, tokens[start].start, name)
+        call_kind, call_reads, call_writes = _shell_targets(_literal_object(program, tokens[start].start), name)
         if call_kind is not None and kind != "slice":
             kind = call_kind
         reads.extend(call_reads)
         writes.extend(call_writes)
     return kind, list(dict.fromkeys(reads)), list(dict.fromkeys(writes))
+
+
+def program_targets(program: str) -> tuple[str | None, list[str], list[str]]:
+    """Decode small, complete JSON calls directly; scan all other supported programs."""
+    if "tools" not in program:
+        return None, [], []
+    direct = _DIRECT_SHELL_CALL.fullmatch(program) if len(program) <= _MAX_DIRECT_CHARS else None
+    if direct is not None:
+        try:
+            args = _JSON_DECODER.decode(direct[2])
+        except ValueError:
+            pass
+        else:
+            return _shell_targets(args, direct[1])
+    return _scanned_targets(program) if _SUPPORTED_API.search(program) else (None, [], [])
