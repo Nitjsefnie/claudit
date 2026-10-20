@@ -103,12 +103,13 @@ def _value_token_end(src: str, offset: int, expression_start: bool) -> tuple[int
 
 
 def _object_fields(src: str, start: int) -> Iterator[str]:
-    """Bound top-level fields to one call object, allowing non-JSON siblings."""
+    """Bound object fields; member names are operands even when spelled as keywords."""
     closers = {"{": "}", "[": "]", "(": ")"}
     stack: list[str] = []
     field_start = start + 1
     offset = start + 1
     expression_start = True
+    member_access = False
     while offset < len(src):
         char = src[offset]
         if src.startswith(("//", "/*"), offset):
@@ -121,6 +122,8 @@ def _object_fields(src: str, start: int) -> Iterator[str]:
             continue
         end, expression_start = _value_token_end(src, offset, expression_start)
         if end != offset:
+            expression_start = expression_start and not member_access
+            member_access = False
             offset = end
             continue
         if char in closers:
@@ -136,6 +139,7 @@ def _object_fields(src: str, start: int) -> Iterator[str]:
             field_start = offset + 1
         if not char.isspace():
             expression_start = char in "([{,:;=?!~+-*/%&|^<>"
+            member_access = char == "."
         offset += 1
 
 

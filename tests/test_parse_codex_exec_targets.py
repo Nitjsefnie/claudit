@@ -146,6 +146,21 @@ def test_wrapped_targets_survive_regex_siblings(other):
     assert (row["read_kind"], row["read_targets"], row["write_targets"]) == ("whole", ["input.py"], [])
 
 
+@pytest.mark.parametrize("other", [
+    "settings.return / divisor",
+    "settings.throw / divisor",
+    "settings.await / divisor",
+    "settings.in / divisor",
+    "settings /* object */ . /* property */ return / divisor",
+    "settings?.return / divisor",
+    "(function(){return /}/})()",
+], ids=["return-property", "throw-property", "await-property", "in-property",
+        "member-access-comments", "optional-member-access", "return-keyword-regex"])
+def test_wrapped_targets_preserve_division_after_keyword_properties(other):
+    row = _parse_program('tools.exec_command({other:' + other + ',cmd:"cat input.py"});')
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == ("whole", ["input.py"], [])
+
+
 @pytest.mark.parametrize("program,kind,reads", [
     ('tools.exec_command({cmd:"cat input.py",workdir:"/workspace/toy-project/"+suffix});',
      "whole", ["input.py"]),
