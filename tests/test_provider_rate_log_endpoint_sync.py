@@ -48,7 +48,6 @@ class SyncRun:
         self.message = tmp_path / "commit.txt"
         self.path.write_text(json.dumps(self.doc) + "\n", encoding="utf-8")
         self.constants.write_text('PRICING_VERSION = "13"\n', encoding="utf-8")
-        self.before = self.path.read_bytes(), self.constants.read_bytes()
 
     def run(self, capsys, *, sampled: bool = False):
         if sampled:
@@ -63,15 +62,10 @@ class SyncRun:
     def saved(self) -> dict:
         return expand_pricing_doc(json.loads(self.path.read_text(encoding="utf-8")))
 
-    def assert_untouched(self) -> None:
-        assert (self.path.read_bytes(), self.constants.read_bytes()) == self.before
-        assert not self.message.exists()
-        assert not self.path.with_name("pricing_notices.json").exists()
-
 
 @pytest.mark.parametrize("shape", ["repinned", "resolution_removed"])
-def test_stale_selected_endpoint_appends_at_detection(tmp_path, capsys, monkeypatch,
-                                                      shape):
+def test_stale_selected_endpoint_rewrites_from_log(
+        tmp_path, capsys, monkeypatch, shape):
     run = SyncRun(tmp_path, shape)
 
     rc, out, err = run.run(capsys)
@@ -79,11 +73,12 @@ def test_stale_selected_endpoint_appends_at_detection(tmp_path, capsys, monkeypa
     assert rc == 0 and not err
     saved = run.saved()
     assert saved["providers"][MODEL][HOST] == [
-        {"from": ROW_AT, "context_length": 131072, **RATE_A}, {"from": STAMP, "context_length": 131072, **LISTED}]
+        {"from": LOG_AT, **LISTED},
+        {"from": ROW_AT, "context_length": 131072, **LISTED}]
     assert saved["provider_rates_fetched"] == STAMP
     assert 'PRICING_VERSION = "14"' in run.constants.read_text(encoding="utf-8")
     assert f"changed   {HOST}" in out and f"sampled   {HOST}" not in out
-    assert "out of step with its endpoint's listed price" in out
+    assert "log rewrite" in out
     assert "1 changed" in run.message.read_text(encoding="utf-8")
     for name, table in pricing.load_tables(saved).items():
         monkeypatch.setattr(pricing, name, table)
@@ -108,30 +103,29 @@ def test_sampling_also_appends_stale_selected_endpoint(tmp_path, capsys, shape):
     ("resolution_removed", STAMP),
     ("resolution_removed", "2031-01-09T00:00:00Z"),
 ], ids=["repinned-older-row", "unselected-current-row", "unselected-future-row"])
-def test_selected_endpoint_already_in_step_writes_nothing(tmp_path, capsys, shape, row_at):
+def test_selected_endpoint_in_step_corrects_its_historical_start(tmp_path, capsys, shape, row_at):
     run = SyncRun(tmp_path, shape, row_at=row_at,
                   listed=RATE_B, row_rates=RATE_B)
 
     rc, out, err = run.run(capsys)
 
     assert rc == 0 and not err
-    run.assert_untouched()
-    assert "no rate moved" in out
-    assert HOST not in out
+    assert run.saved()["providers"][MODEL][HOST][0] == {"from": LOG_AT, **RATE_B}
+    assert "log rewrite" in out
 
 
 @pytest.mark.parametrize("row_at", [STAMP, "2031-01-09T00:00:00Z"])
-def test_out_of_step_endpoint_refuses_when_detection_cannot_append(
+def test_out_of_step_endpoint_rewrites_even_when_detection_cannot_append(
         tmp_path, capsys, row_at):
     run = SyncRun(tmp_path, "repinned", row_at=row_at)
 
     rc, out, err = run.run(capsys)
 
-    assert rc == 1, out
-    assert f"{MODEL} via {HOST}" in out and HOST in err
-    assert "out of step with its endpoint's listed price" in out
-    assert "not before the detection instant" in out
-    run.assert_untouched()
+    assert rc == 0 and not err, out
+    assert run.saved()["providers"][MODEL][HOST] == [
+        {"from": LOG_AT, **LISTED},
+        {"from": STAMP, "context_length": 131072, **LISTED}]
+    assert "log rewrite" in out
 
 
 @pytest.mark.parametrize("old_search", [0.0, 0.02])
@@ -144,14 +138,14 @@ def test_detected_token_state_shares_separately_sampled_search_change(
 
     assert rc == 0 and not err
     history = run.saved()["providers"][MODEL][HOST]
-    assert len(history) == 2
-    assert history[0].get("web_search", 0.0) == old_search
+    assert len(history) == 3
+    assert history[1].get("web_search", 0.0) == old_search
     assert history[-1] == {"from": STAMP, "context_length": 131072, **LISTED, "web_search": 0.03}
     assert "web_search" in out and "sampled at detection" in out
-    assert "out of step with its endpoint's listed price" in out
+    assert "log rewrite" in out
 
 
-def test_blocked_endpoint_refusal_still_publishes_other_hosts_move(tmp_path, capsys):
+def test_rewritten_endpoint_still_publishes_other_hosts_move(tmp_path, capsys):
     run = SyncRun(tmp_path, "repinned", row_at=STAMP)
     other = "OtherHost"
     run.doc["providers"][MODEL][other] = [_entry(ROW_AT, RATE_A)]
@@ -164,9 +158,11 @@ def test_blocked_endpoint_refusal_still_publishes_other_hosts_move(tmp_path, cap
 
     rc, out, err = run.run(capsys)
 
-    assert rc == 1 and HOST in err
+    assert rc == 0 and not err
     saved = run.saved()["providers"][MODEL]
-    assert saved[HOST] == [{"from": STAMP, "context_length": 131072, **RATE_A}]
-    assert saved[other] == [{"from": ROW_AT, "context_length": 131072, **RATE_A}, {"from": STAMP, "context_length": 131072, **LISTED}]
+    assert saved[HOST] == [{"from": LOG_AT, **LISTED},
+                           {"from": STAMP, "context_length": 131072, **LISTED}]
+    assert saved[other] == [{"from": LOG_AT, **LISTED},
+                            {"from": ROW_AT, "context_length": 131072, **LISTED}]
     assert f"changed   {other}" in out
-    assert "1 changed, 1 refused" in run.message.read_text(encoding="utf-8")
+    assert "2 changed" in run.message.read_text(encoding="utf-8")

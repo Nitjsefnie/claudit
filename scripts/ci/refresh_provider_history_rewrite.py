@@ -56,6 +56,16 @@ def _instant(stamp: str | None) -> datetime:
             else datetime.min.replace(tzinfo=timezone.utc))
 
 
+def _priced_history(history: list[dict]) -> list[tuple[datetime, dict]]:
+    """Compare rates at every instant, independent of grouping and annotations."""
+    states: list[tuple[datetime, dict]] = []
+    for entry in _flatten(history):
+        rates = {**effective_rates(entry), "web_search": entry.get("web_search", 0)}
+        if not states or rates != states[-1][1]:
+            states.append((_instant(entry.get("from")), rates))
+    return states
+
+
 def _sampled_changes(history: list[dict], as_of: str,
                      field: str) -> list[dict]:
     """Read old sampled field moves strictly before the rewrite cutoff."""

@@ -174,6 +174,7 @@ def test_search_move_keeps_logged_token_history_and_samples_only_search(
         entry["web_search"] = float(old_search_rate)
 
     run.edit(set_old_rate)
+    old_start = run.doc()["providers"][GLM]["OpenInference"][0]["from"]
     _search_rate(run, GLM, "OpenInference")
     _move(run, GLM, "OpenInference")
     listed = run.endpoint(GLM, "OpenInference")["pricing"]
@@ -195,7 +196,7 @@ def test_search_move_keeps_logged_token_history_and_samples_only_search(
     assert rc == 0, err
     history = run.doc()["providers"][GLM]["OpenInference"]
     logged, sampled_search = history[-2:]
-    assert logged["from"] == log_stamp
+    assert logged["from"] == old_start
     assert logged["web_search"] == float(old_search_rate)
     assert sampled_search["from"] == STAMP
     assert sampled_search["web_search"] == 0.0137
@@ -287,13 +288,15 @@ def test_oscillating_states_keep_separate_search_detection_timestamp():
 
     move = _append_search(hosts, RATES_A, entries)
 
-    history = hosts["SearchHost"]
+    history = refresh._occurrences(  # pylint: disable=protected-access
+        hosts["SearchHost"], "acme/search-9 via SearchHost")
     _history(history, "acme/search-9 via SearchHost", may_begin=True)
     at_detection = [entry for entry in history if entry.get("from") == STAMP]
     assert len(at_detection) == 1
     assert "band" not in at_detection[0]
-    assert history[1:5] == [
-        {**entry, "web_search": 0.002} for entry in entries]
+    assert history[:4] == [
+        {**entries[0], "from": None, "web_search": 0.002},
+        *[{**entry, "web_search": 0.002} for entry in entries[1:]]]
     assert at_detection[0]["web_search"] == 0.0137
     move_report = _render_move(move)
     assert "4 log entries" in move_report
@@ -407,7 +410,10 @@ def test_search_change_lands_on_the_next_token_append_after_conflict():
     later_stamp = later.strftime("%Y-%m-%dT%H:%M:%SZ")
     notices = []
 
-    move = _append_search(hosts, RATES_A, [{"from": later_stamp, **RATES_A}], notices=notices)
+    assert _append_search(hosts, RATES_B, [], notices=notices) is None
+    move = _append_search(hosts, RATES_A, [
+        {"from": STAMP, **RATES_B}, {"from": later_stamp, **RATES_A}],
+        at=later, notices=notices)
 
     _history(hosts["SearchHost"], "acme/search-9 via SearchHost",
              may_begin=True)
@@ -417,10 +423,10 @@ def test_search_change_lands_on_the_next_token_append_after_conflict():
     assert {field: hosts["SearchHost"][1][field]
             for field in RATE_FIELDS} == RATES_A
     assert hosts["SearchHost"][1]["web_search"] == 0.0137
-    assert notices and later_stamp in notices[0]
+    assert notices and "until the next append" in notices[0]
 
 
-def test_refresh_reports_deferred_search_change_without_rewriting_history(
+def test_refresh_rewrites_search_epoch_at_detection_from_the_listing(
         tmp_path, capsys):
     run = Run(tmp_path)
 
@@ -450,8 +456,9 @@ def test_refresh_reports_deferred_search_change_without_rewriting_history(
     out, err = capsys.readouterr()
 
     assert rc == 0, err
-    assert f"web_search change deferred from {STAMP} until the next append" in out
-    assert run.doc()["providers"][GLM]["OpenInference"] == previous
+    assert "log rewrite" in out
+    assert run.doc()["providers"][GLM]["OpenInference"] == [
+        {**previous[0], "web_search": 0.0137}]
 
 
 def test_prior_search_epochs_preserve_every_logged_state():
@@ -468,8 +475,12 @@ def test_prior_search_epochs_preserve_every_logged_state():
 
     _append_search(hosts, RATES_A, entries, search=0.003)
 
-    assert hosts["SearchHost"][2:] == [
-        {**entry, "web_search": 0.003} for entry in entries]
+    history = refresh._occurrences(  # pylint: disable=protected-access
+        hosts["SearchHost"], "acme/search-9 via SearchHost")
+    assert history == [
+        {**entries[0], "from": None, "web_search": 0.002},
+        {**entries[0], "from": _days_before_detection(8), "web_search": 0.003},
+        *[{**entry, "web_search": 0.003} for entry in entries[1:]]]
 
 
 # --- a listed 1h cache write is the create_1h rate --------------------------
