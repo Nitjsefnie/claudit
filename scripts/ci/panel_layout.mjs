@@ -156,12 +156,12 @@ const SUMMARY_PROBE = () => [...document.querySelectorAll('.dash-summary .stat-v
       label: cell.querySelector('.stat-label').textContent,
       value: el.textContent,
       scroll: el.scrollWidth, client: el.clientWidth,
+      scrollHeight: el.scrollHeight, clientHeight: el.clientHeight,
       width: box.width, cellWidth: cb.width,
-      outside: box.left < cb.left - 0.5 || box.right > cb.right + 0.5,
+      outside: box.left < cb.left - 0.5 || box.right > cb.right + 0.5
+        || box.top < cb.top - 0.5 || box.bottom > cb.bottom + 0.5,
     };
-  })
-  // Dates are out of scope; a clipped date is not this guard's subject.
-  .filter(stat => stat.label !== 'window');
+  });
 
 async function sweepWidth(browser, base, width, counters) {
   const ctx = await createSweepContext(browser, {
@@ -208,11 +208,17 @@ async function sweepWidth(browser, base, width, counters) {
       counters.failures += 1;
       console.log(`NO STATS  ${width}px ${route.name}  no summary values rendered`);
     }
+    if (!stats.some(stat => stat.label === 'lines added / deleted' && stat.value.trim())) {
+      counters.failures += 1;
+      console.log(`NO CHURN  ${width}px ${route.name}  no non-empty churn value rendered`);
+    }
     for (const stat of stats) {
-      if (stat.scroll > stat.client + 0.5 || stat.width > stat.cellWidth + 0.5 || stat.outside) {
+      if (stat.scroll > stat.client + 0.5 || stat.scrollHeight > stat.clientHeight + 0.5
+          || stat.width > stat.cellWidth + 0.5 || stat.outside) {
         counters.failures += 1;
         console.log(`OVERFLOW   ${width}px ${route.name}  summary "${stat.label}"`
           + ` value "${stat.value}" scroll ${stat.scroll}/${stat.client}px`
+          + ` vertical ${stat.scrollHeight}/${stat.clientHeight}px`
           + ` box ${stat.width}/${stat.cellWidth}px outside=${stat.outside}`);
       }
     }
