@@ -3,7 +3,7 @@
 The gate-freshness check goes red when master holds a commit an open
 head lacks whose changed paths intersect the trigger set. These tests
 pin the set: the directory families, the explicit members (the ratchet
-data file included — a tighten raises what the gates demand of the
+data files included — a tighten raises what the gates demand of the
 same source tree), the convention-read configs the extraction cannot
 see, and the property that every file a workflow names is covered.
 """
@@ -54,6 +54,7 @@ def test_families_are_the_gate_shaped_directories():
 
 def test_explicit_names_the_ratchet_data_and_the_scanner_config():
     assert ".github/ci-thresholds.json" in gts.EXPLICIT
+    assert ".github/comment-share.json" in gts.EXPLICIT
     assert ".gitleaks.toml" in gts.EXPLICIT
 
 
@@ -63,6 +64,7 @@ def test_explicit_names_every_convention_read_config():
     # cannot see them; they are held by hand, and each must exist.
     assert set(gts.EXPLICIT) == {
         ".github/ci-thresholds.json",
+        ".github/comment-share.json",
         ".gitleaks.toml",
         "backend/requirements.txt",
         "requirements-dev.txt",

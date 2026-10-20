@@ -6,7 +6,7 @@ name: ci gate
 # started no run at all — those check names went MISSING rather than
 # reporting, and a ruleset requiring them could never go green on such
 # a change. This workflow starts on every push and pull request
-# (one trigger-level ignore: the ratchet bot's data file, below),
+# (trigger-level ignores for both ratchet data files, below),
 # classifies the changed paths, and either runs every gate leg or
 # narrows: a docs-only run skips every leg; a setup-only run executes
 # only setup-docs, with the guard covered by tests on full runs. A bot-data-only run
@@ -65,6 +65,7 @@ on:
     paths-ignore:
       # The ratchet bot's data-only master commit must not restart the suite.
       - '.github/ci-thresholds.json'
+      - '.github/comment-share.json'
   workflow_dispatch:
 
 # Read-only except where a leg says otherwise. Tests execute the proposed

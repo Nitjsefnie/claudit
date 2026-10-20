@@ -1,0 +1,84 @@
+name: comment share
+
+# The fleet comment gate, replacing this repository's in-tree baseline. It is
+# its own workflow, not a ci-gate leg: `mode: auto` refuses a workflow_dispatch
+# event, and ci-gate is dispatched by hand, so a callee there would fail every
+# manual run. It carries no path filter on either trigger, so the check reports
+# on every pull request.
+#
+# AUTO MODE. A pull request checks the head tree against the records at the
+# pull request's base; a push to master tightens and rewrites
+# .github/comment-share.json in this job's checkout only. Tighten never commits
+# or pushes (comment-ratchet README, "Ratchet and records"), so the changed
+# records are staged and uploaded for ratchet-push.yml, which owns the deploy
+# key and the push.
+#
+# A RECORDS-ONLY BOT PUSH TERMINATES THE CHAIN. The ratchet bot's commit
+# changes the records file alone; JSON is not source the action measures, so
+# this run tightens nothing, stages no artifact, and no further push follows.
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: comment-share-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  comment-share:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Nitjsefnie-Actions/comment-ratchet@2791c0c2ebdd3bb13c62d37771f766b04fa2fc29 # v1.1.2
+        with:
+          target: '15'
+          records: '.github/comment-share.json'
+          mode: 'auto'
+          base-ref: ${{ github.event.pull_request.base.sha }}
+
+      # Staging stays keyless and follows this workflow's successful gate.
+      # A records-only push runs it once more, but an unchanged records file
+      # stages no artifact and terminates the push chain: JSON is not source
+      # the action measures. The base must name the exact measured run head.
+      - name: Stage changed records for the ratchet push
+        id: stage
+        if: github.event_name == 'push'
+        env:
+          BASE_SHA: ${{ github.sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$BASE_SHA" ]; then
+            echo 'Checkout does not match the measured run head' >&2
+            exit 1
+          fi
+          changed=0
+          git diff --quiet -- .github/comment-share.json || changed=$?
+          if [ "$changed" -gt 1 ]; then
+            echo "git diff failed with $changed" >&2
+            exit "$changed"
+          fi
+          if [ "$changed" -eq 0 ]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/ratchet-data"
+          cp .github/comment-share.json "$RUNNER_TEMP/ratchet-data/comment-share.json"
+          printf '%s\n' "$(git rev-parse HEAD)" > "$RUNNER_TEMP/ratchet-data/base.txt"
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+
+      - name: Upload the changed records
+        if: success() && steps.stage.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: comment-share-ratchet
+          path: ${{ runner.temp }}/ratchet-data
+          if-no-files-found: error
+          retention-days: 1

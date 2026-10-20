@@ -23,9 +23,9 @@ name: version-guard
 #
 # NO PATHS FILTER beyond the shared bot-commit exemption below: the tag
 # set changes when a release lands, independently of any push, so even a
-# VERSION-less push is a fresh fact worth checking. The one ignored path
-# is the CI ratchet's data file — the only thing the ratchet bot's
-# master commit touches, which says nothing about the tree VERSION and
+# VERSION-less push is a fresh fact worth checking. Both ignored paths
+# are ratchet data files — all the ratchet bot's
+# master commit touches, which say nothing about the tree VERSION and
 # must not start the guard (same exemption every other gate carries).
 
 on:
@@ -33,6 +33,7 @@ on:
     branches: [master]
     paths-ignore:
       - '.github/ci-thresholds.json'
+      - '.github/comment-share.json'
   pull_request:
   workflow_dispatch:
 
