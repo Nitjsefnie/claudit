@@ -469,9 +469,9 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
   keeps both blocks, and a committing run records them in the same state
   file as `vanished` (model → hosts) and `sampled` (model → host → the
   display classification), so a changed set or classification shows as a
-  diff of that file. The subject carries only this run's counts —
-  changed, new, refused; the vanished count left the subject with the
-  blocks (issue #933).
+  diff of that file. The subject carries this run's counts — changed,
+  new, refused — and the bare keys of provider moves rekeyed by the same
+  run; vanished hosts stay in the standing state.
 - Ambiguity is never guessed. Each of these refuses its host or model,
   leaving its rows untouched:
   - a host with multiple in-region prices that remain ambiguous after
@@ -598,8 +598,10 @@ pass moved.
   and grouped meter members, preserving catalog ids and provider histories.
   Adding a namespace takes the entries already under it to their bare keys
   on the next run, even when the catalog is unreadable. The run that rekeys
-  bumps `PRICING_VERSION`. A collision names both keys and refuses the write;
-  all rekeys are checked before any mutation.
+  bumps `PRICING_VERSION`. A collision names both source keys and refuses
+  the write; a destination still carrying a tracked prefix refuses with
+  its source and destination. All rekeys are checked before any mutation,
+  then tables and grouped members are rebuilt from their preserved values.
 
 - **Only text-output catalog entries are in scope.** The vendor pass considers
   an entry only when `architecture.output_modalities` is exactly `["text"]`.

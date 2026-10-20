@@ -261,6 +261,11 @@ def _priced_history(entries: list[dict], owners: list[int], schedules: dict, whe
 _VENDOR_NAME = re.compile(r"^[a-z0-9-]+$")
 
 
+def is_vendor_namespace(value: object) -> bool:
+    """Whether a value is a lowercase OpenRouter namespace string."""
+    return isinstance(value, str) and _VENDOR_NAME.fullmatch(value) is not None
+
+
 def bare_form(key: str, prefixes: list[str]) -> str:
     """Strip the longest tracked namespace prefix; leave other keys unchanged."""
     for prefix in sorted(prefixes, key=len, reverse=True):
@@ -280,8 +285,7 @@ def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[s
     vendor = openrouter.get("vendor")
     prefixes = vendor.get("prefixes") if isinstance(vendor, dict) else None
     if (not isinstance(prefixes, list) or not prefixes
-            or not all(isinstance(p, str) and p and _VENDOR_NAME.fullmatch(p)
-                       for p in prefixes)
+            or not all(is_vendor_namespace(p) for p in prefixes)
             or len(set(prefixes)) != len(prefixes)):
         raise ValueError(
             "pricing.json: openrouter.vendor.prefixes is missing or not a "

@@ -10,10 +10,7 @@ bare-id path resolves through), and catalog ids under a listed prefix join
 `["text"]`. Entries without that declaration, and entries with any other
 output modality, are dropped silently before selection and auto-add.
 
-Before fetching the catalog, the pass rekeys entries under tracked namespaces
-to their bare keys, preserving provider history and catalog ids. Adding a
-namespace takes its existing entries to bare keys on the next run, even with
-an unreadable catalog. A rekey bumps PRICING_VERSION; collisions refuse.
+Namespace rekeys follow SV-VENDOR-RATES.
 
 A catalog id under a listed prefix whose derived key is not yet tracked is
 ADDED to openrouter.models as ``{"id": <catalog id>, "vendor_host":
@@ -88,10 +85,10 @@ from refresh_prices import (MIN_PROMPT_TOKENS as _MIN_PROMPT,  # noqa: E402
                             PRICED, TOKEN_PRICED, RefreshError, Untracked,
                             is_zero, metered_band, rates_of)
 from refresh_report import vendor_report  # noqa: E402
+from refresh_vendor_keys import rekey  # noqa: E402
 import refresh_pricelog  # noqa: E402
 from backend import pricing  # noqa: E402
 from backend.pricing_document import expand_pricing_doc  # noqa: E402
-from backend.pricing_load import bare_form  # noqa: E402
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 
@@ -114,6 +111,7 @@ class VendorOutcome:
     moves: list[VendorMove] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
     refusals: list[str] = field(default_factory=list)
+    renames: dict[str, str] = field(default_factory=dict)
 
 
 def derive_key(catalog_id: str) -> str:
@@ -398,38 +396,11 @@ def _one_model(doc: dict, groups: list, model_id: str,
 
 def _rekey(doc: dict, outcome: VendorOutcome) -> None:
     """Plan all namespace moves before mutating; refuse any colliding keys."""
-    router = doc["openrouter"]
-    prefixes = router["vendor"]["prefixes"]
-    groups = doc.get("long_context_meters", [])
-    tables = [("openrouter.models", router["models"]),
-              ("providers", doc["providers"]),
-              ("openrouter.vendor.resolve", router["vendor"].get("resolve", {})),
-              ("long_context_meters", {_meter_model_key(entry): None
-                                       for group in groups for entry in group["models"]})]
-    changes: dict[str, str] = {}
-    for name, table in tables:
-        destinations: dict[str, str] = {}
-        for key in table:
-            bare = bare_form(key, prefixes)
-            if bare in destinations:
-                raise RefreshError(f"{name}: {destinations[bare]!r} and {key!r} "
-                                   f"both rekey to {bare!r}")
-            destinations[bare] = key
-            if key != bare:
-                changes[key] = bare
-    for name, table in tables[:3]:
-        for key in list(table):
-            if key in changes:
-                table[changes[key]] = table.pop(key)
-    for group in groups:
-        for index, entry in enumerate(group["models"]):
-            key = _meter_model_key(entry)
-            if key in changes:
-                group["models"][index] = (changes[key] if isinstance(entry, str)
-                                          else {changes[key]: entry[key]})
+    changes = rekey(doc)
+    outcome.renames.update(changes)
     for key, bare in changes.items():
         outcome.moves.append(VendorMove(
-            router["models"].get(bare, {}).get("id", key), bare, rekeyed=key))
+            doc["openrouter"]["models"].get(bare, {}).get("id", key), bare, rekeyed=key))
 
 
 def vendor_pass(doc: dict, fetch_models, fetch_endpoints) -> VendorOutcome:
