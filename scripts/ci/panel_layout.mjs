@@ -148,6 +148,21 @@ const PROBE = () => {
   return out;
 };
 
+const SUMMARY_PROBE = () => [...document.querySelectorAll('.dash-summary .stat-value')]
+  .map(el => {
+    const cell = el.closest('.stat');
+    const box = el.getBoundingClientRect(), cb = cell.getBoundingClientRect();
+    return {
+      label: cell.querySelector('.stat-label').textContent,
+      value: el.textContent,
+      scroll: el.scrollWidth, client: el.clientWidth,
+      width: box.width, cellWidth: cb.width,
+      outside: box.left < cb.left - 0.5 || box.right > cb.right + 0.5,
+    };
+  })
+  // Dates are out of scope; a clipped date is not this guard's subject.
+  .filter(stat => stat.label !== 'window');
+
 async function sweepWidth(browser, base, width, counters) {
   const ctx = await createSweepContext(browser, {
     viewport: { width, height: 1000 },
@@ -187,6 +202,20 @@ async function sweepWidth(browser, base, width, counters) {
     // and re-render when their own response lands; wait for the
     // layout to settle before reading any box.
     await page.waitForTimeout(1_500);
+    const stats = await page.evaluate(SUMMARY_PROBE);
+    counters.stats += stats.length;
+    if (!stats.length) {
+      counters.failures += 1;
+      console.log(`NO STATS  ${width}px ${route.name}  no summary values rendered`);
+    }
+    for (const stat of stats) {
+      if (stat.scroll > stat.client + 0.5 || stat.width > stat.cellWidth + 0.5 || stat.outside) {
+        counters.failures += 1;
+        console.log(`OVERFLOW   ${width}px ${route.name}  summary "${stat.label}"`
+          + ` value "${stat.value}" scroll ${stat.scroll}/${stat.client}px`
+          + ` box ${stat.width}/${stat.cellWidth}px outside=${stat.outside}`);
+      }
+    }
     const found = await page.evaluate(PROBE);
     if (!found.length) {
       // A route that renders no marked panel is a guard that checks
@@ -237,7 +266,7 @@ async function main() {
   const server = await serve();
   const base = `http://127.0.0.1:${server.address().port}`;
   const browser = await chromium.launch();
-  const counters = { failures: 0, panels: 0, unmarked: 0, known: [] };
+  const counters = { failures: 0, panels: 0, stats: 0, unmarked: 0, known: [] };
   try {
     await Promise.all(WIDTHS.map(w => sweepWidth(browser, base, w, counters)));
     await featureSurfaces(browser, base);
@@ -245,10 +274,10 @@ async function main() {
     await browser.close();
     server.close();
   }
-  const { failures, panels, unmarked, known } = counters;
+  const { failures, panels, stats, unmarked, known } = counters;
   const filed = [...new Set(known)].sort((a, b) => a - b);
   console.log(`panel-layout: ${panels} panel instances over ${WIDTHS.length} `
-    + `width(s), ${unmarked} without a data-role region, `
+    + `width(s), ${stats} summary values, ${unmarked} without a data-role region, `
     + `${known.length} violation(s) already filed`
     + `${filed.length ? ` (#${filed.join(', #')})` : ''}, `
     + `${failures} new violation(s)`);
