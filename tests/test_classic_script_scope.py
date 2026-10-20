@@ -34,11 +34,13 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
 
+from backend.js_min import minify_js
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML = ROOT / "public" / "index.html"
@@ -151,21 +153,14 @@ def _classic_scripts() -> list[tuple[str, str]]:
             if not url.startswith("/") or url.startswith("/vendor/"):
                 continue
             path = ROOT / url.lstrip("/")
-            out.append((url, path.read_text(encoding="utf-8")))
+            out.append((url, path.read_bytes().decode("utf-8")))
         elif body.strip():
             out.append(("<inline>", body))
     return out
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_classic_scripts_load_in_one_realm() -> None:
-    """All classic scripts instantiate over one shared global, no throw.
-
-    A collision fails with the instantiation SyntaxError itself,
-    prefixed by the failing script's index.html path.
-    """
-    scripts = _classic_scripts()
-    assert scripts, "index.html lost its classic scripts; guard ran on nothing"
+def _realm_summary(scripts: list[tuple[str, str]]) -> dict:
+    """Load one ordered script set and probe its globals and parser seams."""
     runner = _RUNNER.replace("%SEAMS%", repr(list(_SEAMS)))
     probes = {
         "codex_min.jsonl": CODEX_PROBE_FIXTURE,
@@ -185,7 +180,27 @@ def test_classic_scripts_load_in_one_realm() -> None:
         check=False,
     )
     assert proc.returncode == 0, proc.stderr.decode()
-    summary = json.loads(proc.stdout.decode())
+    return json.loads(proc.stdout.decode())
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_classic_scripts_load_in_one_realm() -> None:
+    """Sources and served copies expose the same working globals in one realm."""
+    scripts = _classic_scripts()
+    assert scripts, "index.html lost its classic scripts; guard ran on nothing"
+    summary = _realm_summary(scripts)
+    # Keep transformed coverage URLs outside the repository's src/**/*.js set.
+    with tempfile.TemporaryDirectory(prefix="claudit-classic-", dir="/tmp") as directory:
+        minified = []
+        for name, source in scripts:
+            if name == "<inline>":
+                minified.append((name, source))
+                continue
+            path = Path(directory) / name.lstrip("/")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(minify_js(source).encode("utf-8"))
+            minified.append((str(path), path.read_bytes().decode("utf-8")))
+        assert _realm_summary(minified) == summary
     for name in _SEAMS:
         assert summary["seams"][name] == "function", (
             f"window.{name} is {summary['seams'][name]!r} after the full "

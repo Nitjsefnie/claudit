@@ -6,10 +6,13 @@
 // an endpoint the frontend starts fetching cannot be added to one guard
 // and forgotten in the other.
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { dirname, join, normalize } from 'node:path';
+import { execFile } from 'node:child_process';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { existsSync, rmSync } from 'node:fs';
+import { dirname, extname, join, sep } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 export const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const FIXTURES = join(REPO, 'fixtures', 'layout');
@@ -46,11 +49,37 @@ const TYPES = {
   '.ico': 'image/x-icon',
 };
 
-export function serve() {
+const minify = promisify(execFile);
+const MINIFY_SOURCES = `
+from pathlib import Path
+import sys
+from backend.js_min import minify_js
+
+source = Path('src')
+output = Path(sys.argv[1])
+for path in source.rglob('*'):
+    if path.suffix in {'.js', '.jsx'} and path.is_file():
+        target = output / path.relative_to(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(minify_js(path.read_bytes().decode('utf-8')).encode('utf-8'))
+`;
+
+export async function serve() {
+  const transformed = await mkdtemp(join(tmpdir(), 'claudit-panel-src-'));
+  const cleanup = () => rmSync(transformed, {recursive: true, force: true});
+  try {
+    if (transformed.startsWith(REPO + sep)) {
+      throw new Error('Sweep temporary sources must be outside the repository');
+    }
+    await minify('python3', ['-c', MINIFY_SOURCES, transformed], {cwd: REPO});
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const rel = decodeURIComponent(url.pathname);
-    let file;
+    let file, root;
     if (rel === '/' || rel === '/index.html') {
       // The backend injects this line per request; the guards supply the
       // same globals so the very first React render already knows them.
@@ -65,15 +94,20 @@ export function serve() {
       res.end(html);
       return;
     }
-    if (rel.startsWith('/src/')) file = join(REPO, normalize(rel));
-    else if (rel === '/app.css' || rel === '/favicon.ico') {
-      file = join(REPO, 'public', rel.slice(1));
+    if (rel.startsWith('/src/')) {
+      root = ['.js', '.jsx'].includes(extname(rel)) ? transformed : join(REPO, 'src');
+      file = join(root, rel.slice('/src/'.length));
+    } else if (rel.startsWith('/vendor/')) {
+      root = join(REPO, 'public', 'vendor');
+      file = join(root, rel.slice('/vendor/'.length));
+    } else if (rel === '/app.css' || rel === '/favicon.ico') {
+      root = join(REPO, 'public');
+      file = join(root, rel.slice(1));
     } else {
       res.writeHead(404).end();
       return;
     }
-    // The repository root is the only tree this server reads from.
-    if (!file.startsWith(REPO) || !existsSync(file)) {
+    if (!file.startsWith(root + sep) || !existsSync(file)) {
       res.writeHead(404).end();
       return;
     }
@@ -83,7 +117,18 @@ export function serve() {
     });
     res.end(await readFile(file));
   });
-  return new Promise(resolve => {
+  // Some sweeps exit immediately after close(); reap on either lifecycle path.
+  process.once('exit', cleanup);
+  server.once('close', () => {
+    process.off('exit', cleanup);
+    cleanup();
+  });
+  return new Promise((resolve, reject) => {
+    server.once('error', error => {
+      process.off('exit', cleanup);
+      cleanup();
+      reject(error);
+    });
     server.listen(0, '127.0.0.1', () => resolve(server));
   });
 }

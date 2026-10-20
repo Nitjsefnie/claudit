@@ -36,7 +36,7 @@ async function fetchScript(url, fetchImpl, wait) {
 export async function createSweepContext(browser, options = {}, {
   fetchImpl = globalThis.fetch, wait = setTimeout,
 } = {}) {
-  if (!urls.length) throw new Error('No unpkg scripts found in public/index.html');
+  // Local scripts need no recovery: the sweep server supplies them directly.
   // Prefetch before allocating a context so exhaustion rejects setup, outside a route callback.
   const responses = await Promise.all(urls.map(url => {
     if (!scripts.has(url)) scripts.set(url, fetchScript(url, fetchImpl, wait));
