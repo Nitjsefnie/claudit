@@ -416,8 +416,8 @@ def _scratch_fixture(tmp_path: Path) -> Path:
     (seed / "src").mkdir()
     (seed / "README.md").write_text("seed\n", encoding="utf-8")
     (seed / "backend" / "constants.py").write_text(
-        'PRICING_VERSION = "6"\n', encoding="utf-8")
-    (seed / "src" / "pricing.json").write_text("{\n", encoding="utf-8")
+        'PRICING_VERSION = "6"\n', encoding="utf-8", newline="\n")
+    (seed / "src" / "pricing.json").write_text("{\n", encoding="utf-8", newline="\n")
     _configure_identity(seed)
     _run(["git", "add", "README.md", "backend/constants.py",
           "src/pricing.json"], cwd=seed)
@@ -469,15 +469,15 @@ def _stage_push_data(scratch: Path) -> str:
     data = scratch / "runner-temp" / "push-data"
     data.mkdir(parents=True, exist_ok=True)
     (data / "pricing.json").write_text(
-        '{\n  "refreshed": true\n', encoding="utf-8")
+        '{\n  "refreshed": true\n', encoding="utf-8", newline="\n")
     (data / "constants.py").write_text(
-        'PRICING_VERSION = "7"\n', encoding="utf-8")
+        'PRICING_VERSION = "7"\n', encoding="utf-8", newline="\n")
     (data / "pricing_notices.json").write_text(
-        '{\n  "notices": [\n    "delisted: alpha"\n  ]\n}\n', encoding="utf-8")
+        '{\n  "notices": [\n    "delisted: alpha"\n  ]\n}\n', encoding="utf-8", newline="\n")
     (data / "commit-msg.txt").write_text(
-        "refresh report, invocation 1\n", encoding="utf-8")
+        "refresh report, invocation 1\n", encoding="utf-8", newline="\n")
     base = _sha(scratch / "remote.git", "master")
-    (data / "base.txt").write_text(f"{base}\n", encoding="utf-8")
+    (data / "base.txt").write_text(f"{base}\n", encoding="utf-8", newline="\n")
     return base
 
 

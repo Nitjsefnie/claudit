@@ -142,8 +142,8 @@ def test_main_bumps_version_when_rekey_is_the_only_move(tmp_path, capsys):
     message_path = tmp_path / "commit-msg.txt"
     doc = _prefixed_doc()
     history = copy.deepcopy(doc["providers"][PREFIXED])
-    pricing_path.write_text(serialize_pricing_doc(doc), encoding="utf-8")
-    constants_path.write_text('PRICING_VERSION = "100"\n', encoding="utf-8")
+    pricing_path.write_text(serialize_pricing_doc(doc), encoding="utf-8", newline="\n")
+    constants_path.write_text('PRICING_VERSION = "100"\n', encoding="utf-8", newline="\n")
     assert refresh.main(
         ["--commit-msg", str(message_path)],
         fetch=pytest.fail,
@@ -193,8 +193,8 @@ def test_main_overlapping_sources_write_nothing(reverse, tmp_path, capsys):
     path = tmp_path / "pricing.json"
     constants = tmp_path / "constants.py"
     message = tmp_path / "commit-msg.txt"
-    path.write_text(serialize_pricing_doc(_overlapping_doc(reverse)), encoding="utf-8")
-    constants.write_text('PRICING_VERSION = "100"\n', encoding="utf-8")
+    path.write_text(serialize_pricing_doc(_overlapping_doc(reverse)), encoding="utf-8", newline="\n")
+    constants.write_text('PRICING_VERSION = "100"\n', encoding="utf-8", newline="\n")
     previous = {file.name: file.read_bytes() for file in tmp_path.iterdir()}
     assert refresh.main(
         ["--commit-msg", str(message)], pricing_path=path, constants_path=constants,
@@ -255,7 +255,7 @@ def test_standalone_malformed_shape_returns_failure(
         malformed_doc, monkeypatch, tmp_path, capsys):
     doc, problem = malformed_doc
     path = tmp_path / "pricing.json"
-    path.write_text(json.dumps(doc), encoding="utf-8")
+    path.write_text(json.dumps(doc), encoding="utf-8", newline="\n")
     previous = path.read_bytes()
     monkeypatch.setattr(vendor, "PRICING_JSON", path)
     monkeypatch.setattr(vendor.refresh_pricelog, "fetch_models", _catalog)
@@ -288,8 +288,8 @@ def test_main_preserves_models_table_meter(
                  if rename_owner == "resolve" else {}),
         members=["p/local"])
     assert _meter_flags(doc, monkeypatch) == (True, None)
-    path.write_text(serialize_pricing_doc(doc), encoding="utf-8")
-    constants.write_text('PRICING_VERSION = "100"\n', encoding="utf-8")
+    path.write_text(serialize_pricing_doc(doc), encoding="utf-8", newline="\n")
+    constants.write_text('PRICING_VERSION = "100"\n', encoding="utf-8", newline="\n")
     assert refresh.main(
         [], pricing_path=path, constants_path=constants, now=NOW,
         fetch=pytest.fail, fetch_log=pytest.fail,
@@ -385,8 +385,8 @@ def test_rekey_reports_provider_moves_and_standing_state(surface, tmp_path, caps
     doc = _prefixed_doc()
     doc["providers"][PREFIXED]["Gone"] = [{"from": None, **RATES}]
     previous = copy.deepcopy(doc["providers"][PREFIXED])
-    path.write_text(serialize_pricing_doc(doc), encoding="utf-8")
-    constants.write_text('PRICING_VERSION = "100"\n', encoding="utf-8")
+    path.write_text(serialize_pricing_doc(doc), encoding="utf-8", newline="\n")
+    constants.write_text('PRICING_VERSION = "100"\n', encoding="utf-8", newline="\n")
     assert refresh.main(
         ["--commit-msg", str(message)], pricing_path=path, constants_path=constants,
         now=NOW, fetch_models=lambda: _catalog(CATALOG_ID), fetch_log=pytest.fail,
