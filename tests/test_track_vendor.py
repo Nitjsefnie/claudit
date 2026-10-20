@@ -15,7 +15,7 @@ from tests.vendor_rate_refresh_helpers import NOW, _load
 @pytest.fixture(name="pricing_path")
 def _pricing_path(tmp_path: Path) -> Path:
     path = tmp_path / "pricing.json"
-    path.write_text(serialize_pricing_doc(seed_doc()), encoding="utf-8")
+    path.write_text(serialize_pricing_doc(seed_doc()), encoding="utf-8", newline="\n")
     return path
 
 
@@ -102,7 +102,7 @@ def test_catalog_fetch_failure_names_namespace_and_reason(pricing_path, capsys):
 def test_would_be_document_is_loader_checked(pricing_path, capsys):
     raw = json.loads(pricing_path.read_bytes())
     raw["openrouter"]["vendor"]["prefixes"].append("INVALID")
-    pricing_path.write_text(json.dumps(raw), encoding="utf-8")
+    pricing_path.write_text(json.dumps(raw), encoding="utf-8", newline="\n")
     before = pricing_path.read_bytes()
     rc = _load("track_vendor").main(
         ["--namespace", "acme"], pricing_path=pricing_path, now=NOW,
@@ -126,7 +126,7 @@ def test_commit_message_survives_a_prefix_only_refresh(pricing_path, tmp_path):
     assert "acme" in body
     assert captured == "Captured by .github/workflows/refresh-pricing.yml."
     constants = tmp_path / "constants.py"
-    constants.write_text('PRICING_VERSION = "100"\n', encoding="utf-8")
+    constants.write_text('PRICING_VERSION = "100"\n', encoding="utf-8", newline="\n")
     before = message.read_bytes()
     refresh = _load("refresh_provider_rates")
     assert refresh.main(
