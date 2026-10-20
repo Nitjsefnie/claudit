@@ -63,7 +63,8 @@ def validate(doc: dict) -> None:
             or len(set(prefixes)) != len(prefixes)):
         raise RefreshError("openrouter.vendor.prefixes must be a non-empty list "
                            "of distinct lowercase [a-z0-9-] namespace strings")
-    for name, table in (("openrouter.models", router.get("models")),
+    for name, table in (("models", doc.get("models")),
+                        ("openrouter.models", router.get("models")),
                         ("providers", doc.get("providers")),
                         ("openrouter.vendor.resolve", vendor.get("resolve", {}))):
         if not isinstance(table, dict):
@@ -75,19 +76,22 @@ def validate(doc: dict) -> None:
 
 
 def rekey(doc: dict) -> dict[str, str]:
-    """Check all destinations before changing any table; return old→new keys."""
+    """Check all destinations before mutation; return tracked-model renames."""
     validate(doc)
     router = doc["openrouter"]
     vendor = router["vendor"]
     prefixes = vendor["prefixes"]
     groups = doc["long_context_meters"]
-    tables = [("openrouter.models", router["models"]),
-              ("providers", doc["providers"]),
-              ("openrouter.vendor.resolve", vendor.get("resolve", {}))]
     changes: dict[str, str] = {}
-    mappings = [(table, _mapping(name, table, prefixes, changes))
-                for name, table in tables]
-    members = _members(groups, changes)
+    tables = [("openrouter.models", router["models"], changes),
+              ("providers", doc["providers"], {}),
+              ("openrouter.vendor.resolve", vendor.get("resolve", {}), {})]
+    mappings = [(table, _mapping(name, table, prefixes, renames))
+                for name, table, renames in tables]
+    # A models-table member stays with that unrenamed table even when a
+    # tracked row shares its spelling. Other members follow tracked rows.
+    members = _members(groups, {key: bare for key, bare in changes.items()
+                                if key not in doc["models"]})
     for table, mapping in mappings:
         table.clear()
         table.update(mapping)
