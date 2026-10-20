@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import re
 
+from backend.bash_braces import brace_words
+
 MAX_LITERAL_CHARS = 100_000
 NULL_SINKS = ("/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty")
 _WORD = re.compile(r'''(?:'[^']*'|"(?:\\.|[^"\\])*"|\$\{[^}]*\}|\\[\s\S]|[^\s'"\\|;&<>()])+''')
@@ -25,6 +27,7 @@ class ShellWord(str):
     expansion: str
     unquoted_expansion: bool
     double_paren: bool
+    brace_unknown: bool
 
     def __new__(cls, value: str, literal: bool = True,
                 operator: bool = False) -> ShellWord:
@@ -103,7 +106,20 @@ def _mark_adjacent_parens(token: ShellWord, command: str, idx: int,
         token.double_paren = True
 
 
-def shell_tokens(command: str) -> list[ShellWord]:
+def _brace_tokens(raw: str) -> list[ShellWord]:
+    expanded = brace_words(raw)
+    if expanded is None:
+        unknown = ShellWord(raw, literal=False)
+        unknown.brace_unknown = True
+        unknown.expansion = "$"
+        return [unknown]
+    words = [_decode_word(word) for word in expanded]
+    for word in words:
+        word.brace_unknown = not word.literal
+    return words
+
+
+def shell_tokens(command: str, *, expand_braces: bool = False) -> list[ShellWord]:
     """Tokenize a small shell grammar; malformed/unsupported syntax is empty."""
     if "\x00" in command:
         return []
@@ -137,13 +153,12 @@ def shell_tokens(command: str) -> list[ShellWord]:
             return []
         raw = match.group()
         if _brace_expands(raw):
-            # Refuse the unsupported command rather than treating expansion
-            # syntax as literal paths or evaluating shell-produced words.
-            return []
-        if raw in ("{", "}"):
-            tokens.append(ShellWord(raw, operator=True))
+            if not expand_braces:
+                # Churn keeps its conservative tokenizer-rejected estimate.
+                return []
+            tokens.extend(_brace_tokens(raw))
         else:
-            tokens.append(_decode_word(raw))
+            tokens.append(ShellWord(raw, operator=True) if raw in ("{", "}") else _decode_word(raw))
         idx = match.end()
     return tokens
 

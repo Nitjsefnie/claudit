@@ -278,6 +278,12 @@ def write_targets(name: str, operands: list[str], *, literal_only: bool = True) 
     Only the churn caller may use unresolved sink operands as write intent;
     stored targets always require literal paths after assignment expansion.
     """
+    if name == "gh" and literal_only and operands[:2] == ["repo", "clone"]:
+        # The gh separator starts git's passthrough arguments, not a directory.
+        args = operands[2:]
+        if "--" in args:
+            args = args[:args.index("--")]
+        return write_targets("git", [ShellWord("clone"), *args])
     if name not in WRITE_TARGET_COMMANDS:
         return []
     if any(getattr(arg, "operator", False) or (literal_only and not getattr(arg, "literal", False))

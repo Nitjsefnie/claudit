@@ -496,6 +496,20 @@ def test_a_flat_rate_prices_records_at_both_fixture_timestamps(monkeypatch):
     ]
 
 
+def test_bash_brace_expansion_write_targets():
+    tool = parse.parse_file(
+        "k/s/s.jsonl", _read("bash_brace_expansion_write_targets.jsonl"))["tool_uses"][0]
+    assert tool["write_targets"] == ["/tmp/a", "/tmp/a/x.s", "/tmp/a/x.t"]
+    assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
+
+
+def test_bash_gh_repo_clone_write_targets():
+    tool = parse.parse_file(
+        "k/s/s.jsonl", _read("bash_gh_repo_clone_write_targets.jsonl"))["tool_uses"][0]
+    assert tool["write_targets"] == ["/tmp/d"]
+    assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
+
+
 def test_bash_mkdir_checkout_yields_directory_write_targets():
     """mkdir, git worktree add and a bare git clone name what they put
     on disk, resolved against the command's cwd."""
