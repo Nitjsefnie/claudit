@@ -169,6 +169,86 @@ def test_sweep_server_cleans_up_on_immediate_exit():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_sweep_server_cleans_up_on_startup_exit():
+    out = _node("""
+      const {default: childProcess} = await import('node:child_process');
+      const {syncBuiltinESMExports} = await import('node:module');
+      childProcess.execFile = (...args) => {
+        console.log(JSON.stringify({output: args[1].at(-1)}));
+        process.exit(0);
+      };
+      syncBuiltinESMExports();
+      const {serve} = await import('./scripts/ci/panel_server.mjs');
+      await serve();
+    """, cdn_page=False)
+    output = Path(out["output"])
+    assert not output.is_relative_to(ROOT)
+    assert not output.exists()
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize("phase", ["startup", "ready"])
+def test_sweep_server_cleans_up_on_sigterm(tmp_path: Path, phase: str):
+    script = tmp_path / "sweep-server.mjs"
+    script.write_text(
+        "const phase = " + json.dumps(phase) + ";\n" + """
+      import childProcess from 'node:child_process';
+      import {syncBuiltinESMExports} from 'node:module';
+      const execOriginal = childProcess.execFile;
+      childProcess.execFile = (...args) => {
+        if (phase === 'startup') args[1][1] = 'import time; time.sleep(30)\\n' + args[1][1];
+        const child = execOriginal(...args);
+        console.log(JSON.stringify({phase: 'startup', output: args[1].at(-1), child: child.pid}));
+        return child;
+      };
+      syncBuiltinESMExports();
+    """ + f"const {{serve}} = await import({json.dumps((ROOT / 'scripts/ci/panel_server.mjs').as_uri())});\n"
+        + "await serve(); console.log(JSON.stringify({phase: 'ready'}));\n",
+        encoding="utf-8",
+    )
+    out = _node(f"const script = {json.dumps(str(script))}, phase = {json.dumps(phase)};\n" + """
+      const {spawn, execFileSync} = await import('node:child_process');
+      const {once} = await import('node:events');
+      const {createInterface} = await import('node:readline');
+      const {stat} = await import('node:fs/promises');
+      const child = spawn(process.execPath, [script]);
+      const closed = once(child, 'close');
+      let output, transform, errors = '';
+      child.stderr.on('data', data => { errors += data; });
+      try {
+        for await (const line of createInterface({input: child.stdout})) {
+          const event = JSON.parse(line);
+          if (event.output) { output = event.output; transform = event.child; }
+          if (event.phase === phase) break;
+        }
+        assert.ok(output, errors);
+        const command = execFileSync('ps', ['-ww', '-p', String(child.pid), '-o', 'args='],
+          {encoding: 'utf8'});
+        assert.ok(command.includes(script), command);
+        child.kill('SIGTERM');
+        const [code, signal] = await closed;
+        assert.equal(code, 143, errors);
+        assert.equal(signal, null);
+        await assert.rejects(() => stat(`/proc/${child.pid}`), {code: 'ENOENT'});
+        await assert.rejects(() => stat(`/proc/${transform}`), {code: 'ENOENT'});
+        await assert.rejects(() => stat(output), {code: 'ENOENT'});
+        console.log(JSON.stringify({terminated: true, output}));
+      } finally {
+        if (transform) {
+          try { process.kill(transform, 'SIGKILL'); }
+          catch (error) { if (error.code !== 'ESRCH') throw error; }
+        }
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGKILL');
+          await closed;
+        }
+      }
+    """, cdn_page=False)
+    assert out["terminated"] is True
+    assert not Path(out["output"]).exists()
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_sweep_server_rejects_failed_transform(tmp_path: Path, monkeypatch):
     python = tmp_path / "python3"
     python.write_text(

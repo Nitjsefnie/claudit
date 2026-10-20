@@ -7,12 +7,11 @@
 // and forgotten in the other.
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile } from 'node:fs/promises';
-import { existsSync, rmSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { dirname, extname, join, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 
 export const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const FIXTURES = join(REPO, 'fixtures', 'layout');
@@ -49,7 +48,6 @@ const TYPES = {
   '.ico': 'image/x-icon',
 };
 
-const minify = promisify(execFile);
 const MINIFY_SOURCES = `
 from pathlib import Path
 import sys
@@ -59,21 +57,51 @@ source = Path('src')
 output = Path(sys.argv[1])
 for path in source.rglob('*'):
     if path.suffix in {'.js', '.jsx'} and path.is_file():
-        target = output / path.relative_to(source)
-        target.parent.mkdir(parents=True, exist_ok=True)
+        relative = path.relative_to(source)
+        parent = output
+        for part in relative.parts[:-1]:
+            parent = parent / part
+            parent.mkdir(exist_ok=True)
+        target = output / relative
         target.write_bytes(minify_js(path.read_bytes().decode('utf-8')).encode('utf-8'))
 `;
 
 export async function serve() {
-  const transformed = await mkdtemp(join(tmpdir(), 'claudit-panel-src-'));
-  const cleanup = () => rmSync(transformed, {recursive: true, force: true});
+  const transformed = mkdtempSync(join(tmpdir(), 'claudit-panel-src-'));
+  let child;
+  const cleanup = () => {
+    child?.kill('SIGKILL');
+    rmSync(transformed, {recursive: true, force: true, maxRetries: 3, retryDelay: 10});
+  };
+  const terminate = () => {
+    if (child) {
+      child.once('close', () => process.exit(143));
+      child.kill('SIGKILL');
+    } else process.exit(143);
+  };
+  const release = () => {
+    cleanup();
+    process.off('exit', cleanup);
+    process.off('SIGTERM', terminate);
+  };
+  // Own the directory before startup can yield; exit handlers are synchronous.
+  // The child creates descendants only, so it cannot recreate a deleted root.
+  process.once('exit', cleanup);
+  process.once('SIGTERM', terminate);
   try {
     if (transformed.startsWith(REPO + sep)) {
       throw new Error('Sweep temporary sources must be outside the repository');
     }
-    await minify('python3', ['-c', MINIFY_SOURCES, transformed], {cwd: REPO});
+    await new Promise((resolve, reject) => {
+      child = execFile('python3', ['-c', MINIFY_SOURCES, transformed], {cwd: REPO},
+        (error, stdout, stderr) => {
+          child = null;
+          if (error) reject(Object.assign(error, {stdout, stderr}));
+          else resolve();
+        });
+    });
   } catch (error) {
-    cleanup();
+    release();
     throw error;
   }
   const server = createServer(async (req, res) => {
@@ -117,16 +145,10 @@ export async function serve() {
     });
     res.end(await readFile(file));
   });
-  // Some sweeps exit immediately after close(); reap on either lifecycle path.
-  process.once('exit', cleanup);
-  server.once('close', () => {
-    process.off('exit', cleanup);
-    cleanup();
-  });
+  server.once('close', release);
   return new Promise((resolve, reject) => {
     server.once('error', error => {
-      process.off('exit', cleanup);
-      cleanup();
+      release();
       reject(error);
     });
     server.listen(0, '127.0.0.1', () => resolve(server));
