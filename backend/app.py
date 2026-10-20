@@ -39,6 +39,7 @@ from backend import branding, flags  # noqa: E402
 from backend.feature_payloads import features_script  # noqa: E402
 from backend.ingest_progress import health  # noqa: E402
 from backend.source_files import MinifiedStaticFiles  # noqa: E402
+from backend.source_asset_identity import source_transform_identity  # noqa: E402
 # pylint: enable=wrong-import-position
 
 log = logging.getLogger("claudit.app")
@@ -314,7 +315,8 @@ async def root_index(request: Request) -> Response:
             v = int(asset.stat().st_mtime)
         except OSError:
             return m.group(0)
-        return m.group(0).replace(path, f"{path}?v={v}")
+        identity = f"&amp;transform={source_transform_identity()}" if path.startswith("/src/") else ""
+        return m.group(0).replace(path, f"{path}?v={v}{identity}")
 
     html = re.sub(r'(?:src|data-pricing)="(/(?:src|vendor)/[^"?]+)"', _bust_asset, html)
     # Every script ELEMENT's open tag carries the response's CSP nonce
