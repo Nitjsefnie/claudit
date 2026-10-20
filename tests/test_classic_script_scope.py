@@ -190,7 +190,8 @@ def test_classic_scripts_load_in_one_realm() -> None:
     assert scripts, "index.html lost its classic scripts; guard ran on nothing"
     summary = _realm_summary(scripts)
     # Keep transformed coverage URLs outside the repository's src/**/*.js set.
-    with tempfile.TemporaryDirectory(prefix="claudit-classic-", dir="/tmp") as directory:
+    with tempfile.TemporaryDirectory(prefix="claudit-classic-") as directory:
+        assert not Path(directory).resolve().is_relative_to(ROOT)
         minified = []
         changed = False
         for name, source in scripts:

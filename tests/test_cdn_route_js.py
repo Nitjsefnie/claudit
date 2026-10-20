@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -51,6 +52,12 @@ def test_every_sweep_creates_contexts_through_cdn_helper():
 def _node(body: str, *, cdn_page: bool = True) -> dict:
     script = (
         "import assert from 'node:assert/strict';\n"
+        "import testChildProcess from 'node:child_process';\n"
+        "import {syncBuiltinESMExports as syncTestExports} from 'node:module';\n"
+        "const nativeExecFile = testChildProcess.execFile;\n"
+        "testChildProcess.execFile = (command, ...args) => nativeExecFile(\n"
+        f"  command === 'python3' ? {json.dumps(sys.executable)} : command, ...args);\n"
+        "syncTestExports();\n"
         f"{CDN_PAGE_SETUP if cdn_page else ''}\n"
         f"const mod = await import({json.dumps(MODULE.as_uri())});\n"
         f"{body}\n"
@@ -187,17 +194,19 @@ def test_sweep_server_cleans_up_on_startup_exit():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX ps and real SIGTERM delivery")
 @pytest.mark.parametrize("phase", ["startup", "ready"])
 def test_sweep_server_cleans_up_on_sigterm(tmp_path: Path, phase: str):
     script = tmp_path / "sweep-server.mjs"
     script.write_text(
-        "const phase = " + json.dumps(phase) + ";\n" + """
+        "const phase = " + json.dumps(phase) + ";\n"
+        + "const python = " + json.dumps(sys.executable) + ";\n" + """
       import childProcess from 'node:child_process';
       import {syncBuiltinESMExports} from 'node:module';
       const execOriginal = childProcess.execFile;
       childProcess.execFile = (...args) => {
         if (phase === 'startup') args[1][1] = 'import time; time.sleep(30)\\n' + args[1][1];
-        const child = execOriginal(...args);
+        const child = execOriginal(python, ...args.slice(1));
         console.log(JSON.stringify({phase: 'startup', output: args[1].at(-1), child: child.pid}));
         return child;
       };
@@ -229,8 +238,9 @@ def test_sweep_server_cleans_up_on_sigterm(tmp_path: Path, phase: str):
         const [code, signal] = await closed;
         assert.equal(code, 143, errors);
         assert.equal(signal, null);
-        await assert.rejects(() => stat(`/proc/${child.pid}`), {code: 'ENOENT'});
-        await assert.rejects(() => stat(`/proc/${transform}`), {code: 'ENOENT'});
+        assert.throws(() => process.kill(child.pid, 0), {code: 'ESRCH'});
+        assert.throws(() => process.kill(transform, 0), {code: 'ESRCH'});
+        transform = null;
         await assert.rejects(() => stat(output), {code: 'ENOENT'});
         console.log(JSON.stringify({terminated: true, output}));
       } finally {
@@ -249,16 +259,17 @@ def test_sweep_server_cleans_up_on_sigterm(tmp_path: Path, phase: str):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_sweep_server_rejects_failed_transform(tmp_path: Path, monkeypatch):
-    python = tmp_path / "python3"
-    python.write_text(
-        "#!/bin/sh\nprintf '%s' \"$3\"\nprintf 'minify fixture failed\\n' >&2\nexit 42\n",
-        encoding="utf-8",
-    )
-    python.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+def test_sweep_server_rejects_failed_transform():
     out = _node("""
+      const {default: childProcess} = await import('node:child_process');
+      const {syncBuiltinESMExports} = await import('node:module');
       const {stat} = await import('node:fs/promises');
+      const execOriginal = childProcess.execFile;
+      childProcess.execFile = (_command, args, options, callback) => execOriginal(
+        process.execPath, ['-e', "process.stdout.write(process.argv[1]);"
+          + "process.stderr.write('minify fixture failed\\\\n'); process.exit(42);", args.at(-1)],
+        options, callback);
+      syncBuiltinESMExports();
       let output;
       const {serve} = await import('./scripts/ci/panel_server.mjs');
       await assert.rejects(() => serve().then(server => { server.close(); }), error => {

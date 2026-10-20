@@ -18,6 +18,7 @@ independence, no clobbering, streaming) against `_SecurityHeaders`
 directly.
 """
 import asyncio
+import mimetypes
 from pathlib import Path
 
 import pytest
@@ -59,7 +60,8 @@ def test_vendor_scripts_serve_committed_bytes_with_session(guest_client, name):
     assert denied.headers["location"] == "/login"
     resp = guest_client.get(url)
     assert resp.status_code == 200
-    assert resp.headers["content-type"].split(";")[0] == "text/javascript"
+    expected_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    assert resp.headers["content-type"].split(";")[0] == expected_type
     assert resp.headers["x-content-type-options"] == "nosniff"
     assert resp.content == path.read_bytes()
     page = guest_client.get("/").text
