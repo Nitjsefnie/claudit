@@ -23,8 +23,34 @@ def _mapping(name: str, table: dict, prefixes: list[str], changes: dict) -> dict
     return {bare_form(key, prefixes) or key: value for key, value in table.items()}
 
 
-def rekey(doc: dict) -> dict[str, str]:
-    """Check all destinations before changing any table; return old→new keys."""
+def _members(groups: list, changes: dict[str, str]) -> list[list]:
+    destinations: dict[str, str] = {}
+    members = []
+    for index, group in enumerate(groups):
+        where = f"long_context_meters[{index}]"
+        if not isinstance(group, dict) or not isinstance(group.get("models"), list):
+            raise RefreshError(f"{where} must be a mapping with a models list")
+        entries = []
+        for entry in group["models"]:
+            if not (isinstance(entry, str)
+                    or isinstance(entry, dict) and len(entry) == 1
+                    and all(isinstance(key, str) for key in entry)):
+                raise RefreshError(f"{where}.models entries must be strings "
+                                   "or one-key mappings")
+            key = entry if isinstance(entry, str) else next(iter(entry))
+            new = changes.get(key, key)
+            if new in destinations:
+                raise RefreshError(f"long_context_meters: {destinations[new]!r} "
+                                   f"and {key!r} both rekey to {new!r}")
+            destinations[new] = key
+            entries.append(entry if new == key else
+                           new if isinstance(entry, str) else {new: entry[key]})
+        members.append(entries)
+    return members
+
+
+def validate(doc: dict) -> None:
+    """Validate table and member shapes before either decoding or rekeying."""
     router = doc.get("openrouter")
     if not isinstance(router, dict):
         raise RefreshError("openrouter is missing or not a mapping")
@@ -37,20 +63,32 @@ def rekey(doc: dict) -> dict[str, str]:
             or len(set(prefixes)) != len(prefixes)):
         raise RefreshError("openrouter.vendor.prefixes must be a non-empty list "
                            "of distinct lowercase [a-z0-9-] namespace strings")
-    groups = doc.get("long_context_meters", [])
+    for name, table in (("openrouter.models", router.get("models")),
+                        ("providers", doc.get("providers")),
+                        ("openrouter.vendor.resolve", vendor.get("resolve", {}))):
+        if not isinstance(table, dict):
+            raise RefreshError(f"{name} is missing or not a mapping")
+    groups = doc.get("long_context_meters")
+    if not isinstance(groups, list):
+        raise RefreshError("long_context_meters must be a list of mappings")
+    _members(groups, {})
+
+
+def rekey(doc: dict) -> dict[str, str]:
+    """Check all destinations before changing any table; return old→new keys."""
+    validate(doc)
+    router = doc["openrouter"]
+    vendor = router["vendor"]
+    prefixes = vendor["prefixes"]
+    groups = doc["long_context_meters"]
     tables = [("openrouter.models", router["models"]),
               ("providers", doc["providers"]),
-              ("openrouter.vendor.resolve", vendor.get("resolve", {})),
-              ("long_context_meters", {
-                  entry if isinstance(entry, str) else next(iter(entry)): None
-                  for group in groups for entry in group["models"]})]
+              ("openrouter.vendor.resolve", vendor.get("resolve", {}))]
     changes: dict[str, str] = {}
     mappings = [(table, _mapping(name, table, prefixes, changes))
                 for name, table in tables]
-    members = [[(changes.get(entry, entry) if isinstance(entry, str) else
-                 {changes.get(key, key): value for key, value in entry.items()})
-                for entry in group["models"]] for group in groups]
-    for table, mapping in mappings[:3]:
+    members = _members(groups, changes)
+    for table, mapping in mappings:
         table.clear()
         table.update(mapping)
     for group, entries in zip(groups, members):

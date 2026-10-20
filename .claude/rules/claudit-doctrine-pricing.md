@@ -594,8 +594,13 @@ their own model. PRICING_VERSION bumps once, one past the file, when either
 pass moved.
 
 - **Tracked namespaces use bare keys.** Before fetching the catalog, the
-  vendor pass rekeys `openrouter.models`, `providers`, vendor resolve pins,
-  and grouped meter members, preserving catalog ids and provider histories.
+  vendor pass builds its rename map from `openrouter.models`, `providers`,
+  and vendor resolve pins, preserving catalog ids and provider histories.
+  Grouped meter members follow that map, keeping string or multiplier-object
+  form; members whose keys were not renamed stay untouched, including keys
+  in the top-level `models` table. A meter collision names both members and
+  refuses before mutation. Table and grouped-member shapes are validated
+  before traversal, including on the standalone dry-run path.
   Adding a namespace takes the entries already under it to their bare keys
   on the next run, even when the catalog is unreadable. The run that rekeys
   bumps `PRICING_VERSION`. A collision names both source keys and refuses

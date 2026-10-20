@@ -218,6 +218,15 @@ def test_main_overlapping_sources_write_nothing(reverse, tmp_path, capsys):
     ("openrouter.vendor.prefixes", ["nvidia/nvidia"]),
     ("openrouter.vendor.prefixes", [""]),
     ("openrouter.vendor.prefixes", [None]),
+    ("openrouter.models", "missing"), ("openrouter.models", None),
+    ("openrouter.vendor.resolve", []),
+    ("providers", "missing"), ("providers", None), ("providers", []),
+    ("long_context_meters", None), ("long_context_meters", {}),
+    ("long_context_meters", [None]), ("long_context_meters", [{}]),
+    ("long_context_meters", [{"models": None}]),
+    ("long_context_meters", [{"models": [None]}]),
+    ("long_context_meters", [{"models": [{}]}]),
+    ("long_context_meters", [{"models": [{"p/x": {}, "x": {}}]}]),
 ])
 def _malformed_doc(request):
     doc = _prefixed_doc()
@@ -245,7 +254,7 @@ def test_standalone_malformed_shape_returns_failure(
         malformed_doc, monkeypatch, tmp_path, capsys):
     doc, problem = malformed_doc
     path = tmp_path / "pricing.json"
-    path.write_text(serialize_pricing_doc(doc), encoding="utf-8")
+    path.write_text(json.dumps(doc), encoding="utf-8")
     previous = path.read_bytes()
     monkeypatch.setattr(vendor, "PRICING_JSON", path)
     monkeypatch.setattr(vendor.refresh_pricelog, "fetch_models", _catalog)
@@ -253,6 +262,74 @@ def test_standalone_malformed_shape_returns_failure(
     output, error = capsys.readouterr()
     assert not output and problem in error and "Traceback" not in error
     assert path.read_bytes() == previous
+
+
+def _meter_flags(doc, monkeypatch):
+    tables = pricing.load_tables(doc)
+    with monkeypatch.context() as patch:
+        for name in ("LONG_CONTEXT_MODELS", "LONG_CONTEXT_METERS"):
+            patch.setattr(pricing, name, tables[name])
+        return tuple(pricing.meter_flag(key, 400_000) for key in ("p/local", "local"))
+
+
+@pytest.mark.parametrize("surface", ["member", "flags", "moves"])
+def test_main_preserves_models_table_meter(surface, tmp_path, monkeypatch, capsys):
+    refresh = _load("refresh_provider_rates")
+    path, constants = tmp_path / "pricing.json", tmp_path / "constants.py"
+    doc = seed_doc(
+        prefixes=["p"], models={"p/local": [{"from": None, **RATES}]},
+        tracked={"local": {"id": "other/local", "vendor_host": "Other"}},
+        providers={"local": {"Other": [{"from": None, **RATES}]}},
+        members=["p/local"])
+    assert _meter_flags(doc, monkeypatch) == (True, None)
+    path.write_text(serialize_pricing_doc(doc), encoding="utf-8")
+    constants.write_text('PRICING_VERSION = "100"\n', encoding="utf-8")
+    assert refresh.main(
+        [], pricing_path=path, constants_path=constants, now=NOW,
+        fetch=pytest.fail, fetch_log=pytest.fail,
+        fetch_models=lambda: _catalog("other/absent")) == 0
+    written = expand_pricing_doc(json.loads(path.read_text(encoding="utf-8")))
+    output, error = capsys.readouterr()
+    assert not error
+    if surface == "member":
+        assert written["long_context_meters"] == doc["long_context_meters"]
+    elif surface == "flags":
+        assert _meter_flags(written, monkeypatch) == (True, None)
+    else:
+        assert "rekeyed" not in output
+        assert constants.read_text(encoding="utf-8") == 'PRICING_VERSION = "100"\n'
+
+
+@pytest.mark.parametrize("source", ["models", "providers", "resolve"])
+@pytest.mark.parametrize("factors", [None, {"input_mult": 3.0, "output_mult": 1.5}])
+def test_meter_consumes_only_renames_from_tracked_tables(source, factors):
+    doc = seed_doc(
+        prefixes=["p"], models={"p/local": [{"from": None, **RATES}]},
+        tracked={"x": {"id": "other/x", "vendor_host": "Other"}},
+        providers={"x": {"Other": [{"from": None, **RATES}]}})
+    if source == "models":
+        doc["openrouter"]["models"]["p/x"] = doc["openrouter"]["models"].pop("x")
+    elif source == "providers":
+        doc["providers"]["p/x"] = doc["providers"].pop("x")
+    else:
+        doc["openrouter"]["vendor"]["resolve"] = {"p/x": {"tag": "p"}}
+    member = "p/x" if factors is None else {"p/x": factors}
+    doc["long_context_meters"] = [{"threshold": 200_000, "models": [member, "p/local"]}]
+    out = vendor.vendor_pass(doc, _catalog, pytest.fail)
+    expected = "x" if factors is None else {"x": factors}
+    assert doc["long_context_meters"] == [
+        {"threshold": 200_000, "models": ["p/local", expected]}]
+    assert out.renames == {"p/x": "x"}
+
+
+def test_meter_rename_collision_refuses_both_members_before_mutating():
+    doc = seed_doc(prefixes=["p"], tracked={"p/x": {"id": "p/x"}})
+    doc["long_context_meters"] = [{"threshold": 200_000, "models": ["p/x", "x"]}]
+    previous = copy.deepcopy(doc)
+    with pytest.raises(vendor.RefreshError) as exc:
+        vendor.vendor_pass(doc, _catalog, pytest.fail)
+    assert "'p/x'" in str(exc.value) and "'x'" in str(exc.value)
+    assert doc == previous
 
 
 @pytest.mark.parametrize("surface", ["stdout", "body", "subject", "sampled", "vanished"])
