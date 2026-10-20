@@ -140,7 +140,9 @@ def test_wrapped_targets_fields_survive_nonjson_siblings(program, reads, writes)
 
 @pytest.mark.parametrize("other", [
     "/}/", r"/[},/]/g", r"/\/[}]/", "()=>/}/", "12 / 3", "value / divisor", "value++ / divisor",
-], ids=["closing-brace", "character-class", "escaped-slash", "arrow-regex", "division", "variable-division", "postfix-division"])
+    "値 / divisor",
+], ids=["closing-brace", "character-class", "escaped-slash", "arrow-regex", "division",
+        "variable-division", "postfix-division", "unicode-operand"])
 def test_wrapped_targets_survive_regex_siblings(other):
     row = _parse_program('tools.exec_command({other:' + other + ',cmd:"cat input.py"});')
     assert (row["read_kind"], row["read_targets"], row["write_targets"]) == ("whole", ["input.py"], [])
@@ -159,6 +161,41 @@ def test_wrapped_targets_survive_regex_siblings(other):
 def test_wrapped_targets_preserve_division_after_keyword_properties(other):
     row = _parse_program('tools.exec_command({other:' + other + ',cmd:"cat input.py"});')
     assert (row["read_kind"], row["read_targets"], row["write_targets"]) == ("whole", ["input.py"], [])
+
+
+@pytest.mark.parametrize("other", [
+    "(async()=>[...await /}/])()",
+    "(async()=>[await /}/])()",
+    "(async()=>[... /* spread */ await /* operand */ /}/])()",
+    "[.../}/]",
+    "(function*(){return [...yield /}/]})()",
+    "[...settings.await / divisor]",
+    "[...settings?.return / divisor]",
+    "(async()=>[...await /}/, settings.return / divisor, 1_000])()",
+], ids=["spread-await", "await-control", "spread-comments", "spread-regex",
+        "spread-yield", "spread-member-division", "spread-optional-member", "mixed-contexts"])
+def test_wrapped_targets_survive_spread_before_await(other):
+    row = _parse_program('tools.exec_command({other:' + other + ',cmd:"cat input.py"});')
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == ("whole", ["input.py"], [])
+
+
+def test_wrapped_monitor_targets_survive_spread_before_await():
+    row = _parse_program(
+        'tools.monitor({other:(async()=>[...await /}/])(),'
+        'command:["bash","-lc","cat input.py"],workdir:"/workspace/toy-project"});')
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (
+        "whole", ["/workspace/toy-project/input.py"], [])
+
+
+@pytest.mark.parametrize("ending", [
+    "other:[}",
+    "other:[",
+    "other:/unterminated",
+    "/* unterminated",
+], ids=["mismatched-delimiter", "unclosed-array", "unclosed-regex", "unclosed-comment"])
+def test_wrapped_targets_discard_unbounded_objects(ending):
+    row = _parse_program('tools.exec_command({cmd:"cat input.py",' + ending)
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (None, [], [])
 
 
 @pytest.mark.parametrize("program,kind,reads", [

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from enum import Enum, auto
 
 from backend.bash_argv import _INLINE_FLAGS, _PY_PROG, _SHELL_PROGS
 from backend.bash_churn import BashCommand
@@ -15,11 +16,22 @@ _VALUE_START = re.compile(r"\A")
 _STRING = re.compile(r'(?=")')
 _PATCH_PATH = re.compile(r"^\*\*\* (Add File|Update File|Delete File|Move to):\s*(.*)$")
 _PATCH_PREFIX = re.compile(r"(?:(?P<call>tools\.apply_patch\s*\()|[A-Za-z_$][A-Za-z_0-9$]*\s*=)\s*$")
-_WORD = re.compile(r"[A-Za-z_$][A-Za-z_0-9$]*|[0-9][A-Za-z_0-9.]*")
+_WORD = re.compile(r"(?:[^\W\d]|[$])[\w$]*|[0-9][A-Za-z_0-9.]*")
+_PUNCTUATOR = re.compile(
+    r"\.\.\.|\?\.(?![0-9])|>>>=|===|!==|>>>|\*\*=|<<=|>>=|&&=|\|\|=|\?\?="
+    r"|\+\+|--|\*\*|<<|>>|&&|\|\||\?\?|=>|[<>=!+\-*/%&|^]="
+    r"|[{}()[\].;,<>+\-*/%&|^!~?:=]"
+)
 _EXPRESSION_WORDS = frozenset({
     "return", "throw", "case", "delete", "void", "typeof",
     "instanceof", "in", "of", "yield", "await", "new",
 })
+
+
+class _Expect(Enum):
+    OPERAND = auto()
+    OPERATOR = auto()
+    MEMBER = auto()
 
 
 def _trivia_end(src: str, start: int) -> int:
@@ -87,31 +99,45 @@ def _regex_end(src: str, start: int) -> int:
     return len(src)
 
 
-def _value_token_end(src: str, offset: int, expression_start: bool) -> tuple[int, bool]:
-    """Skip opaque value tokens and retain the regex-versus-division context."""
+def _value_token_end(src: str, offset: int, expect: _Expect) -> tuple[int, _Expect]:
+    """Consume one token; its role determines the next slash's lexical goal."""
     char = src[offset]
     if char in "\"'`":
-        return _quoted_end(src, offset), False
-    if char == "/" and expression_start:
-        return _regex_end(src, offset), False
-    if src.startswith(("++", "--"), offset):
-        return offset + 2, expression_start
+        return _quoted_end(src, offset), _Expect.OPERATOR
+    if char == "/" and expect is _Expect.OPERAND:
+        return _regex_end(src, offset), _Expect.OPERATOR
     word = _WORD.match(src, offset)
     if word is not None:
-        return word.end(), word[0] in _EXPRESSION_WORDS
-    return offset, expression_start
+        next_expect = (_Expect.OPERAND if expect is not _Expect.MEMBER and word[0] in _EXPRESSION_WORDS
+                       else _Expect.OPERATOR)
+        return word.end(), next_expect
+    punctuator = _PUNCTUATOR.match(src, offset)
+    if punctuator is None:
+        return offset + 1, _Expect.OPERATOR
+    token = punctuator[0]
+    if token in ("++", "--"):
+        return punctuator.end(), expect
+    next_expect = _Expect.OPERAND
+    if token in (".", "?."):
+        next_expect = _Expect.MEMBER
+    elif token in ("}", "]", ")"):
+        next_expect = _Expect.OPERATOR
+    return punctuator.end(), next_expect
 
 
 def _object_fields(src: str, start: int) -> Iterator[str]:
-    """Bound object fields; member names are operands even when spelled as keywords."""
+    """Yield independent fields only after the entire object is safely bounded."""
     closers = {"{": "}", "[": "]", "(": ")"}
     stack: list[str] = []
+    fields: list[str] = []
     field_start = start + 1
     offset = start + 1
-    expression_start = True
-    member_access = False
+    expect = _Expect.OPERAND
     while offset < len(src):
         char = src[offset]
+        if char.isspace():
+            offset += 1
+            continue
         if src.startswith(("//", "/*"), offset):
             end = _trivia_end(src, offset)
             if end == offset:
@@ -120,27 +146,19 @@ def _object_fields(src: str, start: int) -> Iterator[str]:
                 field_start = end
             offset = end
             continue
-        end, expression_start = _value_token_end(src, offset, expression_start)
-        if end != offset:
-            expression_start = expression_start and not member_access
-            member_access = False
-            offset = end
-            continue
         if char in closers:
             stack.append(closers[char])
         elif char == "}" and not stack:
+            yield from fields
             yield src[field_start:offset]
             return
         elif char in "}])":
             if not stack or stack.pop() != char:
                 return
         elif char == "," and not stack:
-            yield src[field_start:offset]
+            fields.append(src[field_start:offset])
             field_start = offset + 1
-        if not char.isspace():
-            expression_start = char in "([{,:;=?!~+-*/%&|^<>"
-            member_access = char == "."
-        offset += 1
+        offset, expect = _value_token_end(src, offset, expect)
 
 
 def _literal_object(src: str, start: int) -> dict:
