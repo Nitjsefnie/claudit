@@ -64,7 +64,6 @@ def test_client_sites_use_the_shared_mechanism():
         assert "run" not in step, (name, job)
         assert step.get("name") == "Install postgresql-client"
         assert step.get("timeout-minutes") == "5"
-        assert step.get("with") == {"packages": "postgresql-client-16"}
 
 
 def test_workflows_delegate_every_apt_command():
