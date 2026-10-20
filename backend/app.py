@@ -315,7 +315,8 @@ async def root_index(request: Request) -> Response:
             v = int(asset.stat().st_mtime)
         except OSError:
             return m.group(0)
-        identity = f"&amp;transform={source_transform_identity()}" if path.startswith("/src/") else ""
+        transformed = path.startswith("/src/") and asset.suffix in {".js", ".jsx"}
+        identity = f"&amp;transform={source_transform_identity()}" if transformed else ""
         return m.group(0).replace(path, f"{path}?v={v}{identity}")
 
     html = re.sub(r'(?:src|data-pricing)="(/(?:src|vendor)/[^"?]+)"', _bust_asset, html)

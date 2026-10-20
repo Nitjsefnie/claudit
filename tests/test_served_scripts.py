@@ -181,7 +181,7 @@ def _transform_tree_fixture(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("module", ["js_min.py", "js_min_context.py"])
-def test_transform_code_edit_moves_every_source_url(guest_client, transform_tree, module):
+def test_transform_code_edit_moves_module_urls_only(guest_client, transform_tree, module):
     before = _asset_urls(guest_client)
     vendors = _asset_urls(guest_client, "/vendor/")
     assert before == _asset_urls(guest_client)
@@ -197,7 +197,11 @@ def test_transform_code_edit_moves_every_source_url(guest_client, transform_tree
         assert old_parts.path == new_parts.path
         old_query, new_query = parse_qs(old_parts.query), parse_qs(new_parts.query)
         assert old_query["v"] == new_query["v"] == [str(int((_ROOT / old_parts.path.lstrip("/")).stat().st_mtime))]
-        assert old_query["transform"] != new_query["transform"]
+        if Path(old_parts.path).suffix in {".js", ".jsx"}:
+            assert old_query["transform"] != new_query["transform"]
+        else:
+            assert old == new
+            assert set(new_query) == {"v"}
     assert vendors == _asset_urls(guest_client, "/vendor/")
     assert any(urlsplit(url).path == "/src/pricing.json" for url in after)
 
@@ -207,7 +211,10 @@ def test_new_transform_helper_joins_url_identity(guest_client, transform_tree):
     (transform_tree / "js_min_helper.py").write_bytes(b"TRANSFORM_FIXTURE = 1\n")
     source_asset_identity.source_transform_identity.cache_clear()
     after = _asset_urls(guest_client)
-    assert before and all(old != new for old, new in zip(before, after))
+    assert before and len(before) == len(after)
+    for old, new in zip(before, after):
+        transformed = Path(urlsplit(old).path).suffix in {".js", ".jsx"}
+        assert (old != new) == transformed
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
@@ -269,8 +276,17 @@ def test_warm_browser_refetches_source_after_minifying_upgrade(guest_client):
 
 
 def _browser_upgrade(base):
-    script = """const {chromium} = require('playwright');
-(async () => {
+    script = """(async () => {
+  let playwrightPath;
+  try {
+    playwrightPath = require.resolve('playwright');
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND'
+      || !error.message.startsWith("Cannot find module 'playwright'")) throw error;
+    console.log(JSON.stringify({skip: 'Playwright package is not installed'}));
+    return;
+  }
+  const {chromium} = require(playwrightPath);
   let browser;
   try {
     browser = await chromium.launch({args: ['--no-sandbox', '--claudit-source-cache-upgrade']});
@@ -297,3 +313,29 @@ def _browser_upgrade(base):
     )
     assert process.returncode == 0, process.stderr or process.stdout
     return json.loads(process.stdout)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_missing_playwright_package_returns_a_skip(monkeypatch, tmp_path):
+    monkeypatch.setitem(globals(), "_ROOT", tmp_path)
+    assert _browser_upgrade("http://unused") == {"skip": "Playwright package is not installed"}
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize("body, message", [
+    (None, "missing-entry.js"),
+    ("throw new SyntaxError('broken import');", "broken import"),
+    ("require('fixture-missing-dependency');", "fixture-missing-dependency"),
+    ("exports.chromium = {launch: async () => { throw new Error('broken launch'); }};", "broken launch"),
+    ("exports.chromium = {launch: async () => ({newPage: async () => { throw new Error('broken runtime'); }, close: async () => {}})};", "broken runtime"),
+])
+def test_browser_dependency_defects_fail(monkeypatch, tmp_path, body, message):
+    package = tmp_path / "node_modules" / "playwright"
+    package.mkdir(parents=True)
+    if body is None:
+        (package / "package.json").write_text('{"main":"missing-entry.js"}', encoding="utf-8")
+    else:
+        (package / "index.js").write_text(body, encoding="utf-8")
+    monkeypatch.setitem(globals(), "_ROOT", tmp_path)
+    with pytest.raises(AssertionError, match=message):
+        _browser_upgrade("http://unused")
