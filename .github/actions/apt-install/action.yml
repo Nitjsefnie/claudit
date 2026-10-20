@@ -1,0 +1,58 @@
+name: Bounded apt install
+description: Remove unused runner sources and optionally install packages from PGDG and Ubuntu.
+
+inputs:
+  packages:
+    description: Space-separated packages to install; empty sanitizes sources only.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Remove the unused Microsoft apt source
+      timeout-minutes: 1
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "==> removing the unused Microsoft apt source"
+        sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.sources
+
+    - name: Install packages with bounded retries
+      if: inputs.packages != ''
+      timeout-minutes: 5
+      shell: bash
+      env:
+        APT_PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        echo "==> adding the PGDG apt source"
+        sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+        echo "==> fetching the PostgreSQL signing key"
+        curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor --batch --yes -o /etc/apt/trusted.gpg.d/pgdg.gpg
+        echo "==> reading requested packages"
+        read -r -a packages <<< "$APT_PACKAGES"
+        for attempt in 1 2 3; do
+          echo "==> apt-get update (attempt $attempt/3)"
+          if sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30; then
+            break
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "::error::apt-get update failed after 3 attempts" >&2
+            exit 1
+          fi
+          echo "==> waiting 5 seconds before retrying apt-get update"
+          sleep 5
+        done
+        for attempt in 1 2 3; do
+          echo "==> installing $APT_PACKAGES (attempt $attempt/3)"
+          if sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "${packages[@]}"; then
+            break
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "::error::apt-get install failed after 3 attempts" >&2
+            exit 1
+          fi
+          echo "==> waiting 5 seconds before retrying apt-get install"
+          sleep 5
+        done

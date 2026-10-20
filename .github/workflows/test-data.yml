@@ -94,17 +94,9 @@ jobs:
 
       - name: Install postgresql-client
         timeout-minutes: 5
-        # Fixtures shell out to psql; the runner image has
-        # a server but the client binaries must match the container major.
-        run: |
-          echo "==> adding the PGDG apt source"
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          echo "==> fetching the PostgreSQL signing key"
-          curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
-          echo "==> apt-get update"
-          sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
-          echo "==> installing postgresql-client-16"
-          sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 postgresql-client-16
+        uses: $/.github/actions/apt-install
+        with:
+          packages: postgresql-client-16
 
       - name: Install dependencies
         run: |
@@ -127,21 +119,9 @@ jobs:
           key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
 
       - name: Perturb and test
-        # The perturbation is the leg's point: this tree is what a
-        # refresh bot's commit produces (rates moved, version constants
-        # bumped), so the suite runs against data the repository
-        # changes by design. Working-tree only — a fresh checkout runs
-        # it. Fixed seeds make the verdict deterministic.
-        # Three absolute seeds — a historical one, a huge one, a
-        # mid-range one — run as three parallel matrix jobs: each job
-        # perturbs its own checkout and runs the
-        # full suite once, so the leg's wall is one suite run instead of
-        # three in sequence, and every seed's own exit is its job's. The
-        # seeds stay independent trees, so the stamps being decoupled
-        # from the seed still holds. Before the perturb the
-        # bench restores the pristine pricing document, constants and
-        # parser-version modules byte for byte; the attribution lands
-        # in this job's step summary.
+        # Each seed tests an independent refresh-like tree. Parallel jobs
+        # retain each verdict. The bench restores pricing and versions before
+        # perturbing; stamps stay seed-independent. Attribution goes in the summary.
         run: |
           python scripts/ci/perturbed_leg_bench.py \
             --seed "${{ matrix.seed }}" \

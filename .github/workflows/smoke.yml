@@ -1,17 +1,8 @@
 name: smoke
 
-# Does the actual server boot and serve?
-#
-# The pytest suite mounts `api.router` into a clean FastAPI app — correct
-# for testing endpoints in isolation, and it means backend/app.py is never
-# executed AS the application. Everything that lives only there is
-# unchecked by a green pytest run: db.schema_check() (SV-SCHEMA-FAIL-FAST),
-# the startup ingest and its APScheduler wiring, the auth middleware, and
-# the index.html rewrite. This job is the one that runs them.
-#
-# The checks themselves are in scripts/ci/smoke.py, not inline here. A
-# hundred lines of bash in a `run:` block is unlintable, untestable, and
-# cannot be reproduced locally — and the local run is the point:
+# Boot backend/app.py to cover schema checks, startup ingest, scheduling,
+# auth middleware and index rewriting, beyond pytest's isolated api.router.
+# scripts/ci/smoke.py keeps these checks lintable and reproducible locally:
 #
 #     PGHOST=localhost PGUSER=postgres python3 scripts/ci/smoke.py
 #
@@ -69,17 +60,9 @@ jobs:
 
       - name: Install postgresql-client
         timeout-minutes: 5
-        # smoke.py shells out to psql, and the client major
-        # must match the container.
-        run: |
-          echo "==> adding the PGDG apt source"
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          echo "==> fetching the PostgreSQL signing key"
-          curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
-          echo "==> apt-get update"
-          sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
-          echo "==> installing postgresql-client-16"
-          sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 postgresql-client-16
+        uses: $/.github/actions/apt-install
+        with:
+          packages: postgresql-client-16
 
       - name: Install dependencies
         run: |
