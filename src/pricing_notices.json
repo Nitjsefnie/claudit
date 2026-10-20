@@ -186,6 +186,7 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Google; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
+    "step-5-preview via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/us'",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba",
     "tag 'alibaba/prime' names neither a known region nor a quantization: glm-5-3 via Alibaba",
     "tag 'anthropic/fast' names neither a known region nor a quantization: claude-opus-4-8 via Anthropic, claude-opus-5 via Anthropic, claude-opus-5-5 via Anthropic",
@@ -427,6 +428,9 @@
       "Fireworks": "2 endpoints at one current price",
       "InferenceNet": "2 endpoints at one current price",
       "Sail Research": "2 endpoints at one current price"
+    },
+    "step-5-preview": {
+      "InferenceNet": "2 endpoints at one current price"
     }
   },
   "vanished": {
@@ -447,6 +451,7 @@
       "Azure",
       "NextBit",
       "Novita",
+      "OpenInference",
       "Reka"
     ],
     "deepseek-v4-flash-0731": [
@@ -454,7 +459,8 @@
       "Makora",
       "Morph",
       "Nebius",
-      "NextBit"
+      "NextBit",
+      "OpenInference"
     ],
     "deepseek-v4-pro": [
       "NextBit"
