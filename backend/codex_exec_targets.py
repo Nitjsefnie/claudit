@@ -9,7 +9,7 @@ from enum import Enum, auto
 from typing import NamedTuple
 
 from backend.bash_argv import _INLINE_FLAGS, _PY_PROG, _SHELL_PROGS
-from backend.bash_churn import BashCommand
+from backend.bash_churn import BashCommand, MAX_COMMAND_CHARS
 from backend.bash_reads import scan_command
 from backend.parse_codex_churn import _codex_json_spans
 
@@ -31,7 +31,7 @@ _CONTROL_WORDS = frozenset({"if", "while", "for", "with", "switch", "catch"})
 _LINE_END = re.compile(r"[\r\n\u2028\u2029]")
 _REGEX_FLAGS_END = re.compile(r"[^\w$]")
 _SUPPORTED_API = re.compile(r"\b(?:exec_command|monitor|apply_patch)\b")
-_BARE_COMMAND = re.compile(r"\s*[A-Za-z0-9_./-]*\s*\Z")
+_BARE_COMMAND = re.compile(r"[A-Za-z0-9_./-]*\Z")
 _JSON_STRING = r'"(?:[^"\\\r\n\u2028\u2029]|\\.)*"'
 _JSON_VALUE = (
     rf'(?:{_JSON_STRING}|\[\s*(?:{_JSON_STRING}(?:\s*,\s*{_JSON_STRING})*)?\s*\]'
@@ -404,7 +404,8 @@ def _call_patch(program: str, tokens: list[_Token], start: int, stop: int,
 def _shell_targets(args: dict, name: str) -> tuple[str | None, list[str], list[str]]:
     cwd = args.get("workdir")
     command = args.get("cmd") if name == "exec_command" else _argv_command(args.get("command"))
-    if not isinstance(command, str) or _BARE_COMMAND.fullmatch(command):
+    if (not isinstance(command, str) or len(command) > MAX_COMMAND_CHARS
+            or _BARE_COMMAND.fullmatch(command.strip())):
         return None, [], []
     return scan_command(BashCommand(command), cwd if isinstance(cwd, str) else "")
 

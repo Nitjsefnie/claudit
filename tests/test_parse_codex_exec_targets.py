@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
+import textwrap
 
 import pytest
 
@@ -103,6 +106,28 @@ def test_wrapped_targets_literal_arguments(program, kind, reads, writes):
 def test_wrapped_targets_complete_json_calls(program, kind, reads, writes):
     row = _parse_program(program)
     assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (kind, reads, writes)
+
+
+@pytest.mark.parametrize("api", ["exec_command", "monitor"])
+def test_wrapped_targets_bound_long_space_runs(api):
+    script = textwrap.dedent("""
+        import json
+        import sys
+        from backend.bash_churn import MAX_COMMAND_CHARS
+        from tests.test_parse_codex_exec_targets import _parse_program
+
+        for command, kind, reads in [
+            (" " * 50_000 + "!", None, []),
+            (" " * (MAX_COMMAND_CHARS + 1) + "!", None, []),
+            (" " * 50_000 + "cat real.py", "whole", ["real.py"]),
+            (" " * MAX_COMMAND_CHARS + "cat real.py", None, []),
+        ]:
+            args = ({"cmd": command} if sys.argv[1] == "exec_command"
+                    else {"command": ["bash", "-lc", command]})
+            row = _parse_program("tools." + sys.argv[1] + "(" + json.dumps(args) + ");")
+            assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (kind, reads, [])
+    """)
+    subprocess.run([sys.executable, "-c", script, api], check=True, timeout=15)
 
 
 def test_wrapped_tool_error_preserves_targets_and_existing_zero_churn_rule():
