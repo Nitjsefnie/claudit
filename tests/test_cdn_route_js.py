@@ -49,9 +49,10 @@ SETUP = r"""
   const html = readFileSync('public/index.html', 'utf8');
   const urls = [...html.matchAll(/<script[^>]*src="(https:\/\/unpkg.com\/[^\"]+)"/g)]
     .map(match => match[1]);
-  const bytes = Buffer.from('window.loaded = true; /* π */\n');
+  const bytesFor = new Map(urls.map(url => [url,
+    Buffer.from(`window.loaded = ${JSON.stringify(url)}; /* π */\n`)]));
   const calls = new Map(), waits = [], signals = [];
-  const response = () => new Response(bytes, {headers: {
+  const response = url => new Response(bytesFor.get(url), {headers: {
     'content-type': 'text/javascript', 'content-encoding': 'gzip',
     'content-length': '7', 'access-control-allow-origin': '*',
   }});
@@ -71,7 +72,7 @@ SETUP = r"""
             const upstream = await fetchImpl(url, {});
             fulfilled = {status: upstream.status, body: Buffer.from(await upstream.arrayBuffer())};
           }
-          loaded.push(fulfilled);
+          loaded.push({...fulfilled, url});
         }
         return loaded;
       }};},
@@ -93,7 +94,7 @@ def test_reset_recovers_page_setup_and_memoizes_exact_bytes(failure: str):
         if (n === 1) throw new TypeError('fetch failed', {
           cause: new Error(failure),
         });
-        return response();
+        return response(url);
       }
       const options = {viewport: {width: 320, height: 900}};
       const contexts = await Promise.all([mod.createSweepContext(browser, options, deps),
@@ -104,6 +105,7 @@ def test_reset_recovers_page_setup_and_memoizes_exact_bytes(failure: str):
         const loaded = await page.goto('http://fixture/');
         assert.equal(loaded.length, urls.length);
         for (const item of loaded) {
+          const bytes = bytesFor.get(item.url);
           assert.deepEqual(item.body, bytes);
           assert.equal(item.status, 200);
           assert.equal(item.headers['access-control-allow-origin'], '*');
@@ -168,10 +170,72 @@ def test_reset_while_reading_body_retries():
         if (n === 1) return {ok: true, arrayBuffer: async () => {
           throw new Error('body ECONNRESET');
         }};
-        return response();
+        return response(url);
       }
       await mod.createSweepContext(browser, {}, deps);
       console.log(JSON.stringify({calls: [...calls.values()]}));
     """)
     assert out["calls"]
     assert all(count == 2 for count in out["calls"])
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_timeout_signal_aborts_stalled_transport_within_bound():
+    out = _node(SETUP + """
+      let now = 0, serial = 0, aborted = 0, escaped = 0;
+      const timers = new Map();
+      const schedule = (ms, run) => {
+        const id = ++serial;
+        timers.set(id, {at: now + ms, run});
+        return id;
+      };
+      AbortSignal.timeout = ms => {
+        assert.ok(Number.isFinite(ms) && ms > 0 && ms < 10_000);
+        const controller = new AbortController();
+        schedule(ms, () => controller.abort(new DOMException('CDN deadline expired', 'TimeoutError')));
+        return controller.signal;
+      };
+      async function fetchImpl(url, {signal}) {
+        calls.set(url, (calls.get(url) || 0) + 1);
+        return new Promise((resolve, reject) => {
+          const abort = () => {
+            timers.delete(escape);
+            aborted++;
+            reject(signal.reason);
+          };
+          const escape = schedule(10_000, () => {
+            signal.removeEventListener('abort', abort);
+            escaped++;
+            reject(new Error('transport escaped without abort'));
+          });
+          signal.addEventListener('abort', abort, {once: true});
+          if (signal.aborted) abort();
+        });
+      }
+      let outcome;
+      const setup = mod.createSweepContext(browser, {}, deps).then(
+        () => { outcome = {ok: true}; }, error => { outcome = {error}; });
+      const flush = async () => {
+        for (let i = 0; i < 100; i++) await Promise.resolve();
+      };
+      await flush();
+      for (let step = 0; !outcome && step < 20 && timers.size; step++) {
+        now = Math.min(...[...timers.values()].map(timer => timer.at));
+        for (const [id, timer] of [...timers]) {
+          if (timer.at <= now && timers.delete(id)) timer.run();
+        }
+        await flush();
+      }
+      assert.ok(outcome?.error, 'setup must reject within the finite clock budget');
+      assert.equal(outcome.error.cause?.name, 'TimeoutError', outcome.error.message);
+      assert.ok(outcome.error.message.includes(urls[0]), outcome.error.message);
+      assert.match(outcome.error.message, /CDN deadline expired/);
+      assert.equal(created, 0);
+      await setup;
+      console.log(JSON.stringify({aborted, escaped, now, calls: [...calls.values()]}));
+    """)
+    assert out["aborted"] > 0
+    assert out["escaped"] == 0
+    assert 0 < out["now"] < 30_000
+    assert out["calls"]
+    assert all(count == 3 for count in out["calls"])
