@@ -85,7 +85,7 @@ from refresh_prices import (MIN_PROMPT_TOKENS as _MIN_PROMPT,  # noqa: E402
                             PRICED, TOKEN_PRICED, RefreshError, Untracked,
                             is_zero, metered_band, rates_of)
 from refresh_report import vendor_report  # noqa: E402
-from refresh_vendor_keys import rekey  # noqa: E402
+from refresh_vendor_keys import rekey, validate  # noqa: E402
 import refresh_pricelog  # noqa: E402
 from backend import pricing  # noqa: E402
 from backend.pricing_document import expand_pricing_doc  # noqa: E402
@@ -444,7 +444,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        doc = expand_pricing_doc(json.loads(PRICING_JSON.read_text(encoding="utf-8")))
+        raw = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
+        validate(raw)
+        doc = expand_pricing_doc(raw)
         vendor = vendor_pass(doc, refresh_pricelog.fetch_models,
                              refresh_pricelog.fetch_endpoints)
         print(vendor_report(stamp, vendor))
