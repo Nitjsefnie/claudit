@@ -119,6 +119,7 @@
     "kimi-k2-7-code via Moonshot AI: rule-resolved (unique quantization): took the int4 endpoint 'moonshotai/int4' over service tiers",
     "kimi-k3 via Fireworks: rule-resolved (bare namespace): took the bare namespace endpoint 'fireworks' over service tiers 'fireworks/fast', 'fireworks/flex'",
     "kimi-k3 via InferenceNet: rule-resolved (unique quantization): took the fp4 endpoint 'inference-net/fp4' over service tiers",
+    "kimi-k3 via Parasail: rule-resolved (unique quantization): took the fp4 endpoint 'parasail/fp4' over service tiers",
     "kimi-k3 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
     "kimi-k3 via Wafer: rule-resolved (data region): the global data region leaves 'wafer'; dropped 'wafer/us'",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Amazon Bedrock; the host was sampled",
@@ -415,8 +416,7 @@
       "Tencent": "endpoint schedule"
     },
     "kimi-k3": {
-      "Fireworks": "2 endpoints at one current price",
-      "Parasail": "2 endpoints selected"
+      "Fireworks": "2 endpoints at one current price"
     }
   },
   "vanished": {
@@ -468,6 +468,12 @@
     ],
     "kimi-k2-7-code": [
       "Phala"
+    ],
+    "mimo-v2-5": [
+      "StreamLake"
+    ],
+    "mimo-v2-5-pro": [
+      "StreamLake"
     ]
   }
 }
