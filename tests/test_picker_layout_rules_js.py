@@ -327,11 +327,18 @@ def test_width_sweep_resets_at_its_own_viewport_before_sampling():
 
 def _wait_node(body: str):
     """Run the real wait callbacks with a clock advanced by the control."""
-    return _node("""
+    return _node(r"""
       const waits = await import('./scripts/ci/layout_waits.mjs');
       const {pickerProbe} = await import('./scripts/ci/picker_probe.mjs');
       const cases = await import('./scripts/ci/picker_cases.mjs');
-      globalThis.fetch = async () => new Response('fixture script');
+      const {readFileSync} = await import('node:fs');
+      const html = readFileSync('public/index.html', 'utf8');
+      const cdnUrls = new Set([...html.matchAll(/<script[^>]*src="(https:\/\/unpkg.com\/[^\"]+)"/g)]
+        .map(match => match[1]));
+      globalThis.fetch = async url => {
+        if (!cdnUrls.has(url)) throw new Error(`unexpected fixture fetch: ${url}`);
+        return new Response('fixture script');
+      };
       let now = 0, serial = 0;
       const timers = new Map();
       globalThis.setTimeout = (fn, ms) => {
@@ -612,7 +619,8 @@ def test_introduced_protocol_calls_reject_a_stalled_renderer(blocked, label):
         }};
       const context = {
         route: async (pattern, handler) => {
-          if (pattern !== '**/api/**') return;
+          if (cdnUrls.has(pattern)) return;
+          if (pattern !== '**/api/**') throw new Error(`unexpected fixture route: ${pattern}`);
           routeHandler = handler; if (blocked === 'routes') await stall();
         },
         newPage: async () => blocked === 'page' ? stall() : page,
@@ -629,7 +637,10 @@ def test_introduced_protocol_calls_reject_a_stalled_renderer(blocked, label):
           {id: 'project-picker-selected-fit', run: async () => []},
         ], {probe: () => {}, fit: () => [], selection: () => []});
       const result = observe(task);
-      await reached; await flush();
+      await Promise.race([reached, task.then(() => {
+        throw new Error('fixture completed without reaching the stall');
+      })]);
+      await flush();
       const before = result.status;
       await advance(61_000);
       console.log(JSON.stringify({before, result, timers: timers.size}));
