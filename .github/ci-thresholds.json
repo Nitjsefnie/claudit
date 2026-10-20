@@ -70,7 +70,7 @@
     ],
     ".github/workflows/panel-layout.yml": [
       1612,
-      2630
+      2682
     ],
     ".github/workflows/pr-gate.yml": [
       1797,
@@ -81,8 +81,8 @@
       9988
     ],
     ".github/workflows/refresh-pricing.yml": [
-      5608,
-      13846
+      5215,
+      12887
     ],
     ".github/workflows/release.yml": [
       4513,
@@ -97,16 +97,16 @@
       2369
     ],
     ".github/workflows/smoke.yml": [
-      1179,
-      3137
+      741,
+      2133
     ],
     ".github/workflows/test-data-explore.yml": [
-      1934,
-      5040
+      1508,
+      4048
     ],
     ".github/workflows/test-data.yml": [
-      2520,
-      5034
+      1902,
+      3850
     ],
     ".github/workflows/types.yml": [
       989,
@@ -1358,7 +1358,7 @@
     ],
     "tests/test_panel_layout_js.py": [
       6510,
-      23020
+      23191
     ],
     "tests/test_panel_layout_rules_js.py": [
       6203,
@@ -1771,10 +1771,6 @@
     "tests/test_workflow_patch_coverage.py": [
       5135,
       18294
-    ],
-    "tests/test_workflow_pg_client_install.py": [
-      1530,
-      4665
     ],
     "tests/test_workflow_pip_cache.py": [
       1422,
