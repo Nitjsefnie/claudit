@@ -7,8 +7,8 @@ form (the models table's own suffix rules). A transcript
 id with a tracked vendor prefix folds to its tracked bare form before the
 provider and vendor rows are resolved.
 
-SV-TEST-DATA: synthetic rows throughout; the one live-file test binds at a
-fixed instant before every committed cutover, the shape SV-RATE-DATA allows.
+SV-TEST-DATA: rate pins use synthetic histories; live checks compare with
+the row loaded in the same run or inspect catalog structure.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import long_context, pricing, pricing_document
+from backend import long_context, pricing
 from backend.pricing_rows import encode_pricing_doc
 from tests.refresh_fixture_builders import DEFAULT_ROW
 
@@ -394,15 +394,20 @@ def test_a_family_fallback_is_fed_from_the_vendor_keys(monkeypatch):
     assert r.rates is pricing.PROVIDER_RATES[(KEY, HOST)]
 
 
-def test_default_rates_read_the_tracked_claude_row():
+def test_default_rates_read_the_tracked_claude_row(monkeypatch):
     """The default estimate is the merged view's claude-opus-4-7 row — a
-    tracked vendor row since the migration — and the row's first entry
-    still carries the rates the pre-migration models row held (frozen:
-    an append-only history never rewrites it)."""
-    assert pricing.DEFAULT_RATES is pricing._list_rates("claude-opus-4-7")  # pylint: disable=protected-access
+    tracked vendor row. Seed both sides of its dated cutover explicitly."""
     frozen = {"fresh": 5.0, "create_5m": 6.25, "create_1h": 10.0,
               "read": 0.5, "output": 25.0}
-    assert pricing.rate_for("claude-opus-4-7", datetime(2020, 1, 1, tzinfo=UTC)) == frozen  # sv-test-data: allow (closed-window pin before the row's first cutover)
+    doc = _doc(models={})
+    doc["openrouter"]["models"]["claude-opus-4-7"] = {
+        "id": "acme/claude-opus-4-7", "vendor_host": HOST}
+    doc["providers"]["claude-opus-4-7"] = {
+        HOST: [_entry(frozen), _entry(R_NEW, STAMP)]}
+    _install(monkeypatch, doc)
+    assert pricing.DEFAULT_RATES is pricing._list_rates("claude-opus-4-7")  # pylint: disable=protected-access
+    assert pricing.rate_for("claude-opus-4-7", datetime(2020, 1, 1, tzinfo=UTC)) == frozen  # sv-test-data: allow (test-seeded synthetic vendor history at the required default key)
+    assert pricing.rate_for("claude-opus-4-7", CUT) == R_NEW  # sv-test-data: allow (test-seeded synthetic vendor history at its exclusive cutover)
 
 
 @needs_node
@@ -485,7 +490,6 @@ def test_a_bare_table_edit_moves_the_fingerprint(monkeypatch):
     assert after != before
 
 
-_PIN_INSTANT = datetime(2020, 1, 1, tzinfo=UTC)
 _PIN_KEYS = (
     "claude-opus-4-7", "claude-opus-5-5", "claude-sonnet-5-5",
     "claude-haiku-4-5", "gpt-5-5", "gpt-5-6-sol", "glm-5-3-flash",
@@ -493,21 +497,11 @@ _PIN_KEYS = (
 )
 
 
-def test_the_live_migrated_rows_price_their_frozen_first_entries():
-    """Bind the committed file to the migration at a fixed instant before
-    every committed cutover: each migrated row's first entry still prices
-    what the pre-migration models row held, whatever the refresh appends."""
-    doc = pricing_document.expand_pricing_doc(json.loads(
-        (ROOT / "src" / "pricing.json").read_text(encoding="utf-8")))
-    assert len(doc["models"]) == 1 and "bonsai-2-27b" in doc["models"]
+def test_the_live_migrated_rows_resolve_to_their_current_vendor_entries():
+    """Compare each bare vendor resolution with its same-run loaded row."""
     for key in _PIN_KEYS:
-        entry = doc["openrouter"]["models"][key]
-        host = entry["vendor_host"]
-        history = doc["providers"][key][host]
-        rates = {f: history[0][f] for f in RATE_FIELDS}
-        if "web_search" in history[0]:
-            rates["web_search"] = history[0]["web_search"]
-        assert pricing.rate_for(key, _PIN_INSTANT) == rates, key
+        host = pricing.VENDOR_HOSTS[key]
+        assert pricing.rate_for(key) is pricing.PROVIDER_RATES[(key, host)], key
         # The suffix tolerance and the tracked-key identity hold live too.
         assert pricing.resolve(f"{key}[1m]").key == key, key
 

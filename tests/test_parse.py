@@ -26,13 +26,15 @@ def _read(name):
     return (FIX / name).read_bytes()
 
 
-def test_single_turn_emits_one_record_one_turn():
-    out = parse.parse_file("k/sess-1/sess-1.jsonl", _read("single_turn.jsonl"))
+def test_single_turn_emits_one_record_one_turn(monkeypatch):
+    monkeypatch.setitem(pricing.MODEL_RATES, SPLIT_MODEL, SPLIT_RATES)
+    raw = _read("single_turn.jsonl").replace(b"claude-sonnet-4-5", SPLIT_MODEL.encode())
+    out = parse.parse_file("k/sess-1/sess-1.jsonl", raw)
     assert len(out["records"]) == 1
     r = out["records"][0]
     assert r["uuid"] == "a1"
     assert r["request_id"] == "req-1"
-    assert r["model"] == "claude-sonnet-4-5"
+    assert r["model"] == SPLIT_MODEL
     assert r["fresh_tokens"] == 100
     assert r["output_tokens"] == 200
     assert r["cost_usd"] == pytest.approx(100/1e6 * 3.00 + 200/1e6 * 15.00)
@@ -485,9 +487,10 @@ def test_dated_rate_prices_each_record_at_its_own_timestamp(synthetic_dated_rate
     assert after["cost_usd"] == pytest.approx(w.after["fresh"])
 
 
-def test_sonnet_5_is_priced_flat_at_its_standard_rate():
-    # Same fixture, live rate table: both records price at 2.00/MTok.
-    out = parse.parse_file("k/sess-d/sess-d.jsonl", _read("dated_rate_sonnet5.jsonl"))
+def test_a_flat_rate_prices_records_at_both_fixture_timestamps(monkeypatch):
+    monkeypatch.setitem(pricing.MODEL_RATES, SPLIT_MODEL, dict(SPLIT_RATES, fresh=2.0))
+    raw = _read("dated_rate_sonnet5.jsonl").replace(b"claude-sonnet-5", SPLIT_MODEL.encode())
+    out = parse.parse_file("k/sess-d/sess-d.jsonl", raw)
     assert [r["cost_usd"] for r in out["records"]] == [
         pytest.approx(2.00), pytest.approx(2.00),
     ]

@@ -145,22 +145,20 @@ def test_unsplit_cache_charges_at_1h_rate(
     assert rates["create_1h"] != rates["create_5m"]
 
 
-def test_expired_windows_keep_pricing_their_own_period():
+def test_expired_windows_keep_pricing_their_own_period(synthetic_glm_history):
     """An expired window is NOT dead weight. Every PARSER_VERSION bump
-    reparses the whole bucket, and a record from inside the window must
-    come out at the price that was in force then — dropping the window
-    would silently reprice history at list on the next reparse. The glm
-    row is a tracked vendor row since the migration, so the boundary and
-    both sides' rates read from its provider-row windows."""
-    windows = pricing.PROVIDER_DATED_RATES[("glm-5-3-flash", "Z.AI")]
+    reparses the whole bucket, and a record from inside a retained window
+    must price by that window. The synthetic vendor history keeps this
+    check independent of the refresh's corrections to live rows."""
+    windows = pricing.PROVIDER_DATED_RATES[(SYNTH_GLM, "SyntheticVendor")]
     cutover, window_rates = windows[-1]
-    listed = pricing.PROVIDER_RATES[("glm-5-3-flash", "Z.AI")]
+    listed = pricing.PROVIDER_RATES[(SYNTH_GLM, "SyntheticVendor")]
     before = pricing.compute_cost(
-        "glm-5-3-flash", fresh=1, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (same algorithm and order: one token uses the runtime window's fresh rate divided by one million)
+        SYNTH_GLM, fresh=1, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, ts=cutover - timedelta(seconds=1),
     )
     after = pricing.compute_cost(
-        "glm-5-3-flash", fresh=1, output=0, eph5=0, eph1h=0,  # sv-test-data: allow (same algorithm and order: one token uses the runtime list rate divided by one million)
+        SYNTH_GLM, fresh=1, output=0, eph5=0, eph1h=0,
         unsplit_create=0, read=0, ts=cutover,
     )
     # rel=1e-12: the same window's rates on both sides; the per-million
@@ -420,6 +418,22 @@ GLM_LIST = {"fresh": 0.15, "create_5m": 0.15, "create_1h": 0.15,
             "read": 0.03, "output": 0.50}
 GLM_PROMO = {"fresh": 0.075, "create_5m": 0.075, "create_1h": 0.075,
              "read": 0.015, "output": 0.25}
+SYNTH_GLM = "glm-acme-9"
+
+
+@pytest.fixture(name="synthetic_glm_history")
+def _synthetic_glm_history_fixture(monkeypatch):
+    changes = [(2, 28, 4, GLM_LIST), (2, 30, 55, GLM_PROMO),
+               (6, 5, 57, GLM_LIST), (6, 12, 51, GLM_PROMO),
+               (9, 38, 44, GLM_LIST)]
+    history = [{"from": None, **GLM_PROMO}, *[
+        {"from": datetime(2026, 9, 10, h, m, s, tzinfo=UTC).isoformat(), **rates}
+        for h, m, s, rates in changes]]
+    doc = seed_doc(
+        tracked={SYNTH_GLM: {"id": f"z-ai/{SYNTH_GLM}", "vendor_host": "SyntheticVendor"}},
+        providers={SYNTH_GLM: {"SyntheticVendor": history}})
+    for name, value in pricing.load_tables(doc).items():
+        monkeypatch.setattr(pricing, name, value)
 
 
 @pytest.mark.parametrize("hour,minute,second,before,after", [
@@ -427,10 +441,11 @@ GLM_PROMO = {"fresh": 0.075, "create_5m": 0.075, "create_1h": 0.075,
     (6, 5, 57, GLM_PROMO, GLM_LIST), (6, 12, 51, GLM_LIST, GLM_PROMO),
     (9, 38, 44, GLM_PROMO, GLM_LIST),
 ])
-def test_glm_flash_promo_windows_end_exclusive_at_logged_instants(hour, minute, second, before, after):
+def test_glm_flash_promo_windows_end_exclusive_at_logged_instants(
+        synthetic_glm_history, hour, minute, second, before, after):
     cutover = datetime(2026, 9, 10, hour, minute, second, tzinfo=UTC)
-    assert pricing.rate_for("glm-5.3-flash", ts=cutover - timedelta(seconds=1)) == before  # sv-test-data: allow (closed-window pin at logged GLM promo boundaries)
-    assert pricing.rate_for("glm-5.3-flash", ts=cutover) == after  # sv-test-data: allow (closed-window pin at logged GLM promo boundaries)
+    assert pricing.rate_for(SYNTH_GLM, ts=cutover - timedelta(seconds=1)) == before
+    assert pricing.rate_for(SYNTH_GLM, ts=cutover) == after
 
 
 @pytest.mark.parametrize("offset,fresh,output,read,writes,want,max_error", [
@@ -440,9 +455,9 @@ def test_glm_flash_promo_windows_end_exclusive_at_logged_instants(hour, minute, 
      2 * 0.075 + 0.25 + 4 * 0.015, 1e-9),
 ])
 def test_glm_flash_compute_cost_known_vectors(
-        offset, fresh, output, read, writes, want, max_error):
+        synthetic_glm_history, offset, fresh, output, read, writes, want, max_error):
     cost = pricing.compute_cost(
-        "glm-5.3-flash",  # sv-test-data: allow (closed-window pin at the GLM promo boundary)
+        SYNTH_GLM,
         fresh=fresh, output=output, eph5=writes, eph1h=writes,
         unsplit_create=writes, read=read, ts=GLM_CUTOVER + timedelta(seconds=offset),
     )
