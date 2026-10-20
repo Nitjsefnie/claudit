@@ -169,8 +169,8 @@
       11288
     ],
     "backend/app.py": [
-      8028,
-      13889
+      8102,
+      14444
     ],
     "backend/auth.py": [
       2757,
@@ -601,8 +601,8 @@
       69513
     ],
     "scripts/ci/panel_server.mjs": [
-      779,
-      2953
+      857,
+      4691
     ],
     "scripts/ci/perturb_test_data.py": [
       6269,
@@ -1029,8 +1029,8 @@
       884
     ],
     "tests/test_branding.py": [
-      6221,
-      19178
+      6140,
+      19087
     ],
     "tests/test_breakdown_exact_rate.py": [
       2479,
@@ -1085,8 +1085,8 @@
       24421
     ],
     "tests/test_classic_script_scope.py": [
-      2688,
-      6719
+      2527,
+      7295
     ],
     "tests/test_cold_load_legs.py": [
       1696,
@@ -1629,8 +1629,8 @@
       5262
     ],
     "tests/test_security_headers.py": [
-      2836,
-      8868
+      2819,
+      9611
     ],
     "tests/test_sequence_allocation.py": [
       1786,
