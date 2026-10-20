@@ -59,6 +59,32 @@ def test_thresholds_only_is_data(history):
     assert result.returncode == 0, result.stderr
 
 
+def test_comment_share_only_is_data(history):
+    repo, base = history
+    tip = _commit(repo, {".github/comment-share.json": '{}\n'})
+    result = _decision(repo, base, tip)
+    assert result.returncode == 0, result.stderr
+
+
+def test_both_ratchet_data_files_are_data(history):
+    repo, base = history
+    tip = _commit(repo, {
+        ".github/ci-thresholds.json": '{"raised": true}\n',
+        ".github/comment-share.json": '{}\n',
+    })
+    result = _decision(repo, base, tip)
+    assert result.returncode == 0, result.stderr
+
+
+def test_comment_share_with_code_is_not_data(history):
+    repo, base = history
+    tip = _commit(repo, {
+        ".github/comment-share.json": '{}\n',
+        "backend/code.py": "answer = 1\n",
+    })
+    assert _decision(repo, base, tip).returncode == 1
+
+
 def test_thresholds_deletion_is_data_and_requires_workflow_validation(history):
     repo, base = history
     _git(repo, "rm", ".github/ci-thresholds.json")

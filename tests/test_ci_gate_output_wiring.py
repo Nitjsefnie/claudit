@@ -520,3 +520,13 @@ def test_a_thresholds_only_push_runs_only_tests_end_to_end(tmp_path):
     assert outputs.get('thresholds_only') == 'true', outputs
     assert _published(outputs).get('thresholds_only') == 'true', outputs
     assert _gating_legs(outputs) == {'tests'}
+
+
+def test_a_comment_share_only_push_runs_only_tests_end_to_end(tmp_path):
+    run = _run_classifier(tmp_path, paths=['.github/comment-share.json'])
+    _only_modelled_reads(run)
+    _over_the_verified_base(run)
+    outputs = _parse_step_outputs(run.written)
+    assert outputs.get('thresholds_only') == 'true', outputs
+    assert _published(outputs).get('thresholds_only') == 'true', outputs
+    assert _gating_legs(outputs) == {'tests'}

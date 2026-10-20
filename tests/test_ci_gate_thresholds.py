@@ -22,6 +22,8 @@ def _workflow(name):
 
 @pytest.mark.parametrize('paths,expected', [
     ([THRESHOLDS], True),
+    (['.github/comment-share.json'], True),
+    ([THRESHOLDS, '.github/comment-share.json'], True),
     ([THRESHOLDS, 'backend/app.py'], False),
     ([THRESHOLDS, 'docs/guide.md'], False),
     ([THRESHOLDS, '.github/old-thresholds.json'], False),
@@ -38,7 +40,7 @@ def test_classify_thresholds_exact_path_set(paths, expected, tmp_path):
     if THRESHOLDS in paths:
         assert result[:3] == (False, False, False)
     if expected:
-        assert 'thresholds-only' in outputs['reason']
+        assert outputs['reason'] == f'ratchet data changed: {len(paths)} path(s)'
 
 
 def test_main_emits_thresholds_only(tmp_path, monkeypatch):
