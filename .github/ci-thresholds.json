@@ -242,7 +242,7 @@
     ],
     "backend/codex_tool_rows.py": [
       2753,
-      6441
+      6668
     ],
     "backend/collection_rollups.py": [
       139,
@@ -429,16 +429,16 @@
       11903
     ],
     "backend/parse_codex_churn.py": [
-      997,
-      1769
+      1079,
+      2060
     ],
     "backend/parse_collection.py": [
       452,
       1850
     ],
     "backend/parse_common.py": [
-      6986,
-      13597
+      7076,
+      13799
     ],
     "backend/parse_kimi.py": [
       5506,
@@ -446,7 +446,7 @@
     ],
     "backend/parse_lanes.py": [
       4853,
-      8109
+      8140
     ],
     "backend/parse_projection.py": [
       450,
