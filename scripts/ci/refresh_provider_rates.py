@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Refresh src/pricing.json's OpenRouter provider rates (SV-RATE-REFRESH).
 
-Fetch each tracked model's endpoints and listed-pricing log. A provable
-endpoint history appends logged changes at their change times, then any
-out-of-step listing at detection. First rows import from HISTORY_FLOOR;
-earlier states price no stored record. Unjoined hosts sample at detection
-with the alternation rule. Entries are never rewritten. Appending bumps
-backend/constants.py's PRICING_VERSION by one (reprice, not reparse) and
-moves provider_rates_fetched; quiet runs write nothing.
+Each run rewrites log-backed histories from the complete listed-pricing
+log through detection, overlays sampled search/context history and merges
+identical dated states. First-seen rows keep the HISTORY_FLOOR import.
+Unjoined hosts stay append-only at detection with alternation. Repriced
+history or an append bumps backend/constants.py's PRICING_VERSION by one
+(reprice, not reparse) and moves provider_rates_fetched. Quiet runs write
+nothing; annotation/grouping-only drift stays untouched with a notice.
+Hand corrections also require a human commit and bump.
 
 Only the account's data-region endpoints count (tag_region). Weekly
 pricing.overrides become the entry's schedule. The top-level price is its
@@ -49,12 +50,10 @@ These refuse the host or model they concern, which appends nothing:
   relists it. An unreadable catalog proves nothing about delisting, so
   the empty-endpoints refusal stands while the catalog cannot be read.
 
-Refusals keep rows untouched and exit 1. At an equal or future detection
-cutover, an out-of-step logged row is refused by name; other moves publish
-before exiting 1. provider_rates_fetched keeps the later of its stored
-instant and detection, so it never falls below a retained cutover.
-Sampled timing collisions keep their notice. The history rewrite is in
-backfill_provider_rates.py.
+Refusals keep rows untouched and exit 1; other moves publish before exiting
+1. provider_rates_fetched keeps the later of its stored instant and detection,
+so it never falls below a retained cutover. Sampled timing collisions keep
+their notice. The manual backfill uses the same history rewrite core.
 
 The same run tracks the first-party vendor table (refresh_vendor_rates,
 SV-VENDOR-RATES): a catalog id under a configured

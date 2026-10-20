@@ -75,7 +75,7 @@ def classify_log_rows(
         read: refresh_pricelog.LogRead, region: str | None, resolutions: dict,
         append_logged: Callable[[str, dict, str, Any, list[dict], datetime], Any],
         same_rates: Callable[[dict, dict], bool], at: datetime) -> LogRows:
-    """Split listed hosts into log-backed appends and sampled rows; `at` is
+    """Split listed hosts into log-backed rewrites and sampled rows; `at` is
     the fetch instant, at which each log series is read."""
     if read.series is None:
         return _unavailable_log_rows(

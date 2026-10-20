@@ -60,16 +60,16 @@ def test_a_postdated_host_does_not_block_other_hosts_moves(
     assert after != doc, err
     assert after["provider_rates_fetched"] == stored_stamp
     assert after["providers"]["example/model"] == {
-        "Wafer": [{**old, "from": datetime.fromisoformat(stored_stamp)
-                   .astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}],
+        "Wafer": ([{"from": "2030-01-01T00:00:00Z", **wafer_listed},
+                   {"from": STAMP, "context_length": 131072, **wafer_listed}]
+                  if logged else [{**old, "from": datetime.fromisoformat(stored_stamp)
+                                   .astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}]),
         "OtherHost": [{"from": None, **old}, {"from": STAMP, "context_length": 131072, **other_listed}]}
     assert constants_path.read_text(encoding="utf-8") == 'PRICING_VERSION = "74"\n'
     assert "OtherHost" in (tmp_path / "commit-msg.txt").read_text(encoding="utf-8")
-    assert "example/model via Wafer" in out
+    assert rc == 0 and not err
     if logged:
-        assert rc == 1
-        assert "example/model via Wafer" in err and "refused" in err
+        assert "log rewrite" in out
     else:
-        assert rc == 0
         assert "left untouched" in out
     pricing.load_tables(after)

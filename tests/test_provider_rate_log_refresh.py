@@ -170,7 +170,7 @@ def _run_case(tmp_path: Path, capsys, case: RefreshCase,
     return rc, out, err, pricing_path, constants_path
 
 
-def test_log_backed_history_appends_every_move_at_its_own_time_through_a_flip(
+def test_log_backed_history_rewrites_every_move_at_its_own_time_through_a_flip(
         tmp_path, capsys):
     states = [
         ("2030-12-31T23:00:00Z", RATE_A),
@@ -189,7 +189,8 @@ def test_log_backed_history_appends_every_move_at_its_own_time_through_a_flip(
     assert saved["provider_rates_fetched"] == STAMP
     assert 'PRICING_VERSION = "72"' in constants_path.read_text(encoding="utf-8")
     assert "alternating price" not in out
-    assert f"changed   {HOST}: 2 log entries" in out
+    assert f"changed   {HOST}: 3 log entries" in out
+    assert "log rewrite" in out
 
 
 @pytest.mark.parametrize("equal_price_alias", [False, True])
@@ -250,7 +251,7 @@ def _run_compact_hourly(tmp_path, capsys, *, history, hosts, now):
     ("create_5m", "2031-01-01T00:20:00Z", RATE_C, "2031-01-01T00:40:00Z"),
     ("create_1h", "2031-01-01T00:20:00Z", RATE_C, "2031-01-01T00:40:00Z"),
 ], ids=["normalized-stored-row", "explicit-free-5m-write", "explicit-free-1h-write"])
-def test_hourly_appends_only_log_states_after_the_stored_row(
+def test_hourly_rewrites_stored_rates_from_complete_log(
         tmp_path, capsys, field, change_at, listed, detected_at):
     context = {"context_length": 131072} if field is None else {}
     row = [{"from": None, **RATE_A, **({field: 0} if field is not None else {}), **context},
@@ -258,7 +259,7 @@ def test_hourly_appends_only_log_states_after_the_stored_row(
     states = [("2031-01-01T00:00:00Z", RATE_A),
               ("2031-01-01T00:10:00Z", RATE_B), (change_at, listed)]
     expected = [
-        _entry(None, {**RATE_A, **({field: 0} if field is not None else {})},
+        _entry(None, RATE_A,
                context_length=context.get("context_length")),
         _entry("2031-01-01T00:10:00Z", RATE_B,
                context_length=context.get("context_length")),
@@ -276,44 +277,38 @@ def test_hourly_appends_only_log_states_after_the_stored_row(
     assert f"sampled   {HOST}" not in out
 
 
-@pytest.mark.parametrize("row_at,row_rates,states,endpoint_rates,additions", [
+@pytest.mark.parametrize("row_at,row_rates,states,endpoint_rates,rewritten", [
     (
         "2031-01-01T05:00:00+05:00", RATE_A,
         [("2030-12-31T23:50:00Z", RATE_A), ("2031-01-01T00:15:00Z", RATE_B)],
-        RATE_B, [_entry("2031-01-01T00:15:00Z", RATE_B)],
-        # The +05 timestamp is the same instant as 00:00Z. The repeated A
-        # level counts once; only the move to B appends.
+        RATE_B, [_entry(None, RATE_A), _entry("2031-01-01T00:15:00Z", RATE_B)],
     ),
     (
         "2031-01-01T00:00:00-00:15", RATE_B,
         [("2030-12-31T23:50:00Z", RATE_A), ("2031-01-01T00:05:00Z", RATE_C),
          ("2031-01-01T00:10:00Z", RATE_B), ("2031-01-01T00:20:00Z", RATE_C)],
-        RATE_C, [_entry("2031-01-01T00:20:00Z", RATE_C)],
+        RATE_C, [_entry(None, RATE_A),
+                 {**_entry("2031-01-01T00:05:00Z", RATE_C),
+                  "from": ["2031-01-01T00:05:00Z", "2031-01-01T00:20:00Z"]},
+                 _entry("2031-01-01T00:10:00Z", RATE_B)],
     ),
     (
         "2031-01-01T00:00:00+00:00", RATE_A,
         [("2030-12-31T23:50:00Z", RATE_A), ("2031-01-01T00:00:00Z", RATE_B)],
-        RATE_B, [_entry(STAMP, RATE_B)],
+        RATE_B, [_entry(None, RATE_A), _entry("2031-01-01T00:00:00Z", RATE_B)],
     ),
 ])
-def test_log_append_compares_offset_timestamps_as_instants(
-        tmp_path, capsys, row_at, row_rates, states, endpoint_rates, additions):
-    # The second entry repeats the row's level so the comparison under
-    # test is about INSTANTS; a note distinguishes it from its
-    # predecessor, which refuses as a no-op otherwise.
+def test_log_rewrite_corrects_offset_spelled_cutovers(
+        tmp_path, capsys, row_at, row_rates, states, endpoint_rates, rewritten):
     row = [_entry(None, RATE_A),
            _entry(row_at, row_rates, note="offset-spelled cutover")]
-    expected = row + additions
     rc, _, err, pricing_path, _ = _run(
         tmp_path, capsys, history=states, hosts={HOST: row},
         endpoint_rates=endpoint_rates)
 
     assert rc == 0 and not err
     saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
-    expected = [{**entry, "from": datetime.fromisoformat(entry["from"]).astimezone(
-        timezone.utc).isoformat().replace("+00:00", "Z")} if entry["from"] else entry
-                for entry in expected]
-    assert saved["providers"][MODEL][HOST] == expected
+    assert saved["providers"][MODEL][HOST] == rewritten
 
 
 def test_invalid_generated_log_entry_samples_only_its_host(tmp_path, capsys):

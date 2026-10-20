@@ -5,13 +5,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from refresh_common import detection_stamp
-from refresh_prices import RefreshError
 from refresh_provider_history import (
-    Move, _entry, _floored_log, _new_log_states, _occurrences, _price_instant,
+    Move, _floored_log, _occurrences, _price_instant,
     _sampled_state, _set_sampled_state,
 )
+from refresh_provider_history_rewrite import _merge_history, _priced_history, _rewrite
 from refresh_selection import Listing
-from backend.pricing_document import effective_rates
 
 
 @dataclass
@@ -32,21 +31,9 @@ def _sampled_label(change: _LogChange) -> str:
                      if value != change.old_sampled[key])
 
 
-def _append_token_states(change: _LogChange, additions: list[dict]) -> None:
-    """Append every new logged token state at its change point."""
-    if not additions:
-        return
-    for entry in additions:
-        _set_sampled_state(entry, change.old_sampled)
-    original = change.original
-    assert original is not None
-    change.history.extend(additions)
-    change.move = Move(change.model, change.host, original, change.listing,
-                       len(additions), "log")
-
-
 def _prepare_log_change(model: str, hosts: dict, host: str,
-                        listing: Listing, entries: list[dict]) -> _LogChange:
+                        listing: Listing, entries: list[dict], at: datetime,
+                        notices: list[str] | None) -> _LogChange:
     stored = hosts.get(host)
     history = list(_occurrences(stored, f"{model} via {host}")) if stored else []
     prior_length = len(history)
@@ -57,34 +44,20 @@ def _prepare_log_change(model: str, hosts: dict, host: str,
     if stored is None:
         additions = _floored_log(model, host, entries)
         change.history = copy.deepcopy(additions)
-        hosts[host] = change.history
         change.move = Move(model, host, None, listing, len(additions), "log")
     else:
-        assert original is not None
-        additions = _new_log_states(model, host, entries, original)
-        _append_token_states(change, additions)
+        rewritten = _rewrite(stored, entries, detection_stamp(at))
+        if rewritten is not None:
+            if _priced_history(rewritten) != _priced_history(stored):
+                change.history = _occurrences(rewritten, f"{model} via {host}")
+                change.prior_length = 0
+                change.old_sampled = _sampled_state(change.history[-1])
+                change.move = Move(model, host, original, listing, len(entries), "log",
+                                   "log rewrite from the listed-pricing history")
+            elif rewritten != stored and notices is not None:
+                notices.append(f"{model} via {host}: log rewrite leaves priced history "
+                               "unchanged; stored annotations and grouping kept")
     return change
-
-
-def _append_endpoint_state(change: _LogChange, at: datetime) -> None:
-    """Reconcile the resulting row with its endpoint at detection time."""
-    newest = change.history[-1]
-    rates = effective_rates(newest)
-    listed = change.listing.rates
-    if all(round(float(rates[field]), 10) == round(float(listed[field]), 10)
-           for field in rates):
-        return
-    stamp = detection_stamp(at)
-    where = f"{change.model} via {change.host}"
-    reason = "row was out of step with its endpoint's listed price"
-    newest_from = newest.get("from")
-    if newest_from is not None and _price_instant(newest_from, where) >= at:
-        raise RefreshError(
-            f"{where}: {reason}; the stored newest entry is dated {newest_from}, "
-            "not before the detection instant; the host was refused")
-    _append_token_states(change, [_entry(stamp, change.listing)])
-    assert change.move is not None
-    change.move.reason = reason
 
 
 def _defer_committed_sampled_change(
@@ -209,18 +182,17 @@ def _append_sampled_change(change: _LogChange, at: datetime,
 def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
                    entries: list[dict], at: datetime,
                    deferred_notices: list[str] | None = None) -> Move | None:
-    """Append every new log state after the stored row without rewriting it.
+    """Rewrite a stored log-backed row when its priced history differs.
 
-    A row still out of step with the listing appends its listed state at
-    detection, or refuses when that instant cannot follow its newest entry.
-    Sampled changes share an entry newly created at that instant; a collision
-    with committed history is deferred to the next actual append
-    (SV-RATE-REFRESH).
+    First-seen hosts import from the history floor. Sampled fields retain
+    their detection-time insert/defer behavior on the resulting history.
     """
     stored = hosts.get(host)
-    change = _prepare_log_change(model, hosts, host, listing, entries)
-    _append_endpoint_state(change, at)
+    change = _prepare_log_change(model, hosts, host, listing, entries, at, deferred_notices)
     move = _append_sampled_change(change, at, deferred_notices)
-    if stored is not None:
-        hosts[host] = [*stored, *change.history[change.prior_length:]]
+    if move is not None:
+        if move.reason:
+            hosts[host] = _merge_history(change.history)
+        else:
+            hosts[host] = [*(stored or []), *change.history[change.prior_length:]]
     return move

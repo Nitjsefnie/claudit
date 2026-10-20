@@ -1,0 +1,140 @@
+"""The refresh corrects logged history while retaining sampled observations."""
+from __future__ import annotations
+
+import copy
+import json
+
+import pytest
+
+from backend import pricing
+from backend.pricing_document import expand_pricing_doc, serialize_pricing_doc
+from tests.refresh_fixture_builders import _endpoint, seed_doc
+from tests.test_provider_rate_log_refresh import (
+    HOST, MODEL, MODEL_ID, NOW, RATE_A, RATE_B, STAMP, RefreshFetches,
+    _entry, _series, refresh,
+)
+
+EARLY = "2031-01-01T00:05:00Z"
+CHANGED = "2031-01-01T00:10:00Z"
+DRIFTED = "2031-01-01T00:20:00Z"
+START = "2030-12-31T23:00:00Z"
+
+
+class RewriteRun:
+    def __init__(self, tmp_path, history, states, *, listed=None, fetched=DRIFTED):
+        self.path = tmp_path / "pricing.json"
+        self.constants = tmp_path / "constants.py"
+        self.message = tmp_path / "commit.txt"
+        self.state = tmp_path / "pricing_notices.json"
+        self.doc = seed_doc(
+            tracked={MODEL: {"id": MODEL_ID}},
+            providers={MODEL: {HOST: history}}, fetched=fetched)
+        self.path.write_text(serialize_pricing_doc(self.doc), encoding="utf-8")
+        self.constants.write_text('PRICING_VERSION = "17"\n', encoding="utf-8")
+        self.fetches = RefreshFetches(
+            {"data": {"endpoints": [_endpoint(
+                HOST, listed or states[-1][1], tag="wafer/fp8")]}},
+            {"data": {"series": [_series(states)]}}, None, None)
+
+    def run(self, capsys):
+        rc = refresh.main(
+            ["--commit-msg", str(self.message)],
+            fetch=self.fetches.fetch_endpoints,
+            fetch_models=self.fetches.fetch_models, fetch_log=self.fetches.fetch_log,
+            now=NOW, pricing_path=self.path, constants_path=self.constants, vendor=None)
+        out, err = capsys.readouterr()
+        assert rc == 0, err
+        assert not err
+        return out
+
+    def saved(self):
+        return expand_pricing_doc(json.loads(self.path.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize("fetched,expected", [
+    (DRIFTED, STAMP), ("2031-01-02T00:00:00Z", "2031-01-02T00:00:00Z"),
+])
+def test_rewrite_only_run_corrects_closed_window_bumps_and_keeps_later_stamp(
+        tmp_path, capsys, fetched, expected):
+    run = RewriteRun(tmp_path, [_entry(None, RATE_A),
+                                _entry(DRIFTED, RATE_B, note="stale annotation")],
+                     [(START, RATE_A), (CHANGED, RATE_B)], fetched=fetched)
+
+    out = run.run(capsys)
+
+    saved = run.saved()
+    assert saved["providers"][MODEL][HOST] == [
+        {"from": None, **RATE_A, "context_length": 131072},
+        {"from": CHANGED, **RATE_B, "context_length": 131072}]
+    assert saved["provider_rates_fetched"] == expected
+    assert run.constants.read_text(encoding="utf-8") == 'PRICING_VERSION = "18"\n'
+    assert "log rewrite" in out
+    assert "log rewrite" in run.message.read_text(encoding="utf-8")
+    pricing.load_tables(json.loads(run.path.read_text(encoding="utf-8")))
+    baseline = run.state.read_bytes()
+    written = run.path.read_bytes(), run.constants.read_bytes()
+
+    assert "no rate moved" in run.run(capsys)
+    assert (run.path.read_bytes(), run.constants.read_bytes()) == written
+    assert run.state.read_bytes() == baseline
+
+
+def test_rewrite_preserves_sampled_search_and_context_epochs(tmp_path, capsys):
+    history = [
+        _entry(None, RATE_A, web_search=0.01),
+        _entry(EARLY, RATE_A, web_search=0.02, context_length=262144),
+        _entry(DRIFTED, RATE_B, web_search=0.02, context_length=262144)]
+    run = RewriteRun(tmp_path, history, [(START, RATE_A), (CHANGED, RATE_B)],
+                     listed={**RATE_B, "web_search": 0.02, "context_length": 262144})
+
+    run.run(capsys)
+
+    assert run.saved()["providers"][MODEL][HOST] == [
+        {**history[0], **RATE_A}, {**history[1], **RATE_A},
+        {**history[2], **RATE_B, "from": CHANGED}]
+
+
+@pytest.mark.parametrize("drift", ["none", "note", "grouping", "context"])
+def test_price_equivalence_keeps_stored_row_and_notice_baseline_untouched(
+        tmp_path, capsys, drift):
+    history = [_entry(None, RATE_A), _entry(CHANGED, RATE_B)]
+    states = [(START, RATE_A), (CHANGED, RATE_B)]
+    if drift in {"note", "context"}:
+        states = [(START, RATE_A), (EARLY, RATE_A), (CHANGED, RATE_B)]
+        history.insert(1, _entry(EARLY, RATE_A, note="annotation"))
+        if drift == "context":
+            history[1]["context_length"] = 262144
+    if drift == "grouping":
+        history.append(_entry(DRIFTED, RATE_A))
+        states.append((DRIFTED, RATE_A))
+        history.append(_entry("2031-01-01T00:25:00Z", RATE_B))
+        states.append(("2031-01-01T00:25:00Z", RATE_B))
+        fetched = "2031-01-01T00:25:00Z"
+    else:
+        fetched = DRIFTED
+    run = RewriteRun(tmp_path, history, states, fetched=fetched)
+    run.state.write_text('{"notices": ["existing notice"]}\n', encoding="utf-8")
+    before = run.path.read_bytes(), run.constants.read_bytes(), run.state.read_bytes()
+
+    out = run.run(capsys)
+
+    assert "no rate moved" in out
+    assert (run.path.read_bytes(), run.constants.read_bytes(), run.state.read_bytes()) == before
+    assert not run.message.exists()
+    if drift != "none":
+        assert "unchanged" in out and HOST in out
+
+
+def test_stored_schedule_disagreement_samples_only_that_host(tmp_path, capsys):
+    schedule = [{"days": ["monday"], "rates": RATE_B}]
+    history = [_entry(None, RATE_A, schedule=schedule)]
+    run = RewriteRun(tmp_path, history, [(START, RATE_A), (CHANGED, RATE_B)])
+    before = copy.deepcopy(run.doc["providers"][MODEL][HOST])
+
+    out = run.run(capsys)
+
+    assert "stored schedule differs from log" in out
+    assert f"sampled   {HOST}" in out
+    assert run.saved()["providers"][MODEL][HOST] == [
+        {**before[0], **RATE_A}, {"from": STAMP, **RATE_B, "context_length": 131072}]
+    assert "log rewrite" not in out
