@@ -86,11 +86,9 @@ function derivedModelColor(key) {
   return `oklch(0.76 0.14 ${hue})`;
 }
 
-// The table every panel reads. A listed key returns its hand-picked
-// colour; any other string returns the derived one (memoised, so a model
-// is hashed once per page). Non-string keys (Symbol.iterator, from
-// spreading or JSON) fall through to the plain object so nothing that
-// inspects the table by reflection sees a colour it did not ask for.
+// Shared palette: listed keys use hand-picked colours; other strings get
+// memoised derived colours (one hash/model/page). Non-string keys, e.g.
+// Symbol.iterator from spread/JSON, pass through to avoid colouring reflection.
 const derivedModelColors = {};
 const MODEL_COLORS = new Proxy(MODEL_COLOR_TABLE, {
   get(table, key) {
@@ -103,29 +101,13 @@ const MODEL_COLORS = new Proxy(MODEL_COLOR_TABLE, {
 // --- End model colours
 
 function humanFmt(v, isCurrency) {
-  const prefix = isCurrency ? '$' : '';
-  const abs = Math.abs(v);
-  let out;
-  if (abs >= 1e9) out = (v / 1e9).toFixed(2).replace(/\.?0+$/, '') + 'B';
-  else if (abs >= 1e6) out = (v / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M';
-  else if (abs >= 1e3) out = (v / 1e3).toFixed(1).replace(/\.?0+$/, '') + 'K';
-  else if (isCurrency) out = v.toFixed(2);
-  else out = String(Math.round(v));
-  return prefix + out;
+  return window.humanFormat.fmt(v, isCurrency);
 }
 
-// Currency formatter that scales precision with magnitude — Schwabish:
-// drop decimals readers can't act on. $11357.99 → $11.4K; $789.62 → $790;
-// $5.32 → $5.32. Cents kept only when the amount is small enough that
-// they actually matter.
+// Schwabish: 3 significant digits, trailing zeros kept — $11357.99 → $11.4K;
+// $789.62 → $790; $1200 → $1.20K.
 function humanCurrency(v) {
-  const abs = Math.abs(v);
-  if (abs >= 1e9) return '$' + (v / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
-  if (abs >= 1e6) return '$' + (v / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M';
-  if (abs >= 1e3) return '$' + (v / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
-  if (abs >= 100) return '$' + Math.round(v);
-  if (abs >= 10)  return '$' + v.toFixed(1).replace(/\.0$/, '');
-  return '$' + v.toFixed(2);
+  return window.humanFormat.currency(v);
 }
 
 function fmtDate(ts, opts = {}) {
