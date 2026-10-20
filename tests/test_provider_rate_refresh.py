@@ -1,10 +1,8 @@
 """SV-RATE-REFRESH: scripts/ci/refresh_provider_rates.py, driven by fixture
 endpoint payloads — never the network.
 
-Runs start from src/pricing.json's SEEDED provider entries. Append-only
-refreshes leave this view and its starting prices independent of later
-scheduled commits. Payloads reproduce it, so "nothing moved" is exact;
-each test moves one thing.
+Runs start from fixed synthetic provider histories. Payloads reproduce
+that document, so "nothing moved" is exact; each test moves one thing.
 """
 from __future__ import annotations
 
@@ -24,10 +22,10 @@ from backend import pricing
 from backend.pricing_document import expand_pricing_doc, serialize_pricing_doc
 from tests.refresh_fixture_builders import (_discount, _endpoint,
                                             _overrides, _per_token,
-                                            DEFAULT_ROW)
+                                            RATES_A, seed_doc, provider_refresh_doc)
 
 ROOT = Path(__file__).resolve().parents[1]
-PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (seed template only; the docs under test are synthetic seeded views)
+PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (catalog structure checks only; refresh histories are synthetic)
 CONSTANTS_PY = ROOT / "backend" / "constants.py"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
@@ -36,7 +34,6 @@ PARSER_USAGE_JS = ROOT / "src" / "parser-usage.js"
 PARSER_JS = ROOT / "src" / "parser.js"
 RATES_JS = ROOT / "src" / "rates.js"
 RATE_FIELDS = ("fresh", "create_5m", "create_1h", "read", "output")
-FUZZ_RESERVED_NAMESPACE = "zz-fuzz-local/"
 UTC = timezone.utc
 NOW = datetime(2031, 1, 1, tzinfo=UTC)
 STAMP = "2031-01-01T00:00:00Z"
@@ -54,8 +51,7 @@ def _openrouter_template() -> dict:
     return json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8"))["openrouter"]  # sv-test-data: allow (catalog configuration only; endpoint prices are synthetic)
 
 
-V41 = next(key for key, entry in _openrouter_template()["models"].items()
-           if entry["id"] == "deepseek/deepseek-v4.1-flash")
+V41 = "deepseek-v4-1-flash"
 
 
 def _load():
@@ -75,78 +71,9 @@ refresh = _load()
 refresh_prices = importlib.import_module("refresh_prices")
 
 
-def _seeded(doc: dict) -> dict:
-    """The file with every provider row cut back to its seeded entry, and
-    rows first seen by a refresh or reserved for test-data fuzzing dropped,
-    and other migrated bare vendor keys dropped: this fixture keeps GLM's
-    bare key as its provider-refresh subject, while vendor_host mechanics
-    carry their own tests (tests/test_pricing_vendor.py)."""
-    doc = copy.deepcopy(doc)
-    # claude-opus-5-5 keeps its rows: the fee tests' subject (its tracked
-    # entry is marked vendor_host in the real file, but this fixture world
-    # predates the marking — the refresh mechanics never read it).
-    vendor_keys = {model for model, entry in
-                   doc["openrouter"]["models"].items()
-                   if entry.get("vendor_host")
-                   and model not in {"claude-opus-5-5", GLM, V41}}
-    vendor_keys.update(model for model, hosts in doc["providers"].items()
-                       if model != GLM and all(history[0]["from"] is not None
-                                               for history in hosts.values()))
-    doc["openrouter"]["models"] = {model: entry
-                                   for model, entry in
-                                   doc["openrouter"]["models"].items()
-                                   if model not in vendor_keys}
-    # The grouped meter field carries membership and threshold together.
-    # Drop vendor members and remove groups that no longer have a member.
-    doc["long_context_meters"] = [
-        {
-            **group,
-            "models": [
-                model for model in group["models"]
-                if (
-                    model if isinstance(model, str)
-                    else next(iter(model))
-                ) not in vendor_keys
-            ],
-        }
-        for group in doc["long_context_meters"]
-        if any((model if isinstance(model, str) else next(iter(model)))
-               not in vendor_keys for model in group["models"])]
-    providers = {}
-    for model, hosts in doc["providers"].items():
-        if model.startswith(FUZZ_RESERVED_NAMESPACE):
-            continue
-        if model in vendor_keys:
-            continue
-        seeded_hosts = {
-            host: history[:1] for host, history in hosts.items()
-            if ((history[0]["from"] is None or model == GLM)
-                and not host.startswith(FUZZ_RESERVED_NAMESPACE)
-                and not (model == GLM
-                         and host == doc["openrouter"]["models"][GLM].get(
-                             "vendor_host")))
-        }
-        if seeded_hosts:
-            for history in seeded_hosts.values():
-                history[0]["context_length"] = 131072
-            providers[model] = seeded_hosts
-    doc["providers"] = providers
-    # The vendor rows this fixture world drops carry the claude families;
-    # the canonical Z.AI host is omitted for this provider-only run too.
-    # Give the default estimate its own seeded models row (no cutover, so
-    # no epoch moves).
-    if "claude-opus-4-7" not in doc["models"]:
-        doc["models"]["claude-opus-4-7"] = [dict(DEFAULT_ROW)]
-    return doc
-
-
 def _payloads(doc: dict) -> dict:
-    """Every tracked model's endpoints payload, reproducing the newest
-    entry of every provider row; a pinned host is listed under its pin's
-    tag, as it is live. BaseTen's deepseek-v4.1-flash lists its two
-    endpoints as OpenRouter does: same tag and quantization, cache 0.007/0.03,
-    and the 1-token max_completion_tokens artifact (32767/32768) the recorded
-    resolution ignores."""
+    """Reproduce synthetic histories as listings, including tag pins and
+    BaseTen's same-tag twins with their one-token completion-limit artifact."""
     out = {}
     for key, hosts in doc["providers"].items():
         pinned = {host: pin["tag"] for host, pin in
@@ -181,8 +108,7 @@ class Run:
         self.pricing = tmp_path / "pricing.json"
         self.constants = tmp_path / "constants.py"
         self.pricing.write_text(json.dumps(
-            _seeded(expand_pricing_doc(json.loads(
-                PRICING_JSON.read_text(encoding="utf-8")))),
+            provider_refresh_doc(),
             indent=2, sort_keys=True) + "\n", encoding="utf-8")
         text = CONSTANTS_PY.read_text(encoding="utf-8")
         if pricing_version is not None:
@@ -630,3 +556,31 @@ def _two_global_novitas(run: Run) -> None:
     twin["tag"] = "novita/fp4"
     twin["pricing"]["input_cache_read"] = "0.00000005"
     run.endpoints(GLM).append(twin)
+
+
+@pytest.mark.parametrize("correction", ["grouped-start", "discount-note", "twin-read"])
+def test_run_histories_are_independent_of_source_corrections(tmp_path, monkeypatch, correction):
+    source = seed_doc(
+        tracked={GLM: {"id": "z-ai/glm-5.3-flash"},
+                 V41: {"id": "deepseek/deepseek-v4.1-flash"}},
+        providers={GLM: {"OpenInference": [{"from": None, **RATES_A}]},
+                   V41: {"BaseTen": [{"from": None, **RATES_A, "read": 0.007}]}})
+    source_path = tmp_path / "source.json"
+    source_path.write_text(serialize_pricing_doc(source), encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "PRICING_JSON", source_path)
+    monkeypatch.setattr(pricing, "PRICING_JSON", source_path)
+    before_path, after_path = tmp_path / "before", tmp_path / "after"
+    before_path.mkdir()
+    after_path.mkdir()
+    before = Run(before_path).doc()
+    entry = source["providers"][GLM]["OpenInference"][0]
+    if correction == "grouped-start":
+        entry["from"] = ["2026-09-01T00:00:00Z", "2026-09-03T00:00:00Z"]
+    elif correction == "discount-note":
+        entry["note"] = "50% off"
+    else:
+        source["providers"][V41]["BaseTen"][0]["read"] = 0.04
+    pricing.load_tables(source)
+    source_path.write_text(serialize_pricing_doc(source), encoding="utf-8")
+
+    assert Run(after_path).doc() == before

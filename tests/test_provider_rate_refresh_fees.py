@@ -31,6 +31,7 @@ STAMP = "2031-01-01T00:00:00Z"
 def test_sampled_context_move_appends_unchanged_rates_and_note(tmp_path, capsys):
     context_length = 786432
     run = Run(tmp_path)
+    run.edit(lambda doc: doc['providers'][GLM]['OpenInference'][0].update(note='kept'))
     before = copy.deepcopy(run.doc()['providers'][GLM]['OpenInference'])
     run.endpoint(GLM, 'OpenInference')['context_length'] = context_length
     rc, _, err = run(capsys)
@@ -70,8 +71,7 @@ def test_log_context_comes_from_listing_at_detection_and_carries_forward():
     assert 'context_length' in _render_move(move)
 
 
-# anthropic/claude-opus-5.5: every endpoint lists the 1h cache write at 8
-# per million beside the 5m tier's 5, and charges $0.01 a web search.
+# The synthetic Claude fixture has distinct cache-write tiers.
 CLAUDE = "claude-opus-5-5"
 CLAUDE_HOST = "Claude Platform on AWS"
 CLAUDE_RATES = {"fresh": 4.0, "create_5m": 5.0, "create_1h": 8.0,
