@@ -303,7 +303,7 @@ function Stat({ label, value, highlight, warn }) {
   return (
     <div className={'stat ' + (highlight ? 'stat-hl ' : '') + (warn ? 'stat-warn ' : '')}>
       <div className="stat-label">{label}</div>
-      <div className="stat-value" style={{ lineHeight: 1.3 }}>{value}</div>
+      <div className="stat-value" style={{ lineHeight: '28px' }}>{value}</div>
     </div>
   );
 }
