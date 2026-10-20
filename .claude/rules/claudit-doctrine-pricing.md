@@ -186,7 +186,8 @@ a null-first state covers all earlier time. Complete log histories stay
 stored; timestamp lists carry oscillation without substituting schedules.
 Schedules from `pricing.overrides` retain their weekly UTC behavior.
 
-Each decoded row's history is append-only. Its effective vector is
+Each decoded row's history is append-only except for corrections and
+SV-RATE-REFRESH's automatic log-backed rewrites. Its effective vector is
 five finite non-negative token rates (`fresh`, `create_5m`, `create_1h`,
 `read`, `output`). `fresh`, `read`, and `output` are always present;
 `create_5m` and `create_1h` are present only when each differs from
@@ -205,13 +206,16 @@ strictly after its predecessor. A model history's newest entry is its
 list price; each earlier one applies until its successor's `from`
 (SV-DATED-RATES). Provider histories use the flattened order above.
 
-A price change APPENDS an editable `{"from": T, ...}` entry, then the
-shared serializer encodes provider storage rows. An entry is never edited or
-removed, except to correct a misstated price or instant (a wrong seeded
-price; sampled entries dated at detection where OpenRouter's log has
-the real change points — the SV-RATE-REFRESH backfill), and only in a
-human commit that bumps `PRICING_VERSION`, which reprices from stored
-columns with no reparse. Both loaders refuse a rule-breaking file,
+A sampled price change APPENDS an editable `{"from": T, ...}` entry, then
+the shared serializer encodes provider storage rows. Entries are never
+edited or removed by hand except to correct a misstated price or instant
+in a human commit that bumps `PRICING_VERSION`. The refresh automatically
+rewrites log-backed provider histories from the listed-pricing log each
+run (SV-RATE-REFRESH), including closed windows: those windows are the
+log's to rewrite. A rewrite that reprices stored usage bumps
+`PRICING_VERSION`, repricing from stored columns with no reparse. Hand
+corrections remain an additional path with the same bump requirement.
+Both loaders refuse a rule-breaking file,
 naming the row; the browser throws an error naming `pricing.json` on
 any load failure.
 
@@ -272,12 +276,12 @@ key wins).
 `.github/workflows/refresh-pricing.yml` runs
 `scripts/ci/refresh_provider_rates.py` hourly (identically on dispatch)
 and commits to `master` as `github-actions[bot]` only after the full
-suite passes on the new data. A hand edit to a provider row follows the
-same rules:
+suite passes on the new data. Hand corrections also require a human commit
+and `PRICING_VERSION` bump (SV-RATE-DATA).
 
-- A moved price is an APPENDED entry, never an edit or deletion. A
-  log-backed row dates it at OpenRouter's recorded change point; a
-  sampled row at detection time. A first-seen sampled host gets a row
+- Log-backed histories are rewritten from OpenRouter's recorded change
+  points; sampled price moves APPEND entries at detection time. A
+  first-seen sampled host gets a row
   beginning then; a first-seen log-backed host gets its log from the
   last state in force at `HISTORY_FLOOR` (`refresh_provider_rates.py`,
   the account's first OpenRouter-lane record): states the account's
@@ -360,7 +364,7 @@ same rules:
     in the log and does not block this join. Anything else is
     ambiguous, and the host is sampled, never guessed.
   - **The listed-pricing log is the source of truth.** Every row the log
-    can back is log-backed, including hand and stale rows. The backfill
+    can back is log-backed, including hand and stale rows. The refresh
     replaces any differing recorded rates even when stored costs change.
     Listed zeros do not exempt a row: the log's normalization is the record,
     including zero/absent cache writes normalized to input.
@@ -378,19 +382,13 @@ same rules:
     (points in one second collapse to its last state). A discount-only
     change is not an entry; `note` is the discount in force at `from`.
     A `null` `input` or `output` is not a price: the host is sampled.
-  - **Hourly append.** For a log-backed host with a row, every entry
-    whose `from` is after the row's newest `from` and whose rates
-    differ from its predecessor is appended, oldest first. Every logged
-    state appends at its change point, including every oscillation, so a
-    flip between runs is recorded as its two moves. After those states are
-    accounted for, the resulting row's token rates at fetch time must
-    match its selected endpoint's listed price. Otherwise the listed state
-    appends at detection time; the changed host is named with the
-    reason that its row was out of step with its endpoint's listed price.
-    Its `web_search` follows the separate sampling rule. An in-step row
-    with no token or search move stays silent and writes nothing. A first-seen host
-    imports from the history floor as above. The hourly run never rewrites
-    an entry.
+  - **Hourly rewrite and append.** Each run rewrites existing log-backed
+    rows from the complete log through the fetch instant, retaining every
+    logged oscillation at its own change points and overlaying sampled
+    search/context history as below. An out-of-step stored row is corrected
+    by replacement. First-seen log-backed hosts keep the history-floor
+    import above. Sampled rows stay append-only at detection time under
+    the alternation rule; alternation never applies to log rewrites.
   - **The log must match the listing.** The series' state at the fetch
     instant must equal the listed price fetched in the same run: the
     run reads each series truncated at that instant, so a point dated
@@ -406,27 +404,30 @@ same rules:
     "listed-pricing log unavailable" notice names the model and reason,
     and the run stays green. A host the log does not back goes in the
     run's report with the reason, not its notices.
-- **The one-time backfill.**
-  `scripts/ci/backfill_provider_rates.py --as-of <instant>` replaces
-  every log-backed row's history with the log's COMPLETE entries through
-  `--as-of`, keeping the row's start: when the old first `from` (`null`
+- **Automated full-history rewrite.** Each refresh run replaces every
+  existing log-backed row's history with the log's COMPLETE entries through
+  the run's fetch instant, keeping the row's start: when the old first `from` (`null`
   included) precedes the log's first change point, the new first entry
-  takes it. The backfill merges identical dated states into one entry
+  takes it. The rewrite merges identical dated states into one entry
   whose `from` lists ALL their instants; rows without repeated states
   stay list-free. Flattening those lists reconstructs every change point
   and its rates losslessly. Entries merge only when their full state
   except `from` matches: different notes or other state fields remain
   separate, and a null start stays scalar (it cannot share a timestamp
-  list). A full-history rewrite overlays the row's sampled search-rate
-  history at its sampled instants strictly before `--as-of`, carrying its
-  leading rate forward, because the token log carries no search rate.
-  This merge belongs only to the backfill; the hourly refresh
-  appends per-move entries. The shared codec writes the stored row format.
-  Unbacked rows are left untouched and listed. The backfill requires a
-  band-free source document: the loaders refuse a `band` key, naming the
-  row, before any fetch or write. The backfill is an
-  SV-RATE-DATA correction, landing only in a human-reviewed commit that
-  bumps `PRICING_VERSION` and names the invocation and each row's rewrite.
+  list). The rewrite overlays the row's sampled `web_search` and
+  `context_length` history at sampled instants strictly before the fetch
+  instant, carrying their leading state forward. The listing's current
+  sampled state then follows the existing detection-time insert/defer rule.
+  A candidate whose net priced and sampled state is identical to stored
+  publishes no move and writes nothing. Annotation-only or grouping-only
+  drift keeps the stored row and emits a notice. A priced rewrite carries
+  the log's note/context corrections with it. The shared codec writes the
+  stored row format. First-seen hosts retain the history-floor import;
+  unbacked hosts follow sampling and alternation. The standalone
+  `scripts/ci/backfill_provider_rates.py --as-of <instant>` remains a manual
+  invocation of the same rewrite core through its supplied cutoff. Its
+  source document must be band-free: the loaders refuse a `band` key,
+  naming the row, before any fetch or write.
 - **Alternating prices are reported, not appended — sampled rows
   only.** On a sampled row, when neither the listing nor the newest
   entry has a schedule and the listed rates equal a non-newest entry
@@ -442,11 +443,12 @@ same rules:
   only in that rate remain different listings. Its absence from the token
   price log leaves token history log-backed while search changes are
   sampled at detection.
-- A run that appends bumps `PRICING_VERSION` to one past the value in
+- A run that reprices history or appends bumps `PRICING_VERSION` to one past the value in
   `backend/constants.py` — never a literal — in the same commit
   (records at or after a new `from` ingested before the deploy were
-  priced at the old rate), and moves `provider_rates_fetched`. A run
-  that appends nothing writes nothing. A new entry adds a rate epoch
+  priced at the old rate), and moves `provider_rates_fetched` to the later
+  of its stored instant and detection. A run with no data move writes
+  nothing. A new entry adds a rate epoch
   only to its own row's grouping (SV-DATED-RATES).
 - The commit message omits a notice line the last committing run already
   carried, so a model still delisted — or a tag still unrecognised — is
@@ -457,8 +459,8 @@ same rules:
   previous commit's message would lose them and re-emit them in the next
   commit, alternating forever. A notice that is new, or that changed,
   still appears; an absent, unreadable or malformed file suppresses
-  nothing, so the baseline can only under-suppress. A run that appends
-  nothing publishes no commit, so it does not move the baseline.
+  nothing, so the baseline can only under-suppress. A run with no data
+  move publishes no commit, so it does not move the baseline.
 - The commit body also drops the standing blocks — the vanished-host set
   (rows kept) and the sampled host classifications — which reprinted
   byte-identically every run (issue #933). The run's own stdout report
@@ -486,16 +488,11 @@ same rules:
     so the empty-endpoints refusal stands while it cannot be read.
 
   When the refreshed document passes final validation, a refusal blocks
-  only itself: every other move is appended, tested and committed with the
-  bump, then the run exits nonzero, naming each refused host. A log-backed
-  row out of step with its selected endpoint's listed price is also
-  REFUSED when detection is not after its newest `from`. At an equal
-  instant, the host is refused by name, its row stays untouched and other
-  hosts' moves can proceed. A retained newest `from` after detection
-  never moves `provider_rates_fetched` below that retained entry: a run
-  that appends keeps the later of the stored stamp and detection instant.
-  An out-of-step log-backed host is refused by name and stays untouched;
-  other hosts' moves publish, then the run exits nonzero after writing.
+  only itself: every other move is rewritten or appended, tested and
+  committed with the bump, then the run exits nonzero, naming each refused
+  host. An out-of-step log-backed row is corrected by the log rewrite,
+  including when detection is not after its stored newest `from`.
+  `provider_rates_fetched` keeps the later of its stored stamp and detection.
   An ordinary sampled move blocked by timing keeps the existing
   untouched-with-notice behaviour. The refreshed document still passes
   final validation before writing.

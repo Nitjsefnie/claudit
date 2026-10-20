@@ -13,12 +13,12 @@ name: refresh-pricing
 # LOG-BACKED HOSTS use OpenRouter's endpoint change times, so moves between
 # hourly runs are retained at their own times. A host without an unambiguous
 # log match, or a model whose log is unavailable, is sampled at detection
-# time and still uses the alternation check. The one-time backfill is a
-# separate human-reviewed rewrite. Dispatch takes no inputs and behaves like
-# a scheduled run.
+# time with alternation. Each run rewrites every log-backed provider history
+# from the listed-pricing log; the suite gates the push. Dispatch takes no
+# inputs and behaves like a scheduled run.
 #
-# WHAT COUNTS AS "MOVED" IS THE TWO DATA FILES. The script writes nothing
-# unless it appends: the fetch stamp in the JSON moves only with the data,
+# "MOVED" MEANS THE TWO DATA FILES. The script writes nothing
+# unless data moves: the fetch stamp moves only with the data,
 # so a quiet hour leaves the tree clean and commits nothing.
 #
 # AN UNCHANGED NOTICE IS NOT REPEATED. The run omits a notice line the last
@@ -28,7 +28,7 @@ name: refresh-pricing
 # last committing run's FULL notice set — the lines it showed and the lines
 # it suppressed — because a baseline read from the previous commit's message
 # would lose a suppressed line and re-emit it in the next commit. That file
-# is committed with the data, so a run that appends nothing publishes no
+# is committed with the data, so a run with no data move makes no
 # commit and does not move the baseline.
 #
 # THE SUITE GATES THE PUSH. The keyless refresh job fetches the data;
