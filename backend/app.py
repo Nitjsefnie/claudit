@@ -38,6 +38,7 @@ from backend import api, agent_types, api_export, constants, events, ingest, log
 from backend import branding, flags  # noqa: E402
 from backend.feature_payloads import features_script  # noqa: E402
 from backend.ingest_progress import health  # noqa: E402
+from backend.source_files import MinifiedStaticFiles  # noqa: E402
 # pylint: enable=wrong-import-position
 
 log = logging.getLogger("claudit.app")
@@ -398,5 +399,5 @@ async def root_favicon() -> Response:
 
 # /src/* and /vendor/* use StaticFiles. The middleware gates both because the
 # path doesn't start with /api or /admin and isn't in _AUTH_PUBLIC_PATHS.
-app.mount("/src", StaticFiles(directory=str(_SRC)), name="src")
+app.mount("/src", MinifiedStaticFiles(directory=str(_SRC)), name="src")
 app.mount("/vendor", StaticFiles(directory=str(_VENDOR)), name="vendor")
