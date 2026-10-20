@@ -22,7 +22,7 @@ from backend.bash_segments import (_ASSIGN, _DECLARATION_BUILTINS,
                                    _capture_split, _matching_paren,
                                    _segments, _split_redirects,
                                    _unmatched_close)
-from backend.bash_literals import ShellWord, literal_path
+from backend.bash_literals import ShellWord, literal_path, shell_tokens
 from backend.bash_operand import _looks_like_path, _operand_paths
 from backend.bash_effects import destination_paths, sed_parts
 from backend.bash_directories import directory_targets
@@ -171,6 +171,13 @@ def _sed_in_place(args: list[str]) -> bool:
     return sed_parts(args)[2]
 
 
+def _copy_targets(name: str, operands: list[str], base: str | None) -> list[str]:
+    paths = destination_paths(name, operands, base=base)
+    if any(getattr(arg, "brace_unknown", False) for arg in operands):
+        paths.extend(destination_paths(name, operands, literal_only=False, base=base))
+    return paths
+
+
 class _Scan:
     """One command's running state: the cwd as `cd` moves it, the
     variables the command itself assigned, and the three answers."""
@@ -233,6 +240,8 @@ class _Scan:
             operands, redirected, inputs = _split_redirects(segment[1:])
         except ValueError:
             return
+        if name == "gh" and operands[:2] == ["repo", "clone"] and "--" in operands:
+            operands = operands[:operands.index("--")]
         self.command_effects(name, operands, redirected, inputs)
 
     def _subshell(self, raw_segment: list[str]) -> None:
@@ -332,7 +341,7 @@ class _Scan:
 
     def command_effects(self, name: str, operands: list[str],
                         redirected: list[str], inputs: list[str]) -> None:
-        if name in ("sed", "cp", "install", "mv", "mkdir", "mktemp", "git") or name in WRITE_TARGET_COMMANDS:
+        if name in ("sed", "cp", "install", "mv", "mkdir", "mktemp", "git", "gh") or name in WRITE_TARGET_COMMANDS:
             # Preserve positions and unknown words; dropping an unresolved
             # option value would shift the following file into its place.
             operands = [ShellWord(value, operator=getattr(arg, "operator", False))
@@ -341,8 +350,9 @@ class _Scan:
         for path in redirected:
             if literal_path(path) or _looks_like_path(path):
                 self.add(self.writes, path)
-        if (name in ("sed", "cp", "install", "mv", "mkdir", "mktemp", "git") or name in WRITE_TARGET_COMMANDS) and any(
-                getattr(arg, "unquoted_expansion", False) for arg in operands):
+        if (name in ("sed", "cp", "install", "mv", "mkdir", "mktemp", "git", "gh") or name in WRITE_TARGET_COMMANDS) and any(
+                getattr(arg, "unquoted_expansion", False)
+                and not getattr(arg, "brace_unknown", False) for arg in operands):
             # One unresolved/splittable operand can shift every option position.
             return
         if name == "cd" and operands:
@@ -350,9 +360,7 @@ class _Scan:
             self.base = _resolve(target, self.base) if target is not None else None
             return
         if name in ("cp", "install", "mv"):
-            paths = destination_paths(name, operands, base=self.base)
-            for path in paths:
-                self.add(self.writes, path)
+            self.record_targets(_copy_targets(name, operands, self.base))
             return
         if targets := directory_targets(name, operands) or write_targets(name, operands):
             # A command that CREATES reports what it puts on disk: the
@@ -401,10 +409,13 @@ def scan_command(command: BashCommand, cwd: str = "") -> tuple[str | None, list[
     state = _Scan(cwd)
     # Heredoc bodies are payload, not command line: a docstring that
     # mentions INDEX.md did not read it.
-    for raw_segment in _segments(command.tokens):
+    tokens = command.tokens
+    if not tokens and "{" in command.parts[1]:
+        tokens = shell_tokens(command.parts[1], expand_braces=True)
+    for raw_segment in _segments(tokens):
         state.segment(raw_segment)
     for path in command.write_paths():
         state.add(state.writes, path)
-    if not state.reads:
+    if not state.reads or not command.tokens:
         return None, [], state.writes
     return state.kind, state.reads, state.writes

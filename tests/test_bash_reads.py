@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from backend.bash_churn import MAX_COMMAND_CHARS
-from backend.bash_reads import scan
+from backend.bash_churn import MAX_COMMAND_CHARS, BashCommand
+from backend.bash_reads import scan, scan_command
 
 
 def _run_limited_python(code: str, input_text: str = "", *,
@@ -44,10 +44,10 @@ def _run_limited_python(code: str, input_text: str = "", *,
 
 @pytest.mark.parametrize("program", ["cp", "mv", "install -m 644"])
 @pytest.mark.parametrize("operands,expected", [
-    pytest.param('src.txt a{b,c}', [], id="brace-0"),
+    pytest.param('src.txt a{b,c}', ['/work/ac/src.txt', '/work/ac/ab'], id="brace-0"),
     pytest.param('src.txt a{1..3}', [], id="brace-1"),
     pytest.param('src.txt {a..z..2}', [], id="brace-2"),
-    pytest.param("src.txt a{b,'c'}", [], id="brace-3"),
+    pytest.param("src.txt a{b,'c'}", ['/work/ac/src.txt', '/work/ac/ab'], id="brace-3"),
     pytest.param('src.txt {dest}', ['/work/{dest}'], id="brace-4"),
     pytest.param('src.txt a{dest}b', ['/work/a{dest}b'], id="brace-5"),
     pytest.param("src.txt '{a,b}'", ['/work/{a,b}'], id="brace-6"),
@@ -65,6 +65,58 @@ def _run_limited_python(code: str, input_text: str = "", *,
 ])
 def test_copy_destination_spellings(program, operands, expected):
     assert scan(f"{program} {operands}", "/work")[2] == expected
+
+
+@pytest.mark.parametrize("command,expected", [
+    ("mkdir -p /tmp/a && echo {a,b}", ["/tmp/a"]),
+    ("cp a.{s,t} dir/", ["/tmp/dir/a.s", "/tmp/dir/a.t"]),
+    ("mkdir -p /tmp/a && cp -p /e/x.{s,t} /tmp/a/",
+     ["/tmp/a", "/tmp/a/x.s", "/tmp/a/x.t"]),
+    ("cp a.{a..z} dir/", ["/tmp/dir"]),
+    ("cp a.{$x,y} dir/", ["/tmp/dir"]),
+    ("cp $x.{s,t} dir/", ["/tmp/dir"]),
+    ('cp "$x"{s,t} dir/', ["/tmp/dir"]),
+    ("cp a.{s*,t} dir/", ["/tmp/dir"]),
+    ("S=source; cp $S.{s,t} dir/", ["/tmp/dir/source.s", "/tmp/dir/source.t"]),
+    ("cp a.{s,t}{1,2} dir/",
+     ["/tmp/dir/a.s1", "/tmp/dir/a.s2", "/tmp/dir/a.t1", "/tmp/dir/a.t2"]),
+    ("cp a.{s,{t,u}} dir/", ["/tmp/dir/a.s", "/tmp/dir/a.t", "/tmp/dir/a.u"]),
+    ("cp a.{s,'t,u'} dir/", ["/tmp/dir/a.s", "/tmp/dir/a.t,u"]),
+    ("cp a.{s,'$literal'} dir/", ["/tmp/dir/a.s", "/tmp/dir/a.$literal"]),
+    (r"cp a.{s,\*} dir/", ["/tmp/dir/a.s", "/tmp/dir/a.*"]),
+    ("cp a.{s,t} -t dir", ["/tmp/dir/a.s", "/tmp/dir/a.t"]),
+    ("mkdir -p /tmp/a; cp a.{a..z} dir/; mkdir last", ["/tmp/a", "/tmp/dir", "/tmp/last"]),
+    ("cp a.{s,t} 'literal{dir}'/", ["/tmp/literal{dir}/a.s", "/tmp/literal{dir}/a.t"]),
+    ("mkdir {one,two}", ["/tmp/one", "/tmp/two"]),
+    ("cp a" + "{s,t}" * 20 + " dir/", ["/tmp/dir"]),
+])
+def test_brace_expansion_write_targets(command, expected):
+    assert scan(command, "/tmp")[2] == expected
+
+
+@pytest.mark.parametrize("command,expected", [
+    ("gh repo clone o/r /tmp/d", ["/tmp/d"]),
+    ("gh repo clone o/r", ["/tmp/r"]),
+    ("gh repo clone https://example.test/o/r.git", ["/tmp/r"]),
+    ("gh repo clone --branch topic o/r checkout", ["/tmp/checkout"]),
+    ("gh repo clone o/r -- --branch main ignored", ["/tmp/r"]),
+    ("gh repo clone o/r checkout -- --depth 1 ignored", ["/tmp/checkout"]),
+    ("gh repo clone o/r -- $UNKNOWN", ["/tmp/r"]),
+    ("cd elsewhere; gh repo clone o/r checkout", ["/tmp/elsewhere/checkout"]),
+    ("gh repo view o/r", []),
+    ("gh repo clone --unknown o/r", []),
+])
+def test_gh_repo_clone_write_targets(command, expected):
+    assert scan(command, "/tmp")[2] == expected
+
+
+def test_brace_target_scan_preserves_unknown_heredoc_repeat_count():
+    command = BashCommand(
+        "echo {x,y}; for i in a b; do cat > out <<EOF\none\ntwo\nEOF\ndone")
+    assert command.heredoc_repeats == [1]
+    assert scan_command(command, "/tmp")[2] == ["/tmp/out"]
+    assert command.heredoc_repeats == [1]
+    assert command.churn() == (2, 0)
 
 
 @pytest.mark.parametrize("command,expected", [
