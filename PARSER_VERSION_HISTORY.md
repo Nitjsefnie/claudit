@@ -86,3 +86,7 @@ them: bump `PRICING_VERSION` in `constants.py` for that.
   directories, ignoring git passthrough arguments after `--`. Brace recovery
   preserves scalar assignment values and also scans quoted captures. Line
   churn keeps its existing tokenizer and estimates.
+- **117** — Codex code-mode exec calls collect literal apply_patch write
+  targets and exec_command/monitor shell targets under context-intake
+  collection, using each call object's workdir. Rejected calls clear their
+  write targets; unwrapped function calls and line churn stay unchanged.

@@ -217,7 +217,10 @@ def to_claudit(parsed: dict, fmt: str, *, collection: CollectionPolicy = ALL_COL
         tu["dispatch_name"] = None
         tu.setdefault("is_replay", None)
         tu.update(dict.fromkeys((
-            "result_chars", "read_kind", "read_targets", "write_targets", "is_reread",
+            "read_kind", "read_targets", "write_targets",
+        )) | tu)
+        tu.update(dict.fromkeys((
+            "result_chars", "is_reread",
         )))
     out = dict(parsed)
     extras = "file_extras" not in collection.disabled
