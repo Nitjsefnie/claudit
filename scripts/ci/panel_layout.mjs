@@ -19,6 +19,7 @@
 // A role marked on an element that CONTAINS another marked element is
 // skipped as a pair: an element's box includes its descendants, so a
 // wrapper and its own child always "intersect".
+import { createSweepContext } from './cdn_route.mjs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
@@ -148,7 +149,7 @@ const PROBE = () => {
 };
 
 async function sweepWidth(browser, base, width, counters) {
-  const ctx = await browser.newContext({
+  const ctx = await createSweepContext(browser, {
     viewport: { width, height: 1000 },
   });
   await ctx.route('**/api/**', async route => {

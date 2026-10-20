@@ -331,6 +331,7 @@ def _wait_node(body: str):
       const waits = await import('./scripts/ci/layout_waits.mjs');
       const {pickerProbe} = await import('./scripts/ci/picker_probe.mjs');
       const cases = await import('./scripts/ci/picker_cases.mjs');
+      globalThis.fetch = async () => new Response('fixture script');
       let now = 0, serial = 0;
       const timers = new Map();
       globalThis.setTimeout = (fn, ms) => {
@@ -611,6 +612,7 @@ def test_introduced_protocol_calls_reject_a_stalled_renderer(blocked, label):
         }};
       const context = {
         route: async (pattern, handler) => {
+          if (pattern !== '**/api/**') return;
           routeHandler = handler; if (blocked === 'routes') await stall();
         },
         newPage: async () => blocked === 'page' ? stall() : page,

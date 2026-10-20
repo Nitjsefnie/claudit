@@ -666,7 +666,7 @@ def test_layout_widths_join_before_feature_surfaces():
     src = (ROOT / "scripts" / "ci" / "panel_layout.mjs").read_text(encoding="utf-8")
     sweep, main = src.split("async function main()", 1)
     assert "async function sweepWidth(browser, base, width, counters)" in sweep
-    assert "browser.newContext" in sweep and "ctx.route(" in sweep
+    assert "createSweepContext(browser," in sweep and "ctx.route(" in sweep
     join = "await Promise.all(WIDTHS.map(w => sweepWidth(browser, base, w, counters)))"
     assert join in main
     assert main.index(join) < main.index("await featureSurfaces(browser, base)")

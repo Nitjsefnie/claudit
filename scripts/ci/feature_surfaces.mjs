@@ -1,4 +1,5 @@
 // Real browser ON/OFF controls; rich payloads stay identical under every policy.
+import { createSweepContext } from './cdn_route.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -42,7 +43,7 @@ export async function requireAbsent(page, selectors, label) {
 }
 
 async function scenarioPage(browser, base, policy, options = {}) {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const ctx = await createSweepContext(browser, { viewport: { width: 1440, height: 1000 } });
   const requests = [];
   const errors = [];
   if (options.synthetic) {

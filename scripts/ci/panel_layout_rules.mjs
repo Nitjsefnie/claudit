@@ -26,6 +26,7 @@
 // Babel) against the frozen fixture set in fixtures/layout/. The browser
 // driver is a devDependency; nothing in the shipped app reads
 // package.json.
+import { createSweepContext } from './cdn_route.mjs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -2134,7 +2135,7 @@ export async function runRules(ruleFilter, casesOnly = false) {
   let executed = 0;
   try {
     const runWidth = async width => {
-      const ctx = await browser.newContext({
+      const ctx = await createSweepContext(browser, {
         viewport: { width, height: 900 },
       });
       // Fulfil the API from the frozen fixtures, exactly as

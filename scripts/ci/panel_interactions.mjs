@@ -69,6 +69,7 @@
 // claims). An explicit cap that BITES is the `unhovered-targets`
 // finding and fails the run; the knob is for local debugging only.
 // A truncation is printed, never silent.
+import { createSweepContext } from './cdn_route.mjs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -536,7 +537,7 @@ async function main() {
       if (!SEED) {
         const heights = {};
         for (const set of ['two', 'many']) {
-          const ctx = await browser.newContext({
+          const ctx = await createSweepContext(browser, {
             viewport: { width, height: 1000 },
           });
           await ctx.route('**/api/**', routeTo(set));
@@ -622,7 +623,7 @@ async function main() {
       // the expanded identity list, so the hovers read 30+ roles and —
       // through the last copy's over-long identity — the longest
       // labels the page can render.
-      const ctx = await browser.newContext({
+      const ctx = await createSweepContext(browser, {
         viewport: { width, height: 1000 },
       });
       await ctx.route('**/api/**', routeTo('many'));
