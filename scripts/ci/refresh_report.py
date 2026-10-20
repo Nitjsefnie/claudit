@@ -272,6 +272,11 @@ def commit_message(result: Result, body: str, vendor=None) -> str:
               f"{added} new" if added else "",
               f"{len(result.refusals)} refused" if result.refusals else ""]
     subject = "Refresh OpenRouter provider rates: " + ", ".join(c for c in counts if c)
+    if vendor is not None and vendor.renames:
+        models = sorted({move.model for move in result.moves}
+                        & set(vendor.renames.values()))
+        if models:
+            subject += f" ({', '.join(models)})"
     if vendor is not None and vendor.moves:
         # Disjoint counts: an added move that also joins the meter counts
         # under "added" alone, never twice.

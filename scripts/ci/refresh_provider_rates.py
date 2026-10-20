@@ -83,7 +83,7 @@ import http.client
 import json
 import sys
 import urllib.error
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from itertools import combinations
 from typing import Callable
@@ -362,6 +362,13 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
         # loader validation; it validates the would-be file again itself.
         outcome = (vendor(result.doc, fetch_models, fetch)
                    if vendor is not None else None)
+        if outcome is not None:
+            result.moves = [replace(move, model=outcome.renames.get(move.model, move.model))
+                            for move in result.moves]
+            result.vanished = [(outcome.renames.get(model, model), host)
+                               for model, host in result.vanished]
+            result.sampled = {outcome.renames.get(model, model): hosts
+                              for model, hosts in result.sampled.items()}
         constants = constants_path.read_text(encoding="utf-8")
         if result.moves or (outcome is not None and outcome.moves):
             constants = bump_pricing_version(constants)
