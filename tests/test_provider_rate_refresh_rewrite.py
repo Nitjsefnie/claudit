@@ -30,7 +30,7 @@ class RewriteRun:
         self.doc = seed_doc(
             tracked={MODEL: {"id": MODEL_ID}},
             providers={MODEL: {HOST: history}}, fetched=fetched)
-        self.path.write_text(serialize_pricing_doc(self.doc), encoding="utf-8")
+        self.path.write_text(serialize_pricing_doc(self.doc), encoding="utf-8", newline="\n")
         self.constants.write_text('PRICING_VERSION = "17"\n', encoding="utf-8")
         self.fetches = RefreshFetches(
             {"data": {"endpoints": [_endpoint(
