@@ -261,10 +261,8 @@ def _priced_history(entries: list[dict], owners: list[int], schedules: dict, whe
 _VENDOR_NAME = re.compile(r"^[a-z0-9-]+$")
 
 
-def _bare_form(key: str, prefixes: list[str]) -> str:
-    """A tracked key's bare form: the key with its namespace prefix
-    stripped, longest prefix first; an unprefixed key is its own bare
-    form."""
+def bare_form(key: str, prefixes: list[str]) -> str:
+    """Strip the longest tracked namespace prefix; leave other keys unchanged."""
     for prefix in sorted(prefixes, key=len, reverse=True):
         if key.startswith(f"{prefix}/"):
             return key[len(prefix) + 1:]
@@ -306,7 +304,7 @@ def _vendor_tables(doc: dict, model_rates: dict) -> tuple[dict[str, str], dict[s
         if host is not None and (not isinstance(host, str) or not host):
             raise ValueError(
                 f"pricing.json: {where}: vendor_host is not a non-empty string")
-        form = _bare_form(key, prefixes)
+        form = bare_form(key, prefixes)
         if host is not None:
             hosts[key] = host
         if "/" in form:

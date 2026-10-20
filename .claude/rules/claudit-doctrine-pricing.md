@@ -589,6 +589,14 @@ a vendor is a one-line pricing.json edit, no code change. The pass lives in
 their own model. PRICING_VERSION bumps once, one past the file, when either
 pass moved.
 
+- **Tracked namespaces use bare keys.** Before fetching the catalog, the
+  vendor pass rekeys `openrouter.models`, `providers`, vendor resolve pins,
+  and grouped meter members, preserving catalog ids and provider histories.
+  Adding a namespace takes the entries already under it to their bare keys
+  on the next run, even when the catalog is unreadable. The run that rekeys
+  bumps `PRICING_VERSION`. A collision names both keys and refuses the write;
+  all rekeys are checked before any mutation.
+
 - **Only text-output catalog entries are in scope.** The vendor pass considers
   an entry only when `architecture.output_modalities` is exactly `["text"]`.
   Missing `architecture` or `output_modalities`, and any other output modality

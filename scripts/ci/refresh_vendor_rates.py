@@ -10,6 +10,11 @@ bare-id path resolves through), and catalog ids under a listed prefix join
 `["text"]`. Entries without that declaration, and entries with any other
 output modality, are dropped silently before selection and auto-add.
 
+Before fetching the catalog, the pass rekeys entries under tracked namespaces
+to their bare keys, preserving provider history and catalog ids. Adding a
+namespace takes its existing entries to bare keys on the next run, even with
+an unreadable catalog. A rekey bumps PRICING_VERSION; collisions refuse.
+
 A catalog id under a listed prefix whose derived key is not yet tracked is
 ADDED to openrouter.models as ``{"id": <catalog id>, "vendor_host":
 <providerName of the selected endpoint>}``. The vendor pass WRITES
@@ -61,7 +66,7 @@ key stands untouched. A threshold move changes groups, creating the new one
 and deleting the old one if it becomes empty. These changes move the version:
 the reprice pass re-derives records_price.long_context from membership, and a meter
 entry moves the rate fingerprint the reprice consults — so a quiet run (no
-add, no fold) still writes nothing.
+rekey, add, or fold) still writes nothing.
 
     python3 scripts/ci/refresh_vendor_rates.py [--dry-run]
 """
@@ -86,13 +91,14 @@ from refresh_report import vendor_report  # noqa: E402
 import refresh_pricelog  # noqa: E402
 from backend import pricing  # noqa: E402
 from backend.pricing_document import expand_pricing_doc  # noqa: E402
+from backend.pricing_load import bare_form  # noqa: E402
 
 PRICING_JSON = REPO_ROOT / "src" / "pricing.json"
 
 
 @dataclass
 class VendorMove:
-    """One tracked-table move: a new entry (an auto-add), a membership
+    """One tracked-table move: a rekey, a new entry (an auto-add), a membership
     fold, or a meter write — the pass writes no rates."""
     id: str
     key: str
@@ -100,6 +106,7 @@ class VendorMove:
     membership: str = ""  # "+" joined a group, "-" left, "" untouched
     meter: dict | None = None  # full effective meter when the move changes it
     context_length: int | None = None
+    rekeyed: str = ""  # previous key when the move strips a tracked prefix
 
 
 @dataclass
@@ -389,6 +396,42 @@ def _one_model(doc: dict, groups: list, model_id: str,
                                     membership=membership, meter=meter))
 
 
+def _rekey(doc: dict, outcome: VendorOutcome) -> None:
+    """Plan all namespace moves before mutating; refuse any colliding keys."""
+    router = doc["openrouter"]
+    prefixes = router["vendor"]["prefixes"]
+    groups = doc.get("long_context_meters", [])
+    tables = [("openrouter.models", router["models"]),
+              ("providers", doc["providers"]),
+              ("openrouter.vendor.resolve", router["vendor"].get("resolve", {})),
+              ("long_context_meters", {_meter_model_key(entry): None
+                                       for group in groups for entry in group["models"]})]
+    changes: dict[str, str] = {}
+    for name, table in tables:
+        destinations: dict[str, str] = {}
+        for key in table:
+            bare = bare_form(key, prefixes)
+            if bare in destinations:
+                raise RefreshError(f"{name}: {destinations[bare]!r} and {key!r} "
+                                   f"both rekey to {bare!r}")
+            destinations[bare] = key
+            if key != bare:
+                changes[key] = bare
+    for name, table in tables[:3]:
+        for key in list(table):
+            if key in changes:
+                table[changes[key]] = table.pop(key)
+    for group in groups:
+        for index, entry in enumerate(group["models"]):
+            key = _meter_model_key(entry)
+            if key in changes:
+                group["models"][index] = (changes[key] if isinstance(entry, str)
+                                          else {changes[key]: entry[key]})
+    for key, bare in changes.items():
+        outcome.moves.append(VendorMove(
+            router["models"].get(bare, {}).get("id", key), bare, rekeyed=key))
+
+
 def vendor_pass(doc: dict, fetch_models, fetch_endpoints) -> VendorOutcome:
     """One vendor pass over `doc` (mutated in place: tracked entries and
     grouped long_context_meters), returning the moves and what a human must
@@ -397,13 +440,14 @@ def vendor_pass(doc: dict, fetch_models, fetch_endpoints) -> VendorOutcome:
     An unreadable catalog, no first-party endpoint, and routers with no
     price of their own produce notices."""
     outcome = VendorOutcome()
+    _rekey(doc, outcome)
     try:
         ids = catalog_ids(fetch_models(), doc, outcome.notices)
-    except Exception as exc:  # a catalog the pass cannot read skips the pass
+    except Exception as exc:  # an unreadable catalog skips the catalog walk
         outcome.notices.append(
-            f"vendor pass skipped: the catalog is unreadable "
+            f"vendor catalog walk skipped: the catalog is unreadable "
             f"({str(exc) or type(exc).__name__})")
-        return outcome
+        ids = []
     meters: list = doc.setdefault("long_context_meters", [])
     for model_id in ids:
         _one_model(doc, meters, model_id, fetch_endpoints, outcome)

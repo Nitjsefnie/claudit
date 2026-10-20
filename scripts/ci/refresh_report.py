@@ -280,11 +280,14 @@ def commit_message(result: Result, body: str, vendor=None) -> str:
                         if not m.added and m.membership == "+")
         v_unmetered = sum(1 for m in vendor.moves
                           if not m.added and m.membership == "-")
-        v_updated = sum(1 for m in vendor.moves if not m.added and not m.membership)
+        v_rekeyed = sum(1 for m in vendor.moves if m.rekeyed)
+        v_updated = sum(1 for m in vendor.moves
+                        if not m.added and not m.membership and not m.rekeyed)
         segments = [f"{v_added} added" if v_added else "",
                     f"{v_metered} metered" if v_metered else "",
                     f"{v_unmetered} unmetered" if v_unmetered else "",
-                    f"{v_updated} updated" if v_updated else ""]
+                    f"{v_updated} updated" if v_updated else "",
+                    f"{v_rekeyed} rekeyed" if v_rekeyed else ""]
         subject += "; vendor table: " + ", ".join(s for s in segments if s)
     return f"{subject}\n\n{body}\n\nCaptured by .github/workflows/refresh-pricing.yml.\n"
 
@@ -309,6 +312,9 @@ def vendor_report(stamp: str, vendor,
     if not (vendor.moves or vendor.refusals or vendor.notices):
         lines.append("no first-party vendor moved")
     for move in vendor.moves:
+        if move.rekeyed:
+            lines.append(f"  rekeyed   {move.rekeyed} → {move.key} ({move.id})")
+            continue
         meter_on = move.meter is not None or move.membership == "+"
         meter_off = move.membership == "-" and move.meter is None
         tail = (" [metered]" if meter_on
