@@ -192,14 +192,18 @@ def test_classic_scripts_load_in_one_realm() -> None:
     # Keep transformed coverage URLs outside the repository's src/**/*.js set.
     with tempfile.TemporaryDirectory(prefix="claudit-classic-", dir="/tmp") as directory:
         minified = []
+        changed = False
         for name, source in scripts:
             if name == "<inline>":
                 minified.append((name, source))
                 continue
             path = Path(directory) / name.lstrip("/")
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(minify_js(source).encode("utf-8"))
+            transformed = minify_js(source)
+            changed |= transformed != source
+            path.write_bytes(transformed.encode("utf-8"))
             minified.append((str(path), path.read_bytes().decode("utf-8")))
+        assert changed, "minified realm must exercise transformed source bytes"
         assert _realm_summary(minified) == summary
     for name in _SEAMS:
         assert summary["seams"][name] == "function", (
