@@ -192,7 +192,14 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
     move = _append_sampled_change(change, at, deferred_notices)
     if move is not None:
         if move.reason:
-            hosts[host] = _merge_history(change.history)
+            candidate = _merge_history(change.history)
+            if stored is not None and _priced_history(candidate) == _priced_history(stored):
+                if candidate != stored and deferred_notices is not None:
+                    deferred_notices.append(
+                        f"{model} via {host}: log rewrite leaves priced history "
+                        "unchanged; stored annotations and grouping kept")
+                return None
+            hosts[host] = candidate
         else:
             hosts[host] = [*(stored or []), *change.history[change.prior_length:]]
     return move
