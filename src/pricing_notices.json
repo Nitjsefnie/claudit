@@ -56,7 +56,6 @@
     "glm-5-2 via Baidu: rule-resolved (unique quantization): took the fp8 endpoint 'baidu/fp8' over service tiers",
     "glm-5-2 via BaseTen: rule-resolved (unique quantization): took the fp8 endpoint 'baseten/fp8' over service tiers",
     "glm-5-2 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
-    "glm-5-2 via Inceptron: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "glm-5-2 via Mistral: rule-resolved (data region): the global data region leaves 'mistral/zdr'; dropped 'mistral/eu'",
     "glm-5-2 via Relace: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "glm-5-2 via Wafer: rule-resolved (data region): the global data region leaves 'wafer'; dropped 'wafer/us'",
