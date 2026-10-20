@@ -215,14 +215,16 @@ over the same values in the same order as the code under test;
 otherwise tolerate one unit in the rounded place (plus the code's
 accumulated rounding).
 
-One more legitimate shape: a literal rate vector pinned at a FIXED
-PAST instant inside an already-closed dated window. Closed windows are
-immutable (SV-RATE-DATA), so the pin is refresh- and
-perturbation-invariant; it is the only way to test end-exclusivity and
-promotion boundaries against known vectors. Stamp the reference
-instant before every appended cutover (a fixed past `from`, strictly
-before the seeded data); `tests/test_provider_pricing.py`'s SEEDED
-comment is the exemplar.
+One more legitimate shape: a literal rate vector on a synthetic row pinned
+at a FIXED PAST instant inside an already-closed dated window, testing
+end-exclusivity and promotion boundaries against known vectors. The
+perturbation leg only appends entries stamped after every real stamp, so
+closed-window pins stay perturbation-invariant. The automated refresh
+rewrites only the live document's log-backed rows (SV-RATE-REFRESH), which
+tests pinning synthetic rows never read. Stamp the reference instant before
+every appended cutover; `tests/test_provider_pricing.py`'s `SEEDED` instant
+illustrates that placement, rather than a guarantee that live histories
+are immutable.
 
 Enforcement has two halves. The perturbed-data CI leg
 (`scripts/ci/perturb_test_data.py`) runs the suite on a tree where each
