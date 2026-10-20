@@ -1,17 +1,7 @@
-"""Source-level guards for two JSX wiring mistakes that render silently.
+"""Source guards for JSX wiring that node cannot render.
 
-Neither is catchable by the rest of the suite: node cannot parse JSX and
-nothing here renders React, so a panel can pass every test while drawing
-nothing (see test_vbar_label_geometry.py's note on that boundary). Both
-of these shipped in the Cost by Context panel and were found by a human
-looking at the screen, which is the failure mode these assertions close.
-
-1. `COL` is keyed by SERIES NAME. Indexing it numerically yields
-   undefined, and an SVG <rect fill={undefined}> renders BLACK while a
-   <path stroke={undefined}> renders nothing -- no error, no warning.
-2. `DashTooltip` takes ONE `tip` prop. Spreading the tip object instead
-   leaves `tip` undefined, so its `if (!tip) return null` fires on every
-   hover and the panel is silently unhoverable.
+Undefined palette keys draw black bars or invisible lines; spreading a
+DashTooltip's tip leaves its required prop undefined and hides it.
 """
 from __future__ import annotations
 
@@ -94,13 +84,7 @@ def test_cumulative_line_is_anchored_to_bucket_edges():
 
 
 def _panel_src(name: str) -> str:
-    """Just ONE component's body.
-
-    Searching the whole file is how a guard silently checks the wrong
-    panel: several of them define an `onMove`, and a bare regex takes
-    whichever appears first. Slice from the component to the next
-    top-level `function`/`window.` and search inside that.
-    """
+    """Scope to one component, ending at the next function or export."""
     src = _strip_line_comments(EXTRA.read_text(encoding="utf-8"))
     start = src.index(f"function {name}(")
     nxt = re.search(r"^(?:function |window\.)", src[start + 1:], re.M)
@@ -173,6 +157,24 @@ SHAPE = ROOT / "src" / "dashboard-shape.js"
 SUMMARY = ROOT / "src" / "dashboard-summary.jsx"
 FETCH = ROOT / "src" / "dashboard-fetch.js"
 CACHE_VIEW = ROOT / "src" / "views" / "cache-view.jsx"
+
+
+def test_summary_strip_counts_use_the_shared_count_formatter():
+    """Pin each count's value expression, including its fallback inputs."""
+    src = _strip_line_comments(VIEW.read_text(encoding="utf-8"))
+    strip = src.split('className="dash-summary"', 1)[1].split('</div>', 1)[0]
+    values = dict(re.findall(r'<Stat label="([^"]+)" value=\{(.*?)\} />', strip))
+    expected = {
+        "main sessions with usage": "window.humanFmt(mainWUsage != null ? mainWUsage : (totalSessions != null ? totalSessions : (events.reduce((s, e) => s + (e.session_count || 0), 0) || sessions.length)))",
+        "main empty sessions": "window.humanFmt(mainEmpty)",
+        "subagent sessions": "window.humanFmt(subagentFiles)",
+        "subagent-only sessions": "window.humanFmt(subagentOnlySessions)",
+        "total": "window.humanFmt((mainWUsage || 0) + (mainEmpty || 0) + (subagentFiles || 0))",
+        "prompts": "window.humanFmt(totalPrompts)",
+        "turns": "window.humanFmt(totalTurns)",
+        "requests": "window.humanFmt(events.reduce((s, e) => s + (e.requests == null ? 1 : e.requests), 0))",
+    }
+    assert {label: values.get(label) for label in expected} == expected
 
 
 def test_cache_view_has_no_band_marker():
@@ -265,12 +267,7 @@ def test_tokens_by_model_mirrors_cost_by_model():
 
 
 def test_cost_surfaces_are_hidden_when_the_whole_range_is_free():
-    """A free lane (llamameter: bonsai-2-27b at $0) charts nothing but
-    zeros on every cost surface. Cost by Model draws an empty bar list,
-    the cost half of Token Breakdown draws bars whose share is a 0/0
-    NaN%, and the total-cost card reads $0 next to the real token
-    counts. Each is gated on there being cost in view, the way the
-    Cost (USD) time series already is."""
+    """Hide free-lane cost surfaces, keeping their nonzero token counts."""
     src = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (APP, VIEW, SHAPE)))
     idx = src.index('title="Cost by Model"')
     assert "costByModelTotal > 0 && (" in src[max(0, idx - 260):idx]

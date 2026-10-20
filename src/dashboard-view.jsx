@@ -183,21 +183,21 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
       {window.featureOn('summary') && summary.kind === 'data' && (
       <div className="dash-summary" data-perf-region="summary_strip">
         <Stat label="window" value={`${window.fmtDate(range.start, {day:true})} – ${window.fmtDate(range.end, {day:true})}`} />
-        <Stat label="main sessions with usage" value={(mainWUsage != null ? mainWUsage : (totalSessions != null ? totalSessions : (events.reduce((s, e) => s + (e.session_count || 0), 0) || sessions.length))).toLocaleString()} />
-        {mainEmpty != null && <Stat label="main empty sessions" value={mainEmpty.toLocaleString()} />}
-        {subagentFiles != null && <Stat label="subagent sessions" value={subagentFiles.toLocaleString()} />}
-        {subagentOnlySessions != null && <Stat label="subagent-only sessions" value={subagentOnlySessions.toLocaleString()} />}
+        <Stat label="main sessions with usage" value={window.humanFmt(mainWUsage != null ? mainWUsage : (totalSessions != null ? totalSessions : (events.reduce((s, e) => s + (e.session_count || 0), 0) || sessions.length)))} />
+        {mainEmpty != null && <Stat label="main empty sessions" value={window.humanFmt(mainEmpty)} />}
+        {subagentFiles != null && <Stat label="subagent sessions" value={window.humanFmt(subagentFiles)} />}
+        {subagentOnlySessions != null && <Stat label="subagent-only sessions" value={window.humanFmt(subagentOnlySessions)} />}
         {(mainWUsage != null || mainEmpty != null || subagentFiles != null) &&
-          <Stat label="total" value={((mainWUsage || 0) + (mainEmpty || 0) + (subagentFiles || 0)).toLocaleString()} />}
-        {totalPrompts != null && <Stat label="prompts" value={totalPrompts.toLocaleString()} />}
-        {totalTurns != null && <Stat label="turns" value={totalTurns.toLocaleString()} />}
-        <Stat label="requests" value={events.reduce((s, e) => s + (e.requests == null ? 1 : e.requests), 0).toLocaleString()} />
+          <Stat label="total" value={window.humanFmt((mainWUsage || 0) + (mainEmpty || 0) + (subagentFiles || 0))} />}
+        {totalPrompts != null && <Stat label="prompts" value={window.humanFmt(totalPrompts)} />}
+        {totalTurns != null && <Stat label="turns" value={window.humanFmt(totalTurns)} />}
+        <Stat label="requests" value={window.humanFmt(events.reduce((s, e) => s + (e.requests == null ? 1 : e.requests), 0))} />
         <Stat label="total tokens" value={window.humanFmt(totals.total)} />
         {window.featureOn('line_churn') && <Stat label="lines added / deleted" value={
-          <span>
-            <span style={{ color: window.dashboardCol.linesAdded }}>+{window.humanFmt(totals.linesAdded)}</span>
+          <span style={{ whiteSpace: 'normal' }}>
+            <span style={{ color: window.dashboardCol.linesAdded, display: 'inline-block' }}>+{window.humanFmt(totals.linesAdded)}</span>
             <span style={{ color: 'var(--muted-2)' }}> / </span>
-            <span style={{ color: window.dashboardCol.linesDeleted }}>−{window.humanFmt(totals.linesDeleted)}</span>
+            <span style={{ color: window.dashboardCol.linesDeleted, display: 'inline-block' }}>−{window.humanFmt(totals.linesDeleted)}</span>
           </span>
         } />}
         {totals.cost > 0 && <Stat label="total cost" value={totalCostStr} highlight />}
