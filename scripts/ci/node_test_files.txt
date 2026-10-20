@@ -3,6 +3,7 @@ tests/test_agent_list_caps_js.py
 tests/test_branding.py
 tests/test_breakdown_exact_rate.py
 tests/test_cache_write_split.py
+tests/test_cdn_route_js.py
 tests/test_ci_classify_comment_only.py
 tests/test_ci_comment_share.py
 tests/test_classic_script_scope.py
