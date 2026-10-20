@@ -594,7 +594,7 @@
     ],
     "scripts/ci/panel_layout.mjs": [
       3077,
-      8618
+      9928
     ],
     "scripts/ci/panel_layout_rules.mjs": [
       16609,
@@ -762,7 +762,7 @@
     ],
     "src/app.jsx": [
       3600,
-      15677
+      15704
     ],
     "src/burn-rate-legend.js": [
       147,
@@ -770,7 +770,7 @@
     ],
     "src/burn-rate-panel.jsx": [
       3610,
-      15139
+      15151
     ],
     "src/cache-ttl-panel.jsx": [
       2436,
@@ -805,12 +805,12 @@
       970
     ],
     "src/dashboard-charts-extra.jsx": [
-      8707,
-      36659
+      8533,
+      36420
     ],
     "src/dashboard-charts.jsx": [
-      6820,
-      28447
+      6620,
+      27672
     ],
     "src/dashboard-fetch.js": [
       935,
@@ -826,7 +826,7 @@
     ],
     "src/dashboard-view.jsx": [
       2951,
-      15694
+      15809
     ],
     "src/deferred.js": [
       524,
@@ -1365,8 +1365,8 @@
       19744
     ],
     "tests/test_panel_wiring.py": [
-      11184,
-      28167
+      10308,
+      28204
     ],
     "tests/test_parse.py": [
       6313,
@@ -1807,8 +1807,8 @@
     "backend/schema.sql": 753,
     "public/app.css": 683,
     "scripts/plots/ccusage_plot_render.py": 624,
-    "src/dashboard-charts-extra.jsx": 1146,
-    "src/dashboard-charts.jsx": 864
+    "src/dashboard-charts-extra.jsx": 1143,
+    "src/dashboard-charts.jsx": 846
   },
   "pylint_suppression_baseline": {
     "backend/bash_dash_c.py": 2,
