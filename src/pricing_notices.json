@@ -200,6 +200,7 @@
     "tag 'fireworks/fast' names neither a known region nor a quantization: glm-5-3 via Fireworks, kimi-k3 via Fireworks",
     "tag 'fireworks/flex' names neither a known region nor a quantization: deepseek-v4-1-flash via Fireworks, glm-5-3 via Fireworks, kimi-k3 via Fireworks",
     "tag 'inference-net/fast' names neither a known region nor a quantization: kimi-k3 via InferenceNet",
+    "tag 'inference-net/us/fast' names neither a known region nor a quantization: kimi-k3 via InferenceNet",
     "tag 'mistral/zdr' names neither a known region nor a quantization: glm-5-2 via Mistral, glm-5-3 via Mistral",
     "tag 'moonshotai/highspeed' names neither a known region nor a quantization: kimi-k2-7-code via Moonshot AI",
     "tag 'openai/default' names neither a known region nor a quantization: gpt-5 via OpenAI",
@@ -424,7 +425,7 @@
     },
     "kimi-k3": {
       "Fireworks": "2 endpoints at one current price",
-      "InferenceNet": "log series count mismatch",
+      "InferenceNet": "2 endpoints at one current price",
       "Sail Research": "2 endpoints at one current price"
     }
   },
