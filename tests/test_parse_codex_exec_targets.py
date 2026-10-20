@@ -100,3 +100,39 @@ def test_unwrapped_function_calls_keep_targets_null(name):
     blob = "\n".join(json.dumps(line) for line in lines).encode()
     row = parse_file("codex/plain-targets.jsonl", blob)["tool_uses"][0]
     assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (None, None, None)
+
+
+@pytest.mark.parametrize("program,reads,writes", [
+    ('tools.exec_command({cmd:"cat input.py",yield_time_ms:1_000});', ["input.py"], []),
+    ('tools.exec_command({yield_time_ms:1_000,cmd:"cat input.py"});', ["input.py"], []),
+    ('tools.exec_command({cmd:"cat input.py",yield_time_ms:1_000,'
+     'workdir:"/workspace/toy-project",max_output_tokens:budget});',
+     ["/workspace/toy-project/input.py"], []),
+    ('tools.monitor({command:["bash","-lc","cat input.py"],yield_time_ms:1_000,'
+     'workdir:"/workspace/toy-project"});', ["/workspace/toy-project/input.py"], []),
+    ('tools.exec_command({workdir:cwd,cmd:"cat input.py"});', ["input.py"], []),
+    ('tools.exec_command({cmd:command,workdir:"/workspace/toy-project"});'
+     'tools.exec_command({cmd:"cat input.py",other:undefined});', ["input.py"], []),
+    ('tools.exec_command({other:{workdir:"/workspace/toy-project/wrong",value:1_000},'
+     'cmd:"cat input.py",workdir:"/workspace/toy-project/right"});',
+     ["/workspace/toy-project/right/input.py"], []),
+    ('tools.exec_command({other:choose(1_000, {workdir:"/workspace/toy-project/wrong"}),'
+     'cmd:"cat input.py"});', ["input.py"], []),
+    ('tools.exec_command({other:[1_000,`workdir: "/workspace/toy-project/wrong"`],'
+     'cmd:"cat input.py"});', ["input.py"], []),
+    ("tools.exec_command({other:'},workdir:\"/workspace/toy-project/wrong\"',"
+     'cmd:"cat input.py",yield_time_ms:1_000});', ["input.py"], []),
+    ('tools.exec_command({other:1_000,/* }, workdir:"wrong" */cmd:"cat input.py"});',
+     ["input.py"], []),
+    ('tools.exec_command({other:1_000,// }, workdir:"wrong"\ncmd:"cat input.py"});',
+     ["input.py"], []),
+    ('tools.apply_patch("*** Begin Patch\\n*** Add File: /workspace/toy-project/new.py\\n+x\\n*** End Patch");'
+     'tools.exec_command({cmd:"cat input.py",other:undefined});',
+     ["input.py"], ["/workspace/toy-project/new.py"]),
+], ids=["numeric-separator-after", "numeric-separator-before", "cwd-after-nonjson-sibling",
+        "monitor-nonjson-sibling", "dynamic-cwd", "dynamic-command-no-cwd-leak",
+        "nested-object-cwd", "nested-call-cwd", "nested-array-template", "quoted-delimiters",
+        "block-comment", "line-comment", "patch-independent"])
+def test_wrapped_targets_fields_survive_nonjson_siblings(program, reads, writes):
+    row = _parse_program(program)
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == ("whole", reads, writes)
