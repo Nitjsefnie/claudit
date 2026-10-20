@@ -16,12 +16,9 @@ vm in index.html tag order: vm.runInContext gives each script the
 browser's classic-script instantiation over one shared context, the same
 semantics the page has, so the same collisions throw here as there.
 The tag list is parsed from index.html at test time, at load order, so a
-newly added application classic script is guarded by construction. Third-party
-/vendor/ scripts (React, ReactDOM, Babel) and external CDN tags are skipped:
-this checks our modules' shared globals without loading browser runtimes into
-the offline node realm. type="text/babel" tags are out of scope too -
-babel-standalone transpiles and evaluates those itself, outside the
-classic-script instantiation.
+newly added classic script is guarded by construction. /vendor/ and CDN
+scripts are skipped: this checks our globals, not third-party browser runtimes.
+Babel transpiles type="text/babel" tags outside classic-script instantiation.
 
 The seams' typeof alone cannot catch a miswired seam: a rename in
 parser-lanes.js leaves every seam a function bound to undefined helpers,
@@ -137,13 +134,9 @@ class _ScriptTagCollector(HTMLParser):
 
 
 def _classic_scripts() -> list[tuple[str, str]]:
-    """Return (name, source) per classic script tag, in document order.
+    """Return our classic scripts as (name, source) pairs in tag order.
 
-    Classic = no type attribute (or a JS one). Babel tags are
-    transpiled and evaluated by babel-standalone, not instantiated as
-    classic scripts. Third-party /vendor/ files and CDN srcs are skipped:
-    this guard checks our modules' shared globals, without loading React,
-    ReactDOM or Babel's browser runtime into the offline node realm.
+    Skip Babel-compiled tags and vendor/CDN browser runtimes; test our globals.
     """
     collector = _ScriptTagCollector()
     collector.feed(INDEX_HTML.read_text(encoding="utf-8"))
