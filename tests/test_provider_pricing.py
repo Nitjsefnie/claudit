@@ -16,6 +16,8 @@ import pytest
 
 from backend import pricing
 from backend.pricing_document import expand_pricing_doc
+from backend.pricing_load import _instant
+from backend.pricing_rows import encode_pricing_doc, flatten_provider_history
 from backend.api_cache import _session_total
 from backend.api_common import fold_per_model, fold_per_model_provider
 from tests.refresh_fixture_builders import seed_doc
@@ -125,43 +127,55 @@ def test_the_provider_table_is_keyed_on_the_normalised_model_id(
     assert pricing.rate_for(model, provider=host) is rates
 
 
+@pytest.fixture(params=["scalar", "grouped"], name="append_history")
+def _append_history_fixture(request):
+    first = {"from": "2026-10-01T00:00:00Z", "fresh": 7, "read": 0.7, "output": 70}
+    middle = {"from": "2026-10-02T00:00:00Z", "fresh": 9, "read": 0.9, "output": 90}
+    last = {**first, "from": "2026-10-03T00:00:00Z"}
+    dated = ([{**first, "from": [first["from"], last["from"]]}, middle]
+             if request.param == "grouped" else [first, middle, last])
+    return [{"from": None, "fresh": 5, "read": 0.5, "output": 50}, *dated]
+
+
 def test_provider_resolution_assertions_survive_later_dated_appends(
-        monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch: pytest.MonkeyPatch, append_history: list[dict]) -> None:
     """A later rate entry moves today's provider row into a dated window."""
-    document = expand_pricing_doc(json.loads(
-        (ROOT / "src" / "pricing.json").read_text(encoding="utf-8")))
-    base_model = V41_KEY
-    base_host = next(host for host in document["providers"][base_model]
-                     if host.casefold() == "baseten")
-    modal_model = "glm-5-3-flash"
-    modal_id = document["openrouter"]["models"][modal_model]["id"]
-    modal_host = next(
-        host for host in document["providers"][modal_model]
-        if host.casefold() == "modal")
+    base_model, base_host = "acme/provider-9", "SyntheticHost"
+    modal_model, modal_host = "glm-acme-9", "SyntheticVendor"
+    modal_id = f"z-ai/{modal_model}"
+    document = encode_pricing_doc(seed_doc(
+        tracked={base_model: {"id": base_model},
+                 modal_model: {"id": modal_id, "vendor_host": modal_host}},
+        providers={base_model: {base_host: append_history},
+                   modal_model: {modal_host: append_history}}))
+    assert pricing.load_tables(document)["PROVIDER_RATES"][(base_model, base_host)]["fresh"] == 7
+    document = expand_pricing_doc(document)
 
     def append_later(entries: list[dict]) -> None:
-        stamps = [datetime.fromisoformat(entry["from"].replace(
-            "Z", "+00:00")) for entry in entries
-                  if entry["from"] is not None]
-        newest = max([SEEDED, *stamps])
-        instant = newest.astimezone(UTC) + timedelta(seconds=1)
-        values = {field: entries[-1][field] for field in pricing.RATE_FIELDS}
+        occurrences, _ = flatten_provider_history(entries, "test append", _instant)
+        latest = occurrences[-1]
+        newest = _instant(latest["from"], "test append") if latest["from"] is not None else SEEDED
+        instant = max(SEEDED, newest).astimezone(UTC) + timedelta(seconds=1)
+        values = {field: latest[field] for field in pricing.RATE_FIELDS}
         values["fresh"] += 0.01
         entries.append({"from": instant.strftime("%Y-%m-%dT%H:%M:%SZ"),
                         **values, "note": "test append"})
-        fetched = datetime.fromisoformat(document["provider_rates_fetched"].replace(
-            "Z", "+00:00"))
+        fetched = _instant(document["provider_rates_fetched"], "test fetch stamp")
         document["provider_rates_fetched"] = max(fetched, instant).astimezone(UTC).strftime(
             "%Y-%m-%dT%H:%M:%SZ")
 
     append_later(document["providers"][base_model][base_host])
     append_later(document["providers"][modal_model][modal_host])
+    for model, host in ((base_model, base_host), (modal_model, modal_host)):
+        appended = document["providers"][model][host][-1]
+        assert appended["from"] == "2026-10-03T00:00:01Z"
+        assert (appended["fresh"], appended["read"], appended["output"]) == (7.01, 0.7, 70)
     tables = pricing.load_tables(document)
     for name, value in tables.items():
         monkeypatch.setattr(pricing, name, value)
 
     _assert_provider_resolution_returns_loaded_row(
-        V41, base_model, base_host)
+        base_model, base_model, base_host)
     _assert_provider_resolution_returns_loaded_row(
         modal_id, modal_model, modal_host)
 
