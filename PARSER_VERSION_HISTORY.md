@@ -83,5 +83,6 @@ them: bump `PRICING_VERSION` in `constants.py` for that.
 - **116** — issues #1091 and #1092: recover Bash write targets across brace
   expansions, enumerate bounded comma-list operands and keep the destination
   for unresolved source expansions. Book explicit and inferred `gh repo clone`
-  directories, ignoring git passthrough arguments after `--`. Line churn keeps
-  its existing tokenizer and estimates.
+  directories, ignoring git passthrough arguments after `--`. Brace recovery
+  preserves scalar assignment values and also scans quoted captures. Line
+  churn keeps its existing tokenizer and estimates.
