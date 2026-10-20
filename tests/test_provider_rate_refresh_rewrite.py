@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+from datetime import datetime, timezone
 
 import pytest
 
@@ -186,3 +187,60 @@ def test_detection_time_search_epoch_keeps_a_genuine_context_change(
     written = run.path.read_bytes(), run.constants.read_bytes(), run.state.read_bytes()
     assert "no rate moved" in run.run(capsys)
     assert (run.path.read_bytes(), run.constants.read_bytes(), run.state.read_bytes()) == written
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_endpoint_continuity_uses_the_newest_occurrence_for_log_join(
+        tmp_path, capsys, grouped):
+    history = [_entry(START, RATE_A), _entry(CHANGED, RATE_B), _entry(DRIFTED, RATE_A)]
+    if grouped:
+        history = [{**history[0], "from": [START, DRIFTED]}, history[1]]
+    run = RewriteRun(tmp_path, history,
+                     [(START, RATE_A), (EARLY, RATE_B), (DRIFTED, RATE_A)])
+    other = _endpoint(HOST, RATE_B, tag="wafer/mxfp4")
+    other["quantization"] = "mxfp4"
+    run.fetches.payload["data"]["endpoints"].append(other)
+    run.fetches.log_payload["data"]["series"].append({
+        **_series([(START, RATE_B)]), "endpointId": "synthetic-second-endpoint"})
+
+    out = run.run(capsys)
+
+    assert "log rewrite" in out and "sampled   Wafer" not in out
+    assert run.saved()["providers"][MODEL][HOST] == [
+        {"from": [START, DRIFTED], **RATE_A, "context_length": 131072},
+        {"from": EARLY, **RATE_B, "context_length": 131072}]
+    assert run.constants.read_text(encoding="utf-8") == 'PRICING_VERSION = "18"\n'
+
+
+def test_closed_schedule_pricing_drift_rewrites_and_bumps(tmp_path, capsys, monkeypatch):
+    start = "2030-12-29T00:00:00Z"
+    history = [_entry(start, RATE_A, schedule=[{"days": ["monday"], "rates": RATE_B}]),
+               _entry(CHANGED, RATE_A)]
+    run = RewriteRun(tmp_path, history, [(start, RATE_A)])
+    monday = datetime(2030, 12, 30, tzinfo=timezone.utc)
+    for name, table in pricing.load_tables(run.doc).items():
+        monkeypatch.setattr(pricing, name, table)
+    assert pricing.resolve(MODEL, monday, HOST).rates == RATE_B
+
+    out = run.run(capsys)
+
+    assert "log rewrite" in out
+    assert run.saved()["providers"][MODEL][HOST] == [
+        {"from": "2030-12-29T00:00:00Z", **RATE_A, "context_length": 131072}]
+    for name, table in pricing.load_tables(run.saved()).items():
+        monkeypatch.setattr(pricing, name, table)
+    assert pricing.resolve(MODEL, monday, HOST).rates == RATE_A
+    assert run.constants.read_text(encoding="utf-8") == 'PRICING_VERSION = "18"\n'
+
+
+@pytest.mark.parametrize("schedule", [
+    [{"days": ["monday"], "rates": RATE_A}],
+    [{"rates": RATE_A}, {"days": ["monday"], "rates": RATE_B}],
+])
+def test_effectively_unchanged_closed_schedule_keeps_the_row(tmp_path, capsys, schedule):
+    run = RewriteRun(tmp_path, [_entry(START, RATE_A, schedule=schedule),
+                                _entry(CHANGED, RATE_A)], [(START, RATE_A)])
+    before = run.path.read_bytes(), run.constants.read_bytes()
+
+    assert "no rate moved" in run.run(capsys)
+    assert (run.path.read_bytes(), run.constants.read_bytes()) == before

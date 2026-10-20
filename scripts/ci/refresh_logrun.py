@@ -83,7 +83,8 @@ def classify_log_rows(
     try:
         joined = refresh_pricelog.join_listed_pricing(
             payload, read.series, region, resolutions, at,
-            {host: effective_rates(history[-1]) for host, history in hosts.items()})
+            {host: effective_rates(_occurrences(history, f"{model} via {host}")[-1])
+             for host, history in hosts.items()})
     except refresh_pricelog.PriceLogError as exc:
         return _unavailable_log_rows(model, rows, str(exc))
     return _append_joined_rows(
