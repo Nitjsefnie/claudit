@@ -5,28 +5,30 @@ where a comment separated tokens. Preserve all line terminators, string and
 regex bytes, template raw parts and JSX text; scan template interpolations
 and JSX expression containers as JavaScript. Reject unterminated constructs.
 
-Regex/JSX entry follows the previous significant token's expression-start
-reading, including arrow bodies. A closing brace permits a regex (a block
-may precede one); division immediately after an object literal can therefore
-be misread as a regex. Parenthesizing that object removes the ambiguity.
-JSX begins only at expression start with a tag name or fragment opener;
-after an identifier, number, closing paren or bracket, '<' is comparison.
-This is a lexical transform, not a JavaScript grammar validator.
+Track statement, operand and value contexts, control-header parentheses and
+block/object/function/class braces to distinguish regexes from division.
+JSX begins in an operand or statement position and permits whitespace around
+tag names. Remove a leading hashbang as a line comment. Keep a separating
+space when removing whitespace/comments would join a separate CR and LF.
+Unsupported tokens and unresolved lexical contexts raise JsMinError; this
+lexical transform does not validate the complete JavaScript grammar.
 """
 from __future__ import annotations
 
 import re
 
+from backend.js_min_context import Context, NEWLINES, identifier_part, identifier_start, js_space
 
-_NEWLINES = "\r\n\u2028\u2029"
-_WORD = re.compile(r"[\w$]+")
-_JSX_NAME = re.compile(r"[\w$][\w$.:-]*")
+
+_NEWLINES = NEWLINES
 _PUNCTUATION = re.compile(
     r"===|!==|>>>=|\*\*=|&&=|\|\|=|\?\?=|>>>|<<=|>>=|=>|==|!=|<=|>=|"
     r"\+\+|--|&&|\|\||\?\?|\?\.|\*\*|<<|>>|\+=|-=|\*=|/=|%=|&=|\|=|\^=|\.\.\.")
-_PREFIX_WORDS = frozenset((
-    "return", "typeof", "instanceof", "new", "delete", "void", "case",
-    "in", "of", "do", "else", "yield", "await", "throw"))
+_NUMBER = re.compile(
+    r"(?:0[xX][\da-fA-F](?:_?[\da-fA-F])*n?|0[bB][01](?:_?[01])*n?|"
+    r"0[oO][0-7](?:_?[0-7])*n?|[0-9](?:_?[0-9])*n|"
+    r"(?:[0-9](?:_?[0-9])*(?:\.[0-9_]*)?|\.[0-9](?:_?[0-9])*)"
+    r"(?:[eE][+-]?[0-9](?:_?[0-9])*)?)")
 _HORIZONTAL_OR_NEWLINE = re.compile(r"([ \t]+|[\r\n\u2028\u2029])")
 
 
@@ -46,7 +48,7 @@ class _Scanner:
 
     def _comment(self) -> None:
         start = self.pos
-        if self.source.startswith("//", start):
+        if self.source.startswith(("//", "#!"), start):
             match = re.search(r"[\r\n\u2028\u2029]", self.source[start:])
             end = start + match.start() if match else len(self.source)
             self._mark(start, end, "line")
@@ -69,7 +71,7 @@ class _Scanner:
                 self.pos += 2
                 if self.source[self.pos - 1:self.pos + 1] == "\r\n":
                     self.pos += 1
-            elif char in _NEWLINES and not jsx:
+            elif char in "\r\n" and not jsx:
                 raise JsMinError("Unescaped newline in string")
             else:
                 self.pos += 1
@@ -90,8 +92,9 @@ class _Scanner:
                 continue
             if char == "/" and not in_class:
                 self.pos += 1
-                flags = _WORD.match(self.source, self.pos)
-                self._mark(start, flags.end() if flags else self.pos)
+                while self.pos < len(self.source) and identifier_part(self.source[self.pos]):
+                    self.pos += 1
+                self._mark(start, self.pos)
                 return
             if char == "[":
                 in_class = True
@@ -119,11 +122,19 @@ class _Scanner:
         raise JsMinError("Unterminated template literal")
 
     def _tag_name(self) -> str:
-        match = _JSX_NAME.match(self.source, self.pos)
-        if not match:
+        self._skip_space()
+        start = self.pos
+        if not identifier_start(self.source[self.pos:self.pos + 1]):
             raise JsMinError("Expected JSX tag name")
-        self.pos = match.end()
-        return match.group()
+        self.pos += 1
+        while self.pos < len(self.source) and (
+                identifier_part(self.source[self.pos]) or self.source[self.pos] in ".:-"):
+            self.pos += 1
+        return self.source[start:self.pos]
+
+    def _skip_space(self) -> None:
+        while self.pos < len(self.source) and js_space(self.source[self.pos]):
+            self.pos += 1
 
     def _attributes(self) -> bool:
         while self.pos < len(self.source):
@@ -146,14 +157,14 @@ class _Scanner:
     def _close_tag(self, name: str) -> None:
         self.pos += 2
         closing = self._tag_name() if name else ""
-        while self.pos < len(self.source) and self.source[self.pos].isspace():
-            self.pos += 1
+        self._skip_space()
         if closing != name or self.source[self.pos:self.pos + 1] != ">":
             raise JsMinError("Mismatched JSX closing tag")
         self.pos += 1
 
     def _jsx(self) -> None:
         self.pos += 1
+        self._skip_space()
         if self.source[self.pos:self.pos + 1] == ">":
             name = ""
             self.pos += 1
@@ -178,53 +189,70 @@ class _Scanner:
                 self._mark(self.pos, end)
         raise JsMinError("Unterminated JSX element")
 
-    def _token(self, expression_start: bool) -> str:
+    def _token(self, expression_start: bool) -> tuple[str, str]:
         char = self.source[self.pos]
         if char in "'\"":
             self._quoted()
-            return "value"
+            return "", "value"
         if char == "`":
             self._template()
-            return "value"
+            return "", "value"
         if char == "/" and expression_start:
             self._regex()
-            return "value"
-        if char == "<" and expression_start and (
-                self.source[self.pos + 1:self.pos + 2] == ">"
-                or _JSX_NAME.match(self.source, self.pos + 1)):
+            return "", "value"
+        if char == "<" and expression_start:
             self._jsx()
-            return "value"
-        match = _WORD.match(self.source, self.pos) or _PUNCTUATION.match(self.source, self.pos)
+            return "", "value"
+        return self._plain_token()
+
+    def _plain_token(self) -> tuple[str, str]:
+        start = self.pos
+        char = self.source[start]
+        if char == "\\":
+            raise JsMinError("Unsupported escaped identifier")
+        if char == "#" or identifier_start(char):
+            if char == "#":
+                self.pos += 1
+            if not identifier_start(self.source[self.pos:self.pos + 1]):
+                raise JsMinError("Unsupported private identifier")
+            self.pos += 1
+            while self.pos < len(self.source) and identifier_part(self.source[self.pos]):
+                self.pos += 1
+            return self.source[start:self.pos], "word"
+        match = _NUMBER.match(self.source, start)
         if match:
             self.pos = match.end()
-            return match.group()
+            return match.group(), "value"
+        match = _PUNCTUATION.match(self.source, self.pos)
+        if match:
+            self.pos = match.end()
+            return match.group(), "punctuation"
+        if char not in "{}()[].,;:?~+-*/%<>=!&|^":
+            raise JsMinError("Unsupported JavaScript token " + repr(char))
         self.pos += 1
-        return char
+        return char, "punctuation"
 
     def javascript(self, container: bool = False) -> None:
-        depth = 0
-        expression_start = True
-        previous = ""
+        context = Context(JsMinError, expression=container)
         while self.pos < len(self.source):
             char = self.source[self.pos]
-            if char.isspace():
+            if js_space(char):
+                if char in _NEWLINES:
+                    context.newline()
                 self.pos += 1
                 continue
-            if self.source.startswith(("//", "/*"), self.pos):
+            if self.source.startswith(("//", "/*"), self.pos) or (
+                    self.pos == 0 and self.source.startswith("#!")):
+                start = self.pos
                 self._comment()
+                if any(char in _NEWLINES for char in self.source[start:self.pos]):
+                    context.newline()
                 continue
-            token = self._token(expression_start)
-            if token == "}":
-                if container and depth == 0:
-                    return
-                depth -= 1
-            elif token == "{":
-                depth += 1
-            expression_start = (
-                token in _PREFIX_WORDS and previous not in (".", "?.")
-                if _WORD.fullmatch(token)
-                else token not in (")", "]", ".", "?.", "++", "--"))
-            previous = token
+            if char == "}" and container and not context.frames:
+                self.pos += 1
+                return
+            token, kind = self._token(context.expression_start if char in "/<" else False)
+            context.take(token, kind)
         if container:
             raise JsMinError("Unterminated JavaScript expression container")
 
@@ -238,7 +266,8 @@ class _Output:
     def _literal(self, text: str) -> None:
         if not text:
             return
-        if self.pending and self.on_line and text[0] not in _NEWLINES:
+        joins_crlf = bool(self.parts and self.parts[-1].endswith("\r") and text.startswith("\n"))
+        if self.pending and (self.on_line and text[0] not in _NEWLINES or joins_crlf):
             self.parts.append(" ")
         self.pending = False
         self.parts.append(text)
@@ -249,7 +278,7 @@ class _Output:
             self._literal(text)
             return
         if kind in ("line", "block"):
-            text = " " + "".join(char for char in text if char in _NEWLINES)
+            text = " " + re.sub(r"[^\r\n\u2028\u2029]+", " ", text) + " "
         for part in _HORIZONTAL_OR_NEWLINE.split(text):
             if part and part[0] in " \t":
                 self.pending = True
