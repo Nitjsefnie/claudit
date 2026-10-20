@@ -39,7 +39,6 @@
     "deepseek-v4-1-flash-1017 via Wafer: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "deepseek-v4-flash via StreamLake: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "deepseek-v4-flash-0731 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
-    "deepseek-v4-flash-0731 via Baidu: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "deepseek-v4-flash-0731 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
     "deepseek-v4-pro via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba/fp8'; dropped 'alibaba/fp8/us-east-1'",
     "deepseek-v4-pro-0813 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
