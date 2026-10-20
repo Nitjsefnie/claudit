@@ -363,7 +363,8 @@ def test_identical_twins_without_an_override_resolve_to_the_cheaper(tmp_path, ca
     # The rule takes the cheaper twin, which is the price the row already
     # holds: nothing appends. The dearer twin would have moved the row.
     assert run.snapshot() == before
-    assert Decimal(cheaper["pricing"]["input_cache_read"]).scaleb(6) == Decimal("0.007")
+    assert Decimal(cheaper["pricing"]["input_cache_read"]).scaleb(6) == Decimal(
+        str(run.doc()["providers"][V41]["BaseTen"][-1]["read"]))
 
 
 @pytest.mark.parametrize("equal_reads,changes,expected", [

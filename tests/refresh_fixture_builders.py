@@ -146,3 +146,43 @@ def seed_provider_doc() -> dict:
         tracked={"fixture/provider": {"id": "fixture/provider"}},
         providers={"fixture/provider": {"Fixture": [
             {"from": None, **RATES_A}]}})
+
+
+def provider_refresh_doc() -> dict:
+    """Fixed provider scenarios: twin selection, sampled fees, schedules and delisting."""
+    glm, deepseek = "glm-5-3-flash", "deepseek-v4-1-flash"
+    base = {"fresh": 0.3, "create_5m": 0.3, "create_1h": 0.3,
+            "read": 0.06, "output": 1.2}
+    half = {field: value / 2 for field, value in base.items()}
+    weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+    schedule = [{"days": ["saturday", "sunday"], "rates": half}, *[
+        {"days": weekdays, "start": start, "end": end, "rates": rates}
+        for start, end, rates in ((0, 100, half), (100, 400, base),
+                                  (400, 600, half), (600, 1000, base),
+                                  (1000, 0, half))]]
+    row = {"from": None, "context_length": 131072, **base}
+    return seed_doc(
+        tracked={
+            glm: {"id": "z-ai/glm-5.3-flash"},
+            deepseek: {"id": "deepseek/deepseek-v4.1-flash", "resolve": {
+                "BaseTen": {"tag": "baseten/fp8", "select": "cheapest",
+                            "ignore": ["max_completion_tokens"],
+                            "why": "synthetic one-token listing artifact"}}},
+            "claude-opus-5-5": {"id": "anthropic/claude-opus-5.5"},
+            "deepseek-v4-flash-0731": {"id": "deepseek/deepseek-v4-flash-0731"},
+            "stealth/space-bunny-alpha": {"id": "stealth/space-bunny-alpha"}},
+        providers={
+            glm: {host: [{**row, **RATE_C}] for host in (
+                "OpenInference", "Novita", "Cloudflare", "Fireworks", "Wafer")},
+            deepseek: {
+                "BaseTen": [{**row, "read": 0.007}],
+                "Novita": [row],
+                "DeepSeek": [{**row, "schedule": schedule}],
+                "Alibaba": [{**row, "schedule": [
+                    {"start": 0, "end": 1400, "rates": base},
+                    {"start": 1400, "end": 0, "rates": half}]}]},
+            "claude-opus-5-5": {"Claude Platform on AWS": [{
+                **row, "fresh": 4.0, "create_5m": 5.0, "create_1h": 8.0,
+                "read": 0.2, "output": 20.0}]},
+            "deepseek-v4-flash-0731": {"Sail Research": [row]},
+            "stealth/space-bunny-alpha": {"Stealth": [row]}})
