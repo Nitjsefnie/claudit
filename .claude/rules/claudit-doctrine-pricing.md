@@ -274,7 +274,9 @@ key wins).
 ## Provider rates refresh from OpenRouter (SV-RATE-REFRESH)
 
 `.github/workflows/refresh-pricing.yml` runs
-`scripts/ci/refresh_provider_rates.py` hourly (identically on dispatch)
+`scripts/ci/refresh_provider_rates.py` hourly (identically on dispatch
+without a vendor input; an optional vendor namespace is tracked first by
+`scripts/ci/track_vendor.py`, then follows the same refresh and test path)
 and commits to `master` as `github-actions[bot]` only after the full
 suite passes on the new data. Hand corrections also require a human commit
 and `PRICING_VERSION` bump (SV-RATE-DATA).
@@ -582,8 +584,10 @@ The same hourly run tracks the first-party vendor table and the grouped
 catalog at the vendor's own first-party endpoint (the endpoint whose tag
 prefix is the vendor's own namespace), never a third-party host. The prefix
 list is config: `openrouter.vendor.prefixes` — the same list the loaders
-validate and the bare-id resolution matches through — so adding or dropping
-a vendor is a one-line pricing.json edit, no code change. The pass lives in
+validate and the bare-id resolution matches through. Dispatch with the optional
+`vendor` input adds a namespace before the refresh; malformed, already-tracked,
+catalog-absent or unreadable-catalog inputs refuse before any write or push.
+Dropping a vendor remains a one-line pricing.json edit. The pass lives in
 `scripts/ci/refresh_vendor_rates.py` and runs inside
 `refresh_provider_rates.main()`: one report, one commit, refusals block only
 their own model. PRICING_VERSION bumps once, one past the file, when either

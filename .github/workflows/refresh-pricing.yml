@@ -14,8 +14,9 @@ name: refresh-pricing
 # hourly runs are retained at their own times. A host without an unambiguous
 # log match, or a model whose log is unavailable, is sampled at detection
 # time with alternation. Each run rewrites every log-backed provider history
-# from the listed-pricing log; the suite gates the push. Dispatch takes no
-# inputs and behaves like a scheduled run.
+# from the listed-pricing log; the suite gates the push. Dispatch takes an
+# optional vendor namespace: with it the run tracks the vendor first, then
+# behaves like a scheduled run; without it the run is exactly a scheduled run.
 #
 # Data moves carry the fetch stamp; quiet hours leave the tree clean.
 #
@@ -63,6 +64,11 @@ on:
     # fires at once and jobs queue.
     - cron: '23 * * * *'
   workflow_dispatch:
+    inputs:
+      vendor:
+        description: Vendor namespace to track before refreshing rates
+        required: false
+        type: string
 
 permissions: {}
 
@@ -103,6 +109,8 @@ jobs:
 
       - name: Fetch and append
         id: fetch
+        env:
+          VENDOR_NAMESPACE: ${{ inputs.vendor }}
         # stdlib only: nothing is installed before the fetch, so beyond the
         # cached Postgres a quiet hour costs one checkout, one model-catalog
         # request, and two requests per tracked model. A refused host blocks
@@ -111,6 +119,10 @@ jobs:
         # code instead of failing, the moves are tested here and pushed by
         # the push job, and the verdict job turns the run red.
         run: |
+          if [ -n "$VENDOR_NAMESPACE" ]; then
+            python3 scripts/ci/track_vendor.py --namespace="$VENDOR_NAMESPACE" \
+              --commit-msg "$RUNNER_TEMP/commit-msg.txt" || exit 1
+          fi
           rc=0
           # The script reads and rewrites src/pricing_notices.json itself: the
           # notice baseline that keeps a suppressed notice suppressed.
