@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 
 from backend.bash_argv import argv_churn
 from backend.bash_churn import bash_churn
@@ -11,10 +12,10 @@ _CODEX_CMD_STR = re.compile(r"""["']?cmd["']?\s*:\s*(?=")""")
 _CODEX_CMD_ARGV = re.compile(r"""["']?command["']?\s*:\s*(?=\[)""")
 
 
-def _codex_json_values(src: str, pattern: re.Pattern[str]):
-    """Every JSON value in `src` introduced by `pattern`.
+def _codex_json_spans(src: str, pattern: re.Pattern[str]) -> Iterator[tuple[int, object, int]]:
+    """JSON values and their source bounds, skipping already consumed spans.
 
-    Yields the decoded value and skips whatever span it occupied, so a
+    Yields (start, decoded value, end) and skips the occupied span, so a
     key that appears again INSIDE a value already read is not mined a
     second time.
     """
@@ -28,6 +29,12 @@ def _codex_json_values(src: str, pattern: re.Pattern[str]):
         except ValueError:
             continue
         consumed_to = end
+        yield match.end(), value, end
+
+
+def _codex_json_values(src: str, pattern: re.Pattern[str]) -> Iterator[object]:
+    """Every JSON value introduced by pattern, excluding nested matches."""
+    for _, value, _ in _codex_json_spans(src, pattern):
         yield value
 
 
