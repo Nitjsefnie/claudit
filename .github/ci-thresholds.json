@@ -1061,8 +1061,8 @@
       19500
     ],
     "tests/test_ci_classify_comment_only.py": [
-      3331,
-      13810
+      3063,
+      13373
     ],
     "tests/test_ci_classify_verified_base.py": [
       3626,
@@ -1277,8 +1277,8 @@
       20364
     ],
     "tests/test_js_toolchain.py": [
-      8719,
-      20198
+      8512,
+      19875
     ],
     "tests/test_key_layout.py": [
       951,
@@ -1361,8 +1361,8 @@
       25442
     ],
     "tests/test_panel_layout_js.py": [
-      6675,
-      23334
+      6510,
+      23011
     ],
     "tests/test_panel_layout_rules_js.py": [
       6203,
@@ -1565,8 +1565,8 @@
       16546
     ],
     "tests/test_reparse_ci_wiring.py": [
-      2383,
-      8250
+      2175,
+      7756
     ],
     "tests/test_reparse_count.py": [
       1825,
@@ -1677,8 +1677,8 @@
       19902
     ],
     "tests/test_suite_ci_wiring.py": [
-      3132,
-      16665
+      2930,
+      15785
     ],
     "tests/test_suite_cost_pricing_growth.py": [
       2240,
@@ -1761,8 +1761,8 @@
       21422
     ],
     "tests/test_workflow_ci_gate.py": [
-      8103,
-      25290
+      7764,
+      24505
     ],
     "tests/test_workflow_concurrency.py": [
       867,
@@ -1773,16 +1773,16 @@
       10927
     ],
     "tests/test_workflow_patch_coverage.py": [
-      5545,
-      19141
+      5135,
+      18294
     ],
     "tests/test_workflow_pg_client_install.py": [
       1530,
       4665
     ],
     "tests/test_workflow_pip_cache.py": [
-      1579,
-      5302
+      1422,
+      5014
     ],
     "tests/test_workflow_release.py": [
       7471,
