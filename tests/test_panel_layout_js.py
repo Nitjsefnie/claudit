@@ -653,9 +653,13 @@ def test_panel_workflow_runs_four_independent_sweeps():
         "group": "panel-layout-${{ github.event.pull_request.number || github.ref }}",
         "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
     }
-    checkout, _, install, browser, sweep = job["steps"]
+    checkout, _, install, sanitize, browser, sweep = job["steps"]
     assert checkout["with"] == {"persist-credentials": False}
     assert install["run"] == "npm ci --no-audit --no-fund"
+    assert sanitize["uses"] == "$/.github/actions/apt-install"
+    assert "run" not in sanitize
+    assert not sanitize.get("with", {}).get("packages")
+    assert sanitize["timeout-minutes"] > 0
     assert browser["run"] == "npx --no-install playwright install --with-deps chromium"
     assert sweep["run"] == "node ${{ matrix.sweep.script }}"
     assert all("if" not in step and "continue-on-error" not in step
