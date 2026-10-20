@@ -1,8 +1,8 @@
 """Read and write targets from literal arguments in Codex exec programs."""
 from __future__ import annotations
 
-import json
 import re
+from collections.abc import Iterator
 
 from backend.bash_argv import _INLINE_FLAGS, _PY_PROG, _SHELL_PROGS
 from backend.bash_churn import BashCommand
@@ -16,35 +16,66 @@ _STRING = re.compile(r'(?=")')
 _PATCH_PATH = re.compile(r"^\*\*\* (Add File|Update File|Delete File|Move to):\s*(.*)$")
 
 
-def _literal_object(src: str, start: int) -> dict:
-    """Read one call object's JSON values, accepting bare JavaScript keys.
-
-    Each value is bounded by raw_decode, including nested objects and
-    escaped strings. Dynamic or malformed arguments yield no targets.
-    """
-    value = next(_codex_json_values(src[start:], _VALUE_START), None)
-    if isinstance(value, dict):
-        return value
-    decoder = json.JSONDecoder()
-    fields = {}
+def _quoted_end(src: str, start: int) -> int:
+    """Skip an escaped JS string or template without interpreting its contents."""
+    quote = src[start]
     offset = start + 1
     while offset < len(src):
-        field = _FIELD.match(src, offset)
-        if field is None:
-            return fields if src[offset:].lstrip().startswith("}") else {}
-        try:
-            value, offset = decoder.raw_decode(src, field.end())
-        except ValueError:
-            return {}
-        fields[next(key for key in field.groups() if key is not None)] = value
-        while offset < len(src) and src[offset].isspace():
-            offset += 1
-        if offset < len(src) and src[offset] == "}":
-            return fields
-        if offset >= len(src) or src[offset] != ",":
-            return {}
+        if src[offset] == "\\":
+            offset += 2
+            continue
+        if src[offset] == quote:
+            return offset + 1
         offset += 1
-    return {}
+    return len(src)
+
+
+def _object_fields(src: str, start: int) -> Iterator[str]:
+    """Bound top-level fields to one call object, allowing non-JSON siblings."""
+    closers = {"{": "}", "[": "]", "(": ")"}
+    stack: list[str] = []
+    field_start = start + 1
+    offset = start + 1
+    while offset < len(src):
+        char = src[offset]
+        if char in "\"'`":
+            offset = _quoted_end(src, offset)
+            continue
+        if src.startswith(("//", "/*"), offset):
+            line_comment = src.startswith("//", offset)
+            end = src.find("\n" if line_comment else "*/", offset + 2)
+            if end < 0:
+                return
+            end += 1 if line_comment else 2
+            if not src[field_start:offset].strip():
+                field_start = end
+            offset = end
+            continue
+        if char in closers:
+            stack.append(closers[char])
+        elif char == "}" and not stack:
+            yield src[field_start:offset]
+            return
+        elif char in "}])":
+            if not stack or stack.pop() != char:
+                return
+        elif char == "," and not stack:
+            yield src[field_start:offset]
+            field_start = offset + 1
+        offset += 1
+
+
+def _literal_object(src: str, start: int) -> dict:
+    """Mine supported JSON field values independently within one call object."""
+    fields = {}
+    for member in _object_fields(src, start):
+        field = _FIELD.match(member)
+        if field is None:
+            continue
+        key = next(key for key in field.groups() if key is not None)
+        if key in ("cmd", "command", "workdir"):
+            fields[key] = next(_codex_json_values(member[field.end():], _VALUE_START), None)
+    return fields
 
 
 def _argv_command(argv: object) -> str:
