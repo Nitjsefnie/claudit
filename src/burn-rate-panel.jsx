@@ -307,8 +307,8 @@ function BurnRatePanel({ events, sessions, limitHits: rawLimitHits, range: propR
           ['ctx at end',    ctxKnown ? humanFmt_B(best.ctxEnd) : 'unknown'],
           ['out tok/hr',    humanFmt_B(best.out_per_h)],
           ['cache rd tok/hr', humanFmt_B(best.cr_per_h)],
-          ['cost / hour',   '$' + (best.cost_per_h_x100 / 100).toFixed(2) + '/h'],
-          ['est. cost',     '$' + best.sums.cost.toFixed(2)],
+          ['cost / hour',   window.humanCurrency(best.cost_per_h_x100 / 100) + '/h'],
+          ['est. cost',     window.humanCurrency(best.sums.cost)],
           ['dot radius',    sizeNote],
         ],
       });

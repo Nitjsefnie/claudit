@@ -955,15 +955,12 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
     return null;
   }, [bars]);
 
-  const fmtTok = t => (t >= 1000 ? `${Math.round(t / 1000)}k` : String(t));
+  const fmtTok = t => window.humanFmt(t);
   const fmtUsd = v => (isTokens
     ? humanFmt_X(v)
-    : (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(v < 10 ? 2 : 0)}`));
+    : window.humanCurrency(v));
 
-  // Hit-test in the <svg>'s frame: padT/plotH are svg coordinates, and the
-  // container's rect carries the header block above the svg, so comparing
-  // across the frames parked the active band a header-height high.
-  // The tip still positions in container coordinates — its offsetParent.
+  // Hit-test in SVG coordinates; position the tooltip in its container's frame.
   function onMove(e) {
     if (!ref.current || !svgRef.current) return;
     const rect = ref.current.getBoundingClientRect(), srect = svgRef.current.getBoundingClientRect();

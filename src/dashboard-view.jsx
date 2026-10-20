@@ -182,7 +182,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
         : summary.kind !== 'data' && <div role="status">{summary.text}</div>}
       {window.featureOn('summary') && summary.kind === 'data' && (
       <div className="dash-summary" data-perf-region="summary_strip">
-        <Stat label="window" value={`${window.fmtDate(range.start, {day:true})} – ${window.fmtDate(range.end, {day:true})}`} />
+        <Stat label="window" value={<span style={{ whiteSpace: 'normal' }}>{`${window.fmtDate(range.start, {day:true})} – ${window.fmtDate(range.end, {day:true})}`}</span>} />
         <Stat label="main sessions with usage" value={window.humanFmt(mainWUsage != null ? mainWUsage : (totalSessions != null ? totalSessions : (events.reduce((s, e) => s + (e.session_count || 0), 0) || sessions.length)))} />
         {mainEmpty != null && <Stat label="main empty sessions" value={window.humanFmt(mainEmpty)} />}
         {subagentFiles != null && <Stat label="subagent sessions" value={window.humanFmt(subagentFiles)} />}
