@@ -153,6 +153,10 @@
 !/public/*.css
 !/public/*.html
 !/public/favicon.ico
+!/public/vendor/
+/public/vendor/*
+!/public/vendor/*.js
+!/public/vendor/LICENSES.txt
 
 # ---- scripts/ — repo tooling ----------------------------------------------
 !/scripts/

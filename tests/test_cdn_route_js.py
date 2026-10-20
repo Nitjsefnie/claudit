@@ -12,6 +12,22 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts" / "ci" / "cdn_route.mjs"
 
+# The current helper requires a page with unpkg URLs. Supply that legacy
+# input at its filesystem boundary; the real page now uses local vendors.
+CDN_PAGE_SETUP = """
+  const {default: fs} = await import('node:fs');
+  const {syncBuiltinESMExports} = await import('node:module');
+  const readOriginal = fs.readFileSync;
+  const fixtureHtml = '<script src="https://unpkg.com/fixture-a@1/script.js"></script>'
+    + '<script src="https://unpkg.com/fixture-b@1/script.js"></script>';
+  fs.readFileSync = (path, ...args) => {
+    if (path === 'public/index.html'
+      || (path instanceof URL && path.href === %INDEX_URL%)) return fixtureHtml;
+    return readOriginal(path, ...args);
+  };
+  syncBuiltinESMExports();
+""".replace("%INDEX_URL%", json.dumps((ROOT / "public" / "index.html").as_uri()))
+
 
 def test_every_sweep_creates_contexts_through_cdn_helper():
     """Catch new page/context entry points that bypass CDN recovery."""
@@ -32,6 +48,7 @@ def test_every_sweep_creates_contexts_through_cdn_helper():
 def _node(body: str) -> dict:
     script = (
         "import assert from 'node:assert/strict';\n"
+        f"{CDN_PAGE_SETUP}\n"
         f"const mod = await import({json.dumps(MODULE.as_uri())});\n"
         f"{body}\n"
     )

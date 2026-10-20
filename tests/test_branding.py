@@ -84,7 +84,7 @@ def test_default_page_differs_from_template_only_by_injections(page_client):
         else:
             assert any(k in payload for k in (
                 "window.BACKEND_URL = window.BACKEND_URL",
-                'href="/app.css"', 'src="/src/', 'src="https://unpkg.com/',
+                'href="/app.css"', 'src="/src/', 'src="/vendor/',
                 '<script type="text/babel">'
             )), f"unexpected template-line change: {payload}"
 

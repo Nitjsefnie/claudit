@@ -1,6 +1,6 @@
 """Security headers on every response.
 
-The document CSP (_CSP_TEMPLATE: script-src over 'self', the unpkg CDN
+The document CSP (_CSP_TEMPLATE: script-src over 'self'
 and the response nonce; style-src over the Google Fonts stylesheet host
 and the response nonce; the deny-by-default floor) plus framing
 protection (`X-Frame-Options: DENY`, frame-ancestors 'none' in the
@@ -18,6 +18,7 @@ independence, no clobbering, streaming) against `_SecurityHeaders`
 directly.
 """
 import asyncio
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -45,6 +46,24 @@ def test_auth_middleware_redirect_gets_nosniff():
     resp = TestClient(app).get("/", follow_redirects=False)
     assert resp.status_code == 302
     assert resp.headers["x-content-type-options"] == "nosniff"
+
+
+@pytest.mark.parametrize("name", [
+    "react.production.min.js", "react-dom.production.min.js", "babel.min.js",
+])
+def test_vendor_scripts_serve_committed_bytes_with_session(guest_client, name):
+    path = Path(__file__).resolve().parents[1] / "public" / "vendor" / name
+    url = f"/vendor/{name}"
+    denied = TestClient(app).get(url, follow_redirects=False)
+    assert denied.status_code == 302
+    assert denied.headers["location"] == "/login"
+    resp = guest_client.get(url)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].split(";")[0] == "text/javascript"
+    assert resp.headers["x-content-type-options"] == "nosniff"
+    assert resp.content == path.read_bytes()
+    page = guest_client.get("/").text
+    assert f'src="{url}?v={int(path.stat().st_mtime)}"' in page
 
 
 @pytest.mark.parametrize("client_fixture, path, status", [
@@ -124,8 +143,8 @@ def test_existing_headers_are_not_clobbered():
 
 
 # Every directive the app needs, pinned one by one. The evidence for each
-# lives in the PR for; the short form: the unpkg scripts are admitted by
-# host (SRI pins their bytes independently); every <script> tag the dashboard
+# lives in the PR for; the short form: the vendored scripts are admitted by
+# 'self' (SRI pins their bytes independently); every <script> tag the dashboard
 # serves carries the response's nonce, and Babel standalone propagates a
 # text/babel source tag's nonce onto the inline script element it generates
 # for the compiled output (verified in the pinned 7.29.0 bytes), so the whole
@@ -177,7 +196,7 @@ def test_login_csp_pins_every_directive(request, client_fixture, path):
     nonce = directives["style-src"].split("'nonce-")[1][:-1]
     assert directives["style-src"] == (
         f"'self' https://fonts.googleapis.com 'nonce-{nonce}'")
-    assert directives["script-src"] == f"'self' https://unpkg.com 'nonce-{nonce}'"
+    assert directives["script-src"] == f"'self' 'nonce-{nonce}'"
     assert "'unsafe-inline'" not in policy
     assert resp.headers["x-frame-options"] == "DENY"
     assert resp.headers["x-content-type-options"] == "nosniff"
@@ -193,9 +212,9 @@ def test_dashboard_script_tags_all_carry_the_header_nonce(guest_client):
         "'nonce-")[1][:-1]
     body = resp.text
     assert body.count("<script") == body.count(f'<script nonce="{nonce}"')
-    # 3 unpkg + 1 injected classic + 26 plain /src/*.js + 22 text/babel
-    # (21 src + 1 inline) as of this writing; the equality above is the
-    # real pin, the floor just fails loud if the page empties.
+    # The three vendor tags, injected bootstrap, /src modules and inline
+    # Babel entry point all count. Equality above is the real pin; the
+    # floor fails loud if the page empties.
     assert body.count("<script") >= 21
 
 
@@ -222,7 +241,7 @@ def test_html_error_page_carries_the_full_policy():
     policy = _header_values(sent, "content-security-policy")[0]
     directives = _csp_directives(policy)
     nonce = directives["style-src"].split("'nonce-")[1][:-1]
-    assert directives["script-src"] == f"'self' https://unpkg.com 'nonce-{nonce}'"
+    assert directives["script-src"] == f"'self' 'nonce-{nonce}'"
     assert directives["style-src"] == (
         f"'self' https://fonts.googleapis.com 'nonce-{nonce}'")
     assert directives["frame-ancestors"] == "'none'"

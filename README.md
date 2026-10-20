@@ -234,7 +234,7 @@ unreleased and have no fallback: use `CLAUDIT_GUEST_LOGIN`,
   the sign-in page; unset, the page is unchanged. An operator's notice
   can disclose the third-party hosts the app contacts: the sign-in page
   itself loads nothing off-site, while the dashboard behind it fetches
-  unpkg.com, fonts.googleapis.com and fonts.gstatic.com.
+  fonts.googleapis.com and fonts.gstatic.com.
 - `CLAUDIT_EXPORT_PYTHON` names the interpreter the export-PNG subprocess runs
   under (default `/usr/bin/python3`). The plot script imports matplotlib
   and psycopg, and matplotlib ships in `requirements-dev.txt` — not
@@ -323,14 +323,14 @@ transcript objects and their disk-cache copies are unaffected.
 
 ### Client-side internet requirement
 
-The frontend loads its script dependencies from unpkg.com via pinned,
-SRI-hashed tags in `public/index.html` (React, ReactDOM, and Babel
-standalone for in-browser JSX transpilation). If the browser cannot
-reach unpkg.com, the server keeps answering but the page renders
-blank — there is no fallback UI. Google Fonts (fonts.googleapis.com /
+The frontend loads React, ReactDOM and Babel standalone for in-browser JSX
+transpilation from this server's `/vendor/` paths. The pinned builds ship in
+`public/vendor/` with comments and source-map references removed; their
+upstream licence notices are in `public/vendor/LICENSES.txt`. The SRI hashes
+in `public/index.html` pin the served bytes. Script dependencies require no
+client-side internet access. Google Fonts (fonts.googleapis.com /
 fonts.gstatic.com) is cosmetic only; if unreachable, the UI falls back
-to the system font stacks already declared in `public/app.css`. The
-authoritative pin list is `public/index.html` itself.
+to the system font stacks already declared in `public/app.css`.
 
 ### First boot of this build over an existing database
 

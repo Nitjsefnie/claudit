@@ -178,10 +178,11 @@ host `db`, port 5432, and `CLAUDIT_R2_ENDPOINT` at a path inside the container.
 An exported shell variable beats `.env` in Compose's precedence, so a
 leftover `CLAUDIT_DATABASE_URL_VIZ` in your shell overrides the file too.
 
-**The browser still needs the internet.** React, ReactDOM and Babel load
-from unpkg.com at run time in the page (README:
-[Client-side internet requirement](README.md#client-side-internet-requirement));
-containerising the server does not make the dashboard offline-capable.
+React, ReactDOM and Babel ship in `public/vendor/` and load from the
+server's `/vendor/` paths with SRI hashes over the stripped files.
+Their upstream licence notices ship beside them in `LICENSES.txt`.
+Google Fonts still loads off-site, with system-font fallbacks (README:
+[Client-side internet requirement](README.md#client-side-internet-requirement)).
 
 ## Tests
 

@@ -8,6 +8,13 @@ jurisdiction and role; ask a specialist. There is no self-service UI:
 every step below is an operator action against the bucket, the
 databases or the service.
 
+## Third-party requests
+
+The dashboard loads React, ReactDOM and Babel from this server's `/vendor/`
+paths. Its Google Fonts stylesheet and font files still load from
+fonts.googleapis.com and fonts.gstatic.com. The sign-in page loads nothing
+off-site.
+
 ## How a person appears in the data
 
 Nothing in the schema names a person. Two identifiers matter:

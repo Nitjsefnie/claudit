@@ -2,3 +2,5 @@
 # bytes, which git's platform eol translation would rewrite on a
 # Windows checkout (autocrlf) and break.
 fixtures/** -text
+# Vendored SRI hashes and extracted notices depend on byte-exact checkouts.
+public/vendor/** -text
