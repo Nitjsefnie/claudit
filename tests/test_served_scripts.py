@@ -2,16 +2,24 @@
 from __future__ import annotations
 
 import os
+import html
+import json
 import re
+import shutil
 import subprocess
+import threading
 from email.utils import formatdate
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.staticfiles import StaticFiles
 
 from backend.app import app
-from backend import source_files
+from backend import source_asset_identity, source_files
 from backend.js_min import JsMinError, comment_spans
 from tests.test_security_headers import _guest_client_fixture  # pylint: disable=unused-import
 
@@ -154,3 +162,138 @@ def test_source_mount_keeps_static_path_and_method_checks(guest_client, source_t
     assert guest_client.get("/src/escape.js").status_code == 404
     assert guest_client.get("/src/missing.js").status_code == 404
     assert guest_client.post("/src/ok.js", headers={"Origin": "http://testserver"}).status_code == 405
+
+
+def _asset_urls(client, prefix="/src/"):
+    return [html.unescape(url) for url in re.findall(
+        r'(?:src|data-pricing)="([^\"]+)"', client.get("/").text)
+        if url.startswith(prefix)]
+
+
+@pytest.fixture(name="transform_tree")
+def _transform_tree_fixture(monkeypatch, tmp_path):
+    for module in (_ROOT / "backend").glob("js_min*.py"):
+        (tmp_path / module.name).write_bytes(module.read_bytes())
+    monkeypatch.setattr(source_asset_identity, "__file__", str(tmp_path / "source_asset_identity.py"))
+    source_asset_identity.source_transform_identity.cache_clear()
+    yield tmp_path
+    source_asset_identity.source_transform_identity.cache_clear()
+
+
+@pytest.mark.parametrize("module", ["js_min.py", "js_min_context.py"])
+def test_transform_code_edit_moves_every_source_url(guest_client, transform_tree, module):
+    before = _asset_urls(guest_client)
+    vendors = _asset_urls(guest_client, "/vendor/")
+    assert before == _asset_urls(guest_client)
+    source = transform_tree / module
+    stat = source.stat()
+    source.write_bytes(source.read_bytes() + b"\nTRANSFORM_FIXTURE = 1\n")
+    os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    source_asset_identity.source_transform_identity.cache_clear()
+    after = _asset_urls(guest_client)
+    assert before and len(before) == len(after)
+    for old, new in zip(before, after):
+        old_parts, new_parts = urlsplit(old), urlsplit(new)
+        assert old_parts.path == new_parts.path
+        old_query, new_query = parse_qs(old_parts.query), parse_qs(new_parts.query)
+        assert old_query["v"] == new_query["v"] == [str(int((_ROOT / old_parts.path.lstrip("/")).stat().st_mtime))]
+        assert old_query["transform"] != new_query["transform"]
+    assert vendors == _asset_urls(guest_client, "/vendor/")
+    assert any(urlsplit(url).path == "/src/pricing.json" for url in after)
+
+
+def test_new_transform_helper_joins_url_identity(guest_client, transform_tree):
+    before = _asset_urls(guest_client)
+    (transform_tree / "js_min_helper.py").write_bytes(b"TRANSFORM_FIXTURE = 1\n")
+    source_asset_identity.source_transform_identity.cache_clear()
+    after = _asset_urls(guest_client)
+    assert before and all(old != new for old, new in zip(before, after))
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_warm_browser_refetches_source_after_minifying_upgrade(guest_client):
+    path = _ROOT / "src" / "hhmm-spelling.js"
+    original = path.read_bytes(), path.stat().st_mtime_ns
+    old_url = f"/src/hhmm-spelling.js?v={int(path.stat().st_mtime)}"
+    new_url, = (url for url in _asset_urls(guest_client) if url.startswith("/src/hhmm-spelling.js?"))
+    raw_app = FastAPI()
+    raw_app.mount("/src", StaticFiles(directory=_ROOT / "src"))
+    raw_client = TestClient(raw_app)
+    state = {"upgraded": False, "requests": []}
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_GET(self):  # pylint: disable=invalid-name
+            if self.path == "/upgrade":
+                state["upgraded"] = True
+                body, headers = b"", {}
+            elif self.path.startswith("/src/"):
+                client = guest_client if state["upgraded"] else raw_client
+                response = client.get(self.path, headers={"Accept-Encoding": "identity"})
+                assert response.status_code == 200
+                state["requests"].append((state["upgraded"], self.path))
+                body, headers = response.content, dict(response.headers)
+                headers["Cache-Control"] = "public, max-age=3600"
+            else:
+                url = new_url if state["upgraded"] else old_url
+                body = f'<!doctype html><script src="{html.escape(url, quote=True)}"></script>'.encode()
+                headers = {"Content-Type": "text/html", "Cache-Control": "no-store"}
+            self.send_response(200)
+            for key, value in headers.items():
+                if key.lower() != "content-length":
+                    self.send_header(key, value)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        result = _browser_upgrade(f"http://127.0.0.1:{server.server_port}")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        raw_client.close()
+    assert not thread.is_alive()
+    if result.get("skip"):
+        pytest.skip(result["skip"])
+    assert state["requests"] == [(False, old_url), (True, new_url)]
+    assert new_url != old_url
+    assert not comment_spans(result["body"])
+    assert result["body"].encode() == guest_client.get(new_url).content
+    assert original == (path.read_bytes(), path.stat().st_mtime_ns)
+
+
+def _browser_upgrade(base):
+    script = """const {chromium} = require('playwright');
+(async () => {
+  let browser;
+  try {
+    browser = await chromium.launch({args: ['--no-sandbox', '--claudit-source-cache-upgrade']});
+  } catch (error) {
+    if (!error.message.includes("Executable doesn't exist")) throw error;
+    console.log(JSON.stringify({skip: 'Playwright Chromium is not installed'}));
+    return;
+  }
+  try {
+    const page = await browser.newPage();
+    await page.goto(BASE + '/?old');
+    await page.goto(BASE + '/?still-old');
+    await fetch(BASE + '/upgrade');
+    const received = page.waitForResponse(response => response.url().includes('/src/'));
+    await page.goto(BASE + '/?new');
+    const response = await received;
+    console.log(JSON.stringify({body: (await response.body()).toString('utf8')}));
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""".replace("BASE", json.dumps(base))
+    process = subprocess.run(
+        ["node"], input=script, cwd=_ROOT, capture_output=True, text=True,
+        encoding="utf-8", timeout=60, check=False,
+    )
+    assert process.returncode == 0, process.stderr or process.stdout
+    return json.loads(process.stdout)
