@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import html
 import json
+import mimetypes
 import re
 import shutil
 import subprocess
@@ -42,13 +43,18 @@ def test_served_module(guest_client, module):
     assert not re.search(r"sourceMappingURL[^\r\n\u2028\u2029]*\s*\Z", body)
     assert _TERMINATORS.findall(body) == _TERMINATORS.findall(source.decode("utf-8"))
     assert len(response.content) <= len(source)
-    expected_type = "text/javascript" if module.endswith(".js") else "application/octet-stream"
+    expected_type = mimetypes.guess_type(module)[0] or "application/octet-stream"
     assert response.headers["content-type"].split(";")[0] == expected_type
     assert int(response.headers["content-length"]) == len(response.content)
     assert response.headers["x-content-type-options"] == "nosniff"
     repeated = guest_client.get("/" + module, headers={"Accept-Encoding": "identity"})
     assert repeated.content == response.content
     assert repeated.headers["etag"] == response.headers["etag"]
+
+
+def test_served_jsx_uses_platform_mimetype(guest_client, monkeypatch):
+    monkeypatch.setitem(mimetypes.types_map, ".jsx", "text/plain")
+    test_served_module(guest_client, "src/activity-heatmap-panel.jsx")
 
 
 @pytest.mark.parametrize("name", ["pricing.json", "pricing_notices.json"])
@@ -156,12 +162,22 @@ def test_source_transform_error_is_logged_and_request_fails(guest_client, source
 
 def test_source_mount_keeps_static_path_and_method_checks(guest_client, source_tree, tmp_path):
     (source_tree / "ok.js").write_bytes(b"const x = 1;\n")
-    outside = tmp_path.parent / f"{tmp_path.name}-outside.js"
-    outside.write_bytes(b"// inaccessible\n")
-    (source_tree / "escape.js").symlink_to(outside)
-    assert guest_client.get("/src/escape.js").status_code == 404
     assert guest_client.get("/src/missing.js").status_code == 404
     assert guest_client.post("/src/ok.js", headers={"Origin": "http://testserver"}).status_code == 405
+
+
+def test_source_mount_refuses_symlink_escape(guest_client, source_tree, tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.js"
+    outside.write_bytes(b"// inaccessible\n")
+    try:
+        (source_tree / "escape.js").symlink_to(outside)
+    except OSError as error:
+        if getattr(error, "winerror", None) == 1314:
+            pytest.skip("symbolic link creation requires Windows privileges")
+        raise
+    except NotImplementedError:
+        pytest.skip("symbolic link creation is not supported on this platform")
+    assert guest_client.get("/src/escape.js").status_code == 404
 
 
 def _asset_urls(client, prefix="/src/"):
