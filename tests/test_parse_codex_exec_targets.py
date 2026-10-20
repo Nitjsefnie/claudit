@@ -136,3 +136,43 @@ def test_unwrapped_function_calls_keep_targets_null(name):
 def test_wrapped_targets_fields_survive_nonjson_siblings(program, reads, writes):
     row = _parse_program(program)
     assert (row["read_kind"], row["read_targets"], row["write_targets"]) == ("whole", reads, writes)
+
+
+@pytest.mark.parametrize("other", [
+    "/}/", r"/[},/]/g", r"/\/[}]/", "()=>/}/", "12 / 3", "value / divisor", "value++ / divisor",
+], ids=["closing-brace", "character-class", "escaped-slash", "arrow-regex", "division", "variable-division", "postfix-division"])
+def test_wrapped_targets_survive_regex_siblings(other):
+    row = _parse_program('tools.exec_command({other:' + other + ',cmd:"cat input.py"});')
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == ("whole", ["input.py"], [])
+
+
+@pytest.mark.parametrize("program,kind,reads", [
+    ('tools.exec_command({cmd:"cat input.py",workdir:"/workspace/toy-project/"+suffix});',
+     "whole", ["input.py"]),
+    ('tools.exec_command({cmd:"cat input.py"+suffix,workdir:"/workspace/toy-project"});',
+     None, []),
+    ('tools.monitor({command:["bash","-lc","cat input.py"].concat(extra)});', None, []),
+    ('tools.exec_command({cmd:"cat input.py" /* literal */,workdir:"/workspace/toy-project" // cwd\n});',
+     "whole", ["/workspace/toy-project/input.py"]),
+    ('tools.exec_command({cmd:"cat input.py",workdir:"/workspace/toy-project" /* prefix */ +suffix});',
+     "whole", ["input.py"]),
+], ids=["computed-workdir", "computed-cmd", "computed-argv", "literal-comments", "comment-before-expression"])
+def test_wrapped_targets_require_complete_literal_values(program, kind, reads):
+    row = _parse_program(program)
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (kind, reads, [])
+
+
+@pytest.mark.parametrize("program,writes", [
+    ('tools.apply_patch({patch}+suffix);', []),
+    ('const patch = {patch} /* prefix */ +suffix; tools.apply_patch(patch);', []),
+    ('tools.apply_patch(prefix+{patch});', []),
+    ('tools.apply_patch(({patch})+suffix);', []),
+    ('const patch = [{patch}].join(suffix); tools.apply_patch(patch);', []),
+    ('tools.apply_patch({patch} /* literal */);', ["/workspace/toy-project/new.py"]),
+    ('const patch = {patch} // literal\n; tools.apply_patch(patch);', ["/workspace/toy-project/new.py"]),
+], ids=["computed-argument", "computed-variable", "computed-prefix", "computed-parenthesized",
+        "computed-array", "literal-argument", "literal-variable"])
+def test_wrapped_patch_targets_require_complete_literal_values(program, writes):
+    patch = json.dumps("*** Begin Patch\n*** Add File: /workspace/toy-project/new.py\n+x\n*** End Patch")
+    row = _parse_program(program.replace("{patch}", patch))
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (None, [], writes)
