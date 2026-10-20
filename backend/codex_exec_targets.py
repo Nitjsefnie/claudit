@@ -4,18 +4,17 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from enum import Enum, auto
+from typing import NamedTuple
 
 from backend.bash_argv import _INLINE_FLAGS, _PY_PROG, _SHELL_PROGS
 from backend.bash_churn import BashCommand
 from backend.bash_reads import scan_command
 from backend.parse_codex_churn import _codex_json_spans
 
-_SHELL_CALL = re.compile(r"tools\.(exec_command|monitor)\s*\(\s*(?=\{)")
 _FIELD = re.compile(r'''\s*(?:"([A-Za-z_][A-Za-z_0-9]*)"|'([A-Za-z_][A-Za-z_0-9]*)'|([A-Za-z_][A-Za-z_0-9]*))\s*:\s*''')
 _VALUE_START = re.compile(r"\A")
-_STRING = re.compile(r'(?=")')
 _PATCH_PATH = re.compile(r"^\*\*\* (Add File|Update File|Delete File|Move to):\s*(.*)$")
-_PATCH_PREFIX = re.compile(r"(?:(?P<call>tools\.apply_patch\s*\()|[A-Za-z_$][A-Za-z_0-9$]*\s*=)\s*$")
+_IDENTIFIER = re.compile(r"(?:[^\W\d]|[$])[\w$]*")
 _WORD = re.compile(r"(?:[^\W\d]|[$])[\w$]*|[0-9][A-Za-z_0-9.]*")
 _PUNCTUATOR = re.compile(
     r"\.\.\.|\?\.(?![0-9])|>>>=|===|!==|>>>|\*\*=|<<=|>>=|&&=|\|\|=|\?\?="
@@ -32,6 +31,12 @@ class _Expect(Enum):
     OPERAND = auto()
     OPERATOR = auto()
     MEMBER = auto()
+
+
+class _Token(NamedTuple):
+    text: str
+    start: int
+    end: int
 
 
 def _trivia_end(src: str, start: int) -> int:
@@ -66,6 +71,8 @@ def _literal_value(src: str) -> object:
 def _quoted_end(src: str, start: int) -> int:
     """Skip an escaped JS string or template without interpreting its contents."""
     quote = src[start]
+    if quote == "`":
+        return _template_end(src, start)
     offset = start + 1
     while offset < len(src):
         if src[offset] == "\\":
@@ -73,8 +80,46 @@ def _quoted_end(src: str, start: int) -> int:
             continue
         if src[offset] == quote:
             return offset + 1
+        if quote != "`" and src[offset] in "\r\n\u2028\u2029":
+            return len(src) + 1
         offset += 1
-    return len(src)
+    return len(src) + 1
+
+
+def _template_end(src: str, start: int) -> int:
+    """Skip nested templates and interpolation with an iterative delimiter stack."""
+    stack = ["`"]
+    offset = start + 1
+    expect = _Expect.OPERAND
+    while stack and offset < len(src):
+        if stack[-1] == "`":
+            if src[offset] == "\\":
+                offset += 2
+            elif src.startswith("${", offset):
+                stack.append("}")
+                expect = _Expect.OPERAND
+                offset += 2
+            elif src[offset] == "`":
+                stack.pop()
+                expect = _Expect.OPERATOR
+                offset += 1
+            else:
+                offset += 1
+            continue
+        offset = _trivia_end(src, offset)
+        if offset >= len(src) or src.startswith("/*", offset):
+            return len(src) + 1
+        if src[offset] in "{`":
+            stack.append("}" if src[offset] == "{" else "`")
+            expect = _Expect.OPERAND
+            offset += 1
+        elif src[offset] == "}":
+            stack.pop()
+            expect = _Expect.OPERATOR
+            offset += 1
+        else:
+            offset, expect = _value_token_end(src, offset, expect)
+    return offset if not stack else len(src) + 1
 
 
 def _regex_end(src: str, start: int) -> int:
@@ -84,7 +129,7 @@ def _regex_end(src: str, start: int) -> int:
     while offset < len(src):
         char = src[offset]
         if char in "\r\n\u2028\u2029":
-            return len(src)
+            return len(src) + 1
         if char == "\\":
             offset += 2
             continue
@@ -96,7 +141,7 @@ def _regex_end(src: str, start: int) -> int:
             end = re.search(r"[^\w$]", src[offset + 1:])
             return offset + 1 + end.start() if end else len(src)
         offset += 1
-    return len(src)
+    return len(src) + 1
 
 
 def _value_token_end(src: str, offset: int, expect: _Expect) -> tuple[int, _Expect]:
@@ -123,6 +168,68 @@ def _value_token_end(src: str, offset: int, expect: _Expect) -> tuple[int, _Expe
     elif token in ("}", "]", ")"):
         next_expect = _Expect.OPERATOR
     return punctuator.end(), next_expect
+
+
+def _program_tokens(src: str) -> list[_Token]:
+    """Keep opaque literals whole and discard comments before discovering calls."""
+    tokens = []
+    offset = 0
+    expect = _Expect.OPERAND
+    while offset < len(src):
+        offset = _trivia_end(src, offset)
+        if offset == len(src):
+            break
+        if src.startswith("/*", offset):
+            return []
+        end, expect = _value_token_end(src, offset, expect)
+        if end > len(src):
+            return []
+        tokens.append(_Token(src[offset:end], offset, end))
+        offset = end
+    return tokens
+
+
+def _delimiter_pairs(tokens: list[_Token]) -> dict[int, int]:
+    """Index balanced groups, rejecting the entire program on broken boundaries."""
+    pairs = {}
+    stack = []
+    closers = {"{": "}", "[": "]", "(": ")"}
+    for index, token in enumerate(tokens):
+        if token.text in closers:
+            stack.append(index)
+        elif token.text in ("}", "]", ")"):
+            if not stack:
+                return {}
+            opener = stack.pop()
+            if closers[tokens[opener].text] != token.text:
+                return {}
+            pairs[opener] = index
+    return {} if stack else pairs
+
+
+def _level_indices(pairs: dict[int, int], start: int, stop: int) -> Iterator[int]:
+    index = start
+    while index < stop:
+        yield index
+        index = pairs.get(index, index) + 1
+
+
+def _tool_calls(tokens: list[_Token], pairs: dict[int, int]) -> Iterator[tuple[str, int, int]]:
+    """Find real tools calls, including nested calls, with complete first arguments."""
+    for index in range(len(tokens) - 4):
+        if tokens[index].text != "tools" or (index and tokens[index - 1].text in (".", "?.")):
+            continue
+        member, name, opener = (token.text for token in tokens[index + 1:index + 4])
+        if member != "." or name not in ("exec_command", "monitor", "apply_patch") or opener != "(":
+            continue
+        close = pairs.get(index + 3)
+        if close is None:
+            continue
+        start = index + 4
+        stop = next((i for i in _level_indices(pairs, start, close)
+                     if tokens[i].text == ","), close)
+        if start < stop:
+            yield name, start, stop
 
 
 def _object_fields(src: str, start: int) -> Iterator[str]:
@@ -167,6 +274,13 @@ def _literal_object(src: str, start: int) -> dict:
     for member in _object_fields(src, start):
         field = _FIELD.match(member)
         if field is None:
+            words = [token.text for token in _program_tokens(member)]
+            while words and words[0] in ("get", "set", "async", "*"):
+                words = words[1:]
+            if words and words[0] in ("...", "["):
+                fields.clear()
+            elif words and words[0].strip("'\"") in fields:
+                fields[words[0].strip("'\"")] = None
             continue
         key = next(key for key in field.groups() if key is not None)
         if key in ("cmd", "command", "workdir"):
@@ -188,50 +302,88 @@ def _argv_command(argv: object) -> str:
     return ""
 
 
-def _patch_targets(program: str) -> list[str]:
+def _patch_bindings(tokens: list[_Token], pairs: dict[int, int],
+                    calls: list[tuple[str, int, int]]) -> dict[str, tuple[int, str]]:
+    """Resolve simple top-level declarations used only as bare patch arguments."""
+    if any(token.text.startswith("`") and "${" in token.text for token in tokens):
+        return {}
+    candidates = {}
+    references: dict[str, set[int]] = {}
+    for name, start, stop in calls:
+        if name == "apply_patch" and stop == start + 1:
+            references.setdefault(tokens[start].text, set()).add(start)
+    for index in _level_indices(pairs, 0, len(tokens) - 4):
+        if (tokens[index].text not in ("const", "let", "var")
+                or tokens[index + 2].text != "=" or tokens[index + 4].text != ";"):
+            continue
+        name = tokens[index + 1].text
+        value = _literal_value(tokens[index + 3].text)
+        if _IDENTIFIER.fullmatch(name) and isinstance(value, str):
+            candidates[name] = (index + 1, value)
+    occurrences: dict[str, set[int]] = {}
+    for index, token in enumerate(tokens):
+        if token.text in candidates:
+            occurrences.setdefault(token.text, set()).add(index)
+    return {name: (index, value) for name, (index, value) in candidates.items()
+            if occurrences[name] == references.get(name, set()) | {index}}
+
+
+def _patch_targets(value: object) -> list[str]:
     """Literal patch destinations; a Move replaces its Update source."""
+    if not isinstance(value, str) or not value.startswith("*** Begin Patch"):
+        return []
     writes = []
-    for start, value, end in _codex_json_spans(program, _STRING):
-        if not isinstance(value, str) or not value.startswith("*** Begin Patch"):
+    pending = None
+    for line in value.splitlines():
+        match = _PATCH_PATH.match(line)
+        if match is None:
             continue
-        after = _trivia_end(program, end)
-        prefix = _PATCH_PREFIX.search(program, 0, start)
-        if prefix is None:
-            continue
-        separators = ",)" if prefix["call"] else ",;"
-        if after < len(program) and program[after] not in separators:
-            continue
-        pending = None
-        for line in value.splitlines():
-            match = _PATCH_PATH.match(line)
-            if match is None:
-                continue
-            operation, path = match.groups()
-            path = path.strip()
-            if operation == "Move to":
-                pending = path or None
-                continue
-            if pending:
-                writes.append(pending)
+        operation, path = match.groups()
+        path = path.strip()
+        if operation == "Move to":
             pending = path or None
+            continue
         if pending:
             writes.append(pending)
+        pending = path or None
+    if pending:
+        writes.append(pending)
     return writes
+
+
+def _call_patch(program: str, tokens: list[_Token], start: int, stop: int,
+                bindings: dict[str, tuple[int, str]]) -> object:
+    if stop == start + 1 and tokens[start].text in bindings:
+        declaration, value = bindings[tokens[start].text]
+        return value if declaration < start else None
+    return _literal_value(program[tokens[start].start:tokens[stop - 1].end])
+
+
+def _shell_targets(program: str, start: int, name: str) -> tuple[str | None, list[str], list[str]]:
+    args = _literal_object(program, start)
+    cwd = args.get("workdir")
+    command = args.get("cmd") if name == "exec_command" else _argv_command(args.get("command"))
+    if not isinstance(command, str):
+        return None, [], []
+    return scan_command(BashCommand(command), cwd if isinstance(cwd, str) else "")
 
 
 def program_targets(program: str) -> tuple[str | None, list[str], list[str]]:
     """Fold literal inner calls onto one wrapper row; any slice wins its kind."""
     kind = None
     reads: list[str] = []
-    writes = _patch_targets(program) if "tools.apply_patch" in program else []
-    for call in _SHELL_CALL.finditer(program):
-        args = _literal_object(program, call.end())
-        cwd = args.get("workdir")
-        command = args.get("cmd") if call[1] == "exec_command" else _argv_command(args.get("command"))
-        if not isinstance(command, str):
+    writes: list[str] = []
+    tokens = _program_tokens(program)
+    pairs = _delimiter_pairs(tokens)
+    calls = list(_tool_calls(tokens, pairs))
+    bindings = _patch_bindings(tokens, pairs, calls)
+    for name, start, stop in calls:
+        if name == "apply_patch":
+            writes.extend(_patch_targets(_call_patch(program, tokens, start, stop, bindings)))
             continue
-        call_kind, call_reads, call_writes = scan_command(
-            BashCommand(command), cwd if isinstance(cwd, str) else "")
+        if tokens[start].text != "{" or pairs.get(start) != stop - 1:
+            continue
+        call_kind, call_reads, call_writes = _shell_targets(program, tokens[start].start, name)
         if call_kind is not None and kind != "slice":
             kind = call_kind
         reads.extend(call_reads)
