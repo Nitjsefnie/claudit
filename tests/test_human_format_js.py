@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 FORMAT_JS = Path(__file__).resolve().parents[1] / "src" / "human-format.js"
-pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
 
 def _node(body: str):
@@ -65,6 +64,7 @@ def _node(body: str):
     (999600000000000, "1000T"),
     (1234500000000000, "1230T"),
 ])
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_count(value: float, expected: str):
     assert _node(f"console.log(JSON.stringify(window.humanFormat.fmt({value!r})))") == expected
 
@@ -92,6 +92,7 @@ def test_count(value: float, expected: str):
     (13.049999999999999, "$13.0"),
     (13.05, "$13.1"),
 ])
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_currency(value: float, expected: str):
     got = _node(f"""
       console.log(JSON.stringify([
@@ -102,6 +103,7 @@ def test_currency(value: float, expected: str):
     assert got == [expected, expected]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_is_currency_distinguishes_forms():
     assert _node("""
       console.log(JSON.stringify([
@@ -116,6 +118,7 @@ def test_is_currency_distinguishes_forms():
     ("Infinity", "Infinity"),
     ("-Infinity", "-Infinity"),
 ])
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_non_finite(value: str, expected: str):
     assert _node(f"""
       console.log(JSON.stringify([
