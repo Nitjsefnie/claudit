@@ -243,12 +243,13 @@ def test_classify_job_reads_actions_for_the_verified_base_walk():
 
 
 def test_ci_gate_push_trigger_keeps_the_ratchet_paths_ignore():
-    # The ratchet bot's master commit (only .github/ci-thresholds.json)
+    # The ratchet bot's master commit (only the ratchet data files)
     # must not start the suite — the guarantee the gate workflows
     # carry individually, hosted by ci-gate now.
     push = (_ci_gate().get("on") or {}).get("push") or {}
     ignored = push.get("paths-ignore") or []
     assert ".github/ci-thresholds.json" in ignored, ignored
+    assert ".github/comment-share.json" in ignored, ignored
 
 
 def _ratchet_push_run() -> str:

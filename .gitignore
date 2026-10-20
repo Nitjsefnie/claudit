@@ -62,6 +62,8 @@
 /.github/*
 !/.github/dependabot.yml
 !/.github/ci-thresholds.json
+# The adopted comment gate's records seed.
+!/.github/comment-share.json
 # docker-smoke's CI-only Compose override (cached Postgres image).
 !/.github/docker-smoke.compose.yaml
 !/.github/PULL_REQUEST_TEMPLATE.md
