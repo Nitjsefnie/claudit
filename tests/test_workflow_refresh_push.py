@@ -108,6 +108,55 @@ def test_refresh_job_outputs_feed_the_push_gate():
     }
 
 
+def test_dispatch_accepts_an_optional_vendor_string():
+    triggers = _workflow()[True]
+    vendor = triggers["workflow_dispatch"]["inputs"]["vendor"]
+    assert vendor["type"] == "string"
+    assert vendor["required"] is False
+    assert vendor["description"]
+
+
+def test_vendor_input_is_env_only_and_tracking_precedes_refresh():
+    step = _step("refresh", "Fetch and append")
+    assert step["env"]["VENDOR_NAMESPACE"] == "${{ inputs.vendor }}"
+    run = step["run"]
+    assert "${{ inputs." not in run
+    assert run.index("track_vendor.py") < run.index("refresh_provider_rates.py")
+    assert 'if [ -n "$VENDOR_NAMESPACE" ]; then' in run
+    assert re.search(r'track_vendor\.py\s+\\?\s*--namespace="\$VENDOR_NAMESPACE"', run)
+    tracker = run[run.index("track_vendor.py"):run.index("fi")]
+    assert '--commit-msg "$RUNNER_TEMP/commit-msg.txt"' in tracker
+    assert "|| exit 1" in tracker
+
+
+@ubuntu_run_block
+@pytest.mark.parametrize("namespace,tracker_rc,expected,rc", [
+    ("", "1", ["refresh_provider_rates.py"], 0),
+    ("acme", "0", ["track_vendor.py", "refresh_provider_rates.py"], 0),
+    ("acme", "1", ["track_vendor.py"], 1),
+])
+def test_fetch_step_tracks_only_nonempty_input_and_stops_on_refusal(
+        tmp_path, namespace, tracker_rc, expected, rc):
+    shim = tmp_path / "python3"
+    shim.write_text(
+        '#!/bin/bash\n'
+        'printf "%s\\n" "${1##*/}" >> "$CALLS"\n'
+        'if [[ "$1" = */track_vendor.py ]]; then exit "$TRACKER_RC"; fi\n',
+        encoding="utf-8")
+    shim.chmod(0o755)
+    calls = tmp_path / "calls"
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+           "CALLS": str(calls), "TRACKER_RC": tracker_rc,
+           "VENDOR_NAMESPACE": namespace, "RUNNER_TEMP": str(tmp_path),
+           "GITHUB_STEP_SUMMARY": str(tmp_path / "step-summary"),
+           "GITHUB_OUTPUT": str(tmp_path / "step-output")}
+    proc = subprocess.run(
+        ["bash", "-e", "-c", _step("refresh", "Fetch and append")["run"]],
+        env=env, capture_output=True, text=True, check=False)
+    assert proc.returncode == rc, proc.stderr
+    assert calls.read_text(encoding="utf-8").splitlines() == expected
+
+
 def test_the_key_appears_once_in_the_file_and_only_in_the_push_job():
     raw = WORKFLOW.read_text(encoding="utf-8")
     # The only load site in the whole file is the push step's env mapping:
