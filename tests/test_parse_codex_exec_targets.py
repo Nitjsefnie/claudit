@@ -255,6 +255,36 @@ def test_wrapped_targets_discover_nested_real_calls():
         "whole", ["outer.py", "inner.py"], [])
 
 
+@pytest.mark.parametrize("prefix", [
+    "if (ready) /}/.test(value);",
+    "if (check(ready)) /}/.test(value);",
+    "while (ready) /}/.test(value);",
+    "for (;ready;) /}/.test(value);",
+    "for (const item of items) /}/.test(item);",
+    "for await (const item of items) /}/.test(item);",
+    "if /* keyword */ (ready) /* statement */ /}/.test(value);",
+    'if (ready) /tools.exec_command({cmd:"cat ghost.py"})/.test(value);',
+    "check(ready) / divisor;",
+    "(ready) / divisor;",
+    "settings.if(ready) / divisor;",
+    "settings?.while(ready) / divisor;",
+    "if (ready) check(ready) / divisor;",
+    "const example = `${(()=>{if (ready) /}/.test(value);})()}`;",
+], ids=["if-regex", "nested-condition", "while-regex", "for-regex", "for-of-regex", "for-await-regex",
+        "control-comments", "regex-ghost-call", "call-division", "group-division",
+        "keyword-method-division", "optional-keyword-method-division",
+        "statement-call-division", "template-control-regex"])
+def test_wrapped_targets_preserve_regex_after_control_parentheses(prefix):
+    row = _parse_program(prefix + '\nawait tools.exec_command({cmd:"cat real.py"});')
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == ("whole", ["real.py"], [])
+
+
+def test_wrapped_targets_preserve_control_regex_in_sibling_body():
+    row = _parse_program(
+        'tools.exec_command({other:(()=>{if (ready) /}/.test(value);})(),cmd:"cat real.py"});')
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == ("whole", ["real.py"], [])
+
+
 @pytest.mark.parametrize("fields,reads", [
     ('cmd:"cat wrong.py",...{cmd:"cat actual.py"}', []),
     ('cmd:"cat wrong.py",...options', []),

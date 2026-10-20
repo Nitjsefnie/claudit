@@ -1,6 +1,7 @@
 """Read and write targets from literal arguments in Codex exec programs."""
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections.abc import Iterator
 from enum import Enum, auto
@@ -25,6 +26,7 @@ _EXPRESSION_WORDS = frozenset({
     "return", "throw", "case", "delete", "void", "typeof",
     "instanceof", "in", "of", "yield", "await", "new",
 })
+_CONTROL_WORDS = frozenset({"if", "while", "for", "with", "switch", "catch"})
 
 
 class _Expect(Enum):
@@ -37,6 +39,28 @@ class _Token(NamedTuple):
     text: str
     start: int
     end: int
+
+
+@dataclasses.dataclass
+class _LexContext:
+    expect: _Expect = _Expect.OPERAND
+    control: str = ""
+    parentheses: list[bool] = dataclasses.field(default_factory=list)
+
+    def consume(self, src: str, offset: int) -> int:
+        """A control condition closes into a statement; other parentheses end operands."""
+        member = self.expect is _Expect.MEMBER
+        pending = self.control
+        end, self.expect = _value_token_end(src, offset, self.expect)
+        token = src[offset:end]
+        if token == "(":
+            self.parentheses.append(bool(pending))
+        elif token == ")" and self.parentheses and self.parentheses.pop():
+            self.expect = _Expect.OPERAND
+        self.control = token if token in _CONTROL_WORDS and not member else ""
+        if token == "await" and pending == "for":
+            self.control = pending
+        return end
 
 
 def _trivia_end(src: str, start: int) -> int:
@@ -90,18 +114,18 @@ def _template_end(src: str, start: int) -> int:
     """Skip nested templates and interpolation with an iterative delimiter stack."""
     stack = ["`"]
     offset = start + 1
-    expect = _Expect.OPERAND
+    context = _LexContext()
     while stack and offset < len(src):
         if stack[-1] == "`":
             if src[offset] == "\\":
                 offset += 2
             elif src.startswith("${", offset):
                 stack.append("}")
-                expect = _Expect.OPERAND
+                context.expect = _Expect.OPERAND
                 offset += 2
             elif src[offset] == "`":
                 stack.pop()
-                expect = _Expect.OPERATOR
+                context.expect = _Expect.OPERATOR
                 offset += 1
             else:
                 offset += 1
@@ -111,14 +135,14 @@ def _template_end(src: str, start: int) -> int:
             return len(src) + 1
         if src[offset] in "{`":
             stack.append("}" if src[offset] == "{" else "`")
-            expect = _Expect.OPERAND
+            context.expect = _Expect.OPERAND
             offset += 1
         elif src[offset] == "}":
             stack.pop()
-            expect = _Expect.OPERATOR
+            context.expect = _Expect.OPERATOR
             offset += 1
         else:
-            offset, expect = _value_token_end(src, offset, expect)
+            offset = context.consume(src, offset)
     return offset if not stack else len(src) + 1
 
 
@@ -174,14 +198,14 @@ def _program_tokens(src: str) -> list[_Token]:
     """Keep opaque literals whole and discard comments before discovering calls."""
     tokens = []
     offset = 0
-    expect = _Expect.OPERAND
+    context = _LexContext()
     while offset < len(src):
         offset = _trivia_end(src, offset)
         if offset == len(src):
             break
         if src.startswith("/*", offset):
             return []
-        end, expect = _value_token_end(src, offset, expect)
+        end = context.consume(src, offset)
         if end > len(src):
             return []
         tokens.append(_Token(src[offset:end], offset, end))
@@ -239,7 +263,7 @@ def _object_fields(src: str, start: int) -> Iterator[str]:
     fields: list[str] = []
     field_start = start + 1
     offset = start + 1
-    expect = _Expect.OPERAND
+    context = _LexContext()
     while offset < len(src):
         char = src[offset]
         if char.isspace():
@@ -265,7 +289,7 @@ def _object_fields(src: str, start: int) -> Iterator[str]:
         elif char == "," and not stack:
             fields.append(src[field_start:offset])
             field_start = offset + 1
-        offset, expect = _value_token_end(src, offset, expect)
+        offset = context.consume(src, offset)
 
 
 def _literal_object(src: str, start: int) -> dict:
