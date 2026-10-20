@@ -17,19 +17,12 @@ name: refresh-pricing
 # from the listed-pricing log; the suite gates the push. Dispatch takes no
 # inputs and behaves like a scheduled run.
 #
-# "MOVED" MEANS THE TWO DATA FILES. The script writes nothing
-# unless data moves: the fetch stamp moves only with the data,
-# so a quiet hour leaves the tree clean and commits nothing.
+# Data moves carry the fetch stamp; quiet hours leave the tree clean.
 #
-# AN UNCHANGED NOTICE IS NOT REPEATED. The run omits a notice line the last
-# committing run already carried, so a model still delisted — or a tag still
-# unrecognised — is not reprinted in every commit. A notice that is new, or
-# that changed, still appears. The baseline is src/pricing_notices.json, the
-# last committing run's FULL notice set — the lines it showed and the lines
-# it suppressed — because a baseline read from the previous commit's message
-# would lose a suppressed line and re-emit it in the next commit. That file
-# is committed with the data, so a run with no data move makes no
-# commit and does not move the baseline.
+# Only new or changed notices appear. src/pricing_notices.json stores the
+# last committing run's full set, including suppressed lines; a commit-message
+# baseline would lose those and re-emit them. The baseline commits with data
+# and stays unchanged when no data moves.
 #
 # THE SUITE GATES THE PUSH. The keyless refresh job fetches the data;
 # the keyless suite job tests it in a 4-shard matrix. Every shard must
@@ -198,15 +191,9 @@ jobs:
 
       - name: Install postgresql-client
         timeout-minutes: 5
-        run: |
-          echo "==> adding the PGDG apt source"
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          echo "==> fetching the PostgreSQL signing key"
-          curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
-          echo "==> apt-get update"
-          sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
-          echo "==> installing postgresql-client-16"
-          sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 postgresql-client-16
+        uses: $/.github/actions/apt-install
+        with:
+          packages: postgresql-client-16
 
       - name: Install dependencies
         run: |

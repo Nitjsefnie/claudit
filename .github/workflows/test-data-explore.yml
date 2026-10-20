@@ -84,11 +84,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
 
-      # The pip cache restores on every event but is saved only from a push
-      # of master: no setup-python step owns the cache, and the
-      # save sits directly after the dependency install, below. This
-      # workflow is never a push, so it restores-only; the gated save keeps
-      # the shape every dependency-installing workflow shares.
+      # Restore only: schedule/dispatch cannot write the shared pip cache.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -102,27 +98,16 @@ jobs:
 
       - name: Install postgresql-client
         timeout-minutes: 5
-        # Fixtures shell out to psql; the runner image has
-        # a server but the client binaries must match the container major.
-        run: |
-          echo "==> adding the PGDG apt source"
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          echo "==> fetching the PostgreSQL signing key"
-          curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
-          echo "==> apt-get update"
-          sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
-          echo "==> installing postgresql-client-16"
-          sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 postgresql-client-16
+        uses: $/.github/actions/apt-install
+        with:
+          packages: postgresql-client-16
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -r requirements-test.txt
 
-      # Saved here, not in a post-job step: the install above populated the
-      # cache, and this workflow keeps every event but a push of master
-      # from writing cross-run state — which, on a
-      # schedule/dispatch-only workflow, is every run of it.
+      # Keep the common post-install save shape; its push gate excludes this workflow.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.shard == 1

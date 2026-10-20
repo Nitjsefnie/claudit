@@ -45,15 +45,9 @@ jobs:
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
       - name: Install postgresql-client
         timeout-minutes: 5
-        run: |
-          echo "==> adding the PGDG apt source"
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          echo "==> fetching the PostgreSQL signing key"
-          curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
-          echo "==> apt-get update"
-          sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
-          echo "==> installing postgresql-client-16"
-          sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 postgresql-client-16
+        uses: $/.github/actions/apt-install
+        with:
+          packages: postgresql-client-16
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -333,15 +327,9 @@ jobs:
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
       - name: Install postgresql-client
         timeout-minutes: 5
-        run: |
-          echo "==> adding the PGDG apt source"
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          echo "==> fetching the PostgreSQL signing key"
-          curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
-          echo "==> apt-get update"
-          sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
-          echo "==> installing postgresql-client-16"
-          sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 postgresql-client-16
+        uses: $/.github/actions/apt-install
+        with:
+          packages: postgresql-client-16
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
