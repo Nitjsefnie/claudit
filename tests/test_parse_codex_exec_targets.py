@@ -228,3 +228,89 @@ def test_wrapped_patch_targets_require_complete_literal_values(program, writes):
     patch = json.dumps("*** Begin Patch\n*** Add File: /workspace/toy-project/new.py\n+x\n*** End Patch")
     row = _parse_program(program.replace("{patch}", patch))
     assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (None, [], writes)
+
+
+@pytest.mark.parametrize("prefix", [
+    '// tools.exec_command({cmd:"cat ghost.py"});\n',
+    '/* tools.exec_command({cmd:"cat ghost.py"}); */',
+    """const example = 'tools.exec_command({cmd:"cat ghost.py"});';""",
+    'const example = "tools.exec_command({cmd:\\"cat ghost.py\\"});";',
+    'const example = `tools.exec_command({cmd:"cat ghost.py"});`;',
+    'const example = `outer ${`tools.exec_command({cmd:"cat ghost.py"});`}`;',
+    'const example = /tools.exec_command({cmd:"cat ghost.py"})/;',
+    'mytools.exec_command({cmd:"cat ghost.py"});',
+    'other.tools.exec_command({cmd:"cat ghost.py"});',
+], ids=["line-comment", "block-comment", "single-quote", "double-quote", "template", "nested-template",
+        "regex", "identifier-boundary", "member-boundary"])
+def test_wrapped_targets_ignore_call_shaped_noncode(prefix):
+    row = _parse_program(prefix + 'text(await tools.exec_command({cmd:"cat real.py"}));')
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == ("whole", ["real.py"], [])
+
+
+def test_wrapped_targets_discover_nested_real_calls():
+    row = _parse_program(
+        'tools.exec_command({other:await tools.monitor({command:["bash","-lc","cat inner.py"]}),'
+        'cmd:"cat outer.py"});')
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (
+        "whole", ["outer.py", "inner.py"], [])
+
+
+@pytest.mark.parametrize("fields,reads", [
+    ('cmd:"cat wrong.py",...{cmd:"cat actual.py"}', []),
+    ('cmd:"cat wrong.py",...options', []),
+    ('...options,cmd:"cat actual.py"', ["actual.py"]),
+    ('cmd:"cat wrong.py",...options,cmd:"cat actual.py"', ["actual.py"]),
+    ('cmd:"cat wrong.py",["cmd"]:"cat actual.py"', []),
+    ('cmd:"cat wrong.py",[key]:"unknown"', []),
+    ('cmd:"cat wrong.py",get [key](){return "unknown"}', []),
+    ('[key]:"unknown",cmd:"cat actual.py"', ["actual.py"]),
+    ('cmd:"cat wrong.py",[key]:"unknown",cmd:"cat actual.py"', ["actual.py"]),
+    ('workdir:"/wrong",...options,cmd:"cat actual.py"', ["actual.py"]),
+    ('workdir:"/wrong",[key]:"unknown",cmd:"cat actual.py"', ["actual.py"]),
+    ('...options,cmd:"cat actual.py",workdir:"/workspace/toy-project"',
+     ["/workspace/toy-project/actual.py"]),
+], ids=["literal-spread", "dynamic-spread", "leading-spread", "restore-after-spread",
+        "literal-computed-key", "dynamic-computed-key", "computed-getter", "leading-computed-key",
+        "restore-after-computed-key", "uncertain-cwd-spread", "uncertain-cwd-computed",
+        "restore-cwd"])
+def test_wrapped_targets_respect_uncertain_overwrites(fields, reads):
+    row = _parse_program('tools.exec_command({' + fields + '});')
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (
+        "whole" if reads else None, reads, [])
+
+
+@pytest.mark.parametrize("fields,reads", [
+    ('command:["bash","-lc","cat wrong.py"],...options', []),
+    ('command:["bash","-lc","cat wrong.py"],[key]:other', []),
+    ('...options,command:["bash","-lc","cat actual.py"]', ["actual.py"]),
+], ids=["spread", "computed-key", "restored"])
+def test_wrapped_monitor_respects_uncertain_overwrites(fields, reads):
+    row = _parse_program('tools.monitor({' + fields + '});')
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (
+        "whole" if reads else None, reads, [])
+
+
+@pytest.mark.parametrize("program,writes", [
+    ('const unused = {unused}; tools.apply_patch({actual});', ["actual.py"]),
+    ('const patch = {unused}; tools.apply_patch(patch + suffix);', []),
+    ('const first = {unused}; const second = {actual};'
+     'tools.apply_patch(second); tools.apply_patch(first);', ["actual.py", "unused.py"]),
+    ('let patch = {unused}; patch = replacement; tools.apply_patch(patch);', []),
+    ('let patch = {unused}; patch += suffix; tools.apply_patch(patch);', []),
+    ('tools.apply_patch(patch); const patch = {unused};', []),
+    ('tools.apply_patch(missing);', []),
+    ('const patch = {actual}; tools.apply_patch(patch); tools.apply_patch(patch);', ["actual.py"]),
+    ('// tools.apply_patch({unused});\ntools.apply_patch({actual});', ["actual.py"]),
+    ("const example = 'tools.apply_patch({unused});'; tools.apply_patch({actual});", ["actual.py"]),
+    ('const patch = {unused}; // tools.apply_patch(patch);\ntools.apply_patch({actual});', ["actual.py"]),
+    ('const patch = {unused}; function change(patch) { tools.apply_patch(patch); }', []),
+    ('let patch = {unused}; const example = `${patch = replacement}`; tools.apply_patch(patch);', []),
+], ids=["unused-binding", "computed-argument", "separate-bindings", "reassigned",
+        "compound-assignment", "before-declaration", "unresolved", "repeated-call",
+        "commented-call", "quoted-call", "commented-reference", "shadowed-binding", "template-modification"])
+def test_wrapped_patch_targets_follow_actual_arguments(program, writes):
+    for name in ("unused", "actual"):
+        patch = json.dumps("*** Begin Patch\n*** Add File: " + name + ".py\n+x\n*** End Patch")
+        program = program.replace("{" + name + "}", patch)
+    row = _parse_program(program)
+    assert (row["read_kind"], row["read_targets"], row["write_targets"]) == (None, [], writes)
