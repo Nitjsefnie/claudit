@@ -70,17 +70,17 @@ _KEYMAP = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h",
 
 
 def _node_cost(output_tokens: int) -> float:
-    """One record through the real computeSessionStats cost path. The
-    model is the lane table's gpt-6-luna, listed at $0.50/M output — the
-    review's own figure."""
+    """Price one record at a synthetic output rate through computeSessionStats."""
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});
+      window.modelRates['acme-rounding-9'] = {{
+        fresh: 1, c5: 1, c1h: 1, read: 0.1, out: 0.5 }};
       const m = {{ type: 'assistant_usage', line: 1,
-                   ts: '2026-06-14T12:00:00Z', model: 'gpt-6-luna',
+                   ts: '2026-06-14T12:00:00Z', model: 'acme-rounding-9',
                    usage: {{ input_tokens: 0,
                              cache_creation_input_tokens: 0,
                              cache_read_input_tokens: 0,

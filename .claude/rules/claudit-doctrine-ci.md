@@ -219,12 +219,14 @@ One more legitimate shape: a literal rate vector on a synthetic row pinned
 at a FIXED PAST instant inside an already-closed dated window, testing
 end-exclusivity and promotion boundaries against known vectors. The
 perturbation leg only appends entries stamped after every real stamp, so
-closed-window pins stay perturbation-invariant. The automated refresh
-rewrites only the live document's log-backed rows (SV-RATE-REFRESH), which
-tests pinning synthetic rows never read. Stamp the reference instant before
-every appended cutover; `tests/test_provider_pricing.py`'s `SEEDED` instant
-illustrates that placement, rather than a guarantee that live histories
-are immutable.
+closed-window pins stay perturbation-invariant. A live row never backs a
+rate pin: the automated refresh can rewrite any log-backed history,
+including its closed windows (SV-RATE-REFRESH). Tests seed their own rows
+and histories; `tests/test_provider_pricing.py`'s `synthetic_seeded_provider`
+fixture and `SEEDED` instant are the closed-window exemplar. Live-tree
+assertions may compare a resolution or cost with the same row loaded in
+that run, so a rewrite moves both sides together. Reads of
+`openrouter.models` keys alone are catalog configuration, not rate pins.
 
 Enforcement has two halves. The perturbed-data CI leg
 (`scripts/ci/perturb_test_data.py`) runs the suite on a tree where each
@@ -237,5 +239,7 @@ scans `tests/` for a literal assigned to any of the three constants
 and for live-row shapes: a read of the committed document
 (`pricing.PRICING_JSON`), a module-level bind of the `pricing.json`
 path, and a `rate_for` / `resolve` / `compute_cost` call naming a live
-model or host. An inline `# sv-test-data: allow` comment with a reason
-excuses a site; a marker whose site is gone fails the guard as rot.
+model or host. An inline `# sv-test-data: allow` comment with an invariance
+reason excuses a site; a marker whose site is gone fails the guard as rot.
+The guard checks these shapes and marker placement; reading each allowed
+site verifies its stated invariance basis.

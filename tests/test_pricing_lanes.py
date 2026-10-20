@@ -39,19 +39,21 @@ def test_flat_create_prices_identically_under_any_declared_ttl(monkeypatch):
 
 
 @pytest.mark.parametrize("model,instant,rates", [
-    ("gpt-5.6-sol", datetime.fromisoformat("2026-08-21T19:39:59+00:00"), (5.00, 6.25, 0.50, 30.00)),
-    ("gpt-5.6-terra", datetime.fromisoformat("2026-07-30T18:11:59+00:00"), (2.50, 3.125, 0.25, 15.00)),
-    ("gpt-5.6-luna", datetime.fromisoformat("2026-07-30T18:11:59+00:00"), (1.00, 1.25, 0.10, 6.00)),
+    ("gpt-acme-sol-9", datetime.fromisoformat("2026-08-21T19:39:59+00:00"), (5.00, 6.25, 0.50, 30.00)),
+    ("gpt-acme-terra-9", datetime.fromisoformat("2026-07-30T18:11:59+00:00"), (2.50, 3.125, 0.25, 15.00)),
+    ("gpt-acme-luna-9", datetime.fromisoformat("2026-07-30T18:11:59+00:00"), (1.00, 1.25, 0.10, 6.00)),
 
     # The window ends are end-EXCLUSIVE: at the cut instant itself the
     # window is over and the next rate (list) applies. Cuts referenced
-    # from tests/gpt56_cuts.py so the boundary moves with the table.
-    ("gpt-5.6-sol", gpt56_cuts.AUG21_CUT, (4.00, 5.00, 0.40, 20.00)),
-    ("gpt-5.6-terra", gpt56_cuts.JUL30_CUT, (2.00, 2.50, 0.20, 12.00)),
-    ("gpt-5.6-luna", gpt56_cuts.JUL30_CUT, (0.20, 0.25, 0.02, 1.20)),
+    # from the synthetic histories in tests/gpt56_cuts.py.
+    ("gpt-acme-sol-9", gpt56_cuts.AUG21_CUT, (4.00, 5.00, 0.40, 20.00)),
+    ("gpt-acme-terra-9", gpt56_cuts.JUL30_CUT, (2.00, 2.50, 0.20, 12.00)),
+    ("gpt-acme-luna-9", gpt56_cuts.JUL30_CUT, (0.20, 0.25, 0.02, 1.20)),
 ], ids=["sol-before-cut", "terra-before-cut", "luna-before-cut",
         "sol-at-cut", "terra-at-cut", "luna-at-cut"])
-def test_gpt56_dated_windows_and_exclusive_cuts(model, instant, rates):
+def test_gpt56_dated_windows_and_exclusive_cuts(monkeypatch, model, instant, rates):
+    for name, value in pricing.load_tables(gpt56_cuts.document()).items():
+        monkeypatch.setattr(pricing, name, value)
     r = pricing.rate_for(model, instant)
     fresh, create, read, output = rates
     assert (r["fresh"], r["create_5m"], r["create_1h"], r["read"], r["output"]) == (

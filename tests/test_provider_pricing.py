@@ -27,12 +27,9 @@ V41 = "deepseek/deepseek-v4.1-flash"
 V41_KEY = next(key for key, entry in json.loads(
     pricing.PRICING_JSON.read_text(encoding="utf-8"))["openrouter"]["models"].items()  # sv-test-data: allow (catalog configuration only; tracked key derived from id)
                if entry["id"] == V41)
-FUZZ_RESERVED_NAMESPACE = "zz-fuzz-local/"
-# The instant the provider table was seeded. The scheduled refresh appends
-# entries effective from later instants only, so the prices these tests
-# assert hold at this instant whatever it has committed since; a list
-# price (no timestamp) is whatever the newest entry says today.
+# A fixed instant inside the synthetic provider's closed window.
 SEEDED = datetime(2026, 9, 24, 22, 3, 13, tzinfo=UTC)
+SEEDED_MODEL, SEEDED_HOST = "acme/seeded-9", "SyntheticHost"
 
 
 def _cost(model, provider=None, ts=None, *, fresh=0, output=0, eph5=0,
@@ -53,15 +50,27 @@ def _assert_provider_resolution_returns_loaded_row(
         pricing.PROVIDER_RATES[(normalized_model, host)]
 
 
-def test_a_record_with_a_provider_is_priced_from_the_provider_table():
-    # OpenRouter's Novita endpoint for deepseek-v4.1-flash, 2026-09-24:
-    # $0.285 in / $1.14 out / $0.0057 cache read per 1M.
-    r = pricing.resolve(V41, SEEDED, provider="Novita")  # sv-test-data: allow (closed-window pin at SEEDED)
+@pytest.fixture(name="synthetic_seeded_provider")
+def _synthetic_seeded_provider_fixture(monkeypatch):
+    doc = seed_doc(
+        tracked={SEEDED_MODEL: {"id": SEEDED_MODEL}},
+        providers={SEEDED_MODEL: {
+            SEEDED_HOST: [
+                {"from": None, "fresh": 0.285, "read": 0.0057, "output": 1.14},
+                {"from": "2026-10-01T00:00:00Z", "fresh": 0.57,
+                 "read": 0.0114, "output": 2.28}],
+            "UndatedHost": [{"from": None, "fresh": 1, "read": 0.1, "output": 10}]}})
+    for name, value in pricing.load_tables(doc).items():
+        monkeypatch.setattr(pricing, name, value)
+
+
+def test_a_record_with_a_provider_is_priced_from_the_provider_table(synthetic_seeded_provider):
+    r = pricing.resolve(SEEDED_MODEL, SEEDED, provider=SEEDED_HOST)
     assert r.kind == "exact"
     assert {field: r.rates[field] for field in pricing.RATE_FIELDS} == {
         "fresh": 0.285, "create_5m": 0.285, "create_1h": 0.285,
         "read": 0.0057, "output": 1.14}
-    assert _cost(V41, "Novita", SEEDED, fresh=1_000_000, output=1_000_000,
+    assert _cost(SEEDED_MODEL, SEEDED_HOST, SEEDED, fresh=1_000_000, output=1_000_000,
                  read=1_000_000) == pytest.approx(
                      0.285 + 1.14 + 0.0057, rel=1e-12)
 
@@ -75,23 +84,10 @@ def test_fold_exposes_only_estimate_status():
             assert "banded_rate" not in entry
 
 
-def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none():
-    # A host that lists no write price is charged the input rate for the
-    # write, never a free one: every seeded HOST row's create buckets
-    # carry a positive rate, whatever tier the host split them into. The
-    # tracked vendor rows living beside them since the migration are
-    # excluded — a vendor may legitimately list its cache writes at zero
-    # (the glm list eras, Kimi's flat-zero writes).
-    for model, provider in pricing.PROVIDER_RATES:
-        if (model.startswith(FUZZ_RESERVED_NAMESPACE)
-                or provider.startswith(FUZZ_RESERVED_NAMESPACE)
-                or (model, provider) in pricing.PROVIDER_STARTS
-                or pricing.VENDOR_HOSTS.get(model) == provider):
-            continue
-        rates = pricing.rate_for(model, SEEDED, provider)
-        if rates["fresh"]:
-            assert rates["create_5m"] > 0 and rates["create_1h"] > 0
-    assert _cost(V41, "Novita", SEEDED, eph5=1_000_000, eph1h=1_000_000,
+def test_a_cache_write_prices_at_the_input_rate_when_the_host_lists_none(synthetic_seeded_provider):
+    rates = pricing.rate_for(SEEDED_MODEL, SEEDED, SEEDED_HOST)
+    assert rates["create_5m"] == rates["create_1h"] == rates["fresh"] == 0.285
+    assert _cost(SEEDED_MODEL, SEEDED_HOST, SEEDED, eph5=1_000_000, eph1h=1_000_000,
                  unsplit_create=1_000_000) == pytest.approx(
                      3 * 0.285, rel=1e-12)
 
@@ -191,14 +187,14 @@ def test_a_model_without_first_party_tracking_uses_the_default():
 
 def test_the_zai_subscription_glm_is_not_repriced():
     listed = pricing.PROVIDER_RATES[("glm-5-3-flash", "Z.AI")]
-    windows = pricing.PROVIDER_DATED_RATES[("glm-5-3-flash", "Z.AI")]
-    cutover, promo = windows[0]
     tokens = {"fresh": 1_000_000, "output": 1_000_000, "read": 1_000_000}
     assert _cost("glm-5.3-flash", **tokens) == pytest.approx(
         listed["fresh"] + listed["output"] + listed["read"], rel=1e-12)
-    assert _cost("glm-5.3-flash", ts=cutover - timedelta(seconds=1),
-                 **tokens) == pytest.approx(
-        promo["fresh"] + promo["output"] + promo["read"], rel=1e-12)
+    for cutover, _ in pricing.PROVIDER_DATED_RATES.get(("glm-5-3-flash", "Z.AI"), []):
+        instant = cutover - timedelta(microseconds=1)
+        promo = pricing.rate_for("glm-5.3-flash", instant)  # sv-test-data: allow (same-row runtime cost identity)
+        assert _cost("glm-5.3-flash", ts=instant, **tokens) == pytest.approx(
+            promo["fresh"] + promo["output"] + promo["read"], rel=1e-12)
     # Unknown hosts use the model's Z.AI row; OpenRouter host rates do not reach it.
     assert ("glm-5-3-flash", "NoSuchHost") not in pricing.PROVIDER_RATES
     assert _cost("glm-5.3-flash", "NoSuchHost", **tokens) == \
@@ -270,7 +266,7 @@ def test_the_permaslug_never_takes_the_undated_models_rate(
 
 
 @pytest.fixture(name="synthetic_provider_window")
-def _synthetic_provider_window_fixture(monkeypatch):
+def _synthetic_provider_window_fixture(monkeypatch, synthetic_seeded_provider):
     """A made-up dated window on one (model, provider) row. The rates are
     unlike any real price so no assertion reads as a pricing fact.
 
@@ -279,7 +275,7 @@ def _synthetic_provider_window_fixture(monkeypatch):
     lookup would price `past` at the window's rates instead of the list
     price the assertion names."""
     cutover = datetime(2026, 9, 20, tzinfo=UTC)
-    key = (V41_KEY, "Novita")
+    key = (SEEDED_MODEL, SEEDED_HOST)
     before = {"fresh": 7.0, "create_5m": 7.0, "create_1h": 7.0,
               "read": 0.7, "output": 70.0}
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {key: [(cutover, before)]})
@@ -290,11 +286,11 @@ def _synthetic_provider_window_fixture(monkeypatch):
 
 def test_a_provider_window_applies_before_its_cutover(synthetic_provider_window):
     cutover, before, after = synthetic_provider_window
-    assert pricing.rate_for(V41, datetime(2026, 9, 19, tzinfo=UTC), "Novita") == before  # sv-test-data: allow (derived: expected is the fixture's own synthetic window rates)
-    assert pricing.rate_for(V41, cutover, "Novita") == after  # sv-test-data: allow (derived: identity against the list rates the fixture returns)
-    assert pricing.rate_for(V41, None, "Novita") == after, "no ts => list"  # sv-test-data: allow (derived: identity against the list rates the fixture returns)
-    assert (pricing.rate_for(V41, datetime(2026, 9, 19, tzinfo=UTC), "Morph") ==  # sv-test-data: allow (derived: same-tables identity; Morph carries no window)
-            pricing.rate_for(V41, None, "Morph"))  # sv-test-data: allow (derived: same-tables identity; Morph carries no window)
+    assert pricing.rate_for(SEEDED_MODEL, datetime(2026, 9, 19, tzinfo=UTC), SEEDED_HOST) == before
+    assert pricing.rate_for(SEEDED_MODEL, cutover, SEEDED_HOST) == after
+    assert pricing.rate_for(SEEDED_MODEL, None, SEEDED_HOST) == after, "no ts => list"
+    assert (pricing.rate_for(SEEDED_MODEL, datetime(2026, 9, 19, tzinfo=UTC), "UndatedHost") ==
+            pricing.rate_for(SEEDED_MODEL, None, "UndatedHost"))
 
 
 def _row(model, provider, epoch, fresh=0, output=0, cost=0.0, read=0):
@@ -381,7 +377,7 @@ def test_fold_prices_each_row_by_its_provider_and_keeps_the_model_total(
 def test_fold_reconciles_across_provider_entries(
         monkeypatch, synthetic_provider_window, history):
     if history == "cutover":
-        model, host = V41, "Novita"
+        model, host = SEEDED_MODEL, SEEDED_HOST
         boundaries = [synthetic_provider_window[0]]
         spans = synthetic_provider_window[1:]
         pricing_ts = (datetime(2026, 9, 19, tzinfo=UTC), boundaries[0])
