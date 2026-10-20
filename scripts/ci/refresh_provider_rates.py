@@ -234,7 +234,7 @@ def _refresh_model(context: RefreshContext, model: str, source: dict,
 def refresh(doc: dict, fetch: Fetch, stamp: str,
             fetch_models: FetchModels | None = None,
             fetch_log: FetchLog | None = None) -> Result:
-    """Append each log-backed move at its change time and sample the rest."""
+    """Rewrite log-backed histories and sample the rest."""
     try:
         pricing.load_tables(doc)
     except ValueError as exc:

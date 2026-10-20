@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from typing import cast
 
 from backend.pricing_document import effective_rates
+from backend.pricing import _scheduled
+from backend.pricing_load import _schedule
 from backend.pricing_rows import flatten_provider_history
 
 
@@ -56,11 +58,31 @@ def _instant(stamp: str | None) -> datetime:
             else datetime.min.replace(tzinfo=timezone.utc))
 
 
+def _schedule_state(entry: dict) -> list[tuple[int, dict]]:
+    """Effective weekly prices at every schedule boundary, with first-match order."""
+    if not entry.get("schedule"):
+        return []
+    windows = _schedule(entry["schedule"], "provider history comparison")
+    boundaries = sorted({0, *(hhmm for _, start, end, _ in windows
+                              for hhmm in (start, end) if hhmm is not None)})
+    base = effective_rates(entry)
+    states: list[tuple[int, dict]] = []
+    for day in range(7):
+        for hhmm in boundaries:
+            hour, minute = divmod(hhmm, 100)
+            at = datetime(2026, 1, 5 + day, hour, minute, tzinfo=timezone.utc)
+            rates = _scheduled(windows, at) or base
+            if not states or rates != states[-1][1]:
+                states.append((day * 1440 + hour * 60 + minute, rates))
+    return [] if len(states) == 1 and states[0][1] == base else states
+
+
 def _priced_history(history: list[dict], *, include_context: bool = False) -> list[tuple[datetime, dict]]:
     """Compare effective transitions, optionally including sampled context length."""
     states: list[tuple[datetime, dict]] = []
     for entry in _flatten(history):
-        rates = {**effective_rates(entry), "web_search": entry.get("web_search", 0)}
+        rates = {**effective_rates(entry), "web_search": entry.get("web_search", 0),
+                 "schedule": _schedule_state(entry)}
         if include_context:
             rates["context_length"] = entry.get("context_length")
         if not states or rates != states[-1][1]:

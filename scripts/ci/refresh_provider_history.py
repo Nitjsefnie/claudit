@@ -1,7 +1,6 @@
-"""Append token-log and search-rate changes to provider histories."""
+"""Provider moves, sampled appends and first-seen log imports."""
 from __future__ import annotations
 
-import copy
 from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,7 +17,7 @@ RATE_FIELDS = pricing.RATE_FIELDS
 
 @dataclass
 class Move:
-    """One provider row the run appends to (old is None for a new host)."""
+    """One changed provider row (old is None for a new host)."""
     model: str
     host: str
     old: dict | None
@@ -107,29 +106,6 @@ def _occurrences(history: list[dict], where: str) -> list[dict]:
     return flatten_provider_history(history, where, _price_instant)[0]
 
 
-def _new_log_states(model: str, host: str, entries: list[dict],
-                    newest: dict) -> list[dict]:
-    """The log states after the stored row's newest entry, each one a change
-    from the level before it.
-    """
-    where = f"{model} via {host}"
-    newest_from = newest["from"]
-    newest_at = (_price_instant(newest_from, where)
-                 if newest_from is not None else None)
-    previous = effective_rates(newest)
-    additions = []
-    for entry in entries:
-        entry_at = _price_instant(entry["from"], where)
-        if newest_at is not None and entry_at <= newest_at:
-            continue
-        rates = effective_rates(entry)
-        if rates == previous:
-            continue
-        additions.append(copy.deepcopy(entry))
-        previous = rates
-    return additions
-
-
 def _sampled_state(entry: dict) -> dict:
     """Listing fields absent from the token log, with their absent defaults."""
     return {"web_search": entry.get("web_search", 0.0),
@@ -145,21 +121,17 @@ def _set_sampled_state(entry: dict, state: dict) -> None:
             entry.pop(field, None)
 
 
-# The history floor (SV-RATE-REFRESH): the account's OpenRouter-lane
-# records begin here, and provider rows price only such records. Log
-# states dated before the floor price nothing the meters hold, so a
-# first-seen row's import starts at the last state in force AT
-# the floor and the dropped levels are never imported.
+# First-seen hosts import the state in force at the floor and later states;
+# earlier levels price no stored OpenRouter records (SV-RATE-REFRESH).
 HISTORY_FLOOR = datetime(2026, 9, 23, tzinfo=timezone.utc)
 
 
 def _floored_log(model: str, host: str, entries: list[dict]) -> list[dict]:
-    """A first-seen log-backed host's importable states: everything from
-    the last state in force at the history floor onward. The kept
-    pre-floor state carries the level the floor's records priced through
-    (a record in its window without it would fall back to the model
-    row), and states strictly before it price no record any meter holds.
-    States dated after the floor are all kept, whatever their age."""
+    """Keep the state in force at HISTORY_FLOOR and every later log state.
+
+    Earlier states price no stored OpenRouter record. With no pre-floor
+    state, keep the complete series.
+    """
     ats = [_price_instant(entry["from"], f"{model} via {host}")
            for entry in entries]
     kept = bisect_right(ats, HISTORY_FLOOR)
