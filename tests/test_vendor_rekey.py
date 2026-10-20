@@ -218,6 +218,7 @@ def test_main_overlapping_sources_write_nothing(reverse, tmp_path, capsys):
     ("openrouter.vendor.prefixes", ["nvidia/nvidia"]),
     ("openrouter.vendor.prefixes", [""]),
     ("openrouter.vendor.prefixes", [None]),
+    ("models", "missing"), ("models", None), ("models", []),
     ("openrouter.models", "missing"), ("openrouter.models", None),
     ("openrouter.vendor.resolve", []),
     ("providers", "missing"), ("providers", None), ("providers", []),
@@ -272,14 +273,19 @@ def _meter_flags(doc, monkeypatch):
         return tuple(pricing.meter_flag(key, 400_000) for key in ("p/local", "local"))
 
 
-@pytest.mark.parametrize("surface", ["member", "flags", "moves"])
-def test_main_preserves_models_table_meter(surface, tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("rename_owner", ["none", "tracked", "resolve"])
+@pytest.mark.parametrize("surface", ["member", "flags", "moves", "version"])
+def test_main_preserves_models_table_meter(
+        rename_owner, surface, tmp_path, monkeypatch, capsys):
     refresh = _load("refresh_provider_rates")
     path, constants = tmp_path / "pricing.json", tmp_path / "constants.py"
+    tracked = "p/local" if rename_owner == "tracked" else "local"
     doc = seed_doc(
         prefixes=["p"], models={"p/local": [{"from": None, **RATES}]},
-        tracked={"local": {"id": "other/local", "vendor_host": "Other"}},
-        providers={"local": {"Other": [{"from": None, **RATES}]}},
+        tracked={tracked: {"id": "other/local", "vendor_host": "Other"}},
+        providers={tracked: {"Other": [{"from": None, **RATES}]}},
+        resolve=({"p/local": {"tag": "p", "why": "fixture"}}
+                 if rename_owner == "resolve" else {}),
         members=["p/local"])
     assert _meter_flags(doc, monkeypatch) == (True, None)
     path.write_text(serialize_pricing_doc(doc), encoding="utf-8")
@@ -295,14 +301,20 @@ def test_main_preserves_models_table_meter(surface, tmp_path, monkeypatch, capsy
         assert written["long_context_meters"] == doc["long_context_meters"]
     elif surface == "flags":
         assert _meter_flags(written, monkeypatch) == (True, None)
+    elif surface == "moves":
+        assert written["openrouter"]["models"] == {
+            "local": {"id": "other/local", "vendor_host": "Other"}}
+        assert ("rekeyed   p/local → local (other/local)" in output) == (
+            rename_owner == "tracked")
     else:
-        assert "rekeyed" not in output
-        assert constants.read_text(encoding="utf-8") == 'PRICING_VERSION = "100"\n'
+        version = "101" if rename_owner == "tracked" else "100"
+        assert constants.read_text(encoding="utf-8") == f'PRICING_VERSION = "{version}"\n'
 
 
 @pytest.mark.parametrize("source", ["models", "providers", "resolve"])
 @pytest.mark.parametrize("factors", [None, {"input_mult": 3.0, "output_mult": 1.5}])
-def test_meter_consumes_only_renames_from_tracked_tables(source, factors):
+@pytest.mark.parametrize("surface", ["member", "moves"])
+def test_meter_consumes_only_renames_from_tracked_models(source, factors, surface):
     doc = seed_doc(
         prefixes=["p"], models={"p/local": [{"from": None, **RATES}]},
         tracked={"x": {"id": "other/x", "vendor_host": "Other"}},
@@ -313,13 +325,45 @@ def test_meter_consumes_only_renames_from_tracked_tables(source, factors):
         doc["providers"]["p/x"] = doc["providers"].pop("x")
     else:
         doc["openrouter"]["vendor"]["resolve"] = {"p/x": {"tag": "p"}}
+    if source != "models":
+        doc["models"]["p/x"] = [{"from": None, **RATES}]
     member = "p/x" if factors is None else {"p/x": factors}
     doc["long_context_meters"] = [{"threshold": 200_000, "models": [member, "p/local"]}]
     out = vendor.vendor_pass(doc, _catalog, pytest.fail)
-    expected = "x" if factors is None else {"x": factors}
-    assert doc["long_context_meters"] == [
-        {"threshold": 200_000, "models": ["p/local", expected]}]
-    assert out.renames == {"p/x": "x"}
+    renamed = source == "models"
+    expected = ("x" if factors is None else {"x": factors}) if renamed else member
+    if surface == "member":
+        assert doc["long_context_meters"] == [
+            {"threshold": 200_000, "models": ["p/local", expected]}]
+    else:
+        assert [(move.rekeyed, move.key) for move in out.moves] == (
+            [("p/x", "x")] if renamed else [])
+        assert out.renames == ({"p/x": "x"} if renamed else {})
+
+
+@pytest.mark.parametrize("factors", [None, {"input_mult": 3.0, "output_mult": 1.5}])
+@pytest.mark.parametrize("surface", ["member", "flags"])
+def test_shared_models_key_keeps_meter_during_tracked_rename(
+        factors, surface, monkeypatch):
+    doc = seed_doc(
+        prefixes=["p"], models={"p/local": [{"from": None, **RATES}]},
+        tracked={"p/local": {"id": "other/local", "vendor_host": "Other"}},
+        providers={"p/local": {"Other": [{"from": None, **RATES}]}})
+    member = "p/local" if factors is None else {"p/local": factors}
+    doc["long_context_meters"] = [{"threshold": 200_000, "models": [member]}]
+    previous = copy.deepcopy(doc)
+    assert _meter_flags(doc, monkeypatch) == (True, None)
+    out = vendor.vendor_pass(doc, _catalog, pytest.fail)
+    if surface == "member":
+        assert doc["long_context_meters"] == previous["long_context_meters"]
+    else:
+        assert _meter_flags(doc, monkeypatch) == (True, None)
+    assert doc["models"] == previous["models"]
+    assert doc["providers"] == {"local": previous["providers"]["p/local"]}
+    assert doc["openrouter"]["models"] == {
+        "local": previous["openrouter"]["models"]["p/local"]}
+    assert out.renames == {"p/local": "local"}
+    assert [(move.rekeyed, move.key) for move in out.moves] == [("p/local", "local")]
 
 
 def test_meter_rename_collision_refuses_both_members_before_mutating():
