@@ -281,7 +281,8 @@ def _browser_upgrade(base):
   try {
     playwrightPath = require.resolve('playwright');
   } catch (error) {
-    if (error.code !== 'MODULE_NOT_FOUND') throw error;
+    if (error.code !== 'MODULE_NOT_FOUND'
+      || !error.message.startsWith("Cannot find module 'playwright'")) throw error;
     const {lstatSync} = require('node:fs');
     const {join} = require('node:path');
     for (const directory of require.resolve.paths('playwright')) {
@@ -351,4 +352,13 @@ def test_browser_dependency_defects_fail(monkeypatch, tmp_path, metadata, body, 
         (package / "index.js").write_text(body, encoding="utf-8")
     monkeypatch.setitem(globals(), "_ROOT", tmp_path)
     with pytest.raises(AssertionError, match=message):
+        _browser_upgrade("http://unused")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_broken_playwright_self_reference_fails(monkeypatch, tmp_path):
+    (tmp_path / "package.json").write_text(
+        json.dumps({"name": "playwright", "exports": "./missing.js"}), encoding="utf-8")
+    monkeypatch.setitem(globals(), "_ROOT", tmp_path)
+    with pytest.raises(AssertionError, match=r"Cannot find module .*missing\.js"):
         _browser_upgrade("http://unused")
