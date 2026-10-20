@@ -161,3 +161,28 @@ def test_unchanged_detection_time_search_epoch_emits_no_move_or_writes(
         assert "no rate moved" in run.run(capsys)
         assert (run.path.read_bytes(), run.constants.read_bytes(), run.state.read_bytes()) == before
         assert not run.message.exists()
+
+
+@pytest.mark.parametrize("old_context,new_context", [(131072, 262144), (262144, 131072)])
+def test_detection_time_search_epoch_keeps_a_genuine_context_change(
+        tmp_path, capsys, old_context, new_context):
+    rates = {**RATE_A, "web_search": 0.02}
+    run = RewriteRun(tmp_path, [_entry(STAMP, rates, context_length=old_context)],
+                     [(STAMP, RATE_A)], listed={**rates, "context_length": new_context},
+                     fetched=STAMP)
+
+    result = refresh.refresh(
+        json.loads(run.path.read_text(encoding="utf-8")),
+        run.fetches.fetch_endpoints, STAMP,
+        run.fetches.fetch_models, run.fetches.fetch_log)
+
+    assert len(result.moves) == 1
+    assert result.doc["providers"][MODEL][HOST] == [
+        {"from": STAMP, **rates, "context_length": new_context}]
+    assert "changed" in run.run(capsys)
+    assert run.saved()["providers"][MODEL][HOST] == [
+        {"from": STAMP, **rates, "context_length": new_context}]
+    assert run.constants.read_text(encoding="utf-8") == 'PRICING_VERSION = "18"\n'
+    written = run.path.read_bytes(), run.constants.read_bytes(), run.state.read_bytes()
+    assert "no rate moved" in run.run(capsys)
+    assert (run.path.read_bytes(), run.constants.read_bytes(), run.state.read_bytes()) == written

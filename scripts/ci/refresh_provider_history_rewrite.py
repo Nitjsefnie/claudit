@@ -56,11 +56,13 @@ def _instant(stamp: str | None) -> datetime:
             else datetime.min.replace(tzinfo=timezone.utc))
 
 
-def _priced_history(history: list[dict]) -> list[tuple[datetime, dict]]:
-    """Compare rates at every instant, independent of grouping and annotations."""
+def _priced_history(history: list[dict], *, include_context: bool = False) -> list[tuple[datetime, dict]]:
+    """Compare effective transitions, optionally including sampled context length."""
     states: list[tuple[datetime, dict]] = []
     for entry in _flatten(history):
         rates = {**effective_rates(entry), "web_search": entry.get("web_search", 0)}
+        if include_context:
+            rates["context_length"] = entry.get("context_length")
         if not states or rates != states[-1][1]:
             states.append((_instant(entry.get("from")), rates))
     return states

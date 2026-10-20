@@ -193,7 +193,9 @@ def _append_logged(model: str, hosts: dict, host: str, listing: Listing,
     if move is not None:
         if move.reason:
             candidate = _merge_history(change.history)
-            if stored is not None and _priced_history(candidate) == _priced_history(stored):
+            if (stored is not None
+                    and _priced_history(candidate, include_context=True)
+                    == _priced_history(stored, include_context=True)):
                 if candidate != stored and deferred_notices is not None:
                     deferred_notices.append(
                         f"{model} via {host}: log rewrite leaves priced history "
