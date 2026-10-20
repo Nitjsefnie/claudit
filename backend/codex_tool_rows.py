@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from backend.parse_common import _append_tool_use, _nonempty_str, _settle_lane_tool_result
 from backend.parse_codex_churn import _codex_program_churn
+from backend.codex_exec_targets import program_targets
 from backend.json_shape import as_dict
 from backend.tool_errors import ERROR_KIND_FAILED
 from backend.parse_collection import ALL_PARSE_COLLECTION, ParseCollection
@@ -131,11 +132,14 @@ def _codex_tool_call(st: _CodexState, line_num: int, ts: datetime | None,
     wait_agent, send_message, ...).
     """
     churn = (0, 0)
+    targets = None
     if payload.get("type") == "custom_tool_call":
         program = str(payload.get("input") or "")
         apis = _CODEX_API_RE.findall(program)
         name = apis[0] if apis else str(payload.get("name") or "")
         churn = _codex_program_churn(program)
+        if st.collect.context_intake:
+            targets = program_targets(program)
     else:
         apis = [str(payload.get("name") or "")]
         name = apis[0]
@@ -144,6 +148,9 @@ def _codex_tool_call(st: _CodexState, line_num: int, ts: datetime | None,
         model=_codex_model(st.model),
         dispatch=_codex_dispatch_args(payload, st.collect),
     )
+    if targets is not None:
+        row = st.tool_uses[-1]
+        row["read_kind"], row["read_targets"], row["write_targets"] = targets
     if "apply_patch" in apis:
         metadata = as_dict(payload.get("internal_chat_message_metadata_passthrough"))
         turn_id = metadata.get("turn_id")

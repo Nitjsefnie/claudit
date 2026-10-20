@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from backend import pricing
 from backend.agent_types import canonical_agent_type
 from backend.ctx_turns import _ctx_turns_from_turns
-from backend.tool_errors import ERROR_TEXT_MAX, _pg_text, classify_lane_error
+from backend.tool_errors import ERROR_KIND_TOOL_ERROR, ERROR_TEXT_MAX, _pg_text, classify_lane_error
 
 if TYPE_CHECKING:
     from backend.lane_state import _ParseState
@@ -352,7 +352,8 @@ def _resolve_tool_errors(tool_uses: list[dict],
 
     A settled failure also carries its (error_kind, error_text) pair from
     `error_info`, so lane failures count in the error-kind breakdowns and
-    not only in the is_error rate."""
+    not only in the is_error rate. Calls that never ran lose their write
+    targets, while tool_error calls retain targets as on the Claude path."""
     for tu in tool_uses:
         # The id stays on the row: parse_lanes.to_claudit renames it to
         # claudit's tool_use_id, and ingest keys is_canonical on it.
@@ -364,6 +365,8 @@ def _resolve_tool_errors(tool_uses: list[dict],
                 tu["lines_deleted"] = 0
                 if error_info and tc_id in error_info:
                     tu["error_kind"], tu["error_text"] = error_info[tc_id]
+                if "write_targets" in tu and tu.get("error_kind") != ERROR_KIND_TOOL_ERROR:
+                    tu["write_targets"] = []
 
 
 def _finish_parse(st: _ParseState, end_line: int | None = None) -> dict:
