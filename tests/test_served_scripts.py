@@ -281,8 +281,20 @@ def _browser_upgrade(base):
   try {
     playwrightPath = require.resolve('playwright');
   } catch (error) {
-    if (error.code !== 'MODULE_NOT_FOUND'
-      || !error.message.startsWith("Cannot find module 'playwright'")) throw error;
+    if (error.code !== 'MODULE_NOT_FOUND') throw error;
+    const {lstatSync} = require('node:fs');
+    const {join} = require('node:path');
+    for (const directory of require.resolve.paths('playwright')) {
+      for (const suffix of ['', '.js', '.json', '.node']) {
+        try {
+          lstatSync(join(directory, 'playwright' + suffix));
+        } catch (statError) {
+          if (['ENOENT', 'ENOTDIR'].includes(statError.code)) continue;
+          throw statError;
+        }
+        throw error;
+      }
+    }
     console.log(JSON.stringify({skip: 'Playwright package is not installed'}));
     return;
   }
@@ -322,19 +334,20 @@ def test_missing_playwright_package_returns_a_skip(monkeypatch, tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-@pytest.mark.parametrize("body, message", [
-    (None, "missing-entry.js"),
-    ("throw new SyntaxError('broken import');", "broken import"),
-    ("require('fixture-missing-dependency');", "fixture-missing-dependency"),
-    ("exports.chromium = {launch: async () => { throw new Error('broken launch'); }};", "broken launch"),
-    ("exports.chromium = {launch: async () => ({newPage: async () => { throw new Error('broken runtime'); }, close: async () => {}})};", "broken runtime"),
+@pytest.mark.parametrize("metadata, body, message", [
+    ('{"main":"missing-entry.js"}', None, "missing-entry.js"),
+    ('{"name":"playwright","version":"1.0.0"}', None, "Cannot find module 'playwright'"),
+    (None, "throw new SyntaxError('broken import');", "broken import"),
+    (None, "require('fixture-missing-dependency');", "fixture-missing-dependency"),
+    (None, "exports.chromium = {launch: async () => { throw new Error('broken launch'); }};", "broken launch"),
+    (None, "exports.chromium = {launch: async () => ({newPage: async () => { throw new Error('broken runtime'); }, close: async () => {}})};", "broken runtime"),
 ])
-def test_browser_dependency_defects_fail(monkeypatch, tmp_path, body, message):
+def test_browser_dependency_defects_fail(monkeypatch, tmp_path, metadata, body, message):
     package = tmp_path / "node_modules" / "playwright"
     package.mkdir(parents=True)
-    if body is None:
-        (package / "package.json").write_text('{"main":"missing-entry.js"}', encoding="utf-8")
-    else:
+    if metadata is not None:
+        (package / "package.json").write_text(metadata, encoding="utf-8")
+    if body is not None:
         (package / "index.js").write_text(body, encoding="utf-8")
     monkeypatch.setitem(globals(), "_ROOT", tmp_path)
     with pytest.raises(AssertionError, match=message):
