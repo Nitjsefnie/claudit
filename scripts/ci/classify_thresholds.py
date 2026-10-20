@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 
+RATCHET_DATA_FILES = frozenset({
+    '.github/ci-thresholds.json',
+    '.github/comment-share.json',
+})
+
+
 def thresholds_only(paths: list[str]) -> bool:
-    """Rename source paths count too."""
-    return paths == ['.github/ci-thresholds.json']
+    """True for non-empty changes confined to ratchet data files."""
+    return bool(paths) and set(paths) <= RATCHET_DATA_FILES
 
 
 def unreadable_or_thresholds(paths: list[str] | None):
@@ -11,7 +17,8 @@ def unreadable_or_thresholds(paths: list[str] | None):
     if paths is None:
         return (False, False, False, False, False,
                 'could not read the changed paths; running the full gate set')
-    return (False, False, False, True, False, 'thresholds-only change: 1 path')
+    return (False, False, False, True, False,
+            f'ratchet data changed: {len(paths)} path(s)')
 
 
 def write_outputs(path, documentation, data, comment, thresholds, setup, reason):
