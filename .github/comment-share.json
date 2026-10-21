@@ -80,8 +80,8 @@
     2455
   ],
   ".github/workflows/ratchet-push.yml": [
-    3468,
-    9988
+    3775,
+    12879
   ],
   ".github/workflows/refresh-pricing.yml": [
     5306,
@@ -696,8 +696,8 @@
     14441
   ],
   "scripts/ci/refresh_vendor_rates.py": [
-    6106,
-    16474
+    6389,
+    17445
   ],
   "scripts/ci/release_gate.py": [
     4608,
@@ -1723,10 +1723,6 @@
     5588,
     19902
   ],
-  "tests/test_suite_ci_wiring.py": [
-    2930,
-    15785
-  ],
   "tests/test_suite_cost_pricing_growth.py": [
     2240,
     5711
@@ -1808,8 +1804,8 @@
     21422
   ],
   "tests/test_workflow_ci_gate.py": [
-    7757,
-    24549
+    7652,
+    24878
   ],
   "tests/test_workflow_concurrency.py": [
     867,
