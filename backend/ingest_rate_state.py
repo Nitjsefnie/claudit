@@ -1,4 +1,4 @@
-"""Stored rate-state derivation and set-based writes shared by ingest and reprice."""
+"""Shared stored-row pricing (SV-REPRICE)."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -22,9 +22,6 @@ SELECT_RATE_STATE = """
       LEFT JOIN dim_rate_fingerprint df ON df.id = rp.rate_fingerprint_id
 """
 
-# A batch's moved rows: recomputed values travel as arrays, one
-# statement writes the whole set through the sidecar's own PK. The new
-# fingerprint rides beside the version, exactly as persist stamps it.
 SQL_REPRICE = """
     UPDATE records_price rp
        SET cost_usd = d.cost, long_context = d.flag,
@@ -40,7 +37,7 @@ SQL_REPRICE = """
 
 
 class RateRow(NamedTuple):
-    """One row's stored columns: file_id keyset and dimension texts."""
+    """Stored inputs and rate state."""
 
     file_id: int
     line_num: int
@@ -65,13 +62,7 @@ class RateRow(NamedTuple):
 
 def stored_pricing_version_is_newer(stored: str | None,
                                     current: str) -> bool:
-    """Whether a stored pricing_version was written by a NEWER build.
-
-    A value that does not parse as an int cannot be shown newer, so the
-    ordinary staleness decision applies — exactly the rule
-    ingest._stored_version_is_newer applies to parser_version: a rollback's older binary must not rewrite rows it cannot
-    write whole.
-    """
+    """Protect newer integer versions; unparseable versions are not newer."""
     if stored is None:
         return False
     try:
@@ -81,14 +72,7 @@ def stored_pricing_version_is_newer(stored: str | None,
 
 
 def record_updates(row: RateRow) -> dict:
-    """Derive one row's rate state from its stored columns.
-
-    Members recompute their threshold flag. Non-members keep NULL/FALSE;
-    a stored TRUE is checked against the global threshold to unbill lapsed
-    members. The provider does not affect flag derivation.
-    One resolution supplies token and web-search rates. A flagged row also
-    stores its effective meter pair, preserving provenance across batches.
-    """
+    """Derive cost and meter provenance from the row's own stored inputs."""
     unsplit_create = max(
         0, row.cache_creation_tokens - row.eph5_tokens - row.eph1h_tokens)
     if pricing.is_long_context_model(row.model):
@@ -96,19 +80,12 @@ def record_updates(row: RateRow) -> dict:
                         + row.cache_read_tokens
                         > pricing.long_context_threshold(row.model))
     elif row.long_context:
-        # A non-member's stored TRUE can only be the Codex path's
-        # threshold test or a lapsed member's leftover
-        # flag that would keep over-billing. Re-deriving that test
-        # is the one non-member rule every format's reparse prices
-        # identically: the row unbills below the global threshold and a
-        # genuinely above-threshold Codex row keeps its meter.
+        # Recheck Codex/lapsed-member TRUEs to unbill rows below threshold.
         long_context = (row.fresh_tokens + row.cache_creation_tokens
                         + row.cache_read_tokens
                         > pricing.long_context_threshold(row.model))
     else:
         long_context = row.long_context
-    # One resolution per row: the same Resolution prices the tokens and
-    # names the fee (the parse path's rule).
     res = pricing.resolve(row.model, row.ts, row.provider)
     cost = pricing.compute_cost(
         row.model,
@@ -131,15 +108,14 @@ def record_updates(row: RateRow) -> dict:
         "long_context": long_context,
         "long_context_input_mult": input_mult,
         "long_context_output_mult": output_mult,
-        # Clear the note-derived fee column: bill web_search_requests at the
-        # record's rate instead, preserving the column for storage compatibility.
+        # Search counts replace legacy note-derived fees.
         "request_fee_usd": None,
         "pricing_version": constants.PRICING_VERSION,
     }
 
 
 def rate_update(row: RateRow, fingerprint_id: int) -> tuple:
-    """The sidecar UPDATE's array row, derived once from the stored inputs."""
+    """Derive one sidecar UPDATE tuple."""
     updates = record_updates(row)
     return (row.file_id, row.line_num, updates["cost_usd"],
             updates["long_context"], updates["long_context_input_mult"],
@@ -147,14 +123,14 @@ def rate_update(row: RateRow, fingerprint_id: int) -> tuple:
 
 
 def write_rate_updates(conn, version_id: int, updates: list[tuple]) -> int:
-    """Write a derived set inside the caller's transaction; never commit here."""
+    """Write within the caller's transaction."""
     if not updates:
         return 0
     return conn.execute(SQL_REPRICE, (version_id, *map(list, zip(*updates)))).rowcount
 
 
 def reprice_adopted(conn, keys: list[tuple[int, int]]) -> int:
-    """Reprice the adopted set under its new stored models in the same transaction."""
+    """Reprice adopted models within the caller's transaction."""
     if not keys:
         return 0
     rows = [RateRow(*raw) for raw in conn.execute(

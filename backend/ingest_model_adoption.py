@@ -1,4 +1,4 @@
-"""Replay model adoption and its atomic rate-state transition."""
+"""Atomic replay attribution (SV-CANONICAL-FLAG)."""
 from __future__ import annotations
 
 import logging
@@ -14,26 +14,10 @@ _UUID_PRESENT = uuid_split.uuid_present_sql("r")
 
 
 def adopt_original_models(scope: Scope | None = None) -> int:
-    """A replayed copy adopts the model the parent had in force.
+    """Adopt originals' models and reprice losing replays in one transaction.
 
-    A forked rollout stores its replayed copies under the fork's FIRST
-    declared model — the model at the fork point, which a
-    mid-history switch makes wrong for the earlier requests. The parent
-    is a different file, so no parse can resolve this; the canonical
-    winner of the uuid can, because while the parent's copy is present it
-    IS the winner: an original beats a replay whatever the key order
-    (SV-CANONICAL-FLAG). Every losing replayed copy therefore adopts its
-    winner's model, records by uuid and tool calls by tool_use_id; with
-    no original present (the replay is itself canonical, or every copy is
-    a replay) the first-declared-model fallback stands. A NULL winner model is not
-    adopted — the copy keeps its attribution rather than losing it.
-
-    Runs at recompute_canonical's tail, on the flags it has just
-    settled. Adopted rows are non-canonical, so no rollup
-    reads them and the pass adds no hours to the scope; it extends
-    collected files.models with the adopted models, since the fork file journals
-    its parent's requests. Model and rate state move in one transaction;
-    rows priced by a newer binary defer adoption to preserve both together.
+    Newer-priced records defer adoption to preserve model and price together.
+    Non-canonical writes need no rollup hours; extend collected files.models.
     """
     scope = scope if scope is not None else current_scope()
     incremental_scope = (
@@ -45,8 +29,6 @@ def adopt_original_models(scope: Scope | None = None) -> int:
     changed = 0
     with db.viz_conn() as conn:
         conn.execute("SET LOCAL work_mem = '64MB'")
-        # Preserve both model and rate state written by a newer binary: defer
-        # adoption until a binary that understands that pricing version runs.
         newer_ids = [key for key, value in conn.execute(
             "SELECT id, value FROM dim_pricing_version").fetchall()
             if stored_pricing_version_is_newer(value, constants.PRICING_VERSION)]
@@ -60,14 +42,8 @@ def adopt_original_models(scope: Scope | None = None) -> int:
             "tool_ids": (sorted(incremental_scope.affected_tool_use_ids)
                          if incremental else None),
         }
-        # Adopt each losing replay's original model and extend files.models
-        # in one statement/snapshot, deriving added before rows change. Carry
-        # the dim id for SET and its text for files.models, which stays TEXT[].
-        #
-        # Join REBUILT uuid text: equal text iff equal parts by uuid_split and
-        # schema CHECKs. Winners carry uuids, so absent identities never join.
-        # Use EQUALITY: IS NOT DISTINCT FROM over parts has no hash/merge join
-        # path and can force quadratic full-table scans per replayed copy.
+        # Capture file-model additions before mutation. UUID text equality is
+        # hashable; IS NOT DISTINCT FROM over parts can force quadratic scans.
         cur = conn.execute(
             f"""
             WITH winners AS (
@@ -114,7 +90,6 @@ def adopt_original_models(scope: Scope | None = None) -> int:
         changed += len(adopted_keys)
         repriced = reprice_adopted(conn, adopted_keys)
 
-        # tool_uses: the same adoption keyed on tool_use_id.
         cur = conn.execute(
             """
             WITH winners AS (
@@ -138,8 +113,7 @@ def adopt_original_models(scope: Scope | None = None) -> int:
             """, tool_params)
         changed += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
         conn.commit()
-    # These non-canonical sidecar writes do not drive full rebuild promotion;
-    # vacuum still needs their actual write count, separately from adoption.
+    # Count sidecar churn for vacuum without promoting a full rebuild.
     ingest_vacuum.note_phase("reprice", repriced)
     if changed:
         log.info("adopt_original_models: %d rows adopted", changed)
