@@ -11,6 +11,7 @@ install so the freshly populated cache is what gets saved.
 """
 from __future__ import annotations
 
+import math
 import re
 import sys
 from pathlib import Path
@@ -76,7 +77,27 @@ def test_every_cache_save_directly_follows_the_dependency_install():
                 workflow, job, index)
 
 
+def _github_number(value: str | int | float | bool | None) -> float:
+    if value is None or value == "":
+        return 0.0
+    if isinstance(value, str) and not re.fullmatch(
+            r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", value.strip()):
+        return math.nan
+    return float(value)
+
+
+def _github_equal(value: object, literal: str | int) -> bool:
+    assert value is None or isinstance(value, (str, int, float, bool)), value
+    if isinstance(value, float):
+        assert math.isfinite(value), value
+    if isinstance(value, str) and isinstance(literal, str):
+        return value.casefold() == literal.casefold()
+    return _github_number(value) == _github_number(literal)
+
+
 def _assert_one_writer(matrix: dict, gate: str) -> None:
+    assert isinstance(matrix, dict) and matrix, matrix
+    assert not {"include", "exclude"}.intersection(matrix), matrix
     terms = [term.strip() for term in gate.split("&&")]
     assert terms[:2] == ["github.event_name == 'push'",
                          "github.ref == 'refs/heads/master'"], gate
@@ -88,8 +109,11 @@ def _assert_one_writer(matrix: dict, gate: str) -> None:
         assert axis not in pinned, gate
         pinned[axis] = quoted if quoted is not None else int(numeric)
     assert pinned.keys() == matrix.keys(), gate
-    for axis, value in pinned.items():
-        assert value in matrix[axis], gate
+    admitted_jobs = 1
+    for axis, literal in pinned.items():
+        assert isinstance(matrix[axis], list), matrix
+        admitted_jobs *= sum(_github_equal(value, literal) for value in matrix[axis])
+    assert admitted_jobs == 1, (gate, admitted_jobs)
 
 
 def test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value():
@@ -108,7 +132,7 @@ def test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value():
                 (ROOT / ".github" / "workflows" / workflow).read_text(
                     encoding="utf-8")) or {}
             strategy = (doc["jobs"][job_id] or {}).get("strategy") or {}
-            if not strategy.get("matrix"):
+            if "matrix" not in strategy:
                 continue
             key = (step.get("with") or {}).get("key") or ""
             if "matrix." in key:
@@ -168,6 +192,14 @@ def test_types_installs_and_caches_the_full_import_toolchain():
 @pytest.mark.parametrize("matrix,gate,accepted", [
     ({"seed": ["42", "43"], "shard": [1, 2]}, "matrix.seed == '42' && matrix.shard == 1", True),
     ({"shard": [1, 2]}, "matrix.shard == 1", True),
+    ({"shard": [1, 1, 2]}, "matrix.shard == 1", False),
+    ({"shard": [1, "1", 2]}, "matrix.shard == 1", False),
+    ({"shard": ["1", "other"]}, "matrix.shard == 1", True),
+    ({"shard": ["one", "ONE"]}, "matrix.shard == 'one'", False),
+    ({"shard": [1], "include": [{"shard": 1}]}, "matrix.shard == 1", False),
+    ({"shard": [1], "exclude": [{"shard": 1}]}, "matrix.shard == 1", False),
+    ({}, "matrix.shard == 1", False),
+    ([], "matrix.shard == 1", False),
     ({"seed": ["42", "43"], "shard": [1, 2]}, "matrix.seed == '42'", False),
     ({"shard": [1, 2]}, "matrix.shard == 1 || github.ref == 'refs/heads/master'", False),
     ({"shard": [1, 2]}, "matrix.shard == 3", False),
