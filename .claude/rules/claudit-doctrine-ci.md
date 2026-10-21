@@ -194,11 +194,13 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   `92.00`) — what the ratchet writes, `coverage --precision=1`
   measures and the JS gate's `toFixed(1)` reads. The document is
   always the loader's canonical bytes; never hand-edit it.
-- The bot's raise/tighten commit on master touches only the data file
-  and must not re-trigger workflows: every gate workflow's push
-  trigger (`version-guard.yml` included) ignores
-  `.github/ci-thresholds.json`. A new gate workflow carries the
-  exemption over.
+- The bot's raise/tighten commit on master touches only
+  `.github/ci-thresholds.json` or `.github/comment-share.json`.
+  `ci-gate.yml` and `version-guard.yml` ignore both paths so data-only
+  commits restart neither the suite nor the version guard. The `comment
+  share` workflow deliberately runs on every master push, including a
+  ratchet data push; unchanged records stage no artifact and start no
+  further push.
 
 ## Tests never pin repository-managed data (SV-TEST-DATA)
 

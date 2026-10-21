@@ -172,12 +172,11 @@ def test_ratchet_reads_job_outputs_and_stages_the_tested_tip():
 
 
 def test_the_suite_measurement_upload_is_unique_repo_wide():
-    # The bot (ratchet-push.yml) reads artifact names out of the
-    # triggering run. Two uploads of one name in the same ci-gate run
-    # would make the download ambiguous: require one publisher per name. Names
-    # are DERIVED from the download side — workflow against workflow,
-    # no literal (fleet-rules, "Merging and CI"): rename both together
-    # and this follows; rename one and the disagreement reds.
+    # The bot's download side (ratchet-push.yml) names the artifacts.
+    # Every downloaded name must have exactly one uploader across the
+    # repository's workflows: two uploads of one name would make the
+    # download ambiguous. The map pins the publishing workflow and job
+    # for each name; a coordinated rename must also update the map.
     bot_doc = _load("ratchet-push.yml")
     download_names = sorted({
         name
