@@ -348,8 +348,8 @@
     3195
   ],
   "backend/ingest_rollup_state.py": [
-    3092,
-    13213
+    1732,
+    9474
   ],
   "backend/ingest_rollup_web_metrics.py": [
     3499,
@@ -488,8 +488,8 @@
     2261
   ],
   "backend/rate_fingerprint.py": [
-    3420,
-    7041
+    3098,
+    6881
   ],
   "backend/reply_timing.py": [
     1623,
@@ -1592,12 +1592,12 @@
     19766
   ],
   "tests/test_rate_fingerprint.py": [
-    4231,
-    15609
+    4308,
+    17371
   ],
   "tests/test_records_price.py": [
-    5425,
-    22998
+    5424,
+    23079
   ],
   "tests/test_release_gate.py": [
     4116,
@@ -1636,8 +1636,8 @@
     8358
   ],
   "tests/test_reprice_differential.py": [
-    6232,
-    18813
+    6224,
+    18831
   ],
   "tests/test_reprice_pairs.py": [
     6574,
@@ -1648,8 +1648,8 @@
     14496
   ],
   "tests/test_reprice_setbased.py": [
-    1830,
-    7582
+    1765,
+    7538
   ],
   "tests/test_requirements_pins.py": [
     2316,
