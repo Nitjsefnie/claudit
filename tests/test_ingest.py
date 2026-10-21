@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from backend import api, cache, db, ingest, parser_version, uuid_split
 from backend.api_ctx_growth import context_growth_traces
 from backend.api_dashboard import dashboard
 from backend.api_web_metrics import web_metrics_readout
+from backend.ingest_identity import upsert_project
 from tests import dims_seed, mini_mirror, scratch_db
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -146,6 +148,60 @@ def test_first_seen_at_uses_least(fresh_db, mini_r2_env):
     with db.viz_conn() as c:
         after = _scalar(c, "SELECT first_seen_at FROM projects WHERE project_id = 'projA'")
     assert after < before, f"first_seen_at should move backward: was {before}, now {after}"
+
+
+@pytest.mark.parametrize("display_name_set", [True, False])
+def test_project_merge_skips_unchanged_row(fresh_db, display_name_set):
+    ts = datetime(2026, 5, 7, tzinfo=timezone.utc)
+    proj = {"project_id": "merge-project", "display_name": "Named Project",
+            "display_name_set": display_name_set,
+            "first_seen_at": ts, "last_seen_at": ts}
+    with db.viz_conn() as c:
+        upsert_project(c, proj)
+        c.commit()
+        before = _scalar(c, "SELECT xmin FROM projects WHERE project_id = %s",
+                         (proj["project_id"],))
+        upsert_project(c, proj)
+        c.commit()
+        assert _scalar(c, "SELECT xmin FROM projects WHERE project_id = %s",
+                       (proj["project_id"],)) == before
+        upsert_project(c, {**proj, "display_name_set": False,
+                           "display_name": proj["project_id"]})
+        c.commit()
+        assert _scalar(c, "SELECT xmin FROM projects WHERE project_id = %s",
+                       (proj["project_id"],)) == before
+
+
+@pytest.mark.parametrize("stored_display, changes, expected", [
+    ("merge-project", {"first_seen_at": datetime(2026, 5, 6, tzinfo=timezone.utc)},
+     ("merge-project", 6, 7)),
+    ("merge-project", {"last_seen_at": datetime(2026, 5, 8, tzinfo=timezone.utc)},
+     ("merge-project", 7, 8)),
+    ("merge-project", {"display_name": "Merge-Project"}, ("Merge-Project", 7, 7)),
+    ("Named Project", {"display_name": "/marker/path", "display_name_set": True},
+     ("/marker/path", 7, 7)),
+])
+def test_project_merge_applies_changed_values(fresh_db, stored_display, changes, expected):
+    ts = datetime(2026, 5, 7, tzinfo=timezone.utc)
+    proj = {"project_id": "merge-project", "display_name": stored_display,
+            "display_name_set": False, "first_seen_at": ts, "last_seen_at": ts}
+    with db.viz_conn() as c:
+        upsert_project(c, proj)
+        c.commit()
+        upsert_project(c, {**proj, **changes})
+        c.commit()
+        row = c.execute(
+            "SELECT display_name, first_seen_at, last_seen_at, xmin "
+            "FROM projects WHERE project_id = %s", (proj["project_id"],)
+        ).fetchone()
+        assert row is not None
+        assert row[:3] == (
+            expected[0], datetime(2026, 5, expected[1], tzinfo=timezone.utc),
+            datetime(2026, 5, expected[2], tzinfo=timezone.utc))
+        upsert_project(c, {**proj, **changes})
+        c.commit()
+        assert _scalar(c, "SELECT xmin FROM projects WHERE project_id = %s",
+                       (proj["project_id"],)) == row[3]
 
 
 def test_xz_compressed_jsonl_ingests_transparently(fresh_db, mini_r2_env):
