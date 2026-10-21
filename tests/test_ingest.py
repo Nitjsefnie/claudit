@@ -11,13 +11,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from psycopg import sql as pg_sql
+from psycopg.rows import dict_row
 
 from backend import api, cache, db, ingest, parser_version, uuid_split
 from backend.api_ctx_growth import context_growth_traces
 from backend.api_dashboard import dashboard
 from backend.api_web_metrics import web_metrics_readout
 from backend.ingest_identity import upsert_project
+from backend.ingest_persist import _persist
 from tests import dims_seed, mini_mirror, scratch_db
+from tests.persist_fact_fixture import persist_fact_fixture
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIX_ROOT = _REPO_ROOT / "fixtures"
@@ -120,6 +124,26 @@ def test_nul_in_tool_text_still_stores(fresh_db, mini_r2_env):
             (fk,)).fetchall()
     assert [r[0] for r in rows] == ["SkillSkill", "Read"]
     assert rows[1][1] == ["/tmp/ab.md"]
+
+
+def test_persist_fact_values(fresh_db, monkeypatch):
+    obj, proj, parsed, expected = persist_fact_fixture(monkeypatch)
+    _persist(obj, proj, parsed, parser_version.PARSER_VERSION)
+    with db.viz_conn() as c, c.cursor(row_factory=dict_row) as cur:
+        file_id = dims_seed.file_id(c, obj.key)
+        print("numeric_text_rows:", c.execute(
+            "SELECT r.line_num, reply_latency_s::text, generation_s::text, "
+            "output_tokens_per_s::text, cost_usd::text, "
+            "long_context_input_mult::text, long_context_output_mult::text "
+            "FROM records r JOIN records_price p USING (file_id, line_num) "
+            "ORDER BY r.line_num").fetchall())
+        for table, rows in expected.items():
+            for row in rows:
+                row["file_id"] = file_id
+            actual = cur.execute(
+                pg_sql.SQL("SELECT * FROM {} ORDER BY line_num").format(
+                    pg_sql.Identifier(table))).fetchall()
+            assert actual == rows, table
 
 
 def test_first_seen_at_uses_least(fresh_db, mini_r2_env):
