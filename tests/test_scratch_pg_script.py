@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import os
 import shlex
 import shutil
@@ -25,7 +26,7 @@ def _require_tools() -> None:
                                 text=True, check=False)
         if result.returncode == 0:
             bindir = Path(result.stdout.strip())
-    if not all((bindir and os.access(bindir / name, os.X_OK))
+    if not all((bindir and shutil.which(name, path=str(bindir)))
                or shutil.which(name) for name in ("pg_ctl", "initdb")):
         pytest.skip("Postgres binaries not available via pg_config or PATH")
 
@@ -51,8 +52,13 @@ def _exports(stdout: str) -> dict[str, str]:
 
 
 @pytest.mark.db
-def test_start_exports_connect_and_stop_removes_cluster(tmp_path: Path) -> None:
-    if os.getuid() == 0:
+@pytest.mark.parametrize("without_getuid", [False, True])
+def test_start_exports_connect_and_stop_removes_cluster(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, without_getuid: bool) -> None:
+    if without_getuid:
+        monkeypatch.delattr(os, "getuid", raising=False)
+    is_root = subprocess.check_output(["bash", "-c", "id -u"], text=True).strip() == "0"
+    if is_root:
         parent = tmp_path
         temp_root = Path(tempfile.gettempdir()).resolve()
         while parent.is_relative_to(temp_root) and parent != temp_root:
@@ -66,8 +72,8 @@ def test_start_exports_connect_and_stop_removes_cluster(tmp_path: Path) -> None:
     try:
         assert started.returncode == 0, started.stderr
         values = _exports(started.stdout)
-        expected_user = "postgres" if os.getuid() == 0 else subprocess.check_output(
-            ["id", "-un"], text=True).strip()
+        expected_user = "postgres" if is_root else subprocess.check_output(
+            ["bash", "-c", "id -un"], text=True).strip()
         assert values == {"PGHOST": str(directory), "PGPORT": port,
                           "PGUSER": expected_user}
         with psycopg.connect(host=values["PGHOST"], port=values["PGPORT"],
@@ -78,10 +84,10 @@ def test_start_exports_connect_and_stop_removes_cluster(tmp_path: Path) -> None:
         exported = _run("env", str(directory), port, cwd=ROOT)
         assert exported.returncode == 0, exported.stderr
         assert _exports(exported.stdout) == values
-        evaluated = subprocess.run(
+        assert subprocess.run(
             ["bash", "-c", 'eval "$1"; printf "%s\\n" "$PGHOST" "$PGPORT" "$PGUSER"',
-             "scratch-env", exported.stdout], capture_output=True, text=True, check=True)
-        assert evaluated.stdout.splitlines() == [str(directory), port, expected_user]
+             "scratch-env", exported.stdout], capture_output=True, text=True,
+            check=True).stdout.splitlines() == [str(directory), port, expected_user]
     finally:
         if directory.exists():
             stopped = _run("stop", str(directory), cwd=ROOT)
@@ -115,3 +121,39 @@ def test_invalid_arguments_print_usage(args: tuple[str, ...], tmp_path: Path) ->
     assert "usage:" in result.stderr.lower()
     assert not result.stdout
     assert not (tmp_path / ".pg").exists()
+
+
+@pytest.mark.parametrize("missing", [None, "pg_ctl", "initdb"])
+def test_tool_check_resolves_executable_suffixes(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: str | None) -> None:
+    bindir = tmp_path / "postgres"
+    bindir.mkdir()
+    for name in ("pg_ctl", "initdb"):
+        if name != missing:
+            executable = bindir / f"{name}.exe"
+            executable.touch()
+            executable.chmod(0o755)
+    real_which = shutil.which
+
+    def which(name: str, path: str | None = None) -> str | None:
+        if path is None:
+            return name if name in ("bash", "pg_config") else None
+        assert path == str(bindir)
+        # Model Windows suffix resolution while keeping real file checks.
+        return real_which(f"{name}.exe", path=path)
+
+    def pg_config(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert args == ["pg_config", "--bindir"]
+        return subprocess.CompletedProcess(args, 0, str(bindir), "")
+
+    monkeypatch.setattr(shutil, "which", which)
+    monkeypatch.setattr(subprocess, "run", pg_config)
+    require_tools = inspect.unwrap(_require_tools)
+    if missing:
+        with pytest.raises(pytest.skip.Exception, match="Postgres binaries"):
+            require_tools()
+    else:
+        try:
+            require_tools()
+        except pytest.skip.Exception as exc:
+            pytest.fail(f"Installed .exe binaries were falsely skipped: {exc}")
