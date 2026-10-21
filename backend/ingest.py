@@ -302,7 +302,7 @@ def _rebuild_derived_state() -> int:
         ("suppressed", purge_suppressed),
         ("reprice", reprice),
         ("aliases", rekey_folded_projects),
-        ("canonical", recompute_canonical),
+        ("canonical", partial(recompute_canonical, should_stop=_check_shutdown)),
         ("teammates", resolve_teammate_agent_types),
         ("usage_rollup", rebuild_rollup),
         ("tool_rollup", rebuild_tool_rollup),

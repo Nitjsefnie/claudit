@@ -1,6 +1,8 @@
 """Model adoption moves price provenance atomically and respects rollbacks."""
 from __future__ import annotations
 
+import gc
+import tracemalloc
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -9,7 +11,11 @@ import pytest
 from test_canonical_model_attribution import (  # pylint: disable=unused-import
     _fresh_db_fixture, _seed_two_identities,
 )
-from backend import constants, db, dims, ingest_rollup_state, ingest_vacuum, pricing
+from backend import (
+    constants, db, dims, ingest, ingest_model_adoption, ingest_reprice,
+    ingest_rollup_state, ingest_vacuum, pricing, rate_fingerprint,
+)
+from backend.ingest_abort import IngestAborted
 from backend.ingest_scope import Scope
 from tests import dims_seed
 
@@ -110,3 +116,147 @@ def test_failed_adoption_pricing_rolls_back_model_and_file_metadata(fresh_db, mo
     with db.viz_conn() as c:
         assert c.execute("SELECT file_id, models FROM files ORDER BY file_id").fetchall() == files_before
     assert not ingest_vacuum.take_phase_rows()
+
+
+def _seed_many(per_file):
+    _seed(constants.PRICING_VERSION)
+    with db.viz_conn() as c:
+        c.execute(
+            "INSERT INTO records (file_id, line_num, fallback, model_id, "
+            "is_replay, is_canonical, fresh_tokens, output_tokens, "
+            "web_search_requests, provider_id, ts) "
+            "SELECT file_id, line_num + i * 3, fallback || '-' || i, model_id, "
+            "is_replay, is_canonical, fresh_tokens, output_tokens, "
+            "web_search_requests, provider_id, ts "
+            "FROM records CROSS JOIN generate_series(1, %s) i", (per_file - 1,))
+        c.execute(
+            "INSERT INTO records_price (file_id, line_num, cost_usd, "
+            "long_context, long_context_input_mult, long_context_output_mult, "
+            "pricing_version_id) SELECT r.file_id, r.line_num, 77, TRUE, 1, 1, %s "
+            "FROM records r LEFT JOIN records_price rp USING (file_id, line_num) "
+            "WHERE rp.file_id IS NULL",
+            (dims_seed.dim_id(c, "dim_pricing_version", constants.PRICING_VERSION),))
+        c.commit()
+
+
+def _replay_state():
+    with db.viz_conn() as c:
+        return c.execute(
+            "SELECT r.file_id, r.line_num, dm.value, rp.cost_usd, "
+            "rp.rate_fingerprint_id, f.models FROM records r "
+            "JOIN records_price rp USING (file_id, line_num) "
+            "JOIN files f USING (file_id) JOIN dim_model dm ON dm.id = r.model_id "
+            "WHERE r.is_replay ORDER BY r.file_id, r.line_num").fetchall()
+
+
+def test_adoption_batches_sidecars_and_counts_vacuum_rows(fresh_db, monkeypatch):
+    _seed_many(4)
+    monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", 3)
+    batches = []
+    reprice = ingest_model_adoption.reprice_adopted
+
+    def observed(conn, keys):
+        if keys:
+            batches.append((sorted(keys), conn.execute(
+                "SELECT txid_current(), current_setting('work_mem')").fetchone()))
+        return reprice(conn, keys)
+
+    monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", observed)
+    ingest_vacuum.begin_run()
+    assert ingest_rollup_state.adopt_original_models() == 8
+    print("adoption batch sizes:", [len(keys) for keys, _ in batches])
+    assert [len(keys) for keys, _ in batches] == [3, 3, 2]
+    assert len({state[0] for _, state in batches}) == 3
+    assert all(state[1] == "64MB" for _, state in batches)
+    keys = [key for batch, _ in batches for key in batch]
+    assert keys == sorted(set(keys)), "keyset advances across lines and files"
+    rows = _replay_state()
+    assert len(rows) == 8
+    assert all(row[2] == "gpt-5.6-sol" and row[4] is not None
+               and "gpt-5.6-sol" in row[5] for row in rows)
+    assert ingest_vacuum.take_phase_rows() == {"reprice": 8}
+    assert ingest_rollup_state.adopt_original_models() == 0
+
+
+def test_adoption_peak_allocation_is_bounded(fresh_db, monkeypatch):
+    batch_size = 32
+    monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", batch_size)
+    reprice = ingest_model_adoption.reprice_adopted
+
+    def collect_and_reprice(conn, keys):
+        # Collect driver cursor/adapter cycles between batches so GC scheduling
+        # does not confound the peak of the live keys, sidecars and write arrays.
+        gc.collect()
+        return reprice(conn, keys)
+
+    monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", collect_and_reprice)
+    rate_fingerprint.pair_fingerprint("gpt-5.6-sol", "adoption-host")
+    peaks = []
+    for per_file in (batch_size, batch_size * 32):
+        if peaks:
+            with db.viz_conn() as c:
+                c.execute("DELETE FROM projects")
+                c.commit()
+        _seed_many(per_file)
+        gc.collect()
+        tracemalloc.start()
+        try:
+            assert ingest_rollup_state.adopt_original_models() == 2 * per_file
+            peaks.append(tracemalloc.get_traced_memory()[1])
+        finally:
+            tracemalloc.stop()
+    print(f"adoption peaks B: rows=64 {peaks[0]}, rows=2048 {peaks[1]}, batch={batch_size}")
+    # Two adjacent batches can coexist while the next fetch replaces the old
+    # keys. Allow twice the small run's entire peak, independent of set size;
+    # the 32x larger set defeats an unbounded fetch/sidecar/update array.
+    assert peaks[1] <= 2 * peaks[0], peaks
+
+
+@pytest.mark.parametrize("entry", ["direct", "canonical", "ingest"])
+@pytest.mark.parametrize("signal", ["truthy", "raises"])
+def test_adoption_abort_keeps_committed_batches_and_resumes(
+        fresh_db, monkeypatch, entry, signal):
+    _seed_many(4)
+    monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", 3)
+    before = _replay_state()
+
+    def stop():
+        rows = _replay_state()
+        if any(row[4] is not None for row in rows):
+            if signal == "raises" or entry == "ingest":
+                raise IngestAborted("test shutdown")
+            return True
+        return False
+
+    ingest_vacuum.begin_run()
+    with pytest.raises(IngestAborted):
+        if entry == "ingest":
+            monkeypatch.setattr(ingest, "_check_shutdown", stop)
+            for name in ("purge_suppressed", "reprice_stale", "rekey_folded_projects"):
+                monkeypatch.setattr(ingest, name, lambda **kwargs: 0)
+            ingest._rebuild_derived_state()  # pylint: disable=protected-access
+        elif entry == "canonical":
+            ingest_rollup_state.recompute_canonical(should_stop=stop)
+        else:
+            ingest_rollup_state.adopt_original_models(should_stop=stop)
+    after = _replay_state()
+    assert [row[:5] for row in after[3:]] == [row[:5] for row in before[3:]], (
+        "the interrupted batch never opens")
+    assert after[-1][5] == before[-1][5], "the later file's models stay untouched"
+    winner = "gpt-5.6-sol"
+    expected_cost = round(pricing.compute_cost(
+        winner, fresh=300000, output=1000, eph5=0, eph1h=0, unsplit_create=0, read=0,
+        adjustments=pricing.CostAdjustments(
+            long_context=300000 > pricing.long_context_threshold(winner),
+            web_search_requests=2),
+        res=pricing.resolve(winner, datetime(2026, 1, 1, tzinfo=timezone.utc),
+                            "adoption-host")), 6)
+    for row in after[:3]:
+        assert row[2] == "gpt-5.6-sol"
+        assert float(row[3]) == expected_cost
+        assert row[4] is not None and "gpt-5.6-sol" in row[5]
+    assert ingest_vacuum.take_phase_rows().get("reprice") == 3
+    assert ingest_rollup_state.adopt_original_models() == 5
+    assert all(row[2] == "gpt-5.6-sol" and float(row[3]) == expected_cost
+               and row[4] is not None for row in _replay_state())
+    assert ingest_rollup_state.adopt_original_models() == 0
