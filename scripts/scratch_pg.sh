@@ -13,8 +13,10 @@ case "${1:-}" in
     *) usage ;;
 esac
 [[ -n $2 ]] || usage
-if [[ $# == 3 && ! $3 =~ ^[0-9]+$ ]]; then
-    usage
+if [[ $# == 3 ]]; then
+    case $3 in
+        ''|*[!0-9]*) usage ;;
+    esac
 fi
 
 action=$1
