@@ -109,6 +109,28 @@ def test_vendor_unique_quantization_refuses_unknown_offering():
     assert GPT_KEY not in doc["openrouter"]["models"]
 
 
+def test_unadaptable_single_vendor_endpoint_keeps_original_selection():
+    doc, out = _run(_doc(), _catalog(GLM_ID), {GLM_ID: _payload(
+        _endpoint("z-ai/fp8", _price(
+            1.0, 5.0, overrides=[{"utc_days": ["notaday"]}])))})
+    assert not out.refusals and not out.notices
+    assert doc["openrouter"]["models"][GLM_KEY] == {**TRACKED, "id": GLM_ID}
+    assert out.moves == [vendor.VendorMove(GLM_ID, GLM_KEY, added=True)]
+
+
+def test_unadaptable_vendor_pair_keeps_original_ambiguity_refusal():
+    before = _doc()
+    doc, out = _run(before, _catalog(GLM_ID), {GLM_ID: _payload(
+        _endpoint("z-ai/fp8", _price(
+            1.0, 5.0, overrides=[{"utc_days": ["notaday"]}])),
+        _endpoint("z-ai/int4", _price(2.0, 9.0)))})
+    assert out.refusals == [
+        f"{GLM_ID}: the vendor lists 2 endpoints (z-ai/fp8, z-ai/int4) "
+        f"at 2 prices; record a pin in openrouter.vendor.resolve.{GLM_KEY}"]
+    assert not out.moves and not out.notices
+    assert doc == before
+
+
 @pytest.mark.parametrize("resolve,payload,needle", [
     pytest.param({GPT_KEY: {"tag": "openai/gone", "why": "once was"}},
                  _payload(_endpoint("openai", _price(1.0, 5.0))), "stale", id="stale-pin"),

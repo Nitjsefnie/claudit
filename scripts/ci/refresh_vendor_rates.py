@@ -255,20 +255,25 @@ def _choose(model_id: str, endpoints: list, pin: object, notices: list[str]
         mine = bare or mine
     listings = [_listing(model_id, e) for e in mine]
     if pin is None and not any(e["tag"] == ns for e in mine):
-        # Keep vendor validation above: provider validation gives unmodelled
-        # listings a different disposition. Only the selection rule is shared.
-        listed = [Listing(
-            e["tag"], {key: e.get(key) for key in (
-                "tag", "quantization", "context_length",
-                "max_completion_tokens", "max_prompt_tokens")},
-            listing[0], entry_schedule(e["pricing"], f"{model_id} via {e['tag']!r}"),
-            Decimal(str(e["pricing"].get("discount", 0))))
-            for e, listing in zip(mine, listings)]
-        resolved = unique_quantization(model_id, price_groups(listed))
-        if resolved is not None:
-            chosen, notice = resolved
-            notices.append(notice)
-            return listings[listed.index(chosen)]
+        # Vendor validation stands above. If provider schedule normalization
+        # refuses any endpoint, skip the rule for this model and use the
+        # original vendor fallback below.
+        try:
+            listed = [Listing(
+                e["tag"], {key: e.get(key) for key in (
+                    "tag", "quantization", "context_length",
+                    "max_completion_tokens", "max_prompt_tokens")},
+                listing[0], entry_schedule(e["pricing"], f"{model_id} via {e['tag']!r}"),
+                Decimal(str(e["pricing"].get("discount", 0))))
+                for e, listing in zip(mine, listings)]
+        except RefreshError:
+            pass
+        else:
+            resolved = unique_quantization(model_id, price_groups(listed))
+            if resolved is not None:
+                chosen, notice = resolved
+                notices.append(notice)
+                return listings[listed.index(chosen)]
     distinct = {json.dumps(listing, sort_keys=True) for listing in listings}
     if len(distinct) > 1:
         tags = ", ".join(sorted({e["tag"] for e in mine}))
