@@ -14,7 +14,9 @@ from typing import Any
 import pytest
 
 from test_ingest import _fresh_db_fixture as ingest_fresh_db_fixture  # pylint: disable=unused-import
-from backend import db, ingest_rollup_state
+from test_adoption_rate_state import _seed_many
+from backend import db, ingest_reprice, ingest_rollup_state
+from backend.ingest_abort import IngestAborted
 from backend.ingest_scope import Scope
 from tests import dims_seed
 
@@ -27,20 +29,23 @@ def _walk_plan(node: dict[str, Any]):
         yield from _walk_plan(child)
 
 
-def _seq_scans_records(node: dict[str, Any]) -> bool:
-    """Does this plan node (through pass-through wrappers) seq-scan records?
+def _identity_join(plan: dict[str, Any]) -> dict[str, Any]:
+    joins = []
+    for node in _walk_plan(plan):
+        condition = " ".join(node.get(key, "") for key in
+                             ("Join Filter", "Hash Cond", "Merge Cond"))
+        aliases = set(re.findall(r"\b(\w+)\.(?:uuid_col|fallback)\b", condition))
+        if len(aliases) == 2:
+            joins.append(node)
+    assert len(joins) == 1, "identify the UUID join, excluding UPDATE and sidecar joins"
+    return joins[0]
 
-    Counting through Materialize/Gather matters: at test scale the
-    defect plan's inner is a Materialize-wrapped Seq Scan on records.
-    Memoize is deliberately NOT transparent — nothing under it is a
-    records scan (it wraps the dim_model index probe)."""
-    if node.get("Node Type") == "Seq Scan":
-        return node.get("Relation Name") == "records"
-    if node.get("Node Type") in ("Materialize", "Gather",
-                                 "Gather Merge", "LockRows"):
-        child = node.get("Plans", [])
-        return bool(child) and _seq_scans_records(child[0])
-    return False
+
+def _assert_identity_join(plan: dict[str, Any]) -> None:
+    node = _identity_join(plan)
+    assert node["Node Type"] in ("Hash Join", "Merge Join"), (
+        "UUID join cross-scans originals for every replay (including "
+        f"Materialize over an index-fed scan): {node['Node Type']}")
 
 
 class _PlanCaptureConnection:
@@ -49,11 +54,13 @@ class _PlanCaptureConnection:
     def __init__(self, conn: Any, plans: list[dict[str, Any]]) -> None:
         self.conn = conn
         self.plans = plans
+        self.guard_prices = False
 
     def execute(self, sql: Any, params: Any = None) -> Any:
         statement = str(sql)
-        if ("adopt AS" in statement
-                and re.search(r"records r JOIN winners w", statement)):
+        identity = re.search(r"records r JOIN winners w", statement)
+        price = self.guard_prices and "FROM records r JOIN records_price rp" in statement
+        if price or ("adopt AS" in statement and (identity or "FROM model_adoption_candidates" in statement)):
             # Plain EXPLAIN: the statement's CTEs UPDATE, and EXPLAIN
             # ANALYZE would execute them (the adoption would happen
             # here and the real run would find nothing left to adopt).
@@ -61,10 +68,17 @@ class _PlanCaptureConnection:
                 "EXPLAIN (FORMAT JSON) " + statement, params
             ).fetchone()[0]
             self.plans.append(plan[0])
+            # Reject the pathological plan before executing the real UPDATE.
+            if identity:
+                _assert_identity_join(plan[0]["Plan"])
+            assert not price, "reuse the UPDATE's returned rate state instead of rereading records"
         return self.conn.execute(sql, params)
 
     def commit(self) -> None:
         self.conn.commit()
+
+    def rollback(self) -> None:
+        self.conn.rollback()
 
 
 def _seed() -> tuple[int, int]:
@@ -133,36 +147,7 @@ def test_records_adopts_on_a_hashable_join_not_a_nested_loop(
         print(node["Node Type"], node.get("Relation Name"),
               node.get("Join Type"), "rows", node.get("Plan Rows"))
 
-    # The defect shape: a Nested Loop whose INNER side (Plans[1])
-    # seq-scans records — one full-table scan per outer row — counting
-    # through the pass-through wrappers the planner may interpose
-    # (Materialize, Gather): see _seq_scans_records. A Nested Loop whose
-    # inner probes the tiny dim tables (memoized index scan) is fine
-    # and expected; that is the winners CTE's dim_model join.
-    defect = [
-        n for n in nodes
-        if n["Node Type"] == "Nested Loop"
-        and len(n.get("Plans", [])) > 1
-        and _seq_scans_records(n["Plans"][1])
-    ]
-    assert not defect, (
-        "records adoption planned as a Nested Loop with an inner ("
-        "possibly Materialize-wrapped) Seq Scan on records: one "
-        "full-table scan per replayed copy — quadratic at corpus scale "
-        "(measured: 14,011 outer rows against 1.79M inner, hours). The "
-        "join must stay hashable (equality on the rebuilt identity text)."
-    )
-    # Second guard: the adopt join itself must be a hash- or
-    # merge-joinable node. "Nested Loop" is not a Join node type, so on
-    # the defect plan this fires with a message that names the real
-    # property instead of "the plan joins nothing".
-    assert any(n["Node Type"] in ("Hash Join", "Merge Join")
-               for n in nodes), (
-        "no Hash Join or Merge Join in the records-adopt plan — the "
-        "join condition is not hash-mergeable (IS NOT DISTINCT FROM "
-        "over the uuid parts has no hash/merge path), which forces the "
-        "quadratic nested loop"
-    )
+    _assert_identity_join(plans[0]["Plan"])
 
     with db.viz_conn() as conn:
         row = conn.execute(
@@ -183,3 +168,46 @@ def test_records_adopts_on_a_hashable_join_not_a_nested_loop(
         f"{still} replayed copies kept a model other than the winner's "
         f"(winner {winner_model}, fork {replay_model})")
     assert "winner-model" in models
+
+
+def test_identity_join_above_default_batch_and_in_later_batch(fresh_db, monkeypatch):
+    # 80,002 replays at the production limit: this reaches the ordered LIMIT
+    # plan cliff that the small no-sidecar fixture cannot expose.
+    _seed_many(2 * ingest_reprice.REPRICE_BATCH + 1)
+    with db.viz_conn() as conn:
+        conn.execute("ANALYZE records")
+        conn.execute("ANALYZE records_price")
+        conn.commit()
+    plans = []
+    original = db.viz_conn
+
+    @contextmanager
+    def explained():
+        with original() as conn:
+            capture = _PlanCaptureConnection(conn, plans)
+            capture.guard_prices = True
+            yield capture
+
+    monkeypatch.setattr(db, "viz_conn", explained)
+
+    def batch_plans():
+        return [plan for plan in plans if any(
+            n.get("Relation Name") == "model_adoption_candidates"
+            for n in _walk_plan(plan["Plan"]))]
+
+    with pytest.raises(IngestAborted):
+        ingest_rollup_state.adopt_original_models(should_stop=lambda: len(batch_plans()) >= 2)
+    assert len(plans) == 3, "one identity join and two batches; no duplicate rate reads"
+    _assert_identity_join(plans[0]["Plan"])
+    for plan in batch_plans():
+        nodes = list(_walk_plan(plan["Plan"]))
+        assert any(node.get("Relation Name") == "model_adoption_candidates"
+                   and node["Node Type"] == "Index Scan" for node in nodes)
+        assert not any("uuid_col" in node.get("Join Filter", "") for node in nodes), (
+            "later batches read staged keys instead of repeating the identity join")
+    with original() as conn:
+        row = conn.execute(
+            "SELECT count(*) FROM records r JOIN dim_model dm ON dm.id=r.model_id "
+            "WHERE r.is_replay AND dm.value='gpt-5.6-sol'").fetchone()
+        assert row is not None
+        assert row[0] == 2 * ingest_reprice.REPRICE_BATCH

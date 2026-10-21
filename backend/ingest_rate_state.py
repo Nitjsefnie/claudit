@@ -22,6 +22,9 @@ SELECT_RATE_STATE = """
       LEFT JOIN dim_rate_fingerprint df ON df.id = rp.rate_fingerprint_id
 """
 
+SELECT_ADOPTED_RATE_STATE = SELECT_RATE_STATE.replace(
+    "FROM records r JOIN records_price rp", "FROM upd r LEFT JOIN records_price rp")
+
 SQL_REPRICE = """
     UPDATE records_price rp
        SET cost_usd = d.cost, long_context = d.flag,
@@ -129,15 +132,17 @@ def write_rate_updates(conn, version_id: int, updates: list[tuple]) -> int:
     return conn.execute(SQL_REPRICE, (version_id, *map(list, zip(*updates)))).rowcount
 
 
-def reprice_adopted(conn, keys: list[tuple[int, int]]) -> int:
-    """Reprice adopted models within the caller's transaction."""
+def reprice_adopted(conn, keys: list[tuple[int, int]],
+                    rows: list[RateRow] | None = None) -> int:
+    """Reprice adopted keys, reusing UPDATE-returned state when supplied."""
     if not keys:
         return 0
-    rows = [RateRow(*raw) for raw in conn.execute(
-        SELECT_RATE_STATE + """
-         WHERE (r.file_id, r.line_num) IN (
-           SELECT * FROM unnest(%s::bigint[], %s::bigint[]))
-        """, tuple(map(list, zip(*keys)))).fetchall()]
+    if rows is None:
+        rows = [RateRow(*raw) for raw in conn.execute(
+            SELECT_RATE_STATE + """
+             WHERE (r.file_id, r.line_num) IN (
+               SELECT * FROM unnest(%s::bigint[], %s::bigint[]))
+            """, tuple(map(list, zip(*keys)))).fetchall()]
     fingerprints = [rate_fingerprint.pair_fingerprint(row.model, row.provider)
                     for row in rows]
     fp_ids = dims.dim_ids(conn, "dim_rate_fingerprint", fingerprints)
