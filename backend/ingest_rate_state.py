@@ -132,17 +132,10 @@ def write_rate_updates(conn, version_id: int, updates: list[tuple]) -> int:
     return conn.execute(SQL_REPRICE, (version_id, *map(list, zip(*updates)))).rowcount
 
 
-def reprice_adopted(conn, keys: list[tuple[int, int]],
-                    rows: list[RateRow] | None = None) -> int:
-    """Reprice adopted keys, reusing UPDATE-returned state when supplied."""
-    if not keys:
+def reprice_adopted(conn, rows: list[RateRow]) -> int:
+    """Reprice sidecars from the adoption UPDATE's returned state."""
+    if not rows:
         return 0
-    if rows is None:
-        rows = [RateRow(*raw) for raw in conn.execute(
-            SELECT_RATE_STATE + """
-             WHERE (r.file_id, r.line_num) IN (
-               SELECT * FROM unnest(%s::bigint[], %s::bigint[]))
-            """, tuple(map(list, zip(*keys)))).fetchall()]
     fingerprints = [rate_fingerprint.pair_fingerprint(row.model, row.provider)
                     for row in rows]
     fp_ids = dims.dim_ids(conn, "dim_rate_fingerprint", fingerprints)

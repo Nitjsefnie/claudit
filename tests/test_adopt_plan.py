@@ -57,6 +57,8 @@ class _PlanCaptureConnection:
         self.guard_prices = False
 
     def execute(self, sql: Any, params: Any = None) -> Any:
+        # Reissue after every commit; bound EXPLAIN and real batch execution.
+        self.conn.execute("SET LOCAL statement_timeout = '30s'")
         statement = str(sql)
         identity = re.search(r"records r JOIN winners w", statement)
         price = self.guard_prices and "FROM records r JOIN records_price rp" in statement
@@ -79,6 +81,9 @@ class _PlanCaptureConnection:
 
     def rollback(self) -> None:
         self.conn.rollback()
+
+    def close(self) -> None:
+        self.conn.close()
 
 
 def _seed() -> tuple[int, int]:
