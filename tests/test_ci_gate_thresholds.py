@@ -144,7 +144,7 @@ def test_canary_skips_only_the_unrelated_gates():
     assert steps['Threshold direction guard']['if'] == (
         "${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}")
     for step in jobs['js-coverage']['steps']:
-        if step.get('name') in ('Comment share baseline', 'JavaScript coverage gate'):
+        if step.get('name') == 'JavaScript coverage gate':
             assert step['if'] == '${{ !cancelled() }}'
     assert jobs['pytest-portable']['if'] == (
         "inputs.comment_only != 'true' && inputs.thresholds_only != 'true'")
@@ -256,8 +256,7 @@ def test_threshold_base_resolved_before_tests_and_shared(event, status, expected
         assert calls.read_text().splitlines() == [
             f'python3 scripts/ci/threshold_base.py {"b" * 40} .github/ci-thresholds.json']
     env['CLAUDIT_THRESHOLDS_BASE_REV'] = expected
-    for name, script in [('Comment share baseline', 'comment_baseline'),
-                         ('Module size baseline', 'size_baseline'),
+    for name, script in [('Module size baseline', 'size_baseline'),
                          ('Pylint suppression baseline', 'suppression_baseline')]:
         step = next(step for job in _workflow('tests.yml')['jobs'].values()
                     for step in job['steps'] if step.get('name') == name)

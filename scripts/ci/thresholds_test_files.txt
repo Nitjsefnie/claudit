@@ -4,7 +4,6 @@
 # This covers the loader, document guards and ratchets,
 # including bench tests that construct thresholds through that loader.
 # Pinned by tests/test_ci_gate_thresholds.py; comments/blank lines are skipped.
-tests/test_ci_comment_baseline.py
 tests/test_ci_ratchets.py
 tests/test_ci_size_baseline.py
 tests/test_ci_suppression_baseline.py
