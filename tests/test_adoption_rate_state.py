@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import gc
 import builtins
+import os
 import tracemalloc
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
+import psycopg
+from psycopg_pool import ConnectionPool
 
 from test_canonical_model_attribution import (  # pylint: disable=unused-import
     _fresh_db_fixture, _seed_two_identities,
@@ -140,6 +143,70 @@ def _seed_many(per_file):
         c.commit()
 
 
+@pytest.fixture(name="drop_failing_pool")
+def _drop_failing_pool(fresh_db, monkeypatch):
+    _seed_many(1)
+    db.reset_viz_pool()
+    with ConnectionPool(os.environ["CLAUDIT_DATABASE_URL_VIZ"], min_size=1, max_size=1,
+                        kwargs={"autocommit": False}, check=ConnectionPool.check_connection,
+                        open=True) as pool:
+        monkeypatch.setattr(db, "_VIZ", pool)
+        with db.viz_conn() as conn:
+            conn.execute(
+                "CREATE FUNCTION cancel_adoption_drop() RETURNS event_trigger "
+                "LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test DROP cancellation' "
+                "USING ERRCODE='57014'; END $$")
+            conn.execute(
+                "CREATE EVENT TRIGGER cancel_adoption_drop ON ddl_command_start "
+                "WHEN TAG IN ('DROP TABLE') EXECUTE FUNCTION cancel_adoption_drop()")
+            pid = conn.info.backend_pid
+            conn.commit()
+        yield pid
+
+
+@pytest.mark.parametrize("outcome", ["success", "abort", "pricing"])
+def test_failed_staging_drop_does_not_poison_next_pool_checkout(
+        drop_failing_pool, monkeypatch, outcome):
+    monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", 1)
+    original_error = IngestAborted("test shutdown") if outcome == "abort" else RuntimeError("test pricing")
+    compute_cost = pricing.compute_cost
+
+    def fail_pricing(*args, **kwargs):
+        raise original_error
+
+    if outcome == "pricing":
+        monkeypatch.setattr(pricing, "compute_cost", fail_pricing)
+    checks = []
+
+    def stop():
+        checks.append(1)
+        if outcome == "abort" and len(checks) == 2:
+            raise original_error
+        return False
+
+    with pytest.raises((psycopg.errors.QueryCanceled, IngestAborted, RuntimeError)) as error:
+        ingest_rollup_state.adopt_original_models(should_stop=stop)
+    with db.viz_conn() as conn:
+        row = conn.execute("SELECT to_regclass('pg_temp.model_adoption_candidates')").fetchone()
+        assert row is not None
+        relation = row[0]
+        print({"outcome": outcome, "pid": drop_failing_pool, "next_pid": conn.info.backend_pid,
+               "relation": relation, "error": type(error.value).__name__})
+        conn.execute("DROP EVENT TRIGGER cancel_adoption_drop")
+        conn.commit()
+    assert relation is None, "failed DROP left staging on the next physical pool checkout"
+    if outcome == "success":
+        assert isinstance(error.value, psycopg.errors.QueryCanceled)
+        assert "test DROP cancellation" in str(error.value)
+    else:
+        assert error.value is original_error, "cleanup must preserve the original exception"
+    adopted = sum(row[4] is not None for row in _replay_state())
+    assert adopted == {"success": 2, "abort": 1, "pricing": 0}[outcome]
+    monkeypatch.setattr(pricing, "compute_cost", compute_cost)
+    assert ingest_rollup_state.adopt_original_models() == 2 - adopted
+    assert ingest_rollup_state.adopt_original_models() == 0
+
+
 def _replay_state():
     with db.viz_conn() as c:
         return c.execute(
@@ -156,11 +223,11 @@ def test_adoption_batches_sidecars_and_counts_vacuum_rows(fresh_db, monkeypatch)
     batches = []
     reprice = ingest_model_adoption.reprice_adopted
 
-    def observed(conn, keys, **kwargs):
-        if keys:
-            batches.append((sorted(keys), conn.execute(
+    def observed(conn, rows):
+        if rows:
+            batches.append((sorted(row[:2] for row in rows), conn.execute(
                 "SELECT txid_current(), current_setting('work_mem')").fetchone()))
-        return reprice(conn, keys, **kwargs)
+        return reprice(conn, rows)
 
     monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", observed)
     ingest_vacuum.begin_run()
@@ -185,11 +252,11 @@ def test_adoption_peak_allocation_is_bounded(fresh_db, monkeypatch):
     monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", batch_size)
     reprice = ingest_model_adoption.reprice_adopted
 
-    def collect_and_reprice(conn, keys, **kwargs):
+    def collect_and_reprice(conn, rows):
         # Collect driver cursor/adapter cycles between batches so GC scheduling
-        # does not confound the peak of the live keys, sidecars and write arrays.
+        # does not confound the peak of the live returned rows and write arrays.
         gc.collect()
-        return reprice(conn, keys, **kwargs)
+        return reprice(conn, rows)
 
     monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", collect_and_reprice)
     rate_fingerprint.pair_fingerprint("gpt-5.6-sol", "adoption-host")
@@ -209,7 +276,7 @@ def test_adoption_peak_allocation_is_bounded(fresh_db, monkeypatch):
             tracemalloc.stop()
     print(f"adoption peaks B: rows=64 {peaks[0]}, rows=2048 {peaks[1]}, batch={batch_size}")
     # Two adjacent batches can coexist while the next fetch replaces the old
-    # keys. Allow twice the small run's entire peak, independent of set size;
+    # rows. Allow twice the small run's entire peak, independent of set size;
     # the 32x larger set defeats an unbounded fetch/sidecar/update array.
     assert peaks[1] <= 2 * peaks[0], peaks
 
@@ -230,9 +297,9 @@ def test_scoped_live_batch_payload_and_single_identity_materialization(fresh_db,
     monkeypatch.setattr(builtins, "sorted", counted)
     real_reprice = ingest_model_adoption.reprice_adopted
 
-    def collected(conn, keys, **kwargs):
+    def collected(conn, rows):
         gc.collect()
-        return real_reprice(conn, keys, **kwargs)
+        return real_reprice(conn, rows)
 
     monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", collected)
     rate_fingerprint.pair_fingerprint("gpt-5.6-sol", "adoption-host")
@@ -270,9 +337,9 @@ def test_failure_after_second_sidecar_write_rolls_back_only_that_batch(
     real_reprice = ingest_model_adoption.reprice_adopted
     batches = []
 
-    def fail_second(conn, keys, **kwargs):
-        batches.append(set(keys))
-        count = real_reprice(conn, keys, **kwargs)
+    def fail_second(conn, rows):
+        batches.append({row[:2] for row in rows})
+        count = real_reprice(conn, rows)
         if len(batches) == 2:
             raise RuntimeError("injected second-batch sidecar failure")
         return count
@@ -309,9 +376,9 @@ def test_adoption_abort_keeps_committed_batches_and_resumes(
     committed_keys = set()
     checks = []
 
-    def observed(conn, keys, real_reprice=ingest_model_adoption.reprice_adopted, **kwargs):
-        committed_keys.update(keys)
-        return real_reprice(conn, keys, **kwargs)
+    def observed(conn, rows, real_reprice=ingest_model_adoption.reprice_adopted):
+        committed_keys.update(row[:2] for row in rows)
+        return real_reprice(conn, rows)
 
     monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", observed)
 

@@ -28,15 +28,15 @@ def adopt_original_models(
     scope = scope if scope is not None else current_scope()
     incremental_scope = (
         scope if scope is not None and not scope.full else None)
-    incremental = incremental_scope is not None
-    if incremental and not (incremental_scope.affected_uuids
-                            or incremental_scope.affected_tool_use_ids):
+    if incremental_scope is not None and not (incremental_scope.affected_uuids
+                                              or incremental_scope.affected_tool_use_ids):
         return 0
     changed = 0
-    uuids = sorted(incremental_scope.affected_uuids) if incremental else None
+    uuids = sorted(incremental_scope.affected_uuids) if incremental_scope is not None else None
     with db.viz_conn() as conn:
         after_key: tuple[int, int] = (-1, 0)
         staged = False
+        completed = False
         try:
             while True:
                 if should_stop is not None and should_stop():
@@ -55,7 +55,6 @@ def adopt_original_models(
                           SELECT r.uuid_col, r.seq, r.fallback, r.model_id
                             FROM records r
                            WHERE r.is_canonical AND r.is_replay IS NOT TRUE
-                             AND r.model_id IS NOT NULL
                              AND {_UUID_PRESENT}
                         ), adopt AS (
                           SELECT r.file_id, r.line_num,
@@ -112,28 +111,35 @@ def adopt_original_models(
                         "file_extras": flags.CONFIG.collection.enabled("file_extras"),
                     })
                 adopted_rows = [RateRow(*raw) for raw in cur.fetchall()]
-                adopted_keys = [(row.file_id, row.line_num) for row in adopted_rows]
-                if not adopted_keys:
+                if not adopted_rows:
                     break
                 # A NULL cost denotes a missing sidecar: stored costs are NOT NULL.
-                repriced = reprice_adopted(conn, adopted_keys, rows=[
+                repriced = reprice_adopted(conn, [
                     row for row in adopted_rows if row.cost_usd is not None])
                 conn.commit()
-                changed += len(adopted_keys)
-                after_key = max(adopted_keys)
+                changed += len(adopted_rows)
+                after_key = max((row.file_id, row.line_num) for row in adopted_rows)
                 ingest_vacuum.note_phase("reprice", repriced)
+            completed = True
         finally:
             # Roll back a failing batch before removing session-local staging.
-            conn.rollback()
-            if staged:
-                conn.execute("DROP TABLE model_adoption_candidates")
-                conn.commit()
+            try:
+                conn.rollback()
+                if staged:
+                    conn.execute("DROP TABLE model_adoption_candidates")
+                    conn.commit()
+            except Exception:
+                # A pool must discard the session if its temp table cannot be removed.
+                conn.close()
+                if completed:
+                    raise
+                log.exception("adopt_original_models: staging cleanup failed; connection closed")
 
     with db.viz_conn() as conn:
         conn.execute("SET LOCAL work_mem = '64MB'")
         tool_params = {
             "tool_ids": (sorted(incremental_scope.affected_tool_use_ids)
-                         if incremental else None),
+                         if incremental_scope is not None else None),
         }
         cur = conn.execute(
             """
