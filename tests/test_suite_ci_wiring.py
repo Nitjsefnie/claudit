@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -194,10 +195,12 @@ def test_the_suite_measurement_upload_is_unique_repo_wide():
                 if (step.get("uses") or "").startswith(
                         "actions/upload-artifact") and name in download_names:
                     uploaders.append(f"{path.name}:{job_id}:{name}")
-    assert sorted(uploaders) == sorted(
-        f"tests.yml:{'suite-bench' if name == 'suite-measurement' else 'ratchet'}:{name}"
-        for name in download_names), sorted(
-            uploaders)
+    expected = {
+        "comment-share-ratchet": "comment-share.yml:comment-share:comment-share-ratchet",
+        "ratchet-push": "tests.yml:ratchet:ratchet-push",
+        "suite-measurement": "tests.yml:suite-bench:suite-measurement"}
+    assert download_names == sorted(expected)
+    assert sorted(uploaders) == sorted(expected.values()), sorted(uploaders)
 
 
 def test_the_canary_never_compares_two_checkouts():
@@ -223,7 +226,7 @@ def test_ratchet_push_job_tightens_from_the_artifact():
                      "actions/download-artifact")]
     names = sorted((step.get("with") or {}).get("name", "")
                    for step in downloads)
-    assert names == ["ratchet-push", "suite-measurement"]
+    assert names == ["comment-share-ratchet", "ratchet-push", "suite-measurement"]
     # The tighten is a DATA operation in the bot job: no checkout, no
     # pip, no test code anywhere in the job's own text.
     text = (WORKFLOWS / "ratchet-push.yml").read_text(encoding="utf-8")
@@ -416,3 +419,144 @@ def test_the_bench_runner_sets_up_one_interpreter():
         setups = [step for step in _steps(job)
                   if (step.get("uses") or "").startswith("actions/setup-python")]
         assert len(setups) == 1
+
+
+def test_records_only_runs_select_their_measured_base_before_fetching():
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    ratchet = lines.index('if [ -f "$RUNNER_TEMP/ratchet-data/base.txt" ]; then')
+    suite = lines.index('elif [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]; then')
+    records = lines.index('elif [ -f "$RUNNER_TEMP/comment-share-data/base.txt" ]; then')
+    assert lines[records + 1] == 'base="$(cat "$RUNNER_TEMP/comment-share-data/base.txt")"'
+    end = lines.index("else", records + 1)
+    assert lines[end:end + 4] == [
+        "else",
+        'echo "no ratchet data, suite measurement or comment-share records to push" >&2',
+        "exit 1", "fi"]
+    fetch = lines.index('git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master')
+    assert ratchet < suite < records < fetch
+
+
+def test_records_base_reads_are_guarded_on_artifact_presence():
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    guards = []
+    reads = 0
+    for line in lines:
+        if line.startswith("if ") and line.endswith("; then"):
+            guards.append(line)
+        elif line.startswith("elif ") or line == "else":
+            guards[-1] = line
+        elif line == "fi":
+            guards.pop()
+        if 'cat "$RUNNER_TEMP/comment-share-data/base.txt"' in line:
+            reads += 1
+            assert any(guard in {
+                'if [ -f "$RUNNER_TEMP/comment-share-data/base.txt" ]; then',
+                'elif [ -f "$RUNNER_TEMP/comment-share-data/base.txt" ]; then'}
+                for guard in guards)
+    assert reads == 2, "base selection and records merge each read their guarded base"
+
+
+@pytest.mark.parametrize("base_var", ["base", "records_base"])
+def test_records_empty_base_is_a_broken_handoff(base_var):
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    guard = lines.index(
+        f'{"elif" if base_var == "base" else "if"} '
+        '[ -f "$RUNNER_TEMP/comment-share-data/base.txt" ]; then')
+    read = lines.index(f'{base_var}="$(cat "$RUNNER_TEMP/comment-share-data/base.txt")"')
+    empty = lines.index(f'if [ -z "${base_var}" ]; then')
+    end = lines.index("fi", empty + 1)
+    assert lines[empty + 1:end] == [
+        'echo "the comment-share data carried no base; the measuring job is broken" >&2',
+        "exit 1"]
+    assert guard < read < empty < end
+    if base_var == "base":
+        assert end < next(index for index, line in enumerate(lines)
+                          if "ratchet_staleness.py" in line)
+
+
+def test_current_master_records_deletion_requires_review():
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    current = lines.index(
+        'if ! git -C "$RUNNER_TEMP/ratchet-repo" show '
+        '"$fetched:.github/comment-share.json" > "$current"; then')
+    end = lines.index("fi", current + 1)
+    assert lines[current + 1:end] == [
+        'echo "Current master has no comment-share records; deletion requires review" >&2',
+        "exit 1"]
+    ancestor = lines.index(
+        'if ! git -C "$RUNNER_TEMP/ratchet-repo" show '
+        '"$records_base:.github/comment-share.json" > "$RUNNER_TEMP/base-records.json"; then')
+    assert lines.index(TIGHTEN_CMD) < current < end < ancestor
+
+
+@pytest.mark.parametrize(("command", "notice", "heading"), [
+    ('if ! git -C "$RUNNER_TEMP/ratchet-repo" show '
+     '"$records_base:.github/comment-share.json" > "$RUNNER_TEMP/base-records.json"; then',
+     "Ancestor records are unreadable", "ancestor records could not be read"),
+    ('elif ! git merge-file "$current" "$RUNNER_TEMP/base-records.json" '
+     '"$RUNNER_TEMP/comment-share-data/comment-share.json"; then',
+     "Records changes conflict", "records merge conflicted"),
+    ('if ! python3 -I -m json.tool "$current" >/dev/null; then',
+     "Merged records are invalid", "records failed JSON validation"),
+])
+def test_records_drop_branches_preserve_other_ratchets(command, notice, heading):
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    start = lines.index(command)
+    end = next(index for index in range(start + 1, len(lines))
+               if lines[index] in {"else", "fi"} or lines[index].startswith("elif "))
+    branch = lines[start + 1:end]
+    assert any(line.startswith(f'echo "::notice::{notice};') for line in branch)
+    assert f'echo "### Dropped: {heading}"' in branch
+    assert ('echo "This run\'s records tightening is dropped; '
+            'the next master push measures again."' in branch)
+    assert '} >> "$GITHUB_STEP_SUMMARY"' in branch
+    assert not any(line.startswith("exit ") for line in branch)
+    assert "records_selected=true" not in branch
+    if "json.tool" not in command:
+        assert branch[-1] == "records_merge_ok=false"
+    commit = next(index for index, line in enumerate(lines) if " commit -m " in line)
+    assert lines.index(TIGHTEN_CMD) < start < end < commit
+
+
+def test_successful_records_merge_is_validated_before_selection_and_staging():
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    initial = lines.index("records_selected=false")
+    stale = lines.index('if [ "$fetched" != "$records_base" ]; then')
+    ancestor = next(index for index, line in enumerate(lines)
+                    if 'show "$records_base:.github/comment-share.json"' in line)
+    merge = next(index for index, line in enumerate(lines) if 'git merge-file "$current"' in line)
+    assert lines[stale - 1] == "records_merge_ok=true"
+    copy = lines.index('cp "$RUNNER_TEMP/comment-share-data/comment-share.json" "$current"')
+    assert lines[copy - 1] == "else"
+    assert lines[copy - 2] == "fi"
+    ready = lines.index('if [ "$records_merge_ok" = true ]; then')
+    validate = lines.index('if ! python3 -I -m json.tool "$current" >/dev/null; then')
+    selected = lines.index("records_selected=true")
+    assert lines[selected - 2:selected] == [
+        "else", 'cp "$current" "$RUNNER_TEMP/ratchet-repo/.github/comment-share.json"']
+    stage_thresholds = lines.index('git -C "$RUNNER_TEMP/ratchet-repo" add .github/ci-thresholds.json')
+    stage_records = lines.index('git -C "$RUNNER_TEMP/ratchet-repo" add .github/comment-share.json')
+    assert lines[stage_records - 1] == 'if [ "$records_selected" = true ]; then'
+    assert lines[stage_records + 1] == "fi"
+    assert (lines.index(TIGHTEN_CMD) < initial < stale < ancestor < merge
+            < copy < ready < validate < selected < stage_thresholds < stage_records)
+
+
+def test_records_selection_controls_commit_message_and_both_files_are_checked():
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    guard = lines.index(
+        'if [ -z "$(git -C "$RUNNER_TEMP/ratchet-repo" status --porcelain '
+        '.github/ci-thresholds.json .github/comment-share.json)" ]; then')
+    message = lines.index("message='Ratchet ci-thresholds: raise coverage floor / tighten baselines (automated)'")
+    assert lines[message + 1:message + 5] == [
+        'if [ "$records_selected" = true ]; then',
+        "message='chore(ratchet): tighten comment-share records (automated)'",
+        "fi", 'git -C "$RUNNER_TEMP/ratchet-repo" commit -m "$message"']
+    assert lines.index("records_selected=true") < guard < message
