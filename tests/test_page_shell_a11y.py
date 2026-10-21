@@ -5,7 +5,7 @@ here renders React, so a page can lose its level-one heading or its main
 landmark while the whole suite stays green, and index.html can drop the
 icon declaration so every page load 404s /favicon.ico. These guards pin:
 
-1. exactly one <h1> renders per page state -- Overview (Dashboard, visually hidden with sr-only),
+1. exactly one <h1> renders per page state -- Overview (Dashboard, sr-only),
    Sessions (SessionsList), Cache (CacheView), Inspector (SessionView:
    one in the loaded path and one in the empty path, plus the App's
    fetch-error branch), sign-in (login_page.py, already carried);
@@ -32,9 +32,8 @@ CSS = ROOT / "public" / "app.css"
 INDEX = ROOT / "public" / "index.html"
 LOGIN = ROOT / "backend" / "login_page.py"
 
-# h1 SITES per file across the src tree: dashboard-view.jsx carries the
-# sr-only Overview heading; app.jsx carries SessionView's two Inspector
-# paths and the App's fetch-error branch.
+# h1 sites: dashboard-view.jsx has sr-only Overview; app.jsx has the two
+# Inspector paths and fetch-error branch.
 _H1_SITES = {"app.jsx": 3, "dashboard-view.jsx": 1, "sessions-list.jsx": 1, "cache-view.jsx": 1}
 
 
