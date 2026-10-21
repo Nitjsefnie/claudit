@@ -1,11 +1,12 @@
 """A visually hidden page heading participates in accessibility, not flex gaps."""
 from __future__ import annotations
 
+import json
 import shutil
+import subprocess
+from pathlib import Path
 
 import pytest
-
-from tests.test_panel_layout_rules_js import _node
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 
@@ -51,3 +52,14 @@ def test_zero_gap_seed_moves_summary_and_grid_instead_of_hidden_heading():
         "seeded": {"upper": "dash-summary", "lower": "dash-grid", "pulled": 14},
         "margin": "-14px",
     }
+
+
+def _node(body: str):
+    module = Path(__file__).resolve().parents[1] / "scripts" / "ci" / "panel_layout_rules.mjs"
+    script = f"const mod = await import({json.dumps(module.as_uri())});\n{body}\n"
+    proc = subprocess.run(
+        ["node", "--input-type=module"], input=script, capture_output=True,
+        text=True, timeout=60, check=False, encoding="utf-8", errors="strict",
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    return json.loads(proc.stdout)
