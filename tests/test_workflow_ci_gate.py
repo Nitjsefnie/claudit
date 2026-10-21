@@ -269,11 +269,9 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     job = _ratchet_push_job()
     run = _ratchet_push_run()
 
-    # The trigger is the ci-gate run's completion: tests.yml is a
-    # workflow_call callee and produces no run of its own on a master
-    # push — the run carrying the ratchet artifacts is ci-gate's.
+    # Each keyless gate publishes its own artifact on completion.
     wr = (workflow.get("on") or {}).get("workflow_run") or {}
-    assert wr.get("workflows") == ["ci gate"]
+    assert wr.get("workflows") == ["ci gate", "comment share"]
     assert wr.get("types") == ["completed"]
 
     # Only a completed green master push publishes: a PR run stages no
@@ -291,8 +289,8 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
 
     steps = job["steps"]
-    assert len(steps) == 4
-    listing, download, suite_download, push = steps
+    assert len(steps) == 5
+    listing, download, suite_download, records_download, push = steps
     assert listing["name"] == "List the triggering run's artifacts"
     listing_run = listing.get("run") or ""
     assert listing["env"]["GH_TOKEN"] == "${{ github.token }}"
@@ -301,19 +299,32 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "actions/runs/$RUN_ID/artifacts" in listing_run
     assert "grep -qx 'ratchet-push'" in listing_run
     assert "grep -qx 'suite-measurement'" in listing_run
+    assert "grep -qx 'comment-share-ratchet'" in listing_run
     assert 'echo "ratchet=$ratchet"' in listing_run
     assert 'echo "suite=$suite"' in listing_run
+    assert 'echo "records=$records"' in listing_run
+    assert "records=false" in listing_run
+    assert "records=true" in listing_run
+    assert ('if [ "$ratchet" = true ] || [ "$suite" = true ] '
+            '|| [ "$records" = true ]; then' in listing_run)
     assert 'echo "any=true"' in listing_run
 
     assert download["name"] == "Download the ratchet data"
     assert download["if"] == "steps.list.outputs.ratchet == 'true'"
     assert suite_download["name"] == "Download the suite measurement"
     assert suite_download["if"] == "steps.list.outputs.suite == 'true'"
-    # The two staged artifacts must come from the SAME revision of the
+    assert records_download["name"] == "Download the comment-share records"
+    assert records_download["if"] == "steps.list.outputs.records == 'true'"
+    assert records_download["with"] == {
+        "name": "comment-share-ratchet",
+        "path": "${{ runner.temp }}/comment-share-data",
+        "run-id": "${{ github.event.workflow_run.id }}",
+        "github-token": "${{ secrets.GITHUB_TOKEN }}"}
+    # The three staged artifacts must come from the SAME revision of the
     # download action: a bump landing on only one step is a half-applied
     # dependency change. Derived from the workflow itself, quoting no
     # value (fleet-rules, "Merging and CI").
-    assert download["uses"] == suite_download["uses"]
+    assert download["uses"] == suite_download["uses"] == records_download["uses"]
 
     # The push step admits only when at least one artifact was staged.
     assert push["name"] == "Push the ratchet commit to master"
@@ -346,7 +357,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert ('elif [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]'
             in run)
     assert 'base="$BASE_FALLBACK"' in run
-    assert "no ratchet data and no suite measurement to push" in run
+    assert "no ratchet data, suite measurement or comment-share records to push" in run
     assert (run.index("remote=") < run.index('base="$BASE_FALLBACK"')
             < run.index("git init") < run.index('remote add origin "$remote"')
             < run.index("fetch --quiet origin master")
@@ -395,7 +406,8 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
             in run)
     assert run.index("suite_ratchet.py") < run.index(
         'add .github/ci-thresholds.json')
-    assert "status --porcelain .github/ci-thresholds.json" in run
+    assert ("status --porcelain .github/ci-thresholds.json "
+            ".github/comment-share.json" in run)
     assert run.index("status --porcelain") < run.index("commit -m")
     assert "nothing to commit" in run
     assert 'git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master' in run
