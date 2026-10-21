@@ -47,7 +47,8 @@ if [[ $action == env ]]; then
 fi
 
 pg_bindir=
-if pg_config_bin=$(command -v pg_config); then
+pg_config_bin=$(command -v pg_config) || pg_config_bin=
+if [[ -n $pg_config_bin ]]; then
     if ! pg_bindir=$("$pg_config_bin" --bindir); then
         pg_bindir=
     fi
@@ -55,7 +56,10 @@ fi
 find_binary() {
     if [[ -n $pg_bindir && -x $pg_bindir/$1 ]]; then
         printf '%s\n' "$pg_bindir/$1"
-    elif binary=$(command -v "$1"); then
+        return 0
+    fi
+    binary=$(command -v "$1") || binary=
+    if [[ -n $binary ]]; then
         printf '%s\n' "$binary"
     else
         printf 'Cannot find %s: tried pg_config --bindir and PATH.\n' "$1" >&2
