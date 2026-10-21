@@ -42,9 +42,9 @@ def hashed_modules() -> tuple:
     module in the opposite direction.
     """
     # pylint: disable=import-outside-toplevel,cyclic-import
-    from backend import ingest_reprice, parse, parse_codex, parse_common
+    from backend import ingest_rate_state, ingest_reprice, parse, parse_codex, parse_common
     return (*_LOGIC_MODULES, parse, parse_common, parse_codex,
-            ingest_reprice)
+            ingest_reprice, ingest_rate_state)
 
 
 def _logic() -> str:

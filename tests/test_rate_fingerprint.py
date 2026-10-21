@@ -377,13 +377,14 @@ def test_parser_and_reprice_derivation_modules_are_hashed():
                      "backend.model_names", "backend.meter_tables",
                      "backend.long_context", "backend.parse",
                      "backend.parse_common", "backend.parse_codex",
-                     "backend.ingest_reprice"}
+                     "backend.ingest_reprice", "backend.ingest_rate_state"}
 
 
 @pytest.mark.parametrize(("module_name", "model", "edit"), [
     ("backend.ingest_reprice", "fp377-model", "simulated rule edit (issue #377)"),
     ("backend.parse", "fp-search-model", "simulated server_tool_use count rule change"),
-], ids=["reprice-pass", "claude-search-count"])
+    ("backend.ingest_rate_state", "fp-adoption-model", "simulated shared rule edit"),
+], ids=["reprice-pass", "claude-search-count", "shared-rate-state"])
 def test_derivation_source_edit_moves_the_fingerprint(monkeypatch, module_name, model, edit):
     """Editing either stored-state derivation invalidates the clean restamp."""
     before = rate_fingerprint.pair_fingerprint(model, None)

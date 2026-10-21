@@ -4,12 +4,12 @@ pair-qualified pass.
 The pass frozen here as _legacy_reprice_stale is backend/ingest_reprice
 at base 8d78ce5, kept verbatim so the pair-qualified pass must end
 every seeded shape byte-identically on (cost_usd, long_context,
-pricing_version). The frozen copy keeps importing _StaleRow,
-_record_updates and _stored_pricing_version_is_newer (and
-_row_is_unchanged, the fourth assembly helper) from
-backend.ingest_reprice — they must not change behaviour — and keeps
-its SQL constants local. Its one mechanical adaptation: the SELECT
-names the sidecar's rate_fingerprint too, because the shared _StaleRow
+pricing_version). The frozen copy keeps importing RateRow,
+record_updates and stored_pricing_version_is_newer from
+backend.ingest_rate_state, plus _row_is_unchanged from backend.ingest_reprice
+— they must not change behaviour — and keeps its SQL constants local.
+Its one mechanical adaptation: the SELECT
+names the sidecar's rate_fingerprint too, because the shared RateRow
 now carries the field; the legacy writes stay the legacy shapes.
 
 Split from test_reprice_parity.py, which sat one line under the
@@ -46,11 +46,11 @@ from backend import (
     rate_fingerprint,
     timing,
 )
-from backend.ingest_reprice import (
-    _record_updates,
-    _row_is_unchanged,
-    _StaleRow,
-    _stored_pricing_version_is_newer,
+from backend.ingest_reprice import _row_is_unchanged
+from backend.ingest_rate_state import (
+    record_updates,
+    RateRow,
+    stored_pricing_version_is_newer,
 )
 from tests import dims_seed
 
@@ -73,13 +73,13 @@ _REAL_PROVIDER_ROWS = dict(pricing.PROVIDER_RATES)
 # The differential: the legacy pass, frozen verbatim as
 # _legacy_reprice_stale, and the pair-qualified pass must end every
 # seeded shape at byte-identical (cost_usd, long_context, pricing_version).
-# The frozen copy keeps importing _StaleRow, _record_updates and
-# _stored_pricing_version_is_newer from backend.ingest_reprice — they are
+# The frozen copy keeps importing RateRow, record_updates and
+# stored_pricing_version_is_newer from backend.ingest_rate_state — they are
 # the assembly point and must not change behaviour — and keeps its SQL
 # constants local. The one mechanical adaptation: its SELECT names the
-# sidecar's rate_fingerprint column too, because the shared _StaleRow now
+# sidecar's rate_fingerprint column too, because the shared RateRow now
 # carries the field; the legacy writes stay exactly the legacy shapes.
-# The SELECT also carries request_fee_usd to satisfy _StaleRow;
+# The SELECT also carries request_fee_usd to satisfy RateRow;
 # legacy writes retain their frozen shapes.
 _LEGACY_SELECT_SQL = """
     SELECT r.file_id, r.line_num, dm.value, r.fresh_tokens,
@@ -125,7 +125,7 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
                           ) -> int:
     """The legacy pass, frozen at base 8d78ce5 for the differential
     below. Verbatim except: the SELECT names rate_fingerprint (the
-    shared _StaleRow carries the field), and the module-level SQL
+    shared RateRow carries the field), and the module-level SQL
     constants, logger and REPRICE_BATCH/IngestAborted references
     resolve to the parity module's locals and backend.ingest_reprice's
     surviving names. duplicate-code is disabled because the frozen
@@ -168,15 +168,15 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
                     break
                 rows_seen += len(raw_rows)
                 t0 = time.perf_counter()
-                rows = [_StaleRow(*raw) for raw in raw_rows]
+                rows = [RateRow(*raw) for raw in raw_rows]
                 restamp_keys: list[tuple[int, int]] = []
                 moved: list[tuple[int, int, float, bool | None]] = []
                 for row in rows:
-                    if _stored_pricing_version_is_newer(
+                    if stored_pricing_version_is_newer(
                             row.pricing_version, constants.PRICING_VERSION):
                         skipped += 1
                         continue
-                    updates = _record_updates(row)
+                    updates = record_updates(row)
                     if _row_is_unchanged(row, updates):
                         restamp_keys.append((row.file_id, row.line_num))
                     else:

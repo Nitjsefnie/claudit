@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from backend import parse, pricing, rate_fingerprint
-from backend.ingest_reprice import _record_updates, _StaleRow
+from backend.ingest_rate_state import record_updates, RateRow
 from backend.parse_common import _to_dt
 
 FIXTURE = (Path(__file__).resolve().parents[1] / "fixtures" / "parser"
@@ -162,8 +162,8 @@ def test_the_codex_lane_decides_on_the_model_threshold(monkeypatch):
     assert out["records"][0]["long_context"] is True
 
 
-def _stale_row(model: str, window: int, flag: bool | None) -> _StaleRow:
-    return _StaleRow(
+def _stale_row(model: str, window: int, flag: bool | None) -> RateRow:
+    return RateRow(
         file_id=1, line_num=1, model=model, fresh_tokens=window,
         cache_creation_tokens=0, cache_read_tokens=0, output_tokens=100,
         eph5_tokens=0, eph1h_tokens=0, ts=None, long_context=flag,
@@ -176,27 +176,27 @@ def test_reprice_derives_the_flag_from_the_model_threshold(monkeypatch):
     # THE LEARNING TRANSITION (the review's C1): a pre-fold NULL row of a
     # newly learned member reprices to the band decision — what a reparse
     # would store — not kept flat.
-    learned = _record_updates(_stale_row(MEMBER, THRESHOLD + 5_000, None))
+    learned = record_updates(_stale_row(MEMBER, THRESHOLD + 5_000, None))
     assert learned["long_context"] is True
     assert learned["cost_usd"] == pytest.approx(
         (205_000 * RATES["fresh"] * 5.0
          + 100 * RATES["output"] * 5.0) / 1_000_000)
-    above = _record_updates(_stale_row(MEMBER, THRESHOLD + 5_000, False))
+    above = record_updates(_stale_row(MEMBER, THRESHOLD + 5_000, False))
     assert above["long_context"] is True
-    below = _record_updates(_stale_row(MEMBER, 5_000, False))
+    below = record_updates(_stale_row(MEMBER, 5_000, False))
     assert below["long_context"] is False
     # The decision ignores the provider, because the parse's does: a
     # provider-tagged member row re-derives the same.
-    prov_row = _record_updates(
-        _StaleRow(**{**_stale_row(MEMBER, THRESHOLD + 5_000, None)._asdict(),
-                     "provider": "Acme"}))
+    prov_row = record_updates(
+        RateRow(**{**_stale_row(MEMBER, THRESHOLD + 5_000, None)._asdict(),
+                   "provider": "Acme"}))
     assert prov_row["long_context"] is True
     # A NON-MEMBER row keeps its stored flag: the parse stores NULL for a
     # Claude-format non-member and the threshold test's result for a
     # Codex-format one, and a kept flag matches one of the two paths.
-    non_member = _record_updates(_stale_row("claude-opus-4-7", 10_000_000, None))
+    non_member = record_updates(_stale_row("claude-opus-4-7", 10_000_000, None))
     assert non_member["long_context"] is None
-    kept_false = _record_updates(_stale_row("claude-opus-4-7", 10_000_000, False))
+    kept_false = record_updates(_stale_row("claude-opus-4-7", 10_000_000, False))
     assert kept_false["long_context"] is False
 
 
@@ -208,11 +208,11 @@ def test_reprice_unbills_a_lapsed_members_stored_true(monkeypatch):
     TRUE above the global threshold is the Codex path's own shape and
     stands; FALSE and NULL non-member rows keep (every path's shape)."""
     _install_tables(monkeypatch)
-    lapsed = _record_updates(_stale_row("claude-opus-4-7", 250_000, True))
+    lapsed = record_updates(_stale_row("claude-opus-4-7", 250_000, True))
     assert lapsed["long_context"] is False
-    codex_shaped = _record_updates(_stale_row("claude-opus-4-7", 300_000, True))
+    codex_shaped = record_updates(_stale_row("claude-opus-4-7", 300_000, True))
     assert codex_shaped["long_context"] is True
-    kept_false = _record_updates(_stale_row("claude-opus-4-7", 250_000, False))
+    kept_false = record_updates(_stale_row("claude-opus-4-7", 250_000, False))
     assert kept_false["long_context"] is False
-    kept_null = _record_updates(_stale_row("claude-opus-4-7", 250_000, None))
+    kept_null = record_updates(_stale_row("claude-opus-4-7", 250_000, None))
     assert kept_null["long_context"] is None

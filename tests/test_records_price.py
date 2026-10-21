@@ -38,6 +38,7 @@ from backend import (
     constants,
     db,
     ingest,
+    ingest_rate_state,
     ingest_reprice,
     parser_version,
     pricing,
@@ -58,7 +59,7 @@ UTC = timezone.utc
 _FILE_KEY = "claude/reprice-test/sess-a/sess-a.jsonl"
 
 # The moved columns, verbatim: R4's list plus request_fee_usd, which
-# _SQL_REPRICE writes (SET request_fee_usd = NULL — the retired legacy
+# SQL_REPRICE writes (SET request_fee_usd = NULL — the retired legacy
 # fee column). web_search_requests and text_chars are NOT here: no
 # reprice UPDATE writes them (they are parse-time inputs/outputs).
 _MOVED = (
@@ -321,8 +322,9 @@ def test_no_reprice_statement_targets_records_in_source():
     that drifts back onto `records` fails here even before it runs.
     Only the SQL constants are scanned — prose may say "UPDATE" in any
     shape, the statements cannot."""
-    src = Path(ingest_reprice.__file__).read_text(encoding="utf-8")
-    sql_consts = re.findall(r'_SQL_[A-Z_]+ = """(.*?)"""', src, re.S)
+    src = (Path(ingest_reprice.__file__).read_text(encoding="utf-8")
+           + Path(ingest_rate_state.__file__).read_text(encoding="utf-8"))
+    sql_consts = re.findall(r'_?SQL_[A-Z_]+ = """(.*?)"""', src, re.S)
     updates = [stmt for stmt in sql_consts if "UPDATE" in stmt]
     assert len(updates) == 3, sql_consts
     for stmt in updates:

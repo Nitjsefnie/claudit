@@ -25,6 +25,7 @@ from backend import (
     db,
     ingest,
     ingest_reprice,
+    ingest_rate_state,
     timing,
 )
 
@@ -56,7 +57,7 @@ def test_reprice_restamp_only_run_reports_zero(fresh_db, caplog):
 
 def test_reprice_endpoint_matches_the_assembly_point(fresh_db):
     """The endpoint invariant the differential rests on: after the pass,
-    every non-guarded row equals what `_record_updates` computes from its
+    every non-guarded row equals what `record_updates` computes from its
     own stored columns at the current version, and a guard-skipped row
     (a newer stored version) keeps its stored state. This is exactly the
     old one-row-at-a-time pass's endpoint, so the split changes nothing —
@@ -88,8 +89,8 @@ def test_reprice_endpoint_matches_the_assembly_point(fresh_db):
             (_FILE_KEY,)).fetchall()
     assert len(raw) == 3
     for tup in raw:
-        row = ingest_reprice._StaleRow(*tup)  # pylint: disable=protected-access
-        expected = ingest_reprice._record_updates(row)  # pylint: disable=protected-access
+        row = ingest_rate_state.RateRow(*tup)
+        expected = ingest_rate_state.record_updates(row)
         if row.pricing_version == newer:
             assert float(row.cost_usd) == 0.5, "the guard row keeps its sentinel"
             continue
