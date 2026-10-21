@@ -1,10 +1,15 @@
 """Per-(model, provider) price-derivation fingerprint.
 
-Equal fingerprints must imply equal prices for every token/search count,
-timestamp and long-context flag, so unchanged pairs may be restamped without
-recomputation. Hash all inputs resolve consults: selected rate data, resolution
-outcome, schedules/windows, parser source producing search counts, pricing
-source, and reprice source deriving meters and unsplit arithmetic.
+Equal fingerprints must imply equal rate-derived state for the same stored
+model, token/search counts, timestamp, provider and incoming long-context flag,
+so unchanged pairs may be restamped without recomputation. Hash selected rate
+data, resolution outcomes, schedules/windows, and source that loads or resolves
+rates, assembles parsed/repriced costs, decides meters, or persists the factor
+pair and fingerprint. Token and model extraction produce stored inputs; their
+semantics belong to the parser version, not this digest.
+
+Clean restamping assumes those stored inputs have not changed since pricing;
+an out-of-band input edit must clear the stored fingerprint (SV-REPRICE).
 
 Changing the structure requires a _STRUCTURE_VERSION bump, invalidating every
 stored fingerprint. Read tables through pricing attributes at call time so
@@ -18,7 +23,7 @@ import json
 from datetime import datetime
 
 from backend import (long_context, meter_tables, model_names, pricing,
-                     pricing_load)
+                     pricing_document, pricing_load, pricing_rows)
 from backend.pricing_load import RATE_FIELDS
 
 # The digest's own version: bump when the structure's shape changes.
@@ -27,7 +32,7 @@ _STRUCTURE_VERSION = 7
 # Pricing modules are the stable imports; parser and reprice modules join
 # them at first use in hashed_modules to keep their import edges acyclic.
 _LOGIC_MODULES = (pricing, pricing_load, model_names, meter_tables,
-                  long_context)
+                  long_context, pricing_document, pricing_rows)
 
 # The digest, computed on first use: by then parser and reprice imports
 # have settled and getsource can read their modules.
@@ -35,16 +40,17 @@ _LOGIC_CACHE: list[str] = []
 
 
 def hashed_modules() -> tuple:
-    """The parser, pricing and reprice source hashed by the logic digest.
+    """Rate loading, price assembly, meter and persistence source to hash.
 
     Parser modules are imported at call time so this module stays outside
     their import graph; the reprice pass is lazy because it imports this
     module in the opposite direction.
     """
     # pylint: disable=import-outside-toplevel,cyclic-import
-    from backend import ingest_rate_state, ingest_reprice, parse, parse_codex, parse_common
-    return (*_LOGIC_MODULES, parse, parse_common, parse_codex,
-            ingest_reprice, ingest_rate_state)
+    from backend import (ingest_persist, ingest_rate_state, ingest_reprice,
+                         parse, parse_codex, parse_common, parse_projection)
+    return (*_LOGIC_MODULES, parse, parse_common, parse_codex, parse_projection,
+            ingest_reprice, ingest_rate_state, ingest_persist)
 
 
 def _logic() -> str:
