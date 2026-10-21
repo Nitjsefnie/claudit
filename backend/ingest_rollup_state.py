@@ -3,6 +3,7 @@ teammate role resolution."""
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
 
 from backend import db, uuid_split
@@ -185,7 +186,9 @@ def _updated_tool_hours(
         scope.add_hour(project_id, hour)
 
 
-def recompute_canonical(scope: Scope | None = None) -> int:
+def recompute_canonical(
+        scope: Scope | None = None,
+        should_stop: Callable[[], bool | None] | None = None) -> int:
     """Set canonical flags globally, or only for identities a run touched.
 
     The pass's tail is the winner rule's model half: once
@@ -325,4 +328,4 @@ def recompute_canonical(scope: Scope | None = None) -> int:
         log.info("recompute_canonical: %d rows reflagged", changed)
     # The winner rule's model half: now that the rank has
     # settled, a losing replayed copy adopts its original's model.
-    return changed + adopt_original_models(scope)
+    return changed + adopt_original_models(scope, should_stop=should_stop)
