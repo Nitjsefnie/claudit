@@ -305,7 +305,7 @@
   ],
   "backend/ingest.py": [
     8585,
-    20491
+    20528
   ],
   "backend/ingest_abort.py": [
     387,
@@ -349,7 +349,7 @@
   ],
   "backend/ingest_rollup_state.py": [
     1732,
-    9474
+    9576
   ],
   "backend/ingest_rollup_web_metrics.py": [
     3499,
@@ -981,7 +981,7 @@
   ],
   "tests/db_marker.py": [
     2824,
-    4393
+    4413
   ],
   "tests/dims_seed.py": [
     656,
@@ -1028,8 +1028,8 @@
     21356
   ],
   "tests/test_adopt_plan.py": [
-    1668,
-    5807
+    1104,
+    6779
   ],
   "tests/test_agent_fold_js.py": [
     1932,
