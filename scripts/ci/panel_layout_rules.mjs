@@ -444,9 +444,10 @@ const GAP_CONTAINERS_PROBE = () => {
     const d = getComputedStyle(el).display;
     return d !== 'inline' && d !== 'contents';
   };
-  const effective = (parent) => [...parent.children].flatMap(
-    (c) => (isBoxed(c) ? [c] : effective(c)),
-  );
+  const effective = (parent) => [...parent.children]
+    .filter((c) => !['absolute', 'fixed'].includes(getComputedStyle(c).position)).flatMap(
+      (c) => (isBoxed(c) ? [c] : effective(c)),
+    );
   const nm = (el) => (el.className && String(el.className).trim())
     || el.tagName.toLowerCase();
   const boxOf = (el) => {
