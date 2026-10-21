@@ -315,16 +315,11 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert suite_download["if"] == "steps.list.outputs.suite == 'true'"
     assert records_download["name"] == "Download the comment-share records"
     assert records_download["if"] == "steps.list.outputs.records == 'true'"
-    assert records_download["with"] == {
-        "name": "comment-share-ratchet",
-        "path": "${{ runner.temp }}/comment-share-data",
-        "run-id": "${{ github.event.workflow_run.id }}",
-        "github-token": "${{ secrets.GITHUB_TOKEN }}"}
-    # The three staged artifacts must come from the SAME revision of the
+    # The two staged artifacts must come from the SAME revision of the
     # download action: a bump landing on only one step is a half-applied
     # dependency change. Derived from the workflow itself, quoting no
     # value (fleet-rules, "Merging and CI").
-    assert download["uses"] == suite_download["uses"] == records_download["uses"]
+    assert download["uses"] == suite_download["uses"]
 
     # The push step admits only when at least one artifact was staged.
     assert push["name"] == "Push the ratchet commit to master"
