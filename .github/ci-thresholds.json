@@ -645,8 +645,8 @@
       14441
     ],
     "scripts/ci/refresh_vendor_rates.py": [
-      6106,
-      16474
+      6389,
+      17445
     ],
     "scripts/ci/release_gate.py": [
       4608,
