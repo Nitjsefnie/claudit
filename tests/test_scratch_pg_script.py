@@ -99,6 +99,36 @@ def test_start_exports_connect_and_stop_removes_cluster(
     assert not directory.exists()
 
 
+@pytest.mark.db
+@pytest.mark.parametrize("filename", ["keep", ".keep"])
+def test_start_refuses_nonempty_uninitialised_directory(
+        tmp_path: Path, filename: str) -> None:
+    if subprocess.check_output(["bash", "-c", "id -u"], text=True).strip() == "0":
+        parent = tmp_path
+        temp_root = Path(tempfile.gettempdir()).resolve()
+        while parent.is_relative_to(temp_root) and parent != temp_root:
+            parent.chmod(parent.stat().st_mode | 0o111)
+            parent = parent.parent
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = str(listener.getsockname()[1])
+    directory = tmp_path / "unrelated"
+    directory.mkdir()
+    sentinel = directory / filename
+    sentinel.write_text("keep me", encoding="utf-8")
+    try:
+        started = _run("start", str(directory), port, cwd=ROOT)
+        assert started.returncode != 0, started.stdout
+        assert "refusing" in started.stderr.lower()
+        assert not started.stdout
+        assert sentinel.read_text(encoding="utf-8") == "keep me"
+        assert list(directory.iterdir()) == [sentinel]
+    finally:
+        if (directory / ".scratch_pg").exists():
+            stopped = _run("stop", str(directory), cwd=ROOT)
+            assert stopped.returncode == 0, stopped.stderr
+
+
 def test_stop_refuses_uninitialised_directory(tmp_path: Path) -> None:
     directory = tmp_path / "unrelated"
     directory.mkdir()

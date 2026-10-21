@@ -72,6 +72,14 @@ pg_ctl=$(find_binary pg_ctl)
 initdb=$(find_binary initdb)
 
 if [[ $action == start ]]; then
+    if [[ -d $dir && ! -f $marker ]]; then
+        shopt -s nullglob dotglob
+        contents=("$dir"/*)
+        if [[ ! -r $dir || ${#contents[@]} != 0 ]]; then
+            printf 'Refusing to initialise %s: directory is non-empty or unreadable and has no scratch_pg marker.\n' "$dir" >&2
+            exit 1
+        fi
+    fi
     mkdir -p -- "$dir"
     if [[ ${#runner[@]} != 0 ]]; then
         chown postgres -- "$dir"
