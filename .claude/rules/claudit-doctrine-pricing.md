@@ -633,12 +633,16 @@ pass moved.
   model.
 - **The vendor endpoint.** The BARE tag (namespace, no suffix) is the
   first-party price; the vendor's other tags are its own service tiers
-  (fast, flex) or quantizations. With no bare tag, the vendor-prefix
-  endpoints must agree on one price (equal prices collapse); several prices
-  refuse, and a `{"tag": ..., "why": ...}` pin recorded in
-  `openrouter.vendor.resolve.<derived key>` takes one. No vendor-prefix
-  endpoint at all is a NOTICE + skip (the model is offered only through
-  third-party hosts; any tracked entry's own state stands).
+  (fast, flex) or quantizations. A `{"tag": ..., "why": ...}` pin recorded
+  in `openrouter.vendor.resolve.<derived key>` narrows first and refuses
+  when its tag is not listed. With no pin or bare tag, the provider path's
+  unique-quantization rule takes the one quantization endpoint beside only
+  service tiers and reports the rule and selected endpoint. Both paths
+  call the SAME rule in `refresh_selection_rules.py`: one rule with two
+  callers. Otherwise the vendor-prefix endpoints must agree on one price
+  (equal prices collapse); several prices refuse, naming the resolve key.
+  No vendor-prefix endpoint at all is a NOTICE + skip (the model is
+  offered only through third-party hosts; any tracked entry's own state stands).
 - **The derived key** is the slug, dot-folded (`openai/gpt-5.5` →
   `gpt-5-5`) — the normalisation resolve() applies to a transcript naming
   the bare first-party id. A transcript id with a tracked vendor prefix

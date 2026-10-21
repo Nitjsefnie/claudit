@@ -28,7 +28,9 @@ The vendor's own endpoint is selected refusing rather than guessing:
   ``anthropic`` beside ``anthropic/fast`` (a throughput tier at double the
   price), OpenAI lists ``openai`` beside ``openai/fast`` and ``openai/flex``
   (service tiers) — the base tag is the first-party price;
-- no bare tag: every vendor-prefix endpoint must agree on one price —
+- no pin or bare tag: the provider path's unique-quantization rule takes
+  the one quantization endpoint beside only service tiers, and reports it;
+- otherwise every vendor-prefix endpoint must agree on one price —
   Moonshot lists ``moonshotai/mxfp4`` (one endpoint), Z.ai mostly
   ``z-ai/fp8`` — and two prices refuse; a {"tag": ...} pin recorded in
   openrouter.vendor.resolve.<derived key> (with a why) takes that endpoint
@@ -75,6 +77,7 @@ import math
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -83,8 +86,10 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from refresh_prices import (MIN_PROMPT_TOKENS as _MIN_PROMPT,  # noqa: E402
                             PRICED, TOKEN_PRICED, RefreshError, Untracked,
-                            is_zero, metered_band, rates_of)
+                            entry_schedule, is_zero, metered_band, rates_of)
 from refresh_report import vendor_report  # noqa: E402
+from refresh_selection import Listing  # noqa: E402
+from refresh_selection_rules import price_groups, unique_quantization  # noqa: E402
 from refresh_vendor_keys import rekey, validate  # noqa: E402
 import refresh_pricelog  # noqa: E402
 from backend import pricing  # noqa: E402
@@ -223,7 +228,7 @@ def _listing(model_id: str, endpoint: object
     return rates, meter, provider
 
 
-def _choose(model_id: str, endpoints: list, pin: object
+def _choose(model_id: str, endpoints: list, pin: object, notices: list[str]
             ) -> tuple[dict, dict | None, str] | None:
     """The vendor's own endpoint's listing, refusing an ambiguous one.
     None means the vendor lists no first-party endpoint (a notice, not a
@@ -249,6 +254,21 @@ def _choose(model_id: str, endpoints: list, pin: object
         bare = [e for e in mine if e["tag"] == ns]
         mine = bare or mine
     listings = [_listing(model_id, e) for e in mine]
+    if pin is None and not any(e["tag"] == ns for e in mine):
+        # Keep vendor validation above: provider validation gives unmodelled
+        # listings a different disposition. Only the selection rule is shared.
+        listed = [Listing(
+            e["tag"], {key: e.get(key) for key in (
+                "tag", "quantization", "context_length",
+                "max_completion_tokens", "max_prompt_tokens")},
+            listing[0], entry_schedule(e["pricing"], f"{model_id} via {e['tag']!r}"),
+            Decimal(str(e["pricing"].get("discount", 0))))
+            for e, listing in zip(mine, listings)]
+        resolved = unique_quantization(model_id, price_groups(listed))
+        if resolved is not None:
+            chosen, notice = resolved
+            notices.append(notice)
+            return listings[listed.index(chosen)]
     distinct = {json.dumps(listing, sort_keys=True) for listing in listings}
     if len(distinct) > 1:
         tags = ", ".join(sorted({e["tag"] for e in mine}))
@@ -274,7 +294,7 @@ def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
         selected = _choose(
             model_id, endpoints,
             ((doc.get("openrouter") or {}).get("vendor") or {}).get(
-                "resolve", {}).get(key))
+                "resolve", {}).get(key), outcome.notices)
         if selected is None:
             outcome.notices.append(
                 f"{model_id}: the vendor lists no first-party endpoint; skipped")
