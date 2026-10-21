@@ -394,7 +394,10 @@ If you are changing dependencies, run `pip-audit -r backend/requirements.txt
 -r requirements-dev.txt -r requirements-test.txt` too.
 
 The suite creates and drops its own `claudit_test_run_*` databases, so it
-needs a Postgres your user can `createdb` on. Every name carries a per-run
+needs a Postgres your user can `createdb` on. For a private cluster, run
+`eval "$(scripts/scratch_pg.sh start .pg 5443)"`; use `scripts/scratch_pg.sh
+env .pg 5443` to print its exports again, and `scripts/scratch_pg.sh stop .pg`
+to stop and remove it. Every name carries a per-run
 tag from `tests/scratch_db.py`, so two suites can share one server; a new
 test module creates and drops its databases through that helper only (a
 guard test fails otherwise). A run drops what it created even when tests
