@@ -648,8 +648,8 @@
     9928
   ],
   "scripts/ci/panel_layout_rules.mjs": [
-    16609,
-    69513
+    16374,
+    69469
   ],
   "scripts/ci/panel_server.mjs": [
     857,
@@ -1400,8 +1400,8 @@
     16018
   ],
   "tests/test_page_shell_a11y.py": [
-    2308,
-    6809
+    2280,
+    6800
   ],
   "tests/test_panel_interactions_js.py": [
     7239,
@@ -1412,8 +1412,8 @@
     23191
   ],
   "tests/test_panel_layout_rules_js.py": [
-    6203,
-    19744
+    6200,
+    19743
   ],
   "tests/test_panel_wiring.py": [
     10308,
