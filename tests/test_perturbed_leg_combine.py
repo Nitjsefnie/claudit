@@ -9,15 +9,23 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/perturbed_leg_combine.py"
+TIMINGS = {
+    (42, 1): ("0.2", "0.1", "3.1", "2.4"),
+    (42, 2): ("0.7", "0.4", "8.7", "5.3"),
+    (43, 1): ("1.1", "0.6", "4.6", "3.2"),
+    (43, 2): ("1.8", "0.9", "9.3", "7.6"),
+}
 
 
-def _measurement(seed: int, shard: int, *, code: int = 0, cpu: str = "2.4") -> dict:
+def _measurement(seed: int, shard: int, *, code: int = 0, cpu: str | None = None) -> dict:
+    perturb_wall, perturb_cpu, suite_wall, suite_cpu = TIMINGS[seed, shard]
     return {
         "instrument": "wall_and_cpu", "tests_tree_lines": 123,
         "shard": shard, "of": 2,
         "seeds": [{"seed": seed, "phases": {
-            "perturb": {"wall_s": "0.2", "cpu_s": "0.1", "exit_code": 0},
-            "suite": {"wall_s": "3.1", "cpu_s": cpu, "exit_code": code}}}],
+            "perturb": {"wall_s": perturb_wall, "cpu_s": perturb_cpu, "exit_code": 0},
+            "suite": {"wall_s": suite_wall, "cpu_s": suite_cpu if cpu is None else cpu,
+                      "exit_code": code}}}],
     }
 
 
@@ -42,22 +50,27 @@ def test_per_seed_totals_and_verdict_include_every_shard(tmp_path, code):
         _measurement(43, 2), _measurement(42, 1),
         _measurement(43, 1), _measurement(42, 2, code=code)])
     assert proc.returncode == (1 if code else 0), proc.stderr
-    assert "| 42 | perturb | 0.4 | 0.2 | 0 |" in summary
-    assert f"| 42 | suite | 6.2 | 4.8 | {code} |" in summary
-    assert "| 43 | suite | 6.2 | 4.8 | 0 |" in summary
+    assert "| 42 | perturb | 0.9 | 0.5 | 0 |" in summary
+    assert "| 43 | perturb | 2.9 | 1.5 | 0 |" in summary
+    assert f"| 42 | suite | 11.8 | 7.7 | {code} |" in summary
+    assert "| 43 | suite | 13.9 | 10.8 | 0 |" in summary
     assert f"| 42 | {'FAIL' if code else 'PASS'} |" in summary
     assert "| 43 | PASS |" in summary
-    assert f"| 42 | 2 of 2 | suite | 3.1 | 2.4 | {code} |" in summary
+    assert f"| 42 | 2 of 2 | suite | 8.7 | 5.3 | {code} |" in summary
     assert "tests_tree_lines: 123" in summary
     assert "sum of shard wall times" in summary
     assert summary in proc.stdout
 
 
-def test_unmeasured_cpu_stays_unmeasured(tmp_path):
+@pytest.mark.parametrize("unknown_shards", [(1, 2), (2,)])
+def test_unmeasured_cpu_stays_unmeasured(tmp_path, unknown_shards):
     proc, summary = _run(tmp_path, [
-        _measurement(seed, shard, cpu="-") for seed in (42, 43) for shard in (1, 2)])
+        _measurement(seed, shard, cpu="-" if shard in unknown_shards else None)
+        for seed in (42, 43) for shard in (1, 2)])
     assert proc.returncode == 0, proc.stderr
-    assert "| 42 | suite | 6.2 | - | 0 |" in summary
+    totals = [line.split("|") for line in summary.splitlines()
+              if line.startswith(("| 42 | suite |", "| 43 | suite |"))]
+    assert {row[1].strip(): row[4].strip() for row in totals} == {"42": "-", "43": "-"}
 
 
 @pytest.mark.parametrize("missing", [False, True])
