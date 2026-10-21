@@ -1,40 +1,26 @@
 name: actionlint
 
-# The gate on the gates. Everything else in .github/workflows is unreviewed
-# code that runs with a repository token, and a mistake in it fails in ways
-# the other gates structurally cannot catch: a workflow with a typo in an
-# `if:` expression does not go red, it silently stops running.
+# The gate on the gates: workflow code runs with a repository token, and
+# an `if:` typo can silently stop a gate instead of failing it.
 #
-# Two tools, because they answer different questions:
+# Two tools answer different questions:
 #
-#   actionlint — is this workflow WELL-FORMED? Schema, expression syntax,
-#   context availability (`github.event.review` on a push event),
-#   `runs-on` labels, and shellcheck over every `run:` block, which is where
-#   most real bugs live.
+#   actionlint — well-formed? Schema, expressions, context availability,
+#   `runs-on` labels and shellcheck over every `run:` block.
 #
-#   zizmor — is this workflow SAFE? Script injection through `${{ }}` in a
-#   `run:` block, over-broad `permissions:`, credential persistence after
-#   checkout, unpinned action references.
+#   zizmor — safe? `${{ }}` script injection, broad permissions,
+#   checkout credential persistence and unpinned actions.
 #
-# Both tools are pinned. actionlint is downloaded and checksum-verified
-# rather than trusted from the release page; zizmor installs through the
-# hash-pinned requirements-zizmor.txt with --require-hashes, which
-# Dependabot's root pip entry watches for version bumps — a version pin
-# inside a run: block is invisible to Dependabot and goes stale unnoticed.
-# actionlint is in a supply-chain position worth defending: a linter that
-# runs before every other gate. It is the FORK build, not stock upstream,
-# for the `concurrency` `queue:` key and the `$/`
-# self-repository `uses:` syntax — see ACTIONLINT_REPO below.
-# Note what the fork costs that position: the checksum attests bytes
-# published by the same account that publishes the linter, so it defends
-# against a tampered download and not against a compromised publisher.
-# Stock upstream's checksum is the independent one, and it is what makes
-# `queue:` and `$/` unreachable here.
+# Both are pinned: actionlint by download checksum, zizmor through
+# requirements-zizmor.txt with --require-hashes. Dependabot watches that
+# manifest; inline run-block pins are invisible to it. The actionlint fork
+# supports `queue:` and `$/` (see ACTIONLINT_REPO). Its checksum protects
+# against tampered downloads, not a compromised publisher: the same account
+# publishes both. Stock upstream has an independent publisher but lacks
+# these syntax extensions.
 #
-# Suppressions belong at the offending line as a `# zizmor: ignore[rule]`
-# comment WITH a justification (see eslint.yml), never as a raised
-# --min-severity here: a threshold silences the next finding too, and the
-# next one is the one nobody has thought about yet.
+# Suppress at the offending line with a justified `# zizmor: ignore[rule]`
+# (see eslint.yml); raising --min-severity also hides future findings.
 
 on:
   # ci-gate.yml owns push and pull_request triggers. Every non-docs run
@@ -46,6 +32,10 @@ permissions:
   contents: read
 
 concurrency:
+  # The house shape, shared by audit, codeql, eslint, lint, panel-layout,
+  # smoke, tests and types: key pull-request runs by PR number so a newer
+  # run cancels its superseded run within that PR's group. A master push
+  # uses its ref and cannot cancel a pull request's run.
   group: actionlint-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -60,6 +50,8 @@ jobs:
       # silence those schema errors. A patched build preserves unrelated checks,
       # unlike filtering findings with `-ignore`. Returning to stock requires
       # removing `queue:` and reverting `$/` refs to `./`.
+      # queue.2 rather than the fleet's queue.1: queue.1 predates the `$/`
+      # parser support these workflows need. Downgrading would break the gate.
       ACTIONLINT_REPO: Nitjsefnie-OSC/actionlint
       ACTIONLINT_VERSION: 1.7.12-queue.2
       # sha256 of actionlint_1.7.12-queue.2_linux_amd64.tar.gz, from the
