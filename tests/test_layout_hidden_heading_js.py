@@ -8,8 +8,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-
 # The probe consumes element boxes and computed styles; the heading has
 # the existing sr-only style's absolute position and nonzero 1px box.
 _DOM = """
@@ -34,6 +32,7 @@ global.getComputedStyle = el => el.css;
 """
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_gap_collector_keeps_flow_sections_beside_hidden_heading():
     out = _node(_DOM + """
       const {boxes} = mod.COLLECT_PROBE(mod.COLLECT_SELECTOR);
@@ -42,6 +41,7 @@ def test_gap_collector_keeps_flow_sections_beside_hidden_heading():
     assert out == ["dash-summary", "dash-grid"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_zero_gap_seed_moves_summary_and_grid_instead_of_hidden_heading():
     out = _node(_DOM + """
       const rule = mod.RULES.find(r => r.id === 'vertical-gap');
