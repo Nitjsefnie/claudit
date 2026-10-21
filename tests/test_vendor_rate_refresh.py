@@ -29,7 +29,8 @@ def test_a_new_model_joins_the_tracked_set():
     pytest.param(GPT_ID, GPT_KEY, None, [
         _endpoint("openai", _price(1.0, 5.0), host="OpenAI"),
         _endpoint("openai/fast", _price(2.5, 12.5), host="OpenAI Fast"),
-        _endpoint("openai/flex", _price(0.5, 2.5), host="OpenAI Flex")],
+        _endpoint("openai/flex", _price(0.5, 2.5), host="OpenAI Flex"),
+        _endpoint("openai/fp8", _price(0.3, 1.2, image_output="0.00004"))],
         {**TRACKED, "vendor_host": "OpenAI"}, id="bare-tag"),
     pytest.param(GLM_ID, GLM_KEY, None, [
         _endpoint("z-ai/fp8", _price(0.2, 1.0, read=0.02)),
@@ -68,6 +69,43 @@ def test_ambiguous_vendor_prices_refuse():
         _endpoint("openai/int4", _price(2.0, 9.0)))})
     assert not out.moves and len(out.refusals) == 1
     assert "openrouter.vendor.resolve" in out.refusals[0]
+    assert GPT_KEY not in doc["openrouter"]["models"]
+
+
+@pytest.mark.parametrize("same_price_tier", [False, True],
+                         ids=["two-prices", "same-price-tier"])
+def test_vendor_unique_quantization_selection(same_price_tier):
+    endpoints = [
+        _endpoint("openai/highspeed", _price(2.0, 9.0), host="Vendor Highspeed"),
+        _endpoint("openai/fp8", _price(1.0, 5.0), host="Vendor FP8")]
+    if same_price_tier:
+        endpoints.insert(0, _endpoint(
+            "openai/zdr", _price(1.0, 5.0), host="Vendor ZDR"))
+    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(*endpoints)})
+    assert not out.refusals
+    assert doc["openrouter"]["models"][GPT_KEY] == {
+        **TRACKED, "vendor_host": "Vendor FP8"}
+    assert len(out.notices) == 1
+    assert "rule-resolved (unique quantization)" in out.notices[0]
+    assert "took the fp8 endpoint 'openai/fp8' over service tiers" in out.notices[0]
+    if same_price_tier:
+        assert "equal-price tags 'openai/fp8', 'openai/zdr'" in out.notices[0]
+
+
+def test_vendor_unique_quantization_refuses_unknown_offering():
+    endpoints = [
+        _endpoint("openai/fp8", _price(1.0, 5.0)),
+        _endpoint("openai/highspeed", _price(2.0, 9.0))]
+    # Prove the rule can select before adding the offering that disqualifies it.
+    _, control = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(*endpoints)})
+    assert not control.refusals
+    endpoints.append(_endpoint("openai/special", _price(3.0, 12.0)))
+    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(*endpoints)})
+    assert not out.moves and not out.notices
+    assert out.refusals == [
+        f"{GPT_ID}: the vendor lists 3 endpoints "
+        "(openai/fp8, openai/highspeed, openai/special) at 3 prices; "
+        f"record a pin in openrouter.vendor.resolve.{GPT_KEY}"]
     assert GPT_KEY not in doc["openrouter"]["models"]
 
 
