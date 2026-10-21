@@ -467,7 +467,8 @@
       "Makora",
       "Morph",
       "Nebius",
-      "NextBit"
+      "NextBit",
+      "OpenInference"
     ],
     "deepseek-v4-pro": [
       "NextBit"
@@ -482,8 +483,7 @@
       "InferenceNet"
     ],
     "glm-5-3": [
-      "OpenInference",
-      "Tenstorrent"
+      "OpenInference"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
