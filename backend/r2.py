@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Iterator, NamedTuple
 from urllib.parse import urlparse
 
-import boto3
+import boto3.session
 from botocore.config import Config
 
 from backend.env_config import getenv, require_env
@@ -436,7 +436,7 @@ def _boto_client():
         return client
 
     endpoint = require_env("CLAUDIT_R2_ENDPOINT")
-    client = boto3.client(
+    client = boto3.session.Session().client(
         "s3",
         endpoint_url=endpoint,
         aws_access_key_id=require_env("CLAUDIT_R2_ACCESS_KEY_ID"),

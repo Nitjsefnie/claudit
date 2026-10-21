@@ -9,10 +9,14 @@ import shutil
 import sys
 import tempfile
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+from types import FrameType
 
+import boto3
 import pytest
+from boto3.session import Session
 from botocore.paginate import Paginator
 from botocore.session import get_session
 
@@ -484,6 +488,41 @@ class TestBotoClientFork:
                     delattr(r2._tls, k)  # pylint: disable=protected-access
                 except AttributeError:
                     pass
+
+    @pytest.mark.usefixtures("tls_state")
+    def test_threads_build_clients_with_private_sessions(self, monkeypatch):
+        monkeypatch.setenv("CLAUDIT_R2_ACCESS_KEY_ID", f"test-{os.getpid()}")
+        monkeypatch.setenv("CLAUDIT_R2_SECRET_ACCESS_KEY", f"test-{os.getpid()}")
+        factory = getattr(r2, "_boto_client")
+        factory()
+        barrier = threading.Barrier(3, timeout=10)
+
+        def build() -> Session:
+            sessions: list[Session] = []
+
+            def observe(frame: FrameType, event: str, _arg: object) -> None:
+                if event == "call" and frame.f_code is Session.client.__code__:
+                    sessions.append(frame.f_locals["self"])
+
+            previous = sys.getprofile()
+            sys.setprofile(observe)
+            try:
+                barrier.wait()
+                client = factory()
+                try:
+                    assert factory() is client
+                finally:
+                    client.close()
+            finally:
+                sys.setprofile(previous)
+            assert len(sessions) == 1
+            return sessions[0]
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = [pool.submit(build) for _ in range(3)]
+            sessions = [future.result() for future in futures]
+        assert len({id(session) for session in sessions}) == 3
+        assert all(session is not boto3.DEFAULT_SESSION for session in sessions)
 
     @pytest.mark.skipif(
         sys.platform != "linux",
