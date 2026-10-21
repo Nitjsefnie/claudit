@@ -19,6 +19,20 @@ _PROJECT_MERGE = """
       first_seen_at = LEAST(projects.first_seen_at, %(first_seen_at)s),
       last_seen_at = GREATEST(projects.last_seen_at, %(last_seen_at)s)
     WHERE project_id = %(project_id)s
+      AND (
+        projects.display_name,
+        projects.first_seen_at,
+        projects.last_seen_at
+      ) IS DISTINCT FROM (
+        CASE
+          WHEN %(display_name_set)s THEN %(display_name)s
+          WHEN projects.display_name = projects.project_id AND
+               %(display_name)s <> projects.project_id
+            THEN %(display_name)s
+          ELSE projects.display_name END,
+        LEAST(projects.first_seen_at, %(first_seen_at)s),
+        GREATEST(projects.last_seen_at, %(last_seen_at)s)
+      )
 """
 
 _FILE_INSERT = """
