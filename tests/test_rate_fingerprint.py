@@ -370,12 +370,13 @@ def test_memo_and_cache_clear(rate_tables, monkeypatch):
 # --------------------------------------------------------------------------
 
 def test_parser_and_reprice_derivation_modules_are_hashed():
-    """The digest covers the parser's search-count semantics and the
-    reprice pass that applies those stored counts to current rates."""
+    """Cover rate loading, price assembly, meter decisions and persistence."""
     names = {m.__name__ for m in rate_fingerprint.hashed_modules()}
     assert names == {"backend.pricing", "backend.pricing_load",
                      "backend.model_names", "backend.meter_tables",
-                     "backend.long_context", "backend.parse",
+                     "backend.long_context", "backend.pricing_document",
+                     "backend.pricing_rows", "backend.parse",
+                     "backend.parse_projection", "backend.ingest_persist",
                      "backend.parse_common", "backend.parse_codex",
                      "backend.ingest_reprice", "backend.ingest_rate_state"}
 
@@ -384,9 +385,14 @@ def test_parser_and_reprice_derivation_modules_are_hashed():
     ("backend.ingest_reprice", "fp377-model", "simulated rule edit (issue #377)"),
     ("backend.parse", "fp-search-model", "simulated server_tool_use count rule change"),
     ("backend.ingest_rate_state", "fp-adoption-model", "simulated shared rule edit"),
-], ids=["reprice-pass", "claude-search-count", "shared-rate-state"])
+    ("backend.parse_projection", "fp-projection-model", "simulated cost assembly edit"),
+    ("backend.ingest_persist", "fp-persist-model", "simulated meter factor storage edit"),
+    ("backend.pricing_document", "fp-defaults-model", "simulated cache-write default edit"),
+    ("backend.pricing_rows", "fp-history-model", "simulated provider history decoding edit"),
+], ids=["reprice-pass", "claude-search-count", "shared-rate-state",
+        "claude-price-assembly", "stored-meter-factors", "rate-defaults", "rate-history"])
 def test_derivation_source_edit_moves_the_fingerprint(monkeypatch, module_name, model, edit):
-    """Editing either stored-state derivation invalidates the clean restamp."""
+    """Editing a stored-state derivation invalidates the clean restamp."""
     before = rate_fingerprint.pair_fingerprint(model, None)
     real_getsource = inspect.getsource
 
@@ -403,6 +409,32 @@ def test_derivation_source_edit_moves_the_fingerprint(monkeypatch, module_name, 
     importlib.reload(rate_fingerprint)
     assert after != before, (
         "editing the derivation's source must move the fingerprint")
+
+
+def test_changed_projection_cost_moves_the_fingerprint(rate_tables, monkeypatch):
+    """A real price-assembly edit cannot leave its old clean-restamp proof."""
+    from backend import parse_projection  # pylint: disable=import-outside-toplevel
+    event = {"line_num": 1, "uuid": "projection", "request_id": "projection",
+             "ts": None, "model": _AFFECTED_MODEL,
+             "usage": {"input_tokens": 1_000_000}}
+    before_cost = parse_projection.project_records("projection", [event])[0]["cost_usd"]
+    before = rate_fingerprint.pair_fingerprint(_AFFECTED_MODEL, None)
+    real_getsource = inspect.getsource
+    edited = real_getsource(parse_projection).replace("round(cost, 6)", "round(cost + 1.0, 6)")
+    namespace = {}
+    exec(compile(edited, parse_projection.__file__, "exec"), namespace)  # pylint: disable=exec-used
+    after_cost = namespace["project_records"]("projection", [event])[0]["cost_usd"]
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(inspect, "getsource", lambda module: (
+                edited if module is parse_projection else real_getsource(module)))
+            importlib.reload(rate_fingerprint)
+            after = rate_fingerprint.pair_fingerprint(_AFFECTED_MODEL, None)
+    finally:
+        importlib.reload(rate_fingerprint)
+    assert before_cost == 1.5
+    assert after_cost == 2.5
+    assert after != before, "changing a projected price must invalidate its fingerprint"
 
 
 _FAMILY_RATES = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
