@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import gc
+import builtins
 import tracemalloc
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -155,11 +156,11 @@ def test_adoption_batches_sidecars_and_counts_vacuum_rows(fresh_db, monkeypatch)
     batches = []
     reprice = ingest_model_adoption.reprice_adopted
 
-    def observed(conn, keys):
+    def observed(conn, keys, **kwargs):
         if keys:
             batches.append((sorted(keys), conn.execute(
                 "SELECT txid_current(), current_setting('work_mem')").fetchone()))
-        return reprice(conn, keys)
+        return reprice(conn, keys, **kwargs)
 
     monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", observed)
     ingest_vacuum.begin_run()
@@ -169,7 +170,7 @@ def test_adoption_batches_sidecars_and_counts_vacuum_rows(fresh_db, monkeypatch)
     assert len({state[0] for _, state in batches}) == 3
     assert all(state[1] == "64MB" for _, state in batches)
     keys = [key for batch, _ in batches for key in batch]
-    assert keys == sorted(set(keys)), "keyset advances across lines and files"
+    assert len(keys) == len(set(keys)) == 8, "each replay is adopted exactly once"
     rows = _replay_state()
     assert len(rows) == 8
     assert all(row[2] == "gpt-5.6-sol" and row[4] is not None
@@ -179,15 +180,16 @@ def test_adoption_batches_sidecars_and_counts_vacuum_rows(fresh_db, monkeypatch)
 
 
 def test_adoption_peak_allocation_is_bounded(fresh_db, monkeypatch):
+    """Bound live Python batch payload with collection scheduling controlled."""
     batch_size = 32
     monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", batch_size)
     reprice = ingest_model_adoption.reprice_adopted
 
-    def collect_and_reprice(conn, keys):
+    def collect_and_reprice(conn, keys, **kwargs):
         # Collect driver cursor/adapter cycles between batches so GC scheduling
         # does not confound the peak of the live keys, sidecars and write arrays.
         gc.collect()
-        return reprice(conn, keys)
+        return reprice(conn, keys, **kwargs)
 
     monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", collect_and_reprice)
     rate_fingerprint.pair_fingerprint("gpt-5.6-sol", "adoption-host")
@@ -212,6 +214,91 @@ def test_adoption_peak_allocation_is_bounded(fresh_db, monkeypatch):
     assert peaks[1] <= 2 * peaks[0], peaks
 
 
+def test_scoped_live_batch_payload_and_single_identity_materialization(fresh_db, monkeypatch):
+    monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", 32)
+    scope = Scope(False, "test", 2000)
+    scope.affected_uuids = {f"u{file}" + (f"-{i}" if i else "")
+                            for file in (1, 2) for i in range(4096)}
+    real_sorted = builtins.sorted
+    sorts = []
+
+    def counted(values, *args, **kwargs):
+        if values is scope.affected_uuids:
+            sorts.append(1)
+        return real_sorted(values, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "sorted", counted)
+    real_reprice = ingest_model_adoption.reprice_adopted
+
+    def collected(conn, keys, **kwargs):
+        gc.collect()
+        return real_reprice(conn, keys, **kwargs)
+
+    monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", collected)
+    rate_fingerprint.pair_fingerprint("gpt-5.6-sol", "adoption-host")
+    peaks, materializations = [], []
+    for per_file in (32, 1024):
+        if peaks:
+            with db.viz_conn() as conn:
+                conn.execute("DELETE FROM projects")
+                conn.commit()
+        _seed_many(per_file)
+        sorts.clear()
+        gc.collect()
+        tracemalloc.start()
+        try:
+            assert ingest_rollup_state.adopt_original_models(scope) == 2 * per_file
+            peaks.append(tracemalloc.get_traced_memory()[1])
+            materializations.append(len(sorts))
+        finally:
+            tracemalloc.stop()
+    print("scoped live peaks B, fixed 8192 identities:", peaks,
+          "identity materializations:", materializations)
+    # Both runs hold the same identity filter; only batch count grows 32-fold.
+    # Two adjacent batch payloads may overlap. Forced GC isolates live Python
+    # payload, not process/database memory. One filter copy is allowed per call.
+    assert peaks[1] <= 2 * peaks[0], peaks
+    assert materializations == [1, 1], "reuse one sorted identity array across batches"
+
+
+@pytest.mark.parametrize("batch_size", [1, 3])
+def test_failure_after_second_sidecar_write_rolls_back_only_that_batch(
+        fresh_db, monkeypatch, batch_size):
+    _seed_many(4)
+    monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", batch_size)
+    before = _replay_state()
+    real_reprice = ingest_model_adoption.reprice_adopted
+    batches = []
+
+    def fail_second(conn, keys, **kwargs):
+        batches.append(set(keys))
+        count = real_reprice(conn, keys, **kwargs)
+        if len(batches) == 2:
+            raise RuntimeError("injected second-batch sidecar failure")
+        return count
+
+    monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", fail_second)
+    ingest_vacuum.begin_run()
+    with pytest.raises(RuntimeError, match="second-batch sidecar failure"):
+        ingest_rollup_state.adopt_original_models()
+    assert len(batches) == 2
+    committed_files = {key[0] for key in batches[0]}
+    if batch_size == 1:
+        assert set(row[0] for row in before) - committed_files
+    after = _replay_state()
+    for old, row in zip(before, after):
+        if row[:2] in batches[0]:
+            assert row[2] == "gpt-5.6-sol" and row[4] is not None
+        else:
+            assert row[:5] == old[:5], "failing and later rows roll back model AND price"
+        if row[0] not in committed_files:
+            assert row[5] == old[5], "uncommitted file metadata rolls back too"
+    assert ingest_vacuum.take_phase_rows() == {"reprice": batch_size}
+    monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", real_reprice)
+    assert ingest_rollup_state.adopt_original_models() == 8 - batch_size
+    assert ingest_rollup_state.adopt_original_models() == 0
+
+
 @pytest.mark.parametrize("entry", ["direct", "canonical", "ingest"])
 @pytest.mark.parametrize("signal", ["truthy", "raises"])
 def test_adoption_abort_keeps_committed_batches_and_resumes(
@@ -219,8 +306,17 @@ def test_adoption_abort_keeps_committed_batches_and_resumes(
     _seed_many(4)
     monkeypatch.setattr(ingest_reprice, "REPRICE_BATCH", 3)
     before = _replay_state()
+    committed_keys = set()
+    checks = []
+
+    def observed(conn, keys, real_reprice=ingest_model_adoption.reprice_adopted, **kwargs):
+        committed_keys.update(keys)
+        return real_reprice(conn, keys, **kwargs)
+
+    monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", observed)
 
     def stop():
+        checks.append(1)
         rows = _replay_state()
         if any(row[4] is not None for row in rows):
             if signal == "raises" or entry == "ingest":
@@ -240,9 +336,14 @@ def test_adoption_abort_keeps_committed_batches_and_resumes(
         else:
             ingest_rollup_state.adopt_original_models(should_stop=stop)
     after = _replay_state()
-    assert [row[:5] for row in after[3:]] == [row[:5] for row in before[3:]], (
-        "the interrupted batch never opens")
-    assert after[-1][5] == before[-1][5], "the later file's models stay untouched"
+    if entry != "ingest":
+        assert len(checks) == 2, "one shutdown check at the top of each batch"
+    assert len(committed_keys) == 3, "only the first batch opens"
+    for old, row in zip(before, after):
+        if row[:2] not in committed_keys:
+            assert row[:5] == old[:5], "unselected model and sidecar stay untouched"
+        if row[0] not in {key[0] for key in committed_keys}:
+            assert row[5] == old[5], "unselected file's models stay untouched"
     winner = "gpt-5.6-sol"
     expected_cost = round(pricing.compute_cost(
         winner, fresh=300000, output=1000, eph5=0, eph1h=0, unsplit_create=0, read=0,
@@ -251,7 +352,9 @@ def test_adoption_abort_keeps_committed_batches_and_resumes(
             web_search_requests=2),
         res=pricing.resolve(winner, datetime(2026, 1, 1, tzinfo=timezone.utc),
                             "adoption-host")), 6)
-    for row in after[:3]:
+    for row in after:
+        if row[:2] not in committed_keys:
+            continue
         assert row[2] == "gpt-5.6-sol"
         assert float(row[3]) == expected_cost
         assert row[4] is not None and "gpt-5.6-sol" in row[5]
