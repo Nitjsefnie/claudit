@@ -1,8 +1,4 @@
-"""One file per transaction: ingest's _persist, re-exported by ingest.
-
-Keep INSERT columns and VALUES placeholders one per line in the same order,
-so column/value misalignment stays visible.
-"""
+"""Atomic per-file persistence, re-exported by ingest."""
 from __future__ import annotations
 
 import json
@@ -10,6 +6,8 @@ import uuid
 from datetime import datetime, timezone
 
 from typing import Any
+
+from psycopg.types.numeric import NumericDumper
 
 from backend.file_timelines import ctx_columns
 from backend import (constants, db, dims, ingest_identity, key_layout,
@@ -140,6 +138,12 @@ def _resolve_dims(cur, parsed) -> None:
                    agent_model_ids)
 
 
+class _CopyNumericDumper(NumericDumper):
+    def dump(self, obj):
+        # %.15g matches PG float8->numeric's DBL_DIG decimalization before scale rounding.
+        return ("%.15g" % obj if isinstance(obj, float) else str(obj)).encode()  # pylint: disable=consider-using-f-string
+
+
 def _write_facts(cur, parsed, file_id: int) -> None:
     if parsed.get("tool_uses"):
         # is_replay is Codex-only (codex_fork.mark_replay); every
@@ -163,9 +167,9 @@ def _write_facts(cur, parsed, file_id: int) -> None:
                 raise ValueError(f"read_kind={kind!r} is not two-valued")
             tu["read_kind"] = None if kind is None else kind == "whole"
             tu["file_id"] = file_id
-        cur.executemany(
+        with cur.copy(
             """
-            INSERT INTO tool_uses (
+            COPY tool_uses (
               file_id,
               line_num,
               idx,
@@ -188,35 +192,60 @@ def _write_facts(cur, parsed, file_id: int) -> None:
               read_targets,
               write_targets,
               is_reread,
-              is_replay)
-            VALUES (
-              %(file_id)s,
-              %(line_num)s,
-              %(idx)s,
-              %(ts)s,
-              %(tool_name_id)s,
-              %(model_id)s,
-              %(tool_use_id)s,
-              %(is_error)s,
-              %(error_kind_id)s,
-              %(error_text)s,
-              %(lines_added)s,
-              %(lines_deleted)s,
-              %(agent_type_id)s,
-              %(agent_model_id)s,
-              %(dispatch_prompt_chars)s,
-              %(dispatch_brief_ref)s,
-              %(dispatch_name)s,
-              %(result_chars)s,
-              %(read_kind)s,
-              %(read_targets)s,
-              %(write_targets)s,
-              %(is_reread)s,
-              %(is_replay)s)
-            """,
-            parsed["tool_uses"],
-        )
+              is_replay) FROM STDIN
+            """
+        ) as copy:
+            copy.set_types([
+                "int4",
+                "int4",
+                "int4",
+                "timestamptz",
+                "int2",
+                "int2",
+                "text",
+                "bool",
+                "int2",
+                "text",
+                "int4",
+                "int4",
+                "int2",
+                "int2",
+                "int4",
+                "bool",
+                "text",
+                "int4",
+                "bool",
+                "text[]",
+                "text[]",
+                "bool",
+                "bool"])
+            for tu in parsed["tool_uses"]:
+                copy.write_row((
+                    tu["file_id"],
+                    tu["line_num"],
+                    tu["idx"],
+                    tu["ts"],
+                    tu["tool_name_id"],
+                    tu["model_id"],
+                    tu["tool_use_id"],
+                    tu["is_error"],
+                    tu["error_kind_id"],
+                    tu["error_text"],
+                    tu["lines_added"],
+                    tu["lines_deleted"],
+                    tu["agent_type_id"],
+                    tu["agent_model_id"],
+                    tu["dispatch_prompt_chars"],
+                    tu["dispatch_brief_ref"],
+                    tu["dispatch_name"],
+                    tu["result_chars"],
+                    tu["read_kind"],
+                    tu["read_targets"],
+                    tu["write_targets"],
+                    tu["is_reread"],
+                    tu["is_replay"]))
     if parsed["records"]:
+        cur.adapters.register_dumper(None, _CopyNumericDumper)
         # long_context is the lane or Claude meter-member decision; other
         # records store NULL, read as FALSE. Persist its effective multiplier
         # pair with cost so bucket folds preserve interrupted reprice eras.
@@ -251,9 +280,9 @@ def _write_facts(cur, parsed, file_id: int) -> None:
             rec["seq"] = parts.seq
             rec["fallback"] = parts.fallback
             rec["file_id"] = file_id
-        cur.executemany(
+        with cur.copy(
             """
-            INSERT INTO records (
+            COPY records (
               file_id,
               line_num,
               uuid_col,
@@ -281,45 +310,74 @@ def _write_facts(cur, parsed, file_id: int) -> None:
               turn_flags,
               turn_tool_results,
               provider_id,
-              is_replay)
-            VALUES (
-              %(file_id)s,
-              %(line_num)s,
-              %(uuid_col)s,
-              %(seq)s,
-              %(fallback)s,
-              %(request_id)s,
-              %(ts)s,
-              %(model_id)s,
-              %(fresh_tokens)s,
-              %(cache_creation_tokens)s,
-              %(cache_read_tokens)s,
-              %(cache_write_tokens)s,
-              %(output_tokens)s,
-              %(eph5_tokens)s,
-              %(eph1h_tokens)s,
-              %(web_search_requests)s,
-              %(text_chars)s,
-              %(reply_latency_s)s,
-              %(generation_s)s,
-              %(output_tokens_per_s)s,
-              %(stop_reason_id)s,
-              %(effort_id)s,
-              %(thinking_tokens)s,
-              %(cli_version_id)s,
-              %(turn_flags)s,
-              %(turn_tool_results)s,
-              %(provider_id)s,
-              %(is_replay)s)
-            """,
-            parsed["records"],
-        )
+              is_replay) FROM STDIN
+            """
+        ) as copy:
+            copy.set_types([
+                "int4",
+                "int4",
+                "uuid",
+                "int4",
+                "text",
+                "text",
+                "timestamptz",
+                "int2",
+                "int4",
+                "int4",
+                "int4",
+                "int4",
+                "int4",
+                "int4",
+                "int4",
+                "int4",
+                "int4",
+                "numeric",
+                "numeric",
+                "numeric",
+                "int2",
+                "int2",
+                "int4",
+                "int2",
+                "int4",
+                "int4",
+                "int2",
+                "bool"])
+            for rec in parsed["records"]:
+                copy.write_row((
+                    rec["file_id"],
+                    rec["line_num"],
+                    rec["uuid_col"],
+                    rec["seq"],
+                    rec["fallback"],
+                    rec["request_id"],
+                    rec["ts"],
+                    rec["model_id"],
+                    rec["fresh_tokens"],
+                    rec["cache_creation_tokens"],
+                    rec["cache_read_tokens"],
+                    rec["cache_write_tokens"],
+                    rec["output_tokens"],
+                    rec["eph5_tokens"],
+                    rec["eph1h_tokens"],
+                    rec["web_search_requests"],
+                    rec["text_chars"],
+                    rec["reply_latency_s"],
+                    rec["generation_s"],
+                    rec["output_tokens_per_s"],
+                    rec["stop_reason_id"],
+                    rec["effort_id"],
+                    rec["thinking_tokens"],
+                    rec["cli_version_id"],
+                    rec["turn_flags"],
+                    rec["turn_tool_results"],
+                    rec["provider_id"],
+                    rec["is_replay"]))
         # The sidecar row per records row: same keys, so one pass of
         # the parsed rows writes both halves of the pair (the FK on
         # records_price(file_id, line_num) enforces it from here on).
-        cur.executemany(
+        with cur.copy(
             """
-            INSERT INTO records_price (
+            COPY records_price (
               file_id,
               line_num,
               cost_usd,
@@ -327,19 +385,28 @@ def _write_facts(cur, parsed, file_id: int) -> None:
               long_context_input_mult,
               long_context_output_mult,
               pricing_version_id,
-              rate_fingerprint_id)
-            VALUES (
-              %(file_id)s,
-              %(line_num)s,
-              %(cost_usd)s,
-              %(long_context)s,
-              %(long_context_input_mult)s,
-              %(long_context_output_mult)s,
-              %(pricing_version_id)s,
-              %(rate_fingerprint_id)s)
-            """,
-            parsed["records"],
-        )
+              rate_fingerprint_id) FROM STDIN
+            """
+        ) as copy:
+            copy.set_types([
+                "int4",
+                "int4",
+                "numeric",
+                "bool",
+                "float8",
+                "float8",
+                "int2",
+                "int2"])
+            for rec in parsed["records"]:
+                copy.write_row((
+                    rec["file_id"],
+                    rec["line_num"],
+                    rec["cost_usd"],
+                    rec["long_context"],
+                    rec["long_context_input_mult"],
+                    rec["long_context_output_mult"],
+                    rec["pricing_version_id"],
+                    rec["rate_fingerprint_id"]))
 
 
 def _persist(obj, proj, parsed, parser_version) -> None:
