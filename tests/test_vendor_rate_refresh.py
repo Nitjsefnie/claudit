@@ -74,7 +74,7 @@ def test_ambiguous_vendor_prices_refuse():
 
 @pytest.mark.parametrize("same_price_tier", [False, True],
                          ids=["two-prices", "same-price-tier"])
-def test_vendor_unique_quantization_selection(same_price_tier):
+def test_vendor_unique_quantization_selection(same_price_tier: bool) -> None:
     endpoints = [
         _endpoint("openai/highspeed", _price(2.0, 9.0), host="Vendor Highspeed"),
         _endpoint("openai/fp8", _price(1.0, 5.0), host="Vendor FP8")]
@@ -92,7 +92,7 @@ def test_vendor_unique_quantization_selection(same_price_tier):
         assert "equal-price tags 'openai/fp8', 'openai/zdr'" in out.notices[0]
 
 
-def test_vendor_unique_quantization_refuses_unknown_offering():
+def test_vendor_unique_quantization_refuses_unknown_offering() -> None:
     endpoints = [
         _endpoint("openai/fp8", _price(1.0, 5.0)),
         _endpoint("openai/highspeed", _price(2.0, 9.0))]
@@ -109,7 +109,7 @@ def test_vendor_unique_quantization_refuses_unknown_offering():
     assert GPT_KEY not in doc["openrouter"]["models"]
 
 
-def test_unadaptable_single_vendor_endpoint_keeps_original_selection():
+def test_unadaptable_single_vendor_endpoint_keeps_original_selection() -> None:
     doc, out = _run(_doc(), _catalog(GLM_ID), {GLM_ID: _payload(
         _endpoint("z-ai/fp8", _price(
             1.0, 5.0, overrides=[{"utc_days": ["notaday"]}])))})
@@ -118,7 +118,7 @@ def test_unadaptable_single_vendor_endpoint_keeps_original_selection():
     assert out.moves == [vendor.VendorMove(GLM_ID, GLM_KEY, added=True)]
 
 
-def test_unadaptable_vendor_pair_keeps_original_ambiguity_refusal():
+def test_unadaptable_vendor_pair_keeps_original_ambiguity_refusal() -> None:
     before = _doc()
     doc, out = _run(before, _catalog(GLM_ID), {GLM_ID: _payload(
         _endpoint("z-ai/fp8", _price(

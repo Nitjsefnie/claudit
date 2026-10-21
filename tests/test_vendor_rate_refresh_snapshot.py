@@ -13,7 +13,7 @@ from tests.vendor_rate_refresh_helpers import ROOT, _catalog, _doc, _run
     ("minimax/minimax-m2.5", "minimax-m2-5"),
     ("minimax/minimax-m2.7", "minimax-m2-7"),
 ])
-def test_vendor_snapshot_selects_first_party_quantization(model_id, key):
+def test_vendor_snapshot_selects_first_party_quantization(model_id: str, key: str) -> None:
     snapshot = json.loads((ROOT / "fixtures" / "vendor_catalog" /
                            "minimax-endpoints.json").read_text(encoding="utf-8"))
     doc, out = _run(_doc(prefixes=["minimax"]), _catalog(model_id),
