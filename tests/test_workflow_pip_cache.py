@@ -12,10 +12,12 @@ install so the freshly populated cache is what gets saved.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 from typing import Iterator
 
 import yaml
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -74,6 +76,22 @@ def test_every_cache_save_directly_follows_the_dependency_install():
                 workflow, job, index)
 
 
+def _assert_one_writer(matrix: dict, gate: str) -> None:
+    terms = [term.strip() for term in gate.split("&&")]
+    assert terms[:2] == ["github.event_name == 'push'",
+                         "github.ref == 'refs/heads/master'"], gate
+    pinned = {}
+    for term in terms[2:]:
+        match = re.fullmatch(r"matrix\.([\w-]+) == (?:'([^']*)'|(\d+))", term)
+        assert match, gate
+        axis, quoted, numeric = match.groups()
+        assert axis not in pinned, gate
+        pinned[axis] = quoted if quoted is not None else int(numeric)
+    assert pinned.keys() == matrix.keys(), gate
+    for axis, value in pinned.items():
+        assert value in matrix[axis], gate
+
+
 def test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value():
     # A matrix runs the job once per value. When the save's key varies by
     # a matrix value (tests.yml keys its python-version matrix that way)
@@ -81,7 +99,7 @@ def test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value():
     # vary — the perturbed leg's three seed jobs share one pip key — N
     # jobs save under it, the losers fail on a key that already exists,
     # and the leg goes red on a cache race, never on a test. So that case
-    # is pinned to a single matrix value.
+    # is pinned to one matrix job across all axes.
     for workflow, job_id, steps in _jobs():
         for step in steps:
             if _action(step) != "actions/cache/save":
@@ -95,18 +113,11 @@ def test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value():
             key = (step.get("with") or {}).get("key") or ""
             if "matrix." in key:
                 continue
-            gate = step.get("if") or ""
-            # The gate must EXCLUDE the other values, so the pinned shape
-            # is exactly ONE equality naming a value the matrix actually
-            # carries: a substring check would be satisfied by
-            # `matrix.seed != ...`, which excludes nothing, and a gate
-            # naming two of them admits a second saver.
-            pinned = re.findall(r"matrix\.(\w+) == (?:'([^']*)'|(\d+))", gate)
-            assert len(pinned) == 1, (workflow, job_id, gate)
-            axis, quoted, numeric = pinned[0]
-            value = quoted if quoted else int(numeric)
-            assert value in strategy["matrix"].get(axis, []), (
-                workflow, job_id, gate)
+            # Schedule/dispatch-only workflows cannot enter the master-push save gate.
+            events = doc.get("on", doc.get(True, {}))
+            if not any(event in events for event in ("push", "workflow_call")):
+                continue
+            _assert_one_writer(strategy["matrix"], step.get("if") or "")
 
 
 def test_restore_and_save_steps_share_their_cache_key():
@@ -152,3 +163,26 @@ def test_types_installs_and_caches_the_full_import_toolchain():
     caches = [step for step in steps
               if _action(step) in ("actions/cache/restore", "actions/cache/save")]
     assert len(caches) == 2
+
+
+@pytest.mark.parametrize("matrix,gate,accepted", [
+    ({"seed": ["42", "43"], "shard": [1, 2]}, "matrix.seed == '42' && matrix.shard == 1", True),
+    ({"shard": [1, 2]}, "matrix.shard == 1", True),
+    ({"seed": ["42", "43"], "shard": [1, 2]}, "matrix.seed == '42'", False),
+    ({"shard": [1, 2]}, "matrix.shard == 1 || github.ref == 'refs/heads/master'", False),
+    ({"shard": [1, 2]}, "matrix.shard == 3", False),
+])
+def test_shared_cache_gate_accepts_exactly_one_matrix_job(tmp_path, monkeypatch, matrix, gate, accepted):
+    workflows = tmp_path / ".github/workflows"
+    workflows.mkdir(parents=True)
+    step = {"uses": "actions/cache/save", "with": {"key": "shared"},
+            "if": "github.event_name == 'push' && github.ref == 'refs/heads/master' && " + gate}
+    doc = {"on": {"workflow_call": None},
+           "jobs": {"suite": {"strategy": {"matrix": matrix}, "steps": [step]}}}
+    (workflows / "sample.yml").write_text(yaml.safe_dump(doc), encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    if accepted:
+        test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value()
+    else:
+        with pytest.raises(AssertionError):
+            test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value()

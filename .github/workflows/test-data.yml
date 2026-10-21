@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   perturbed-suite:
-    name: perturbed suite (seed ${{ matrix.seed }})
+    name: perturbed suite (seed ${{ matrix.seed }}, shard ${{ matrix.shard }} of 4)
     strategy:
       # Every seed's own verdict, not the first failure's: the seeds are
       # independent trees, and fail-fast's
@@ -40,8 +40,9 @@ jobs:
       fail-fast: false
       matrix:
         seed: ["42", "1234567890", "1720000000"]
+        shard: [1, 2, 3, 4]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
 
     permissions:
       contents: read
@@ -105,12 +106,10 @@ jobs:
 
       # Saved here, not in a post-job step: the install above populated the
       # cache, and the gate keeps every event but a push of master from
-      # writing cross-run state. One seed writes it — the
-      # matrix's three jobs share a cache key, and three racing saves of
-      # one key are not a thing to arbitrate.
+      # writing cross-run state. One seed/shard writes the shared key.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.seed == '42'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.seed == '42' && matrix.shard == 1
         with:
           path: |
             ~/.cache/pip
@@ -125,4 +124,39 @@ jobs:
         run: |
           python scripts/ci/perturbed_leg_bench.py \
             --seed "${{ matrix.seed }}" \
+            --shard "${{ matrix.shard }}" --of 4 \
+            --measurement "perturbed-${{ matrix.seed }}-${{ matrix.shard }}.json" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the shard measurement
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: perturbed-${{ matrix.seed }}-${{ matrix.shard }}
+          path: perturbed-${{ matrix.seed }}-${{ matrix.shard }}.json
+          if-no-files-found: error
+
+  perturbed-combine:
+    needs: [perturbed-suite]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Download the shard measurements
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: perturbed-*
+          path: shard-data
+      - name: Combine the shard measurements
+        run: |
+          python scripts/ci/perturbed_leg_combine.py --measurements shard-data \
+            --seed 42 --seed 1234567890 --seed 1720000000 --of 4 \
             --summary "$GITHUB_STEP_SUMMARY"

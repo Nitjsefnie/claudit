@@ -221,8 +221,8 @@ def _workflow_doc():
             encoding="utf-8"), Loader=yaml.BaseLoader) or {}
 
 
-def test_the_leg_runs_one_seed_per_matrix_job():
-    (job,) = _workflow_doc()["jobs"].values()
+def test_the_leg_runs_one_seed_and_shard_per_matrix_job():
+    job = _workflow_doc()["jobs"]["perturbed-suite"]
     strategy = job.get("strategy") or {}
     # Every seed reports its own verdict (option A): the
     # seeds are independent trees, so fail-fast's cancellation would
@@ -233,6 +233,14 @@ def test_the_leg_runs_one_seed_per_matrix_job():
     # fails here.
     assert (strategy.get("matrix") or {}).get("seed") == [
         "42", "1234567890", "1720000000"], strategy
+    assert strategy["matrix"].get("shard") == ["1", "2", "3", "4"]
+    assert job["timeout-minutes"] == "25"
+    assert job["name"] == (
+        "perturbed suite (seed ${{ matrix.seed }}, shard ${{ matrix.shard }} of 4)")
+    save, = [step for step in job["steps"] if step.get("name") == "Save the pip cache"]
+    assert save["if"] == (
+        "github.event_name == 'push' && github.ref == 'refs/heads/master' "
+        "&& matrix.seed == '42' && matrix.shard == 1")
     steps = [step for step in job["steps"]
              if "perturbed_leg_bench" in (step.get("run") or "")]
     assert len(steps) == 1
@@ -250,11 +258,67 @@ def test_the_leg_runs_one_seed_per_matrix_job():
     assert " ".join(lines[0].split()) == (
         "python scripts/ci/perturbed_leg_bench.py "
         '--seed "${{ matrix.seed }}" '
+        '--shard "${{ matrix.shard }}" --of 4 '
+        '--measurement "perturbed-${{ matrix.seed }}-${{ matrix.shard }}.json" '
         '--summary "$GITHUB_STEP_SUMMARY"')
     assert "--pytest-args" not in lines[0]
 
 
 def test_the_leg_step_no_longer_runs_pytest_directly():
-    (job,) = _workflow_doc()["jobs"].values()
+    job = _workflow_doc()["jobs"]["perturbed-suite"]
     for step in job["steps"]:
         assert "python -m pytest" not in (step.get("run") or "")
+
+
+@POSIX
+@pytest.mark.parametrize("shard,expected", [
+    (None, ["a", "b", "c", "d"]), (1, ["a", "d"]), (2, ["b", "c"]),
+])
+def test_cli_selects_exact_shard_files(tmp_path, monkeypatch, capsys, shard, expected):
+    pricing_path, constants_path, parser_path = _seed_tree(tmp_path)
+    (tmp_path / "tests").mkdir()
+    for index, name in enumerate("abcd"):
+        (tmp_path / "tests" / f"test_{name}.py").write_text(
+            f"def test_{name}():\n"
+            f"    with open('executed', 'a', encoding='utf-8') as stream:\n"
+            f"        stream.write('{name}\\n')\n"
+            "    import os\n"
+            "    assert os.environ['CLAUDIT_PERTURBED_DATA'] == '1'\n"
+            + "\n" * (3 - index), encoding="utf-8")
+    monkeypatch.setattr(bench, "REPO_ROOT", tmp_path)
+    measurement_path = tmp_path / "measurement.json"
+    summary_path = tmp_path / "summary.md"
+    args = ["--seed", "42", "--pricing", str(pricing_path),
+            "--constants", str(constants_path), "--parser-version", str(parser_path),
+            "--measurement", str(measurement_path), "--summary", str(summary_path)]
+    if shard is not None:
+        args += ["--shard", str(shard), "--of", "2"]
+    assert bench.main(args) == 0
+    assert sorted((tmp_path / "executed").read_text(encoding="utf-8").splitlines()) == expected
+    measurement = json.loads(measurement_path.read_text(encoding="utf-8"))
+    flags = ["-q", "--tb=short", "-ra"]
+    assert measurement["pytest_args"] == (
+        ["tests/", *flags] if shard is None else
+        [*(f"tests/test_{name}.py" for name in expected), *flags])
+    assert measurement["tests_tree_lines"] == 26
+    if shard is not None:
+        assert (measurement["shard"], measurement["of"]) == (shard, 2)
+        assert f"shard {shard} of 2" in capsys.readouterr().out
+        assert f"shard {shard} of 2" in summary_path.read_text(encoding="utf-8")
+
+
+def test_combine_runs_after_failed_shards_and_publishes_measurements():
+    jobs = _workflow_doc()["jobs"]
+    suite = jobs["perturbed-suite"]
+    upload, = [step for step in suite["steps"] if step.get("name") == "Upload the shard measurement"]
+    assert upload["if"] == "${{ !cancelled() }}"
+    assert "continue-on-error" not in suite
+    assert all("continue-on-error" not in step for step in suite["steps"])
+    combine = jobs["perturbed-combine"]
+    assert combine["needs"] == ["perturbed-suite"]
+    assert combine["if"] == "${{ !cancelled() }}"
+    step, = [step for step in combine["steps"] if "run" in step]
+    assert " ".join(step["run"].replace("\\\n", " ").split()) == (
+        "python scripts/ci/perturbed_leg_combine.py --measurements shard-data "
+        "--seed 42 --seed 1234567890 --seed 1720000000 --of 4 "
+        '--summary "$GITHUB_STEP_SUMMARY"')

@@ -32,7 +32,8 @@ per-seed phases are also written as JSON with ``--measurement``.
 
     python3 scripts/ci/perturbed_leg_bench.py --seed 42 [--seed S ...]
         [--pricing PATH] [--constants PATH] [--parser-version PATH]
-        [--pytest-args ARGS] [--summary FILE] [--measurement FILE]
+        [--pytest-args ARGS] [--shard N --of M]
+        [--summary FILE] [--measurement FILE]
 """
 from __future__ import annotations
 
@@ -57,6 +58,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 # pylint: disable=wrong-import-position
 import perturb_test_data  # noqa: E402
+import pytest_shards  # noqa: E402
 
 PHASES = ("perturb", "suite")
 INSTRUMENT = "wall_and_cpu"
@@ -211,6 +213,8 @@ def report(measurement: dict) -> str:
         f"  {'seed':<12} {'phase':<10} {'wall_s':>10} {'cpu_s':>10} "
         f"{'exit_code':>10}",
     ]
+    if measurement.get("shard") is not None:
+        lines.insert(1, f"  shard {measurement['shard']} of {measurement['of']}")
     for run in measurement["seeds"]:
         for phase in PHASES:
             record = run["phases"][phase]
@@ -238,6 +242,8 @@ def summary_markdown(measurement: dict) -> str:
         "| seed | phase | wall_s | cpu_s | exit_code |",
         "| --- | --- | --- | --- | --- |",
     ]
+    if measurement.get("shard") is not None:
+        lines[1:1] = ["", f"shard {measurement['shard']} of {measurement['of']}", ""]
     for run in measurement["seeds"]:
         for phase in PHASES:
             record = run["phases"][phase]
@@ -284,21 +290,44 @@ def _parser() -> argparse.ArgumentParser:
                         help="write the step-summary markdown here")
     parser.add_argument("--measurement", type=Path, metavar="FILE",
                         help="write the measurement JSON here")
+    parser.add_argument("--shard", type=int, help="one-based suite shard")
+    parser.add_argument("--of", type=int, help="total suite shards; requires --shard")
     return parser
+
+
+def _shard_args(pytest_args: list[str], shard: int, count: int) -> list[str]:
+    if not 1 <= shard <= count:
+        raise ValueError("--shard must be between 1 and --of")
+    selectors = [index for index, arg in enumerate(pytest_args) if arg in ("tests", "tests/")]
+    if len(selectors) != 1:
+        raise ValueError("sharding requires exactly one tests/ tree argument")
+    groups = pytest_shards.partition(pytest_shards.discover(REPO_ROOT), count)
+    files = [path for path, _ in groups[shard - 1]]
+    if not files:
+        raise ValueError("selected shard contains no test files")
+    index = selectors[0]
+    return [*pytest_args[:index], *files, *pytest_args[index + 1:]]
 
 
 def main(argv: list[str] | None = None) -> int:
     """The CI leg's entry point; the first failing suite exit is the run's."""
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if (args.shard is None) != (args.of is None):
+        parser.error("--shard and --of must be supplied together")
     pytest_args = (args.pytest_args.split()
                    if args.pytest_args is not None
                    else list(DEFAULT_PYTEST_ARGS))
     try:
+        if args.shard is not None:
+            pytest_args = _shard_args(pytest_args, args.shard, args.of)
         measurement = measure(args.seed, args.pricing, args.constants,
-                              args.parser_version, pytest_args)
+                              args.parser_version, pytest_args, repo_root=REPO_ROOT)
     except (OSError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 1
+    if args.shard is not None:
+        measurement.update(shard=args.shard, of=args.of)
     print(report(measurement))
     if args.summary is not None:
         args.summary.write_text(summary_markdown(measurement),
