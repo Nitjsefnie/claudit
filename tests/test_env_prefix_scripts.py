@@ -29,6 +29,7 @@ SCRIPT_PLATFORM_NAMES = {
     "HOME": "User home directory owned by the operating system.",
     "CI": "CI runner indicator consumed by developer tooling.",
     "IFS": "Shell-owned input field separator.",
+    "PWD": "Shell-owned current working directory.",
     "SKIP_SECRECY_CHECK": "Documented contributor override for the Git pre-push hook.",
 }
 SCRIPT_DYNAMIC_SITES: dict[tuple[str, int], str] = {}
