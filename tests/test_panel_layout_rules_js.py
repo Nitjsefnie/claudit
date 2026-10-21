@@ -417,18 +417,18 @@ class TestGapConsistencyViolations:
         assert out == []
 
     def test_margins_extend_the_expected_distance(self):
-        # The header shape the real page renders: page-head carries
-        # margin-bottom 18px, so its pair distance is 14 + 18 = 32 and a
-        # bare comparison against 14 would fire on a conforming page.
+        # Overview now starts with dash-summary above dash-grid. Give the
+        # summary a synthetic 18px bottom margin to exercise margin
+        # accounting: the expected distance is 14 + 18 = 32.
         out = self._violations(
-            self._boxes(("page-head", 0, 0, 800, 60, 0, 18),
-                        ("dash-summary", 0, 92, 800, 40, 0, 0)), 14)
+            self._boxes(("dash-summary", 0, 0, 800, 40, 0, 18),
+                        ("dash-grid", 0, 72, 800, 300, 0, 0)), 14)
         assert out == []
         # And the same pair 10px SHORT of its expected 32 is the drift
         # the rule exists for.
         out = self._violations(
-            self._boxes(("page-head", 0, 0, 800, 60, 0, 18),
-                        ("dash-summary", 0, 82, 800, 40, 0, 0)), 14)
+            self._boxes(("dash-summary", 0, 0, 800, 40, 0, 18),
+                        ("dash-grid", 0, 62, 800, 300, 0, 0)), 14)
         assert len(out) == 1
         assert out[0]["expected"] == 32.0
 

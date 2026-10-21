@@ -117,7 +117,7 @@ async function scenarioPage(browser, base, policy, options = {}) {
   page.on('requestfailed', req => diagnostics.push(`${req.url()}: ${req.failure()?.errorText}`));
   await page.goto(base + '/', { waitUntil: 'load' });
   try {
-    await page.waitForSelector('.dashboard .page-head');
+    await page.waitForSelector('.dashboard');
   } catch (error) {
     const body = await page.locator('body').innerText();
     const globals = await page.evaluate(() => ({React:typeof React, Babel:typeof Babel, App:typeof window.App, Dashboard:typeof window.Dashboard, feature:typeof window.featureOn}));
