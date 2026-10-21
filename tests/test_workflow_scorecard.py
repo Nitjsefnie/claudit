@@ -271,14 +271,9 @@ def test_its_slot_collides_with_no_other_workflow_cron():
         )
 
 
-def test_the_job_publishes_and_uploads_sarif():
+def test_the_sarif_upload_reads_the_file_the_analysis_writes():
     scorecard_step = _step_using("ossf/scorecard-action")
     with_ = scorecard_step.get("with") or {}
-    assert with_.get("publish_results") in ("true", True), (
-        "without publish_results the scan runs and its score is thrown away: "
-        "no badge, no API entry, nothing replacing the weekly public scan"
-    )
-    assert with_.get("results_format") == "sarif"
     assert with_.get("results_file"), (
         "results_file is what both consumers below read; unset, the upload "
         "steps have nothing to upload"

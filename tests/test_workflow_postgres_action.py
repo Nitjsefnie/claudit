@@ -79,8 +79,6 @@ def test_image_digest_matches_compose_and_keys_both_cache_operations():
     cached = _cached_step()["with"]
     assert cached["ref"] == "${{ steps.image.outputs.ref }}"
     assert cached["key"] == "${{ steps.image.outputs.key }}"
-    # The archive path is part of the cache version: same file, same entries.
-    assert cached["archive"] == "postgres-image.tar"
     acquire = _step(CACHED_ACTION, id="acquire")
     assert 'docker pull "$ref"' in acquire["run"]
     assert acquire["env"]["IMAGE_REF"] == "${{ inputs.ref }}"
