@@ -5,7 +5,7 @@ here renders React, so a page can lose its level-one heading or its main
 landmark while the whole suite stays green, and index.html can drop the
 icon declaration so every page load 404s /favicon.ico. These guards pin:
 
-1. exactly one <h1> renders per page state -- Overview (Dashboard),
+1. exactly one <h1> renders per page state -- Overview (Dashboard, visually hidden with sr-only),
    Sessions (SessionsList), Cache (CacheView), Inspector (SessionView:
    one in the loaded path and one in the empty path, plus the App's
    fetch-error branch), sign-in (login_page.py, already carried);
@@ -32,9 +32,9 @@ CSS = ROOT / "public" / "app.css"
 INDEX = ROOT / "public" / "index.html"
 LOGIN = ROOT / "backend" / "login_page.py"
 
-# h1 SITES per file across the src tree: app.jsx carries Dashboard's
-# Overview heading, SessionView's two Inspector paths and the App's
-# fetch-error branch.
+# h1 SITES per file across the src tree: dashboard-view.jsx carries the
+# sr-only Overview heading; app.jsx carries SessionView's two Inspector
+# paths and the App's fetch-error branch.
 _H1_SITES = {"app.jsx": 3, "dashboard-view.jsx": 1, "sessions-list.jsx": 1, "cache-view.jsx": 1}
 
 
@@ -76,7 +76,7 @@ def test_every_page_renders_exactly_one_h1():
         (ROOT / "src" / "dashboard-view.jsx").read_text(encoding="utf-8")))
     assert dashboard.count("<h1") == 1, (
         "Dashboard must render exactly one h1 (its page title)")
-    assert "<h1>Overview</h1>" in dashboard
+    assert '<h1 className="sr-only">Overview</h1>' in dashboard
     session_view = _panel_src("SessionView", app_src)
     assert session_view.count("<h1") == 2, (
         "SessionView must render exactly one h1 per render path (loaded "

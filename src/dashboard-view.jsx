@@ -176,7 +176,7 @@ function Dashboard({ synth, models, backendOn, activeProject, activeRange, dashN
   const summary = window.dashboardFetch.summary(dashFetch, hasData);
   return (
     <div className="dashboard" data-perf-region="panel_grid">
-      <div className="page-head"><h1>Overview</h1></div>
+      <h1 className="sr-only">Overview</h1>
       {window.featureOn('summary')
         ? <window.OverviewStatus summary={summary} activeRange={activeRange} Stat={Stat} />
         : summary.kind !== 'data' && <div role="status">{summary.text}</div>}
