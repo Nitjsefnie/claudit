@@ -301,12 +301,14 @@ export const COLLECT_PROBE = (selector) => {
     const d = getComputedStyle(el).display;
     return d !== 'inline' && d !== 'contents';
   };
-  const effective = (parent) => [...parent.children].flatMap(
-    (c) => (isBoxed(c) ? [c] : effective(c)),
-  );
+  const effective = (parent) => [...parent.children]
+    .filter((c) => !['absolute', 'fixed'].includes(getComputedStyle(c).position)).flatMap(
+      (c) => (isBoxed(c) ? [c] : effective(c)),
+    );
   const sections = effective(dash);
   const sectionSet = new Set(sections);
   const cardOf = (el) => {
+    if (sectionSet.has(el)) return el;
     let card = el;
     for (let a = el.parentElement; a && !sectionSet.has(a); a = a.parentElement) {
       card = a;
@@ -329,6 +331,7 @@ export const COLLECT_PROBE = (selector) => {
   };
   for (const el of sections) take(el);
   for (const el of document.querySelectorAll(selector)) {
+    if (el.parentElement === dash && !sectionSet.has(el)) continue;
     const mark = el.getAttribute('data-panel')
       || el.getAttribute('data-list-panel');
     take(cardOf(el), mark || undefined);
@@ -393,25 +396,19 @@ export const PANELS_PROBE = () => {
   return { cards };
 };
 
-// Seed for the vertical-gap rule's red proof: cancel the flex gap
-// between the LAST two direct sections of .dashboard that contain no
-// panel of their own (a containing wrapper is containment-skipped by
-// the classifier, so a gap closed against it could never fire). The
-// lower of the pair is pulled up by exactly the container's own row
-// gap, seeding one genuinely zero-gap pair on the live page — no app
-// change, no fixture — and the pair pulled is returned so the proof is
-// precise.
+// Seed a zero gap between the first two in-flow dashboard sections.
+// The hidden heading has a box but takes no flex space; cancel the gap
+// and margins between the summary and following chart section instead.
 async function seedZeroGap(page) {
   return page.evaluate(() => {
     const dash = document.querySelector('.dashboard');
-    const marks = '[data-panel], [data-list-panel]';
-    const leaves = [...dash.children].filter((el) => {
+    const sections = [...dash.children].filter((el) => {
       const r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0 && !el.querySelector(marks);
+      return r.width > 0 && r.height > 0
+        && !['absolute', 'fixed'].includes(getComputedStyle(el).position);
     });
-    if (leaves.length < 2) return null;
-    const lower = leaves[leaves.length - 1];
-    const upper = leaves[leaves.length - 2];
+    if (sections.length < 2) return null;
+    const [upper, lower] = sections;
     // The visual space between two flex items is the container's gap
     // PLUS the pair's own margins; cancel all of it so the pair lands
     // genuinely flush whatever the stylesheet gives them.
