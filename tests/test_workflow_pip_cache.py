@@ -78,11 +78,21 @@ def test_every_cache_save_directly_follows_the_dependency_install():
 
 
 def _github_number(value: str | int | float | bool | None) -> float:
-    if value is None or value == "":
-        return 0.0
-    if isinstance(value, str) and not re.fullmatch(
-            r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", value.strip()):
+    # Fail closed beyond JSON decimals, trimmed-empty zero, and plain ASCII
+    # nonnumber words: actions/runner ExpressionUtility.ParseNumber (called by
+    # EvaluationResult.CoerceTypes) also accepts hex, octal and infinity forms.
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return 0.0
+        if re.fullmatch(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", value):
+            return float(value)
+        assert (re.fullmatch(r"[A-Za-z]+", value)
+                and value.casefold() not in {"infinity", "nan"}), (
+                    "unmodelled Actions numeric conversion", value)
         return math.nan
+    if value is None:
+        return 0.0
     return float(value)
 
 
@@ -194,6 +204,10 @@ def test_types_installs_and_caches_the_full_import_toolchain():
     ({"shard": [1, 2]}, "matrix.shard == 1", True),
     ({"shard": [1, 1, 2]}, "matrix.shard == 1", False),
     ({"shard": [1, "1", 2]}, "matrix.shard == 1", False),
+    pytest.param({"shard": [1, "0x1"]}, "matrix.shard == 1", False, id="hex-alias"),
+    pytest.param({"shard": [1, "+1"]}, "matrix.shard == 1", False, id="leading-plus"),
+    pytest.param({"shard": [1, "01"]}, "matrix.shard == 1", False, id="leading-zero"),
+    pytest.param({"shard": [0, " "]}, "matrix.shard == 0", False, id="whitespace-zero"),
     ({"shard": ["1", "other"]}, "matrix.shard == 1", True),
     ({"shard": ["one", "ONE"]}, "matrix.shard == 'one'", False),
     ({"shard": [1], "include": [{"shard": 1}]}, "matrix.shard == 1", False),
