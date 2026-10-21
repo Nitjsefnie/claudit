@@ -54,6 +54,22 @@ def test_zero_gap_seed_moves_summary_and_grid_instead_of_hidden_heading():
     }
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize("gap, expected", [
+    (14, []),
+    (4, [{"upper": "dash-summary", "lower": "dash-grid", "gap": 4,
+          "upperMb": 0, "lowerMt": 0, "expected": 14}]),
+])
+def test_gap_consistency_ignores_hidden_heading_and_detects_real_drift(gap, expected):
+    out = _node(_DOM + f"""
+      grid.getBoundingClientRect = () => ({{x: 0, y: {40 + gap}, width: 800, height: 300}});
+      const rule = mod.RULES.find(r => r.id === 'section-gap-consistency');
+      const findings = await rule.run({{page: {{evaluate: fn => fn()}}}});
+      console.log(JSON.stringify(findings));
+    """)
+    assert out == expected
+
+
 def _node(body: str):
     module = Path(__file__).resolve().parents[1] / "scripts" / "ci" / "panel_layout_rules.mjs"
     script = f"const mod = await import({json.dumps(module.as_uri())});\n{body}\n"
