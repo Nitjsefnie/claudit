@@ -116,8 +116,8 @@
     2243
   ],
   ".github/workflows/version-guard.yml": [
-    2459,
-    3941
+    2457,
+    3939
   ],
   "backend/agent_sidecar.py": [
     1887,
