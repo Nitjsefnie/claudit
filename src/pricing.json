@@ -654,6 +654,21 @@
         "id": "openai/o4-mini-high",
         "vendor_host": "OpenAI"
       },
+      "solar-mini4": {
+        "context_length": 524288,
+        "id": "upstage/solar-mini4",
+        "vendor_host": "Upstage"
+      },
+      "solar-pro-3": {
+        "context_length": 131072,
+        "id": "upstage/solar-pro-3",
+        "vendor_host": "Upstage"
+      },
+      "solar-pro4": {
+        "context_length": 524288,
+        "id": "upstage/solar-pro4",
+        "vendor_host": "Upstage"
+      },
       "stealth/space-bunny-alpha": {
         "id": "stealth/space-bunny-alpha"
       },
@@ -682,7 +697,8 @@
         "xiaomi",
         "stepfun",
         "tencent",
-        "minimax"
+        "minimax",
+        "upstage"
       ],
       "resolve": {
         "kimi-k2-7-code": {
@@ -692,7 +708,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-10-21T12:53:21Z",
+  "provider_rates_fetched": "2026-10-21T13:01:33Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -1097,7 +1113,8 @@
         [[231596,152078],0.3,1.2,0.006,{"context_length":1048576}],
         [113972,0.0558,0.2232,0.001116,81.4,{"context_length":1048576}],
         [1205,0.0444,0.1776,0.000888,85.2,{"context_length":1048576}],
-        [8700,0.0354,0.1416,0.000708,88.2,{"context_length":1048576}]
+        [8700,0.0354,0.1416,0.000708,88.2,{"context_length":1048576}],
+        [76850,0.0489,0.1956,0.000978,83.7,{"context_length":1048576}]
       ],
       "BaseTen": [
         [null,0.3,1.2,0.007,"Global-region endpoint; the US in-region one reads at 0.03 and these keys cannot reach it."],
