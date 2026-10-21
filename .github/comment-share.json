@@ -108,8 +108,8 @@
     4048
   ],
   ".github/workflows/test-data.yml": [
-    1902,
-    3850
+    1856,
+    4851
   ],
   ".github/workflows/types.yml": [
     989,
@@ -660,8 +660,8 @@
     15201
   ],
   "scripts/ci/perturbed_leg_bench.py": [
-    2846,
-    10082
+    2871,
+    11291
   ],
   "scripts/ci/ratchet.py": [
     637,
@@ -1499,10 +1499,6 @@
     4402,
     24236
   ],
-  "tests/test_perturbed_leg_bench.py": [
-    1423,
-    8125
-  ],
   "tests/test_picker_fit_js.py": [
     4535,
     14389
@@ -1820,8 +1816,8 @@
     18294
   ],
   "tests/test_workflow_pip_cache.py": [
-    1422,
-    5014
+    1465,
+    8181
   ],
   "tests/test_workflow_release.py": [
     7471,
