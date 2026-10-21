@@ -1,0 +1,260 @@
+{
+  "minimax/minimax-m2.1": {
+    "data": {
+      "id": "minimax/minimax-m2.1",
+      "endpoints": [
+        {
+          "tag": "minimax/fp8",
+          "provider_name": "Minimax",
+          "quantization": "fp8",
+          "context_length": 204800,
+          "max_completion_tokens": 131072,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.0000003",
+            "completion": "0.0000012",
+            "input_cache_read": "0.00000003",
+            "discount": 0
+          }
+        },
+        {
+          "tag": "minimax/highspeed",
+          "provider_name": "Minimax",
+          "quantization": "fp8",
+          "context_length": 204800,
+          "max_completion_tokens": 131072,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.0000003",
+            "completion": "0.0000024",
+            "input_cache_read": "0.00000003",
+            "discount": 0
+          }
+        }
+      ]
+    }
+  },
+  "minimax/minimax-m2.5": {
+    "data": {
+      "id": "minimax/minimax-m2.5",
+      "endpoints": [
+        {
+          "tag": "venice",
+          "provider_name": "Venice",
+          "quantization": "unknown",
+          "context_length": 198000,
+          "max_completion_tokens": 32768,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.00000027",
+            "completion": "0.00000095",
+            "input_cache_read": "0.00000003",
+            "discount": 0
+          }
+        },
+        {
+          "tag": "streamlake",
+          "provider_name": "StreamLake",
+          "quantization": "unknown",
+          "context_length": 200000,
+          "max_completion_tokens": 128000,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.00000027",
+            "completion": "0.00000108",
+            "input_cache_read": "0.000000027",
+            "discount": 0.1
+          }
+        },
+        {
+          "tag": "atlas-cloud/fp8",
+          "provider_name": "AtlasCloud",
+          "quantization": "fp8",
+          "context_length": 196608,
+          "max_completion_tokens": 176947,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.000000295",
+            "completion": "0.0000012",
+            "input_cache_read": "0.00000006",
+            "discount": 0
+          }
+        },
+        {
+          "tag": "gmicloud/fp8",
+          "provider_name": "GMICloud",
+          "quantization": "fp8",
+          "context_length": 196608,
+          "max_completion_tokens": 176947,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.0000003",
+            "completion": "0.0000012",
+            "input_cache_read": "0.00000003",
+            "discount": 0
+          }
+        },
+        {
+          "tag": "digitalocean",
+          "provider_name": "DigitalOcean",
+          "quantization": "unknown",
+          "context_length": 65536,
+          "max_completion_tokens": 58982,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.0000003",
+            "completion": "0.0000012",
+            "input_cache_read": "0.00000006",
+            "discount": 0
+          }
+        },
+        {
+          "tag": "friendli",
+          "provider_name": "Friendli",
+          "quantization": "unknown",
+          "context_length": 196608,
+          "max_completion_tokens": 176947,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.0000003",
+            "completion": "0.0000012",
+            "input_cache_read": "0.00000006",
+            "discount": 0
+          }
+        },
+        {
+          "tag": "novita/fp8",
+          "provider_name": "Novita",
+          "quantization": "fp8",
+          "context_length": 204800,
+          "max_completion_tokens": 131100,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.0000003",
+            "completion": "0.0000012",
+            "input_cache_read": "0.00000003",
+            "discount": 0
+          }
+        },
+        {
+          "tag": "minimax/fp8",
+          "provider_name": "Minimax",
+          "quantization": "fp8",
+          "context_length": 204800,
+          "max_completion_tokens": 131072,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.0000003",
+            "completion": "0.0000012",
+            "input_cache_read": "0.00000003",
+            "discount": 0
+          }
+        },
+        {
+          "tag": "minimax/highspeed",
+          "provider_name": "Minimax",
+          "quantization": "fp8",
+          "context_length": 204800,
+          "max_completion_tokens": 131072,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.0000006",
+            "completion": "0.0000024",
+            "input_cache_read": "0.00000006",
+            "discount": 0
+          }
+        }
+      ]
+    }
+  },
+  "minimax/minimax-m2.7": {
+    "data": {
+      "id": "minimax/minimax-m2.7",
+      "endpoints": [
+        {
+          "tag": "gmicloud/fp8",
+          "provider_name": "GMICloud",
+          "quantization": "fp8",
+          "context_length": 196608,
+          "max_completion_tokens": 176947,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.00000021",
+            "completion": "0.00000084",
+            "input_cache_read": "0.000000042",
+            "discount": 0.3
+          }
+        },
+        {
+          "tag": "novita/fp8",
+          "provider_name": "Novita",
+          "quantization": "fp8",
+          "context_length": 204800,
+          "max_completion_tokens": 131072,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.00000027",
+            "completion": "0.00000108",
+            "input_cache_read": "0.000000054",
+            "discount": 0.1
+          }
+        },
+        {
+          "tag": "atlas-cloud/fp8",
+          "provider_name": "AtlasCloud",
+          "quantization": "fp8",
+          "context_length": 196608,
+          "max_completion_tokens": 176947,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.0000003",
+            "completion": "0.0000012",
+            "input_cache_read": "0.00000006",
+            "discount": 0
+          }
+        },
+        {
+          "tag": "minimax/fp8",
+          "provider_name": "Minimax",
+          "quantization": "fp8",
+          "context_length": 204800,
+          "max_completion_tokens": 131072,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.0000003",
+            "completion": "0.0000012",
+            "input_cache_read": "0.00000006",
+            "discount": 0
+          }
+        },
+        {
+          "tag": "groq",
+          "provider_name": "Groq",
+          "quantization": "unknown",
+          "context_length": 196608,
+          "max_completion_tokens": 131072,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.0000006",
+            "completion": "0.0000018",
+            "discount": 0
+          }
+        },
+        {
+          "tag": "minimax/highspeed",
+          "provider_name": "Minimax",
+          "quantization": "fp8",
+          "context_length": 204800,
+          "max_completion_tokens": 131072,
+          "max_prompt_tokens": null,
+          "pricing": {
+            "prompt": "0.0000006",
+            "completion": "0.0000024",
+            "input_cache_read": "0.00000006",
+            "discount": 0
+          }
+        }
+      ]
+    }
+  }
+}
