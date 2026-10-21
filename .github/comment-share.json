@@ -321,7 +321,7 @@
   ],
   "backend/ingest_identity.py": [
     1210,
-    3911
+    4276
   ],
   "backend/ingest_lockwatch.py": [
     1790,
@@ -332,8 +332,8 @@
     2348
   ],
   "backend/ingest_persist.py": [
-    3587,
-    11506
+    3584,
+    12443
   ],
   "backend/ingest_progress.py": [
     1536,
@@ -1281,7 +1281,7 @@
   ],
   "tests/test_ingest.py": [
     5146,
-    20966
+    23876
   ],
   "tests/test_ingest_blob_cache.py": [
     962,
