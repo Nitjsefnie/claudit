@@ -481,7 +481,7 @@
   ],
   "backend/r2.py": [
     7389,
-    13618
+    13755
   ],
   "backend/rate_boundaries.py": [
     709,
@@ -1589,7 +1589,7 @@
   ],
   "tests/test_r2.py": [
     5677,
-    14111
+    19766
   ],
   "tests/test_rate_fingerprint.py": [
     4231,
