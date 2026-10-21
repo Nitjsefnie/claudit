@@ -19,12 +19,13 @@ def partition(files: list[tuple[str, int]], shards: int) -> list[list[tuple[str,
     return groups
 
 
-def _discover() -> list[tuple[str, int]]:
+def discover(root: Path = Path(".")) -> list[tuple[str, int]]:
+    """Find test files and line counts, with paths relative to the tree."""
     files = []
-    for path in sorted(Path("tests").rglob("test_*.py")):
+    for path in sorted((root / "tests").rglob("test_*.py")):
         if path.is_file():
             with path.open(encoding="utf-8") as stream:
-                files.append((path.as_posix(), sum(1 for _ in stream)))
+                files.append((path.relative_to(root).as_posix(), sum(1 for _ in stream)))
     return files
 
 
@@ -41,7 +42,7 @@ def main() -> None:
         parser.error("--shard must be between 1 and --of")
     if not args.table and args.shard is None:
         parser.error("--shard is required unless --table is used")
-    files = _discover()
+    files = discover()
     if not files:
         parser.error("tests/ contains no test_*.py files")
     groups = partition(files, args.of)
