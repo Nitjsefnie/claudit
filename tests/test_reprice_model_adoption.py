@@ -12,7 +12,7 @@ from test_canonical_model_attribution import (  # pylint: disable=unused-import
     _switching_parent_rollout,
 )
 
-from backend import (constants, db, ingest, ingest_reprice, parse,
+from backend import (constants, db, ingest, ingest_rate_state, parse,
                      rate_fingerprint, uuid_split)
 
 
@@ -39,7 +39,7 @@ def _replay_price():
             """, (REPLAY_UUIDS[0],)).fetchall()
     assert len(rows) == 1, rows
     assert rows[0][-2:] == (True, False), "compare the losing replay itself"
-    return ingest_reprice._StaleRow(*rows[0][:-2])  # pylint: disable=protected-access
+    return ingest_rate_state.RateRow(*rows[0][:-2])
 
 
 @pytest.mark.parametrize("phase", ["current", "version-only-bump"])
@@ -77,7 +77,7 @@ def test_reprice_preserves_fresh_ingests_adopted_replay_price(
         # same stored row as well, so a skipped row cannot hide disagreement.
         assert ingest.reprice_stale() == 0
         actual = {
-            "cost_usd": ingest_reprice._record_updates(fresh)["cost_usd"],  # pylint: disable=protected-access
+            "cost_usd": ingest_rate_state.record_updates(fresh)["cost_usd"],
             "rate_fingerprint": rate_fingerprint.pair_fingerprint(
                 fresh.model, fresh.provider),
         }
