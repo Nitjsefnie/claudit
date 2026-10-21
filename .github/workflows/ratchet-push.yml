@@ -106,12 +106,14 @@ jobs:
           if printf '%s\n' "$names" | grep -qx 'comment-share-ratchet'; then
             records=true
           fi
-          echo "ratchet=$ratchet" >> "$GITHUB_OUTPUT"
-          echo "suite=$suite" >> "$GITHUB_OUTPUT"
-          echo "records=$records" >> "$GITHUB_OUTPUT"
-          if [ "$ratchet" = true ] || [ "$suite" = true ] || [ "$records" = true ]; then
-            echo "any=true" >> "$GITHUB_OUTPUT"
-          fi
+          {
+            echo "ratchet=$ratchet"
+            echo "suite=$suite"
+            echo "records=$records"
+            if [ "$ratchet" = true ] || [ "$suite" = true ] || [ "$records" = true ]; then
+              echo "any=true"
+            fi
+          } >> "$GITHUB_OUTPUT"
 
       - name: Download the ratchet data
         # The artifact belongs to the TRIGGERING run: the download is
