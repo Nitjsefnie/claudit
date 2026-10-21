@@ -235,9 +235,6 @@ jobs:
           pip install -r backend/requirements.txt -r requirements-test.txt
       - name: Install the JS toolchain from the lockfile
         run: npm ci --no-audit --no-fund
-      - name: Comment share baseline
-        if: ${{ !cancelled() }}
-        run: python3 scripts/ci/comment_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
       - name: JavaScript coverage gate
         id: jscov
         if: ${{ !cancelled() }}
@@ -379,7 +376,6 @@ jobs:
           python3 scripts/ci/reparse_ratchet.py --measured-file reparse-bench.json
           python3 scripts/ci/size_baseline.py --tighten
           python3 scripts/ci/suppression_baseline.py --tighten
-          python3 scripts/ci/comment_baseline.py --tighten
           python3 scripts/ci/thresholds.py --check
           if [ -n "$(git status --porcelain .github/ci-thresholds.json)" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"

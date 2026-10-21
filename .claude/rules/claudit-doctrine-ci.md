@@ -99,19 +99,16 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   and `scripts/` (`tests/` stays outside), checked and tightened by
   `scripts/ci/suppression_baseline.py` under the same never-added,
   never-raised, only-shrinks rules as module size.
-- Comment share (`comment_share_baseline`): exact `[comment bytes,
-  non-whitespace bytes]` pairs for tracked Python, JS/JSX/MJS/CJS,
-  YAML and shell sources above 15%, including extensionless shell.
-  Integer cross-products compare shares without rounding. Unrecorded
-  files stay at or below 15%; established entries never rise or get
-  added. `scripts/ci/comment_baseline.py` fails only for a measured share
-  above its entry or an unrecorded share above 15%. Lower/equal shares,
-  changed pairs without a rise, deleted-file and at/below-15% entries pass.
-  The check runs after
-  pytest and the JS toolchain install, on comment-only changes too.
-  On master pushes only, `--tighten` lowers entries and drops deleted or
-  at/below-15% files, through `thresholds.write`. `--seed` introduces the
-  section once from the measured tree.
+- Comment share: `.github/workflows/comment-share.yml` runs the pinned
+  `Nitjsefnie-Actions/comment-ratchet` action on every pull request,
+  checking against the records at its base, and tightens on every
+  `master` push. The action measures tracked Python, JavaScript/TypeScript,
+  YAML, shell and SQL files at a 15% target; only files above it carry
+  exact `[comment bytes, non-whitespace bytes]` records in
+  `.github/comment-share.json`. Tighten writes the checkout's records;
+  `.github/workflows/ratchet-push.yml` lands the tightened records on
+  `master`. Keep the action pinned and its records separate from
+  `.github/ci-thresholds.json`.
 - Suite cost (`suite_cost`): per-phase instruction counts (millions of
   bytecode instructions, one decimal; phases `collection`, `run`,
   `residual`) of ONE pytest pass over the pinned fixture
@@ -174,9 +171,9 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
 - An absent entry or family is seeded from its measurement on the next
   full master run: `ratchet.py` for coverage; `reparse_ratchet.py`'s tighten
   path from the reparse measurement; `suite_ratchet.py --tighten` from
-  the suite measurement through `ratchet-push.yml`; and the three
-  baseline writers (`size_baseline.py`, `suppression_baseline.py`,
-  `comment_baseline.py`) with `--tighten` for their entries; coverage
+  the suite measurement through `ratchet-push.yml`; and the two
+  baseline writers (`size_baseline.py`, `suppression_baseline.py`)
+  with `--tighten` for their entries; coverage
   without a calibration still measures and reports, but gates no floor.
   A thresholds-only change schedules no measurement; a valid removal
   ships with the code change or subject deletion that justifies it, and

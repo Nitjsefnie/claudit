@@ -478,7 +478,7 @@ def test_parallel_canary_jobs_keep_the_gate_step_order():
         "js-coverage": ["actions/checkout", "Start cached Postgres", "actions/setup-python",
                         "actions/setup-node", "Resolve the threshold base", "Restore the pip cache",
                         "Install dependencies", "Install the JS toolchain from the lockfile",
-                        "Comment share baseline", "JavaScript coverage gate"],
+                        "JavaScript coverage gate"],
         "reparse-gate": [*preparation, "Reparse CPU gate"],
         "suite-bench": [*preparation, "Save the pip cache", "Measure and gate the suite cost",
                         "Upload the suite measurement"],
