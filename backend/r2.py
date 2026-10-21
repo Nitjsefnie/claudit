@@ -20,7 +20,7 @@ import boto3
 from botocore.config import Config
 
 from backend.env_config import getenv, require_env
-from backend import blob_cache, timing
+from backend import blob_cache, r2_list, timing
 
 # S3 bucket-name grammar: 3-63 chars of lowercase letters, digits and
 # hyphens, starting and ending letter/digit. R2 follows the same rules.
@@ -302,6 +302,9 @@ def list_keys(prefix: str = "") -> Iterator[R2Object]:
     """
     file_mode, root = _is_file_mode()
     names = buckets()
+    if not file_mode and not prefix:
+        yield from (R2Object(*row) for row in r2_list.list_keys(names, _boto_client))
+        return
     multi = len(names) > 1
     for bucket in names:
         oprefix = ""
