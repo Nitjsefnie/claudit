@@ -56,8 +56,6 @@ import pytest
 # auth middleware, as a guest
 # lat_client test_latency_read_canonical; creates its own
 # scratch DB in-body
-# drop_failing_pool test_adoption_rate_state; takes fresh_db for its
-# scratch viz DB and installs a real single-connection pool over it
 DB_FIXTURES = frozenset({
     "fresh_db",
     "drop_failing_pool",
