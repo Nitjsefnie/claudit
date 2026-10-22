@@ -6,14 +6,13 @@ the path within the owning session.
 """
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from starlette.responses import StreamingResponse
 
-from backend import db, events, r2
+from backend import db, r2
 from backend.api_flag_gate import require_enabled
 from backend.api_latency_rollup import latency_from_rollup as _latency_from_rollup
 from backend.api_tool_panels import router as tool_panels_router
@@ -28,6 +27,7 @@ from backend.api_web_metrics import router as web_metrics_router
 from backend.cache import cache_response
 from backend.constants import (CTX_BUCKET_MAX, CTX_BUCKET_WIDTH,
                                LATENCY_BUCKETS)
+from backend.sse import event_stream_body
 
 __all__ = ["tool_usage", "tool_error_rate"]
 
@@ -253,44 +253,8 @@ async def event_stream(request: Request):
     heartbeat (':' comment line) keeps the connection alive through
     Cloudflare and other intermediaries."""
 
-    async def gen():
-        q = events.subscribe()
-        shutdown = events.shutdown_event()
-        try:
-            yield ": connected\n\n"
-            while True:
-                if await request.is_disconnected():
-                    break
-                if shutdown is not None and shutdown.is_set():
-                    break
-                wait_tasks = [asyncio.create_task(q.get())]
-                if shutdown is not None:
-                    wait_tasks.append(asyncio.create_task(shutdown.wait()))
-                done, pending = await asyncio.wait(
-                    wait_tasks,
-                    timeout=15,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                for t in pending:
-                    t.cancel()
-                if not done:
-                    yield ": ping\n\n"
-                    continue
-                if shutdown is not None and shutdown.is_set():
-                    break
-                first = next(iter(done), None)
-                if first is None:
-                    continue
-                try:
-                    payload = first.result()
-                    yield payload
-                except asyncio.CancelledError:
-                    break
-        finally:
-            events.unsubscribe(q)
-
     return StreamingResponse(
-        gen(),
+        event_stream_body(request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",

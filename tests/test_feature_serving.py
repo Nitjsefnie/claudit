@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
-from backend import api, api_dashboard, api_export, cache, flags, ingest_warm, session
+from backend import api, api_dashboard, api_export, cache, events, flags, ingest_warm, session
 from backend.app import root_index
 from backend.feature_payloads import features_script, project_dashboard
 from backend.flags import Config
@@ -326,8 +326,8 @@ async def test_disabled_sse_returns_404_before_subscription(policy, monkeypatch)
         subscriptions.append(queue)
         return queue
 
-    monkeypatch.setattr(api.events, "subscribe", subscribe)
-    monkeypatch.setattr(api.events, "unsubscribe", unsubscribed.append)
+    monkeypatch.setattr(events, "subscribe", subscribe)
+    monkeypatch.setattr(events, "unsubscribe", unsubscribed.append)
     app = FastAPI()
     app.include_router(api.router)
 
