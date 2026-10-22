@@ -14,22 +14,69 @@ synchronous connection at first construction: the driver's message
 reaches the operator chained to a RuntimeError naming the env var to
 check (the SV-SCHEMA-FAIL-FAST shape), before any client waits.
 
-The probe DSN reaches the test's Postgres server through the same
-PGHOST/PGPORT/PGUSER environment the suite's scratch databases use,
-but names a database that does not exist, so the server answers with
-the driver's FATAL: database "..." does not exist.
+The failure tests use PGHOST/PGPORT/PGUSER to reach the scratch server
+with a database that does not exist, yielding the driver's FATAL.
 """
 from __future__ import annotations
 
 from collections.abc import Iterator
+from itertools import count
+from threading import Event, Thread
 
 import psycopg
 import pytest
+from psycopg_pool import ConnectionPool
 
 from backend import db
 from tests import scratch_db
 
 _BAD_DSN = "postgresql:///no_such_db_449"
+
+
+class _ColdPool(ConnectionPool):
+    def __init__(self, conninfo: str = "", **kwargs) -> None:
+        kwargs["open"] = False
+        super().__init__(conninfo, **kwargs)
+
+
+@pytest.mark.parametrize("pool_factory,pool_reset,env_var", [
+    pytest.param(db.viz_pool, db.reset_viz_pool,
+                 "CLAUDIT_DATABASE_URL_VIZ", id="viz"),
+    pytest.param(db.auth_pool, db.reset_auth_pool,
+                 "CLAUDIT_DATABASE_URL_AUTH", id="auth"),
+])
+def test_concurrent_pool_creation_returns_one_pool(
+        monkeypatch, pool_factory, pool_reset, env_var) -> None:
+    """Concurrent first callers must receive the same cached pool."""
+    entered = Event()
+    release = Event()
+    calls = count()
+    pools = []
+
+    def stub_probe(_dsn, _env_var, _label):
+        if next(calls) == 0:
+            entered.set()
+            release.wait(timeout=0.5)
+            return
+        release.set()
+
+    monkeypatch.setenv(env_var, "postgresql:///no_such_db_poolrace")
+    monkeypatch.setattr(db, "ConnectionPool", _ColdPool)
+    monkeypatch.setattr(db, "_probe_first_connection", stub_probe)
+    monkeypatch.setattr(db, "_" + env_var.rsplit("_", 1)[1], None)
+    racer = Thread(target=lambda: pools.append(pool_factory()))
+    try:
+        racer.start()
+        try:
+            assert entered.wait(timeout=30)
+            main_pool = pool_factory()
+        finally:
+            release.set()
+            racer.join(timeout=30)
+            assert not racer.is_alive()
+        assert pools[0] is main_pool
+    finally:
+        pool_reset()
 
 
 @pytest.fixture(name="bad_pool_env")

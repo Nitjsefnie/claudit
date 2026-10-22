@@ -35,6 +35,7 @@ log = logging.getLogger("claudit.db")
 
 _VIZ: ConnectionPool | None = None
 _AUTH: ConnectionPool | None = None
+_POOL_LOCK = threading.Lock()
 
 # Connections currently checked out of the viz pool, so teardown can
 # cancel a statement that is stuck server-side. viz_conn is
@@ -96,22 +97,23 @@ def _probe_first_connection(dsn: str, env_var: str, label: str) -> None:
 
 def viz_pool() -> ConnectionPool:
     global _VIZ
-    if _VIZ is None:
-        dsn = require_env("CLAUDIT_DATABASE_URL_VIZ")
-        _probe_first_connection(dsn, "CLAUDIT_DATABASE_URL_VIZ", "viz")
-        _VIZ = ConnectionPool(
-            dsn,
-            # Sync read endpoints run blocking psycopg in FastAPI's threadpool;
-            # a dashboard fans out concurrent queries, so the pool must accommodate
-            # that concurrency instead of serializing the request fan-out.
-            min_size=2, max_size=20, timeout=10,
-            kwargs={"autocommit": False},
-            check=ConnectionPool.check_connection,
-            # Explicit open: the implicit-open default is deprecated in
-            # psycopg_pool and flips to False in a future release.
-            open=True,
-        )
-    return _VIZ
+    with _POOL_LOCK:
+        if _VIZ is None:
+            dsn = require_env("CLAUDIT_DATABASE_URL_VIZ")
+            _probe_first_connection(dsn, "CLAUDIT_DATABASE_URL_VIZ", "viz")
+            _VIZ = ConnectionPool(
+                dsn,
+                # Sync read endpoints run blocking psycopg in FastAPI's threadpool;
+                # a dashboard fans out concurrent queries, so the pool must accommodate
+                # that concurrency instead of serializing the request fan-out.
+                min_size=2, max_size=20, timeout=10,
+                kwargs={"autocommit": False},
+                check=ConnectionPool.check_connection,
+                # Explicit open: the implicit-open default is deprecated in
+                # psycopg_pool and flips to False in a future release.
+                open=True,
+            )
+        return _VIZ
 
 
 def reset_viz_pool() -> None:
@@ -119,12 +121,13 @@ def reset_viz_pool() -> None:
     re-reads CLAUDIT_DATABASE_URL_VIZ. Test suites need this between scratch-DB
     configurations; production code never calls it."""
     global _VIZ
-    if _VIZ is not None:
-        try:
-            _VIZ.close()
-        except Exception:
-            pass
-    _VIZ = None
+    with _POOL_LOCK:
+        if _VIZ is not None:
+            try:
+                _VIZ.close()
+            except Exception:
+                pass
+        _VIZ = None
 
 
 def viz_pool_statistics() -> dict:
@@ -141,24 +144,25 @@ def viz_pool_statistics() -> dict:
 
 def auth_pool() -> ConnectionPool:
     global _AUTH
-    if _AUTH is None:
-        dsn = require_env("CLAUDIT_DATABASE_URL_AUTH")
-        _probe_first_connection(dsn, "CLAUDIT_DATABASE_URL_AUTH", "auth")
-        _AUTH = ConnectionPool(
-            dsn,
-            min_size=1, max_size=4, timeout=10,
-            kwargs={"autocommit": True,
-                    # claudit only READS the auth DB — enforce it at the
-                    # server on every connection the pool opens, so a
-                    # future write raises ReadOnlySqlTransaction instead
-                    # of committing. The option rides the
-                    # startup packet, so pool reconnects inherit it.
-                    "options": "-c default_transaction_read_only=on"},
-            check=ConnectionPool.check_connection,
-            # Same explicit open as the viz pool above.
-            open=True,
-        )
-    return _AUTH
+    with _POOL_LOCK:
+        if _AUTH is None:
+            dsn = require_env("CLAUDIT_DATABASE_URL_AUTH")
+            _probe_first_connection(dsn, "CLAUDIT_DATABASE_URL_AUTH", "auth")
+            _AUTH = ConnectionPool(
+                dsn,
+                min_size=1, max_size=4, timeout=10,
+                kwargs={"autocommit": True,
+                        # claudit only READS the auth DB — enforce it at the
+                        # server on every connection the pool opens, so a
+                        # future write raises ReadOnlySqlTransaction instead
+                        # of committing. The option rides the
+                        # startup packet, so pool reconnects inherit it.
+                        "options": "-c default_transaction_read_only=on"},
+                check=ConnectionPool.check_connection,
+                # Same explicit open as the viz pool above.
+                open=True,
+            )
+        return _AUTH
 
 
 def reset_auth_pool() -> None:
@@ -166,12 +170,13 @@ def reset_auth_pool() -> None:
     re-reads CLAUDIT_DATABASE_URL_AUTH. Mirrors reset_viz_pool; test suites need
     this between auth-DB configurations, production code never calls it."""
     global _AUTH
-    if _AUTH is not None:
-        try:
-            _AUTH.close()
-        except Exception:
-            pass
-    _AUTH = None
+    with _POOL_LOCK:
+        if _AUTH is not None:
+            try:
+                _AUTH.close()
+            except Exception:
+                pass
+        _AUTH = None
 
 
 @contextmanager
