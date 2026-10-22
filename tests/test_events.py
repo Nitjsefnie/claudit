@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import inspect
 import json
 import signal
 import threading
@@ -115,6 +116,58 @@ async def test_lifespan_signal_wakes_stream_and_delegates(monkeypatch, signum):
         assert signal.getsignal(signum) is previous
     finally:
         signal.signal(signum, original)
+
+
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGINT])
+def test_shutdown_signal_delegates_when_wakeup_raises(monkeypatch, signum):
+    received = []
+    failure = RuntimeError("shutdown wake-up failed")
+    frame = inspect.currentframe()
+    assert frame is not None
+
+    def previous(sig, received_frame):
+        received.append((sig, received_frame))
+
+    def wakeup():
+        raise failure
+
+    monkeypatch.setattr(events, "signal_shutdown", wakeup)
+    originals = {sig: signal.getsignal(sig)
+                 for sig in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        signal.signal(signum, previous)
+        with events.shutdown_signals():
+            handler = signal.getsignal(signum)
+            assert callable(handler) and handler is not previous
+            with pytest.raises(RuntimeError) as raised:
+                handler(signum, frame)
+            assert raised.value is failure
+            assert received == [(signum, frame)]
+    finally:
+        for sig, original in originals.items():
+            signal.signal(sig, original)
+
+
+def test_shutdown_signals_restores_handlers_when_context_raises():
+    previous = {sig: lambda _sig, _frame: None
+                for sig in (signal.SIGTERM, signal.SIGINT)}
+    originals = {sig: signal.getsignal(sig) for sig in previous}
+    failure = RuntimeError("serving failed")
+    try:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+        with pytest.raises(RuntimeError) as raised:
+            with events.shutdown_signals():
+                for sig, handler in previous.items():
+                    installed = signal.getsignal(sig)
+                    assert callable(installed) and installed is not handler
+                raise failure
+        assert raised.value is failure
+        for sig, handler in previous.items():
+            assert signal.getsignal(sig) is handler
+    finally:
+        for sig, original in originals.items():
+            signal.signal(sig, original)
 
 
 @pytest.mark.asyncio
