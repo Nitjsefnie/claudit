@@ -552,19 +552,24 @@ async def _drive_stream_ending(monkeypatch, ending, waiters):
         waiters.extend(weakref.ref(task) for task in aws)
         entered.set()
         return await real_wait(
-            aws, timeout=0 if ending == "heartbeat" else timeout,
+            aws, timeout=0 if ending == "ping_timeout" else timeout,
             return_when=return_when)
 
     monkeypatch.setattr(asyncio, "wait", observed_wait)
-    if ending in {"disconnect", "heartbeat", "aclose"}:
-        if ending != "heartbeat":
+    if ending == "connect":
+        request.disconnected = True
+        with pytest.raises(StopAsyncIteration):
+            await anext(body)
+        assert not waiters
+    elif ending in {"client_disconnect_after_delivery", "ping_timeout", "delivered_event"}:
+        if ending != "ping_timeout":
             events.broadcast_threadsafe("ingest_done", {})
         chunk = await anext(body)
-        if ending == "heartbeat":
+        if ending == "ping_timeout":
             assert chunk == ": ping\n\n"
         else:
-            assert chunk.startswith("event: ingest_done\n")
-        if ending == "aclose":
+            assert chunk == 'event: ingest_done\ndata: {}\n\n'
+        if ending == "delivered_event":
             await body.aclose()
         else:
             request.disconnected = True
@@ -583,6 +588,8 @@ async def _drive_stream_ending(monkeypatch, ending, waiters):
             with pytest.raises(asyncio.CancelledError):
                 await pull
             await body.aclose()
+    if ending != "connect":
+        assert len(waiters) == 2
     pending_at_end = [
         repr(task) for ref in waiters
         if (task := ref()) is not None and not task.done()]
@@ -591,7 +598,8 @@ async def _drive_stream_ending(monkeypatch, ending, waiters):
 
 
 @pytest.mark.parametrize("ending", [
-    "disconnect", "disconnect_wait", "shutdown", "heartbeat", "aclose",
+    "connect", "ping_timeout", "delivered_event",
+    "client_disconnect_after_delivery", "client_disconnect_while_waiting", "shutdown",
 ])
 def test_event_stream_reaps_waiters_without_loop_errors(monkeypatch, ending):
     loop = asyncio.new_event_loop()
