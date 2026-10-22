@@ -39,6 +39,23 @@ class _ColdPool(ConnectionPool):
         super().__init__(conninfo, **kwargs)
 
 
+class _WitnessLock:
+    def __init__(self, inner, release):
+        self._inner = inner
+        self._release = release
+
+    def __enter__(self):
+        if self._inner is not None and not self._inner.acquire(blocking=False):
+            self._release.set()
+            self._inner.acquire()
+        return self
+
+    def __exit__(self, *_exc) -> bool:
+        if self._inner is not None:
+            self._inner.release()
+        return False
+
+
 @pytest.mark.parametrize("pool_factory,pool_reset,env_var", [
     pytest.param(db.viz_pool, db.reset_viz_pool,
                  "CLAUDIT_DATABASE_URL_VIZ", id="viz"),
@@ -56,10 +73,14 @@ def test_concurrent_pool_creation_returns_one_pool(
     def stub_probe(_dsn, _env_var, _label):
         if next(calls) == 0:
             entered.set()
-            release.wait(timeout=0.5)
+            release.wait()
             return
         release.set()
 
+    inner = getattr(db, "_POOL_LOCK", None)
+    witness = _WitnessLock(inner, release)
+    if inner is not None:
+        monkeypatch.setattr(db, "_POOL_LOCK", witness)
     monkeypatch.setenv(env_var, "postgresql:///no_such_db_poolrace")
     monkeypatch.setattr(db, "ConnectionPool", _ColdPool)
     monkeypatch.setattr(db, "_probe_first_connection", stub_probe)
@@ -68,7 +89,7 @@ def test_concurrent_pool_creation_returns_one_pool(
     try:
         racer.start()
         try:
-            assert entered.wait(timeout=30)
+            entered.wait()
             main_pool = pool_factory()
         finally:
             release.set()
