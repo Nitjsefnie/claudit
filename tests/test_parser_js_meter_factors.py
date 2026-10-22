@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 
 import pytest
 
@@ -9,6 +8,7 @@ from backend import parse, pricing
 from tests.test_parser_js_lanes import (
     CODEX_JS, LANES_JS, LOADER_JS, PARSER_JS, RATES_JS, _long_context_blob,
 )
+from tests.node_run import run_node
 
 
 def test_one_sided_meter_factor_matches_backend_and_browser(monkeypatch):
@@ -50,8 +50,8 @@ def test_one_sided_meter_factor_matches_backend_and_browser(monkeypatch):
         cost: window.computeSessionStats(events, meta).cost,
       }}));
     """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     got = json.loads(proc.stdout)
     assert got["factors"] == [6.0, pricing.LONG_CONTEXT_OUTPUT_MULT]

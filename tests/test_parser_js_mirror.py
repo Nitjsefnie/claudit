@@ -4,13 +4,13 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from backend import parse, pricing
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -87,7 +87,7 @@ def _node_cost(output_tokens: int) -> float:
                              output_tokens: {output_tokens} }} }};
       console.log(JSON.stringify(window.computeSessionStats([], [m]).cost));
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
         check=False,
     )
@@ -111,7 +111,7 @@ def _node_usage_records(text: str) -> list[dict]:
                       read: m.usage.cache_read_input_tokens || 0,
                       output: m.usage.output_tokens || 0 }}))));
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
         check=False,
     )
@@ -175,7 +175,7 @@ def _node_dedup_survivor(*files):
                                    output: m.usage.output_tokens || 0 }})),
       }}));
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
         check=False,
     )
@@ -221,7 +221,7 @@ def _node_json(body: str):
       require({str(PARSER_JS)!r});
       {body}
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
         check=False,
     )
@@ -321,7 +321,7 @@ class TestNodeDrivenBrowserMirror:
           require({str(PARSER_JS)!r});
           console.log(JSON.stringify(window.rateEpochs));
         """
-        proc = subprocess.run(
+        proc = run_node(
             ["node", "-e", script], capture_output=True, text=True, timeout=60,
             check=False,
         )
@@ -553,7 +553,7 @@ class TestNodeDrivenBrowserProviderParsing:
           }}
           console.log(JSON.stringify(out));
         """
-        proc = subprocess.run(
+        proc = run_node(
             ["node", "-e", script], capture_output=True, text=True, timeout=60,
             check=False,
         )
@@ -607,7 +607,7 @@ class TestNodeDrivenBrowserProviderParsing:
           }}));
         """
         env = {**os.environ, "TZ": "Europe/Berlin"}
-        proc = subprocess.run(
+        proc = run_node(
             ["node", "-e", script], capture_output=True, text=True, timeout=60,
             env=env, check=False,
         )

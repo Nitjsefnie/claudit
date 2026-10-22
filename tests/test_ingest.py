@@ -3,7 +3,6 @@ import json
 import lzma
 import os
 import shutil
-import subprocess
 import tempfile
 import threading
 import time
@@ -22,6 +21,7 @@ from backend.ingest_identity import upsert_project
 from backend.ingest_persist import _persist
 from tests import dims_seed, mini_mirror, scratch_db
 from tests.persist_fact_fixture import persist_fact_fixture
+from tests.node_run import run_node
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIX_ROOT = _REPO_ROOT / "fixtures"
@@ -393,8 +393,8 @@ def _js_winners() -> dict[str, str]:
       }}
       console.log(JSON.stringify(out));
     """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 

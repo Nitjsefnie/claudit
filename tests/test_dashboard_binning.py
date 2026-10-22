@@ -1,10 +1,10 @@
 """Frontend bin widths must not undershoot backend aggregation."""
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 
 BINNING_JS = (
@@ -28,7 +28,7 @@ def test_dashboard_bins_never_undershoot_server_aggregation():
         synthetic: window.dashboardBinMs(sixDays),
       }}));
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script],
         capture_output=True,
         text=True,

@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 import yaml
+from tests.node_run import run_node
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CI_GATE = REPO_ROOT / ".github" / "workflows" / "ci-gate.yml"
@@ -388,7 +388,7 @@ def test_the_node_helper_strips_comments_and_marks_line_breaks(tmp_path):
     source = tmp_path / "s.js"
     source.write_text("x\ny\n", encoding="utf-8")
     helper = REPO_ROOT / "scripts" / "ci" / "js_comment_tokens.mjs"
-    completed = subprocess.run(
+    completed = run_node(
         ["node", str(helper), str(module_dir), str(source), "plain"],
         capture_output=True, text=True, check=True, timeout=60)
     assert json.loads(completed.stdout) == [
@@ -410,7 +410,7 @@ def test_the_node_helper_distinguishes_an_asi_line_break(tmp_path):
     def keys(text):
         source = tmp_path / "s.js"
         source.write_text(text, encoding="utf-8")
-        completed = subprocess.run(
+        completed = run_node(
             ["node", str(helper), str(espree_dir), str(source), "plain"],
             capture_output=True, text=True, check=True, timeout=60)
         return json.loads(completed.stdout)

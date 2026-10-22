@@ -5,10 +5,10 @@ Execute the extracted JSX block through node; rendering is separate."""
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 CHARTS_JSX = Path(__file__).resolve().parent.parent / "src" / "dashboard-charts.jsx"
 
@@ -31,7 +31,7 @@ def _node_probe(keys):
       out.__hardcoded = Object.keys(c);
       console.log(JSON.stringify(out));
     """
-    res = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    res = run_node(["node", "-e", script], capture_output=True, text=True, check=True)
     return json.loads(res.stdout)
 
 

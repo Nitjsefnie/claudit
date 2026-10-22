@@ -3,10 +3,10 @@ Snapshots and bracketed variants must share a colour and series with the
 base id. Execute the extracted JSX helper through node; rendering is separate."""
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parent.parent
 CHARTS_EXTRA_JSX = ROOT / "src" / "dashboard-charts-extra.jsx"
@@ -25,7 +25,7 @@ def _node(body: str):
       eval({json.dumps(_source())});
       {body}
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
         check=False,
     )

@@ -9,10 +9,10 @@ through node against the same fixtures the backend tests read
 """
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -40,7 +40,7 @@ def _user_messages(name):
         toolResults: stats.toolResults,
       }}));
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
         check=False,
     )

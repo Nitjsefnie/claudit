@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 # The probe consumes element boxes and computed styles; the heading has
 # the existing sr-only style's absolute position and nonzero 1px box.
@@ -73,7 +73,7 @@ def test_gap_consistency_ignores_hidden_heading_and_detects_real_drift(gap, expe
 def _node(body: str):
     module = Path(__file__).resolve().parents[1] / "scripts" / "ci" / "panel_layout_rules.mjs"
     script = f"const mod = await import({json.dumps(module.as_uri())});\n{body}\n"
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "--input-type=module"], input=script, capture_output=True,
         text=True, timeout=60, check=False, encoding="utf-8", errors="strict",
     )

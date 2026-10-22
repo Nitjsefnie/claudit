@@ -22,13 +22,13 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from functools import lru_cache
 from pathlib import Path
 
 import pytest
 
 from backend import parse
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 FIX_PARSER = ROOT / "fixtures" / "parser"
@@ -77,7 +77,7 @@ def _browser(name):
       window.resolveCacheWrites(meta);   // a SECOND application
       console.log(JSON.stringify({{ records, second: recs.map(m => m.cache_write) }}));
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node"], input=script, capture_output=True, text=True, timeout=120,
         check=False,
     )

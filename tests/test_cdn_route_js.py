@@ -6,13 +6,13 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
 from backend.js_min import minify_js
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts" / "ci" / "cdn_route.mjs"
@@ -62,7 +62,7 @@ def _node(body: str, *, cdn_page: bool = True) -> dict:
         f"const mod = await import({json.dumps(MODULE.as_uri())});\n"
         f"{body}\n"
     )
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "--input-type=module"], input=script, capture_output=True,
         text=True, timeout=60, check=False, encoding="utf-8", errors="strict",
         cwd=ROOT,

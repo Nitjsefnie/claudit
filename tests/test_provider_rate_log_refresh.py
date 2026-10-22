@@ -4,7 +4,6 @@ import copy
 import importlib.util
 import json
 import shutil
-import subprocess
 import sys
 import urllib.error
 from dataclasses import dataclass
@@ -24,6 +23,7 @@ from tests.pricing_row_helpers import decoded_pricing_doc
 from tests.refresh_fixture_builders import (
     RATE_C, _endpoint as fixture_endpoint, seed_doc,
 )
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
@@ -498,7 +498,7 @@ def test_log_append_writes_a_file_accepted_by_both_rate_loaders(tmp_path, capsys
         shutil.copy(ROOT / "src" / "parser-usage.js",
                     browser_dir / "parser-usage.js")
         shutil.copy(parser_path, browser_dir / "parser.js")
-        proc = subprocess.run(
+        proc = run_node(
             ["node", "-e", "global.window = {}; "
              "require('./pricing-loader.js'); require('./rates.js'); require('./parser.js'); "
              "console.log(JSON.stringify(['2031-01-01T00:09:59Z', "

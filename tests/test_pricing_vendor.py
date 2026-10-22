@@ -16,7 +16,6 @@ import importlib.util
 import json
 import re
 import shutil
-import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,6 +25,7 @@ import pytest
 from backend import long_context, pricing
 from backend.pricing_rows import encode_pricing_doc
 from tests.refresh_fixture_builders import DEFAULT_ROW
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -132,7 +132,7 @@ def _install(monkeypatch, doc):
 
 
 def _node_raw(script: str):
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-"], input=script, capture_output=True, text=True, timeout=60,
         check=False)
     assert proc.returncode == 0, proc.stderr
@@ -147,7 +147,7 @@ def _loader_error(tmp_path: Path, doc: dict) -> str | None:
     shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e",
          "global.window={};let e=null;try{require('./pricing-loader.js')}"
          "catch(x){e=x.message}console.log(JSON.stringify(e))"],

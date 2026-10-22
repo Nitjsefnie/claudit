@@ -10,10 +10,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "src" / "app.jsx"
@@ -21,7 +21,7 @@ HELPER = ROOT / "src" / "timeline-selection.js"
 
 
 def _run_helper(script: str) -> dict:
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script],
         capture_output=True,
         text=True,

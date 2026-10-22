@@ -11,7 +11,6 @@ import importlib.util
 import json
 import re
 import shutil
-import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,6 +22,7 @@ from backend.pricing_document import expand_pricing_doc, serialize_pricing_doc
 from tests.refresh_fixture_builders import (_discount, _endpoint,
                                             _overrides, _per_token,
                                             RATES_A, seed_doc, provider_refresh_doc)
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (catalog structure checks only; refresh histories are synthetic)
@@ -339,8 +339,8 @@ def _browser_pricing_script(run: Run, where: Path, body: str) -> str:
 def _browser_pricing(run: Run, where: Path, body: str):
     """Load the run's real browser pricing modules and evaluate one readout."""
     script = _browser_pricing_script(run, where, body)
-    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True,
-                          timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True, text=True,
+                    timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 

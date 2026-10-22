@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 SPACE = ROOT / 'src' / 'picker-space.js'
@@ -42,7 +42,7 @@ def test_measured_controls_fit_across_widths_and_counter_sizes():
         console.log(JSON.stringify({{failures, wide}}));
       }}
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node"], input=script, capture_output=True, text=True,
         check=False, timeout=30)
     assert proc.returncode == 0, proc.stderr

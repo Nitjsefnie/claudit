@@ -5,12 +5,12 @@ import copy
 import json
 import random
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from backend import pricing_document
+from tests.node_run import run_node
 ROOT = Path(__file__).resolve().parents[1]
 ROW_KEY, HOST = 'anthropic/synthetic-9', 'OpenInference'
 
@@ -112,8 +112,8 @@ def _node(tmp_path, doc, browser=False):
       }} catch (e) {{ error = e.message; }}
       console.log(JSON.stringify({{error, decoded, tables: window}}));
     """
-    result = subprocess.run(['node', '-e', script], capture_output=True,
-                            text=True, check=False, timeout=60)
+    result = run_node(['node', '-e', script], capture_output=True,
+                      text=True, check=False, timeout=60)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 

@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,7 +88,7 @@ def _extract_arrow_body(src: str, name: str) -> str:
 def _run_node(script: str) -> subprocess.CompletedProcess[str]:
     if shutil.which("node") is None:
         raise RuntimeError("node is not installed")
-    return subprocess.run(
+    return run_node(
         ["node", "-"], input=script, capture_output=True, text=True,
         encoding="utf-8", timeout=60, check=False,
     )

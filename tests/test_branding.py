@@ -31,6 +31,7 @@ from backend import api_export
 from backend import branding
 from backend import login as login_mod
 from backend import session as session_mod
+from tests.node_run import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -190,8 +191,8 @@ def _raw_js_script_bodies(html: str) -> list[str]:
 
 def _node_parses(js: str) -> tuple[bool, str]:
     """(does node accept this as JavaScript, the error it printed)."""
-    res = subprocess.run(["node", "--check", "-"], input=js,
-                         capture_output=True, text=True, check=False)
+    res = run_node(["node", "--check", "-"], input=js,
+                   capture_output=True, text=True, check=False)
     if res.returncode == 0:
         return True, ""
     lines = [ln for ln in res.stderr.strip().splitlines() if ln.strip()]
@@ -446,8 +447,8 @@ def test_every_accepted_site_relative_url_resolves_same_origin(caplog):
     # The script goes in over STDIN, not argv: 1296 JSON-encoded values
     # is a ~100 KB command line, and Windows caps one at 32,767 characters
     # (WinError 206, both windows legs of the matrix).
-    res = subprocess.run(["node", "-"], input=script, capture_output=True,
-                         text=True, check=True)
+    res = run_node(["node", "-"], input=script, capture_output=True,
+                   text=True, check=True)
     resolved = dict(json.loads(res.stdout))
 
     for value in _SITE_RELATIVE_URLS:

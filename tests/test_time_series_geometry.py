@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 CHARTS_JSX = ROOT / "src" / "dashboard-charts.jsx"
 
 
 def _node(script: str) -> dict:
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], cwd=ROOT, capture_output=True,
         text=True, timeout=30, check=False,
     )

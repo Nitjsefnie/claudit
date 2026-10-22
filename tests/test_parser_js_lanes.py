@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -10,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from backend import parse, pricing
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 LANES_JS = ROOT / "src" / "parser-lanes.js"
@@ -85,7 +85,7 @@ def _browser_lane_output() -> dict:
       console.log(JSON.stringify(out));
     """
     # STDIN avoids Windows' CreateProcess 32k command-line limit.
-    proc = subprocess.run(
+    proc = run_node(
         ["node"], input=script, capture_output=True, text=True, timeout=120,
         check=False,
     )
@@ -146,7 +146,7 @@ def _node_long_context(plan_type: str | None) -> dict:
         cost: s.cost,
       }}));
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
         check=False,
     )
@@ -167,7 +167,7 @@ def _node_long_context_shape(blob: str, meters: dict) -> list:
         meta.filter(m => m.type === 'assistant_usage')
             .map(m => m.long_context)));
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
         check=False,
     )
@@ -183,7 +183,7 @@ def _node_sniff(blobs: list[bytes]) -> list[str]:
       const blobs = {json.dumps([b.decode('utf-8', 'surrogateescape') for b in blobs])};
       console.log(JSON.stringify(blobs.map(b => window.sniffTranscriptFormat(b))));
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
         check=False,
     )
@@ -274,7 +274,7 @@ class TestNodeDrivenLaneParsers:
           console.log(JSON.stringify(
             meta.filter(m => m.type === 'assistant_usage').map(m => m.model)));
         """
-        proc = subprocess.run(
+        proc = run_node(
             ["node", "-e", script], capture_output=True, text=True,
             timeout=60, check=False,
         )
@@ -329,7 +329,7 @@ class TestNodeDrivenLaneParsers:
           console.log(JSON.stringify(
             meta.filter(m => m.type === 'assistant_usage').map(m => m.model)));
         """
-        proc = subprocess.run(
+        proc = run_node(
             ["node", "-e", script], capture_output=True, text=True,
             encoding="utf-8", timeout=60, check=False,
         )
@@ -361,7 +361,7 @@ class TestNodeDrivenLaneParsers:
           require({str(CODEX_JS)!r});
           console.log(JSON.stringify(window.LONG_CONTEXT_THRESHOLD));
         """
-        proc = subprocess.run(
+        proc = run_node(
             ["node", "-e", script], capture_output=True, text=True, timeout=60,
             check=False,
         )
@@ -389,7 +389,7 @@ class TestNodeDrivenLaneParsers:
             fallbackFactors: window.longContextFactorsFor('acme-test-1'),
           }}));
         """
-        proc = subprocess.run(
+        proc = run_node(
             ["node", "-e", script], capture_output=True, text=True, timeout=60,
             check=False,
         )
@@ -488,8 +488,8 @@ class TestNodeDrivenLaneParsers:
             appInspector: dashboard.events.reduce((sum, event) => sum + event.cost_usd, 0),
           }}));
         """
-        proc = subprocess.run(["node", "-e", script], capture_output=True,
-                              text=True, timeout=60, check=False)
+        proc = run_node(["node", "-e", script], capture_output=True,
+                        text=True, timeout=60, check=False)
         assert proc.returncode == 0, proc.stderr
         got = json.loads(proc.stdout)
         assert got["factors"] == [6.0, 3.0]
@@ -551,7 +551,7 @@ class TestNodeDrivenLaneParsers:
           }}
           console.log(JSON.stringify(out));
         """
-        proc = subprocess.run(
+        proc = run_node(
             ["node", "-e", script], capture_output=True, text=True, timeout=60,
             check=False,
         )
@@ -610,7 +610,7 @@ class TestNodeDrivenLaneParsers:
             output: bd.rows.find(r => r.label === 'Output'),
           }}));
         """
-        proc = subprocess.run(
+        proc = run_node(
             ["node", "-e", script], capture_output=True, text=True, timeout=60,
             check=False,
         )
@@ -637,7 +637,7 @@ class TestNodeDrivenLaneParsers:
             out: window.LONG_CONTEXT_OUTPUT_MULT,
           }}));
         """
-        proc = subprocess.run(
+        proc = run_node(
             ["node", "-e", script], capture_output=True, text=True, timeout=60,
             check=False,
         )
@@ -673,7 +673,7 @@ class TestNodeDrivenLaneParsers:
             cost: dash.events.reduce((s, e) => s + e.cost_usd, 0),
           }}));
         """
-        proc = subprocess.run(
+        proc = run_node(
             ["node", "-e", script], capture_output=True, text=True, timeout=60,
             check=False,
         )

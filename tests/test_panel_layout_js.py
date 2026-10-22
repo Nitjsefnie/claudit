@@ -19,11 +19,11 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 import yaml
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 LAYOUT_JS = ROOT / "src" / "panel-layout.js"
@@ -50,7 +50,7 @@ def _node(body: str):
     # such byte came back as U+FFFD and six assertions failed on Windows
     # only, against a panel that renders correctly. errors="strict" keeps a
     # future encoding problem loud instead of comparing mojibake.
-    proc = subprocess.run(
+    proc = run_node(
         ["node"], input=script, capture_output=True, text=True, timeout=60,
         check=False, encoding="utf-8", errors="strict",
     )
@@ -102,7 +102,7 @@ def _ctx_node(body: str):
       require({str(CTX_JS)!r});
       {body}
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node"], input=script, capture_output=True, text=True, timeout=60,
         check=False, encoding="utf-8", errors="strict",
     )
