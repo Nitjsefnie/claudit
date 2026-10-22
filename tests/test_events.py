@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import asyncio
 import gc
 import json
+import signal
 import threading
 import weakref
 from collections.abc import AsyncGenerator
@@ -81,6 +84,37 @@ async def test_lifespan_signals_before_clearing_loop(monkeypatch):
         pass
 
     assert calls[-3:] == ["signal", ("scheduler", False), "clear"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGINT])
+async def test_lifespan_signal_wakes_stream_and_delegates(monkeypatch, signum):
+    set_loop, signal_shutdown = events.set_loop, events.signal_shutdown
+    _stub_lifespan_env(monkeypatch, [])
+    monkeypatch.setattr(events, "set_loop", set_loop)
+    monkeypatch.setattr(events, "signal_shutdown", signal_shutdown)
+    monkeypatch.setattr(events, "_main_loop", None)
+    monkeypatch.setattr(events, "_shutdown_event", None)
+    received = []
+
+    def previous(sig, frame):
+        received.append((sig, frame))
+
+    original = signal.signal(signum, previous)
+    try:
+        async with app_mod.lifespan(FastAPI()):
+            handler = signal.getsignal(signum)
+            assert callable(handler) and handler is not previous, (
+                "lifespan did not install an early shutdown handler")
+            handler(signum, None)
+            assert received == [(signum, None)], "previous handler was swallowed"
+            await asyncio.sleep(0)
+            shutdown = events.shutdown_event()
+            assert shutdown is not None and shutdown.is_set(), (
+                "signal did not wake the SSE shutdown event")
+        assert signal.getsignal(signum) is previous
+    finally:
+        signal.signal(signum, original)
 
 
 @pytest.mark.asyncio

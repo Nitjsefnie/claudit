@@ -8,7 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import signal
 import threading
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from functools import partial
+from types import FrameType
 
 _subscribers: set[asyncio.Queue] = set()
 _subscribers_lock = threading.Lock()
@@ -47,6 +52,32 @@ def signal_shutdown() -> None:
         # The event loop can close between is_closed() and this call.
         if not loop.is_closed():
             raise
+
+
+def _shutdown_signal(previous: Callable[[int, FrameType | None], object],
+                     signum: int, frame: FrameType | None) -> None:
+    try:
+        signal_shutdown()
+    finally:
+        previous(signum, frame)
+
+
+@contextmanager
+def shutdown_signals() -> Iterator[None]:
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous_handlers = {}
+    try:
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous = signal.getsignal(signum)
+            if callable(previous):
+                signal.signal(signum, partial(_shutdown_signal, previous))
+                previous_handlers[signum] = previous
+        yield
+    finally:
+        for signum, previous in previous_handlers.items():
+            signal.signal(signum, previous)
 
 
 def subscribe() -> asyncio.Queue:

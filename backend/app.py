@@ -90,7 +90,8 @@ async def lifespan(fastapi_app: FastAPI):
     sched.start()
     fastapi_app.state.scheduler = sched
 
-    yield
+    with events.shutdown_signals():
+        yield
 
     # Abort any in-flight ingest cooperatively: the run stops
     # at its next bounded step, closes its ingest_runs row as aborted, and
@@ -110,8 +111,7 @@ async def lifespan(fastapi_app: FastAPI):
     # Run immediately after abort and cancellation, so a raising neighbour
     # cannot skip the reap or strand the wait behind it.
     await api_export.reap_live_renders(constants.SHUTDOWN_RENDER_REAP_S)
-    # Wake SSE generators so uvicorn's graceful-shutdown drains immediately
-    # instead of waiting for the (never-ending) heartbeat response.
+    # Lifespan-only servers also need to wake their streams at teardown.
     events.signal_shutdown()
     sched.shutdown(wait=False)
     # Derive the ingest wait from the stop budget after uvicorn's graceful

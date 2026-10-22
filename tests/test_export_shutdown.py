@@ -224,7 +224,8 @@ def _server_fixture(tmp_path, monkeypatch):  # pylint: disable=too-many-locals
         text=True,
     ) as proc:
         state = SimpleNamespace(proc=proc, port=port, marker=marker,
-                                release=release, tmpdir=tmpdir, coord=coord)
+                                release=release, tmpdir=tmpdir, coord=coord,
+                                output="")
         try:
             _wait_for_health(port, proc)
             yield state
@@ -234,12 +235,39 @@ def _server_fixture(tmp_path, monkeypatch):  # pylint: disable=too-many-locals
                 proc.wait(timeout=_SERVER_EXIT_TIMEOUT_S)
             release.touch(exist_ok=True)
             shutil.rmtree(coord, ignore_errors=True)
-            log = proc.stdout.read() if proc.stdout is not None else ""
+            log = state.output + (proc.stdout.read() if proc.stdout is not None else "")
             (tmp_path / "server.log").write_text(log or "", encoding="utf-8")
             if proc.stdout is not None:
                 proc.stdout.close()
             scratch_db.drop_database(viz_db)
             scratch_db.drop_database(auth_db)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX SIGTERM delivery")
+def test_shutdown_with_connected_sse_drains_without_cancellation(server):
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{server.port}/api/events",
+        headers={"Cookie": f"session={session_cookie()}"})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        assert response.status == 200
+        assert response.readline() + response.readline() == b": connected\n\n"
+        started = time.monotonic()
+        server.proc.send_signal(signal.SIGTERM)
+        server.proc.wait(timeout=constants.SHUTDOWN_STOP_BUDGET_S)
+        elapsed = time.monotonic() - started
+        assert elapsed < constants.SHUTDOWN_STOP_BUDGET_S
+        assert server.proc.returncode == -signal.SIGTERM
+        assert server.proc.stdout is not None
+        server.output = server.proc.stdout.read()
+        assert "Application shutdown complete" in server.output
+        for failure in (
+            "timeout graceful shutdown exceeded", "CancelledError",
+            "Task was destroyed but it is pending!",
+            "Task exception was never retrieved",
+            "cannot reuse already awaited coroutine",
+        ):
+            assert failure not in server.output, server.output
+        response.read()
 
 
 def test_shutdown_during_export_reaps_child_and_unlinks_png(server):
