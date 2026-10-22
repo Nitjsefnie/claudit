@@ -1,6 +1,8 @@
 import asyncio
+import gc
 import json
 import threading
+import weakref
 from collections.abc import AsyncGenerator
 from typing import cast
 
@@ -447,6 +449,89 @@ async def test_event_stream_shutdown_ends_the_stream(monkeypatch):
     with pytest.raises(StopAsyncIteration):
         await _next_chunk(body_after)
     assert events._subscribers == set()  # pylint: disable=protected-access
+
+
+async def _drive_stream_ending(monkeypatch, ending, waiters):
+    real_wait = asyncio.wait
+    _install_loop(monkeypatch)
+    monkeypatch.setattr(events, "_subscribers", set())
+    request = _StubRequest()
+    body = _body(await api.event_stream(request))
+    assert await anext(body) == ": connected\n\n"
+    entered = asyncio.Event()
+
+    async def observed_wait(aws, *, timeout, return_when):
+        assert timeout == 15
+        waiters.extend(weakref.ref(task) for task in aws)
+        entered.set()
+        return await real_wait(
+            aws, timeout=0 if ending == "heartbeat" else timeout,
+            return_when=return_when)
+
+    monkeypatch.setattr(asyncio, "wait", observed_wait)
+    if ending in {"disconnect", "heartbeat", "aclose"}:
+        if ending != "heartbeat":
+            events.broadcast_threadsafe("ingest_done", {})
+        chunk = await anext(body)
+        if ending == "heartbeat":
+            assert chunk == ": ping\n\n"
+        else:
+            assert chunk.startswith("event: ingest_done\n")
+        if ending == "aclose":
+            await body.aclose()
+        else:
+            request.disconnected = True
+            with pytest.raises(StopAsyncIteration):
+                await anext(body)
+    else:
+        pull = asyncio.create_task(anext(body))
+        await asyncio.wait_for(entered.wait(), timeout=_BOUND_S)
+        if ending == "shutdown":
+            events.signal_shutdown()
+            with pytest.raises(StopAsyncIteration):
+                await asyncio.wait_for(pull, timeout=_BOUND_S)
+        else:
+            request.disconnected = True
+            pull.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pull
+            await body.aclose()
+    pending_at_end = [
+        repr(task) for ref in waiters
+        if (task := ref()) is not None and not task.done()]
+    events.clear_loop()
+    return pending_at_end
+
+
+@pytest.mark.parametrize("ending", [
+    "disconnect", "disconnect_wait", "shutdown", "heartbeat", "aclose",
+])
+def test_event_stream_reaps_waiters_without_loop_errors(monkeypatch, ending):
+    loop = asyncio.new_event_loop()
+    errors = []
+    waiters = []
+    loop.set_exception_handler(
+        lambda _loop, context: errors.append(
+            (context["message"], repr(context.get("exception")))))
+
+    try:
+        pending_at_end = loop.run_until_complete(asyncio.wait_for(
+            _drive_stream_ending(monkeypatch, ending, waiters), timeout=_BOUND_S))
+        gc.collect()
+        loop.run_until_complete(asyncio.sleep(0))
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        gc.collect()
+        assert not errors, errors
+        assert not pending_at_end, pending_at_end
+    finally:
+        remaining = asyncio.all_tasks(loop)
+        for task in remaining:
+            task.cancel()
+        if remaining:
+            loop.run_until_complete(
+                asyncio.gather(*remaining, return_exceptions=True))
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
 
 
 @pytest.mark.asyncio
