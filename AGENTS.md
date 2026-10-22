@@ -203,6 +203,7 @@ backend/          — FastAPI application
                     admission slots early (WorkerReservation)
   session.py      — HMAC session cookies, auth middleware, guest sentinel
   events.py       — thread-safe SSE broadcaster
+  sse.py          — SSE body iteration and ownership of its waiters
   db.py           — viz_pool (claudit) and auth_pool (auth DB,
                     READ-ONLY); pools never join across DBs
   cache.py        — LRU for raw transcript bytes (256 MB, 20-min idle)
