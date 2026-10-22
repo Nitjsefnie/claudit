@@ -1033,11 +1033,11 @@
   ],
   "tests/test_agent_fold_js.py": [
     1932,
-    6166
+    6176
   ],
   "tests/test_agent_list_caps_js.py": [
     1171,
-    4806
+    4816
   ],
   "tests/test_agent_sidecar.py": [
     1976,
@@ -1081,11 +1081,11 @@
   ],
   "tests/test_branding.py": [
     6140,
-    19087
+    19107
   ],
   "tests/test_breakdown_exact_rate.py": [
     2479,
-    14542
+    14552
   ],
   "tests/test_bucket_redact.py": [
     3123,
@@ -1101,7 +1101,7 @@
   ],
   "tests/test_cache_write_split.py": [
     1480,
-    4082
+    4092
   ],
   "tests/test_canonical_model_attribution.py": [
     4387,
@@ -1109,7 +1109,7 @@
   ],
   "tests/test_ci_classify_comment_only.py": [
     3063,
-    13373
+    13377
   ],
   "tests/test_ci_classify_verified_base.py": [
     3626,
@@ -1137,7 +1137,7 @@
   ],
   "tests/test_classic_script_scope.py": [
     2527,
-    7295
+    7305
   ],
   "tests/test_cold_load_legs.py": [
     1696,
@@ -1165,11 +1165,11 @@
   ],
   "tests/test_ctx_input_js.py": [
     1070,
-    2863
+    2873
   ],
   "tests/test_dashboard_fetch_js.py": [
     974,
-    5842
+    5852
   ],
   "tests/test_dashboard_fetch_wiring.py": [
     1462,
@@ -1177,7 +1177,7 @@
   ],
   "tests/test_dashboard_latency_pins.py": [
     980,
-    3221
+    3231
   ],
   "tests/test_dashboard_open_budget.py": [
     4392,
@@ -1217,7 +1217,7 @@
   ],
   "tests/test_deferred_js.py": [
     1307,
-    4534
+    4544
   ],
   "tests/test_dependabot_coverage.py": [
     3912,
@@ -1269,7 +1269,7 @@
   ],
   "tests/test_heatmap_layout_wiring.py": [
     1078,
-    2991
+    3001
   ],
   "tests/test_hide_rate_limits_flag.py": [
     272,
@@ -1281,7 +1281,7 @@
   ],
   "tests/test_ingest.py": [
     5146,
-    23876
+    23886
   ],
   "tests/test_ingest_blob_cache.py": [
     962,
@@ -1369,7 +1369,7 @@
   ],
   "tests/test_model_colors.py": [
     689,
-    3543
+    3553
   ],
   "tests/test_model_demask_api.py": [
     1105,
@@ -1377,11 +1377,11 @@
   ],
   "tests/test_model_group_wiring.py": [
     5354,
-    12148
+    12158
   ],
   "tests/test_model_select_js.py": [
     2705,
-    10022
+    10032
   ],
   "tests/test_multi_bucket.py": [
     2921,
@@ -1393,7 +1393,7 @@
   ],
   "tests/test_node_skip_guard.py": [
     3733,
-    18956
+    18979
   ],
   "tests/test_overview_a11y_wiring.py": [
     6715,
@@ -1405,15 +1405,15 @@
   ],
   "tests/test_panel_interactions_js.py": [
     7239,
-    25451
+    25461
   ],
   "tests/test_panel_layout_js.py": [
     6510,
-    23191
+    23195
   ],
   "tests/test_panel_layout_rules_js.py": [
     6200,
-    19743
+    19753
   ],
   "tests/test_panel_wiring.py": [
     10308,
@@ -1457,7 +1457,7 @@
   ],
   "tests/test_parser_js_dedup_merge.py": [
     2646,
-    10267
+    10271
   ],
   "tests/test_parser_js_lanes_load.py": [
     1159,
@@ -1469,7 +1469,7 @@
   ],
   "tests/test_parser_js_user_prompt.py": [
     421,
-    2153
+    2163
   ],
   "tests/test_payload_fields_are_used.py": [
     2737,
@@ -1477,11 +1477,11 @@
   ],
   "tests/test_per_turn_stats_js.py": [
     557,
-    2077
+    2087
   ],
   "tests/test_perf_js.py": [
     4120,
-    21674
+    21684
   ],
   "tests/test_perf_panel_wiring.py": [
     7282,
@@ -1505,11 +1505,11 @@
   ],
   "tests/test_picker_label_rules_js.py": [
     825,
-    3111
+    3121
   ],
   "tests/test_placeholder_model_refusal.py": [
     1377,
-    4921
+    4931
   ],
   "tests/test_price_band.py": [
     54,
@@ -1525,7 +1525,7 @@
   ],
   "tests/test_pricing_data.py": [
     2563,
-    16202
+    16212
   ],
   "tests/test_pricing_flat_rows.py": [
     406,
@@ -1537,11 +1537,11 @@
   ],
   "tests/test_pricing_vendor.py": [
     3209,
-    20613
+    20617
   ],
   "tests/test_pricing_vendor_equality.py": [
     1992,
-    11101
+    11105
   ],
   "tests/test_project_aliases.py": [
     3759,
@@ -1561,7 +1561,7 @@
   ],
   "tests/test_provider_rate_refresh.py": [
     3517,
-    20491
+    20501
   ],
   "tests/test_provider_rate_refresh_alternation.py": [
     738,
@@ -1689,7 +1689,7 @@
   ],
   "tests/test_short_model_name.py": [
     404,
-    2397
+    2407
   ],
   "tests/test_shutdown_budget.py": [
     5906,
@@ -1729,7 +1729,7 @@
   ],
   "tests/test_timeline_selection.py": [
     1089,
-    4420
+    4430
   ],
   "tests/test_timing_logging.py": [
     706,
@@ -1777,7 +1777,7 @@
   ],
   "tests/test_vbar_label_geometry.py": [
     1909,
-    6357
+    6367
   ],
   "tests/test_version.py": [
     1518,
