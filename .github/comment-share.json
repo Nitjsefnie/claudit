@@ -273,7 +273,7 @@
   ],
   "backend/db.py": [
     6550,
-    12250
+    12337
   ],
   "backend/dims.py": [
     947,
@@ -1204,8 +1204,8 @@
     3954
   ],
   "tests/test_db_pool_errors.py": [
-    1104,
-    2979
+    1062,
+    4535
   ],
   "tests/test_db_pool_stale_checkout.py": [
     1257,
