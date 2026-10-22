@@ -172,8 +172,8 @@
     11288
   ],
   "backend/app.py": [
-    8102,
-    14444
+    8042,
+    14414
   ],
   "backend/auth.py": [
     2757,
@@ -285,7 +285,7 @@
   ],
   "backend/events.py": [
     690,
-    1970
+    2685
   ],
   "backend/file_timelines.py": [
     202,
@@ -1241,7 +1241,7 @@
   ],
   "tests/test_events.py": [
     4509,
-    14594
+    19626
   ],
   "tests/test_export_launch.py": [
     205,
@@ -1249,7 +1249,7 @@
   ],
   "tests/test_export_shutdown.py": [
     3141,
-    11072
+    12112
   ],
   "tests/test_fuzz_test_data.py": [
     5067,
