@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -19,6 +18,7 @@ import pytest
 from backend import db, ingest, parse
 from backend.parse_lanes import refuse_unattributed
 from tests import scratch_db
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 FIX_PARSER = ROOT / "fixtures" / "parser"
@@ -72,7 +72,7 @@ def test_a_browser_claude_parse_keeps_a_modelless_record_null():
       console.log(JSON.stringify(
         meta.filter(m => m.type === 'assistant_usage').map(m => m.model)));
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True,
         timeout=60, check=False,
     )

@@ -4,9 +4,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import subprocess
 
 import pytest
+from tests.node_run import run_node
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -20,13 +20,13 @@ def _write(root, name, code):
 
 
 def _capture(root, name, *args):
-    subprocess.run(["node", str(root / name), *args], cwd=root,
-                   env={**os.environ, 'NODE_V8_COVERAGE': str(root / 'v8')},
-                   check=True, capture_output=True, text=True, timeout=30)
+    run_node(["node", str(root / name), *args], cwd=root,
+             env={**os.environ, 'NODE_V8_COVERAGE': str(root / 'v8')},
+             check=True, capture_output=True, text=True, timeout=30)
 
 
 def _report(root, *args):
-    return subprocess.run(
+    return run_node(
         ["node", str(CONVERTER), str(root / 'v8'), *args],
         cwd=root, check=False, capture_output=True, text=True, timeout=30)
 
@@ -92,7 +92,7 @@ class TestConverter:
     def test_requires_the_capture_directory_argument_even_with_node_environment(self, tmp_path):
         _write(tmp_path, 'src/main.js', 'const value = 1;\n')
         _capture(tmp_path, 'src/main.js')
-        result = subprocess.run(
+        result = run_node(
             ["node", str(CONVERTER)], cwd=tmp_path,
             env={**os.environ, 'NODE_V8_COVERAGE': str(tmp_path / 'v8')},
             check=False, capture_output=True, text=True, timeout=30)

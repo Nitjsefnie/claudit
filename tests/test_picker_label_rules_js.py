@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts" / "ci" / "panel_layout_rules.mjs"
@@ -24,7 +24,7 @@ def _node(body: str):
         f"const mod = await import({json.dumps(url)});\n"
         f"{body}\n"
     )
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "--input-type=module"], input=script, capture_output=True,
         text=True, timeout=60, check=False, encoding="utf-8", errors="strict",
     )

@@ -13,13 +13,13 @@ Runs a copy of pricing-loader.js beside synthetic pricing.json in a tmp dir.
 """
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 from backend.pricing_document import serialize_pricing_doc
 from backend.pricing_load import load_tables
 from tests.refresh_fixture_builders import DEFAULT_ROW
+from tests.node_run import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -180,8 +180,8 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
         : null;
       console.log(JSON.stringify({{error, untouched, rates, vendorSearch}}));
     """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 
@@ -275,8 +275,8 @@ def _loaded_long_context(tmp_path, doc):
         f"require({str(tmp_path / 'node' / 'pricing-loader.js')!r});\n"
         "console.log(JSON.stringify({models: window.longContextModels, "
         "meters: window.longContextMeters}));\n")
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 
@@ -419,8 +419,8 @@ def test_the_loader_tables_match_the_file():
         f"require({str(LOADER_JS)!r});\n"
         "console.log(JSON.stringify({ models: window.longContextModels,\n"
         "    meters: window.longContextMeters }));\n")
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     got = json.loads(proc.stdout)
     expected = {}

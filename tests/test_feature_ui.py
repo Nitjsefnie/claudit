@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 from backend.flag_registry import FEATURE_SPECS
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def _node(script: str, window: str = '{}') -> None:
     prelude = ("const assert = require('node:assert/strict');"
                f"global.window = {window};require('./src/feature-flags.js');")
-    result = subprocess.run(["node", "-e", prelude + script], cwd=ROOT,
-                            capture_output=True, text=True, check=False)
+    result = run_node(["node", "-e", prelude + script], cwd=ROOT,
+                      capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
 
 
@@ -131,7 +131,7 @@ for (const [route, guest, backend, flags, expected] of [
 
 
 def test_browser_scenario_inventory_matches_registry() -> None:
-    result = subprocess.run([
+    result = run_node([
         "node", "--input-type=module", "-e",
         "import {FEATURE_KEYS} from './scripts/ci/feature_surfaces.mjs';"
         "console.log(JSON.stringify(FEATURE_KEYS));",

@@ -458,7 +458,7 @@ def test_the_full_guard_fails_a_seeded_python_only_member(tmp_path) -> None:
     (tmp_path / list_rel).write_text(
         (REPO_ROOT / list_rel).read_text(encoding="utf-8"),
         encoding="utf-8")
-    for rel in _listed_files(REPO_ROOT):
+    for rel in [*_listed_files(REPO_ROOT), "tests/node_run.py"]:
         target = tmp_path / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(cached_source(REPO_ROOT / rel), encoding="utf-8")

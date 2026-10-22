@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pickle
-import subprocess
 from pathlib import Path
 from typing import MutableMapping, cast
 
@@ -15,6 +14,7 @@ from backend.flag_registry import (
     FeatureSpec,
 )
 from backend.flags import ALL_COLLECTIONS_ON, resolve_config
+from tests.node_run import run_node
 
 
 EXPECTED_COLLECTION_ENVS = {
@@ -197,7 +197,7 @@ window.FEATURES = {known: false};
 if (window.featureOn('missing') !== true) throw new Error('missing key');
 if (window.featureOn('known') !== false) throw new Error('known false');
 """
-    result = subprocess.run(
+    result = run_node(
         ["node", "-e", script, str(helper)],
         check=False,
         capture_output=True,

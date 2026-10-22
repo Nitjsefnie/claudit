@@ -8,10 +8,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTRA = ROOT / "src" / "activity-heatmap-panel.jsx"
@@ -51,7 +51,7 @@ def _geometry_at(widths: list[int]) -> dict:
         "}\n"
         "console.log(JSON.stringify(out));"
     )
-    proc = subprocess.run(
+    proc = run_node(
         ["node"], input=script, capture_output=True, text=True, timeout=60,
         check=False, encoding="utf-8", errors="strict",
     )

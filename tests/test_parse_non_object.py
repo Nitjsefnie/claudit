@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -11,6 +10,7 @@ from typing import Any
 import pytest
 
 from backend import parse
+from tests.node_run import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -227,7 +227,7 @@ def _node_parse(transcripts: dict[str, str]) -> dict[str, Any]:
       }}
       console.log(JSON.stringify(out));
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-"], input=script, capture_output=True, text=True,
         encoding="utf-8", timeout=60, check=False,
     )

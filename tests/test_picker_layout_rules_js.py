@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from tests.test_cdn_route_js import CDN_PAGE_SETUP
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts" / "ci" / "panel_layout_rules.mjs"
@@ -17,7 +17,7 @@ PROJECTS_FIXTURE = ROOT / "fixtures" / "layout" / "projects.json"
 def _node(body: str, setup: str = ""):
     url = MODULE.as_uri()
     script = f"{setup}\nconst mod = await import({json.dumps(url)});\n{body}\n"
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "--input-type=module"], input=script, capture_output=True,
         text=True, timeout=60, check=False, encoding="utf-8", errors="strict", cwd=ROOT,
     )
@@ -172,7 +172,7 @@ def test_selection_checks_fitted_pages_including_healthy_single_page():
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 @pytest.mark.parametrize('rule', ['project-picker-pages-fit', 'unknown-rule'])
 def test_cases_only_rejects_rule_filter_before_running(rule):
-    proc = subprocess.run(
+    proc = run_node(
         ["node", str(MODULE), '--picker-cases', '--rule', rule],
         capture_output=True, text=True, check=False, timeout=30)
     assert proc.returncode != 0, proc.stdout

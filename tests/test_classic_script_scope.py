@@ -33,7 +33,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 import tempfile
 from html.parser import HTMLParser
 from pathlib import Path
@@ -41,6 +40,7 @@ from pathlib import Path
 import pytest
 
 from backend.js_min import minify_js
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML = ROOT / "public" / "index.html"
@@ -167,7 +167,7 @@ def _realm_summary(scripts: list[tuple[str, str]]) -> dict:
         "kimi_code_min.jsonl": KIMI_CODE_PROBE_FIXTURE,
         "kimi_legacy_min.jsonl": KIMI_LEGACY_PROBE_FIXTURE,
     }
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", runner],
         input=json.dumps({
             "scripts": scripts,

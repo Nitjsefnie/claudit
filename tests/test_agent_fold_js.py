@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -28,6 +27,7 @@ from fastapi.testclient import TestClient
 from backend import agent_types
 from backend import app as app_mod
 from backend import session as session_mod
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT_TYPES_JS = ROOT / "src" / "agent-types.js"
@@ -76,7 +76,7 @@ def _agent_line(role: str | None) -> str:
 
 
 def _node(script: str) -> str:
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True,
         timeout=60, check=False,
     )

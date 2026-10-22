@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from datetime import datetime, timedelta
 import pytest
 from backend.pricing_rows import encode_pricing_doc
@@ -46,6 +45,7 @@ from tests.test_pricing_vendor import (
     _loader_error,
     needs_node,
 )
+from tests.node_run import run_node
 
 # Synthetic old/new tables must price the same records across migration.
 
@@ -192,8 +192,8 @@ def test_migration_prices_every_record_identically_in_the_browser(tmp_path):
           }});
           console.log(JSON.stringify(out));
         """
-        proc = subprocess.run(["node", "-e", script], cwd=d, capture_output=True,
-                              text=True, timeout=60, check=False)
+        proc = run_node(["node", "-e", script], cwd=d, capture_output=True,
+                        text=True, timeout=60, check=False)
         assert proc.returncode == 0, proc.stderr
         payloads.append(json.loads(proc.stdout))
     for case, a, b in zip(cases, payloads[0], payloads[1], strict=True):
@@ -283,7 +283,7 @@ def test_the_browser_tier_fallback_skips_a_rowless_tracked_key(tmp_path):
     shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
     shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
     shutil.copy(RATES_JS, tmp_path / "rates.js")
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", """
           global.window = {};
           require('./pricing-loader.js');

@@ -26,10 +26,10 @@ that the JSX consumes the same constants.
 import json
 import math
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 CHARTS_JSX = ROOT / "src" / "dashboard-charts.jsx"
@@ -104,7 +104,7 @@ def _node_probe():
         }},
       }}));
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
         check=False,
     )

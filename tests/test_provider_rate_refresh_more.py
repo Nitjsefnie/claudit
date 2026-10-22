@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import json
 import re
-import subprocess
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -31,6 +30,7 @@ from tests.test_provider_rate_refresh import (
 from tests.test_provider_rate_refresh_pins import (
     _baseten_twins, _novita_region_twin, _pin_novita,
 )
+from tests.node_run import run_node
 
 refresh = _load()
 
@@ -579,8 +579,8 @@ def test_a_file_written_at_any_clock_reading_loads_on_both_sides(tmp_path, capsy
     assert want in [int(e.timestamp() * 1000) for e in epochs]
     script = _browser_pricing_script(
         run, tmp_path / "js", "console.log(JSON.stringify(window.rateEpochs));")
-    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True,
-                          timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True, text=True,
+                    timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     assert want in json.loads(proc.stdout)
 

@@ -14,10 +14,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_SELECT_JS = ROOT / "src" / "model-select.js"
@@ -35,7 +35,7 @@ def _node(script: str):
     # 32k CreateProcess ceiling looms (see test_panel_layout_js._node).
     # encoding="utf-8" is load-bearing: text=True alone decodes with the
     # locale encoding, cp1252 on a windows-latest runner.
-    proc = subprocess.run(
+    proc = run_node(
         ["node"], input=script, capture_output=True, text=True, timeout=60,
         check=False, encoding="utf-8", errors="strict",
     )

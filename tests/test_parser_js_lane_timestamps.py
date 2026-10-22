@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from datetime import UTC, datetime
 
 from backend import parse
@@ -10,6 +9,7 @@ from tests.test_parser_js_lanes import (
     CODEX_JS, KIMI_JS, LANES_JS, LOADER_JS, PARSER_JS, RATES_JS,
     _NAIVE_LANE_BLOB,
 )
+from tests.node_run import run_node
 
 
 def test_lane_parser_reads_an_offset_less_timestamp_as_utc():
@@ -31,7 +31,7 @@ def test_lane_parser_reads_an_offset_less_timestamp_as_utc():
       console.log(JSON.stringify({{ usageTs: usage && usage.ts }}));
     """
     env = {**os.environ, "TZ": "Europe/Berlin"}
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script], capture_output=True, text=True, timeout=60,
         env=env, check=False,
     )

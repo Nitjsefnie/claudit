@@ -18,6 +18,7 @@ from scripts.ci import perturb_test_data
 from tests.test_parser_js_pricing_loader import HOST, ROW_KEY, _doc
 from tests.test_perturb_test_data import _run as _perturb_run
 from tests.test_provider_rate_refresh import Run, _move_openinference
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 CONVERTER = ROOT / "scripts" / "ci" / "convert_pricing_doc.py"
@@ -95,8 +96,8 @@ def _js_tables(tmp_path: Path, doc: dict) -> dict:
       require({str(where / 'pricing-loader.js')!r});
       console.log(JSON.stringify(window));
     """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 

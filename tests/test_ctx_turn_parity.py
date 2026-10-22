@@ -1,6 +1,5 @@
 import json
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +7,7 @@ import pytest
 
 from backend import constants, parse
 from backend.parse_lanes import sniff_format
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = ROOT / "fixtures" / "parser"
@@ -83,7 +83,7 @@ def _browser_context_stats(fixtures: list[Path]) -> dict[str, Any]:
         "__FIXTURE_PATHS__",
         json.dumps([str(path) for path in fixtures]),
     )
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-"],
         input=script,
         capture_output=True,

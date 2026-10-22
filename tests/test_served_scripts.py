@@ -23,6 +23,7 @@ from backend.app import app
 from backend import source_asset_identity, source_files
 from backend.js_min import JsMinError, comment_spans
 from tests.test_security_headers import _guest_client_fixture  # pylint: disable=unused-import
+from tests.node_run import run_node
 
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -336,7 +337,7 @@ def _browser_upgrade(base):
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """.replace("BASE", json.dumps(base))
-    process = subprocess.run(
+    process = run_node(
         ["node"], input=script, cwd=_ROOT, capture_output=True, text=True,
         encoding="utf-8", timeout=60, check=False,
     )

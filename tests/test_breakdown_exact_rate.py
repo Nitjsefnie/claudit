@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -25,6 +24,7 @@ from fastapi.testclient import TestClient
 from backend import api, db, ingest, pricing
 from backend.pricing_document import serialize_pricing_doc
 from tests import gpt56_cuts, scratch_db
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -61,7 +61,7 @@ def _harness(pricing_dir: Path | None = None) -> str:
 
 
 def _node(body: str, pricing_dir: Path | None = None) -> dict:
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", _harness(pricing_dir) + body], cwd=ROOT, capture_output=True,
         text=True, timeout=60, check=False,
     )

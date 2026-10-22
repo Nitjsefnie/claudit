@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 from backend.pricing_rows import encode_pricing_doc
 
 from tests.refresh_fixture_builders import RATES_B, seed_doc
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -74,7 +74,7 @@ def _node(sandbox, script: str) -> dict:
       require({str(sandbox / 'rates.js')!r});
       require({str(sandbox / 'parser.js')!r});
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", bootstrap + script],
         capture_output=True, text=True, timeout=60, check=False,
     )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,8 +24,8 @@ const off = resolve();
 assert.deepEqual(off.legendPlaced, on.legendPlaced.slice(0, 1));
 assert.equal(off.legendPlaced.some(e => e.key === '__ratelimit'), false);
 """
-    result = subprocess.run(["node", "-e", script], cwd=ROOT,
-                            capture_output=True, text=True, check=False)
+    result = run_node(["node", "-e", script], cwd=ROOT,
+                      capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
 
 

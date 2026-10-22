@@ -8,10 +8,10 @@ the top-level fresh+create+read fallback.
 """
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 CTX_INPUT_JS = Path(__file__).resolve().parents[1] / "src" / "ctx-input.js"
 
@@ -22,7 +22,7 @@ def _run(body: str) -> dict:
       require({str(CTX_INPUT_JS)!r});
       {body}
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script],
         capture_output=True,
         text=True,

@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 LANES_JS = ROOT / "src" / "parser-lanes.js"
@@ -39,8 +39,8 @@ def test_the_browser_marks_a_forks_replayed_prefix():
       console.log(JSON.stringify(meta.filter(m => m.type === 'assistant_usage')
         .map(m => [m.line, m.isReplay === true])));
     """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout) == [[3, True], [4, True], [7, False]]
 
@@ -65,8 +65,8 @@ def test_the_browser_fork_scan_advances_past_a_needle_mention():
         .filter(m => m.type === 'assistant_usage').map(m => [m.line, m.isReplay === true]);
       console.log(JSON.stringify([verdict({json.dumps(text)}), verdict({json.dumps(ws)})]));
     """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout) == [
         [[4, True], [5, True], [8, False]], [[3, True], [4, True], [7, False]]]
@@ -140,8 +140,8 @@ def test_the_browser_parent_and_fork_agree_on_the_parents_model():
       }};
       console.log(JSON.stringify([run([parent, fork]), run([fork, parent])]));
     """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout) == [
         [["100500", "gpt-5.6-sol", False],
@@ -261,8 +261,8 @@ def test_the_browser_dedups_a_forks_replayed_tool_calls():
       console.log(JSON.stringify(
         [run([parent, fork]), run([fork, parent]), run([fork])]));
     """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     together = {
         "calls": sorted([

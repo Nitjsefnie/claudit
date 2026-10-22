@@ -4,9 +4,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import subprocess
 
 import pytest
+from tests.node_run import run_node
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -32,12 +32,12 @@ def _line_percentage(directory: Path, source: str) -> float:
     script.write_text(source, encoding="utf-8")
     cov_dir = directory / "v8-coverage"
     env = {**os.environ, "NODE_V8_COVERAGE": str(cov_dir)}
-    subprocess.run(["node", str(script)], cwd=directory, env=env,
-                   check=True, capture_output=True, text=True, timeout=60)
+    run_node(["node", str(script)], cwd=directory, env=env,
+             check=True, capture_output=True, text=True, timeout=60)
     command = ["node", str(CONVERTER), str(cov_dir),
                "--include", "*.js"]
-    subprocess.run(command, cwd=directory, check=True, capture_output=True,
-                   text=True, timeout=60)
+    run_node(command, cwd=directory, check=True, capture_output=True,
+             text=True, timeout=60)
     summary = json.loads((directory / "coverage" / "coverage-summary.json")
                          .read_text(encoding="utf-8"))
     return summary["total"]["lines"]["pct"]

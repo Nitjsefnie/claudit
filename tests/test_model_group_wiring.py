@@ -9,10 +9,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 GROUP_JS = ROOT / "src" / "model-group.js"
@@ -33,7 +33,7 @@ _PRELUDE = (
 def _node(script: str):
     # Over STDIN, not -e: on Windows a raw backslash path inside a -e argv
     # is eaten as JS escapes (see test_model_select_js._node).
-    proc = subprocess.run(
+    proc = run_node(
         ["node"], input=script, capture_output=True, text=True, timeout=60,
         check=False, encoding="utf-8", errors="strict",
     )

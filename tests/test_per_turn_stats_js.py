@@ -7,10 +7,10 @@ pins keep it verbatim): median `arr[floor(n / 2)]`, percentile
 """
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 STATS_JS = Path(__file__).resolve().parents[1] / "src" / "per-turn-stats.js"
 
@@ -21,7 +21,7 @@ def _run(body: str) -> dict:
       require({str(STATS_JS)!r});
       {body}
     """
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-e", script],
         capture_output=True,
         text=True,

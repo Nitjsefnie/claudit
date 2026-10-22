@@ -12,7 +12,6 @@ import copy
 import json
 import re
 import shutil
-import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -22,6 +21,7 @@ from backend.pricing_rows import encode_pricing_doc
 
 from backend import pricing
 from backend.pricing_document import expand_pricing_doc, serialize_pricing_doc
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -189,7 +189,7 @@ def _cases(doc: dict) -> list[tuple[str, str | None, str | None]]:
 
 def _node_raw(script: str):
     # The program goes on stdin: inlined cases outgrow one argv string.
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-"], input=script, capture_output=True, text=True, timeout=60,
         check=False,
     )

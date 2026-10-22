@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -13,6 +12,7 @@ from tests.test_parser_js_lanes import (
     CODEX_JS, LANES_JS, LOADER_JS, PARSER_JS, RATES_JS, _backend_records,
     _browser_records,
 )
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 CLAUDE_FIXTURE = ROOT / "fixtures" / "parser" / "web_search.jsonl"
@@ -62,7 +62,7 @@ def test_claude_server_search_count_matches_backend():
       console.log(JSON.stringify(records.map((record) =>
         record.web_search_requests ?? null)));
     """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout) == backend_counts

@@ -7,7 +7,6 @@ computeSessionStats reports no turn, tokens or cost for the call.
 """
 import json
 import shutil
-import subprocess
 
 import pytest
 
@@ -15,6 +14,7 @@ from tests.test_parser_js_mirror import (
     LANES_JS, LOADER_JS, PARSER_JS, RATES_JS, RECORD_DEDUP_JS,
     _claude_line, _node_dedup_survivor,
 )
+from tests.node_run import run_node
 
 
 def _claude_msgid_line(uuid, model, text, output_tokens, msg_id):
@@ -49,8 +49,8 @@ def _node_usage_identity(text: str) -> list[dict]:
         .filter(m => m.type === 'assistant_usage')
         .map(m => ({{ line: m.line, uuid: m.uuid, model: m.model }}))));
     """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 
@@ -188,8 +188,8 @@ def _node_tool_dedup(main, sidecar):
       console.log(JSON.stringify(
         [run([main, sidecar]), run([sidecar, main]), run([sidecar])]));
     """
-    proc = subprocess.run(["node", "-e", script], capture_output=True,
-                          text=True, timeout=60, check=False)
+    proc = run_node(["node", "-e", script], capture_output=True,
+                    text=True, timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 

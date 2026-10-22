@@ -11,6 +11,7 @@ import pytest
 
 from backend import parse
 from backend import prompt_gate
+from tests.node_run import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,7 +75,7 @@ def _node_prompt_results(transcripts: dict[str, str]) -> dict:
       console.log(JSON.stringify(out));
     """
     # The generated sweep exceeds Windows' command-line length limit.
-    proc = subprocess.run(
+    proc = run_node(
         ["node", "-"], input=script, capture_output=True, text=True,
         encoding="utf-8", timeout=60, check=False,
     )

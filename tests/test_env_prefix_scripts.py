@@ -12,10 +12,10 @@ import os
 import re
 import shlex
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PLATFORM_PREFIXES = {
@@ -574,9 +574,9 @@ def test_panel_seed_resolves_only_the_prefixed_configuration() -> None:
     base_env = {key: value for key, value in os.environ.items()
                 if key not in {"PANEL_INTERACTIONS_SEED", "CLAUDIT_PANEL_INTERACTIONS_SEED"}}
     for name, code in [("PANEL_INTERACTIONS_SEED", 0), ("CLAUDIT_PANEL_INTERACTIONS_SEED", 2)]:
-        result = subprocess.run(["node", "--input-type=module"], input=script, cwd=ROOT,
-                                env={**base_env, name: "invalid-review-seed"}, capture_output=True,
-                                text=True, timeout=30, check=False)
+        result = run_node(["node", "--input-type=module"], input=script, cwd=ROOT,
+                          env={**base_env, name: "invalid-review-seed"}, capture_output=True,
+                          text=True, timeout=30, check=False)
         assert result.returncode == code, result.stderr
         if code:
             assert "unknown CLAUDIT_PANEL_INTERACTIONS_SEED" in result.stderr
@@ -608,8 +608,8 @@ def test_panel_widths_resolve_only_the_prefixed_configuration() -> None:
         ({"CLAUDIT_PANEL_LAYOUT_WIDTHS": "777,333,0,bad"}, [777, 333]),
         ({"PANEL_LAYOUT_WIDTHS": "888", "CLAUDIT_PANEL_LAYOUT_WIDTHS": "777"}, [777]),
     ]:
-        result = subprocess.run(["node", "--input-type=module"], input=script, cwd=ROOT,
-                                env={**base_env, **supplied}, capture_output=True,
-                                text=True, timeout=30, check=False)
+        result = run_node(["node", "--input-type=module"], input=script, cwd=ROOT,
+                          env={**base_env, **supplied}, capture_output=True,
+                          text=True, timeout=30, check=False)
         assert result.returncode == 0, result.stderr
         assert json.loads(result.stdout) == expected
