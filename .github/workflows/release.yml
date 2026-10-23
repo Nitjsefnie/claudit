@@ -161,27 +161,10 @@ jobs:
           CLAUDIT_SELF_JOB: ${{ github.job }}
           CLAUDIT_SELF_RUN_ID: ${{ github.run_id }}
           CLAUDIT_SELF_WORKFLOW_REF: ${{ github.workflow_ref }}
-        # WHICH checks is scripts/ci/release_gate.py's whole subject, and
-        # it reads the workflow run that PRODUCED each check rather than
-        # the check's name — a name is not identity, and an issue_comment run
-        # can stamp a row on the default branch's tip. That module's docstring
-        # carries the rule and its fail-closed side; the call below is
-        # deliberately dumb.
-        #
-        # Four details that are each a way this can be wrong:
-        #   - it excludes ITSELF, or it would wait on a job that is waiting
-        #     on it;
-        #   - it requires at least one other check to exist, so it cannot
-        #     race ahead and tag before CI has even been scheduled;
-        #   - `cancelled` counts as failure. A cancelled run means a newer
-        #     push superseded this SHA, which is not a commit to release;
-        #   - a VERDICT must exist among them: every leg green
-        #     is also what an all-skipped gate looks like, so the wait
-        #     proceeds only when the ci gate's own `aggregate` check —
-        #     completed, success, from the github-actions app — is among
-        #     the rows. No aggregate row, no release: it keeps polling and
-        #     exits 1 at the deadline. Dropping rows cannot manufacture one:
-        #     `aggregate` is a push-run row.
+        # Wait for the commit's gates; the selector's rule and fail-closed
+        # behavior live in scripts/ci/release_gate.py's module docstring.
+        # Deadline/poll knobs: CLAUDIT_RELEASE_WAIT_SECONDS and
+        # CLAUDIT_RELEASE_WAIT_POLL_SECONDS.
         run: |
           # CLAUDIT_RELEASE_WAIT_SECONDS / CLAUDIT_RELEASE_WAIT_POLL_SECONDS override the 2700 s / 20 s defaults.
           #
