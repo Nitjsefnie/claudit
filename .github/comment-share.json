@@ -88,8 +88,8 @@
     13256
   ],
   ".github/workflows/release.yml": [
-    4491,
-    9040
+    4231,
+    10545
   ],
   ".github/workflows/scorecard.yml": [
     1992,
@@ -1820,8 +1820,8 @@
     8181
   ],
   "tests/test_workflow_release.py": [
-    7464,
-    23094
+    4189,
+    23762
   ],
   "tests/test_workflow_scorecard.py": [
     4632,
