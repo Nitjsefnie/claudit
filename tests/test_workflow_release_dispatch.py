@@ -161,6 +161,7 @@ def test_key_jobs_and_checkout_boundary():
     assert len(checkouts) == 2
     assert "scripts/ci/release_dispatch.py decide" in _step(DECIDE)["run"]
     assert "scripts/ci/release_dispatch.py wait-release" in _step(WAIT)["run"]
+    assert '--repo "$REPO"' in _step(WAIT)["run"]
     assert _step(WAIT)["env"] == {
         "GH_TOKEN": "${{ github.token }}", "REPO": "${{ github.repository }}",
         "SHA": "${{ needs.bump.outputs.sha }}",
