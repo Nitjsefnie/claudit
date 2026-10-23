@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-"""Validate a release version and wait for its push-triggered release run."""
+"""Validate a release version and compute its development successor."""
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
-import json
-import math
-import os
 import re
-import subprocess
 import sys
-import time
 from typing import NamedTuple
 
 
@@ -37,72 +31,7 @@ def decide(version: str, tag_exists: bool, release_exists: bool) -> Decision:
     return Decision(True, f"version {version} is free")
 
 
-def wait_release(
-    sha: str,
-    *,
-    read: Callable[[list[str]], str],
-    repo: str,
-    timeout: float = 5400,
-    grace: float = 300,
-    interval: float = 20,
-    clock: Callable[[], float] = time.monotonic,
-    sleep: Callable[[float], None] = time.sleep,
-) -> None:
-    started = clock()
-    while True:
-        payload = read([
-            "gh", "api", "-H", "Cache-Control: no-cache", "--paginate",
-            f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100",
-        ]).lstrip()
-        runs = []
-        while payload:
-            page, end = json.JSONDecoder().raw_decode(payload)
-            runs.extend(run for run in page["workflow_runs"]
-                        if run["path"] == ".github/workflows/release.yml"
-                        and run["event"] == "push")
-            payload = payload[end:].lstrip()
-        elapsed = clock() - started
-        for run in runs:
-            if (run["status"] == "completed"
-                    and run["conclusion"] != "success"):
-                raise ValueError(
-                    f"release run {run['name']} ({run['id']}) "
-                    f"concluded {run['conclusion']}"
-                )
-        if runs and all(run["status"] == "completed" for run in runs):
-            return
-        if not runs and elapsed >= grace:
-            raise ValueError(
-                f"no release run registered for {sha} within {grace:g} s"
-            )
-        if elapsed >= timeout:
-            raise ValueError(f"timeout waiting for release run for {sha} "
-                             f"after {timeout:g} s")
-        sleep(interval)
-
-
-def _sha(text: str) -> str:
-    if re.fullmatch(r"[0-9a-f]{40}", text) is None:
-        raise argparse.ArgumentTypeError("sha must be 40 lowercase hex digits")
-    return text
-
-
-def _seconds(text: str) -> float:
-    value = float(text)
-    if not math.isfinite(value) or value < 0:
-        raise argparse.ArgumentTypeError("seconds must be finite and non-negative")
-    return value
-
-
-def _read(argv: list[str]) -> str:
-    return subprocess.check_output(argv, text=True)
-
-
-def main(
-    argv: list[str] | None = None,
-    *,
-    read: Callable[[list[str]], str] = _read,
-) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     decide_p = sub.add_parser("decide", help="refuse an unavailable version")
@@ -113,15 +42,6 @@ def main(
                           choices=["true", "false"])
     successor_p = sub.add_parser("successor", help="print the next development version")
     successor_p.add_argument("version")
-    wait_p = sub.add_parser("wait-release", help="wait for release.yml")
-    wait_p.add_argument("sha", type=_sha)
-    wait_p.add_argument("--repo", required=True)
-    wait_p.add_argument("--timeout", type=_seconds, default=os.environ.get(
-        "CLAUDIT_RELEASE_DISPATCH_WAIT_SECONDS", "5400"))
-    wait_p.add_argument("--grace", type=_seconds, default=os.environ.get(
-        "CLAUDIT_RELEASE_DISPATCH_WAIT_GRACE_SECONDS", "300"))
-    wait_p.add_argument("--interval", type=_seconds, default=os.environ.get(
-        "CLAUDIT_RELEASE_DISPATCH_WAIT_POLL_SECONDS", "20"))
     args = parser.parse_args(argv)
     if args.command == "decide":
         decision = decide(args.version, args.tag_exists == "true",
@@ -129,16 +49,9 @@ def main(
         print(decision.reason)
         return 0 if decision.ok else 1
     try:
-        if args.command == "successor":
-            major, minor, patch = map(int, parse_release_version(args.version).split("."))
-            print(f"{major}.{minor}.{patch + 1}-dev")
-            return 0
-        repo = args.repo
-        if not repo:
-            raise ValueError("--repo must be set to the owner/repository")
-        wait_release(args.sha, read=read, repo=repo, timeout=args.timeout,
-                     grace=args.grace, interval=args.interval)
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        major, minor, patch = map(int, parse_release_version(args.version).split("."))
+        print(f"{major}.{minor}.{patch + 1}-dev")
+    except ValueError as error:
         print(f"release_dispatch: {error}", file=sys.stderr)
         return 1
     return 0
