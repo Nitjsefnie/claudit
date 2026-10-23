@@ -71,7 +71,7 @@ def test_js_coverage_keeps_postgres_for_transitive_db_fixtures():
 
 def test_image_digest_matches_compose_and_keys_both_cache_operations():
     image = _step(IMAGE_ACTION, id="image")
-    digest = image["env"]["POSTGRES_DIGEST"]
+    digest = image["env"]["CLAUDIT_POSTGRES_DIGEST"]
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
     compose_image = _load(ROOT / "compose.yaml")["services"]["db"]["image"]
     assert compose_image.rpartition("@")[2] == digest
@@ -81,9 +81,9 @@ def test_image_digest_matches_compose_and_keys_both_cache_operations():
     assert cached["key"] == "${{ steps.image.outputs.key }}"
     acquire = _step(CACHED_ACTION, id="acquire")
     assert 'docker pull "$ref"' in acquire["run"]
-    assert acquire["env"]["IMAGE_REF"] == "${{ inputs.ref }}"
-    assert '@${POSTGRES_DIGEST}' in image["run"]
-    assert ('key=postgres-${RUNNER_OS}-${RUNNER_ARCH}-${POSTGRES_DIGEST}'
+    assert acquire["env"]["CLAUDIT_IMAGE_REF"] == "${{ inputs.ref }}"
+    assert '@${CLAUDIT_POSTGRES_DIGEST}' in image["run"]
+    assert ('key=postgres-${RUNNER_OS}-${RUNNER_ARCH}-${CLAUDIT_POSTGRES_DIGEST}'
             in image["run"])
     caches = [step for step in _load(CACHED_ACTION)["runs"]["steps"]
               if step.get("uses", "").startswith("actions/cache/")]
@@ -96,7 +96,7 @@ def test_image_digest_matches_compose_and_keys_both_cache_operations():
 def test_cache_save_is_gated_on_acquisition_output():
     restore, acquire, save = _load(CACHED_ACTION)["runs"]["steps"]
     assert restore["id"] == "cache" and "if" not in restore
-    assert acquire["env"]["CACHE_HIT"] == "${{ steps.cache.outputs.cache-hit }}"
+    assert acquire["env"]["CLAUDIT_CACHE_HIT"] == "${{ steps.cache.outputs.cache-hit }}"
     assert "if" not in acquire and "continue-on-error" not in acquire
     # Bash behavior is exercised in test_workflow_cached_image; these pins
     # cover GitHub's separate cache action and its output/condition wiring.
@@ -132,16 +132,16 @@ def test_start_uses_the_saved_local_tag_without_a_pull():
     policies += [arg.split("=", 1)[1] for arg in args if arg.startswith("--pull=")]
     assert policies == ["never"]
     assert not _docker_commands(start["run"], "pull")
-    assert args[-1] == "$POSTGRES_TAG"
-    assert start["env"]["POSTGRES_TAG"] == "${{ steps.image.outputs.tag }}"
+    assert args[-1] == "$CLAUDIT_POSTGRES_TAG"
+    assert start["env"]["CLAUDIT_POSTGRES_TAG"] == "${{ steps.image.outputs.tag }}"
     outputs = _load(IMAGE_ACTION)["outputs"]
     assert outputs["tag"]["value"] == "${{ steps.image.outputs.tag }}"
     acquire = _step(CACHED_ACTION, id="acquire")
-    assert acquire["env"]["IMAGE_TAG"] == "${{ inputs.tag }}"
+    assert acquire["env"]["CLAUDIT_IMAGE_TAG"] == "${{ inputs.tag }}"
     assert _docker_commands(acquire["run"], "tag") == [
-        ["docker", "tag", "$ref", "$IMAGE_TAG"]]
+        ["docker", "tag", "$ref", "$CLAUDIT_IMAGE_TAG"]]
     assert _docker_commands(acquire["run"], "save") == [
-        ["docker", "save", "--output", "$archive", "$IMAGE_TAG"]]
+        ["docker", "save", "--output", "$archive", "$CLAUDIT_IMAGE_TAG"]]
     assert _docker_commands(acquire["run"], "load") == [
         ["docker", "load", "--input", "$archive"]]
 
@@ -149,25 +149,25 @@ def test_start_uses_the_saved_local_tag_without_a_pull():
 def test_fallback_uses_the_primary_digest_and_is_tried_second():
     image = _step(IMAGE_ACTION, id="image")
     acquire = _step(CACHED_ACTION, id="acquire")
-    assert image["env"].get("POSTGRES_FALLBACK_REPOSITORY") == (
+    assert image["env"].get("CLAUDIT_POSTGRES_FALLBACK_REPOSITORY") == (
         "mirror.gcr.io/library/postgres")
     outputs = dict(shlex.split(line)[1].split("=", 1)
                    for line in image["run"].splitlines()
                    if line.strip().startswith("echo "))
-    assert outputs["ref"] == "${POSTGRES_REPOSITORY}@${POSTGRES_DIGEST}"
+    assert outputs["ref"] == "${CLAUDIT_POSTGRES_REPOSITORY}@${CLAUDIT_POSTGRES_DIGEST}"
     assert outputs.get("fallback") == (
-        "${POSTGRES_FALLBACK_REPOSITORY}@${POSTGRES_DIGEST}")
-    assert acquire["env"].get("IMAGE_FALLBACK_REF") == (
+        "${CLAUDIT_POSTGRES_FALLBACK_REPOSITORY}@${CLAUDIT_POSTGRES_DIGEST}")
+    assert acquire["env"].get("CLAUDIT_IMAGE_FALLBACK_REF") == (
         "${{ inputs.fallback-ref }}")
-    assert ('for ref in "$IMAGE_REF" "$IMAGE_FALLBACK_REF"; do'
+    assert ('for ref in "$CLAUDIT_IMAGE_REF" "$CLAUDIT_IMAGE_FALLBACK_REF"; do'
             in acquire["run"])
 
 
 def test_postgres_failure_message_is_unchanged():
     """The label threads into the shared error text, word for word."""
     acquire = _step(CACHED_ACTION, id="acquire")
-    assert acquire["env"]["IMAGE_LABEL"] == "${{ inputs.label }}"
-    assert ('echo "::error::${IMAGE_LABEL} image cache had no entry; both '
+    assert acquire["env"]["CLAUDIT_IMAGE_LABEL"] == "${{ inputs.label }}"
+    assert ('echo "::error::${CLAUDIT_IMAGE_LABEL} image cache had no entry; both '
             'registries failed after three attempts each. Registry answers '
             'follow:" >&2') in acquire["run"]
 
@@ -176,12 +176,12 @@ def test_postgres_publishes_the_input_port_and_waits_for_tcp_readiness():
     action = _load(ACTION)
     start = action["runs"]["steps"][-1]
     assert action["inputs"]["port"]["default"] == "5432"
-    assert start["env"]["POSTGRES_PORT"] == "${{ inputs.port }}"
+    assert start["env"]["CLAUDIT_POSTGRES_PORT"] == "${{ inputs.port }}"
     args, = _docker_commands(start["run"], "run")
     ports = [args[i + 1] for i, arg in enumerate(args) if arg in ("--publish", "-p")]
     ports += [arg.split("=", 1)[1] for arg in args if arg.startswith("--publish=")]
-    assert ports == ["127.0.0.1:${POSTGRES_PORT}:5432"]
+    assert ports == ["127.0.0.1:${CLAUDIT_POSTGRES_PORT}:5432"]
     probes = re.findall(r"(?m)^ *if (docker exec[^\n]*); then$", start["run"])
     assert [shlex.split(probe) for probe in probes] == [[
-        "docker", "exec", "$POSTGRES_CONTAINER", "pg_isready", "-q",
+        "docker", "exec", "$CLAUDIT_POSTGRES_CONTAINER", "pg_isready", "-q",
         "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"]]

@@ -46,16 +46,16 @@ runs:
       id: acquire
       shell: bash
       env:
-        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
-        IMAGE_LABEL: ${{ inputs.label }}
-        IMAGE_REF: ${{ inputs.ref }}
-        IMAGE_FALLBACK_REF: ${{ inputs.fallback-ref }}
-        IMAGE_TAG: ${{ inputs.tag }}
-        IMAGE_ARCHIVE: ${{ inputs.archive }}
+        CLAUDIT_CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        CLAUDIT_IMAGE_LABEL: ${{ inputs.label }}
+        CLAUDIT_IMAGE_REF: ${{ inputs.ref }}
+        CLAUDIT_IMAGE_FALLBACK_REF: ${{ inputs.fallback-ref }}
+        CLAUDIT_IMAGE_TAG: ${{ inputs.tag }}
+        CLAUDIT_IMAGE_ARCHIVE: ${{ inputs.archive }}
       run: |
         set -euo pipefail
-        archive="$RUNNER_TEMP/$IMAGE_ARCHIVE"
-        if [ "$CACHE_HIT" = true ]; then
+        archive="$RUNNER_TEMP/$CLAUDIT_IMAGE_ARCHIVE"
+        if [ "$CLAUDIT_CACHE_HIT" = true ]; then
           docker load --input "$archive"
           exit 0
         fi
@@ -63,7 +63,7 @@ runs:
         log="$archive.pull.log"
         failures="$archive.pull-failures.log"
         : > "$failures"
-        for ref in "$IMAGE_REF" "$IMAGE_FALLBACK_REF"; do
+        for ref in "$CLAUDIT_IMAGE_REF" "$CLAUDIT_IMAGE_FALLBACK_REF"; do
           for delay in 0 5 15; do
             sleep "$delay"
             echo "Pulling $ref (retry delay ${delay}s)"
@@ -83,13 +83,13 @@ runs:
           fi
         done
         if [ "$pulled" != true ]; then
-          echo "::error::${IMAGE_LABEL} image cache had no entry; both registries failed after three attempts each. Registry answers follow:" >&2
+          echo "::error::${CLAUDIT_IMAGE_LABEL} image cache had no entry; both registries failed after three attempts each. Registry answers follow:" >&2
           cat "$failures" >&2
           exit 1
         fi
         # Tag and save the image THIS pull returned, from either source.
-        docker tag "$ref" "$IMAGE_TAG"
-        docker save --output "$archive" "$IMAGE_TAG"
+        docker tag "$ref" "$CLAUDIT_IMAGE_TAG"
+        docker save --output "$archive" "$CLAUDIT_IMAGE_TAG"
         echo "pulled=true" >> "$GITHUB_OUTPUT"
 
     - name: Save the image archive
