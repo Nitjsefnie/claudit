@@ -61,6 +61,12 @@ def _find_step(job, needle):
     return matches[0]
 
 
+def test_version_guard_binds_the_event_for_push_metadata():
+    step = _find_step(_job(_load("version-guard.yml"), "version-guard"), "version_guard.py")
+    assert step["env"]["CLAUDIT_EVENT"] == "${{ github.event_name }}"
+    assert 'if [ "$CLAUDIT_EVENT" = "push" ]; then' in _run_lines(step)
+
+
 def test_the_bench_action_measures_and_gates():
     """The composite action's own shape: measure, then gate."""
     action = yaml.load(
