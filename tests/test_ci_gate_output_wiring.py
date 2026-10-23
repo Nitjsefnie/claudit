@@ -155,8 +155,8 @@ def _run_classifier(tmp_path, paths=None, writes=True, base_contents=None,
                     head_contents=None):
     """Run the classifier on a push event over the stub `gh`.
 
-    PR_NUMBER is empty and BEFORE_SHA is a 40-hex commit, the shape of
-    the refresh bot's own push. Returns
+    Bot pushes set CLAUDIT_PR_NUMBER empty and CLAUDIT_BEFORE_SHA to a
+    40-hex commit. Returns
     the step-output file's text, the reads the stub answered, and the
     classifier's own exit status — the third is what the fail-closed
     test rests on.
@@ -184,8 +184,8 @@ def _run_classifier(tmp_path, paths=None, writes=True, base_contents=None,
         "GITHUB_REPOSITORY": "Nitjsefnie/claudit",
         "GITHUB_SHA": HEAD,
         "GITHUB_STUB_LOG": str(log),
-        "PR_NUMBER": "",
-        "BEFORE_SHA": BEFORE,
+        "CLAUDIT_PR_NUMBER": "",
+        "CLAUDIT_BEFORE_SHA": BEFORE,
         "GITHUB_OUTPUT": target,
     })
     _stub_gh(tmp_path, paths, base_contents, head_contents)

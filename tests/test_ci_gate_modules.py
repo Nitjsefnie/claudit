@@ -381,16 +381,27 @@ def test_classify_unreadable_paths_run_everything():
     assert "full" in reason
 
 
-def test_event_from_environment():
+@pytest.mark.parametrize("supplied,number,before", [
+    ({"CLAUDIT_PR_NUMBER": "7", "CLAUDIT_BEFORE_SHA": "a" * 40}, "7", "a" * 40),
+    ({"PR_NUMBER": "9", "BEFORE_SHA": "c" * 40}, "9", "c" * 40),
+    ({"PR_NUMBER": "9", "BEFORE_SHA": "c" * 40,
+      "CLAUDIT_PR_NUMBER": "7", "CLAUDIT_BEFORE_SHA": "a" * 40}, "7", "a" * 40),
+    ({"PR_NUMBER": "9", "BEFORE_SHA": "c" * 40,
+      "CLAUDIT_PR_NUMBER": "", "CLAUDIT_BEFORE_SHA": ""}, "", ""),
+    ({"PR_NUMBER": "9", "BEFORE_SHA": "c" * 40,
+      "CLAUDIT_PR_NUMBER": " ", "CLAUDIT_BEFORE_SHA": " "}, " ", " "),
+    ({}, None, None),
+])
+def test_event_from_environment(supplied, number, before):
     event = classify.event_from_environment({
         "GITHUB_EVENT_NAME": "push",
         "GITHUB_REPOSITORY": "o/r",
-        "BEFORE_SHA": "a" * 40,
         "GITHUB_SHA": "b" * 40,
+        **supplied,
     })
     assert event == {"name": "push", "repository": "o/r",
-                     "before": "a" * 40, "sha": "b" * 40,
-                     "pull_request": None}
+                     "before": before, "sha": "b" * 40,
+                     "pull_request": number}
 
 
 def test_write_outputs(tmp_path):
@@ -591,16 +602,37 @@ def test_aggregate_summary_without_a_classify_reason_omits_the_line(tmp_path):
     assert "classification:" not in text
 
 
-def test_aggregate_main_green_exits_zero(tmp_path, monkeypatch):
+@pytest.mark.parametrize("prefix", ["CLAUDIT_", ""])
+def test_aggregate_main_green_exits_zero(prefix, tmp_path, monkeypatch):
     summary = tmp_path / "summary.md"
-    monkeypatch.setenv("NEEDS_JSON", json.dumps(_needs()))
+    monkeypatch.delenv("CLAUDIT_NEEDS_JSON", raising=False)
+    monkeypatch.delenv("NEEDS_JSON", raising=False)
+    monkeypatch.setenv(prefix + "NEEDS_JSON", json.dumps(_needs()))
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     assert aggregate.main() == 0
 
 
 def test_aggregate_main_red_exits_one(tmp_path, monkeypatch):
     summary = tmp_path / "summary.md"
-    monkeypatch.setenv("NEEDS_JSON", json.dumps(_needs(tests__result="failure")))
+    monkeypatch.setenv("CLAUDIT_NEEDS_JSON", json.dumps(_needs(tests__result="failure")))
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     assert aggregate.main() == 1
     assert summary.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("preferred,legacy,code,error", [
+    (json.dumps(_needs()), json.dumps(_needs(tests__result="failure")), 0, ""),
+    (json.dumps(_needs(tests__result="failure")), json.dumps(_needs()), 1, ""),
+    ("", json.dumps(_needs()), 1, "CLAUDIT_NEEDS_JSON is missing or not JSON\n"),
+    ("invalid", json.dumps(_needs()), 1, "CLAUDIT_NEEDS_JSON is missing or not JSON\n"),
+    ("[]", json.dumps(_needs()), 1, "CLAUDIT_NEEDS_JSON is not a needs document\n"),
+    (None, None, 1, "CLAUDIT_NEEDS_JSON is missing or not JSON\n"),
+], ids=["preferred_green", "preferred_red", "empty", "malformed", "non_document", "missing"])
+def test_aggregate_needs_migration(preferred, legacy, code, error, monkeypatch, tmp_path, capsys):
+    for name, value in [("CLAUDIT_NEEDS_JSON", preferred), ("NEEDS_JSON", legacy)]:
+        monkeypatch.delenv(name, raising=False)
+        if value is not None:
+            monkeypatch.setenv(name, value)
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
+    assert aggregate.main() == code
+    assert capsys.readouterr().err == error

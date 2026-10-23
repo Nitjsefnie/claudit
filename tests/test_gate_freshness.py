@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -252,6 +253,42 @@ def test_env_without_sha_falls_back_to_all_heads():
     pulls = [_pr(7), _pr(8, base="main")]
     heads = gf.heads_for_run({gf.ENV_PR: "9"}, pulls)
     assert [head["number"] for head in heads] == [7]
+
+
+@pytest.mark.parametrize("case", ["legacy", "preferred", "both", "empty_pr", "empty_sha", "empty_repo"])
+def test_environment_migration_selects_heads_and_listing(case, monkeypatch):
+    legacy = {"GF_PR": "9", "GF_HEAD_SHA": "b" * 40, "GF_HEAD_REPO": "old/repo"}
+    preferred = {"CLAUDIT_GF_PR": "7", "CLAUDIT_GF_HEAD_SHA": HEAD,
+                 "CLAUDIT_GF_HEAD_REPO": "new/repo"}
+    env = legacy.copy() if case != "preferred" else {}
+    if case != "legacy":
+        env.update(preferred)
+    if case.startswith("empty_"):
+        env[{"empty_pr": "CLAUDIT_GF_PR", "empty_sha": "CLAUDIT_GF_HEAD_SHA",
+             "empty_repo": "CLAUDIT_GF_HEAD_REPO"}[case]] = ""
+    listed = case in {"empty_pr", "empty_sha"}
+    expected = {"number": 7, "sha": HEAD, "base": "master", "repo": "new/repo"}
+    if case == "legacy":
+        expected = {"number": 9, "sha": "b" * 40, "base": "master", "repo": "old/repo"}
+    elif case == "empty_repo":
+        expected["repo"] = ""
+    elif listed:
+        expected = {"number": 19, "sha": "c" * 40, "base": "master", "repo": "Nitjsefnie/claudit"}
+    pulls = [_pr(19, sha="c" * 40)]
+    assert gf.heads_for_run(env, pulls) == [expected]
+    reads, published = [], []
+
+    def open_pulls(repository):
+        reads.append(repository)
+        return pulls
+
+    monkeypatch.setattr(gf, "resolve_master_tip", lambda _run: MASTER)
+    monkeypatch.setattr(gf, "_open_pulls", open_pulls)
+    monkeypatch.setattr(gf, "ensure_head_objects", lambda *_args: None)
+    monkeypatch.setattr(gf, "publish_check", lambda *args: published.append(args[2]))
+    assert gf.main_impl(lambda _argv: "", None, "Nitjsefnie/claudit", env, None) == 0
+    assert published == [expected["sha"]]
+    assert reads == (["Nitjsefnie/claudit"] if listed else [])
 
 
 def test_pulls_mode_uses_scannable_heads_only():
