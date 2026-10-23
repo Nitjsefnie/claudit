@@ -245,6 +245,7 @@ jobs:
         if: steps.version.outputs.prerelease == ''
         env:
           GH_TOKEN: ${{ github.token }}
+          CLAUDIT_REPO: ${{ github.repository }}
           CLAUDIT_TAG: ${{ steps.version.outputs.tag }}
           CLAUDIT_SHA: ${{ inputs.sha || github.event.workflow_run.head_sha || github.sha }}
         # --generate-notes builds the changelog from the commits since the
@@ -252,6 +253,7 @@ jobs:
         # maintaining a CHANGELOG by hand.
         run: |
           gh release create "$CLAUDIT_TAG" \
+            --repo "$CLAUDIT_REPO" \
             --target "$CLAUDIT_SHA" \
             --title "$CLAUDIT_TAG" \
             --generate-notes
