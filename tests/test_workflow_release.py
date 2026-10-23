@@ -97,11 +97,7 @@ def _step_run(step_name: str) -> str:
 
 
 def _step_env_keys(step_name: str) -> set[str]:
-    """The step's own env is part of its shape, so the harness supplies a
-    value for a name the step declares and for no other: a test that
-    injected the values itself would keep a step green after its env line
-    is deleted, because the variable is still set in the process.
-    """
+    """Inject declared step-env values so deleted declarations fail tests."""
     for job in (_release()["jobs"] or {}).values():
         for step in (job or {}).get("steps") or []:
             if step.get("name") == step_name:
@@ -109,9 +105,7 @@ def _step_env_keys(step_name: str) -> set[str]:
     raise AssertionError(f"no step named {step_name!r} in release.yml")
 
 
-# The value each declared step-env name stands for here. GitHub's own
-# expression is not evaluated; the harness substitutes the real shape of
-# what it denotes.
+# Synthetic values for declared GitHub expressions.
 DECLARED_VALUES = {
     "CLAUDIT_SELF_JOB": "release",
     "CLAUDIT_SELF_RUN_ID": SELF_RUN,
@@ -122,9 +116,7 @@ DECLARED_VALUES = {
 
 def _run_step(body: str, stub: str, env: dict[str, str],
               timeout: float = 60) -> subprocess.CompletedProcess:
-    # GitHub Actions runs a run-body under `bash -e`; the stub is a shell
-    # function defined ahead of the body in the same command string, so
-    # the body's own `gh` calls resolve to it.
+    # Execute the real body with a shell function replacing gh.
     full_env = {
         "PATH": os.environ["PATH"],
         "HOME": os.environ.get("HOME", ""),
@@ -606,25 +598,16 @@ def test_the_wait_step_delegates_selection_to_the_selector():
     assert "--jq" not in body
     assert "startswith(\"release\")" not in body
     assert "actions/runs?head_sha=$CLAUDIT_SHA" in body
-    # Both reads page at 100 alongside --paginate: correctness does not
-    # depend on it (the flag follows the Link headers either way), so this
-    # pins the smaller win — one request per read instead of one per thirty
-    # check runs, on a poll that repeats until the gates finish.
+    # Page both reads at 100 to reduce requests per poll.
     assert "check-runs?per_page=100" in body
     assert "actions/runs?head_sha=$CLAUDIT_SHA&per_page=100" in body
     text = RELEASE.read_text(encoding="utf-8")
     assert '${{ github.job }}' in text
     assert '${{ github.run_id }}' in text
-    # The env line is what feeds the path, so it is pinned beside the two
-    # flags it drives: deleting it leaves every behavioural test green
-    # unless one runs the step with the value ABSENT
-    # (test_wait_refuses_a_non_tip_re_cut_without_the_workflow_ref).
+    # The missing-env control also covers this declaration.
     assert '${{ github.workflow_ref }}' in text
     assert '--self-path "$self_path"' in body
-    # Source-level pin for the isolating control: the step's own in-
-    # progress row is excluded only by --self-run-id when its run is
-    # unlisted, so dropping the flag from the step must fail
-    # test_wait_proceeds_with_its_own_job_still_running.
+    # The unlisted-self-run control must fail without this flag.
     assert '--self-run-id "$CLAUDIT_SELF_RUN_ID"' in body
 
 
@@ -692,3 +675,21 @@ def test_refusal_probes_go_through_captured_gh_api():
     assert "gh release view" not in body
     assert body.count("gh api") == 2
     assert body.count("2>&1") == 2
+
+
+@ubuntu_step_body
+def test_create_names_repository_without_checkout(tmp_path):
+    stub = ('gh() { case "$*" in '
+            '"release create $CLAUDIT_TAG --repo $CLAUDIT_REPO --target $CLAUDIT_SHA --title $CLAUDIT_TAG --generate-notes") '
+            'printf "%s" "$*" > "$STUB_CALLFILE" ;; '
+            '*) echo "unmodelled create call: $*" >&2; return 1 ;; esac; }')
+    calls = tmp_path / "gh-calls"
+    body = _step_run("Create the release").replace("${{ github.repository }}", "Nitjsefnie/claudit")
+    proc = _run_step(body, stub,
+                     {"RUNNER_TEMP": str(tmp_path), "STUB_CALLFILE": str(calls),
+                      "GITHUB_STEP_SUMMARY": str(tmp_path / "summary")})
+    assert proc.returncode == 0, proc.stderr
+    assert calls.read_text().split()[3:5] == ["--repo", "Nitjsefnie/claudit"]
+    create, = [step for step in _release()["jobs"]["release"]["steps"]
+               if step.get("name") == "Create the release"]
+    assert create["env"].get("CLAUDIT_REPO") == "${{ github.repository }}"
