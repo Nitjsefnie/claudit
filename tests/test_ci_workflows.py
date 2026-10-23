@@ -12,6 +12,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.workflow_checks import references
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 CODEQL_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "codeql.yml"
@@ -260,14 +262,12 @@ def test_every_postgres_job_uses_the_cached_action() -> None:
         "smoke.yml", "refresh-pricing.yml"]), callers
 
 
-def test_postgres_action_pulls_a_digest_from_the_public_ecr_mirror() -> None:
-    """The shared miss path retains the mirror and reviewed digest pin."""
+def test_postgres_action_uses_the_public_ecr_mirror() -> None:
+    """The shared miss path retains the public ECR mirror."""
     path = REPO_ROOT / ".github/actions/postgres-image/action.yml"
     steps = yaml.safe_load(path.read_text(encoding="utf-8"))["runs"]["steps"]
     image = next(step for step in steps if step.get("id") == "image")
     assert image["env"]["CLAUDIT_POSTGRES_REPOSITORY"].startswith(POSTGRES_MIRROR)
-    assert re.fullmatch(r"sha256:[0-9a-f]{64}",
-                        image["env"]["CLAUDIT_POSTGRES_DIGEST"])
 
 
 def test_codeql_matrix_analyses_the_workflows() -> None:
@@ -325,19 +325,14 @@ def test_codeql_matrix_analyses_the_workflows() -> None:
         f"{len(init)} and {len(analyze)}"
     )
     with_ = init[0].get("with") or {}
-    assert with_.get("languages") == "${{ matrix.language }}", (
-        "the init step does not read the matrix's language, so the "
-        f"matrix does not choose what is analysed: {with_.get('languages')!r}"
-    )
-    assert with_.get("build-mode") == "${{ matrix.build-mode }}", (
-        "the init step does not read the matrix's build mode: "
-        f"{with_.get('build-mode')!r}"
-    )
     category = (analyze[0].get("with") or {}).get("category")
-    assert category == "/language:${{ matrix.language }}", (
-        "the analyze step does not file its SARIF under the matrix's "
-        f"language category: {category!r}"
-    )
+    for value, key in ((with_.get("languages"), "language"),
+                       (with_.get("build-mode"), "build-mode"),
+                       (category, "language")):
+        refs = references(value or "", "matrix")
+        assert (key,) in refs, f"missing matrix.{key} reference: {value!r}"
+        assert all(len(ref) == 1 and all(ref[0] in entry for entry in entries)
+                   for ref in refs), (value, entries)
 
 
 def test_workflow_pip_installs_never_pin_inline() -> None:

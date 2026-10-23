@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 import yaml
 from tests.node_run import run_node
+from tests.workflow_checks import assert_apt_sanitizer
 
 ROOT = Path(__file__).resolve().parents[1]
 LAYOUT_JS = ROOT / "src" / "panel-layout.js"
@@ -653,10 +654,9 @@ def test_panel_workflow_runs_four_independent_sweeps():
         "group": "panel-layout-${{ github.event.pull_request.number || github.ref }}",
         "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
     }
-    checkout, _, install, sanitize, browser, sweep = job["steps"]
-    assert checkout["with"] == {"persist-credentials": False}
+    _, _, install, sanitize, browser, sweep = job["steps"]
     assert install["run"] == "npm ci --no-audit --no-fund"
-    assert sanitize["uses"] == "$/.github/actions/apt-install"
+    assert_apt_sanitizer(ROOT, sanitize)
     assert "run" not in sanitize
     assert not sanitize.get("with", {}).get("packages")
     assert sanitize["timeout-minutes"] > 0

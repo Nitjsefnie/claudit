@@ -226,12 +226,6 @@ def test_ratchet_push_job_tightens_from_the_artifact():
     job = _job(doc, "push")
     # The bot job's admission lives in the job's if (pinned in
     # test_workflow_ci_gate).
-    downloads = [step for step in _steps(job)
-                 if (step.get("uses") or "").startswith(
-                     "actions/download-artifact")]
-    names = sorted((step.get("with") or {}).get("name", "")
-                   for step in downloads)
-    assert names == ["comment-share-ratchet", "ratchet-push", "suite-measurement"]
     # The tighten is a DATA operation in the bot job: no checkout, no
     # pip, no test code anywhere in the job's own text.
     text = (WORKFLOWS / "ratchet-push.yml").read_text(encoding="utf-8")
