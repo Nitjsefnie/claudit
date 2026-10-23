@@ -2,11 +2,8 @@ name: release dispatch
 
 on:
   workflow_run:  # zizmor: ignore[dangerous-triggers]
-    # The trigger's hazard — another branch's run reaching a privileged job — does not
-    # apply: the successor job's if admits only this repository's own release runs
-    # (release.yml runs only on master pushes and maintainer dispatches), and the job
-    # pushes only after re-verifying master's own VERSION and the tag from a fresh
-    # fetch.
+    # decide runs keyless; successor uses only its outputs and git/ssh, and
+    # rechecks master's VERSION after each fetch before pushing.
     workflows: [release]
     types: [completed]
   workflow_dispatch:
@@ -131,10 +128,66 @@ jobs:
           echo "master moved during all three push attempts" >&2
           exit 1
 
+  decide:
+    if: always() && github.event_name == 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.decide.outputs.version }}
+      successor: ${{ steps.decide.outputs.successor }}
+    steps:
+      - name: Verify the release and decide its successor
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLAUDIT_REPO: ${{ github.repository }}
+          CLAUDIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          CLAUDIT_SELECTOR_SHA: ${{ github.workflow_sha }}
+          CLAUDIT_RELEASE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          version="$(gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=$CLAUDIT_SHA")"
+          version="$(echo "$version" | tr -d '[:space:]')"
+          if echo "$version" | grep -Eq -- '-([0-9A-Za-z.-]+)$'; then
+            echo "::notice::VERSION is $version — no release in flight; nothing to do"
+            exit 0
+          fi
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "VERSION is not semver: '$version' (expected X.Y.Z)" >&2
+            exit 1
+          fi
+          if [ "$CLAUDIT_RELEASE_CONCLUSION" != 'success' ]; then
+            echo "the release run concluded $CLAUDIT_RELEASE_CONCLUSION while VERSION is $version" >&2
+            exit 1
+          fi
+          if tag_probe="$(gh api "repos/$CLAUDIT_REPO/git/ref/tags/v$version" 2>&1)"; then
+            :
+          elif echo "$tag_probe" | grep -q 'HTTP 404'; then
+            echo "refusing: the release for v$version did not happen" >&2
+            exit 1
+          else
+            echo "could not verify the tag probe for v$version — failing closed" >&2
+            exit 1
+          fi
+          if release_probe="$(gh api "repos/$CLAUDIT_REPO/releases/tags/v$version" 2>&1)"; then
+            :
+          elif echo "$release_probe" | grep -q 'HTTP 404'; then
+            echo "refusing: the release for v$version did not happen" >&2
+            exit 1
+          else
+            echo "could not verify the release probe for v$version — failing closed" >&2
+            exit 1
+          fi
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/scripts/ci/release_dispatch.py?ref=$CLAUDIT_SELECTOR_SHA" > "$RUNNER_TEMP/release_dispatch.py"
+          successor="$(python3 "$RUNNER_TEMP/release_dispatch.py" successor "$version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "successor=$successor" >> "$GITHUB_OUTPUT"
+
   successor:
-    needs: [validate, bump]
+    needs: [validate, bump, decide]
     if: >-
-      always() && github.event_name == 'workflow_run'
+      always() && github.event_name == 'workflow_run' && needs.decide.result == 'success'
     environment: master-push
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -145,11 +198,16 @@ jobs:
         env:
           CLAUDIT_MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
           CLAUDIT_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
+          CLAUDIT_VERSION: ${{ needs.decide.outputs.version }}
+          CLAUDIT_SUCCESSOR: ${{ needs.decide.outputs.successor }}
         run: |
           if [ -z "${CLAUDIT_MASTER_PUSH_DEPLOY_KEY:-}" ]; then
             echo "CLAUDIT_MASTER_PUSH_DEPLOY_KEY is empty: the master-push environment is missing its secret" >&2
             exit 1
+          fi
+          if [ -z "$CLAUDIT_SUCCESSOR" ]; then
+            echo "::notice::Development VERSION — nothing to do"
+            exit 0
           fi
           eval "$(ssh-agent -s)" >/dev/null
           trap 'kill "$SSH_AGENT_PID" 2>/dev/null || true' EXIT
@@ -165,45 +223,23 @@ jobs:
           git -C "$RUNNER_TEMP/push-repo" remote add origin "$remote"
           git -C "$RUNNER_TEMP/push-repo" config user.name 'github-actions[bot]'
           git -C "$RUNNER_TEMP/push-repo" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
-          git -C "$RUNNER_TEMP/push-repo" checkout -B push FETCH_HEAD
-          version="$(git -C "$RUNNER_TEMP/push-repo" show FETCH_HEAD:VERSION)"
-          version="$(echo "$version" | tr -d '[:space:]')"
-          if echo "$version" | grep -Eq -- '-([0-9A-Za-z.-]+)$'; then
-            echo "VERSION is $version — no release in flight; nothing to do"
-            exit 0
-          fi
-          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "VERSION is not semver: '$version' (expected X.Y.Z)" >&2
-            exit 1
-          fi
-          if tag_probe="$(gh api "repos/$CLAUDIT_REPO/git/ref/tags/v$version" 2>&1)"; then
-            :
-          elif echo "$tag_probe" | grep -q 'HTTP 404'; then
-            echo "refusing: the release for v$version did not happen" >&2
-            exit 1
-          else
-            echo "could not verify the tag probe for v$version — failing closed" >&2
-            exit 1
-          fi
-          successor="$(python3 "$RUNNER_TEMP/push-repo/scripts/ci/release_dispatch.py" successor "$version")"
           for attempt in 1 2 3; do
             echo "Push attempt $attempt of 3"
             git ls-remote --exit-code "$remote" refs/heads/master
             git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
             git -C "$RUNNER_TEMP/push-repo" checkout -B push FETCH_HEAD
-            if printf '%s\n' "$successor" | cmp -s - "$RUNNER_TEMP/push-repo/VERSION"; then
-              echo "VERSION already equals $successor"
+            if printf '%s\n' "$CLAUDIT_SUCCESSOR" | cmp -s - "$RUNNER_TEMP/push-repo/VERSION"; then
+              echo "VERSION already equals $CLAUDIT_SUCCESSOR"
               exit 0
             fi
-            if ! printf '%s\n' "$version" | cmp -s - "$RUNNER_TEMP/push-repo/VERSION"; then
+            if ! printf '%s\n' "$CLAUDIT_VERSION" | cmp -s - "$RUNNER_TEMP/push-repo/VERSION"; then
               current="$(cat "$RUNNER_TEMP/push-repo/VERSION")"
-              echo "Refusing successor: VERSION is '$current'; expected released '$version'" >&2
+              echo "Refusing successor: VERSION is '$current'; expected released '$CLAUDIT_VERSION'" >&2
               exit 1
             fi
-            (cd "$RUNNER_TEMP/push-repo" && printf '%s\n' "$successor" > VERSION)
+            (cd "$RUNNER_TEMP/push-repo" && printf '%s\n' "$CLAUDIT_SUCCESSOR" > VERSION)
             git -C "$RUNNER_TEMP/push-repo" add VERSION
-            git -C "$RUNNER_TEMP/push-repo" commit -m "Bump VERSION to $successor after the $version release"
+            git -C "$RUNNER_TEMP/push-repo" commit -m "Bump VERSION to $CLAUDIT_SUCCESSOR after the $CLAUDIT_VERSION release"
             if git -C "$RUNNER_TEMP/push-repo" push origin HEAD:master; then
               exit 0
             fi

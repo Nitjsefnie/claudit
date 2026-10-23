@@ -13,6 +13,7 @@ WORKFLOW = ROOT / ".github/workflows/release-dispatch.yml"
 DECIDE = "Probe the tag and the release, then decide"
 BUMP = "Push the release VERSION commit to master"
 SUCCESSOR = "Push the next -dev VERSION commit to master"
+POST_RELEASE = "Verify the release and decide its successor"
 ubuntu_step_body = pytest.mark.skipif(
     sys.platform.startswith("win"),
     reason="these ubuntu-latest workflow bodies require POSIX bash",
@@ -32,11 +33,31 @@ gh() {
   esac
 }
 '''
+POST_RELEASE_STUB = r'''
+gh() {
+  local n
+  n="$(cat "$STUB_CALLFILE")"
+  n=$((n + 1))
+  printf '%s' "$n" > "$STUB_CALLFILE"
+  case "$n:$*" in
+    "1:api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/VERSION?ref=$CLAUDIT_SHA")
+      printf '%s\n' "$VERSION_REPLY"; return "${VERSION_RC:-0}" ;;
+    "2:api repos/$CLAUDIT_REPO/git/ref/tags/v$PROBE_VERSION")
+      printf '%s\n' "$TAG_REPLY"; return "$TAG_RC" ;;
+    "3:api repos/$CLAUDIT_REPO/releases/tags/v$PROBE_VERSION")
+      printf '%s\n' "$RELEASE_REPLY"; return "$RELEASE_RC" ;;
+    "4:api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/scripts/ci/release_dispatch.py?ref=$CLAUDIT_SELECTOR_SHA")
+      cat "$HELPER_PATH"; return "${HELPER_RC:-0}" ;;
+    *) echo "unmodelled gh call: $*" >&2; return 99 ;;
+  esac
+}
+'''
 SSH_STUB = '''
 ssh-agent() { :; }
 ssh-add() { :; }
 ssh() { :; }
 kill() { test "$1" = "$SSH_AGENT_PID"; }
+gh() { echo "unexpected gh call in keyed step: $*" >&2; return 99; }
 '''
 
 
@@ -61,7 +82,7 @@ def _run_step(name: str, stub: str, env: dict[str, str],
          stub + "\n" + _step(name)["run"]],
         env={"PATH": os.environ["PATH"], "CLAUDIT_REPO": "example/claudit",
              "GITHUB_OUTPUT": os.devnull,
-             **({"CLAUDIT_VERSION": "9.9.9"} if name != SUCCESSOR else {}), **env},
+             "CLAUDIT_VERSION": "9.9.9", **env},
         cwd=cwd, capture_output=True, text=True, encoding="utf-8",
         check=False, timeout=30,
     )
@@ -85,10 +106,7 @@ def _seed(tmp_path: Path, version: str = "9.9.8-dev") -> tuple[Path, str]:
     _git(seed, "config", "user.name", "Test")
     _git(seed, "config", "user.email", "test@example.invalid")
     (seed / "VERSION").write_bytes((version + "\n").encode())
-    helper = seed / "scripts/ci/release_dispatch.py"
-    helper.parent.mkdir(parents=True)
-    helper.write_bytes((ROOT / "scripts/ci/release_dispatch.py").read_bytes())
-    _git(seed, "add", "VERSION", "scripts/ci/release_dispatch.py")
+    _git(seed, "add", "VERSION")
     _git(seed, "commit", "-m", "Seed")
     _git(seed, "remote", "add", "origin", str(remote))
     _git(seed, "push", "origin", "HEAD:master")
@@ -100,13 +118,25 @@ def _push_env(tmp_path: Path, remote: Path) -> dict[str, str]:
     runner.mkdir()
     home = tmp_path / "home"
     home.mkdir()
-    calls = tmp_path / "calls"
-    calls.write_text("0", encoding="utf-8")
     return {"CLAUDIT_PUSH_REMOTE": str(remote), "CLAUDIT_MASTER_PUSH_DEPLOY_KEY": "dummy",
-            "STUB_CALLFILE": str(calls), "TAG_VERSION": "9.9.9",
-            "TAG_RC": "0", "TAG_REPLY": "{}",
+            "CLAUDIT_VERSION": "9.9.9", "CLAUDIT_SUCCESSOR": "9.9.10-dev",
             "GITHUB_OUTPUT": str(tmp_path / "output"), "HOME": str(home),
             "RUNNER_TEMP": str(runner), "SSH_AGENT_PID": "999999999"}
+
+
+@pytest.fixture(name="decide_env")
+def _decide_env(tmp_path):
+    calls = tmp_path / "calls"
+    calls.write_text("0", encoding="utf-8")
+    return {
+        "STUB_CALLFILE": str(calls), "VERSION_REPLY": "9.9.9",
+        "PROBE_VERSION": "9.9.9", "TAG_RC": "0", "TAG_REPLY": "{}",
+        "RELEASE_RC": "0", "RELEASE_REPLY": "{}",
+        "CLAUDIT_SHA": "release-head", "CLAUDIT_SELECTOR_SHA": "workflow-head",
+        "CLAUDIT_RELEASE_CONCLUSION": "success",
+        "HELPER_PATH": str(ROOT / "scripts/ci/release_dispatch.py"),
+        "GITHUB_OUTPUT": str(tmp_path / "output"), "RUNNER_TEMP": str(tmp_path),
+    }
 
 
 def test_dispatch_shape():
@@ -124,20 +154,36 @@ def test_dispatch_shape():
     assert workflow["concurrency"] == {"group": "release-dispatch",
                                        "cancel-in-progress": "false"}
     jobs = workflow["jobs"]
-    assert set(jobs) == {"validate", "bump", "successor"}
+    assert set(jobs) == {"validate", "bump", "decide", "successor"}
     assert "needs" not in jobs["validate"]
     assert jobs["bump"]["needs"] == "validate"
-    assert jobs["successor"]["needs"] == ["validate", "bump"]
+    assert jobs["successor"]["needs"] == ["validate", "bump", "decide"]
     for name in ("validate", "bump"):
         assert jobs[name]["if"] == "github.event_name == 'workflow_dispatch'"
     assert jobs["successor"]["if"] == (
-        "always() && github.event_name == 'workflow_run'")
+        "always() && github.event_name == 'workflow_run' && needs.decide.result == 'success'")
+    assert jobs["decide"]["if"] == "always() && github.event_name == 'workflow_run'"
+    assert "needs" not in jobs["decide"]
+    assert "environment" not in jobs["decide"]
+    assert len(jobs["decide"]["steps"]) == 1
+    assert jobs["decide"]["steps"][0] == _step(POST_RELEASE)
+    assert jobs["decide"]["outputs"] == {
+        "version": "${{ steps.decide.outputs.version }}",
+        "successor": "${{ steps.decide.outputs.successor }}",
+    }
+    assert _step(POST_RELEASE)["id"] == "decide"
+    assert _step(POST_RELEASE)["env"] == {
+        "GH_TOKEN": "${{ github.token }}", "CLAUDIT_REPO": "${{ github.repository }}",
+        "CLAUDIT_SHA": "${{ github.event.workflow_run.head_sha }}",
+        "CLAUDIT_SELECTOR_SHA": "${{ github.workflow_sha }}",
+        "CLAUDIT_RELEASE_CONCLUSION": "${{ github.event.workflow_run.conclusion }}",
+    }
     for name, minutes in [("validate", "10"), ("bump", "15"),
-                          ("successor", "15")]:
+                          ("decide", "10"), ("successor", "15")]:
         assert jobs[name]["runs-on"] == "ubuntu-latest"
         assert jobs[name]["timeout-minutes"] == minutes
         assert jobs[name]["permissions"] == (
-            {"contents": "read"} if name in {"bump", "successor"}
+            {"contents": "read"} if name in {"bump", "decide", "successor"}
             else {"contents": "read", "actions": "read"})
     assert jobs["bump"]["outputs"] == {"sha": "${{ steps.push.outputs.sha }}"}
     assert jobs["validate"]["outputs"] == {
@@ -146,7 +192,9 @@ def test_dispatch_shape():
     assert _step(DECIDE)["id"] == "decide"
     assert _step(SUCCESSOR)["env"] == {
         "CLAUDIT_MASTER_PUSH_DEPLOY_KEY": "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}",
-        "CLAUDIT_REPO": "${{ github.repository }}", "GH_TOKEN": "${{ github.token }}",
+        "CLAUDIT_REPO": "${{ github.repository }}",
+        "CLAUDIT_VERSION": "${{ needs.decide.outputs.version }}",
+        "CLAUDIT_SUCCESSOR": "${{ needs.decide.outputs.successor }}",
     }
     assert jobs["bump"]["steps"][0]["id"] == "push"
     assert jobs["validate"]["steps"][0]["name"] == (
@@ -163,9 +211,9 @@ def test_key_jobs_and_checkout_boundary():
         assert len(job["steps"]) == 1
         step = job["steps"][0]
         assert "uses" not in step
-        if name == "bump":
-            assert "python3" not in step["run"]
-        content = "CLAUDIT_VERSION" if name == "bump" else "successor"
+        assert "python3" not in step["run"]
+        assert "gh " not in step["run"]
+        content = "CLAUDIT_VERSION" if name == "bump" else "CLAUDIT_SUCCESSOR"
         assert f"printf '%s\\n' \"${content}\" > VERSION" in step["run"]
         assert step["env"]["CLAUDIT_MASTER_PUSH_DEPLOY_KEY"] == (
             "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
@@ -238,8 +286,10 @@ def test_validate_emits_exact_successor_or_refuses(tmp_path, version, expected):
         assert proc.returncode == 0, proc.stderr
         assert output.read_text(encoding="utf-8") == f"successor={expected}\n"
         remote, _ = _seed(tmp_path, version)
-        env = _push_env(tmp_path, remote) | {"TAG_VERSION": version}
-        pushed = _run_step(SUCCESSOR, SSH_STUB + PROBE_STUB, env, cwd=tmp_path)
+        env = _push_env(tmp_path, remote) | {
+            "CLAUDIT_VERSION": version, "CLAUDIT_SUCCESSOR": expected,
+        }
+        pushed = _run_step(SUCCESSOR, SSH_STUB, env, cwd=tmp_path)
         assert pushed.returncode == 0, pushed.stderr
         assert subprocess.check_output(
             ["git", "-C", str(remote), "show", "master:VERSION"]) == (
@@ -272,6 +322,96 @@ python3() {
     assert "is free" in proc.stdout
     assert "successor helper failed" in proc.stderr
     assert not output.exists()
+
+
+@ubuntu_step_body
+def test_decide_skips_dev_version_without_outputs(decide_env):
+    env = decide_env | {"VERSION_REPLY": "9.9.10-dev",
+                        "CLAUDIT_RELEASE_CONCLUSION": "failure"}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 0, proc.stderr
+    assert "nothing to do" in proc.stdout
+    assert not Path(env["GITHUB_OUTPUT"]).exists()
+    assert Path(env["STUB_CALLFILE"]).read_text(encoding="utf-8") == "1"
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("version", ["", "v9.9.9", "9.9", "9.9.9!", "９.９.９"])
+def test_decide_refuses_non_semver(decide_env, version):
+    env = decide_env | {"VERSION_REPLY": version}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 1
+    assert "VERSION is not semver" in proc.stderr
+    assert not Path(env["GITHUB_OUTPUT"]).exists()
+    assert Path(env["STUB_CALLFILE"]).read_text(encoding="utf-8") == "1"
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("conclusion", ["failure", "cancelled", "timed_out", "skipped", ""])
+def test_decide_refuses_unsuccessful_release(decide_env, conclusion):
+    env = decide_env | {"CLAUDIT_RELEASE_CONCLUSION": conclusion}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 1
+    assert f"the release run concluded {conclusion} while VERSION is 9.9.9" in proc.stderr
+    assert not Path(env["GITHUB_OUTPUT"]).exists()
+    assert Path(env["STUB_CALLFILE"]).read_text(encoding="utf-8") == "1"
+
+
+@ubuntu_step_body
+def test_decide_refuses_missing_tag(decide_env):
+    env = decide_env | {"TAG_RC": "1", "TAG_REPLY": "HTTP 404"}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 1
+    assert "the release for v9.9.9 did not happen" in proc.stderr
+    assert not Path(env["GITHUB_OUTPUT"]).exists()
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("reply", ["HTTP 403", "HTTP 503"])
+def test_decide_tag_probe_fails_closed(decide_env, reply):
+    env = decide_env | {"TAG_RC": "1", "TAG_REPLY": reply}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 1
+    assert "tag probe for v9.9.9 — failing closed" in proc.stderr
+    assert not Path(env["GITHUB_OUTPUT"]).exists()
+
+
+@ubuntu_step_body
+def test_decide_refuses_tag_without_release(decide_env):
+    env = decide_env | {"RELEASE_RC": "1", "RELEASE_REPLY": "HTTP 404"}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 1
+    assert "the release for v9.9.9 did not happen" in proc.stderr
+    assert not Path(env["GITHUB_OUTPUT"]).exists()
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("reply", ["HTTP 403", "HTTP 503"])
+def test_decide_release_probe_fails_closed(decide_env, reply):
+    env = decide_env | {"RELEASE_RC": "1", "RELEASE_REPLY": reply}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 1
+    assert "release probe for v9.9.9 — failing closed" in proc.stderr
+    assert not Path(env["GITHUB_OUTPUT"]).exists()
+
+
+@ubuntu_step_body
+def test_decide_emits_exact_outputs_from_real_helper(decide_env):
+    env = decide_env | {"VERSION_REPLY": " \t9.9.9007199254740992\n ",
+                        "PROBE_VERSION": "9.9.9007199254740992"}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 0, proc.stderr
+    assert Path(env["GITHUB_OUTPUT"]).read_text(encoding="utf-8") == (
+        "version=9.9.9007199254740992\nsuccessor=9.9.9007199254740993-dev\n")
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("failure", ["VERSION_RC", "HELPER_RC"])
+def test_decide_stops_on_failed_contents_fetch(decide_env, failure):
+    env = decide_env | {failure: "1"}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 1
+    assert not Path(env["GITHUB_OUTPUT"]).exists()
 
 
 @ubuntu_step_body
@@ -308,7 +448,7 @@ def test_rejected_push_with_master_still_fails(tmp_path):
 @ubuntu_step_body
 def test_successor_bumps_patch_after_release(tmp_path):
     remote, before = _seed(tmp_path, "9.9.9")
-    proc = _run_step(SUCCESSOR, SSH_STUB + PROBE_STUB, _push_env(tmp_path, remote),
+    proc = _run_step(SUCCESSOR, SSH_STUB, _push_env(tmp_path, remote),
                      cwd=tmp_path)
     assert proc.returncode == 0, proc.stderr
     assert _git(remote, "rev-parse", "master^") == before
@@ -319,17 +459,16 @@ def test_successor_bumps_patch_after_release(tmp_path):
 
 
 @ubuntu_step_body
-@pytest.mark.parametrize("version", ["10.0.0-dev", "9.9.10-dev", "9.9.9-rc.1"])
-def test_successor_preserves_development_version(tmp_path, version):
+@pytest.mark.parametrize("version", ["9.9.9", "10.0.0-dev", "9.9.10-dev", "9.9.9-rc.1"])
+def test_successor_skips_without_decided_successor(tmp_path, version):
     remote, before = _seed(tmp_path, version)
-    env = _push_env(tmp_path, remote)
-    proc = _run_step(SUCCESSOR, SSH_STUB + PROBE_STUB, env,
+    env = _push_env(tmp_path, remote) | {"CLAUDIT_SUCCESSOR": ""}
+    proc = _run_step(SUCCESSOR, SSH_STUB, env,
                      cwd=tmp_path)
     assert proc.returncode == 0, proc.stderr
     assert _git(remote, "rev-parse", "master") == before
-    assert version in proc.stdout
     assert "nothing to do" in proc.stdout
-    assert Path(env["STUB_CALLFILE"]).read_text(encoding="utf-8") == "0"
+    assert not (Path(env["RUNNER_TEMP"]) / "push-repo").exists()
 
 
 @ubuntu_step_body
@@ -341,24 +480,9 @@ def test_successor_requires_exact_release_bytes(tmp_path, content):
     _git(seed, "commit", "-am", "Change VERSION bytes")
     _git(seed, "push", "origin", "HEAD:master")
     before = _git(remote, "rev-parse", "master")
-    proc = _run_step(SUCCESSOR, SSH_STUB + PROBE_STUB, _push_env(tmp_path, remote),
+    proc = _run_step(SUCCESSOR, SSH_STUB, _push_env(tmp_path, remote),
                      cwd=tmp_path)
     assert proc.returncode == 1
-    assert _git(remote, "rev-parse", "master") == before
-
-
-@ubuntu_step_body
-@pytest.mark.parametrize("reply,message", [
-    ("HTTP 404", "the release for v9.9.9 did not happen"),
-    ("HTTP 403", "failing closed"),
-    ("HTTP 503", "failing closed"),
-])
-def test_successor_refuses_unreleased_or_unverifiable_tag(tmp_path, reply, message):
-    remote, before = _seed(tmp_path, "9.9.9")
-    env = _push_env(tmp_path, remote) | {"TAG_RC": "1", "TAG_REPLY": reply}
-    proc = _run_step(SUCCESSOR, SSH_STUB + PROBE_STUB, env, cwd=tmp_path)
-    assert proc.returncode == 1
-    assert message in proc.stderr
     assert _git(remote, "rev-parse", "master") == before
 
 
@@ -367,11 +491,11 @@ def test_successor_refuses_unreleased_or_unverifiable_tag(tmp_path, reply, messa
 def test_successor_refuses_invalid_master_version(tmp_path, version):
     remote, before = _seed(tmp_path, version)
     env = _push_env(tmp_path, remote)
-    proc = _run_step(SUCCESSOR, SSH_STUB + PROBE_STUB, env, cwd=tmp_path)
+    proc = _run_step(SUCCESSOR, SSH_STUB, env, cwd=tmp_path)
     assert proc.returncode == 1
-    assert "VERSION is not semver" in proc.stderr
+    assert "Refusing successor:" in proc.stderr
+    assert "expected released '9.9.9'" in proc.stderr
     assert _git(remote, "rev-parse", "master") == before
-    assert Path(env["STUB_CALLFILE"]).read_text(encoding="utf-8") == "0"
 
 
 @ubuntu_step_body
@@ -417,7 +541,7 @@ fi
     env = _push_env(tmp_path, remote) | {
         "RACE_COUNT": str(races), "RACE_TIPS": "\n".join(tips),
     }
-    proc = _run_step(step, SSH_STUB + PROBE_STUB, env, cwd=tmp_path)
+    proc = _run_step(step, SSH_STUB, env, cwd=tmp_path)
     if race_version is not None:
         assert proc.returncode == (0 if race_version == "9.9.10-dev" else 1), proc.stderr
         assert _git(remote, "rev-parse", "master") == tips[-1]
