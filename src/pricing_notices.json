@@ -487,8 +487,7 @@
       "InferenceNet"
     ],
     "glm-5-3": [
-      "OpenInference",
-      "Tenstorrent"
+      "OpenInference"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
@@ -499,10 +498,12 @@
       "Phala"
     ],
     "mimo-v2-5": [
+      "Novita",
       "StreamLake",
       "Xiaomi"
     ],
     "mimo-v2-5-pro": [
+      "Novita",
       "StreamLake",
       "Xiaomi"
     ],
