@@ -79,6 +79,30 @@ def _release():
     return _load(RELEASE)
 
 
+def test_release_starts_after_ci_gate_and_pins_the_triggering_commit():
+    workflow = _release()
+    triggers = workflow["on"]
+    assert set(triggers) == {"workflow_run", "workflow_dispatch"}
+    assert triggers["workflow_run"] == {
+        "workflows": ["ci gate"], "types": ["completed"],
+    }
+    assert set(triggers["workflow_dispatch"]["inputs"]) == {"sha"}
+    job = workflow["jobs"]["release"]
+    assert job["if"] == (
+        "github.event_name == 'workflow_dispatch' || "
+        "(github.event.workflow_run.event == 'push' && "
+        "github.event.workflow_run.head_branch == 'master' && "
+        "github.event.workflow_run.conclusion == 'success')"
+    )
+    sha = "${{ inputs.sha || github.event.workflow_run.head_sha || github.sha }}"
+    checkout, = [step for step in job["steps"]
+                 if step.get("uses", "").startswith("actions/checkout@")]
+    assert checkout["with"]["ref"] == sha
+    for name in (WAIT_STEP, "Create the release"):
+        step, = [step for step in job["steps"] if step.get("name") == name]
+        assert step["env"]["CLAUDIT_SHA"] == sha
+
+
 def _step_run(step_name: str) -> str:
     for job in (_release()["jobs"] or {}).values():
         for step in (job or {}).get("steps") or []:
