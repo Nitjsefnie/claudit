@@ -1,0 +1,189 @@
+name: release dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (for example, 0.5.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-dispatch
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Refuse a dispatch that is not on master
+        if: ${{ github.ref != 'refs/heads/master' }}
+        run: |
+          echo "Release dispatch must run on master" >&2
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Probe the tag and the release, then decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          tag_exists=false
+          if tag_probe="$(gh api "repos/$REPO/git/ref/tags/v$VERSION" 2>&1)"; then
+            tag_exists=true
+          elif echo "$tag_probe" | grep -q 'HTTP 404'; then
+            :
+          else
+            echo "could not verify the tag probe for v$VERSION — failing closed" >&2
+            exit 1
+          fi
+          release_exists=false
+          if release_probe="$(gh api "repos/$REPO/releases/tags/v$VERSION" 2>&1)"; then
+            release_exists=true
+          elif echo "$release_probe" | grep -q 'HTTP 404'; then
+            :
+          else
+            echo "could not verify the release probe for v$VERSION — failing closed" >&2
+            exit 1
+          fi
+          python3 scripts/ci/release_dispatch.py decide --version "$VERSION" \
+            --tag-exists "$tag_exists" --release-exists "$release_exists"
+
+  bump:
+    needs: validate
+    environment: master-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.push.outputs.sha }}
+    steps:
+      - name: Push the release VERSION commit to master
+        id: push
+        env:
+          MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
+            echo "MASTER_PUSH_DEPLOY_KEY is empty: the master-push environment is missing its secret" >&2
+            exit 1
+          fi
+          eval "$(ssh-agent -s)" >/dev/null
+          trap 'kill "$SSH_AGENT_PID" 2>/dev/null || true' EXIT
+          ssh-add <(printf '%s\n' "$MASTER_PUSH_DEPLOY_KEY") >/dev/null
+          mkdir -p ~/.ssh
+          printf '%s\n' \
+            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+            'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
+            >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
+          remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
+          git init -q "$RUNNER_TEMP/push-repo"
+          git -C "$RUNNER_TEMP/push-repo" remote add origin "$remote"
+          git -C "$RUNNER_TEMP/push-repo" config user.name 'github-actions[bot]'
+          git -C "$RUNNER_TEMP/push-repo" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            echo "Push attempt $attempt of 3"
+            git ls-remote --exit-code "$remote" refs/heads/master
+            git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
+            git -C "$RUNNER_TEMP/push-repo" checkout -B push FETCH_HEAD
+            (cd "$RUNNER_TEMP/push-repo" && printf '%s\n' "$VERSION" > VERSION)
+            git -C "$RUNNER_TEMP/push-repo" add VERSION
+            git -C "$RUNNER_TEMP/push-repo" commit -m "Release $VERSION"
+            if git -C "$RUNNER_TEMP/push-repo" push origin HEAD:master; then
+              sha="$(git -C "$RUNNER_TEMP/push-repo" rev-parse HEAD)"
+              printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
+            if [ "$(git -C "$RUNNER_TEMP/push-repo" rev-parse HEAD^)" = "$(git -C "$RUNNER_TEMP/push-repo" rev-parse FETCH_HEAD)" ]; then
+              echo "the VERSION push was rejected while master stood still" >&2
+              exit 1
+            fi
+          done
+          echo "master moved during all three push attempts" >&2
+          exit 1
+
+  wait-release:
+    needs: bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Wait for the release run on the VERSION commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ needs.bump.outputs.sha }}
+        run: |
+          python3 scripts/ci/release_dispatch.py wait-release "$SHA"
+
+  successor:
+    needs: [validate, wait-release]
+    environment: master-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Push the next -dev VERSION commit to master
+        env:
+          MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
+            echo "MASTER_PUSH_DEPLOY_KEY is empty: the master-push environment is missing its secret" >&2
+            exit 1
+          fi
+          eval "$(ssh-agent -s)" >/dev/null
+          trap 'kill "$SSH_AGENT_PID" 2>/dev/null || true' EXIT
+          ssh-add <(printf '%s\n' "$MASTER_PUSH_DEPLOY_KEY") >/dev/null
+          mkdir -p ~/.ssh
+          printf '%s\n' \
+            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+            'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
+            >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
+          remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
+          successor="$(printf '%s' "$VERSION" | awk -F. -v OFS=. '{ n = $NF; $NF = n + 1; print }')-dev"
+          git init -q "$RUNNER_TEMP/push-repo"
+          git -C "$RUNNER_TEMP/push-repo" remote add origin "$remote"
+          git -C "$RUNNER_TEMP/push-repo" config user.name 'github-actions[bot]'
+          git -C "$RUNNER_TEMP/push-repo" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            echo "Push attempt $attempt of 3"
+            git ls-remote --exit-code "$remote" refs/heads/master
+            git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
+            git -C "$RUNNER_TEMP/push-repo" checkout -B push FETCH_HEAD
+            (cd "$RUNNER_TEMP/push-repo" && printf '%s\n' "$successor" > VERSION)
+            git -C "$RUNNER_TEMP/push-repo" add VERSION
+            git -C "$RUNNER_TEMP/push-repo" commit -m "Bump VERSION to $successor after the $VERSION release"
+            if git -C "$RUNNER_TEMP/push-repo" push origin HEAD:master; then
+              exit 0
+            fi
+            git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
+            if [ "$(git -C "$RUNNER_TEMP/push-repo" rev-parse HEAD^)" = "$(git -C "$RUNNER_TEMP/push-repo" rev-parse FETCH_HEAD)" ]; then
+              echo "the VERSION push was rejected while master stood still" >&2
+              exit 1
+            fi
+          done
+          echo "master moved during all three push attempts" >&2
+          exit 1
