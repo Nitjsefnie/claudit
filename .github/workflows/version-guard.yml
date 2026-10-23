@@ -71,7 +71,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CLAUDIT_REPO: ${{ github.repository }}
           CLAUDIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          EVENT: ${{ github.event_name }}
+          CLAUDIT_EVENT: ${{ github.event_name }}
         # Gathers the facts with gh, decides with scripts/ci/
         # version_guard.py. The script prints the reason to stdout and
         # its exit code is this step's: 0 pass, 1 refuse.
@@ -99,7 +99,7 @@ jobs:
 
           author_email=""
           changed_files=""
-          if [ "$EVENT" = "push" ]; then
+          if [ "$CLAUDIT_EVENT" = "push" ]; then
             # Commit facts only exist for a push; a PR decides on the tag
             # check alone (the bot never opens PRs, so no carve-out there).
             # A metadata failure must not pass as "no facts" — that would
