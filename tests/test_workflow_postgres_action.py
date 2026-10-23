@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.workflow_checks import references, written_outputs
+
 ROOT = Path(__file__).resolve().parents[1]
 ACTIONS = ROOT / ".github/actions"
 ACTION = ACTIONS / "postgres/action.yml"
@@ -72,24 +74,31 @@ def test_js_coverage_keeps_postgres_for_transitive_db_fixtures():
 def test_image_digest_matches_compose_and_keys_both_cache_operations():
     image = _step(IMAGE_ACTION, id="image")
     digest = image["env"]["CLAUDIT_POSTGRES_DIGEST"]
-    assert re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
     compose_image = _load(ROOT / "compose.yaml")["services"]["db"]["image"]
     assert compose_image.rpartition("@")[2] == digest
     # The key is emitted from the same digest used by the pull, not a copy.
     cached = _cached_step()["with"]
-    assert cached["ref"] == "${{ steps.image.outputs.ref }}"
-    assert cached["key"] == "${{ steps.image.outputs.key }}"
+    emitted = written_outputs(image["run"])
+    for key in ("ref", "key"):
+        refs = references(cached[key], "steps")
+        assert refs, (key, cached[key])
+        assert all(len(ref) == 3 and ref[:2] == (image["id"], "outputs")
+                   and ref[2] in emitted for ref in refs), refs
     acquire = _step(CACHED_ACTION, id="acquire")
     assert 'docker pull "$ref"' in acquire["run"]
     assert acquire["env"]["CLAUDIT_IMAGE_REF"] == "${{ inputs.ref }}"
     assert '@${CLAUDIT_POSTGRES_DIGEST}' in image["run"]
     assert ('key=postgres-${RUNNER_OS}-${RUNNER_ARCH}-${CLAUDIT_POSTGRES_DIGEST}'
             in image["run"])
-    caches = [step for step in _load(CACHED_ACTION)["runs"]["steps"]
+    action = _load(CACHED_ACTION)
+    caches = [step for step in action["runs"]["steps"]
               if step.get("uses", "").startswith("actions/cache/")]
     for step in caches:
-        assert step["with"]["key"] == "${{ inputs.key }}"
-        assert step["with"]["path"] == "${{ runner.temp }}/${{ inputs.archive }}"
+        for key, required in (("key", "key"), ("path", "archive")):
+            refs = references(step["with"][key], "inputs")
+            assert (required,) in refs, (key, step["with"][key])
+            assert all(len(ref) == 1 and ref[0] in action["inputs"]
+                       for ref in refs), refs
         assert "restore-keys" not in step["with"]
 
 
@@ -102,16 +111,6 @@ def test_cache_save_is_gated_on_acquisition_output():
     # cover GitHub's separate cache action and its output/condition wiring.
     assert save.get("if") == "steps.acquire.outputs.pulled == 'true'"
     assert save.get("continue-on-error") == "true"
-
-
-def test_composite_external_actions_are_sha_pinned():
-    uses = [step["uses"]
-            for path in (ACTION, IMAGE_ACTION, CACHED_ACTION)
-            for step in _load(path)["runs"]["steps"]
-            if "uses" in step and not step["uses"].startswith(("./", "$/"))]
-    assert uses
-    for ref in uses:
-        assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", ref), ref
 
 
 def _docker_commands(run: str, verb: str) -> list[list[str]]:

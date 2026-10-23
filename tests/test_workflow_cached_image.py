@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.workflow_checks import references, written_outputs
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/docker-smoke.yml"
 OVERRIDE = ".github/docker-smoke.compose.yaml"
@@ -82,9 +84,15 @@ def test_cached_base_image_is_the_dockerfiles_from_reference():
     assert base["env"]["CLAUDIT_BASE_FALLBACK_IMAGE"] == (
         "mirror.gcr.io/library/" + reference.rpartition("/library/")[2])
     cached = next(step for step in steps if step.get("uses") == CACHED)["with"]
-    assert cached["ref"] == cached["tag"] == "${{ steps.base.outputs.ref }}"
-    assert cached["fallback-ref"] == "${{ steps.base.outputs.fallback }}"
-    assert cached["key"] == "${{ steps.base.outputs.key }}"
+    emitted = written_outputs(base["run"])
+    consumed = set()
+    for key in ("ref", "tag", "fallback-ref", "key"):
+        refs = references(cached[key], "steps")
+        assert refs, (key, cached[key])
+        assert all(len(ref) == 3 and ref[:2] == (base["id"], "outputs")
+                   and ref[2] in emitted for ref in refs), refs
+        consumed.update(ref[2] for ref in refs)
+    assert consumed == emitted
     assert 'echo "ref=${CLAUDIT_BASE_IMAGE}"' in base["run"]
     assert re.findall(r'(?m)^ *echo "(fallback=[^"]*)"$', base["run"]) == [
         "fallback=${CLAUDIT_BASE_FALLBACK_IMAGE}"]

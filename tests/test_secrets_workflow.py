@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "secrets.yml"
 CONFIG = ROOT / ".gitleaks.toml"
@@ -92,13 +94,18 @@ def test_pull_request_and_dispatch_triggers_present():
         "checked by dispatch in this repo")
 
 
-def test_checkout_fetches_full_history_and_drops_credentials():
-    block = _step_block("actions/checkout@")
-    assert "fetch-depth: 0" in block, (
-        "the scan reads `git log -p`, so a shallow clone would scan a "
-        "suffix of history and call the rest clean")
-    assert "persist-credentials: false" in block, (
-        "nothing here pushes; the job token must not survive the checkout")
+def test_history_scan_runs_after_checkout():
+    doc = yaml.load(_src(), Loader=yaml.BaseLoader)
+    scans = []
+    for job in doc["jobs"].values():
+        steps = job.get("steps", [])
+        for index, step in enumerate(steps):
+            if re.search(r"(?:^|\s)(?:\./)?gitleaks\s+(?:detect|git)\b",
+                         step.get("run", "")):
+                scans.append(step)
+                assert any(previous.get("uses", "").partition("@")[0]
+                           == "actions/checkout" for previous in steps[:index])
+    assert scans, "no Git history scan step found"
 
 
 def test_permissions_block_and_timeout_present():

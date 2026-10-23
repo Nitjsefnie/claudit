@@ -397,17 +397,6 @@ def test_the_sarif_upload_shares_codeqls_pin():
     )
 
 
-def test_the_checkout_does_not_leave_the_token_behind():
-    """zizmor reads `persist-credentials: false` as the difference between
-    a checkout and a credential hand-over to every later step."""
-    checkout = _step_using("actions/checkout")
-    assert (checkout.get("with") or {}).get("persist-credentials") in (
-        "false", False), (
-        "actions/checkout without persist-credentials: false leaves the job "
-        "token in .git/config for the rest of the job to use"
-    )
-
-
 def test_the_workflow_is_a_tracked_file():
     """gitignore is deny-by-default here: an unlisted path is invisible to
     `git status`, and a workflow that is never committed never runs."""

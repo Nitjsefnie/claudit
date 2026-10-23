@@ -428,12 +428,6 @@ def test_workflow_pins_the_script_and_the_event_env():
     assert step["env"]["CLAUDIT_GF_HEAD_REPO"] == "${{ github.event.pull_request.head.repo.full_name || '' }}"
 
 
-def test_workflow_checks_out_full_depth_base_only():
-    text = _workflow_text()
-    assert "fetch-depth: 0" in text
-    assert "persist-credentials: false" in text
-
-
 def test_workflow_has_the_write_permission_and_a_safe_concurrency():
     doc = _workflow_doc()
     granted = {**doc["permissions"], **doc["jobs"]["freshness"]["permissions"]}

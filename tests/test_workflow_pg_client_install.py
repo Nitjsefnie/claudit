@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.workflow_checks import assert_apt_sanitizer
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 ACTION = ROOT / ".github" / "actions" / "apt-install" / "action.yml"
@@ -79,8 +81,7 @@ def test_browser_dependencies_follow_sanitize_only_step():
     assert len(browsers) == 1
     index = browsers[0]
     assert index > 0
-    assert steps[index - 1].get("uses") == ACTION_REF
-    assert not steps[index - 1].get("with", {}).get("packages")
+    assert_apt_sanitizer(ROOT, steps[index - 1])
     assert 0 < int(steps[index - 1]["timeout-minutes"]) <= 5
 
 
