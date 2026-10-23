@@ -61,7 +61,8 @@ jobs:
           fi
           python3 scripts/ci/release_dispatch.py decide --version "$VERSION" \
             --tag-exists "$tag_exists" --release-exists "$release_exists"
-          echo "successor=$(python3 scripts/ci/release_dispatch.py successor "$VERSION")" >> "$GITHUB_OUTPUT"
+          successor="$(python3 scripts/ci/release_dispatch.py successor "$VERSION")"
+          echo "successor=$successor" >> "$GITHUB_OUTPUT"
 
   bump:
     needs: validate

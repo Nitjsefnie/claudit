@@ -239,6 +239,34 @@ def test_validate_emits_exact_successor_or_refuses(tmp_path, version, expected):
 
 
 @ubuntu_step_body
+def test_validate_stops_when_successor_helper_fails(tmp_path):
+    calls = tmp_path / "calls"
+    calls.write_text("0", encoding="utf-8")
+    output = tmp_path / "output"
+    stub = PROBE_STUB + '''
+python3() {
+  case "$1:$2" in
+    scripts/ci/release_dispatch.py:decide) command python3 "$@" ;;
+    scripts/ci/release_dispatch.py:successor)
+      printf '%s\\n' incomplete
+      echo 'successor helper failed' >&2
+      return 1 ;;
+    *) echo "unmodelled python3 call: $*" >&2; return 99 ;;
+  esac
+}
+'''
+    proc = _run_step(DECIDE, stub, {
+        "STUB_CALLFILE": str(calls), "TAG_RC": "1", "RELEASE_RC": "1",
+        "TAG_REPLY": "HTTP 404", "RELEASE_REPLY": "HTTP 404",
+        "GITHUB_OUTPUT": str(output),
+    })
+    assert proc.returncode == 1
+    assert "is free" in proc.stdout
+    assert "successor helper failed" in proc.stderr
+    assert not output.exists()
+
+
+@ubuntu_step_body
 def test_bump_sets_requested_version_and_reports_sha(tmp_path):
     remote, before = _seed(tmp_path)
     env = _push_env(tmp_path, remote)
