@@ -78,7 +78,7 @@ VERSION = _read_version()
 # web-search cost at the row's rate; clear request_fee_usd to NULL.
 # Stored-flag changes also trigger repricing. PARSER_VERSION is only for
 # parser-semantics changes.
-PRICING_VERSION = "594"
+PRICING_VERSION = "595"
 
 # Stored rollup semantics version. Bump whenever any rollup SQL semantics
 # change; it forces one complete rebuild without reparsing files.
