@@ -16,9 +16,9 @@ is the step around it:
   selector keeps, refuses immediately when a judged check completed
   failure/cancelled/timed_out, and cannot race ahead when only its own
   job exists;
-- its deadline and poll are env-seamed (RELEASE_WAIT_SECONDS /
-  RELEASE_WAIT_POLL_SECONDS; production defaults 2700 s / 20 s) so
-  tests can shorten the wait, and its two reads carry the selector the
+- its deadline and poll use CLAUDIT_RELEASE_WAIT_SECONDS /
+  CLAUDIT_RELEASE_WAIT_POLL_SECONDS (defaults 2700 s / 20 s), so
+  tests shorten the wait, and its two reads carry the selector the
   app slug of the aggregate rule is projected from.
 
 The "Refuse to re-release an existing tag" step is pinned the same way
@@ -190,7 +190,34 @@ COUNTING_STUB = (
 
 
 def _short_wait() -> dict[str, str]:
-    return {"RELEASE_WAIT_SECONDS": "10", "RELEASE_WAIT_POLL_SECONDS": "1"}
+    return {"CLAUDIT_RELEASE_WAIT_SECONDS": "10", "CLAUDIT_RELEASE_WAIT_POLL_SECONDS": "1"}
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("preferred,legacy,seconds,poll", [
+    (None, None, "2700", "20"),
+    (None, ("11", "2"), "11", "2"),
+    (("13", "3"), None, "13", "3"),
+    (("13", "3"), ("11", "2"), "13", "3"),
+    (("", ""), ("11", "2"), "11", "2"),
+    (None, ("", ""), "2700", "20"),
+    (("", ""), ("", ""), "2700", "20"),
+])
+def test_wait_settings_prefer_prefix_and_keep_legacy_defaults(preferred, legacy, seconds, poll):
+    env = {}
+    for prefix, values in [("CLAUDIT_", preferred), ("", legacy)]:
+        if values is not None:
+            env.update(zip([prefix + "RELEASE_WAIT_SECONDS", prefix + "RELEASE_WAIT_POLL_SECONDS"], values))
+    lines = [line.strip() for line in _step_run(WAIT_STEP).splitlines()]
+    deadline, = [line for line in lines if line.startswith("deadline=")]
+    sleeps = [line for line in lines if line.startswith("sleep ")]
+    assert len(sleeps) == 3
+    body = '\n'.join([deadline.replace("SECONDS", "0", 1),
+                      'printf "%s\\n" "$deadline"',
+                      'sleep() { printf "%s\\n" "$1"; }', *sleeps])
+    proc = _run_step(body, "", env)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.splitlines() == [seconds, poll, poll, poll]
 
 
 # The refusal step calls gh twice — the tag probe, then the release

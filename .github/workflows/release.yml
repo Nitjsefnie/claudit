@@ -170,7 +170,7 @@ jobs:
         #     exits 1 at the deadline. Dropping rows cannot manufacture one:
         #     `aggregate` is a push-run row.
         run: |
-          # RELEASE_WAIT_SECONDS / RELEASE_WAIT_POLL_SECONDS let tests shorten the wait; defaults are production's (2700 s / 20 s).
+          # CLAUDIT_RELEASE_WAIT_SECONDS / CLAUDIT_RELEASE_WAIT_POLL_SECONDS override the 2700 s / 20 s defaults.
           #
           # github.workflow_ref is `owner/repo/.github/workflows/release.yml@refs/heads/<branch>`
           # (the same value as GITHUB_WORKFLOW_REF). Two strips give the path
@@ -191,7 +191,7 @@ jobs:
             .github/workflows/*) ;;
             *) self_path="" ;;
           esac
-          deadline=$(( SECONDS + ${RELEASE_WAIT_SECONDS:-2700} ))
+          deadline=$(( SECONDS + ${CLAUDIT_RELEASE_WAIT_SECONDS:-${RELEASE_WAIT_SECONDS:-2700}} ))
           while [ "$SECONDS" -lt "$deadline" ]; do
             gh api --paginate -H "Cache-Control: no-cache" \
               "repos/$CLAUDIT_REPO/commits/$CLAUDIT_SHA/check-runs?per_page=100" > "$RUNNER_TEMP/checks.json"
@@ -204,7 +204,7 @@ jobs:
 
             if [ -z "$runs" ]; then
               echo "no other check runs reported yet, waiting..."
-              sleep "${RELEASE_WAIT_POLL_SECONDS:-20}"
+              sleep "${CLAUDIT_RELEASE_WAIT_POLL_SECONDS:-${RELEASE_WAIT_POLL_SECONDS:-20}}"
               continue
             fi
 
@@ -212,7 +212,7 @@ jobs:
             if [ "$pending" -gt 0 ]; then
               echo "$pending check(s) still running:"
               echo "$runs" | grep -v '^completed' | awk '{print "    " $0}'
-              sleep "${RELEASE_WAIT_POLL_SECONDS:-20}"
+              sleep "${CLAUDIT_RELEASE_WAIT_POLL_SECONDS:-${RELEASE_WAIT_POLL_SECONDS:-20}}"
               continue
             fi
 
@@ -236,7 +236,7 @@ jobs:
                   $3 == "aggregate" && $4 == "github-actions" { found = 1; exit }
                   END { exit !found }'; then
               echo "no ci gate / aggregate verdict yet, waiting..."
-              sleep "${RELEASE_WAIT_POLL_SECONDS:-20}"
+              sleep "${CLAUDIT_RELEASE_WAIT_POLL_SECONDS:-${RELEASE_WAIT_POLL_SECONDS:-20}}"
               continue
             fi
 
