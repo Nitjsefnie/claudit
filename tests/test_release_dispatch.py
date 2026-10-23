@@ -100,6 +100,36 @@ def test_decide_refuses_bad_version():
     assert "9.9.9-dev" in result.reason
 
 
+@pytest.mark.parametrize("version", ["９.９.９", "٩.٩.٩", "9.9.９"])
+def test_decide_refuses_unicode_digits(version):
+    assert decide(version, False, False).ok is False
+
+
+@pytest.mark.parametrize("version,expected", [
+    ("9.9.9", "9.9.10-dev\n"),
+    ("9.9.9007199254740992", "9.9.9007199254740993-dev\n"),
+    ("9.9.99", "9.9.100-dev\n"),
+])
+def test_cli_successor_increments_exactly(version, expected, capsys):
+    assert main(["successor", version]) == 0
+    output = capsys.readouterr()
+    assert output.out == expected
+    assert output.err == ""
+
+
+@pytest.mark.parametrize("version", [
+    "", "  ", "v9.9.9", "9.9", "9.9.9-dev", "9.9.9.1",
+    "9.9.9-rc1", "9.9.9-dev!", "9.9.9\n", " 9.9.9", "9.9.9 ",
+    "９.９.９", "٩.٩.٩", "9.9.９",
+])
+def test_cli_successor_refuses_invalid_version(version, capsys):
+    assert decide(version, False, False).ok is False
+    assert main(["successor", version]) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "X.Y.Z" in output.err
+
+
 def test_wait_release_consumes_all_pages():
     timer = FakeClock()
     read = reader(pages([run_row(path=".github/workflows/ci-gate.yml")],
