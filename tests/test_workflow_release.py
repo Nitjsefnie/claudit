@@ -80,11 +80,36 @@ def test_release_starts_after_ci_gate_and_pins_the_triggering_commit():
         "GH_TOKEN": "${{ github.token }}", "CLAUDIT_REPO": "${{ github.repository }}",
         "CLAUDIT_SHA": sha,
     }
-    for name in ("Read and validate VERSION", WAIT_STEP, "Create the release"):
+    for name in ("Read and validate VERSION", "Verify this commit changed VERSION", WAIT_STEP, "Create the release"):
         step, = [step for step in job["steps"] if step.get("name") == name]
         assert step["env"]["CLAUDIT_SHA"] == sha
         if name == WAIT_STEP:
             assert step["env"]["CLAUDIT_SELECTOR_SHA"] == "${{ github.workflow_sha }}"
+
+
+def _conjunction(guard, values):
+    comparisons = []
+    for clause in guard.split(" && "):
+        key, operation, expected = clause.split()
+        equal = values[key] == expected.strip("'")
+        comparisons.append({"==": equal, "!=": not equal}[operation])
+    return all(comparisons)
+
+
+@pytest.mark.parametrize("event,branch,conclusion,expected", [
+    ("pull_request", "master", "success", False),
+    ("push", "feature/x", "success", False),
+    ("push", "master", "failure", False),
+    ("push", "master", "cancelled", False),
+    ("push", "master", "success", True),
+])
+def test_release_job_guard_cases(event, branch, conclusion, expected):
+    dispatch, guard = _release()["jobs"]["release"]["if"].split(" || ")
+    values = {"github.event_name": "workflow_run",
+              "github.event.workflow_run.event": event,
+              "github.event.workflow_run.head_branch": branch,
+              "github.event.workflow_run.conclusion": conclusion}
+    assert (_conjunction(dispatch, values) or _conjunction(guard.strip("()"), values)) is expected
 
 
 def _step_run(step_name: str) -> str:
@@ -407,13 +432,7 @@ def test_wait_ignores_a_red_claim_row_from_an_issue_comment_run(tmp_path):
 
 @ubuntu_step_body
 def test_wait_proceeds_with_its_own_job_still_running(tmp_path):
-    # The isolating control for --self-run-id, and the fixture that makes
-    # it one: LISTING LAG. The self run has no row in the runs listing, so
-    # the selector cannot resolve it and the path rule cannot apply to it —
-    # only the exact name AND run id together keep this row out. Judge it
-    # and its `in_progress` status reads as pending, so the wait polls to
-    # the deadline. (With the self run listed, the path rule now drops the
-    # row anyway and the flag is no longer the only conjunct standing.)
+    # Listing lag isolates --self-run-id: no listed self path can drop it.
     checks = _checks(_row("in_progress", None, "release",
                           run_id=SELF_RUN),
                      _row("completed", "success", "aggregate"))
@@ -427,11 +446,7 @@ def test_wait_proceeds_with_its_own_job_still_running(tmp_path):
 
 @ubuntu_step_body
 def test_wait_ignores_an_earlier_release_runs_failed_row(tmp_path):
-    # Round 1's blocker, through the real step. release.yml's own PUSH run
-    # on this commit failed — the deadline, a transient `gh release
-    # create`, a cancel — and the waiter must not refuse a re-cut of that
-    # commit on its predecessor's answer. The re-cut here is a dispatch of
-    # the TIP, so its own run is in the listing under either source.
+    # A tip re-cut must ignore the failed earlier release run.
     checks = _checks(_row("completed", "failure", "release",
                           run_id="37138518000"),
                      _row("completed", "success", "aggregate"))
@@ -448,13 +463,7 @@ def test_wait_ignores_an_earlier_release_runs_failed_row(tmp_path):
 
 @ubuntu_step_body
 def test_wait_refuses_a_non_tip_re_cut_without_the_workflow_ref(tmp_path):
-    # The isolating control for the `SELF_WORKFLOW_REF` env line: the same
-    # non-tip re-cut that
-    # test_wait_ignores_a_release_row_whose_own_run_is_stamped_with_the_tip
-    # releases, run with the env line's value absent. Nothing else differs —
-    # --self-path is passed, and it is empty — so what refuses is the step
-    # having nothing to derive the path from, which is the fail-closed
-    # direction a REPO-case mismatch would take.
+    # Empty --self-path cannot exclude an unlisted non-tip re-cut.
     checks = _checks(_row("completed", "failure", "release",
                           run_id="37138518000"),
                      _row("completed", "success", "aggregate"))
@@ -473,13 +482,7 @@ def test_wait_refuses_a_non_tip_re_cut_without_the_workflow_ref(tmp_path):
 @ubuntu_step_body
 def test_wait_ignores_a_red_pr_gate_row_from_a_pull_request_target_run(
         tmp_path):
-    # pr-gate.yml triggers on pull_request_target and nothing else, so its
-    # run answers a question about a PULL REQUEST, not about the commit —
-    # and a gate-closed PR concludes that run `failure`. It has no push
-    # trigger either, so the workflow can never enter the gate-path set.
-    # Two independent roads drop the row: an event outside the gate set,
-    # and (for the run stamped with the tip) a run that is not this
-    # commit's. The release must not be refused over it.
+    # A pull_request_target run's verdict concerns the PR, not the tip commit.
     checks = _checks(_row("completed", "failure", "gate",
                           run_id="37171291293"),
                      _row("completed", "success", "aggregate"))
@@ -528,13 +531,7 @@ def test_wait_falls_back_to_the_listing_when_the_derived_path_is_not_under_workf
 
 @ubuntu_step_body
 def test_wait_derives_its_own_path_from_the_workflow_ref(tmp_path):
-    # The step does not read its own workflow path off the runs listing:
-    # a `workflow_dispatch` carrying `sha=` records its own run against the
-    # BRANCH TIP, so a re-cut of a non-tip commit is absent from a listing
-    # filtered by the commit's head SHA. Two strips of workflow_ref are the
-    # only source that survives that. The script under test is READ OUT OF
-    # THE STEP BODY, not re-typed, so this pins the two strips as the
-    # workflow actually spells them.
+    # Non-tip dispatches need their own workflow_ref; their listing omits them.
     body = _step_run(WAIT_STEP)
     strips = [line.strip() for line in body.splitlines()
               if line.strip().startswith("self_path=")]

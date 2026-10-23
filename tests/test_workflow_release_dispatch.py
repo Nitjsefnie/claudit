@@ -42,11 +42,19 @@ gh() {
   case "$n:$*" in
     "1:api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/VERSION?ref=$CLAUDIT_SHA")
       printf '%s\n' "$VERSION_REPLY"; return "${VERSION_RC:-0}" ;;
-    "2:api repos/$CLAUDIT_REPO/git/ref/tags/v$PROBE_VERSION")
+    "2:api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/VERSION?ref=refs/heads/master")
+      printf '%s\n' "$TIP_REPLY"; return "${TIP_RC:-0}" ;;
+    "3:api repos/$CLAUDIT_REPO/commits?path=VERSION&per_page=30 --jq .[].sha")
+      printf '%s\n' "$CANDIDATES"; return "${LIST_RC:-0}" ;;
+    *":api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/VERSION?ref=release-head")
+      printf '%s\n' "$INTRODUCER_REPLY"; return "${CANDIDATE_RC:-0}" ;;
+    *":api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/VERSION?ref=newer-head")
+      printf '%s\n' '9.9.8-dev'; return "${CANDIDATE_RC:-0}" ;;
+    *":api repos/$CLAUDIT_REPO/git/ref/tags/v$PROBE_VERSION")
       printf '%s\n' "$TAG_REPLY"; return "$TAG_RC" ;;
-    "3:api repos/$CLAUDIT_REPO/releases/tags/v$PROBE_VERSION")
+    *":api repos/$CLAUDIT_REPO/releases/tags/v$PROBE_VERSION")
       printf '%s\n' "$RELEASE_REPLY"; return "$RELEASE_RC" ;;
-    "4:api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/scripts/ci/release_dispatch.py?ref=$CLAUDIT_SELECTOR_SHA")
+    *":api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/scripts/ci/release_dispatch.py?ref=$CLAUDIT_SELECTOR_SHA")
       cat "$HELPER_PATH"; return "${HELPER_RC:-0}" ;;
     *) echo "unmodelled gh call: $*" >&2; return 99 ;;
   esac
@@ -130,6 +138,8 @@ def _decide_env(tmp_path):
     calls.write_text("0", encoding="utf-8")
     return {
         "STUB_CALLFILE": str(calls), "VERSION_REPLY": "9.9.9",
+        "TIP_REPLY": "9.9.9", "CANDIDATES": "release-head\nnewer-head",
+        "INTRODUCER_REPLY": "9.9.9",
         "PROBE_VERSION": "9.9.9", "TAG_RC": "0", "TAG_REPLY": "{}",
         "RELEASE_RC": "0", "RELEASE_REPLY": "{}",
         "CLAUDIT_SHA": "release-head", "CLAUDIT_SELECTOR_SHA": "workflow-head",
@@ -151,8 +161,11 @@ def test_dispatch_shape():
     assert inputs["version"]["required"] == "true"
     assert inputs["version"]["type"] == "string"
     assert workflow["permissions"] == {"contents": "read", "actions": "read"}
-    assert workflow["concurrency"] == {"group": "release-dispatch",
-                                       "cancel-in-progress": "false"}
+    assert workflow["concurrency"] == {
+        "group": "${{ github.event_name == 'workflow_dispatch' &&\n"
+                 "    'release-dispatch' || 'release-dispatch-successor' }}",
+        "cancel-in-progress": "false",
+    }
     jobs = workflow["jobs"]
     assert set(jobs) == {"validate", "bump", "decide", "successor"}
     assert "needs" not in jobs["validate"]
@@ -354,7 +367,7 @@ def test_decide_refuses_unsuccessful_release(decide_env, conclusion):
     assert proc.returncode == 1
     assert f"the release run concluded {conclusion} while VERSION is 9.9.9" in proc.stderr
     assert not Path(env["GITHUB_OUTPUT"]).exists()
-    assert Path(env["STUB_CALLFILE"]).read_text(encoding="utf-8") == "1"
+    assert Path(env["STUB_CALLFILE"]).read_text(encoding="utf-8") == "4"
 
 
 @ubuntu_step_body
@@ -398,11 +411,68 @@ def test_decide_release_probe_fails_closed(decide_env, reply):
 @ubuntu_step_body
 def test_decide_emits_exact_outputs_from_real_helper(decide_env):
     env = decide_env | {"VERSION_REPLY": " \t9.9.9007199254740992\n ",
+                        "TIP_REPLY": " \t9.9.9007199254740992\n ",
+                        "INTRODUCER_REPLY": " \t9.9.9007199254740992\n ",
                         "PROBE_VERSION": "9.9.9007199254740992"}
     proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
     assert proc.returncode == 0, proc.stderr
     assert Path(env["GITHUB_OUTPUT"]).read_text(encoding="utf-8") == (
         "version=9.9.9007199254740992\nsuccessor=9.9.9007199254740993-dev\n")
+    assert Path(env["STUB_CALLFILE"]).read_text(encoding="utf-8") == "7"
+
+
+@ubuntu_step_body
+def test_decide_skips_when_master_is_dev(decide_env):
+    env = decide_env | {"TIP_REPLY": " \t9.9.10-dev\n ",
+                        "CLAUDIT_RELEASE_CONCLUSION": "failure"}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 0, proc.stderr
+    assert "no release in flight" in proc.stdout
+    assert not Path(env["GITHUB_OUTPUT"]).exists()
+    assert Path(env["STUB_CALLFILE"]).read_text(encoding="utf-8") == "2"
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("failure", ["TIP_RC", "LIST_RC", "CANDIDATE_RC"])
+def test_decide_attribution_read_fails_closed(decide_env, failure):
+    env = decide_env | {failure: "1"}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 1
+    assert "could not verify" in proc.stderr
+    assert "failing closed" in proc.stderr
+    assert not Path(env["GITHUB_OUTPUT"]).exists()
+
+
+@ubuntu_step_body
+def test_decide_skips_another_commits_release_before_conclusion(decide_env):
+    env = decide_env | {"CLAUDIT_SHA": "another-head",
+                        "CLAUDIT_RELEASE_CONCLUSION": "failure"}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 0, proc.stderr
+    assert "Another commit" in proc.stdout
+    assert not Path(env["GITHUB_OUTPUT"]).exists()
+    assert Path(env["STUB_CALLFILE"]).read_text(encoding="utf-8") == "4"
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("candidates", ["", "release-head\nnewer-head"])
+def test_decide_refuses_without_a_matching_introducer(decide_env, candidates):
+    env = decide_env | {"CANDIDATES": candidates, "TIP_REPLY": "10.0.0"}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 1
+    assert "introducer" in proc.stderr
+    assert "failing closed" in proc.stderr
+    assert not Path(env["GITHUB_OUTPUT"]).exists()
+
+
+@ubuntu_step_body
+def test_decide_walks_candidates_newest_first(decide_env):
+    env = decide_env | {"CANDIDATES": "newer-head\nrelease-head"}
+    proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
+    assert proc.returncode == 0, proc.stderr
+    assert Path(env["GITHUB_OUTPUT"]).read_text(encoding="utf-8") == (
+        "version=9.9.9\nsuccessor=9.9.10-dev\n")
+    assert Path(env["STUB_CALLFILE"]).read_text(encoding="utf-8") == "8"
 
 
 @ubuntu_step_body
