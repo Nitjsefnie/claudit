@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 import re
 import threading
 import time
@@ -536,8 +537,7 @@ def _assert_interleave_fires(monkeypatch):
     _force_full_reparse()
     executed = _spy_executes(monkeypatch)
     monkeypatch.setattr(ingest_vacuum, "VACUUM_BATCH_FILES", 1)
-    # chunk = workers * 4; shrink the pool so the 9-file todo spans
-    # several chunks and a between-point exists at all.
+    # Shrink thread chunks so the corpus spans multiple batches.
     monkeypatch.setattr(ingest_fetch, "worker_count", lambda: 1)
     summary = ingest.run_ingest(trigger="manual")
     assert summary["error"] is None, summary
@@ -561,12 +561,30 @@ def test_the_between_batch_vacuum_respects_the_cadence(
         "with the cadence unmet no plain between-batch call may fire")
 
 
+def _parse_with_pid(key, sidecar_key, etag=None, size=None, *, collection=None):
+    parsed = ingest_fetch.fetch_and_parse(
+        key, sidecar_key, ingest_fetch.fetch_with_retry,
+        etag=etag, size=size, collection=collection)
+    parsed["parse_pid"] = os.getpid()
+    return parsed
+
+
 @pytest.mark.parametrize("processes", [1, 2], ids=["threads", "process-pool"])
 def test_both_pipelines_vacuum_between_batches(
         fresh_db, mini_r2_env, monkeypatch, processes):
     """Both pipelines interleave plain VACUUM over the reparse tables."""
     transcripts = mini_mirror.counts()["transcripts"]
-    monkeypatch.setenv("INGEST_PARSE_PROCESSES", str(processes))
+    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", str(processes))
+    assert ingest_fetch.parse_process_count() == processes
+    parse_pids = []
+    real_persist = ingest._persist  # pylint: disable=protected-access
+
+    def persist(obj, proj, parsed, parser_version):
+        parse_pids.append(parsed.pop("parse_pid"))
+        return real_persist(obj, proj, parsed, parser_version)
+
+    monkeypatch.setattr(ingest, "_fetch_and_parse", _parse_with_pid)
+    monkeypatch.setattr(ingest, "_persist", persist)
     monkeypatch.setattr(ingest_vacuum, "VACUUM_BATCH_FILES", 1)
     if processes == 1:
         monkeypatch.setattr(ingest_fetch, "worker_count", lambda: 1)
@@ -574,6 +592,8 @@ def test_both_pipelines_vacuum_between_batches(
     else:
         assert transcripts > 8, "pool pipeline needs >1 chunk"
     _summary, executed = _assert_interleave_fires(monkeypatch)
+    assert len(parse_pids) == 2 * transcripts
+    assert all((pid != os.getpid()) == (processes > 1) for pid in parse_pids)
     batch_calls = [tables for tables, analyze in executed if not analyze]
     assert batch_calls, f"processes={processes}: no between-batch vacuum"
     assert batch_calls[0] == ingest_vacuum.REPARSE_TABLES
