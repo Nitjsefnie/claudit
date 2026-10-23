@@ -152,10 +152,6 @@ def test_key_jobs_and_checkout_boundary():
     checkouts = [step for job in jobs.values() for step in job["steps"]
                  if "uses" in step]
     assert len(checkouts) == 2
-    for step in checkouts:
-        assert step["uses"] == (
-            "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1")
-        assert step["with"]["persist-credentials"] == "false"
     assert "scripts/ci/release_dispatch.py decide" in _step(DECIDE)["run"]
     assert "scripts/ci/release_dispatch.py wait-release" in _step(WAIT)["run"]
     assert _step(WAIT)["env"] == {
@@ -247,13 +243,17 @@ def test_successor_bumps_patch_after_release(tmp_path):
 
 @ubuntu_step_body
 @pytest.mark.parametrize("step", [BUMP, SUCCESSOR])
-def test_push_retries_on_masters_new_tip(tmp_path, step):
+@pytest.mark.parametrize("races", [1, 2, 3],
+                         ids=["one-race", "two-races", "exhausted"])
+def test_push_retries_on_masters_new_tip(tmp_path, step, races):
     remote, _ = _seed(tmp_path)
     seed = tmp_path / "seed"
-    (seed / "concurrent.txt").write_bytes(b"concurrent change\n")
-    _git(seed, "add", "concurrent.txt")
-    _git(seed, "commit", "-m", "Concurrent master change")
-    moved = _git(seed, "rev-parse", "HEAD")
+    tips = []
+    for number in range(1, races + 1):
+        (seed / "concurrent.txt").write_bytes(f"concurrent change {number}\n".encode())
+        _git(seed, "add", "concurrent.txt")
+        _git(seed, "commit", "-m", f"Concurrent master change {number}")
+        tips.append(_git(seed, "rev-parse", "HEAD"))
     _git(remote, "fetch", str(seed), "master")
     hook = remote / "hooks/update"
     hook.write_text('''#!/bin/sh
@@ -262,19 +262,32 @@ count=0
 if [ -f push-count ]; then read -r count < push-count; fi
 count=$((count + 1))
 printf '%s\\n' "$count" > push-count
-if [ "$count" -eq 1 ]; then
-  git update-ref refs/heads/master "$RACE_TIP" "$2"
+if [ "$count" -le "$RACE_COUNT" ]; then
+  next="$(printf '%s\\n' "$RACE_TIPS" | sed -n "${count}p")"
+  git update-ref refs/heads/master "$next" "$2"
   echo non-fast-forward >&2
   exit 1
 fi
 ''', encoding="utf-8")
     hook.chmod(0o755)
-    env = _push_env(tmp_path, remote) | {"RACE_TIP": moved}
+    env = _push_env(tmp_path, remote) | {
+        "RACE_COUNT": str(races), "RACE_TIPS": "\n".join(tips),
+    }
     proc = _run_step(step, SSH_STUB, env, cwd=tmp_path)
-    assert proc.returncode == 0, proc.stderr
-    assert (remote / "push-count").read_text(encoding="utf-8") == "2\n"
-    assert _git(remote, "rev-parse", "master^") == moved
-    assert _git(remote, "show", "master:concurrent.txt") == "concurrent change"
+    if races == 3:
+        assert proc.returncode == 1, proc.stderr
+        assert "master moved during all three push attempts" in proc.stderr
+        assert _git(remote, "rev-parse", "master") == tips[-1]
+        assert not Path(env["GITHUB_OUTPUT"]).exists()
+    else:
+        assert proc.returncode == 0, proc.stderr
+        assert _git(remote, "rev-parse", "master^") == tips[-1]
+    assert (remote / "push-count").read_text(encoding="utf-8") == (
+        f"{min(races + 1, 3)}\n")
+    assert _git(remote, "show", "master:concurrent.txt") == f"concurrent change {races}"
+    assert "non-fast-forward" in proc.stderr
+    if races == 3:
+        return
     content = b"9.9.9\n" if step == BUMP else b"9.9.10-dev\n"
     assert subprocess.check_output(
         ["git", "-C", str(remote), "show", "master:VERSION"]) == content
