@@ -20,7 +20,7 @@ class Decision(NamedTuple):
 
 
 def parse_release_version(text: str) -> str:
-    if re.fullmatch(r"\d+\.\d+\.\d+", text) is None:
+    if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", text) is None:
         raise ValueError(f"not a release version (expected X.Y.Z): {text!r}")
     return text
 
@@ -111,6 +111,8 @@ def main(
                           choices=["true", "false"])
     decide_p.add_argument("--release-exists", required=True, type=str.lower,
                           choices=["true", "false"])
+    successor_p = sub.add_parser("successor", help="print the next development version")
+    successor_p.add_argument("version")
     wait_p = sub.add_parser("wait-release", help="wait for release.yml")
     wait_p.add_argument("sha", type=_sha)
     wait_p.add_argument("--timeout", type=_seconds, default=os.environ.get(
@@ -126,6 +128,10 @@ def main(
         print(decision.reason)
         return 0 if decision.ok else 1
     try:
+        if args.command == "successor":
+            major, minor, patch = map(int, parse_release_version(args.version).split("."))
+            print(f"{major}.{minor}.{patch + 1}-dev")
+            return 0
         repo = os.environ.get("REPO")
         if not repo:
             raise ValueError("REPO must be set to the owner/repository")

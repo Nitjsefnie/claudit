@@ -61,7 +61,7 @@ def _run_step(name: str, stub: str, env: dict[str, str],
         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
          stub + "\n" + _step(name)["run"]],
         env={"PATH": os.environ["PATH"], "REPO": "example/claudit",
-             "VERSION": "9.9.9", **env},
+             "VERSION": "9.9.9", "GITHUB_OUTPUT": os.devnull, **env},
         cwd=cwd, capture_output=True, text=True, encoding="utf-8",
         check=False, timeout=30,
     )
@@ -98,6 +98,7 @@ def _push_env(tmp_path: Path, remote: Path) -> dict[str, str]:
     home = tmp_path / "home"
     home.mkdir()
     return {"PUSH_REMOTE": str(remote), "MASTER_PUSH_DEPLOY_KEY": "dummy",
+            "SUCCESSOR": "9.9.10-dev",
             "GITHUB_OUTPUT": str(tmp_path / "output"), "HOME": str(home),
             "RUNNER_TEMP": str(runner), "SSH_AGENT_PID": "999999999"}
 
@@ -127,6 +128,12 @@ def test_dispatch_shape():
             {"contents": "read"} if name in {"bump", "successor"}
             else {"contents": "read", "actions": "read"})
     assert jobs["bump"]["outputs"] == {"sha": "${{ steps.push.outputs.sha }}"}
+    assert jobs["validate"]["outputs"] == {
+        "successor": "${{ steps.decide.outputs.successor }}",
+    }
+    assert _step(DECIDE)["id"] == "decide"
+    assert _step(SUCCESSOR)["env"]["SUCCESSOR"] == (
+        "${{ needs.validate.outputs.successor }}")
     assert jobs["bump"]["steps"][0]["id"] == "push"
     assert jobs["validate"]["steps"][0]["name"] == (
         "Refuse a dispatch that is not on master")
@@ -198,6 +205,40 @@ def test_release_probe_fails_closed(tmp_path):
 
 
 @ubuntu_step_body
+@pytest.mark.parametrize("version,expected", [
+    ("9.9.9", "9.9.10-dev"),
+    ("9.9.9007199254740992", "9.9.9007199254740993-dev"),
+    ("９.９.９", None),
+])
+def test_validate_emits_exact_successor_or_refuses(tmp_path, version, expected):
+    calls = tmp_path / "calls"
+    calls.write_text("0", encoding="utf-8")
+    output = tmp_path / "output"
+    proc = _run_step(DECIDE, PROBE_STUB, {
+        "STUB_CALLFILE": str(calls), "TAG_RC": "1", "RELEASE_RC": "1",
+        "TAG_REPLY": "HTTP 404", "RELEASE_REPLY": "HTTP 404",
+        "VERSION": version, "GITHUB_OUTPUT": str(output),
+    })
+    if expected is None:
+        assert proc.returncode == 1
+        assert "X.Y.Z" in proc.stdout + proc.stderr
+        assert not output.exists()
+    else:
+        assert proc.returncode == 0, proc.stderr
+        assert output.read_text(encoding="utf-8") == f"successor={expected}\n"
+        remote, _ = _seed(tmp_path, version)
+        env = _push_env(tmp_path, remote) | {
+            "VERSION": version,
+            "SUCCESSOR": output.read_text(encoding="utf-8").strip().split("=", 1)[1],
+        }
+        pushed = _run_step(SUCCESSOR, SSH_STUB, env, cwd=tmp_path)
+        assert pushed.returncode == 0, pushed.stderr
+        assert subprocess.check_output(
+            ["git", "-C", str(remote), "show", "master:VERSION"]) == (
+                expected + "\n").encode()
+
+
+@ubuntu_step_body
 def test_bump_sets_requested_version_and_reports_sha(tmp_path):
     remote, before = _seed(tmp_path)
     env = _push_env(tmp_path, remote)
@@ -242,16 +283,67 @@ def test_successor_bumps_patch_after_release(tmp_path):
 
 
 @ubuntu_step_body
-@pytest.mark.parametrize("step", [BUMP, SUCCESSOR])
-@pytest.mark.parametrize("races", [1, 2, 3],
-                         ids=["one-race", "two-races", "exhausted"])
-def test_push_retries_on_masters_new_tip(tmp_path, step, races):
-    remote, _ = _seed(tmp_path)
+@pytest.mark.parametrize("version,code", [
+    ("10.0.0-dev", 1), ("9.9.10-dev", 0),
+])
+def test_successor_preserves_existing_version(tmp_path, version, code):
+    remote, before = _seed(tmp_path, version)
+    proc = _run_step(SUCCESSOR, SSH_STUB, _push_env(tmp_path, remote),
+                     cwd=tmp_path)
+    assert proc.returncode == code, proc.stderr
+    assert _git(remote, "rev-parse", "master") == before
+    if code:
+        assert version in proc.stderr
+        assert "9.9.9" in proc.stderr
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("content", [b"9.9.9", b"9.9.9\n\n"])
+def test_successor_requires_exact_release_bytes(tmp_path, content):
+    remote, _ = _seed(tmp_path, "9.9.9")
+    seed = tmp_path / "seed"
+    (seed / "VERSION").write_bytes(content)
+    _git(seed, "commit", "-am", "Change VERSION bytes")
+    _git(seed, "push", "origin", "HEAD:master")
+    before = _git(remote, "rev-parse", "master")
+    proc = _run_step(SUCCESSOR, SSH_STUB, _push_env(tmp_path, remote),
+                     cwd=tmp_path)
+    assert proc.returncode == 1
+    assert _git(remote, "rev-parse", "master") == before
+
+
+@ubuntu_step_body
+def test_successor_requires_validate_output(tmp_path):
+    remote, before = _seed(tmp_path, "9.9.9")
+    env = _push_env(tmp_path, remote) | {"SUCCESSOR": ""}
+    proc = _run_step(SUCCESSOR, SSH_STUB, env, cwd=tmp_path)
+    assert proc.returncode == 1
+    assert "successor" in proc.stderr.lower()
+    assert "empty" in proc.stderr.lower()
+    assert _git(remote, "rev-parse", "master") == before
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("step,races,race_version", [
+    pytest.param(BUMP, 1, None, id="bump-one-race"),
+    pytest.param(BUMP, 2, None, id="bump-two-races"),
+    pytest.param(BUMP, 3, None, id="bump-exhausted"),
+    pytest.param(SUCCESSOR, 1, None, id="successor-one-race"),
+    pytest.param(SUCCESSOR, 2, None, id="successor-two-races"),
+    pytest.param(SUCCESSOR, 3, None, id="successor-exhausted"),
+    pytest.param(SUCCESSOR, 1, "10.0.0-dev", id="newer-version-race"),
+    pytest.param(SUCCESSOR, 1, "9.9.10-dev", id="successor-already-set-race"),
+])
+def test_push_retries_on_masters_new_tip(tmp_path, step, races, race_version):
+    remote, _ = _seed(tmp_path, "9.9.9" if step == SUCCESSOR else "9.9.8-dev")
     seed = tmp_path / "seed"
     tips = []
     for number in range(1, races + 1):
         (seed / "concurrent.txt").write_bytes(f"concurrent change {number}\n".encode())
         _git(seed, "add", "concurrent.txt")
+        if race_version is not None:
+            (seed / "VERSION").write_bytes((race_version + "\n").encode())
+            _git(seed, "add", "VERSION")
         _git(seed, "commit", "-m", f"Concurrent master change {number}")
         tips.append(_git(seed, "rev-parse", "HEAD"))
     _git(remote, "fetch", str(seed), "master")
@@ -274,6 +366,14 @@ fi
         "RACE_COUNT": str(races), "RACE_TIPS": "\n".join(tips),
     }
     proc = _run_step(step, SSH_STUB, env, cwd=tmp_path)
+    if race_version is not None:
+        assert proc.returncode == (0 if race_version == "9.9.10-dev" else 1), proc.stderr
+        assert _git(remote, "rev-parse", "master") == tips[-1]
+        assert (remote / "push-count").read_text(encoding="utf-8") == "1\n"
+        if race_version != "9.9.10-dev":
+            assert race_version in proc.stderr
+            assert "9.9.9" in proc.stderr
+        return
     if races == 3:
         assert proc.returncode == 1, proc.stderr
         assert "master moved during all three push attempts" in proc.stderr

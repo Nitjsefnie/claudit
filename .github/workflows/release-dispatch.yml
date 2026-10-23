@@ -23,6 +23,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+    outputs:
+      successor: ${{ steps.decide.outputs.successor }}
     steps:
       - name: Refuse a dispatch that is not on master
         if: ${{ github.ref != 'refs/heads/master' }}
@@ -33,6 +35,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Probe the tag and the release, then decide
+        id: decide
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -58,6 +61,7 @@ jobs:
           fi
           python3 scripts/ci/release_dispatch.py decide --version "$VERSION" \
             --tag-exists "$tag_exists" --release-exists "$release_exists"
+          echo "successor=$(python3 scripts/ci/release_dispatch.py successor "$VERSION")" >> "$GITHUB_OUTPUT"
 
   bump:
     needs: validate
@@ -148,7 +152,13 @@ jobs:
           MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
           REPO: ${{ github.repository }}
           VERSION: ${{ inputs.version }}
+          SUCCESSOR: ${{ needs.validate.outputs.successor }}
         run: |
+          successor="${SUCCESSOR:-}"
+          if [ -z "$successor" ]; then
+            echo "the validated successor output is empty" >&2
+            exit 1
+          fi
           if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
             echo "MASTER_PUSH_DEPLOY_KEY is empty: the master-push environment is missing its secret" >&2
             exit 1
@@ -163,7 +173,6 @@ jobs:
             >> ~/.ssh/known_hosts
           export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
           remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
-          successor="$(printf '%s' "$VERSION" | awk -F. -v OFS=. '{ n = $NF; $NF = n + 1; print }')-dev"
           git init -q "$RUNNER_TEMP/push-repo"
           git -C "$RUNNER_TEMP/push-repo" remote add origin "$remote"
           git -C "$RUNNER_TEMP/push-repo" config user.name 'github-actions[bot]'
@@ -173,6 +182,15 @@ jobs:
             git ls-remote --exit-code "$remote" refs/heads/master
             git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
             git -C "$RUNNER_TEMP/push-repo" checkout -B push FETCH_HEAD
+            if printf '%s\n' "$successor" | cmp -s - "$RUNNER_TEMP/push-repo/VERSION"; then
+              echo "VERSION already equals $successor"
+              exit 0
+            fi
+            if ! printf '%s\n' "$VERSION" | cmp -s - "$RUNNER_TEMP/push-repo/VERSION"; then
+              current="$(cat "$RUNNER_TEMP/push-repo/VERSION")"
+              echo "Refusing successor: VERSION is '$current'; expected released '$VERSION'" >&2
+              exit 1
+            fi
             (cd "$RUNNER_TEMP/push-repo" && printf '%s\n' "$successor" > VERSION)
             git -C "$RUNNER_TEMP/push-repo" add VERSION
             git -C "$RUNNER_TEMP/push-repo" commit -m "Bump VERSION to $successor after the $VERSION release"
