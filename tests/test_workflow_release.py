@@ -1,31 +1,9 @@
 """Workflow shape: release.yml waits for a real verdict before it tags.
 
-The "Wait for the other gates on this commit" step polls the commit's
-check runs and, on the face of it, requires every gate it judges to
-have completed success/skipped/neutral. WHICH rows it judges is
-scripts/ci/release_gate.py's subject and is pinned in
-tests/test_release_gate.py; what these tests pin
-is the step around it:
-
-- the wait proceeds ONLY when a check run named exactly `aggregate`,
-  completed with conclusion success and produced by the github-actions
-  app, is among the judged rows of a single check-runs read; absent,
-  queued, not yet completed, conclusion `skipped`, or a foreign app
-  merely named `aggregate` keeps it polling until the deadline exits 1;
-- the wait keeps its existing refusals: it judges only the gates the
-  selector keeps, refuses immediately when a judged check completed
-  failure/cancelled/timed_out, and cannot race ahead when only its own
-  job exists;
-- its deadline and poll use CLAUDIT_RELEASE_WAIT_SECONDS /
-  CLAUDIT_RELEASE_WAIT_POLL_SECONDS (defaults 2700 s / 20 s), so
-  tests shorten the wait, and its two reads carry the selector the
-  app slug of the aggregate rule is projected from.
-
-The "Refuse to re-release an existing tag" step is pinned the same way
-: it treats ONLY an HTTP 404 as "absent" and fails closed
-on every other probe failure — a 403, a 5xx or a network error must
-never read as "the version is free" — and both probes go through
-`gh api` with their output captured, nothing discarded.
+The wait executes the real selector over stubbed API responses and requires
+a successful github-actions aggregate verdict, retaining its timeout and
+failure refusals. Selector classification is pinned in test_release_gate.py.
+Tag/release probes treat only HTTP 404 as absent and fail closed otherwise.
 """
 from __future__ import annotations
 
@@ -95,12 +73,18 @@ def test_release_starts_after_ci_gate_and_pins_the_triggering_commit():
         "github.event.workflow_run.conclusion == 'success')"
     )
     sha = "${{ inputs.sha || github.event.workflow_run.head_sha || github.sha }}"
-    checkout, = [step for step in job["steps"]
-                 if step.get("uses", "").startswith("actions/checkout@")]
-    assert checkout["with"]["ref"] == sha
-    for name in (WAIT_STEP, "Create the release"):
+    assert not any("actions/checkout" in (step.get("uses") or "")
+                   for job in workflow["jobs"].values() for step in job["steps"])
+    version, = [step for step in job["steps"] if step.get("id") == "version"]
+    assert version["env"] == {
+        "GH_TOKEN": "${{ github.token }}", "CLAUDIT_REPO": "${{ github.repository }}",
+        "CLAUDIT_SHA": sha,
+    }
+    for name in ("Read and validate VERSION", WAIT_STEP, "Create the release"):
         step, = [step for step in job["steps"] if step.get("name") == name]
         assert step["env"]["CLAUDIT_SHA"] == sha
+        if name == WAIT_STEP:
+            assert step["env"]["CLAUDIT_SELECTOR_SHA"] == "${{ github.workflow_sha }}"
 
 
 def _step_run(step_name: str) -> str:
@@ -132,6 +116,7 @@ DECLARED_VALUES = {
     "CLAUDIT_SELF_JOB": "release",
     "CLAUDIT_SELF_RUN_ID": SELF_RUN,
     "CLAUDIT_SELF_WORKFLOW_REF": SELF_WORKFLOW_REF,
+    "CLAUDIT_SELECTOR_SHA": "7" * 40,
 }
 
 
@@ -148,6 +133,7 @@ def _run_step(body: str, stub: str, env: dict[str, str],
         "CLAUDIT_SHA": "0" * 40,
         "GH_TOKEN": "stubbed",
         "RUNNER_TEMP": os.environ.get("RUNNER_TEMP", ""),
+        "STUB_SELECTOR_SOURCE": str(ROOT / "scripts" / "ci" / "release_gate.py"),
     }
     for name in _step_env_keys(WAIT_STEP) & DECLARED_VALUES.keys():
         full_env[name] = DECLARED_VALUES[name]
@@ -155,7 +141,8 @@ def _run_step(body: str, stub: str, env: dict[str, str],
     return subprocess.run(
         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
          f"{stub}\n{body}"],
-        env=full_env, capture_output=True, timeout=timeout, check=False,
+        env=full_env, cwd=full_env["RUNNER_TEMP"] or ROOT,
+        capture_output=True, timeout=timeout, check=False,
         encoding="utf-8", errors="replace",
     )
 
@@ -190,6 +177,8 @@ def _runs(*runs: dict) -> str:
 # everything proves its assertions against whatever it invented.
 WAIT_STUB = (
     'gh() { case "$*" in '
+    '"api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/scripts/ci/release_gate.py?ref=$CLAUDIT_SELECTOR_SHA") '
+    'cat "$STUB_SELECTOR_SOURCE" ;; '
     '*check-runs*) printf "%s" "$STUB_CHECKS" ;; '
     '*actions/runs*) printf "%s" "$STUB_RUNS" ;; '
     '*) echo "WAIT_STUB: unmodelled gh call: $*" >&2; return 1 ;; '
@@ -200,6 +189,8 @@ WAIT_STUB = (
 # every later one, counting reads in a file so polling is observable.
 COUNTING_STUB = (
     'gh() { case "$*" in '
+    '"api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/scripts/ci/release_gate.py?ref=$CLAUDIT_SELECTOR_SHA") '
+    'cat "$STUB_SELECTOR_SOURCE" ;; '
     '*check-runs*) '
     'local n; '
     'n="$(cat "$STUB_CALLFILE" 2>/dev/null || echo 0)"; '
@@ -215,6 +206,21 @@ COUNTING_STUB = (
 
 def _short_wait() -> dict[str, str]:
     return {"CLAUDIT_RELEASE_WAIT_SECONDS": "10", "CLAUDIT_RELEASE_WAIT_POLL_SECONDS": "1"}
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("step_name", ["Read and validate VERSION", WAIT_STEP])
+@pytest.mark.parametrize("partial", ["", "partial response"])
+def test_fetch_failure_stops_the_step(tmp_path, step_name, partial):
+    stub = ('gh() { case "$*" in *contents/*) printf "%s" "$STUB_PARTIAL"; '
+            'echo "HTTP 503" >&2; return 7 ;; *) return 99 ;; esac; }')
+    output = tmp_path / "outputs"
+    proc = _run_step(_step_run(step_name), stub,
+                     {"RUNNER_TEMP": str(tmp_path), "STUB_PARTIAL": partial,
+                      "GITHUB_OUTPUT": str(output)})
+    assert proc.returncode == 7, proc.stderr
+    assert "HTTP 503" in proc.stderr
+    assert not output.exists()
 
 
 @ubuntu_step_body
@@ -288,6 +294,7 @@ def test_wait_proceeds_when_aggregate_success_among_all_success(tmp_path):
                                       "RUNNER_TEMP": str(tmp_path)})
     assert proc.returncode == 0, proc.stderr
     assert PROCEEDING in proc.stdout
+    assert (tmp_path / "release_gate.py").read_bytes() == (ROOT / "scripts" / "ci" / "release_gate.py").read_bytes()
 
 
 @ubuntu_step_body
