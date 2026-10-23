@@ -265,9 +265,9 @@ def test_postgres_action_pulls_a_digest_from_the_public_ecr_mirror() -> None:
     path = REPO_ROOT / ".github/actions/postgres-image/action.yml"
     steps = yaml.safe_load(path.read_text(encoding="utf-8"))["runs"]["steps"]
     image = next(step for step in steps if step.get("id") == "image")
-    assert image["env"]["POSTGRES_REPOSITORY"].startswith(POSTGRES_MIRROR)
+    assert image["env"]["CLAUDIT_POSTGRES_REPOSITORY"].startswith(POSTGRES_MIRROR)
     assert re.fullmatch(r"sha256:[0-9a-f]{64}",
-                        image["env"]["POSTGRES_DIGEST"])
+                        image["env"]["CLAUDIT_POSTGRES_DIGEST"])
 
 
 def test_codeql_matrix_analyses_the_workflows() -> None:

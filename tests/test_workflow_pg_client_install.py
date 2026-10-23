@@ -170,14 +170,14 @@ def test_composite_commands_are_announced_and_failures_remain_visible():
                 assert index > 0 and lines[index - 1].startswith("echo ")
                 assert lines[index - 1][5:].strip("\"'")
     install = _action_steps()[1]
-    assert install["env"]["APT_PACKAGES"] == "${{ inputs.packages }}"
-    assert 'read -r -a packages <<< "$APT_PACKAGES"' in install["run"]
+    assert install["env"]["CLAUDIT_APT_PACKAGES"] == "${{ inputs.packages }}"
+    assert 'read -r -a packages <<< "$CLAUDIT_APT_PACKAGES"' in install["run"]
     assert '"${packages[@]}"' in install["run"]
 
 
 def test_client_major_matches_postgres_container_major():
     image = _load(ROOT / ".github/actions/postgres-image/action.yml")
-    repositories = [step.get("env", {}).get("POSTGRES_REPOSITORY", "")
+    repositories = [step.get("env", {}).get("CLAUDIT_POSTGRES_REPOSITORY", "")
                     for step in image["runs"]["steps"]]
     majors = [match[1] for repository in repositories
               if (match := re.search(r"/postgres:(\d+)$", repository))]

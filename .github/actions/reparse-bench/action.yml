@@ -35,14 +35,14 @@ runs:
     - name: Measure and report the reparse pass
       shell: bash
       env:
-        MEASUREMENT: ${{ inputs.measurement }}
+        CLAUDIT_MEASUREMENT: ${{ inputs.measurement }}
       run: |
         set -euo pipefail
         {
           echo '### Reparse CPU'
           echo
           python3 scripts/ci/reparse_bench.py \
-            --write "$MEASUREMENT" --report "$MEASUREMENT"
+            --write "$CLAUDIT_MEASUREMENT" --report "$CLAUDIT_MEASUREMENT"
         } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Upload the reparse measurement
@@ -60,7 +60,7 @@ runs:
     - name: Gate the reparse hot path
       shell: bash
       env:
-        MEASUREMENT: ${{ inputs.measurement }}
+        CLAUDIT_MEASUREMENT: ${{ inputs.measurement }}
       run: |
         set -euo pipefail
-        python3 scripts/ci/reparse_bench.py --check "$MEASUREMENT"
+        python3 scripts/ci/reparse_bench.py --check "$CLAUDIT_MEASUREMENT"

@@ -22,23 +22,23 @@ runs:
     - name: Start Postgres and wait for connections
       shell: bash
       env:
-        POSTGRES_TAG: ${{ steps.image.outputs.tag }}
-        POSTGRES_PORT: ${{ inputs.port }}
-        POSTGRES_CONTAINER: ${{ inputs.container-name }}
+        CLAUDIT_POSTGRES_TAG: ${{ steps.image.outputs.tag }}
+        CLAUDIT_POSTGRES_PORT: ${{ inputs.port }}
+        CLAUDIT_POSTGRES_CONTAINER: ${{ inputs.container-name }}
       run: |
         set -euo pipefail
         # Never resolve a registry reference here, even after docker load.
-        docker run --pull never --detach --name "$POSTGRES_CONTAINER" \
-          --publish "127.0.0.1:${POSTGRES_PORT}:5432" \
+        docker run --pull never --detach --name "$CLAUDIT_POSTGRES_CONTAINER" \
+          --publish "127.0.0.1:${CLAUDIT_POSTGRES_PORT}:5432" \
           --env POSTGRES_USER=postgres --env POSTGRES_PASSWORD=postgres \
-          --env POSTGRES_DB=postgres "$POSTGRES_TAG"
+          --env POSTGRES_DB=postgres "$CLAUDIT_POSTGRES_TAG"
         # TCP excludes the entrypoint's temporary socket-only init server.
         for _ in $(seq 1 60); do
-          if docker exec "$POSTGRES_CONTAINER" pg_isready -q -h 127.0.0.1 -U postgres -d postgres; then
+          if docker exec "$CLAUDIT_POSTGRES_CONTAINER" pg_isready -q -h 127.0.0.1 -U postgres -d postgres; then
             exit 0
           fi
           sleep 1
         done
-        docker logs "$POSTGRES_CONTAINER" >&2
+        docker logs "$CLAUDIT_POSTGRES_CONTAINER" >&2
         echo "::error::Postgres never accepted TCP connections" >&2
         exit 1

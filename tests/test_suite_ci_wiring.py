@@ -14,12 +14,12 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 # The exact commands the shared composite action's steps must run, as
 # the runner's shell sees them: the measurement (its --summary lands in
 # the step summary) and the gate (its exit code must be the step's own,
-# so a failed check fails the caller's job). The MEASUREMENT env var is
+# so a failed check fails the caller's job). The measurement env var is
 # the action's input; the callers all point it at the same file.
 MEASURE_CMD = (
-    'python scripts/ci/suite_bench.py --write "$MEASUREMENT" '
+    'python scripts/ci/suite_bench.py --write "$CLAUDIT_MEASUREMENT" '
     '--summary "$GITHUB_STEP_SUMMARY"')
-CHECK_CMD = 'python scripts/ci/suite_bench.py --check "$MEASUREMENT"'
+CHECK_CMD = 'python scripts/ci/suite_bench.py --check "$CLAUDIT_MEASUREMENT"'
 TIGHTEN_CMD = (
     'python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/suite_ratchet.py" '
     '--tighten "$RUNNER_TEMP/suite-data/suite-measurement.json" '
@@ -93,7 +93,7 @@ def test_the_bench_action_measures_and_gates():
 
 
 def test_every_run_step_binds_MEASUREMENT_to_the_measurement_input():
-    """The command strings above quote `"$MEASUREMENT"`, so both steps
+    """The commands above quote `"$CLAUDIT_MEASUREMENT"`, so steps
     read one variable -- but nothing pinned what that variable is BOUND
     to (the twin): an edit pointing a step's env at a
     file the measuring step never wrote keeps this suite green while
@@ -107,10 +107,10 @@ def test_every_run_step_binds_MEASUREMENT_to_the_measurement_input():
         step.get("name", "<unnamed>")
         for step in action["runs"]["steps"]
         if "run" in step
-        and step.get("env", {}).get("MEASUREMENT") != "${{ inputs.measurement }}"
+        and step.get("env", {}).get("CLAUDIT_MEASUREMENT") != "${{ inputs.measurement }}"
     ]
     assert not misbound, (
-        "these run steps bind MEASUREMENT to anything other than the "
+        "these run steps bind the measurement to anything other than the "
         f"action's measurement input: {misbound}")
 
 

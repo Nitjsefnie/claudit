@@ -63,8 +63,8 @@ def test_override_pins_only_the_cached_postgres_tag_and_no_pull():
     override = _load(ROOT / OVERRIDE)
     image = next(step for step in _load(POSTGRES_IMAGE)["runs"]["steps"]
                  if step.get("id") == "image")
-    digest = image["env"]["POSTGRES_DIGEST"]
-    assert 'echo "tag=claudit-postgres:${POSTGRES_DIGEST#sha256:}"' in image["run"]
+    digest = image["env"]["CLAUDIT_POSTGRES_DIGEST"]
+    assert 'echo "tag=claudit-postgres:${CLAUDIT_POSTGRES_DIGEST#sha256:}"' in image["run"]
     assert override == {"services": {"db": {
         "image": f"claudit-postgres:{digest.removeprefix('sha256:')}",
         "pull_policy": "never"}}}
@@ -135,8 +135,8 @@ printf '\n' >> "$DOCKER_LOG"
 case "$1" in
   pull)
     case "$2" in
-      "$IMAGE_REF") rc="$PRIMARY_PULL_RC" ;;
-      "$IMAGE_FALLBACK_REF") rc="$MIRROR_PULL_RC" ;;
+      "$CLAUDIT_IMAGE_REF") rc="$PRIMARY_PULL_RC" ;;
+      "$CLAUDIT_IMAGE_FALLBACK_REF") rc="$MIRROR_PULL_RC" ;;
       *) exit 2 ;;
     esac
     if [ "$rc" != 0 ]; then

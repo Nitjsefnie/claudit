@@ -127,17 +127,17 @@ def test_the_action_measures_once_and_gates_that_same_file():
         "measurement")
     assert "--check" in gate["run"], (
         "the gating invocation no longer checks the measurement")
-    assert measure["run"].count('"$MEASUREMENT"') == 2, (
+    assert measure["run"].count('"$CLAUDIT_MEASUREMENT"') == 2, (
         "the measuring invocation does not name the measurement path twice, "
         "via the shared variable")
-    assert gate["run"].count('"$MEASUREMENT"') == 1, (
+    assert gate["run"].count('"$CLAUDIT_MEASUREMENT"') == 1, (
         "the gating invocation does not name the measurement path via the "
         "shared variable")
 
 
 def test_every_run_step_binds_MEASUREMENT_to_the_measurement_input():
     """That the steps share the NAME is pinned above; what it is BOUND to
-    is not: a step can keep reading `"$MEASUREMENT"` while an
+    is not: a step can read `"$CLAUDIT_MEASUREMENT"` while an
     edit points the variable at a file the measuring step never wrote --
     the gate then passes on whatever is at the second path, which on a
     fresh runner is nothing at all.
@@ -146,10 +146,10 @@ def test_every_run_step_binds_MEASUREMENT_to_the_measurement_input():
         step.get("name", "<unnamed>")
         for step in _action_steps()
         if "run" in step
-        and step.get("env", {}).get("MEASUREMENT") != "${{ inputs.measurement }}"
+        and step.get("env", {}).get("CLAUDIT_MEASUREMENT") != "${{ inputs.measurement }}"
     ]
     assert not misbound, (
-        "these run steps bind MEASUREMENT to anything other than the "
+        "these run steps bind the measurement to anything other than the "
         f"action's measurement input: {misbound}")
 
 
@@ -213,7 +213,7 @@ def test_the_action_fails_the_job_when_a_phase_is_over_budget():
     check = body[body.index("--check"):]
     assert "||" not in check and "|| true" not in check, (
         "the gating invocation absorbs its own failure")
-    assert check.rstrip().endswith('"$MEASUREMENT"'), (
+    assert check.rstrip().endswith('"$CLAUDIT_MEASUREMENT"'), (
         "the gating invocation does not end on the measurement it checked")
 
 

@@ -21,7 +21,7 @@ runs:
       if: inputs.packages != ''
       shell: bash
       env:
-        APT_PACKAGES: ${{ inputs.packages }}
+        CLAUDIT_APT_PACKAGES: ${{ inputs.packages }}
       run: |
         set -euo pipefail
         echo "==> adding the PGDG apt source"
@@ -29,7 +29,7 @@ runs:
         echo "==> fetching the PostgreSQL signing key"
         timeout 45s curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo timeout 50s gpg --dearmor --batch --yes -o /etc/apt/trusted.gpg.d/pgdg.gpg
         echo "==> reading requested packages"
-        read -r -a packages <<< "$APT_PACKAGES"
+        read -r -a packages <<< "$CLAUDIT_APT_PACKAGES"
         for attempt in 1 2 3; do
           echo "==> apt-get update (attempt $attempt/3)"
           if sudo timeout 30s apt-get update -qq -o APT::Update::Error-Mode=any -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30; then
@@ -43,7 +43,7 @@ runs:
           sleep 5
         done
         for attempt in 1 2 3; do
-          echo "==> installing $APT_PACKAGES (attempt $attempt/3)"
+          echo "==> installing $CLAUDIT_APT_PACKAGES (attempt $attempt/3)"
           if sudo timeout 30s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "${packages[@]}"; then
             break
           fi

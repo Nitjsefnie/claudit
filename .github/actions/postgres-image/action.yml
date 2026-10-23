@@ -25,16 +25,16 @@ runs:
       id: image
       shell: bash
       env:
-        POSTGRES_REPOSITORY: public.ecr.aws/docker/library/postgres:16
-        POSTGRES_FALLBACK_REPOSITORY: mirror.gcr.io/library/postgres
-        POSTGRES_DIGEST: sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+        CLAUDIT_POSTGRES_REPOSITORY: public.ecr.aws/docker/library/postgres:16
+        CLAUDIT_POSTGRES_FALLBACK_REPOSITORY: mirror.gcr.io/library/postgres
+        CLAUDIT_POSTGRES_DIGEST: sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
       run: |
         set -euo pipefail
         {
-          echo "ref=${POSTGRES_REPOSITORY}@${POSTGRES_DIGEST}"
-          echo "fallback=${POSTGRES_FALLBACK_REPOSITORY}@${POSTGRES_DIGEST}"
-          echo "tag=claudit-postgres:${POSTGRES_DIGEST#sha256:}"
-          echo "key=postgres-${RUNNER_OS}-${RUNNER_ARCH}-${POSTGRES_DIGEST}"
+          echo "ref=${CLAUDIT_POSTGRES_REPOSITORY}@${CLAUDIT_POSTGRES_DIGEST}"
+          echo "fallback=${CLAUDIT_POSTGRES_FALLBACK_REPOSITORY}@${CLAUDIT_POSTGRES_DIGEST}"
+          echo "tag=claudit-postgres:${CLAUDIT_POSTGRES_DIGEST#sha256:}"
+          echo "key=postgres-${RUNNER_OS}-${RUNNER_ARCH}-${CLAUDIT_POSTGRES_DIGEST}"
         } >> "$GITHUB_OUTPUT"
 
     - name: Restore or pull the image

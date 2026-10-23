@@ -37,17 +37,17 @@ runs:
       id: measure
       shell: bash
       env:
-        MEASUREMENT: ${{ inputs.measurement }}
+        CLAUDIT_MEASUREMENT: ${{ inputs.measurement }}
       run: |
         set -euo pipefail
-        python scripts/ci/suite_bench.py --write "$MEASUREMENT" --summary "$GITHUB_STEP_SUMMARY"
+        python scripts/ci/suite_bench.py --write "$CLAUDIT_MEASUREMENT" --summary "$GITHUB_STEP_SUMMARY"
         echo "measured=true" >> "$GITHUB_OUTPUT"
 
     - name: Gate on the committed budgets
       shell: bash
       env:
-        MEASUREMENT: ${{ inputs.measurement }}
+        CLAUDIT_MEASUREMENT: ${{ inputs.measurement }}
       run: |
         set -euo pipefail
-        python scripts/ci/suite_bench.py --check "$MEASUREMENT"
+        python scripts/ci/suite_bench.py --check "$CLAUDIT_MEASUREMENT"
 
