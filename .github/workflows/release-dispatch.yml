@@ -18,7 +18,9 @@ permissions:
   actions: read
 
 concurrency:
-  group: release-dispatch
+  group: >-
+    ${{ github.event_name == 'workflow_dispatch' &&
+        'release-dispatch' || 'release-dispatch-successor' }}
   cancel-in-progress: false
 
 jobs:
@@ -156,6 +158,40 @@ jobs:
           if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "VERSION is not semver: '$version' (expected X.Y.Z)" >&2
             exit 1
+          fi
+          if ! tip_version="$(gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=refs/heads/master")"; then
+            echo "could not verify master's VERSION — failing closed" >&2
+            exit 1
+          fi
+          tip_version="$(echo "$tip_version" | tr -d '[:space:]')"
+          if echo "$tip_version" | grep -Eq -- '-([0-9A-Za-z.-]+)$'; then
+            echo "::notice::Master VERSION is $tip_version — no release in flight; nothing to do"
+            exit 0
+          fi
+          if ! candidates="$(gh api "repos/$CLAUDIT_REPO/commits?path=VERSION&per_page=30" --jq '.[].sha')"; then
+            echo "could not verify the VERSION commit list — failing closed" >&2
+            exit 1
+          fi
+          introducer=""
+          while IFS= read -r candidate; do
+            [ -n "$candidate" ] || continue
+            if ! candidate_version="$(gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=$candidate")"; then
+              echo "could not verify VERSION at $candidate — failing closed" >&2
+              exit 1
+            fi
+            candidate_version="$(echo "$candidate_version" | tr -d '[:space:]')"
+            if [ "$candidate_version" = "$tip_version" ]; then
+              introducer="$candidate"
+              break
+            fi
+          done <<< "$candidates"
+          if [ -z "$introducer" ]; then
+            echo "could not verify the VERSION introducer within 30 commits — failing closed" >&2
+            exit 1
+          fi
+          if [ "$CLAUDIT_SHA" != "$introducer" ]; then
+            echo "::notice::Another commit introduced master VERSION $tip_version — nothing to do for this run"
+            exit 0
           fi
           if [ "$CLAUDIT_RELEASE_CONCLUSION" != 'success' ]; then
             echo "the release run concluded $CLAUDIT_RELEASE_CONCLUSION while VERSION is $version" >&2

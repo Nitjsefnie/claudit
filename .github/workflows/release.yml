@@ -98,8 +98,38 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
+      - name: Verify this commit changed VERSION
+        id: target
+        if: steps.version.outputs.prerelease == '' && github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLAUDIT_REPO: ${{ github.repository }}
+          CLAUDIT_SHA: ${{ inputs.sha || github.event.workflow_run.head_sha || github.sha }}
+          CLAUDIT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if ! parent="$(gh api "repos/$CLAUDIT_REPO/commits/$CLAUDIT_SHA" --jq '.parents[0].sha')"; then
+            echo "could not verify this commit's parent — failing closed" >&2
+            exit 1
+          fi
+          if [ -z "$parent" ] || [ "$parent" = 'null' ]; then
+            echo "could not verify this commit's parent — failing closed" >&2
+            exit 1
+          fi
+          if ! parent_version="$(gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=$parent")"; then
+            echo "could not verify the parent's VERSION — failing closed" >&2
+            exit 1
+          fi
+          parent_version="$(echo "$parent_version" | tr -d '[:space:]')"
+          version="$(echo "$CLAUDIT_VERSION" | tr -d '[:space:]')"
+          if [ "$parent_version" = "$version" ]; then
+            # The output also skips every later release step after this quiet exit.
+            echo "unchanged=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::this commit did not change VERSION — nothing to release from it"
+            exit 0
+          fi
+
       - name: Refuse to re-release an existing tag
-        if: steps.version.outputs.prerelease == ''
+        if: steps.version.outputs.prerelease == '' && steps.target.outputs.unchanged != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           CLAUDIT_TAG: ${{ steps.version.outputs.tag }}
@@ -150,7 +180,7 @@ jobs:
           echo "$CLAUDIT_TAG is free"
 
       - name: Wait for the other gates on this commit
-        if: steps.version.outputs.prerelease == ''
+        if: steps.version.outputs.prerelease == '' && steps.target.outputs.unchanged != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           CLAUDIT_SHA: ${{ inputs.sha || github.event.workflow_run.head_sha || github.sha }}
@@ -242,7 +272,7 @@ jobs:
           exit 1
 
       - name: Create the release
-        if: steps.version.outputs.prerelease == ''
+        if: steps.version.outputs.prerelease == '' && steps.target.outputs.unchanged != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           CLAUDIT_REPO: ${{ github.repository }}
