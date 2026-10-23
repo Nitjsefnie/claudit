@@ -59,6 +59,7 @@
     "glm-5-3 via Fireworks: rule-resolved (tier variant base): took the base endpoint 'fireworks' over tier variants 'fireworks/fast', 'fireworks/spot'",
     "glm-5-3 via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/us'",
     "glm-5-3 via Mistral: rule-resolved (data region): the global data region leaves 'mistral/zdr'; dropped 'mistral/nvfp4/eu'; equal-price tags 'mistral/nvfp4', 'mistral/zdr' are interchangeable",
+    "glm-5-3 via Reka: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "glm-5-3 via Relace: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "glm-5-3 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp8'; dropped 'sail-research/us'",
     "glm-5-3 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/fp4'; dropped 'wafer/us'",
