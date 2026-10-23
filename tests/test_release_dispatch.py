@@ -284,3 +284,33 @@ def test_cli_wait_release_timing_options(
     assert reason in capsys.readouterr().err
     assert timer.elapsed == elapsed
     assert timer.sleeps == sleeps
+
+
+@pytest.mark.parametrize("option,env_name", [
+    ("--timeout", "RELEASE_DISPATCH_WAIT_SECONDS"),
+    ("--grace", "RELEASE_DISPATCH_WAIT_GRACE_SECONDS"),
+    ("--interval", "RELEASE_DISPATCH_WAIT_POLL_SECONDS"),
+])
+@pytest.mark.parametrize("value", ["nan", "INF", "-inf", "1e309", "-1", "-0.5"])
+@pytest.mark.parametrize("source", ["cli", "environment"])
+def test_cli_wait_release_rejects_invalid_timing_before_polling(
+        cli_env, monkeypatch, capsys, option, env_name, value, source):
+    argv = ["wait-release", SHA]
+    if source == "cli":
+        argv.append(f"{option}={value}")
+    else:
+        monkeypatch.setenv(env_name, value)
+    calls = []
+
+    def read(args):
+        calls.append(args)
+        return pages([run_row()])
+
+    with pytest.raises(SystemExit) as error:
+        main(argv, read=read)
+    assert error.value.code == 2
+    assert not calls
+    diagnostic = capsys.readouterr().err
+    assert option in diagnostic
+    assert "finite" in diagnostic
+    assert "non-negative" in diagnostic

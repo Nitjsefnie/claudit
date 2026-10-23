@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 import json
+import math
 import os
 import re
 import subprocess
@@ -86,6 +87,13 @@ def _sha(text: str) -> str:
     return text
 
 
+def _seconds(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value) or value < 0:
+        raise argparse.ArgumentTypeError("seconds must be finite and non-negative")
+    return value
+
+
 def _read(argv: list[str]) -> str:
     return subprocess.check_output(argv, text=True)
 
@@ -105,11 +113,11 @@ def main(
                           choices=["true", "false"])
     wait_p = sub.add_parser("wait-release", help="wait for release.yml")
     wait_p.add_argument("sha", type=_sha)
-    wait_p.add_argument("--timeout", type=float, default=os.environ.get(
+    wait_p.add_argument("--timeout", type=_seconds, default=os.environ.get(
         "RELEASE_DISPATCH_WAIT_SECONDS", "5400"))
-    wait_p.add_argument("--grace", type=float, default=os.environ.get(
+    wait_p.add_argument("--grace", type=_seconds, default=os.environ.get(
         "RELEASE_DISPATCH_WAIT_GRACE_SECONDS", "300"))
-    wait_p.add_argument("--interval", type=float, default=os.environ.get(
+    wait_p.add_argument("--interval", type=_seconds, default=os.environ.get(
         "RELEASE_DISPATCH_WAIT_POLL_SECONDS", "20"))
     args = parser.parse_args(argv)
     if args.command == "decide":
