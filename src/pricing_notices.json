@@ -192,7 +192,6 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-1-flash via Morph; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "step-5-preview via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/us'",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba",
@@ -326,7 +325,6 @@
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints at one current price",
       "InferenceNet": "2 endpoints at one current price",
-      "Morph": "no matching log state",
       "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-1-flash-1017": {
