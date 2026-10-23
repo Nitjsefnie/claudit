@@ -115,12 +115,13 @@ def main(
     successor_p.add_argument("version")
     wait_p = sub.add_parser("wait-release", help="wait for release.yml")
     wait_p.add_argument("sha", type=_sha)
+    wait_p.add_argument("--repo", required=True)
     wait_p.add_argument("--timeout", type=_seconds, default=os.environ.get(
-        "RELEASE_DISPATCH_WAIT_SECONDS", "5400"))
+        "CLAUDIT_RELEASE_DISPATCH_WAIT_SECONDS", "5400"))
     wait_p.add_argument("--grace", type=_seconds, default=os.environ.get(
-        "RELEASE_DISPATCH_WAIT_GRACE_SECONDS", "300"))
+        "CLAUDIT_RELEASE_DISPATCH_WAIT_GRACE_SECONDS", "300"))
     wait_p.add_argument("--interval", type=_seconds, default=os.environ.get(
-        "RELEASE_DISPATCH_WAIT_POLL_SECONDS", "20"))
+        "CLAUDIT_RELEASE_DISPATCH_WAIT_POLL_SECONDS", "20"))
     args = parser.parse_args(argv)
     if args.command == "decide":
         decision = decide(args.version, args.tag_exists == "true",
@@ -132,9 +133,9 @@ def main(
             major, minor, patch = map(int, parse_release_version(args.version).split("."))
             print(f"{major}.{minor}.{patch + 1}-dev")
             return 0
-        repo = os.environ.get("REPO")
+        repo = args.repo
         if not repo:
-            raise ValueError("REPO must be set to the owner/repository")
+            raise ValueError("--repo must be set to the owner/repository")
         wait_release(args.sha, read=read, repo=repo, timeout=args.timeout,
                      grace=args.grace, interval=args.interval)
     except (ValueError, OSError, subprocess.CalledProcessError) as error:

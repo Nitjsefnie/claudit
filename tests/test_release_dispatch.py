@@ -218,10 +218,10 @@ def test_wait_release_all_runs_must_finish():
 
 @pytest.fixture(name="cli_env")
 def _cli_env(monkeypatch):
-    monkeypatch.setenv("REPO", REPO)
-    for name in ("RELEASE_DISPATCH_WAIT_SECONDS",
-                 "RELEASE_DISPATCH_WAIT_POLL_SECONDS",
-                 "RELEASE_DISPATCH_WAIT_GRACE_SECONDS"):
+    monkeypatch.setenv("REPO", "ignored/environment")
+    for name in ("CLAUDIT_RELEASE_DISPATCH_WAIT_SECONDS",
+                 "CLAUDIT_RELEASE_DISPATCH_WAIT_POLL_SECONDS",
+                 "CLAUDIT_RELEASE_DISPATCH_WAIT_GRACE_SECONDS"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -239,12 +239,13 @@ def test_cli_decide(tag, release, code, reason, capsys):
 
 
 def test_cli_wait_release_success(cli_env, capsys):
-    assert main(["wait-release", SHA], read=reader(pages([run_row()]))) == 0
+    assert main(["wait-release", SHA, "--repo", REPO],
+                read=reader(pages([run_row()]))) == 0
     assert capsys.readouterr().err == ""
 
 
 def test_cli_wait_release_failure(cli_env, capsys):
-    assert main(["wait-release", SHA], read=reader(
+    assert main(["wait-release", SHA, "--repo", REPO], read=reader(
         pages([run_row(conclusion="failure")]))) == 1
     output = capsys.readouterr()
     assert "failure" in output.err
@@ -257,23 +258,28 @@ def test_cli_wait_release_failure(cli_env, capsys):
 ])
 def test_cli_wait_release_refuses_bad_sha(sha, capsys):
     with pytest.raises(SystemExit) as error:
-        main(["wait-release", sha])
+        main(["wait-release", sha, "--repo", REPO])
     assert error.value.code == 2
     assert "sha" in capsys.readouterr().err.lower()
 
 
 @pytest.mark.parametrize("repo", [None, ""])
 def test_cli_wait_release_requires_repo(repo, monkeypatch, capsys):
-    if repo is None:
-        monkeypatch.delenv("REPO", raising=False)
-    else:
-        monkeypatch.setenv("REPO", repo)
+    monkeypatch.setenv("REPO", REPO)
+    argv = ["wait-release", SHA]
+    if repo is not None:
+        argv.extend(["--repo", repo])
 
     def read(_argv):
-        pytest.fail("REPO must be checked before contacting GitHub")
+        pytest.fail("--repo must be checked before contacting GitHub")
 
-    assert main(["wait-release", SHA], read=read) == 1
-    assert "REPO" in capsys.readouterr().err
+    if repo is None:
+        with pytest.raises(SystemExit) as error:
+            main(argv, read=read)
+        assert error.value.code == 2
+    else:
+        assert main(argv, read=read) == 1
+    assert "--repo" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("error", [
@@ -284,20 +290,20 @@ def test_cli_wait_release_read_errors(cli_env, capsys, error):
     def read(_argv):
         raise error
 
-    assert main(["wait-release", SHA], read=read) == 1
+    assert main(["wait-release", SHA, "--repo", REPO], read=read) == 1
     assert str(error) in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("argv,env,elapsed,sleeps,reason", [
-    ([], {"RELEASE_DISPATCH_WAIT_SECONDS": "6",
-          "RELEASE_DISPATCH_WAIT_GRACE_SECONDS": "4",
-          "RELEASE_DISPATCH_WAIT_POLL_SECONDS": "2"}, 4, [2, 2], "no release"),
+    ([], {"CLAUDIT_RELEASE_DISPATCH_WAIT_SECONDS": "6",
+          "CLAUDIT_RELEASE_DISPATCH_WAIT_GRACE_SECONDS": "4",
+          "CLAUDIT_RELEASE_DISPATCH_WAIT_POLL_SECONDS": "2"}, 4, [2, 2], "no release"),
     (["--grace", "3", "--interval", "1", "--timeout", "8"],
-     {"RELEASE_DISPATCH_WAIT_SECONDS": "0",
-      "RELEASE_DISPATCH_WAIT_GRACE_SECONDS": "0",
-      "RELEASE_DISPATCH_WAIT_POLL_SECONDS": "9"}, 3, [1, 1, 1], "no release"),
-    ([], {"RELEASE_DISPATCH_WAIT_SECONDS": "0",
-          "RELEASE_DISPATCH_WAIT_GRACE_SECONDS": "10"}, 0, [], "timeout"),
+     {"CLAUDIT_RELEASE_DISPATCH_WAIT_SECONDS": "0",
+      "CLAUDIT_RELEASE_DISPATCH_WAIT_GRACE_SECONDS": "0",
+      "CLAUDIT_RELEASE_DISPATCH_WAIT_POLL_SECONDS": "9"}, 3, [1, 1, 1], "no release"),
+    ([], {"CLAUDIT_RELEASE_DISPATCH_WAIT_SECONDS": "0",
+          "CLAUDIT_RELEASE_DISPATCH_WAIT_GRACE_SECONDS": "10"}, 0, [], "timeout"),
 ])
 def test_cli_wait_release_timing_options(
         cli_env, monkeypatch, capsys, argv, env, elapsed, sleeps, reason):
@@ -310,22 +316,23 @@ def test_cli_wait_release_timing_options(
         return real_wait(sha, **kwargs, clock=timer, sleep=timer.sleep)
 
     monkeypatch.setattr(release_dispatch, "wait_release", fake_time_wait)
-    assert main(["wait-release", SHA, *argv], read=reader(pages([]))) == 1
+    assert main(["wait-release", SHA, "--repo", REPO, *argv],
+                read=reader(pages([]))) == 1
     assert reason in capsys.readouterr().err
     assert timer.elapsed == elapsed
     assert timer.sleeps == sleeps
 
 
 @pytest.mark.parametrize("option,env_name", [
-    ("--timeout", "RELEASE_DISPATCH_WAIT_SECONDS"),
-    ("--grace", "RELEASE_DISPATCH_WAIT_GRACE_SECONDS"),
-    ("--interval", "RELEASE_DISPATCH_WAIT_POLL_SECONDS"),
+    ("--timeout", "CLAUDIT_RELEASE_DISPATCH_WAIT_SECONDS"),
+    ("--grace", "CLAUDIT_RELEASE_DISPATCH_WAIT_GRACE_SECONDS"),
+    ("--interval", "CLAUDIT_RELEASE_DISPATCH_WAIT_POLL_SECONDS"),
 ])
 @pytest.mark.parametrize("value", ["nan", "INF", "-inf", "1e309", "-1", "-0.5"])
 @pytest.mark.parametrize("source", ["cli", "environment"])
 def test_cli_wait_release_rejects_invalid_timing_before_polling(
         cli_env, monkeypatch, capsys, option, env_name, value, source):
-    argv = ["wait-release", SHA]
+    argv = ["wait-release", SHA, "--repo", REPO]
     if source == "cli":
         argv.append(f"{option}={value}")
     else:

@@ -138,7 +138,7 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ needs.bump.outputs.sha }}
         run: |
-          python3 scripts/ci/release_dispatch.py wait-release "$SHA"
+          python3 scripts/ci/release_dispatch.py wait-release "$SHA" --repo "$REPO"
 
   successor:
     needs: [validate, wait-release]
