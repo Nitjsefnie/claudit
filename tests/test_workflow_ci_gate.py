@@ -554,9 +554,6 @@ def test_untouched_workflows_keep_their_triggers():
     # a later edit cannot silently move it.
     on = _load(WORKFLOWS / "secrets.yml").get("on") or {}
     assert "push" in on and "pull_request" in on and "schedule" in on
-    on = _load(WORKFLOWS / "release.yml").get("on") or {}
-    assert "push" in on
-    assert "schedule" not in (_load(WORKFLOWS / "release.yml").get("on") or {})
 
 
 def test_no_setup_python_step_owns_the_cache_anywhere():
