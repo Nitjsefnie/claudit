@@ -28,8 +28,8 @@
     533
   ],
   ".github/workflows/actionlint.yml": [
-    3027,
-    4817
+    3007,
+    4853
   ],
   ".github/workflows/audit.yml": [
     3719,
@@ -64,8 +64,8 @@
     1569
   ],
   ".github/workflows/gate-freshness.yml": [
-    2257,
-    3059
+    2256,
+    3082
   ],
   ".github/workflows/lint.yml": [
     1090,
@@ -88,8 +88,8 @@
     13256
   ],
   ".github/workflows/release.yml": [
-    4513,
-    8627
+    4491,
+    9040
   ],
   ".github/workflows/scorecard.yml": [
     1992,
@@ -624,8 +624,8 @@
     13692
   ],
   "scripts/ci/gate_freshness.py": [
-    3393,
-    11030
+    3365,
+    11129
   ],
   "scripts/ci/gate_trigger_set.py": [
     3833,
@@ -1124,8 +1124,8 @@
     18074
   ],
   "tests/test_ci_gate_output_wiring.py": [
-    7891,
-    19553
+    7884,
+    19562
   ],
   "tests/test_ci_thresholds_guard.py": [
     3920,
@@ -1320,8 +1320,8 @@
     5375
   ],
   "tests/test_ingest_vacuum.py": [
-    6323,
-    20364
+    6313,
+    21044
   ],
   "tests/test_js_toolchain.py": [
     8512,
@@ -1820,8 +1820,8 @@
     8181
   ],
   "tests/test_workflow_release.py": [
-    7471,
-    21983
+    7464,
+    23094
   ],
   "tests/test_workflow_scorecard.py": [
     4632,
