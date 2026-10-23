@@ -38,7 +38,7 @@ jobs:
         with: {node-version: "24.17.0"}
       - name: Resolve the threshold base
         id: threshold_base
-        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -80,7 +80,7 @@ jobs:
         with: {python-version: "3.13.14"}
       - name: Resolve the threshold base
         id: threshold_base
-        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -147,13 +147,13 @@ jobs:
             > "$RUNNER_TEMP/diff-coverage.md"
       - name: Stage the patch-coverage comment
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
-        env: {"PR_NUMBER": "${{ github.event.pull_request.number }}"}
+        env: {"CLAUDIT_PR_NUMBER": "${{ github.event.pull_request.number }}"}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/coverage-comment"
           cp "$RUNNER_TEMP/diff-coverage.md" \
             "$RUNNER_TEMP/coverage-comment/body.md"
-          printf '%s\n' "$PR_NUMBER" \
+          printf '%s\n' "$CLAUDIT_PR_NUMBER" \
             > "$RUNNER_TEMP/coverage-comment/pr-number.txt"
           wc -c < "$RUNNER_TEMP/coverage-comment/body.md"
       - name: Upload the patch-coverage comment
@@ -177,7 +177,7 @@ jobs:
         with: {python-version: "3.13.14"}
       - name: Resolve the threshold base
         id: threshold_base
-        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -224,7 +224,7 @@ jobs:
         with: {node-version: "24.17.0"}
       - name: Resolve the threshold base
         id: threshold_base
-        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -252,7 +252,7 @@ jobs:
         with: {python-version: "3.13.14"}
       - name: Resolve the threshold base
         id: threshold_base
-        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -278,7 +278,7 @@ jobs:
         with: {python-version: "3.13.14"}
       - name: Resolve the threshold base
         id: threshold_base
-        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -317,7 +317,7 @@ jobs:
         with: {node-version: "24.17.0"}
       - name: Resolve the threshold base
         id: threshold_base
-        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -348,7 +348,7 @@ jobs:
         with: {python-version: "3.13.14"}
       - name: Resolve the threshold base
         id: threshold_base
-        env: {"REPO": "${{ github.repository }}", "BASE_REF": "${{ github.event.pull_request.base.ref }}", "EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+        env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -367,12 +367,12 @@ jobs:
         with: {name: suite-measurement, path: "${{ runner.temp }}/suite-data"}
       - name: Ratchet the thresholds
         id: ratchet
-        env: {"JS_MEASURED": "${{ needs.js-coverage.outputs.js_measured }}", "PY_MEASURED": "${{ needs.coverage-combine.outputs.python_measured }}"}
+        env: {"CLAUDIT_JS_MEASURED": "${{ needs.js-coverage.outputs.js_measured }}", "CLAUDIT_PY_MEASURED": "${{ needs.coverage-combine.outputs.python_measured }}"}
         run: |
-          measured="$PY_MEASURED"
+          measured="$CLAUDIT_PY_MEASURED"
           python3 scripts/ci/ratchet.py --measured "${measured}"
           python3 scripts/ci/ratchet.py --language javascript \
-            --measured "${JS_MEASURED}"
+            --measured "${CLAUDIT_JS_MEASURED}"
           python3 scripts/ci/reparse_ratchet.py --measured-file reparse-bench.json
           python3 scripts/ci/size_baseline.py --tighten
           python3 scripts/ci/suppression_baseline.py --tighten
@@ -389,7 +389,7 @@ jobs:
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Python coverage ${measured}%, JavaScript coverage" \
-              "${JS_MEASURED}% and unchanged module sizes" \
+              "${CLAUDIT_JS_MEASURED}% and unchanged module sizes" \
               "justify no raise."
           fi
       - name: Stage the ratchet data
@@ -435,10 +435,10 @@ jobs:
         id: threshold_base
         uses: $/.github/actions/thresholds-base
         env:
-          REPO: ${{ github.repository }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          CLAUDIT_REPO: ${{ github.repository }}
+          CLAUDIT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          CLAUDIT_EVENT: ${{ github.event_name }}
+          CLAUDIT_BEFORE: ${{ github.event.before }}
 
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

@@ -128,8 +128,8 @@ jobs:
         id: classify
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          BEFORE_SHA: ${{ github.event.before }}
+          CLAUDIT_PR_NUMBER: ${{ github.event.pull_request.number }}
+          CLAUDIT_BEFORE_SHA: ${{ github.event.before }}
           CLAUDIT_ESPREE_DIR: ${{ runner.temp }}/espree/node_modules
         # Emits each class as true|false plus a reason; every read failure over-runs to a full gate set
         # (scripts/ci/classify_changes.py).
@@ -306,7 +306,7 @@ jobs:
 
       - name: Fold the leg results into one verdict
         env:
-          NEEDS_JSON: ${{ toJSON(needs) }}
+          CLAUDIT_NEEDS_JSON: ${{ toJSON(needs) }}
         # scripts/ci/aggregate_gate.py owns the verdict: success passes,
         # a skip passes only when the classification narrowed it, and
         # any other result fails — with the legs that decided named in

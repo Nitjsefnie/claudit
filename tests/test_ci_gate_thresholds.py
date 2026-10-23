@@ -203,10 +203,10 @@ def test_threshold_base_action_runs_once_per_job_before_tests(workflow, job_name
     assert len(resolvers) == 1
     resolver = resolvers[0]
     assert resolver['env'] == {
-        'REPO': '${{ github.repository }}',
-        'BASE_REF': '${{ github.event.pull_request.base.ref }}',
-        'EVENT': '${{ github.event_name }}',
-        'BEFORE': '${{ github.event.before }}',
+        'CLAUDIT_REPO': '${{ github.repository }}',
+        'CLAUDIT_BASE_REF': '${{ github.event.pull_request.base.ref }}',
+        'CLAUDIT_EVENT': '${{ github.event_name }}',
+        'CLAUDIT_BEFORE': '${{ github.event.before }}',
     }
     assert 'if' not in resolver
     assert steps.index(resolver) < next(i for i, step in enumerate(steps)
@@ -214,7 +214,7 @@ def test_threshold_base_action_runs_once_per_job_before_tests(workflow, job_name
     checkout = next(step for step in steps
                     if step.get('uses', '').startswith('actions/checkout@'))
     assert steps.index(checkout) < steps.index(resolver)
-    assert all('case "$EVENT"' not in step.get('run', '') for step in steps)
+    assert all('case "$CLAUDIT_EVENT"' not in step.get('run', '') for step in steps)
     action = _threshold_base_action()
     assert action['runs']['using'] == 'composite'
     assert len(action['runs']['steps']) == 1
@@ -233,7 +233,7 @@ def test_threshold_base_resolved_before_tests_and_shared(event, status, expected
     _threshold_commands(tmp_path)
     exported, calls = tmp_path / 'env', tmp_path / 'calls'
     env = dict(os.environ, PATH=f'{tmp_path}{os.pathsep}{os.environ["PATH"]}',
-               EVENT=event, REPO='o/r', BASE_REF='master', BEFORE='b' * 40,
+               CLAUDIT_EVENT=event, CLAUDIT_REPO='o/r', CLAUDIT_BASE_REF='master', CLAUDIT_BEFORE='b' * 40,
                RESOLVED='a' * 40, RESOLVER_STATUS=str(status),
                GITHUB_ENV=str(exported), CALLS=str(calls), RUNNER_TEMP=str(tmp_path))
     result = subprocess.run(['bash', '-e', '-c', resolver['run']], cwd=ROOT,

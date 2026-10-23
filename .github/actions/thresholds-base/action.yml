@@ -8,13 +8,13 @@ runs:
       shell: bash
       run: |
         base=
-        case "$EVENT" in
+        case "$CLAUDIT_EVENT" in
           pull_request)
-            git fetch --no-tags "https://github.com/${REPO}.git" "refs/heads/${BASE_REF}"
+            git fetch --no-tags "https://github.com/${CLAUDIT_REPO}.git" "refs/heads/${CLAUDIT_BASE_REF}"
             base="$(git merge-base HEAD FETCH_HEAD)" ;;
           push)
             resolver_status=0
-            base="$(python3 scripts/ci/threshold_base.py "$BEFORE" .github/ci-thresholds.json)" || resolver_status=$?
+            base="$(python3 scripts/ci/threshold_base.py "$CLAUDIT_BEFORE" .github/ci-thresholds.json)" || resolver_status=$?
             if [ "$resolver_status" -eq 3 ]; then
               base=
             elif [ "$resolver_status" -ne 0 ]; then

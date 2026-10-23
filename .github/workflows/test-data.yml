@@ -74,10 +74,10 @@ jobs:
       - name: Resolve the threshold base
         uses: $/.github/actions/thresholds-base
         env:
-          REPO: ${{ github.repository }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          CLAUDIT_REPO: ${{ github.repository }}
+          CLAUDIT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          CLAUDIT_EVENT: ${{ github.event_name }}
+          CLAUDIT_BEFORE: ${{ github.event.before }}
 
       # The pip cache restores on every event but is saved only from a push
       # of master: no setup-python step owns the cache, and the
