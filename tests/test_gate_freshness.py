@@ -419,14 +419,13 @@ def test_workflow_runs_on_master_push_and_pr_events():
 
 
 def test_workflow_pins_the_script_and_the_event_env():
-    text = _workflow_text()
-    assert "python3 scripts/ci/gate_freshness.py" in text
-    assert "GF_PR:" in text
-    assert "github.event.pull_request.number" in text
-    assert "GF_HEAD_SHA:" in text
-    assert "github.event.pull_request.head.sha" in text
-    assert "GF_HEAD_REPO:" in text
-    assert "github.event.pull_request.head.repo.full_name" in text
+    step, = [step for job in _workflow_doc()["jobs"].values()
+             for step in job["steps"]
+             if "gate_freshness.py" in step.get("run", "")]
+    assert "python3 scripts/ci/gate_freshness.py" in step["run"]
+    assert step["env"]["CLAUDIT_GF_PR"] == "${{ github.event.pull_request.number || '' }}"
+    assert step["env"]["CLAUDIT_GF_HEAD_SHA"] == "${{ github.event.pull_request.head.sha || '' }}"
+    assert step["env"]["CLAUDIT_GF_HEAD_REPO"] == "${{ github.event.pull_request.head.repo.full_name || '' }}"
 
 
 def test_workflow_checks_out_full_depth_base_only():

@@ -294,9 +294,9 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert listing["name"] == "List the triggering run's artifacts"
     listing_run = listing.get("run") or ""
     assert listing["env"]["GH_TOKEN"] == "${{ github.token }}"
-    assert listing["env"]["RUN_ID"] == (
+    assert listing["env"]["CLAUDIT_RUN_ID"] == (
         "${{ github.event.workflow_run.id }}")
-    assert "actions/runs/$RUN_ID/artifacts" in listing_run
+    assert "actions/runs/$CLAUDIT_RUN_ID/artifacts" in listing_run
     assert "grep -qx 'ratchet-push'" in listing_run
     assert "grep -qx 'suite-measurement'" in listing_run
     assert "grep -qx 'comment-share-ratchet'" in listing_run
@@ -324,17 +324,17 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     # The push step admits only when at least one artifact was staged.
     assert push["name"] == "Push the ratchet commit to master"
     assert push["if"] == "steps.list.outputs.any == 'true'"
-    assert push["env"]["MASTER_PUSH_DEPLOY_KEY"] == (
+    assert push["env"]["CLAUDIT_MASTER_PUSH_DEPLOY_KEY"] == (
         "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
-    assert push["env"]["REPO"] == "${{ github.repository }}"
-    assert push["env"]["BASE_FALLBACK"] == (
+    assert push["env"]["CLAUDIT_REPO"] == "${{ github.repository }}"
+    assert push["env"]["CLAUDIT_BASE_FALLBACK"] == (
         "${{ github.event.workflow_run.head_sha }}")
     assert "GH_TOKEN" not in (push.get("env") or {})
-    assert "PUSH_REMOTE" not in push["env"]
+    assert "CLAUDIT_PUSH_REMOTE" not in push["env"]
 
     # The deploy key rides in an ssh agent, never a remote URL; the
     # empty-key refusal fails closed before anything runs.
-    assert 'if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]' in run
+    assert 'if [ -z "${CLAUDIT_MASTER_PUSH_DEPLOY_KEY:-}" ]' in run
     assert "the master-push environment is missing its secret" in run
     assert run.index("missing its secret") < run.index("ssh-agent")
     assert "trap 'kill \"$SSH_AGENT_PID\" 2>/dev/null || true' EXIT" in run
@@ -351,9 +351,9 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert 'base="$(cat "$RUNNER_TEMP/ratchet-data/base.txt")"' in run
     assert ('elif [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]'
             in run)
-    assert 'base="$BASE_FALLBACK"' in run
+    assert 'base="$CLAUDIT_BASE_FALLBACK"' in run
     assert "no ratchet data, suite measurement or comment-share records to push" in run
-    assert (run.index("remote=") < run.index('base="$BASE_FALLBACK"')
+    assert (run.index("remote=") < run.index('base="$CLAUDIT_BASE_FALLBACK"')
             < run.index("git init") < run.index('remote add origin "$remote"')
             < run.index("fetch --quiet origin master")
             < run.index("checkout -B push FETCH_HEAD"))

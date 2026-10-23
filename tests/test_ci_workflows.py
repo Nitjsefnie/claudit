@@ -417,13 +417,7 @@ def test_actionlint_pin_parses_self_repository_uses() -> None:
     version — fails closed: the gate cannot be shown to parse the refs,
     and re-pinning is a deliberate act that re-examines this test.
     """
-    match = re.search(
-        r"^\s*ACTIONLINT_VERSION: (\S+)\s*$",
-        (WORKFLOWS_DIR / "actionlint.yml").read_text(encoding="utf-8"),
-        re.MULTILINE,
-    )
-    assert match, f"{WORKFLOWS_DIR / 'actionlint.yml'} carries no ACTIONLINT_VERSION pin"
-    version = match.group(1)
+    version = _workflow_jobs("actionlint.yml")["actionlint"]["env"]["CLAUDIT_ACTIONLINT_VERSION"]
     queue = re.fullmatch(r"1\.7\.12-queue\.(\d+)", version)
     assert queue and int(queue.group(1)) >= 2, (
         "the actionlint pin does not parse the `$/` self-repository uses: "
@@ -602,7 +596,7 @@ class TestRefreshPricingShards:
         for job in ["suite", "stage", "push"]:
             assert refresh_jobs[job]["if"] == "needs.refresh.outputs.moved == 'true'"
         verdict, = refresh_jobs["verdict"]["steps"]
-        assert verdict["env"]["FETCH_RC"] == "${{ needs.refresh.outputs.fetch_rc }}"
+        assert verdict["env"]["CLAUDIT_FETCH_RC"] == "${{ needs.refresh.outputs.fetch_rc }}"
         assert "python3 scripts/ci/refresh_provider_rates.py" in fetch
         assert '|| rc=$?' in fetch
         assert 'echo "rc=$rc" >> "$GITHUB_OUTPUT"' in fetch
@@ -618,7 +612,7 @@ class TestRefreshPricingShards:
             "Download the tested data", "Push the tested tree to master"
         ]
         run = steps[1]["run"]
-        assert 'if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then' in run
+        assert 'if [ -z "${CLAUDIT_MASTER_PUSH_DEPLOY_KEY:-}" ]; then' in run
         assert 'fetched="$(git ls-remote "$remote" refs/heads/master | cut -f1)"' in run
         assert 'if [ "$fetched" != "$base" ]; then' in run
         assert 'push origin HEAD:master' in run

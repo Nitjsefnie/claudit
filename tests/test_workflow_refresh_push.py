@@ -118,12 +118,12 @@ def test_dispatch_accepts_an_optional_vendor_string():
 
 def test_vendor_input_is_env_only_and_tracking_precedes_refresh():
     step = _step("refresh", "Fetch and append")
-    assert step["env"]["VENDOR_NAMESPACE"] == "${{ inputs.vendor }}"
+    assert step["env"]["CLAUDIT_VENDOR_NAMESPACE"] == "${{ inputs.vendor }}"
     run = step["run"]
     assert "${{ inputs." not in run
     assert run.index("track_vendor.py") < run.index("refresh_provider_rates.py")
-    assert 'if [ -n "$VENDOR_NAMESPACE" ]; then' in run
-    assert re.search(r'track_vendor\.py\s+\\?\s*--namespace="\$VENDOR_NAMESPACE"', run)
+    assert 'if [ -n "$CLAUDIT_VENDOR_NAMESPACE" ]; then' in run
+    assert re.search(r'track_vendor\.py\s+\\?\s*--namespace="\$CLAUDIT_VENDOR_NAMESPACE"', run)
     tracker = run[run.index("track_vendor.py"):run.index("fi")]
     assert '--commit-msg "$RUNNER_TEMP/commit-msg.txt"' in tracker
     assert "|| exit 1" in tracker
@@ -147,7 +147,7 @@ def test_fetch_step_tracks_only_nonempty_input_and_stops_on_refusal(
     calls = tmp_path / "calls"
     env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
            "CALLS": str(calls), "TRACKER_RC": tracker_rc,
-           "VENDOR_NAMESPACE": namespace, "RUNNER_TEMP": str(tmp_path),
+           "CLAUDIT_VENDOR_NAMESPACE": namespace, "RUNNER_TEMP": str(tmp_path),
            "GITHUB_STEP_SUMMARY": str(tmp_path / "step-summary"),
            "GITHUB_OUTPUT": str(tmp_path / "step-output")}
     proc = subprocess.run(
@@ -161,19 +161,17 @@ def test_the_key_appears_once_in_the_file_and_only_in_the_push_job():
     raw = WORKFLOW.read_text(encoding="utf-8")
     # The only load site in the whole file is the push step's env mapping:
     # the secret is wired exactly once.
-    env_lines = [line.strip() for line in raw.splitlines()
-                 if "secrets.MASTER_PUSH_DEPLOY_KEY" in line]
-    assert env_lines == [
-        "MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}"]
+    assert _step("push", "Push the tested tree to master")["env"][
+        "CLAUDIT_MASTER_PUSH_DEPLOY_KEY"] == "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}"
     assert raw.count("secrets.MASTER_PUSH_DEPLOY_KEY") == 1
     for job_id, job in _workflow()["jobs"].items():
         if job_id == "push":
             continue
         assert "environment" not in job, job_id
-        assert "MASTER_PUSH_DEPLOY_KEY" not in repr(job.get("env", {})), job_id
+        assert "CLAUDIT_MASTER_PUSH_DEPLOY_KEY" not in repr(job.get("env", {})), job_id
         for step in (job.get("steps") or []):
             blob = repr(step.get("env") or {}) + (step.get("run") or "")
-            assert "MASTER_PUSH_DEPLOY_KEY" not in blob, (job_id, step.get("name"))
+            assert "CLAUDIT_MASTER_PUSH_DEPLOY_KEY" not in blob, (job_id, step.get("name"))
             assert "git push" not in (step.get("run") or ""), (job_id, step.get("name"))
             assert "ssh-agent" not in (step.get("run") or ""), (job_id, step.get("name"))
 
@@ -227,18 +225,18 @@ def test_push_job_is_the_only_job_that_loads_the_key():
 
 def test_push_run_block_pins_the_key_preamble_and_host_keys():
     run = _push_run()
-    fail_fast = 'if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then'
+    fail_fast = 'if [ -z "${CLAUDIT_MASTER_PUSH_DEPLOY_KEY:-}" ]; then'
     assert fail_fast in run
     # Fail fast BEFORE anything else: no agent, no network, no git.
     assert run.index(fail_fast) < run.index("ssh-agent")
     assert run.index(fail_fast) < run.index("git ls-remote")
     assert "trap 'kill \"$SSH_AGENT_PID\" 2>/dev/null || true' EXIT" in run
-    assert "ssh-add <(printf '%s\\n' \"$MASTER_PUSH_DEPLOY_KEY\")" in run
+    assert "ssh-add <(printf '%s\\n' \"$CLAUDIT_MASTER_PUSH_DEPLOY_KEY\")" in run
     assert "StrictHostKeyChecking=yes" in run
     assert ED25519_HOST_KEY in run
     assert RSA_HOST_KEY in run
-    assert 'remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"' in run
-    assert WORKFLOW.read_text(encoding="utf-8").count("PUSH_REMOTE") == 1
+    assert 'remote="${CLAUDIT_PUSH_REMOTE:-git@github.com:${CLAUDIT_REPO}.git}"' in run
+    assert WORKFLOW.read_text(encoding="utf-8").count("CLAUDIT_PUSH_REMOTE") == 1
 
 
 def test_push_run_block_pins_the_order_and_never_forces_or_tokens():
@@ -277,9 +275,9 @@ def test_verdict_job_turns_a_refused_fetch_red_even_when_nothing_moved():
     step, = job["steps"]
     assert step["name"] == "Fail on a refusal"
     assert step["env"] == {
-        "FETCH_RC": "${{ needs.refresh.outputs.fetch_rc }}"}
+        "CLAUDIT_FETCH_RC": "${{ needs.refresh.outputs.fetch_rc }}"}
     run = step["run"]
-    assert 'if [ -n "$FETCH_RC" ] && [ "$FETCH_RC" != "0" ]; then' in run
+    assert 'if [ -n "$CLAUDIT_FETCH_RC" ] && [ "$CLAUDIT_FETCH_RC" != "0" ]; then' in run
     assert "exit 1" in run
 
 
@@ -366,7 +364,7 @@ def _ssh_agent_shim() -> str:
     return r"""#!/usr/bin/env bash
 set -eu
 printf 'called\n' > "$FAKE_STATE/ssh-agent-called"
-if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
+if [ -z "${CLAUDIT_MASTER_PUSH_DEPLOY_KEY:-}" ]; then
   echo 'ssh-agent called without the deploy key' >&2
   exit 1
 fi
@@ -382,7 +380,7 @@ def _ssh_add_shim() -> str:
     return r"""#!/usr/bin/env bash
 set -eu
 printf 'called\n' > "$FAKE_STATE/ssh-add-called"
-if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
+if [ -z "${CLAUDIT_MASTER_PUSH_DEPLOY_KEY:-}" ]; then
   echo 'ssh-add called without the deploy key' >&2
   exit 1
 fi
@@ -445,13 +443,13 @@ def _env(scratch: Path,
     env["PATH"] = str(scratch / "bin") + os.pathsep + env["PATH"]
     env["RUNNER_TEMP"] = str(scratch / "runner-temp")
     env["GITHUB_STEP_SUMMARY"] = str(scratch / "github-summary.md")
-    env.pop("MASTER_PUSH_DEPLOY_KEY", None)
+    env.pop("CLAUDIT_MASTER_PUSH_DEPLOY_KEY", None)
     env.pop("GIT_SSH_COMMAND", None)
     env.pop("SSH_AUTH_SOCK", None)
     env["REAL_GIT"] = shutil.which("git") or "git"
     env["HOME"] = str(scratch / "home")
-    env["REPO"] = "Nitjsefnie/claudit"
-    env["PUSH_REMOTE"] = str(scratch / "remote.git")
+    env["CLAUDIT_REPO"] = "Nitjsefnie/claudit"
+    env["CLAUDIT_PUSH_REMOTE"] = str(scratch / "remote.git")
     env["FAKE_STATE"] = str(scratch / "state")
     env["FAKE_PEER"] = str(scratch / "peer")
     for key, value in extra.items():
@@ -535,7 +533,7 @@ def test_push_lands_the_staged_tree_when_master_stood_still(scratch: Path):
     commit_msg = (scratch / "runner-temp" / "push-data"
                   / "commit-msg.txt").read_text(encoding="utf-8").strip()
 
-    proc = _run_push_step(scratch, {"MASTER_PUSH_DEPLOY_KEY": "test-key"})
+    proc = _run_push_step(scratch, {"CLAUDIT_MASTER_PUSH_DEPLOY_KEY": "test-key"})
 
     bare = scratch / "remote.git"
     assert proc.returncode == 0, proc.stderr
@@ -564,7 +562,7 @@ def test_push_drops_the_data_with_a_notice_when_master_moved_under_the_run(
     base = _stage_push_data(scratch)
     peer_full = _peer_move(scratch, "peer move after staging")
 
-    proc = _run_push_step(scratch, {"MASTER_PUSH_DEPLOY_KEY": "test-key"})
+    proc = _run_push_step(scratch, {"CLAUDIT_MASTER_PUSH_DEPLOY_KEY": "test-key"})
 
     bare = scratch / "remote.git"
     assert proc.returncode == 0, proc.stderr
@@ -584,7 +582,7 @@ def test_push_drops_the_data_with_a_notice_when_master_moved_under_the_run(
 def test_a_push_refused_while_master_stood_still_goes_red(scratch: Path):
     base = _stage_push_data(scratch)
 
-    proc = _run_push_step(scratch, {"MASTER_PUSH_DEPLOY_KEY": "test-key",
+    proc = _run_push_step(scratch, {"CLAUDIT_MASTER_PUSH_DEPLOY_KEY": "test-key",
                                     "FAKE_FAIL_GIT_PUSH": "1"})
 
     assert proc.returncode != 0
@@ -597,7 +595,7 @@ def test_a_push_raced_by_a_master_move_is_dropped_with_a_notice(
         scratch: Path):
     _stage_push_data(scratch)
 
-    proc = _run_push_step(scratch, {"MASTER_PUSH_DEPLOY_KEY": "test-key",
+    proc = _run_push_step(scratch, {"CLAUDIT_MASTER_PUSH_DEPLOY_KEY": "test-key",
                                     "FAKE_RACE_PUSH": "1"})
 
     bare = scratch / "remote.git"
@@ -616,10 +614,10 @@ def test_a_push_raced_by_a_master_move_is_dropped_with_a_notice(
 def test_an_empty_key_fails_fast_before_any_agent_or_network(scratch: Path):
     base = _stage_push_data(scratch)
 
-    proc = _run_push_step(scratch, {"MASTER_PUSH_DEPLOY_KEY": ""})
+    proc = _run_push_step(scratch, {"CLAUDIT_MASTER_PUSH_DEPLOY_KEY": ""})
 
     assert proc.returncode != 0
-    assert "MASTER_PUSH_DEPLOY_KEY is empty" in proc.stderr
+    assert "CLAUDIT_MASTER_PUSH_DEPLOY_KEY is empty" in proc.stderr
     assert "master-push environment" in proc.stderr
     assert _state_lines(scratch, "ssh-agent-called") == []
     assert _state_lines(scratch, "ssh-add-called") == []

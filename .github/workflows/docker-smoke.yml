@@ -71,19 +71,19 @@ jobs:
       - name: Identify the Dockerfile's base image
         id: base
         env:
-          BASE_IMAGE: public.ecr.aws/docker/library/python:3.13-slim
-          BASE_FALLBACK_IMAGE: mirror.gcr.io/library/python:3.13-slim
+          CLAUDIT_BASE_IMAGE: public.ecr.aws/docker/library/python:3.13-slim
+          CLAUDIT_BASE_FALLBACK_IMAGE: mirror.gcr.io/library/python:3.13-slim
         run: |
           set -euo pipefail
-          if [ "$(grep -c '^FROM ' Dockerfile)" != 1 ] || ! grep -Fxq "FROM $BASE_IMAGE" Dockerfile; then
-            echo "::error::Dockerfile's FROM is not $BASE_IMAGE; update docker-smoke.yml with it"
+          if [ "$(grep -c '^FROM ' Dockerfile)" != 1 ] || ! grep -Fxq "FROM $CLAUDIT_BASE_IMAGE" Dockerfile; then
+            echo "::error::Dockerfile's FROM is not $CLAUDIT_BASE_IMAGE; update docker-smoke.yml with it"
             exit 1
           fi
           week="$(date -u +%G-W%V)"
           {
-            echo "ref=${BASE_IMAGE}"
-            echo "fallback=${BASE_FALLBACK_IMAGE}"
-            echo "key=python-base-${RUNNER_OS}-${RUNNER_ARCH}-${BASE_IMAGE}-${week}"
+            echo "ref=${CLAUDIT_BASE_IMAGE}"
+            echo "fallback=${CLAUDIT_BASE_FALLBACK_IMAGE}"
+            echo "key=python-base-${RUNNER_OS}-${RUNNER_ARCH}-${CLAUDIT_BASE_IMAGE}-${week}"
           } >> "$GITHUB_OUTPUT"
 
       # Tagged as the Dockerfile names it, so the build resolves FROM in

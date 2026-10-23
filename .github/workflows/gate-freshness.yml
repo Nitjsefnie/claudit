@@ -25,7 +25,7 @@ name: gate freshness
 # TRUST MODEL (pull_request_target is privileged). The checkout is the
 # base side only — on pull_request_target, github.ref is the base
 # branch — and nothing from a pull-request tree executes: the head SHA
-# arrives through GF_HEAD_SHA, is fetched as git objects only, and a
+# arrives in CLAUDIT_GF_HEAD_SHA, is fetched as git objects, and a
 # hostile SHA fails the compare, which publishes red (fail closed).
 # Event values reach the script only through env, never through the
 # run: block.
@@ -85,7 +85,7 @@ jobs:
       - name: Publish gate freshness on the open heads
         env:
           GH_TOKEN: ${{ github.token }}
-          GF_PR: ${{ github.event.pull_request.number || '' }}
-          GF_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
-          GF_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          CLAUDIT_GF_PR: ${{ github.event.pull_request.number || '' }}
+          CLAUDIT_GF_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+          CLAUDIT_GF_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
         run: python3 scripts/ci/gate_freshness.py
