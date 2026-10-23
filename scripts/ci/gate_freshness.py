@@ -18,7 +18,7 @@ this is a one-minute publisher that runs no suite.
 
 TRUST MODEL. pull_request_target runs privileged, so the workflow
 checks out the base side only and this script never executes anything
-from a pull-request tree: the head SHA arrives via GF_HEAD_SHA, is
+from PR trees: the SHA arrives via CLAUDIT_GF_HEAD_SHA, is
 fetched as git objects only, and a hostile SHA simply fails the
 compare — which publishes red (fail closed).
 
@@ -48,9 +48,9 @@ from urllib.parse import quote
 BASE_BRANCH = "master"
 CHECK_NAME = "gate freshness"
 WORKFLOW_ID = "gate-freshness.yml"
-ENV_PR = "GF_PR"
-ENV_HEAD_SHA = "GF_HEAD_SHA"
-ENV_HEAD_REPO = "GF_HEAD_REPO"
+ENV_PR = "CLAUDIT_GF_PR"
+ENV_HEAD_SHA = "CLAUDIT_GF_HEAD_SHA"
+ENV_HEAD_REPO = "CLAUDIT_GF_HEAD_REPO"
 _HEX40 = frozenset("0123456789abcdef")
 
 
@@ -238,11 +238,11 @@ def scannable(head):
 def heads_for_run(env, pulls):
     """The heads this run judges.
 
-    Single-PR mode when both GF_PR and GF_HEAD_SHA are set (the
-    pull_request_target event's own pull request); otherwise all
-    scannable heads of the open-PR list.
+    Single-PR mode with CLAUDIT_GF_PR and CLAUDIT_GF_HEAD_SHA set
+    (the event's own pull request); otherwise all scannable open heads.
     """
-    number, sha = env.get(ENV_PR), env.get(ENV_HEAD_SHA)
+    number = env.get(ENV_PR, env.get("GF_PR"))
+    sha = env.get(ENV_HEAD_SHA, env.get("GF_HEAD_SHA"))
     if number and sha:
         try:
             number = int(number)
@@ -250,7 +250,7 @@ def heads_for_run(env, pulls):
             number = None
     if number and sha:
         return [{"number": number, "sha": sha, "base": BASE_BRANCH,
-                 "repo": env.get(ENV_HEAD_REPO) or ""}]
+                 "repo": env.get(ENV_HEAD_REPO, env.get("GF_HEAD_REPO")) or ""}]
     heads = []
     for pr in pulls or []:
         if not isinstance(pr, dict):
@@ -342,7 +342,7 @@ def main_impl(run_git, run_gh, repository, env, summary_path,
         print(f"gate freshness: global read failure, publishing "
               f"nothing: {error}", file=sys.stderr)
         return 1
-    if env.get(ENV_PR) and env.get(ENV_HEAD_SHA):
+    if env.get(ENV_PR, env.get("GF_PR")) and env.get(ENV_HEAD_SHA, env.get("GF_HEAD_SHA")):
         heads = heads_for_run(env, None)
     else:
         try:

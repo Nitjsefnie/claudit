@@ -420,8 +420,8 @@ def event_from_environment(environ):
         'name': environ.get('GITHUB_EVENT_NAME', ''),
         'repository': environ.get('GITHUB_REPOSITORY'),
         'sha': environ.get('GITHUB_SHA'),
-        'pull_request': environ.get('PR_NUMBER'),
-        'before': environ.get('BEFORE_SHA'),
+        'pull_request': environ.get('CLAUDIT_PR_NUMBER', environ.get('PR_NUMBER')),
+        'before': environ.get('CLAUDIT_BEFORE_SHA', environ.get('BEFORE_SHA')),
     }
 
 

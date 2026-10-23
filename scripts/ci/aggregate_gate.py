@@ -235,12 +235,12 @@ def main_with(needs, summary_path=None):
 
 def main():
     try:
-        needs = json.loads(os.environ.get('NEEDS_JSON') or '')
+        needs = json.loads(os.environ.get('CLAUDIT_NEEDS_JSON', os.environ.get('NEEDS_JSON')) or '')
     except ValueError:
-        print('NEEDS_JSON is missing or not JSON', file=sys.stderr)
+        print('CLAUDIT_NEEDS_JSON is missing or not JSON', file=sys.stderr)
         return 1
     if not isinstance(needs, dict):
-        print('NEEDS_JSON is not a needs document', file=sys.stderr)
+        print('CLAUDIT_NEEDS_JSON is not a needs document', file=sys.stderr)
         return 1
     print(f'legs in the document: {", ".join(sorted(needs))}')
     return main_with(needs)
