@@ -25,9 +25,9 @@ gh() {
   n=$((n + 1))
   printf '%s' "$n" > "$STUB_CALLFILE"
   case "$n:$*" in
-    "1:api repos/$REPO/git/ref/tags/v$VERSION")
+    "1:api repos/$CLAUDIT_REPO/git/ref/tags/v$CLAUDIT_VERSION")
       printf '%s\n' "$TAG_REPLY"; return "$TAG_RC" ;;
-    "2:api repos/$REPO/releases/tags/v$VERSION")
+    "2:api repos/$CLAUDIT_REPO/releases/tags/v$CLAUDIT_VERSION")
       printf '%s\n' "$RELEASE_REPLY"; return "$RELEASE_RC" ;;
     *) echo "unmodelled gh call: $*" >&2; return 99 ;;
   esac
@@ -60,8 +60,8 @@ def _run_step(name: str, stub: str, env: dict[str, str],
     return subprocess.run(
         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
          stub + "\n" + _step(name)["run"]],
-        env={"PATH": os.environ["PATH"], "REPO": "example/claudit",
-             "VERSION": "9.9.9", "GITHUB_OUTPUT": os.devnull, **env},
+        env={"PATH": os.environ["PATH"], "CLAUDIT_REPO": "example/claudit",
+             "CLAUDIT_VERSION": "9.9.9", "GITHUB_OUTPUT": os.devnull, **env},
         cwd=cwd, capture_output=True, text=True, encoding="utf-8",
         check=False, timeout=30,
     )
@@ -97,8 +97,8 @@ def _push_env(tmp_path: Path, remote: Path) -> dict[str, str]:
     runner.mkdir()
     home = tmp_path / "home"
     home.mkdir()
-    return {"PUSH_REMOTE": str(remote), "MASTER_PUSH_DEPLOY_KEY": "dummy",
-            "SUCCESSOR": "9.9.10-dev",
+    return {"CLAUDIT_PUSH_REMOTE": str(remote), "CLAUDIT_MASTER_PUSH_DEPLOY_KEY": "dummy",
+            "CLAUDIT_SUCCESSOR": "9.9.10-dev",
             "GITHUB_OUTPUT": str(tmp_path / "output"), "HOME": str(home),
             "RUNNER_TEMP": str(runner), "SSH_AGENT_PID": "999999999"}
 
@@ -132,7 +132,7 @@ def test_dispatch_shape():
         "successor": "${{ steps.decide.outputs.successor }}",
     }
     assert _step(DECIDE)["id"] == "decide"
-    assert _step(SUCCESSOR)["env"]["SUCCESSOR"] == (
+    assert _step(SUCCESSOR)["env"]["CLAUDIT_SUCCESSOR"] == (
         "${{ needs.validate.outputs.successor }}")
     assert jobs["bump"]["steps"][0]["id"] == "push"
     assert jobs["validate"]["steps"][0]["name"] == (
@@ -150,25 +150,25 @@ def test_key_jobs_and_checkout_boundary():
         step = job["steps"][0]
         assert "uses" not in step
         assert "python3" not in step["run"]
-        content = "VERSION" if name == "bump" else "successor"
+        content = "CLAUDIT_VERSION" if name == "bump" else "successor"
         assert f"printf '%s\\n' \"${content}\" > VERSION" in step["run"]
-        assert step["env"]["MASTER_PUSH_DEPLOY_KEY"] == (
+        assert step["env"]["CLAUDIT_MASTER_PUSH_DEPLOY_KEY"] == (
             "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}")
-        assert step["env"]["REPO"] == "${{ github.repository }}"
-        assert step["env"]["VERSION"] == "${{ inputs.version }}"
+        assert step["env"]["CLAUDIT_REPO"] == "${{ github.repository }}"
+        assert step["env"]["CLAUDIT_VERSION"] == "${{ inputs.version }}"
     checkouts = [step for job in jobs.values() for step in job["steps"]
                  if "uses" in step]
     assert len(checkouts) == 2
     assert "scripts/ci/release_dispatch.py decide" in _step(DECIDE)["run"]
     assert "scripts/ci/release_dispatch.py wait-release" in _step(WAIT)["run"]
-    assert '--repo "$REPO"' in _step(WAIT)["run"]
+    assert '--repo "$CLAUDIT_REPO"' in _step(WAIT)["run"]
     assert _step(WAIT)["env"] == {
-        "GH_TOKEN": "${{ github.token }}", "REPO": "${{ github.repository }}",
-        "SHA": "${{ needs.bump.outputs.sha }}",
+        "GH_TOKEN": "${{ github.token }}", "CLAUDIT_REPO": "${{ github.repository }}",
+        "CLAUDIT_SHA": "${{ needs.bump.outputs.sha }}",
     }
     assert _step(DECIDE)["env"] == {
-        "GH_TOKEN": "${{ github.token }}", "REPO": "${{ github.repository }}",
-        "VERSION": "${{ inputs.version }}",
+        "GH_TOKEN": "${{ github.token }}", "CLAUDIT_REPO": "${{ github.repository }}",
+        "CLAUDIT_VERSION": "${{ inputs.version }}",
     }
 
 
@@ -218,7 +218,7 @@ def test_validate_emits_exact_successor_or_refuses(tmp_path, version, expected):
     proc = _run_step(DECIDE, PROBE_STUB, {
         "STUB_CALLFILE": str(calls), "TAG_RC": "1", "RELEASE_RC": "1",
         "TAG_REPLY": "HTTP 404", "RELEASE_REPLY": "HTTP 404",
-        "VERSION": version, "GITHUB_OUTPUT": str(output),
+        "CLAUDIT_VERSION": version, "GITHUB_OUTPUT": str(output),
     })
     if expected is None:
         assert proc.returncode == 1
@@ -229,8 +229,8 @@ def test_validate_emits_exact_successor_or_refuses(tmp_path, version, expected):
         assert output.read_text(encoding="utf-8") == f"successor={expected}\n"
         remote, _ = _seed(tmp_path, version)
         env = _push_env(tmp_path, remote) | {
-            "VERSION": version,
-            "SUCCESSOR": output.read_text(encoding="utf-8").strip().split("=", 1)[1],
+            "CLAUDIT_VERSION": version,
+            "CLAUDIT_SUCCESSOR": output.read_text(encoding="utf-8").strip().split("=", 1)[1],
         }
         pushed = _run_step(SUCCESSOR, SSH_STUB, env, cwd=tmp_path)
         assert pushed.returncode == 0, pushed.stderr
@@ -344,7 +344,7 @@ def test_successor_requires_exact_release_bytes(tmp_path, content):
 @ubuntu_step_body
 def test_successor_requires_validate_output(tmp_path):
     remote, before = _seed(tmp_path, "9.9.9")
-    env = _push_env(tmp_path, remote) | {"SUCCESSOR": ""}
+    env = _push_env(tmp_path, remote) | {"CLAUDIT_SUCCESSOR": ""}
     proc = _run_step(SUCCESSOR, SSH_STUB, env, cwd=tmp_path)
     assert proc.returncode == 1
     assert "successor" in proc.stderr.lower()
@@ -426,8 +426,8 @@ fi
 @pytest.mark.parametrize("step", [BUMP, SUCCESSOR])
 def test_empty_key_refuses_before_git(tmp_path, step):
     remote, before = _seed(tmp_path)
-    env = _push_env(tmp_path, remote) | {"MASTER_PUSH_DEPLOY_KEY": ""}
+    env = _push_env(tmp_path, remote) | {"CLAUDIT_MASTER_PUSH_DEPLOY_KEY": ""}
     proc = _run_step(step, SSH_STUB, env, cwd=tmp_path)
     assert proc.returncode == 1
-    assert "MASTER_PUSH_DEPLOY_KEY is empty" in proc.stderr
+    assert "CLAUDIT_MASTER_PUSH_DEPLOY_KEY is empty" in proc.stderr
     assert _git(remote, "rev-parse", "master") == before

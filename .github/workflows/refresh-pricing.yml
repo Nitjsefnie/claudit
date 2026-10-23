@@ -110,7 +110,7 @@ jobs:
       - name: Fetch and append
         id: fetch
         env:
-          VENDOR_NAMESPACE: ${{ inputs.vendor }}
+          CLAUDIT_VENDOR_NAMESPACE: ${{ inputs.vendor }}
         # stdlib only: nothing is installed before the fetch, so beyond the
         # cached Postgres a quiet hour costs one checkout, one model-catalog
         # request, and two requests per tracked model. A refused host blocks
@@ -119,8 +119,8 @@ jobs:
         # code instead of failing, the moves are tested here and pushed by
         # the push job, and the verdict job turns the run red.
         run: |
-          if [ -n "$VENDOR_NAMESPACE" ]; then
-            python3 scripts/ci/track_vendor.py --namespace="$VENDOR_NAMESPACE" \
+          if [ -n "$CLAUDIT_VENDOR_NAMESPACE" ]; then
+            python3 scripts/ci/track_vendor.py --namespace="$CLAUDIT_VENDOR_NAMESPACE" \
               --commit-msg "$RUNNER_TEMP/commit-msg.txt" || exit 1
           fi
           rc=0
@@ -284,21 +284,21 @@ jobs:
 
       - name: Push the tested tree to master
         env:
-          MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
-          REPO: ${{ github.repository }}
+          CLAUDIT_MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
+          CLAUDIT_REPO: ${{ github.repository }}
         run: |
           # Fail closed when the environment is missing its secret: with no key
           # there is nothing to authenticate the push with, and the fallback must
           # never be a token.
-          if [ -z "${MASTER_PUSH_DEPLOY_KEY:-}" ]; then
-            echo "MASTER_PUSH_DEPLOY_KEY is empty: the master-push environment is missing its secret" >&2
+          if [ -z "${CLAUDIT_MASTER_PUSH_DEPLOY_KEY:-}" ]; then
+            echo "CLAUDIT_MASTER_PUSH_DEPLOY_KEY is empty: the master-push environment is missing its secret" >&2
             exit 1
           fi
           eval "$(ssh-agent -s)" >/dev/null
           # The agent is stopped when this step ends, whatever its outcome: the
           # key never outlives the step that loaded it.
           trap 'kill "$SSH_AGENT_PID" 2>/dev/null || true' EXIT
-          ssh-add <(printf '%s\n' "$MASTER_PUSH_DEPLOY_KEY") >/dev/null
+          ssh-add <(printf '%s\n' "$CLAUDIT_MASTER_PUSH_DEPLOY_KEY") >/dev/null
           mkdir -p ~/.ssh
           # GitHub SSH host keys, published by GitHub's Meta endpoint:
           # https://docs.github.com/en/rest/meta/meta#get-github-meta-information
@@ -307,7 +307,7 @@ jobs:
             'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
             >> ~/.ssh/known_hosts
           export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
-          remote="${PUSH_REMOTE:-git@github.com:${REPO}.git}"
+          remote="${CLAUDIT_PUSH_REMOTE:-git@github.com:${CLAUDIT_REPO}.git}"
           base="$(cat "$RUNNER_TEMP/push-data/base.txt")"
           fetched="$(git ls-remote "$remote" refs/heads/master | cut -f1)"
           if [ "$fetched" != "$base" ]; then
@@ -359,9 +359,9 @@ jobs:
     steps:
       - name: Fail on a refusal
         env:
-          FETCH_RC: ${{ needs.refresh.outputs.fetch_rc }}
+          CLAUDIT_FETCH_RC: ${{ needs.refresh.outputs.fetch_rc }}
         run: |
-          if [ -n "$FETCH_RC" ] && [ "$FETCH_RC" != "0" ]; then
-            echo "refresh_provider_rates exited $FETCH_RC on its fetch; the refresh job's step summary names each refused host." >&2
+          if [ -n "$CLAUDIT_FETCH_RC" ] && [ "$CLAUDIT_FETCH_RC" != "0" ]; then
+            echo "refresh_provider_rates exited $CLAUDIT_FETCH_RC on its fetch; the refresh job's step summary names each refused host." >&2
             exit 1
           fi

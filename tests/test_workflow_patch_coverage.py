@@ -323,8 +323,7 @@ class TestPostingSide:
 
     def test_the_destination_is_resolved_from_the_event(self):
         env = _step(_comment_job(), RESOLVE_STEP).get("env") or {}
-        assert "github.event.workflow_run.pull_requests" in str(
-            env.get("EVENT_PRS"))
+        assert env["CLAUDIT_EVENT_PRS"] == "${{ toJSON(github.event.workflow_run.pull_requests) }}"
         # Resolved BEFORE the download: the destination is settled while
         # nothing the pull request produced is on disk.
         names = _step_names(_comment_job())
@@ -333,7 +332,7 @@ class TestPostingSide:
     def test_the_artifact_claim_is_compared_not_obeyed(self):
         run = _step(_comment_job(), POST_STEP).get("run") or ""
         assert 'claimed="$(cat "$ART_DIR/pr-number.txt")"' in run
-        assert '[ "$claimed" != "$PR_NUMBER" ]' in run
+        assert '[ "$claimed" != "$CLAUDIT_PR_NUMBER" ]' in run
         # Digits only, and pinned to the FULL case line with the empty
         # arm: a bare `*[!0-9]*)` is satisfied by the sibling comment-id
         # guard further down this same step, so it would go green if the
@@ -380,7 +379,7 @@ class TestPostingSide:
         # Every address the API is given comes from the resolved EVENT,
         # never from a value the artifact supplied.
         env = step.get("env") or {}
-        assert env.get("PR_NUMBER") == "${{ steps.pr.outputs.number }}"
+        assert env.get("CLAUDIT_PR_NUMBER") == "${{ steps.pr.outputs.number }}"
         assert env.get("GH_TOKEN") == "${{ github.token }}"
         # Nothing the artifact holds is ever re-interpreted by the shell.
         # Comments are excluded: prose quotes backticks.
@@ -473,7 +472,7 @@ class TestCommentComposition:
     def test_post_step_composes_header_then_body_verbatim(
             self, tmp_path, variant):
         composed = self._compose(tmp_path, POST_STEP,
-                                 {"HEAD_COMMIT": self.SHA},
+                                 {"CLAUDIT_HEAD_COMMIT": self.SHA},
                                  body=BODIES[variant])
         assert composed == (
             f"{MARKER}\n\n"
@@ -486,8 +485,8 @@ class TestCommentComposition:
     def test_mark_step_states_the_not_measured_reason(
             self, tmp_path, conclusion):
         composed = self._compose(
-            tmp_path, MARK_STEP, {"RUN_CONCLUSION": conclusion},
-            start_anchor='case "${RUN_CONCLUSION:-}" in')
+            tmp_path, MARK_STEP, {"CLAUDIT_RUN_CONCLUSION": conclusion},
+            start_anchor='case "${CLAUDIT_RUN_CONCLUSION:-}" in')
         assert composed == (
             f"{MARKER}\n\n"
             f"Patch coverage was not measured: "

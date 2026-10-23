@@ -277,9 +277,9 @@ class TestPostStep:
             "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
             "FAKE_LOG": str(log),
             "FAKE_STATE": str(state_dir),
-            "REPO": "Nitjsefnie/claudit",
-            "PR_NUMBER": "763",
-            "HEAD_COMMIT": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f9e8d7c",
+            "CLAUDIT_REPO": "Nitjsefnie/claudit",
+            "CLAUDIT_PR_NUMBER": "763",
+            "CLAUDIT_HEAD_COMMIT": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f9e8d7c",
             "GH_TOKEN": "unused-by-the-fake",
             "RUNNER_TEMP": str(helper_path.parent),
         }

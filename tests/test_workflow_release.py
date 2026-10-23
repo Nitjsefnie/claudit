@@ -105,9 +105,9 @@ def _step_env_keys(step_name: str) -> set[str]:
 # expression is not evaluated; the harness substitutes the real shape of
 # what it denotes.
 DECLARED_VALUES = {
-    "SELF_JOB": "release",
-    "SELF_RUN_ID": SELF_RUN,
-    "SELF_WORKFLOW_REF": SELF_WORKFLOW_REF,
+    "CLAUDIT_SELF_JOB": "release",
+    "CLAUDIT_SELF_RUN_ID": SELF_RUN,
+    "CLAUDIT_SELF_WORKFLOW_REF": SELF_WORKFLOW_REF,
 }
 
 
@@ -119,9 +119,9 @@ def _run_step(body: str, stub: str, env: dict[str, str],
     full_env = {
         "PATH": os.environ["PATH"],
         "HOME": os.environ.get("HOME", ""),
-        "TAG": "v9.9.9",
-        "REPO": "Nitjsefnie/claudit",
-        "SHA": "0" * 40,
+        "CLAUDIT_TAG": "v9.9.9",
+        "CLAUDIT_REPO": "Nitjsefnie/claudit",
+        "CLAUDIT_SHA": "0" * 40,
         "GH_TOKEN": "stubbed",
         "RUNNER_TEMP": os.environ.get("RUNNER_TEMP", ""),
     }
@@ -412,8 +412,8 @@ def test_wait_refuses_a_non_tip_re_cut_without_the_workflow_ref(tmp_path):
                  _run("37138518000", head_sha=NON_TIP_SHA,
                       path=".github/workflows/release.yml"))
     env = {"STUB_CHECKS": checks, "STUB_RUNS": runs,
-           "RUNNER_TEMP": str(tmp_path), "SHA": NON_TIP_SHA,
-           "SELF_WORKFLOW_REF": ""}
+           "RUNNER_TEMP": str(tmp_path), "CLAUDIT_SHA": NON_TIP_SHA,
+           "CLAUDIT_SELF_WORKFLOW_REF": ""}
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB, env, timeout=30)
     assert proc.returncode == 1
     assert "Refusing to release" in proc.stderr
@@ -438,7 +438,7 @@ def test_wait_ignores_a_red_pr_gate_row_from_a_pull_request_target_run(
                       head_sha=TIP_SHA,
                       path=".github/workflows/pr-gate.yml"))
     env = {"STUB_CHECKS": checks, "STUB_RUNS": runs,
-           "SHA": TIP_SHA, "RUNNER_TEMP": str(tmp_path)}
+           "CLAUDIT_SHA": TIP_SHA, "RUNNER_TEMP": str(tmp_path)}
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB, env, timeout=30)
     assert proc.returncode == 0, proc.stderr
     assert PROCEEDING in proc.stdout
@@ -467,10 +467,10 @@ def test_wait_falls_back_to_the_listing_when_the_derived_path_is_not_under_workf
                       path=".github/workflows/release.yml"))
     env = {"STUB_CHECKS": checks, "STUB_RUNS": runs,
            "RUNNER_TEMP": str(tmp_path),
-           "REPO": "nitjsefnie/claudit",
-           "SELF_WORKFLOW_REF": "Nitjsefnie/claudit/"
-                                ".github/workflows/release.yml"
-                                "@refs/heads/master"}
+           "CLAUDIT_REPO": "nitjsefnie/claudit",
+           "CLAUDIT_SELF_WORKFLOW_REF": "Nitjsefnie/claudit/"
+                                        ".github/workflows/release.yml"
+                                        "@refs/heads/master"}
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB, env, timeout=30)
     assert proc.returncode == 0, proc.stderr
     assert PROCEEDING in proc.stdout
@@ -493,8 +493,8 @@ def test_wait_derives_its_own_path_from_the_workflow_ref(tmp_path):
         ["bash", "--noprofile", "--norc", "-c",
          "set -eo pipefail\n" + "\n".join(strips)
          + '\nprintf "%s\\n" "$self_path"'],
-        env={"REPO": "Nitjsefnie/claudit",
-             "SELF_WORKFLOW_REF": SELF_WORKFLOW_REF,
+        env={"CLAUDIT_REPO": "Nitjsefnie/claudit",
+             "CLAUDIT_SELF_WORKFLOW_REF": SELF_WORKFLOW_REF,
              "PATH": os.environ["PATH"]},
         capture_output=True, check=False, timeout=30, encoding="utf-8",
         errors="replace")
@@ -518,7 +518,7 @@ def test_wait_ignores_a_release_row_whose_own_run_is_stamped_with_the_tip(
                  _run("37138518000", head_sha=NON_TIP_SHA,
                       path=".github/workflows/release.yml"))
     env = {"STUB_CHECKS": checks, "STUB_RUNS": runs,
-           "RUNNER_TEMP": str(tmp_path), "SHA": NON_TIP_SHA}
+           "RUNNER_TEMP": str(tmp_path), "CLAUDIT_SHA": NON_TIP_SHA}
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB, env, timeout=30)
     assert proc.returncode == 0, proc.stderr
     assert PROCEEDING in proc.stdout
@@ -547,13 +547,13 @@ def test_the_wait_step_delegates_selection_to_the_selector():
     assert "scripts/ci/release_gate.py" in body
     assert "--jq" not in body
     assert "startswith(\"release\")" not in body
-    assert "actions/runs?head_sha=$SHA" in body
+    assert "actions/runs?head_sha=$CLAUDIT_SHA" in body
     # Both reads page at 100 alongside --paginate: correctness does not
     # depend on it (the flag follows the Link headers either way), so this
     # pins the smaller win — one request per read instead of one per thirty
     # check runs, on a poll that repeats until the gates finish.
     assert "check-runs?per_page=100" in body
-    assert "actions/runs?head_sha=$SHA&per_page=100" in body
+    assert "actions/runs?head_sha=$CLAUDIT_SHA&per_page=100" in body
     text = RELEASE.read_text(encoding="utf-8")
     assert '${{ github.job }}' in text
     assert '${{ github.run_id }}' in text
@@ -567,7 +567,7 @@ def test_the_wait_step_delegates_selection_to_the_selector():
     # progress row is excluded only by --self-run-id when its run is
     # unlisted, so dropping the flag from the step must fail
     # test_wait_proceeds_with_its_own_job_still_running.
-    assert '--self-run-id "$SELF_RUN_ID"' in body
+    assert '--self-run-id "$CLAUDIT_SELF_RUN_ID"' in body
 
 
 def test_the_selector_projection_carries_the_app_slug():

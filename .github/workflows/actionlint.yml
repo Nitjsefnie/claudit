@@ -14,7 +14,7 @@ name: actionlint
 # Both are pinned: actionlint by download checksum, zizmor through
 # requirements-zizmor.txt with --require-hashes. Dependabot watches that
 # manifest; inline run-block pins are invisible to it. The actionlint fork
-# supports `queue:` and `$/` (see ACTIONLINT_REPO). Its checksum protects
+# supports `queue:` and `$/`. Its checksum protects
 # against tampered downloads, not a compromised publisher: the same account
 # publishes both. Stock upstream has an independent publisher but lacks
 # these syntax extensions.
@@ -52,11 +52,11 @@ jobs:
       # removing `queue:` and reverting `$/` refs to `./`.
       # queue.2 rather than the fleet's queue.1: queue.1 predates the `$/`
       # parser support these workflows need. Downgrading would break the gate.
-      ACTIONLINT_REPO: Nitjsefnie-OSC/actionlint
-      ACTIONLINT_VERSION: 1.7.12-queue.2
+      CLAUDIT_ACTIONLINT_REPO: Nitjsefnie-OSC/actionlint
+      CLAUDIT_ACTIONLINT_VERSION: 1.7.12-queue.2
       # sha256 of actionlint_1.7.12-queue.2_linux_amd64.tar.gz, from the
       # release's own checksums file. Bump all three together.
-      ACTIONLINT_SHA256: 2895b2f0f5b4cff420a4a577d609f83d0d3bef256aeef480961e53be01a5a954
+      CLAUDIT_ACTIONLINT_SHA256: 2895b2f0f5b4cff420a4a577d609f83d0d3bef256aeef480961e53be01a5a954
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -89,10 +89,10 @@ jobs:
         # install script: `curl | bash` would make this job trust whatever
         # that URL serves at run time.
         run: |
-          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          tarball="actionlint_${CLAUDIT_ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           curl -fsSL --retry 3 -o "$tarball" \
-            "https://github.com/${ACTIONLINT_REPO}/releases/download/v${ACTIONLINT_VERSION}/${tarball}"
-          echo "${ACTIONLINT_SHA256}  ${tarball}" | sha256sum -c -
+            "https://github.com/${CLAUDIT_ACTIONLINT_REPO}/releases/download/v${CLAUDIT_ACTIONLINT_VERSION}/${tarball}"
+          echo "${CLAUDIT_ACTIONLINT_SHA256}  ${tarball}" | sha256sum -c -
           tar -xzf "$tarball" actionlint
           ./actionlint --version
 

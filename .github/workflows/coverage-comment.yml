@@ -140,8 +140,8 @@ jobs:
         id: artifact
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
+          CLAUDIT_REPO: ${{ github.repository }}
+          CLAUDIT_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
 
@@ -153,12 +153,12 @@ jobs:
           # `x="$(gh api ... | jq ...)"` the status is jq's, so a failed
           # API call would print `false` and be reported as "no artifact"
           # — the comment silently never appears and nothing goes red.
-          if ! api_retry "listing the artifacts of run $RUN_ID" -- \
+          if ! api_retry "listing the artifacts of run $CLAUDIT_RUN_ID" -- \
             gh api -H 'Cache-Control: no-cache' --paginate \
-            "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+            "repos/$CLAUDIT_REPO/actions/runs/$CLAUDIT_RUN_ID/artifacts" \
             --jq '.artifacts[]' > artifacts.json
           then
-            echo "listing the artifacts of run $RUN_ID failed" >&2
+            echo "listing the artifacts of run $CLAUDIT_RUN_ID failed" >&2
             exit 1
           fi
           # Collect every paginated object into one array before selecting.
@@ -179,9 +179,9 @@ jobs:
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          EVENT_PRS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+          CLAUDIT_REPO: ${{ github.repository }}
+          CLAUDIT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CLAUDIT_EVENT_PRS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
         run: |
           set -euo pipefail
 
@@ -190,7 +190,7 @@ jobs:
 
           # Deliberately BEFORE the download: the destination is settled
           # while nothing the pull request produced is on disk.
-          numbers="$(printf '%s' "$EVENT_PRS" \
+          numbers="$(printf '%s' "$CLAUDIT_EVENT_PRS" \
             | jq -r 'arrays | .[] | .number' | sort -u)"
           if [ -z "$numbers" ]; then
             # GitHub backfills `pull_requests` for a pull_request-triggered
@@ -198,12 +198,12 @@ jobs:
             # on. `head_sha` is the MERGE-ref commit, which lives in THIS
             # repository even for a fork, so the base repository is the one
             # to ask.
-            if ! api_retry "listing the pull requests for $HEAD_SHA" -- \
+            if ! api_retry "listing the pull requests for $CLAUDIT_HEAD_SHA" -- \
               gh api -H 'Cache-Control: no-cache' --paginate \
-              "repos/$REPO/commits/$HEAD_SHA/pulls" --jq '.[].number' \
+              "repos/$CLAUDIT_REPO/commits/$CLAUDIT_HEAD_SHA/pulls" --jq '.[].number' \
               > pulls.txt
             then
-              echo "listing the pull requests for $HEAD_SHA failed" >&2
+              echo "listing the pull requests for $CLAUDIT_HEAD_SHA failed" >&2
               exit 1
             fi
             numbers="$(sort -u pulls.txt)"
@@ -219,7 +219,7 @@ jobs:
             exit 0
           fi
           if [ "$count" -ne 1 ]; then
-            echo "expected one pull request for $HEAD_SHA, found $count" >&2
+            echo "expected one pull request for $CLAUDIT_HEAD_SHA, found $count" >&2
             printf '%s\n' "$numbers" >&2
             exit 1
           fi
@@ -232,7 +232,7 @@ jobs:
           if ! current_sha="$(api_retry \
             "reading the current head of pull request $numbers" -- \
             gh api -H 'Cache-Control: no-cache' \
-            "repos/$REPO/pulls/$numbers" --jq '.head.sha')"
+            "repos/$CLAUDIT_REPO/pulls/$numbers" --jq '.head.sha')"
           then
             echo "reading the current head of pull request $numbers" \
               "failed" >&2
@@ -248,7 +248,7 @@ jobs:
           # compared with `.head.sha` directly — doing so marks every run
           # stale and the comment never appears. The event's own copy of
           # the head commit is the comparable thing.
-          event_head="$(printf '%s' "$EVENT_PRS" \
+          event_head="$(printf '%s' "$CLAUDIT_EVENT_PRS" \
             | jq -r 'arrays | .[] | .head.sha' | sort -u)"
           case "$event_head" in
             '')
@@ -256,7 +256,7 @@ jobs:
               # compare. Rather than post a number with no freshness
               # proof, say what cannot be established and stop: a stale
               # coverage figure is worse than no comment.
-              echo 'cannot establish that run' "$HEAD_SHA" \
+              echo 'cannot establish that run' "$CLAUDIT_HEAD_SHA" \
                 'is this pull request'"'"'s current head; posting nothing'
               echo 'stale=true' >> "$GITHUB_OUTPUT"
               exit 0
@@ -267,7 +267,7 @@ jobs:
               ;;
           esac
           if [ "$event_head" != "$current_sha" ]; then
-            echo "run $HEAD_SHA is stale; current pull request head is" \
+            echo "run $CLAUDIT_HEAD_SHA is stale; current pull request head is" \
               "$current_sha"
             echo 'stale=true' >> "$GITHUB_OUTPUT"
             exit 0
@@ -286,34 +286,34 @@ jobs:
           && steps.pr.outputs.present != 'false'
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
-          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CLAUDIT_REPO: ${{ github.repository }}
+          CLAUDIT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CLAUDIT_PR_NUMBER: ${{ steps.pr.outputs.number }}
+          CLAUDIT_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           set -euo pipefail
 
           # The shared retry wraps both `gh api` calls below.
           . "$RUNNER_TEMP/api_retry.sh"
 
-          case "${RUN_CONCLUSION:-}" in
+          case "${CLAUDIT_RUN_CONCLUSION:-}" in
             success)
               reason='a narrowed run (documentation-only or rate-data-only)'
               ;;
             cancelled) reason='a cancelled ci gate run' ;;
-            *) reason="a ci gate run that concluded $RUN_CONCLUSION" ;;
+            *) reason="a ci gate run that concluded $CLAUDIT_RUN_CONCLUSION" ;;
           esac
           marker='<!-- claudit-diff-coverage -->'
           {
             printf '%s\n\n' "$marker"
             printf 'Patch coverage was not measured: %s.\n' "$reason"
           } > comment.md
-          if ! api_retry "listing the comments on $PR_NUMBER" -- \
+          if ! api_retry "listing the comments on $CLAUDIT_PR_NUMBER" -- \
             gh api -H 'Cache-Control: no-cache' --paginate \
-            "repos/$REPO/issues/$PR_NUMBER/comments" --jq '.[]' \
+            "repos/$CLAUDIT_REPO/issues/$CLAUDIT_PR_NUMBER/comments" --jq '.[]' \
             > comments.json
           then
-            echo "listing the comments on $PR_NUMBER failed" >&2
+            echo "listing the comments on $CLAUDIT_PR_NUMBER failed" >&2
             exit 1
           fi
           existing="$(
@@ -330,7 +330,7 @@ jobs:
               ;;
             *)
               if ! api_retry "marking the patch-coverage comment" -- \
-                gh api -X PATCH "repos/$REPO/issues/comments/$existing" \
+                gh api -X PATCH "repos/$CLAUDIT_REPO/issues/comments/$existing" \
                   -F body=@comment.md >/dev/null
               then
                 echo "marking the patch-coverage comment $existing" \
@@ -348,7 +348,7 @@ jobs:
           && steps.pr.outputs.present != 'false'
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
+          CLAUDIT_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           rm -rf "$RUNNER_TEMP/coverage-artifact"
@@ -365,7 +365,7 @@ jobs:
           fi
           api_retry "downloading the diff-coverage-comment artifact" -- \
             gh api -H 'Cache-Control: no-cache' \
-            "repos/$REPO/actions/artifacts/$id/zip" \
+            "repos/$CLAUDIT_REPO/actions/artifacts/$id/zip" \
             > "$RUNNER_TEMP/diff-coverage-comment.zip"
           unzip -p "$RUNNER_TEMP/diff-coverage-comment.zip" body.md \
             > "$RUNNER_TEMP/coverage-artifact/body.md"
@@ -379,9 +379,9 @@ jobs:
           && steps.pr.outputs.present != 'false'
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          HEAD_COMMIT: ${{ steps.pr.outputs.head_commit }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          CLAUDIT_REPO: ${{ github.repository }}
+          CLAUDIT_HEAD_COMMIT: ${{ steps.pr.outputs.head_commit }}
+          CLAUDIT_PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           set -euo pipefail
 
@@ -410,9 +410,9 @@ jobs:
               exit 1
               ;;
           esac
-          if [ "$claimed" != "$PR_NUMBER" ]; then
+          if [ "$claimed" != "$CLAUDIT_PR_NUMBER" ]; then
             echo "the artifact names pull request '$claimed' but the run" \
-              "belongs to '$PR_NUMBER'; refusing to post" >&2
+              "belongs to '$CLAUDIT_PR_NUMBER'; refusing to post" >&2
             exit 1
           fi
 
@@ -429,7 +429,7 @@ jobs:
           {
             printf '%s\n\n' "$marker"
             printf 'Patch coverage for commit %s, measured on the merge ref.\n\n' \
-              "$HEAD_COMMIT"
+              "$CLAUDIT_HEAD_COMMIT"
             cat "$ART_DIR/body.md"
           } > comment.md
 
@@ -444,12 +444,12 @@ jobs:
           attempts=3
           attempt=1
           while :; do
-            if ! api_retry "listing the comments on $PR_NUMBER" -- \
+            if ! api_retry "listing the comments on $CLAUDIT_PR_NUMBER" -- \
               gh api -H 'Cache-Control: no-cache' --paginate \
-              "repos/$REPO/issues/$PR_NUMBER/comments" --jq '.[]' \
+              "repos/$CLAUDIT_REPO/issues/$CLAUDIT_PR_NUMBER/comments" --jq '.[]' \
               > comments.json
             then
-              echo "listing the comments on $PR_NUMBER failed" >&2
+              echo "listing the comments on $CLAUDIT_PR_NUMBER failed" >&2
               exit 1
             fi
             # Slurped, so pagination cannot yield one id per page, and the
@@ -468,7 +468,7 @@ jobs:
             esac
             if [ -n "$existing" ]; then
               if ! api_retry "updating patch-coverage comment $existing" -- \
-                gh api -X PATCH "repos/$REPO/issues/comments/$existing" \
+                gh api -X PATCH "repos/$CLAUDIT_REPO/issues/comments/$existing" \
                   -F body=@comment.md >/dev/null
               then
                 echo "updating patch-coverage comment $existing failed" >&2
@@ -477,7 +477,7 @@ jobs:
               echo "updated patch-coverage comment $existing"
               exit 0
             fi
-            if ! gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
+            if ! gh api -X POST "repos/$CLAUDIT_REPO/issues/$CLAUDIT_PR_NUMBER/comments" \
               -F body=@comment.md >/dev/null
             then
               echo "posting the patch-coverage comment failed" \

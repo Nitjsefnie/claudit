@@ -92,8 +92,8 @@ jobs:
         if: steps.version.outputs.prerelease == ''
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          REPO: ${{ github.repository }}
+          CLAUDIT_TAG: ${{ steps.version.outputs.tag }}
+          CLAUDIT_REPO: ${{ github.repository }}
         # A bump to a version that already exists means either a mistaken
         # edit or a rerun after a partial failure. Both want a human, and
         # both are silent if this step is a no-op instead of an error.
@@ -113,41 +113,41 @@ jobs:
         # `gh release view` for the uniform `HTTP 404` error text — it is
         # the same endpoint underneath.
         run: |
-          if tag_probe="$(gh api "repos/$REPO/git/ref/tags/$TAG" 2>&1)"; then
-            echo "Tag $TAG already exists — VERSION was set to a" >&2
+          if tag_probe="$(gh api "repos/$CLAUDIT_REPO/git/ref/tags/$CLAUDIT_TAG" 2>&1)"; then
+            echo "Tag $CLAUDIT_TAG already exists — VERSION was set to a" >&2
             echo "version that has already been tagged. Bump it" >&2
             echo "further; the tag itself cannot be deleted." >&2
             exit 1
           elif echo "$tag_probe" | grep -q 'HTTP 404'; then
             : # tag absent — the only trustworthy "not published" answer
           else
-            echo "could not verify the tag probe for $TAG — failing closed" >&2
+            echo "could not verify the tag probe for $CLAUDIT_TAG — failing closed" >&2
             exit 1
           fi
 
-          if release_probe="$(gh api "repos/$REPO/releases/tags/$TAG" 2>&1)"; then
-            echo "Release $TAG already exists — VERSION was set to a" >&2
+          if release_probe="$(gh api "repos/$CLAUDIT_REPO/releases/tags/$CLAUDIT_TAG" 2>&1)"; then
+            echo "Release $CLAUDIT_TAG already exists — VERSION was set to a" >&2
             echo "version that has already shipped. Bump it further, or" >&2
             echo "delete that release if it was cut in error." >&2
             exit 1
           elif echo "$release_probe" | grep -q 'HTTP 404'; then
             : # release absent — same rule as the tag probe
           else
-            echo "could not verify the release probe for $TAG — failing closed" >&2
+            echo "could not verify the release probe for $CLAUDIT_TAG — failing closed" >&2
             exit 1
           fi
 
-          echo "$TAG is free"
+          echo "$CLAUDIT_TAG is free"
 
       - name: Wait for the other gates on this commit
         if: steps.version.outputs.prerelease == ''
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ inputs.sha || github.sha }}
-          REPO: ${{ github.repository }}
-          SELF_JOB: ${{ github.job }}
-          SELF_RUN_ID: ${{ github.run_id }}
-          SELF_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CLAUDIT_SHA: ${{ inputs.sha || github.sha }}
+          CLAUDIT_REPO: ${{ github.repository }}
+          CLAUDIT_SELF_JOB: ${{ github.job }}
+          CLAUDIT_SELF_RUN_ID: ${{ github.run_id }}
+          CLAUDIT_SELF_WORKFLOW_REF: ${{ github.workflow_ref }}
         # WHICH checks is scripts/ci/release_gate.py's whole subject, and
         # it reads the workflow run that PRODUCED each check rather than
         # the check's name — a name is not identity, and an issue_comment run
@@ -180,9 +180,9 @@ jobs:
           # re-cut of a non-tip commit is absent from a listing filtered by
           # head SHA — and without its path the selector would judge the
           # earlier release run's row on that commit and refuse forever.
-          self_path="${SELF_WORKFLOW_REF#"$REPO"/}"
+          self_path="${CLAUDIT_SELF_WORKFLOW_REF#"$CLAUDIT_REPO"/}"
           self_path="${self_path%%@*}"
-          # A repo whose case differs from REPO's leaves the prefix behind,
+          # A repo with differing case leaves the prefix behind,
           # and anything that is not a path under .github/workflows/ is not
           # this workflow's file. Hand the selector an EMPTY path there, so
           # it falls back to the runs listing rather than excluding nothing
@@ -194,11 +194,11 @@ jobs:
           deadline=$(( SECONDS + ${RELEASE_WAIT_SECONDS:-2700} ))
           while [ "$SECONDS" -lt "$deadline" ]; do
             gh api --paginate -H "Cache-Control: no-cache" \
-              "repos/$REPO/commits/$SHA/check-runs?per_page=100" > "$RUNNER_TEMP/checks.json"
+              "repos/$CLAUDIT_REPO/commits/$CLAUDIT_SHA/check-runs?per_page=100" > "$RUNNER_TEMP/checks.json"
             gh api --paginate -H "Cache-Control: no-cache" \
-              "repos/$REPO/actions/runs?head_sha=$SHA&per_page=100" > "$RUNNER_TEMP/runs.json"
+              "repos/$CLAUDIT_REPO/actions/runs?head_sha=$CLAUDIT_SHA&per_page=100" > "$RUNNER_TEMP/runs.json"
             runs="$(python3 scripts/ci/release_gate.py \
-              --sha "$SHA" --self-job "$SELF_JOB" --self-run-id "$SELF_RUN_ID" \
+              --sha "$CLAUDIT_SHA" --self-job "$CLAUDIT_SELF_JOB" --self-run-id "$CLAUDIT_SELF_RUN_ID" \
               --self-path "$self_path" \
               --checks "$RUNNER_TEMP/checks.json" --runs "$RUNNER_TEMP/runs.json")"
 
@@ -243,26 +243,26 @@ jobs:
             echo "Every check passed — proceeding."
             exit 0
           done
-          echo "Timed out waiting for checks on $SHA" >&2
+          echo "Timed out waiting for checks on $CLAUDIT_SHA" >&2
           exit 1
 
       - name: Create the release
         if: steps.version.outputs.prerelease == ''
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          SHA: ${{ inputs.sha || github.sha }}
+          CLAUDIT_TAG: ${{ steps.version.outputs.tag }}
+          CLAUDIT_SHA: ${{ inputs.sha || github.sha }}
         # --generate-notes builds the changelog from the commits since the
         # previous release, so the release body stays honest without anyone
         # maintaining a CHANGELOG by hand.
         run: |
-          gh release create "$TAG" \
-            --target "$SHA" \
-            --title "$TAG" \
+          gh release create "$CLAUDIT_TAG" \
+            --target "$CLAUDIT_SHA" \
+            --title "$CLAUDIT_TAG" \
             --generate-notes
-          echo "Released $TAG at $SHA"
+          echo "Released $CLAUDIT_TAG at $CLAUDIT_SHA"
           {
-            echo "### Released [\`$TAG\`](https://github.com/${{ github.repository }}/releases/tag/$TAG)"
+            echo "### Released [\`$CLAUDIT_TAG\`](https://github.com/${{ github.repository }}/releases/tag/$CLAUDIT_TAG)"
             echo
-            echo "Commit \`$SHA\`, after every check on it passed."
+            echo "Commit \`$CLAUDIT_SHA\`, after every check on it passed."
           } >> "$GITHUB_STEP_SUMMARY"

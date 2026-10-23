@@ -77,20 +77,20 @@ def test_cached_base_image_is_the_dockerfiles_from_reference():
     assert len(froms) == 1 and len(froms[0]) == 1
     steps = _steps()
     base = next(step for step in steps if step.get("id") == "base")
-    reference = base["env"]["BASE_IMAGE"]
+    reference = base["env"]["CLAUDIT_BASE_IMAGE"]
     assert reference == froms[0][0]
-    assert base["env"]["BASE_FALLBACK_IMAGE"] == (
+    assert base["env"]["CLAUDIT_BASE_FALLBACK_IMAGE"] == (
         "mirror.gcr.io/library/" + reference.rpartition("/library/")[2])
     cached = next(step for step in steps if step.get("uses") == CACHED)["with"]
     assert cached["ref"] == cached["tag"] == "${{ steps.base.outputs.ref }}"
     assert cached["fallback-ref"] == "${{ steps.base.outputs.fallback }}"
     assert cached["key"] == "${{ steps.base.outputs.key }}"
-    assert 'echo "ref=${BASE_IMAGE}"' in base["run"]
+    assert 'echo "ref=${CLAUDIT_BASE_IMAGE}"' in base["run"]
     assert re.findall(r'(?m)^ *echo "(fallback=[^"]*)"$', base["run"]) == [
-        "fallback=${BASE_FALLBACK_IMAGE}"]
+        "fallback=${CLAUDIT_BASE_FALLBACK_IMAGE}"]
     # A weekly bucket bounds how stale a cached tag-pinned base can get.
     assert "week=\"$(date -u +%G-W%V)\"" in base["run"]
-    assert ("key=python-base-${RUNNER_OS}-${RUNNER_ARCH}-${BASE_IMAGE}-${week}"
+    assert ("key=python-base-${RUNNER_OS}-${RUNNER_ARCH}-${CLAUDIT_BASE_IMAGE}-${week}"
             in base["run"])
     # One job restores both archives; one path would let a save overwrite
     # the other image's archive and share its cache version.
@@ -103,8 +103,8 @@ def test_base_guard_rejects_a_dockerfile_that_names_another_base():
     base = next(step for step in _steps() if step.get("id") == "base")
     guard = (
         "if [ \"$(grep -c '^FROM ' Dockerfile)\" != 1 ] || "
-        "! grep -Fxq \"FROM $BASE_IMAGE\" Dockerfile; then\n"
-        "  echo \"::error::Dockerfile's FROM is not $BASE_IMAGE; "
+        "! grep -Fxq \"FROM $CLAUDIT_BASE_IMAGE\" Dockerfile; then\n"
+        "  echo \"::error::Dockerfile's FROM is not $CLAUDIT_BASE_IMAGE; "
         "update docker-smoke.yml with it\"\n"
         "  exit 1\n"
         "fi\n")
