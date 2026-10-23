@@ -5,7 +5,7 @@ name: pr gate
 # template at the PR's base SHA and runs no pull-request code; the body
 # reaches it through the API, never through an expression.
 #
-# Nitjsefnie-Actions/pr-gate v2.2.0 checks commit attribution below. It
+# Nitjsefnie-Actions/pr-gate v2.3.0 checks commit attribution below. It
 # closes PRs carrying commits whose author or committer is unrelated to
 # the PR author, web-flow, write-or-above accounts, or a co-author of
 # the PR author. With github.token, a 403 reading collaborator permissions
@@ -56,7 +56,7 @@ jobs:
       # content line is scalar text, not a comment, and lands in the `uses:`
       # value. The version is named in the header instead.
       - uses: >-
-          Nitjsefnie-Actions/pr-gate@41575a0c00bdd4d37dbffe9f0f83ad99b20c808e
+          Nitjsefnie-Actions/pr-gate@6f3222bfc9c61baa3961d49c98dd3c949d0b5079
         with:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
