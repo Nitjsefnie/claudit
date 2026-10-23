@@ -150,9 +150,9 @@ def test_ratchet_reads_job_outputs_and_stages_the_tested_tip():
         "&& needs.suite-bench.result == 'success' }}")
     ratchet, = [step for step in _steps(job) if step.get("id") == "ratchet"]
     assert ratchet["env"] == {
-        "JS_MEASURED": "${{ needs.js-coverage.outputs.js_measured }}",
-        "PY_MEASURED": "${{ needs.coverage-combine.outputs.python_measured }}"}
-    assert 'measured="$PY_MEASURED"' in _run_lines(ratchet)
+        "CLAUDIT_JS_MEASURED": "${{ needs.js-coverage.outputs.js_measured }}",
+        "CLAUDIT_PY_MEASURED": "${{ needs.coverage-combine.outputs.python_measured }}"}
+    assert 'measured="$CLAUDIT_PY_MEASURED"' in _run_lines(ratchet)
     assert "coverage report" not in ratchet["run"]
     steps = _steps(job)
     node, = [step for step in steps if step.get("uses", "").startswith("actions/setup-node@")]

@@ -184,8 +184,8 @@ class TestComputeSide:
         assert 'git diff "$base" HEAD --' in run
         resolver = _step(job, "Resolve the threshold base")
         assert "if" not in resolver
-        assert resolver.get("env", {}).get("EVENT") == "${{ github.event_name }}"
-        assert resolver.get("env", {}).get("BASE_REF") == (
+        assert resolver.get("env", {}).get("CLAUDIT_EVENT") == "${{ github.event_name }}"
+        assert resolver.get("env", {}).get("CLAUDIT_BASE_REF") == (
             "${{ github.event.pull_request.base.ref }}")
         names = _step_names(job)
         assert names.index("Resolve the threshold base") < names.index(COMPUTE_STEP)

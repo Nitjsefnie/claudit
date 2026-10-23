@@ -79,10 +79,10 @@ jobs:
       - name: Resolve the threshold base
         uses: $/.github/actions/thresholds-base
         env:
-          REPO: ${{ github.repository }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          CLAUDIT_REPO: ${{ github.repository }}
+          CLAUDIT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          CLAUDIT_EVENT: ${{ github.event_name }}
+          CLAUDIT_BEFORE: ${{ github.event.before }}
 
       # Restore only: schedule/dispatch cannot write the shared pip cache.
       - name: Restore the pip cache
@@ -121,11 +121,11 @@ jobs:
       - name: Perturb and test, per wall-clock seed
         env:
           CLAUDIT_PERTURBED_DATA: "1"
-          SEED_BASE: ${{ needs.seeds.outputs.seed-base }}
+          CLAUDIT_SEED_BASE: ${{ needs.seeds.outputs.seed-base }}
         # One wall-clock draw from the seeds job per run; each seed-index
         # adds its offset, shared by all four shards.
         run: |
-          SEED="$((SEED_BASE + ${{ matrix.seed-index }}))"
+          SEED="$((CLAUDIT_SEED_BASE + ${{ matrix.seed-index }}))"
           echo "::notice::perturbed-suite seed=$SEED shard=${{ matrix.shard }}"
           git checkout -- src/pricing.json backend/constants.py \
             backend/parser_version.py

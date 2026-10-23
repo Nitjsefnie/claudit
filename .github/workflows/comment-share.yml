@@ -53,9 +53,9 @@ jobs:
         id: stage
         if: github.event_name == 'push'
         env:
-          BASE_SHA: ${{ github.sha }}
+          CLAUDIT_BASE_SHA: ${{ github.sha }}
         run: |
-          if [ "$(git rev-parse HEAD)" != "$BASE_SHA" ]; then
+          if [ "$(git rev-parse HEAD)" != "$CLAUDIT_BASE_SHA" ]; then
             echo 'Checkout does not match the measured run head' >&2
             exit 1
           fi
