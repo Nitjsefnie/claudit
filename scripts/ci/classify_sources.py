@@ -11,12 +11,14 @@ VERSION = re.compile(rb'''PRICING_VERSION\s*=\s*(['"])([0-9]+)\1\s*''')
 # A ci-gate leg reads: tracked .py files (lint), CodeQL's Python and
 # JS/TS extension set, action.yml/action.yaml anywhere (zizmor), and
 # the shipped unit file. Only files no leg reads narrow as docs-only.
-LEG_READ_SUFFIXES = frozenset({'.py', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx'})
+LEG_READ_SUFFIXES = frozenset({'.py', '.js', '.jsx', '.mjs', '.cjs', '.es6',
+                               '.es', '.xsjs', '.xsjslib', '.ts', '.tsx',
+                               '.mts', '.cts'})
 
 
 def leg_reads(path: str) -> bool:
     """Whether a ci-gate leg reads `path`, so the change runs full gates."""
-    return (Path(path).suffix in LEG_READ_SUFFIXES
+    return (Path(path).suffix.lower() in LEG_READ_SUFFIXES
             or Path(path).name in ('action.yml', 'action.yaml')
             or path == 'examples/claudit.service')
 
