@@ -6,7 +6,8 @@ runs:
   steps:
     - name: Resolve the threshold base
       shell: bash
-      run: |
+      # base is a local git SHA from this repo's refs
+      run: |  # zizmor: ignore[github-env]
         base=
         case "$CLAUDIT_EVENT" in
           pull_request)
