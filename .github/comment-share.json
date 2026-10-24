@@ -1131,10 +1131,6 @@
     3920,
     19507
   ],
-  "tests/test_ci_workflows.py": [
-    5091,
-    24421
-  ],
   "tests/test_classic_script_scope.py": [
     2527,
     7305
@@ -1408,8 +1404,8 @@
     25461
   ],
   "tests/test_panel_layout_js.py": [
-    6510,
-    23195
+    4537,
+    21193
   ],
   "tests/test_panel_layout_rules_js.py": [
     6200,
@@ -1671,10 +1667,6 @@
     3615,
     16066
   ],
-  "tests/test_secrets_workflow.py": [
-    1215,
-    5262
-  ],
   "tests/test_security_headers.py": [
     2819,
     9611
@@ -1824,8 +1816,8 @@
     23762
   ],
   "tests/test_workflow_scorecard.py": [
-    4632,
-    13896
+    2796,
+    11588
   ],
   "tests/version_literal_guard.py": [
     5085,
