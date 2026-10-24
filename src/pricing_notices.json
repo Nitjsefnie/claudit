@@ -127,6 +127,9 @@
     "kimi-k3 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
     "kimi-k3 via Wafer: rule-resolved (data region): the global data region leaves 'wafer'; dropped 'wafer/us'",
     "kimi-k3-1-pro via Moonshot AI: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
+    "listed-pricing log unavailable for glm-5-3-flashx: HTTP Error 408: Request Timeout; its hosts were sampled",
+    "listed-pricing log unavailable for gpt-3-5-turbo-instruct: HTTP Error 408: Request Timeout; its hosts were sampled",
+    "listed-pricing log unavailable for gpt-5-6-terra-pro: HTTP Error 408: Request Timeout; its hosts were sampled",
     "minimax-m2-1 via Minimax: rule-resolved (unique quantization): took the fp8 endpoint 'minimax/fp8' over service tiers",
     "minimax-m2-5 via Minimax: rule-resolved (unique quantization): took the fp8 endpoint 'minimax/fp8' over service tiers",
     "minimax-m2-7 via Minimax: rule-resolved (unique quantization): took the fp8 endpoint 'minimax/fp8' over service tiers",
@@ -360,6 +363,12 @@
       "InferenceNet": "2 endpoints at one current price",
       "Sail Research": "2 endpoints at one current price"
     },
+    "glm-5-3-flashx": {
+      "Z.AI": "HTTP Error 408: Request Timeout"
+    },
+    "gpt-3-5-turbo-instruct": {
+      "OpenAI": "HTTP Error 408: Request Timeout"
+    },
     "gpt-5-4": {
       "Azure": "long-context band",
       "OpenAI": "long-context band"
@@ -396,8 +405,8 @@
       "OpenAI": "long-context band"
     },
     "gpt-5-6-terra-pro": {
-      "Azure": "long-context band",
-      "OpenAI": "long-context band"
+      "Azure": "HTTP Error 408: Request Timeout",
+      "OpenAI": "HTTP Error 408: Request Timeout"
     },
     "gpt-6-1-sol": {
       "Azure": "long-context band",
