@@ -9,7 +9,7 @@ outputs:
 # The Postgres digest's one CI home is the FROM line of the Dockerfile
 # beside this file; Dependabot's docker entry updates it. The Postgres
 # action starts it for the five database workflows; docker-smoke runs it as
-# compose's db service. compose.yaml carries the same digest for local use.
+# compose's db service. compose.yaml builds this directory locally.
 # The digest stays reviewed because ratchet-push publishes its measurements.
 # A warm cache avoids anonymous registry pull limits.
 # A cold miss retries ECR, then Google's mirror at the same digest, so an

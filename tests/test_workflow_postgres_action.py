@@ -71,7 +71,7 @@ def test_js_coverage_keeps_postgres_for_transitive_db_fixtures():
         "PGUSER": "postgres", "PGPASSWORD": "postgres"}
 
 
-def test_image_digest_matches_compose_and_keys_both_cache_operations():
+def test_compose_builds_the_pinned_dockerfile_and_keys_both_cache_operations():
     steps = _load(IMAGE_ACTION)["runs"]["steps"]
     cached = _cached_step()["with"]
     producer_ids = {producer for producer, _ in output_references(cached["ref"], steps)}
