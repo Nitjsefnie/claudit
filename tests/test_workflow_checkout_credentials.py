@@ -5,6 +5,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.workflow_checks import is_checkout
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -19,7 +21,7 @@ def test_every_checkout_drops_credentials():
         groups.append(doc.get("runs", {}).get("steps", []))
         for steps in groups:
             for step in steps:
-                if step.get("uses", "").partition("@")[0] == "actions/checkout":
+                if is_checkout(step):
                     checkouts.append((str(path.relative_to(ROOT)), step))
     assert checkouts, "no checkout steps found"
     for path, step in checkouts:

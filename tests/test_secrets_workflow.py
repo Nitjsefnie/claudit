@@ -8,6 +8,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.workflow_checks import is_checkout
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "secrets.yml"
 CONFIG = ROOT / ".gitleaks.toml"
@@ -84,8 +86,7 @@ def test_history_scan_runs_after_checkout():
             if re.search(r"(?:^|\s)(?:\./)?gitleaks\s+(?:detect|git)\b",
                          step.get("run", "")):
                 scans.append(step)
-                assert any(previous.get("uses", "").partition("@")[0]
-                           == "actions/checkout" for previous in steps[:index])
+                assert any(is_checkout(previous) for previous in steps[:index])
     assert scans, "no Git history scan step found"
 
 

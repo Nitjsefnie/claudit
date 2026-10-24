@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import shlex
+from collections.abc import Iterator
 from pathlib import Path
 
 import yaml
@@ -18,10 +19,40 @@ def load_workflow(path: Path) -> dict:
     return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
+def is_checkout(step: dict) -> bool:
+    """Shared checkout identification for workflow controls."""
+    return step.get("uses", "").partition("@")[0] == "actions/checkout"
+
+
+def _expression_bodies(value: str) -> Iterator[tuple[int, str]]:
+    """Yield body offsets and text, respecting quoted expression delimiters."""
+    offset = 0
+    while offset < len(value):
+        opening = value.find("${{", offset)
+        if opening < 0:
+            return
+        start = opening + 3
+        cursor = start
+        quoted = False
+        while cursor < len(value):
+            if value[cursor] == "'":
+                if quoted and value.startswith("''", cursor):
+                    cursor += 2
+                    continue
+                quoted = not quoted
+            elif not quoted and value.startswith("}}", cursor):
+                break
+            cursor += 1
+        else:
+            return
+        yield start, value[start:cursor]
+        offset = cursor + 2
+
+
 def references(value: str, context: str) -> set[tuple[str, ...]]:
     """Static dot/index references inside expressions, excluding string literals."""
     found = set()
-    for expression in re.findall(r"\$\{\{((?:'(?:[^']|'')*'|[^'])*?)\}\}", value, re.S):
+    for _, expression in _expression_bodies(value):
         tokens = [(match.lastgroup, match[0][1:-1].replace("''", "'"))
                   if match.lastgroup == "string" else (match.lastgroup, match[0])
                   for match in _TOKEN.finditer(expression)]
@@ -50,8 +81,8 @@ def references(value: str, context: str) -> set[tuple[str, ...]]:
 def rename_references(value: str, context: str, names: dict[str, str]) -> str:
     """Rename first lookup keys inside expressions, retaining all other text."""
     changes = []
-    for expression in re.finditer(r"\$\{\{((?:'(?:[^']|'')*'|[^'])*?)\}\}", value, re.S):
-        tokens = list(_TOKEN.finditer(expression[1]))
+    for offset, expression in _expression_bodies(value):
+        tokens = list(_TOKEN.finditer(expression))
         for index, token in enumerate(tokens):
             if (token.lastgroup != "name" or token[0] != context
                     or (index and tokens[index - 1][0] == ".")
@@ -67,8 +98,7 @@ def rename_references(value: str, context: str, names: dict[str, str]) -> str:
                 continue
             if name in names:
                 replacement = "['" + names[name].replace("'", "''") + "']"
-                changes.append((expression.start(1) + start.start(),
-                                expression.start(1) + end, replacement))
+                changes.append((offset + start.start(), offset + end, replacement))
     for start, end, replacement in reversed(changes):
         value = value[:start] + replacement + value[end:]
     return value

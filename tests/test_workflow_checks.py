@@ -14,6 +14,9 @@ from tests.workflow_checks import load_workflow, references, rename_references, 
 
 @pytest.mark.parametrize("value, expected", [
     ("${{ matrix.language }}", {("language",)}),
+    ("${{ matrix.language }} + ${{ matrix['build-mode'] }}", {("language",), ("build-mode",)}),
+    ("${{ matrix.language", set()),
+    ("${{ 'matrix.language }}", set()),
     ("${{ format('{1}', '}}', matrix.language) }}", {("language",)}),
     ("${{ format('{1}', 'it''s }}', matrix.language) }}", {("language",)}),
     ("${{ '}}' }} ${{ matrix.language }}", {("language",)}),
@@ -194,3 +197,10 @@ def test_coordinated_rename_fixtures_accept_index_notation(surface, tmp_path, mo
 ])
 def test_reference_renames_preserve_surrounding_expression_text(value, context, names, expected):
     assert rename_references(value, context, names) == expected
+
+
+@pytest.mark.parametrize("body", ["a''" * 2000, "${{" * 2000])
+def test_unterminated_repetitive_expressions_are_ignored(body):
+    value = "${{ '" + body
+    assert references(value, "matrix") == set()
+    assert rename_references(value, "matrix", {"language": "renamed"}) == value
