@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from tests.workflow_checks import assert_apt_sanitizer
+from tests.workflow_checks import assert_apt_sanitizer, dockerfile_from_reference
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -177,12 +177,10 @@ def test_composite_commands_are_announced_and_failures_remain_visible():
 
 
 def test_client_major_matches_postgres_container_major():
-    image = _load(ROOT / ".github/actions/postgres-image/action.yml")
-    repositories = [step.get("env", {}).get("CLAUDIT_POSTGRES_REPOSITORY", "")
-                    for step in image["runs"]["steps"]]
-    majors = [match[1] for repository in repositories
-              if (match := re.search(r"/postgres:(\d+)$", repository))]
-    assert len(majors) == 1
+    reference = dockerfile_from_reference(
+        ROOT / ".github/actions/postgres-image/Dockerfile")
+    match = re.search(r"/postgres:(\d+)(?:\.|@)", reference)
+    assert match, reference
     for _, _, step in _client_steps():
         package = step.get("with", {}).get("packages", "")
-        assert package == f"postgresql-client-{majors[0]}"
+        assert package == f"postgresql-client-{match[1]}"

@@ -108,7 +108,7 @@ def test_base_check_accepts_a_coordinated_producer_rename(monkeypatch):
 def test_postgres_check_accepts_a_coordinated_producer_rename(tmp_path, monkeypatch):
     action = load_workflow(pg_checks.IMAGE_ACTION)
     producer = next(step for step in action["runs"]["steps"]
-                    if "CLAUDIT_POSTGRES_DIGEST" in step.get("env", {}))
+                    if "CLAUDIT_POSTGRES_DIGEST=" in step.get("run", ""))
     old_id = producer["id"]
     producer["id"] = old_id + "_renamed"
     action = _rename_fixture(action, "steps", {old_id: producer["id"]})
