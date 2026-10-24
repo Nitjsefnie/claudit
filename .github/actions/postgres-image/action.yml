@@ -12,7 +12,7 @@ outputs:
 # compose's db service. compose.yaml builds this directory locally.
 # The digest stays reviewed because ratchet-push publishes its measurements.
 # A warm cache avoids anonymous registry pull limits.
-# A cold miss retries ECR, then Google's mirror at the same digest, so an
+# A cold miss retries Google's mirror, then ECR at the same digest, so an
 # ECR limit does not prevent warming the cache. The cache mechanism itself
 # is cached-image's.
 # refresh-pricing runs hourly on master (its job refuses other refs and its
@@ -42,7 +42,7 @@ runs:
           exit 1
         fi
         CLAUDIT_POSTGRES_REPOSITORY="$repository"
-        CLAUDIT_POSTGRES_FALLBACK_REPOSITORY="mirror.gcr.io/library/postgres"
+        CLAUDIT_POSTGRES_FALLBACK_REPOSITORY="public.ecr.aws/docker/library/postgres"
         CLAUDIT_POSTGRES_DIGEST="$digest"
         {
           echo "ref=${CLAUDIT_POSTGRES_REPOSITORY}@${CLAUDIT_POSTGRES_DIGEST}"

@@ -225,7 +225,7 @@ def _service_images() -> list[tuple[str, str]]:
     return found
 
 
-POSTGRES_MIRROR = "public.ecr.aws/docker/library/postgres:"
+POSTGRES_PRIMARY = "mirror.gcr.io/library/postgres:"
 
 
 def test_every_postgres_job_uses_the_cached_action() -> None:
@@ -244,11 +244,11 @@ def test_every_postgres_job_uses_the_cached_action() -> None:
         "smoke.yml", "refresh-pricing.yml"]), callers
 
 
-def test_postgres_action_uses_the_public_ecr_mirror() -> None:
-    """The shared miss path retains the public ECR mirror."""
+def test_postgres_action_uses_the_gcr_mirror_primary() -> None:
+    """The pinned primary reference is the Google mirror; public ECR falls back."""
     reference = dockerfile_from_reference(
         REPO_ROOT / ".github/actions/postgres-image/Dockerfile")
-    assert reference.startswith(POSTGRES_MIRROR)
+    assert reference.startswith(POSTGRES_PRIMARY)
 
 
 def test_codeql_matrix_analyses_the_workflows() -> None:
