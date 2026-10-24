@@ -18,7 +18,7 @@ apscheduler==3.11.3
 python-multipart==0.0.32
 pytest==9.1.1
 pytest-asyncio==1.4.0
-httpx2==2.13.1
+httpx2==2.16.0
 # Transitive floors (issue #938): urllib3 arrives under botocore and
 # anyio under starlette/httpx, so audit.yml's pip-audit and Dependabot
 # see neither unless THIS file names them — which is how both shipped
