@@ -152,7 +152,7 @@ def test_start_uses_the_saved_local_tag_without_a_pull():
 def test_fallback_uses_the_primary_digest_and_is_tried_second():
     image = _step(IMAGE_ACTION, id="image")
     acquire = _step(CACHED_ACTION, id="acquire")
-    assert ('CLAUDIT_POSTGRES_FALLBACK_REPOSITORY="mirror.gcr.io/library/postgres"'
+    assert ('CLAUDIT_POSTGRES_FALLBACK_REPOSITORY="public.ecr.aws/docker/library/postgres"'
             in image["run"])
     echoes = [shlex.split(line)[1] for line in image["run"].splitlines()
               if line.strip().startswith("echo ")]

@@ -350,8 +350,8 @@ The rest need GitHub and run on their own:
 CI never depends on an anonymous registry image pull succeeding at that
 moment when the Actions cache has the image. One composite,
 `.github/actions/cached-image/action.yml`, restores an image archive by an
-exact key; on a miss it pulls from public ECR with three bounded attempts
-and backoff, then tries the same reference on `mirror.gcr.io` with its own
+exact key; on a miss it pulls the primary reference with three bounded attempts
+and backoff, then tries the same reference on the fallback registry with its own
 three bounded attempts. Only a successful pull from either source is
 tagged and saved. Concurrent saves may lose the race without failing the
 job. A loaded archive carries a local tag, and callers use that tag, never
@@ -359,7 +359,7 @@ a registry reference.
 
 The Postgres image's identity lives in `.github/actions/postgres-image/action.yml`:
 the full pinned digest, the key (digest plus runner OS/architecture), the
-`mirror.gcr.io/library/postgres` fallback at the same digest, and the local
+`public.ecr.aws/docker/library/postgres` fallback at the same digest, and the local
 tag `claudit-postgres:<digest>`. The five database workflows (`tests`,
 `test-data`, `test-data-explore`, `smoke`, `refresh-pricing`) start
 Postgres through `.github/actions/postgres/action.yml` after checkout,
