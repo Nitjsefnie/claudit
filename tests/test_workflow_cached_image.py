@@ -68,7 +68,7 @@ TAG_ERROR = "fed by docker-smoke.yml from the postgres-image action's tag output
 def test_override_pins_only_the_cached_postgres_tag_and_no_pull():
     override = _load(ROOT / OVERRIDE)
     assert override == {"services": {"db": {
-        "image": f'claudit-postgres:${{{TAG_VARIABLE}:?{TAG_ERROR}}}',
+        "image": f"${{{TAG_VARIABLE}:?{TAG_ERROR}}}",
         "pull_policy": "never"}}}
     text = (ROOT / OVERRIDE).read_text(encoding="utf-8")
     assert not re.search(r"[0-9a-f]{64}", text)
