@@ -1,24 +1,8 @@
-"""Tripwires for the OpenSSF Scorecard workflow.
-
-Scorecard is a repository trend signal, not a gate, and two properties of it
-are load-bearing rather than incidental:
-
-  - it never runs on a contribution event. A `push` or `pull_request`
-    trigger would make it a second verdict on a commit ci-gate already
-    judges, and release.yml's waiter — `scripts/ci/release_gate.py` — treats
-    every check run produced by a push- or pull-request-event run on the
-    SHA it is about to tag as a gate. A red scorecard on a master push
-    would therefore refuse the release. These tests read that module's own
-    event set rather than restating it, so widening `GATE_EVENTS` re-arms
-    the check here instead of silently making scorecard a release blocker.
-
-  - it publishes. `publish_results` plus the SARIF upload are what put the
-    findings in the Security tab and the score in the public record; a
-    refactor that quietly drops either leaves a workflow that scans and
-    reports nothing.
-
-Asserted on the YAML-DECODED structure, the way GitHub reads it.
-"""
+"""Keep OpenSSF Scorecard a publishing trend signal, separate from release gates.
+release_gate.py judges contribution-event checks: a red Scorecard push/PR
+run could block release. Cross-check protected events against GATE_EVENTS.
+Scheduled/manual scans must not gate releases. Check SARIF wiring through
+decoded YAML so a scan cannot silently stop reporting."""
 from __future__ import annotations
 
 import importlib.util
@@ -101,14 +85,9 @@ def _cron_expressions(path: Path) -> list[str]:
 
 
 def test_the_gate_event_set_this_file_protects_is_the_one_in_force():
-    """The claim this file rests on, read from the module rather than
-    restated: `GATE_EVENTS` is exactly the two events a red scorecard run on
-    them would refuse a release over. Both directions matter. Widening it
-    there makes a scorecard run on the new event a row release.yml waits on,
-    and the trigger test below stops being the whole story; NARROWING it
-    makes this file's docstring — and the comment in the workflow — assert a
-    release-blocking path the module no longer has.
-    """
+    """Keep protected events aligned with release_gate in both directions.
+    Widening can add release blockers; narrowing invalidates the claimed
+    blocking path. Either change must fail."""
     assert sorted(release_gate.GATE_EVENTS) == ["pull_request", "push"]
     assert set(CONTRIBUTION_EVENTS) >= release_gate.GATE_EVENTS, (
         "CONTRIBUTION_EVENTS must cover every gate event release_gate.py "
@@ -123,9 +102,7 @@ def _release_runs(*runs: tuple[int, str, str]) -> list[dict]:
 
 
 def _path() -> str:
-    """This workflow's own repo-relative path, read off the file — a
-    release_gate.py run's `path` is what the dispatch case compares, so a
-    literal here would keep asserting about a file that no longer exists."""
+    """Derive the workflow path so dispatch filtering follows workflow renames."""
     return str(SCORECARD.relative_to(REPO_ROOT))
 
 
@@ -144,12 +121,8 @@ def _judged_by_release(check_run: dict, runs: list[dict]) -> bool:
 
 
 def test_a_scheduled_or_dispatched_scorecard_run_is_not_a_release_gate():
-    """The workflow's own comment claims release.yml's waiter drops this
-    workflow's rows. Drive release_gate.py with exactly that shape — a RED
-    scorecard check run, produced by a schedule run and then by a dispatch
-    run, on a commit that also carries ci-gate's push run — and let the
-    module answer, rather than restating its filter here.
-    """
+    """Drive release_gate with red scheduled/manual Scorecard checks beside a
+    ci-gate push run, proving those scans cannot block a release."""
     gates = _release_runs((2, "push", ".github/workflows/ci-gate.yml"))
     for event, label in (("schedule", "a weekly run"),
                          ("workflow_dispatch", "a manual run")):
@@ -161,11 +134,8 @@ def test_a_scheduled_or_dispatched_scorecard_run_is_not_a_release_gate():
 
 
 def test_the_dispatch_case_is_dropped_for_its_path_not_for_its_event():
-    """The negative space of the assertion above. release_gate.py judges a
-    `workflow_dispatch` of a workflow that also gates the commit, so the same
-    event on ci-gate's own path IS judged — which is what makes the drop
-    above a property of this file's triggers rather than of the filter
-    dropping every dispatch."""
+    """A manual run of a gating workflow must still be judged.
+    This distinguishes path-based Scorecard exclusion from dropping all dispatches."""
     runs = _release_runs(
         (2, "push", ".github/workflows/ci-gate.yml"),
         (3, "workflow_dispatch", ".github/workflows/ci-gate.yml"))
@@ -214,14 +184,9 @@ def test_it_still_runs_weekly_and_on_demand():
 
 
 def _field_values(field: str, low: int, high: int) -> set[int]:
-    """Every value one cron field takes: `*`, `*/n`, `a-b`, `a-b/n`, a bare
-    value, and comma lists of those.
-
-    A literal `(minute, hour)` pair is not a schedule. `23 * * * *` fires at
-    02:23 as surely as at 23:00, so comparing it against a `41 2 * * 6` as
-    the pair `("23", "*")` never meets it and the collision goes unseen —
-    which is exactly the case this repository's hourly pricing refresh is.
-    """
+    """Expand *, */n, a-b, a-b/n, numbers and comma lists into field values.
+    Literal minute/hour pairs miss collisions with wildcard or hourly
+    schedules such as refresh-pricing."""
     values: set[int] = set()
     for part in field.split(","):
         step = 1
@@ -340,17 +305,9 @@ def test_write_permissions_live_on_the_job_not_the_workflow():
 
 
 def test_a_fork_or_a_non_default_branch_never_publishes():
-    """The published record is the repository's. A fork's run files into the
-    fork's store and another branch's under this repository's name, so both
-    would overwrite the score the badge shows.
-
-    Compared to the WHOLE decoded expression, because a guard is a Boolean
-    and every way of widening it keeps both context names on the line:
-    `|| always()` and `|| github.event_name == 'workflow_dispatch'` each
-    satisfy a substring check and each let the run they exclude publish.
-    Equality also catches an inverted clause, which a name-only check reads
-    as covered.
-    """
+    """Publish only for this repository's default branch.
+    Compare the complete Boolean guard: substrings accept appended || always(),
+    dispatch exceptions and inverted clauses that widen publishing."""
     job = next(iter((_load_workflow(SCORECARD).get("jobs") or {}).values()))
     condition = str(job.get("if") or "")
     assert condition == FORK_GUARD, (
@@ -360,10 +317,9 @@ def test_a_fork_or_a_non_default_branch_never_publishes():
 
 
 def test_no_step_is_conditional():
-    """Every step runs whenever the job does, or the workflow scans and
-    publishes nothing while still reading green. The one guard that is
-    wanted — fork and default branch — belongs on the job, so a step-level
-    `if` here can only ever remove work."""
+    """Require every step to run when the job is admitted.
+    A step condition can silently skip scanning/publication; fork/ref
+    admission belongs on the job."""
     job = next(iter((_load_workflow(SCORECARD).get("jobs") or {}).values()))
     skipped = [(step or {}).get("name") or (step or {}).get("uses")
                for step in job.get("steps") or []

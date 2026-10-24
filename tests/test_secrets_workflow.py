@@ -1,14 +1,6 @@
-"""Source-level pins for the CI secret scan.
-
-Nothing here executes a workflow: the scan runs on GitHub's runners over
-the pushed history, and this suite also runs on platforms where neither a
-GitHub runner nor gitleaks exists, so the only pin that travels with the
-repo is the workflow text itself. Same logic as test_panel_wiring.py's
-source-level JSX guards — a workflow can pass the whole suite while
-scanning half the history, leaking findings into a public log, or
-downloading an unverified binary. Each test names the property it pins
-and why an edit that drops it is a regression, not a refactor.
-"""
+"""Check secret-scan wiring on platforms without a GitHub runner or gitleaks.
+Source checks guard scan wiring, redacted public logs and binary digest
+verification; they do not execute the remote workflow."""
 from __future__ import annotations
 
 import re
@@ -26,25 +18,14 @@ def _src() -> str:
 
 
 def _on_block() -> str:
-    """The top-level `on:` trigger block, sliced to the next top-level key.
-
-    Searching the whole file for `pull_request:` would accept it spelled
-    under the wrong trigger; the slice is what makes "push is limited to
-    master" checkable at all.
-    """
+    """Read the top-level trigger block; a trigger elsewhere would be a decoy."""
     m = re.search(r"^on:\n(.*?)^[A-Za-z]", _src(), re.S | re.M)
     assert m, "no top-level `on:` trigger block found in secrets.yml"
     return m.group(1)
 
 
 def _step_block(marker: str) -> str:
-    """One step's YAML, from its first line to the next step or job key.
-
-    A whole-file search accepts `--verbose` sitting on the wrong step;
-    slicing from the step's own line to the next `      - ` sibling (or a
-    4-space job key) is what ties the flags to the step that must carry
-    them.
-    """
+    """Read one step so flags on a sibling cannot satisfy its checks."""
     lines = _src().splitlines()
     begin = next((i for i, ln in enumerate(lines) if marker in ln), None)
     assert begin is not None, f"no step matching {marker!r} in secrets.yml"
@@ -117,10 +98,7 @@ def test_permissions_block_and_timeout_present():
 
 
 def test_download_step_verifies_the_binary_digest():
-    # Which gitleaks release the workflow pins is the workflow's business
-    # (fleet-rules, "Merging and CI": a legitimate CI change never fails a
-    # test); what must hold is that the step verifies a sha256 digest and
-    # that the digest names the tarball the download actually fetches.
+    # Verify the downloaded tarball's digest; the release version may change.
     block = _step_block("Download gitleaks")
     url = re.search(
         r"https://github\.com/gitleaks/gitleaks/releases/download/"

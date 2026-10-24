@@ -13,6 +13,11 @@ _TOKEN = re.compile(r"(?P<string>'(?:[^']|'')*')|(?P<name>" + _PROPERTY
                     + r")|(?P<operator>[^\s])")
 
 
+def load_workflow(path: Path) -> dict:
+    """Read workflow/action YAML with string keys, including on."""
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+
 def references(value: str, context: str) -> set[tuple[str, ...]]:
     """Static dot/index references inside expressions, excluding string literals."""
     found = set()
@@ -74,8 +79,7 @@ def _output_redirect(line: str) -> bool | None:
     lexer.whitespace_split = True
     words = list(lexer)
     targets = [words[index + 1] for index, word in enumerate(words[:-1])
-               if word in (">", ">>") and (index == 0 or not words[index - 1].isdigit()
-                                          or words[index - 1] == "1")]
+               if word in (">", ">>") and (index == 0 or not words[index - 1].isdigit() or words[index - 1] == "1")]
     if not targets:
         return None
     return targets[-1] in {"$GITHUB_OUTPUT", "${GITHUB_OUTPUT}",

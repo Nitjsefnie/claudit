@@ -9,7 +9,7 @@ import yaml
 from tests import test_ci_workflows as ci_checks
 from tests import test_workflow_cached_image as base_checks
 from tests import test_workflow_postgres_action as pg_checks
-from tests.workflow_checks import references, rename_references, written_outputs
+from tests.workflow_checks import load_workflow, references, rename_references, written_outputs
 
 
 @pytest.mark.parametrize("value, expected", [
@@ -72,7 +72,7 @@ def test_codeql_accepts_delimiters_inside_a_quoted_identity_expression(tmp_path,
 
 
 def test_base_check_rejects_an_output_redirected_out_of_its_group(monkeypatch):
-    steps = base_checks._steps()
+    steps = load_workflow(base_checks.WORKFLOW)["jobs"]["docker-smoke"]["steps"]
     producer = next(step for step in steps if "CLAUDIT_BASE_IMAGE" in step.get("env", {}))
     producer["run"] = producer["run"].replace(
         'echo "ref=${CLAUDIT_BASE_IMAGE}"',
@@ -93,7 +93,7 @@ def _rename_fixture(value, context, names):
 
 
 def test_base_check_accepts_a_coordinated_producer_rename(monkeypatch):
-    steps = base_checks._steps()
+    steps = load_workflow(base_checks.WORKFLOW)["jobs"]["docker-smoke"]["steps"]
     producer = next(step for step in steps if "CLAUDIT_BASE_IMAGE" in step.get("env", {}))
     old_id = producer["id"]
     producer["id"] = old_id + "_renamed"
@@ -103,7 +103,7 @@ def test_base_check_accepts_a_coordinated_producer_rename(monkeypatch):
 
 
 def test_postgres_check_accepts_a_coordinated_producer_rename(tmp_path, monkeypatch):
-    action = pg_checks._load(pg_checks.IMAGE_ACTION)
+    action = load_workflow(pg_checks.IMAGE_ACTION)
     producer = next(step for step in action["runs"]["steps"]
                     if "CLAUDIT_POSTGRES_DIGEST" in step.get("env", {}))
     old_id = producer["id"]
@@ -116,7 +116,7 @@ def test_postgres_check_accepts_a_coordinated_producer_rename(tmp_path, monkeypa
 
 
 def test_cache_check_accepts_coordinated_input_renames(tmp_path, monkeypatch):
-    action = pg_checks._load(pg_checks.CACHED_ACTION)
+    action = load_workflow(pg_checks.CACHED_ACTION)
     cache = next(step for step in action["runs"]["steps"]
                  if step.get("uses", "").startswith("actions/cache/"))
     names = {ref[0]: ref[0] + "_renamed" for key in ("key", "path")
@@ -142,7 +142,7 @@ def test_direct_output_redirects(redirect, expected):
 
 
 def test_base_check_accepts_a_braced_output_target(monkeypatch):
-    steps = base_checks._steps()
+    steps = load_workflow(base_checks.WORKFLOW)["jobs"]["docker-smoke"]["steps"]
     producer = next(step for step in steps if "CLAUDIT_BASE_IMAGE" in step.get("env", {}))
     producer["run"] = producer["run"].replace("$GITHUB_OUTPUT", "${GITHUB_OUTPUT}")
     monkeypatch.setattr(base_checks, "_steps", lambda: steps)
@@ -161,7 +161,7 @@ def test_coordinated_rename_fixtures_accept_index_notation(surface, tmp_path, mo
     source = getattr(module, attribute).read_text(encoding="utf-8")
     pattern = r"\b(steps)\.([A-Za-z_][A-Za-z0-9_-]*)"
     if surface == "inputs":
-        action = pg_checks._load(pg_checks.CACHED_ACTION)
+        action = load_workflow(pg_checks.CACHED_ACTION)
         cache = next(step for step in action["runs"]["steps"]
                      if step.get("uses", "").startswith("actions/cache/"))
         names = {ref[0] for key in ("key", "path")
