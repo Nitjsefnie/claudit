@@ -5,7 +5,7 @@ name: docker-smoke
 #
 # The Dockerfile and compose.yaml are
 # dead weight without a CI that exercises them: nothing else in this
-# repository builds the image, starts the digest-pinned Postgres with
+# repository builds the image, starts the pinned Postgres with
 # its first-boot init, or reads the fixtures through the R2 client's
 # file:// mode FROM INSIDE the container. This leg is that check, and it
 # runs with the runner's bare environment — no R2_* variables — so the
@@ -24,7 +24,7 @@ name: docker-smoke
 # failed probe leaves no stack or volume behind on the runner.
 #
 # IMAGES COME FROM THE ACTIONS CACHE. Both registry images
-# the stack needs — compose.yaml's digest-pinned Postgres and the
+# the stack needs — the pinned Postgres compose.yaml builds and the
 # Dockerfile's tag-pinned Python base — can hit anonymous registry limits.
 # Both arrive through .github/actions/cached-image
 # (the Postgres one through postgres-image, the same entry the five

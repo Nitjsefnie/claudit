@@ -67,8 +67,9 @@ TAG_ERROR = "fed by docker-smoke.yml from the postgres-image action's tag output
 
 def test_override_pins_only_the_cached_postgres_tag_and_no_pull():
     override = _load(ROOT / OVERRIDE)
+    # yaml.BaseLoader renders the !reset tag as the string "null".
     assert override == {"services": {"db": {
-        "build": "null",  # yaml.BaseLoader renders the !reset tag so
+        "build": "null",
         "image": f"${{{TAG_VARIABLE}:?{TAG_ERROR}}}",
         "pull_policy": "never"}}}
     text = (ROOT / OVERRIDE).read_text(encoding="utf-8")

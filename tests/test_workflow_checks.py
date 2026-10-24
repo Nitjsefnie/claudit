@@ -115,7 +115,7 @@ def test_postgres_check_accepts_a_coordinated_producer_rename(tmp_path, monkeypa
     path = tmp_path / "action.yml"
     path.write_text(yaml.safe_dump(action), encoding="utf-8", newline="\n")
     monkeypatch.setattr(pg_checks, "IMAGE_ACTION", path)
-    pg_checks.test_image_digest_matches_compose_and_keys_both_cache_operations()
+    pg_checks.test_compose_builds_the_pinned_dockerfile_and_keys_both_cache_operations()
 
 
 def test_cache_check_accepts_coordinated_input_renames(tmp_path, monkeypatch):
@@ -129,7 +129,7 @@ def test_cache_check_accepts_coordinated_input_renames(tmp_path, monkeypatch):
     path = tmp_path / "action.yml"
     path.write_text(yaml.safe_dump(action), encoding="utf-8", newline="\n")
     monkeypatch.setattr(pg_checks, "CACHED_ACTION", path)
-    pg_checks.test_image_digest_matches_compose_and_keys_both_cache_operations()
+    pg_checks.test_compose_builds_the_pinned_dockerfile_and_keys_both_cache_operations()
 
 
 @pytest.mark.parametrize("redirect, expected", [
@@ -160,7 +160,7 @@ def test_coordinated_rename_fixtures_accept_index_notation(surface, tmp_path, mo
     else:
         module = pg_checks
         attribute = "IMAGE_ACTION" if surface == "image" else "CACHED_ACTION"
-        check = pg_checks.test_image_digest_matches_compose_and_keys_both_cache_operations
+        check = pg_checks.test_compose_builds_the_pinned_dockerfile_and_keys_both_cache_operations
     source = getattr(module, attribute).read_text(encoding="utf-8")
     pattern = r"\b(steps)\.([A-Za-z_][A-Za-z0-9_-]*)"
     if surface == "inputs":
