@@ -61,15 +61,31 @@ def test_every_compose_call_uses_the_same_file_set():
     assert up == [" -d --build"]
 
 
+TAG_VARIABLE = "CLAUDIT_POSTGRES_TAG"
+TAG_ERROR = "fed by docker-smoke.yml from the postgres-image action's tag output"
+
+
 def test_override_pins_only_the_cached_postgres_tag_and_no_pull():
     override = _load(ROOT / OVERRIDE)
-    image = next(step for step in _load(POSTGRES_IMAGE)["runs"]["steps"]
-                 if step.get("id") == "image")
-    digest = image["env"]["CLAUDIT_POSTGRES_DIGEST"]
-    assert 'echo "tag=claudit-postgres:${CLAUDIT_POSTGRES_DIGEST#sha256:}"' in image["run"]
+    # yaml.BaseLoader renders the !reset tag as the string "null".
     assert override == {"services": {"db": {
-        "image": f"claudit-postgres:{digest.removeprefix('sha256:')}",
+        "build": "null",
+        "image": f"${{{TAG_VARIABLE}:?{TAG_ERROR}}}",
         "pull_policy": "never"}}}
+    text = (ROOT / OVERRIDE).read_text(encoding="utf-8")
+    assert not re.search(r"[0-9a-f]{64}", text)
+    # "References exactly" is over the parsed config, so the header's prose
+    # mention does not count; a second live variable would.
+    assert str(override).count(TAG_VARIABLE) == 1
+    # The workflow feeds the variable on every step that interpolates it.
+    steps = _steps()
+    postgres, = [step for step in steps
+                 if step.get("uses") == "$/.github/actions/postgres-image"]
+    feed = f"${{{{ steps.{postgres['id']}.outputs.tag }}}}"
+    for index, step in enumerate(steps):
+        if COMPOSE.search(step.get("run", "")):
+            assert step["env"] == {TAG_VARIABLE: feed}, index
+    assert any(COMPOSE.search(step.get("run", "")) for step in steps)
 
 
 def test_cached_base_image_is_the_dockerfiles_from_reference():

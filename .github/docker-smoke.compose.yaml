@@ -1,11 +1,11 @@
 # CI-only Compose override for the docker-smoke leg, passed after
-# compose.yaml with `-f`. It changes only the db service: it runs the
-# Postgres image the leg just restored from the Actions cache (or pulled
-# once on a miss) under its local tag, and never pulls. compose.yaml's
-# digest reference cannot serve here: a loaded archive does not restore its
-# RepoDigest, so that reference would go back to the registry. The tag is
-# the one .github/actions/postgres-image saves; a test keeps them equal.
+# compose.yaml with `-f`. It resets compose's local build of the pinned
+# Dockerfile and runs the image the leg restored from the Actions cache
+# under its local tag, never pulling. The workflow feeds
+# CLAUDIT_POSTGRES_TAG from the postgres-image action's tag output; this
+# file holds no digest copy.
 services:
   db:
-    image: claudit-postgres:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+    build: !reset null
+    image: "${CLAUDIT_POSTGRES_TAG:?fed by docker-smoke.yml from the postgres-image action's tag output}"
     pull_policy: never

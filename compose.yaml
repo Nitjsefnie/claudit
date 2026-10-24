@@ -13,10 +13,10 @@
 
 services:
   db:
-    # Same digest as .github/actions/postgres-image/action.yml: local
-    # Compose pulls it directly; CI's docker-smoke leg runs the cached copy
-    # through .github/docker-smoke.compose.yaml.
-    image: public.ecr.aws/docker/library/postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+    # Local Compose builds the pinned one-line Dockerfile; CI's smoke
+    # override swaps in the cached tag.
+    build: .github/actions/postgres-image
+    image: claudit-postgres:local
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres

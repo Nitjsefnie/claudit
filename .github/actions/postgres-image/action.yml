@@ -6,14 +6,15 @@ outputs:
     description: Local tag of the pinned image; start it with --pull never.
     value: ${{ steps.image.outputs.tag }}
 
-# The one CI home of the Postgres digest. The Postgres action starts it
-# for the five database workflows; docker-smoke runs it as compose's db
-# service. compose.yaml carries the same digest for local use.
+# The Postgres digest's one CI home is the FROM line of the Dockerfile
+# beside this file; Dependabot's docker entry updates it. The Postgres
+# action starts it for the five database workflows; docker-smoke runs it as
+# compose's db service. compose.yaml builds this directory locally.
 # The digest stays reviewed because ratchet-push publishes its measurements.
 # A warm cache avoids anonymous registry pull limits.
-# A cold miss retries ECR, then
-# Google's mirror at the same digest, so an ECR limit does not prevent
-# warming the cache. The cache mechanism itself is cached-image's.
+# A cold miss retries ECR, then Google's mirror at the same digest, so an
+# ECR limit does not prevent warming the cache. The cache mechanism itself
+# is cached-image's.
 # refresh-pricing runs hourly on master (its job refuses other refs and its
 # checkout uses that ref), restoring even on quiet hours. It warms a cold
 # master cache and keeps the entry in use inside GitHub's 7-day expiry window;
@@ -24,12 +25,25 @@ runs:
     - name: Identify the pinned image
       id: image
       shell: bash
-      env:
-        CLAUDIT_POSTGRES_REPOSITORY: public.ecr.aws/docker/library/postgres:16
-        CLAUDIT_POSTGRES_FALLBACK_REPOSITORY: mirror.gcr.io/library/postgres
-        CLAUDIT_POSTGRES_DIGEST: sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
       run: |
         set -euo pipefail
+        dockerfile="${GITHUB_ACTION_PATH}/Dockerfile"
+        froms="$(grep -c '^FROM' "$dockerfile" || true)"
+        if [ "$froms" != 1 ]; then
+          echo "::error::$dockerfile carries '$froms' FROM lines; exactly one is required"
+          exit 1
+        fi
+        reference="$(sed -n -E 's/^FROM[[:space:]]+([^[:space:]#]+).*/\1/p' "$dockerfile")"
+        repository="${reference%%@*}"
+        digest="${reference#*@}"
+        if [ -z "$digest" ] || [ "$digest" = "$reference" ] \
+           || [ "${digest#sha256:}" = "$digest" ]; then
+          echo "::error::$dockerfile's FROM reference '$reference' is not repository@sha256:digest"
+          exit 1
+        fi
+        CLAUDIT_POSTGRES_REPOSITORY="$repository"
+        CLAUDIT_POSTGRES_FALLBACK_REPOSITORY="mirror.gcr.io/library/postgres"
+        CLAUDIT_POSTGRES_DIGEST="$digest"
         {
           echo "ref=${CLAUDIT_POSTGRES_REPOSITORY}@${CLAUDIT_POSTGRES_DIGEST}"
           echo "fallback=${CLAUDIT_POSTGRES_FALLBACK_REPOSITORY}@${CLAUDIT_POSTGRES_DIGEST}"
