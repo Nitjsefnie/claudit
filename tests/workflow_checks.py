@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 
 import yaml
@@ -15,7 +16,7 @@ _TOKEN = re.compile(r"(?P<string>'(?:[^']|'')*')|(?P<name>" + _PROPERTY
 def references(value: str, context: str) -> set[tuple[str, ...]]:
     """Static dot/index references inside expressions, excluding string literals."""
     found = set()
-    for expression in re.findall(r"\$\{\{(.*?)\}\}", value, re.S):
+    for expression in re.findall(r"\$\{\{((?:'(?:[^']|'')*'|[^'])*?)\}\}", value, re.S):
         tokens = [(match.lastgroup, match[0][1:-1].replace("''", "'"))
                   if match.lastgroup == "string" else (match.lastgroup, match[0])
                   for match in _TOKEN.finditer(expression)]
@@ -41,13 +42,47 @@ def references(value: str, context: str) -> set[tuple[str, ...]]:
     return found
 
 
+def _output_redirect(line: str) -> bool | None:
+    lexer = shlex.shlex(line, posix=False, punctuation_chars=">")
+    lexer.whitespace_split = True
+    words = list(lexer)
+    targets = [words[index + 1] for index, word in enumerate(words[:-1])
+               if word in (">", ">>") and (index == 0 or not words[index - 1].isdigit()
+                                          or words[index - 1] == "1")]
+    if not targets:
+        return None
+    return targets[-1] in {"$GITHUB_OUTPUT", "${GITHUB_OUTPUT}",
+                           '"$GITHUB_OUTPUT"', '"${GITHUB_OUTPUT}"'}
+
+
 def written_outputs(run: str) -> set[str]:
-    """Output names in echo assignments redirected singly or as a shell group."""
-    target = r'>> *(?:"\$GITHUB_OUTPUT"|\$GITHUB_OUTPUT)(?=\s|$)'
-    blocks = re.findall(r'(?ms)^ *\{\n(.*?)^ *\} *' + target, run)
-    blocks += [line for line in run.splitlines() if re.search(target, line)]
-    return set(re.findall(r'(?m)^ *echo ["\']?([A-Za-z_][A-Za-z0-9_-]*)=',
-                          "\n".join(blocks)))
+    """Literal echo assignments, honoring command redirects over group redirects."""
+    blocks = [(run, False)]
+    blocks += [(body, _output_redirect(tail) is True)
+               for body, tail in re.findall(r"(?ms)^ *\{\n(.*?)^ *\}([^\n]*)", run)]
+    found = set()
+    for block, inherited in blocks:
+        for line in block.splitlines():
+            match = re.match(r' *echo ["\']?([A-Za-z_][A-Za-z0-9_-]*)=', line)
+            if match:
+                target = _output_redirect(line)
+                if target is True or (target is None and inherited):
+                    found.add(match[1])
+    return found
+
+
+def output_references(value: str, steps: list[dict]) -> set[tuple[str, str]]:
+    """Resolve each referenced producer and require its output write."""
+    refs = references(value, "steps")
+    assert refs, value
+    found = set()
+    for ref in refs:
+        assert len(ref) == 3 and ref[1] == "outputs", ref
+        producers = [step for step in steps if step.get("id") == ref[0]]
+        assert len(producers) == 1, ref
+        assert ref[2] in written_outputs(producers[0].get("run", "")), ref
+        found.add((ref[0], ref[2]))
+    return found
 
 
 def assert_apt_sanitizer(root: Path, step: dict) -> None:

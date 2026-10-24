@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.workflow_checks import references, written_outputs
+from tests.workflow_checks import output_references, written_outputs
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/docker-smoke.yml"
@@ -78,20 +78,18 @@ def test_cached_base_image_is_the_dockerfiles_from_reference():
              if line.startswith("FROM ")]
     assert len(froms) == 1 and len(froms[0]) == 1
     steps = _steps()
-    base = next(step for step in steps if step.get("id") == "base")
+    cached = next(step for step in steps if step.get("uses") == CACHED)["with"]
+    producer_ids = {producer for producer, _ in output_references(cached["ref"], steps)}
+    base, = [step for step in steps if step.get("id") in producer_ids]
     reference = base["env"]["CLAUDIT_BASE_IMAGE"]
     assert reference == froms[0][0]
     assert base["env"]["CLAUDIT_BASE_FALLBACK_IMAGE"] == (
         "mirror.gcr.io/library/" + reference.rpartition("/library/")[2])
-    cached = next(step for step in steps if step.get("uses") == CACHED)["with"]
-    emitted = written_outputs(base["run"])
-    consumed = set()
-    for key in ("ref", "tag", "fallback-ref", "key"):
-        refs = references(cached[key], "steps")
-        assert refs, (key, cached[key])
-        assert all(len(ref) == 3 and ref[:2] == (base["id"], "outputs")
-                   and ref[2] in emitted for ref in refs), refs
-        consumed.update(ref[2] for ref in refs)
+    consumed = {ref for key in ("ref", "tag", "fallback-ref", "key")
+                for ref in output_references(cached[key], steps)}
+    emitted = {(step["id"], name) for step in steps
+               if step.get("id") in {producer for producer, _ in consumed}
+               for name in written_outputs(step.get("run", ""))}
     assert consumed == emitted
     assert 'echo "ref=${CLAUDIT_BASE_IMAGE}"' in base["run"]
     assert re.findall(r'(?m)^ *echo "(fallback=[^"]*)"$', base["run"]) == [

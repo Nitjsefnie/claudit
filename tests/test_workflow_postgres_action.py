@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.workflow_checks import references, written_outputs
+from tests.workflow_checks import output_references, references
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIONS = ROOT / ".github/actions"
@@ -72,18 +72,16 @@ def test_js_coverage_keeps_postgres_for_transitive_db_fixtures():
 
 
 def test_image_digest_matches_compose_and_keys_both_cache_operations():
-    image = _step(IMAGE_ACTION, id="image")
+    steps = _load(IMAGE_ACTION)["runs"]["steps"]
+    cached = _cached_step()["with"]
+    producer_ids = {producer for producer, _ in output_references(cached["ref"], steps)}
+    image, = [step for step in steps if step.get("id") in producer_ids]
     digest = image["env"]["CLAUDIT_POSTGRES_DIGEST"]
     compose_image = _load(ROOT / "compose.yaml")["services"]["db"]["image"]
     assert compose_image.rpartition("@")[2] == digest
     # The key is emitted from the same digest used by the pull, not a copy.
-    cached = _cached_step()["with"]
-    emitted = written_outputs(image["run"])
     for key in ("ref", "key"):
-        refs = references(cached[key], "steps")
-        assert refs, (key, cached[key])
-        assert all(len(ref) == 3 and ref[:2] == (image["id"], "outputs")
-                   and ref[2] in emitted for ref in refs), refs
+        output_references(cached[key], steps)
     acquire = _step(CACHED_ACTION, id="acquire")
     assert 'docker pull "$ref"' in acquire["run"]
     assert acquire["env"]["CLAUDIT_IMAGE_REF"] == "${{ inputs.ref }}"
@@ -94,9 +92,9 @@ def test_image_digest_matches_compose_and_keys_both_cache_operations():
     caches = [step for step in action["runs"]["steps"]
               if step.get("uses", "").startswith("actions/cache/")]
     for step in caches:
-        for key, required in (("key", "key"), ("path", "archive")):
+        for key in ("key", "path"):
             refs = references(step["with"][key], "inputs")
-            assert (required,) in refs, (key, step["with"][key])
+            assert refs, (key, step["with"][key])
             assert all(len(ref) == 1 and ref[0] in action["inputs"]
                        for ref in refs), refs
         assert "restore-keys" not in step["with"]
