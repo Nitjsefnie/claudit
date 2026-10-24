@@ -13,10 +13,9 @@
 
 services:
   db:
-    # Same pinned reference as the Dockerfile's FROM line in
-    # .github/actions/postgres-image/: local Compose pulls it directly;
-    # CI's docker-smoke leg runs the cached copy through
-    # .github/docker-smoke.compose.yaml. A test holds them equal.
+    # The Dockerfile's FROM line, held equal by test: local Compose pulls
+    # it; CI's docker-smoke leg runs the cached copy through
+    # .github/docker-smoke.compose.yaml.
     image: public.ecr.aws/docker/library/postgres:16.15@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
     environment:
       POSTGRES_USER: postgres

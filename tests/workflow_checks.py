@@ -147,12 +147,10 @@ def output_references(value: str, steps: list[dict]) -> set[tuple[str, str]]:
 
 
 def dockerfile_from_reference(path: Path) -> str:
-    """The one digest-pinned FROM reference of a Dockerfile.
+    """The one FROM reference of a Dockerfile: repository@sha256:digest.
 
-    Raises when the file carries zero or several FROM lines, a FROM with
-    no reference token, or a reference that is not
-    ``repository@sha256:`` — consumers derive repository and digest from
-    the returned token instead of pinning their own literal.
+    Raises on zero or several FROM lines, a missing token, or a
+    non-sha256 reference.
     """
     lines = [line for line in path.read_text(encoding="utf-8").splitlines()
              if line.startswith("FROM")]
