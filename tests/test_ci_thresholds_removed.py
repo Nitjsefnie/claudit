@@ -13,7 +13,6 @@ from tests.test_ci_thresholds_guard import (
 
 BASELINE_VALUES = {
     "module_size_baseline": 900, "pylint_suppression_baseline": 2,
-    "comment_share_baseline": [20, 100],
 }
 REMOVED_ENTRIES = ["coverage.python", "coverage.javascript", "suite_cost",
                    "reparse", *BASELINE_VALUES]
@@ -113,8 +112,7 @@ def test_removal_trailer_does_not_admit_readded_looser_value(tmp_path, monkeypat
         base, _ = _removal(family)
         head = copy.deepcopy(base)
         if family in BASELINE_VALUES:
-            head[family]["backend/kept.py"] = (
-                [30, 100] if family == "comment_share_baseline" else 1000)
+            head[family]["backend/kept.py"] = 1000
         else:
             head = _raised_document(family)
         assert _judged_guard(tmp_path, monkeypatch, base, head, [

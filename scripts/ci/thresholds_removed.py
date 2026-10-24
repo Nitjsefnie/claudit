@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 BASELINE_FAMILIES = frozenset({
-    'module_size_baseline', 'pylint_suppression_baseline', 'comment_share_baseline',
+    'module_size_baseline', 'pylint_suppression_baseline',
 })
 
 

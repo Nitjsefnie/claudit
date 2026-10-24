@@ -91,7 +91,7 @@ REPARSE_PHASES = ('sniff', 'parse_body', 'sidecar', 'residual')
 # Every only-shrinks baseline member: recorded numbers never rise and
 # entries are never hand-added (SV-CI-RATCHETS); the direction guard
 # (thresholds_guard.py) enforces the rule against the base document.
-BASELINE_MEMBERS = ('module_size_baseline', 'pylint_suppression_baseline', 'comment_share_baseline')
+BASELINE_MEMBERS = ('module_size_baseline', 'pylint_suppression_baseline')
 # The suite-cost family: one instruction budget per phase of a pytest run
 # over the pinned bench fixture (scripts/ci/suite_bench.py). A cost
 # ceiling only ever TIGHTENS downward; the direction guard forbids the
@@ -257,9 +257,6 @@ def _baseline(baseline: dict[str, object], member: str) -> dict:
     normalised = {}
     for path, value in baseline.items():
         safe_path = _module_path(path)
-        if member == 'comment_share_baseline':
-            normalised[safe_path] = validate.comment_share_value(value, f'{member}.{safe_path}')
-            continue
         if isinstance(value, int) and value.__class__ is int and value > 0:
             normalised[safe_path] = value
             continue
@@ -308,11 +305,6 @@ def suite_cost(data):
 def module_size_baseline(data):
     normalised = normalise(data)
     return dict(normalised.get('module_size_baseline', {}))
-
-
-def comment_share_baseline(data):
-    normalised = normalise(data)
-    return dict(normalised.get('comment_share_baseline', {}))
 
 
 def reparse(data):

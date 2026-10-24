@@ -111,7 +111,6 @@ def _document_bytes():
         },
         "reparse": _reparse(),
         "module_size_baseline": {},
-        "comment_share_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": SUITE_COST,
     }, protocol=5)

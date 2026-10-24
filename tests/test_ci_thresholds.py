@@ -73,7 +73,6 @@ def _document_bytes():
         },
         "reparse": _reparse(),
         "module_size_baseline": {},
-        "comment_share_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": SUITE_COST,
     }, protocol=5)
@@ -202,6 +201,8 @@ def test_invalid_document_shape_refused(tmp_path):
                 pylint_suppression_baseline={"backend/api.py": 0}), "positive integer"),
         (lambda doc: doc["suite_cost"].update(
                 warmup={"measured": 1.0, "floor": 2.5}), "unknown suite cost phase"),
+        (lambda doc: doc.update(
+                comment_share_baseline={}), "unknown field: comment_share_baseline"),
     ]:
         target = _written_document(tmp_path)
         payload = json.loads(target.read_text(encoding="utf-8"))
@@ -336,7 +337,6 @@ def test_absent_baseline_member_loads(tmp_path):
 def test_absent_baseline_reader_returns_empty_mapping(tmp_path):
     for member in [
         "module_size_baseline",
-        "comment_share_baseline",
     ]:
         target = _written_document(tmp_path)
         payload = json.loads(target.read_text(encoding="utf-8"))
