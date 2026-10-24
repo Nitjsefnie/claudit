@@ -1,19 +1,7 @@
-"""The chart panels' layout arithmetic, driven through node.
-
-the Per-Session Context Growth comparison panel laid its
-legend out on fixed offsets, so a 17-character model name rendered
-108.5px wide and ran 9.5px into the "median (N files)" label beside it
-and straight through the swatch rule -- and the legend's wrapped row fell
-off the bottom of a fixed-height svg, which clipped it away. The panel
-was unfixed, unfixed-shaped, and green: nothing in this suite renders a
-browser.
-
-So the arithmetic moved into `src/panel-layout.js` -- plain JS, no React
--- and this file pins it. What CANNOT be pinned here is the browser's
-own text measurement: the advance is an input, measured off a real
-rendered string by the panel itself, and `scripts/ci/panel_layout.mjs`
-is what reads the resulting boxes.
-"""
+"""Exercise panel layout and context-axis arithmetic through node.
+Fixed legend offsets overlapped labels and clipped wrapped rows.
+src/panel-layout.js computes placement; the browser supplies measured text
+advances. scripts/ci/panel_layout.mjs checks actual rendered boxes."""
 from __future__ import annotations
 
 import json
@@ -41,16 +29,8 @@ def _node(body: str):
       require({str(LAYOUT_JS)!r});
       {body}
     """
-    # Over STDIN, not -e: the payload below embeds JSON, and Windows
-    # refuses a CreateProcess command line over 32k (WinError 206).
-    #
-    # encoding="utf-8" is load-bearing, not tidiness. `text=True` alone
-    # decodes with the LOCALE encoding, which on a windows-latest runner
-    # is cp1252 — and node writes the ellipsis these panels shorten labels
-    # with as UTF-8 bytes (e2 80 a6), which cp1252 cannot represent. Every
-    # such byte came back as U+FFFD and six assertions failed on Windows
-    # only, against a panel that renders correctly. errors="strict" keeps a
-    # future encoding problem loud instead of comparing mojibake.
+    # STDIN avoids Windows' command-line limit for embedded JSON.
+    # UTF-8/strict decoding preserves node's ellipsis on cp1252 Windows hosts.
     proc = run_node(
         ["node"], input=script, capture_output=True, text=True, timeout=60,
         check=False, encoding="utf-8", errors="strict",
@@ -71,14 +51,9 @@ ESLINT_CONFIG = ROOT / "eslint.config.mjs"
 
 
 def _strip_js_comments(src: str) -> str:
-    """Blank out JS comments, keeping the line structure.
-
-    src/ctx-axis.js names both removed symbols in its header, explaining
-    what it replaced and why. Reading that prose as the mistake would
-    make the absence assertion below unsatisfiable by any honest file
-    that documents the change -- and deleting the explanation instead
-    would be the wrong trade. Same shape as test_panel_wiring's helper.
-    """
+    """Blank JS comments while preserving lines.
+    Removed symbols may remain in explanatory comments; treating that prose
+    as code would make absence checks reject valid documentation."""
     out, i, n = [], 0, len(src)
     while i < n:
         if src.startswith("//", i):
@@ -130,13 +105,8 @@ TALLER = json.dumps([
 
 
 def _y_axis_expression(path: Path) -> str:
-    """A panel's context y-axis expression, verbatim, or fail.
-
-    The assignment's RIGHT-HAND side only, so it can be evaluated in
-    node with the panel's own locals in scope. `re.search` anchors on the
-    `window.ctxAxis` call itself, so a panel that goes back to folding
-    its own constant here stops matching and the test says so.
-    """
+    """Extract the window.ctxAxis RHS for node evaluation, or fail.
+    Anchoring on the shared call detects panels reverting to private scales."""
     src = _strip_js_comments(path.read_text(encoding="utf-8"))
     match = re.search(
         r"const yMax(?:Abs)? = (window\.ctxAxis\.ctxAxis(?:Top|TopFor)\([^;]*\));",
@@ -149,17 +119,9 @@ def _y_axis_expression(path: Path) -> str:
 
 
 def _series_expression(path: Path) -> str:
-    """The comparison panel's `series` construction, verbatim, or fail.
-
-    This is the bundle the comparison's axis expression actually reads.
-    Handing the expression a series the TEST builds instead would leave
-    the panel's own wiring unpinned, and the field that matters most is
-    the one an edit is most likely to drop: `sessions` is new in, so
-    a refactor that rebuilt this bundle without it would silently scale
-    the comparison off MIN_TOP while the grid kept its real axis --
-    precisely the disagreement exists to close, and invisible to a
-    test that supplies its own bundle.
-    """
+    """Extract the panel's own series expression, or fail.
+    Its sessions field feeds the axis. Test-built series would hide a missing
+    sessions field and silently compare MIN_TOP against real data."""
     src = _strip_js_comments(path.read_text(encoding="utf-8"))
     match = re.search(
         r"const series = React\.useMemo\(\(\) => (.*?), \[models, byModel\]\);",
@@ -412,14 +374,8 @@ class TestNodeDrivenCtxAxis:
         assert got["firstTurnOnly"] == 7
 
     def test_axis_top_is_the_observed_peak_plus_headroom(self):
-        # The relationship is computed from the module's own exported headroom,
-        # so it pins the rule rather than a restatement of it. The VALUE is
-        # pinned once, by literal, below the loop: the module's comment claims
-        # 1.1 is the factor the per-session view already used, and a loop that
-        # reads HEADROOM back cannot notice that claim going false.
-        # Only peaks clear of the MIN_TOP floor take the headroom -- below that
-        # the floor wins, which is the next test's subject and is stated here
-        # so neither reads as a silent exception to the other.
+        # Derive scale relationships from HEADROOM, then pin its documented 1.1 value.
+        # Only peaks above MIN_TOP receive headroom; the next test covers the floor.
         got = _ctx_node("""
           const A = window.ctxAxis;
           const out = {};
@@ -502,16 +458,9 @@ class TestNodeDrivenCtxAxis:
         assert got["negative"] == [0]
 
     def test_the_comparison_scales_from_the_checked_models_observed_peak(self):
-        """the comparison's axis is the shared rule over the
-        bundle the panel itself builds, not a hand-folded constant.
-
-        Both expressions are extracted from the.jsx and evaluated against
-        the real module, so what the assertion reads is what the panel hands
-        the rule. The equality side is against ctxAxisTopFor over the SAME
-        sessions, and adding a taller model must move it: without that
-        second half the equality would hold for an expression that ignores
-        its input.
-        """
+        """Evaluate the panel's series and axis expressions with the real module.
+        Compare identical sessions and require a taller selected model to move
+        the axis, so an expression ignoring its input cannot pass."""
         compare_expr = _y_axis_expression(COMPARE_JSX)
         series_expr = _series_expression(COMPARE_JSX)
         got = _ctx_node(f"""

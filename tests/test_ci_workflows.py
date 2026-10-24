@@ -1,10 +1,6 @@
-"""CodeQL init and analyze must use the same action version in one workflow.
-Init records its action version; analyze refuses configuration from another
-version. Dependabot treats the subpaths separately, so group updates atomically.
-Inspect decoded workflow and Dependabot structures rather than regexes that
-can accept decoy comments; action pin comments require a textual check.
-Keep CI-tool pins in requirement manifests so Dependabot sees them and audit
-covers them; an inline pip-install version can otherwise go stale unnoticed."""
+"""Keep coupled CodeQL actions compatible and CI-tool pins discoverable.
+Use decoded YAML to reject comment decoys, but inspect pin comments as text.
+Dependabot groups atomic action updates; manifests expose tool pins to audit."""
 from __future__ import annotations
 
 import re
@@ -196,14 +192,7 @@ def _workflow_files() -> list[Path]:
 
 
 def _job_container_images(job: dict) -> list[tuple[str, str]]:
-    """(label, image) for the containers this job itself runs.
-
-    A job's `container` has two legal shapes: the mapping with an `image`
-    key, and the bare string shorthand (`container: node:20`, documented
-    as "when you only specify a container image, you can omit the image
-    keyword"). Only the mapping shape is handled otherwise, so the
-    shorthand would sail past the gate.
-    """
+    """(label, image) for mapping or string job containers; both shapes run images."""
     container = job.get("container")
     if isinstance(container, str) and container:
         return [("container", container)]
@@ -213,15 +202,8 @@ def _job_container_images(job: dict) -> list[tuple[str, str]]:
 
 
 def _service_images() -> list[tuple[str, str]]:
-    """(where, image) for every container image a workflow runs.
-
-    Enumerated from the workflow grammar, not from the spellings this
-    repository happens to use: a service container
-    (`jobs.<job>.services.<id>.image`), a job's own container (both
-    shapes), and a step that pulls an image directly
-    (`uses: docker://…`). Read from DECODED YAML, so a value is never
-    confused with a comment naming it.
-    """
+    """Enumerate decoded service, job-container and docker:// step images.
+    Cover both job-container shapes so shorthand cannot bypass the sweep."""
     found: list[tuple[str, str]] = []
     for path in _workflow_files():
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -271,29 +253,11 @@ def test_postgres_action_uses_the_public_ecr_mirror() -> None:
 
 
 def test_codeql_matrix_analyses_the_workflows() -> None:
-    """The `actions` language stays in the CodeQL matrix.
-
-    The workflow files are among the most privileged code here: a bot
-    pushes ratchet commits to master with a deploy key, and the
-    `pull_request_target` gates decide with the base repository's
-    secrets. actionlint and zizmor read them for known-wrong shapes;
-    CodeQL asks a dataflow question of the same files, which the other
-    two do not. Nothing else in the tree fails if the entry is dropped —
-    a shorter matrix is a perfectly valid workflow, and only the missing
-    code-scanning alerts say otherwise — so the tripwire is here.
-
-    `actions` takes no build; every entry carries `build-mode: none`,
-    because this tree has no compiled language for CodeQL to build —
-    CodeQL's own autobuild is not what the entry is declining.
-
-    The matrix is DECLARED, not consumed: an `include` list nothing
-    reads passes the checks above and analyses one language three
-    times. So the plumbing is pinned too — the init step's `languages`
-    and `build-mode`, and the analyze step's `category`, each
-    interpolate the matrix rather than naming a language themselves.
-    A hard-coded `languages: python` under a three-entry matrix is the
-    mutant these last assertions exist for.
-    """
+    """Analyze actions, Python and JavaScript without a compiled-language build.
+    Workflows hold deploy-key and base-secret paths; dropping actions loses
+    CodeQL dataflow scanning that actionlint/zizmor cannot replace. Require
+    init languages/build-mode and analyze category to consume the matrix:
+    hard-coded languages: python must fail despite a valid include list."""
     doc = yaml.safe_load(CODEQL_WORKFLOW.read_text(encoding="utf-8")) or {}
     job = (doc.get("jobs") or {}).get("analyze") or {}
     matrix = job.get("strategy")
@@ -352,15 +316,9 @@ def test_workflow_pip_installs_never_pin_inline() -> None:
 
 
 def test_zizmor_manifest_is_hash_pinned_and_require_hashes_installed() -> None:
-    """The zizmor manifest carries hashes, and its install verifies them.
-
-    actionlint runs before every other gate, so the linter's install is a
-    supply-chain position worth defending: a version pin alone still
-    installs whatever artifact the index serves for that version. The
-    manifest is hash-pinned, and the workflow installs it with
-    --require-hashes, which pip refuses to run against a manifest missing
-    a hash — so the two assertions below fail together by construction.
-    """
+    """Verify the CI linter's manifest hashes during installation.
+    actionlint precedes other gates; a version pin cannot verify downloaded
+    bytes. --require-hashes must consume a fully hashed manifest."""
     logical: list[str] = []
     pending = ""
     for raw in ZIZMOR_MANIFEST.read_text(encoding="utf-8").splitlines():
@@ -399,19 +357,9 @@ def test_zizmor_manifest_is_hash_pinned_and_require_hashes_installed() -> None:
 
 
 def test_actionlint_pin_parses_self_repository_uses() -> None:
-    """The pinned actionlint build parses the `$/` self-repository refs.
-
-    Stock actionlint's workflow-call and action format checks reject the
-    `$/` syntax GitHub's self-repository form uses, and the
-    inline `# actionlint: ignore` comment cannot silence them — the
-    migrated `uses: $/.github/...` refs are unlintable below
-    fork build 1.7.12-queue.2, which carries parser support for that form.
-    This is a threshold in the fork's queue series, not an
-    exact pin: the next fork build (queue.3+) must keep passing. Any
-    other shape — stock upstream, an older queue build, a mangled
-    version — fails closed: the gate cannot be shown to parse the refs,
-    and re-pinning is a deliberate act that re-examines this test.
-    """
+    """Require an actionlint fork build that parses $/ self-repository refs.
+    Stock/older builds reject them despite inline ignores; 1.7.12-queue.2
+    introduced support. Accept later queue builds and refuse unknown shapes."""
     version = _workflow_jobs("actionlint.yml")["actionlint"]["env"]["CLAUDIT_ACTIONLINT_VERSION"]
     queue = re.fullmatch(r"1\.7\.12-queue\.(\d+)", version)
     assert queue and int(queue.group(1)) >= 2, (
@@ -441,12 +389,8 @@ def test_self_repository_uses_use_the_dollar_slash_form() -> None:
 
 
 def test_audit_gate_covers_every_requirements_manifest() -> None:
-    """Every requirements manifest in the tree is audited by audit.yml.
-
-    The gate's job is "is a version we froze still safe", and a manifest
-    it does not name is frozen outside its view — the manifest Dependabot
-    keeps fresh would be exactly one pip-audit never saw.
-    """
+    """Audit every requirements manifest; an omitted manifest leaves its
+    frozen dependencies outside pip-audit despite Dependabot updates."""
     audited: set[str] = set()
     for run in _run_blocks(WORKFLOWS_DIR / "audit.yml"):
         audited |= set(re.findall(r"--requirement\s+(\S+)", run))
