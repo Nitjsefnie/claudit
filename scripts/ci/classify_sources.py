@@ -2,24 +2,36 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import difflib
+import fnmatch
 import os
 import re
 from pathlib import Path
 
 VERSION = re.compile(rb'''PRICING_VERSION\s*=\s*(['"])([0-9]+)\1\s*''')
 
-# A ci-gate leg reads: tracked .py files (lint), CodeQL's Python and
-# JS/TS extension set, action.yml/action.yaml anywhere (zizmor), and
-# the shipped unit file. Only files no leg reads narrow as docs-only.
-LEG_READ_SUFFIXES = frozenset({'.py', '.js', '.jsx', '.mjs', '.cjs', '.es6',
-                               '.es', '.xsjs', '.xsjslib', '.ts', '.tsx',
-                               '.mts', '.cts'})
+# Files a ci-gate leg reads: tracked .py (lint); CodeQL javascript-
+# typescript setupFilters (FileExtractor HTML/JS/YAML-minus-.lock/TS
+# enums, JSON config names, index-filter patterns); zizmor's walk —
+# its action/dependabot/pre-commit names are all .y(a)ml, covered by
+# the YAML suffix members.
+LEG_READ_SUFFIXES = frozenset({'.py', '.htm', '.html', '.xhtm', '.xhtml',
+                               '.vue', '.hbs', '.ejs', '.njk', '.erb', '.jsp',
+                               '.dot', '.js', '.jsx', '.mjs', '.cjs', '.es6',
+                               '.es', '.xsjs', '.xsjslib', '.raml', '.yaml',
+                               '.yml', '.ts', '.tsx', '.mts', '.cts'})
+LEG_READ_BASENAMES = frozenset({'action.yml', 'action.yaml', 'package.json',
+                                'manifest.json', 'xs-app.json', '.xsaccess'})
+LEG_READ_PATTERNS = ('*.view.json', '*tsconfig*.json', '.eslintrc*',
+                     'codeql-javascript-*.json')
 
 
 def leg_reads(path: str) -> bool:
     """Whether a ci-gate leg reads `path`, so the change runs full gates."""
+    name = Path(path).name
     return (Path(path).suffix.lower() in LEG_READ_SUFFIXES
-            or Path(path).name in ('action.yml', 'action.yaml')
+            or name in LEG_READ_BASENAMES
+            or any(fnmatch.fnmatchcase(name, pattern)
+                   for pattern in LEG_READ_PATTERNS)
             or path == 'examples/claudit.service')
 
 

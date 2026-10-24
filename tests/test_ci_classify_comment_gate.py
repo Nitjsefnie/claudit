@@ -46,10 +46,16 @@ def _classify(paths, before='', after='', unreadable=False, *, event=None, autho
     ('.claude/x.mts', (False, False, False)),
     ('.claude/x.es6', (False, False, False)),
     ('examples/x.PY', (False, False, False)),
+    ('examples/x.vue', (False, False, False)),
+    ('examples/x.raml', (False, False, False)),
+    ('examples/a/package.json', (False, False, False)),
+    ('examples/a/tsconfig.build.json', (False, False, False)),
+    ('examples/.eslintrc', (False, False, False)),
+    ('examples/a/.xsaccess', (False, False, False)),
     ('examples/a/action.yml', (False, False, False)),
     ('examples/claudit.service', (False, False, False)),
     ('.claude/x.sh', (True, False, False)),
-    ('.claude/x.yaml', (True, False, False)),
+    ('.claude/x.yaml', (False, False, False)),
 ])
 def test_docs_glob_additions_run_full_only_when_a_leg_reads_the_file(path, want):
     assert _classify([path]) == want
