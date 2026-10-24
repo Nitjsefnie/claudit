@@ -6,8 +6,7 @@ here. A node skip rides a test that itself runs node, judged by its
 transitive same-file call closure LAUNCHING node through a subprocess
 call - never by an incidental string constant in the body - and
 a mark predicate built from a module-level variable that names node is
-a node skip too. Measurement calls need literal JavaScript inputs;
-the report CLI launches node. Parameter data is never a skip mark.
+a node skip too. Parameter data is never a skip mark.
 """
 from __future__ import annotations
 
@@ -79,8 +78,7 @@ def _test_offenders_in_ctx(ctx: dict) -> list[tuple[int, str]]:
     closure step (a skipif decorator is not part of the body the
     closure walks), and so is each step's docstring (prose must not
     ground a closure). A call the closure cannot resolve - a conftest
-    fixture, a helper outside the tests package apart from the known
-    comment-share measurement entry points - grounds nothing and
+    fixture, a helper outside the tests package - grounds nothing and
     fails loud, the deny-guard's safe direction."""
     offenders: list[tuple[int, str]] = []
     for cls in ctx["classes"].values():
