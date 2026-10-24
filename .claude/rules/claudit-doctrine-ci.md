@@ -160,9 +160,9 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   entry whose subject still exists is refused unless the judged range
   carries a `Thresholds-Removed: <entry>=<bug|definition>` trailer naming
   it. Tokens are exact; only the path-typed baseline families
-  (`module_size_baseline`, `pylint_suppression_baseline`,
-  `comment_share_baseline`) admit a bare family name declaring their entries,
-  while `coverage`, `suite_cost` and `reparse` require full entry names.
+  (`module_size_baseline`, `pylint_suppression_baseline`) admit a bare
+  family name declaring their entries, while `coverage`, `suite_cost`
+  and `reparse` require full entry names.
   Path-typed baseline entries whose file is gone need no declaration.
   Coverage languages, `suite_cost` and `reparse` always need one.
   Missing or unreadable history fails closed. The judged range is

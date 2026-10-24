@@ -228,23 +228,3 @@ def suite_identity(value, name):
     if result <= 0 or result != result.to_integral_value():
         raise ValueError(f'{name} must be a positive integer')
     return int(result)
-
-
-def comment_share_value(value: object, name: str) -> list[int]:
-    if not isinstance(value, list) or len(value) != 2:
-        raise ValueError(f'{name} must be [comment bytes, non-whitespace bytes]')
-    try:
-        return list(_comment_pair(value[0], value[1], name))
-    except TypeError:
-        raise ValueError(f'{name} byte counts must be JSON numbers') from None
-
-
-@functools.lru_cache(maxsize=4096, typed=True)
-def _comment_pair(first, second, name):
-    counts = [number(item, name) for item in (first, second)]
-    if any(item < 0 or item != item.to_integral_value() for item in counts):
-        raise ValueError(f'{name} byte counts must be non-negative integers')
-    comments, total = (int(item) for item in counts)
-    if total == 0 or comments > total or comments * 100 <= total * 15:
-        raise ValueError(f'{name} must have a share above 15% and at most 100%')
-    return comments, total
