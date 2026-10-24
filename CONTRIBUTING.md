@@ -37,8 +37,8 @@ Read [`AGENTS.md`](AGENTS.md) first — it is the architecture and
 conventions brief, written for you. Then read
 [`.claude/rules/`](.claude/rules/),
 which holds the invariants as numbered rules (`SV-*`). The `AGENTS.md` brief
-and the `.claude/rules/` directory are authoritative; this one only covers
-process.
+and the `.claude/rules/` directory are authoritative; this one covers
+process, plus the per-file [Module map](#module-map).
 
 The rules that reject the most patches, in order:
 
@@ -441,6 +441,237 @@ reprice or reparse is coming.
 Rates live in `src/pricing.json`, which both `backend/pricing.py` and
 `src/parser.js` read. Record a price change by appending an entry to the
 row's history; never edit an existing one.
+
+## Module map
+
+What each file holds; `AGENTS.md` keeps only the family-level map.
+
+```
+backend/          — FastAPI application
+  app.py          — startup/shutdown, route mounting, static serving,
+                    index.html rewriting (cache-bust, auth injection)
+  api.py          — router assembly + the small panel endpoints
+                    (/api/me, /api/projects, /api/tool-usage,
+                    /api/tool-error-rate, /api/activity-heatmap,
+                    /api/cost-by-context, /api/cost-by-agent,
+                    /api/reply-latency, /api/events SSE, /api/models,
+                    /api/context-growth/{agg,session}); includes the
+                    sub-routers below
+  api_common.py   — shared endpoint helpers: dated-rate fold,
+                    _parse_range/_bucket_seconds/_iso, HEATMAP_TZ
+  rate_boundaries.py — per-(model, provider) rate-change instants, in
+                    pricing.resolve's order (SV-DATED-RATES)
+  timing.py       — CLAUDIT_TIMING flag, logger setup, Phases collector
+  api_dashboard.py — /api/dashboard (sources/queries/build split)
+  api_cache.py    — /api/cache (prompt-cache totals, TTL-split cost,
+                    top requests)
+  api_sessions.py — /api/sessions*, transcript, sidecar
+  api_export.py   — /api/export PNG render subprocess
+  api_web_metrics.py — POST /api/metrics beacon sink and GET
+                    /api/web-metrics p50/p75 readout
+  constants.py    — dependency-free shared constants; keeps the
+                    api/ingest import graph acyclic
+  turn_flags.py   — pre-request events, folded onto the NEXT request as
+                    records.turn_flags
+  parse.py        — JSONL → records, ctx_turns, rate_limit_hits,
+                    tool_uses (incl. per-call churn); the SV-PARSER-SPEC
+                    Claude path; parse_file() sniffs the format and
+                    dispatches lane formats
+  agent_sidecar.py — agent meta.json sidecar classification: role,
+                    teammate marking, teammate_name; parses no transcript
+  prompt_gate.py  — XML-open deny-by-default prompt gate: a user text
+                    opening with a tag is harness-injected unless on the
+                    pasted_content keep-list; denied texts count no
+                    prompt and split no ctx turn; latency anchors separately
+  reply_timing.py — independent Claude reply/generation clocks: reply latency
+                    anchors on non-interrupt user text; generation spans use
+                    any non-replayed user line through a message.id's last line;
+                    CLAUDIT_COLLECT_GENERATION_SPEED via explicit policy
+                    (registry default on; Claude only, other lanes NULL)
+  codex_fork.py   — the Codex rollout's head: first declared model,
+                    fork detection (forked_from_id), replay-prefix
+                    marking for the canonical rank (issue #687)
+  parse_codex.py  — Codex rollouts: cumulative-token differencing,
+                    cross-file request identity, long-context meter,
+                    apply_patch churn
+  parse_kimi.py   — both Kimi wire formats (kimi-code, legacy kimi-cli)
+  kimi_content.py — kimi-code content and tool-call helpers
+  parse_common.py — machinery shared by all parsers: per-file state,
+                    turn bookkeeping, billing-row builder, tool-result
+                    settling and error_kind, _dispatch_prompt_shape,
+                    ctx-turn builders
+  json_shape.py   — decoded-JSON object/array guards
+  parse_lanes.py  — sniff_format and the lane→claudit row adapter
+                    (to_claudit); legacy Kimi tool ids namespaced by file
+                    key; lane default roles → DEFAULT_AGENT_TYPE
+  key_layout.py   — object key → (project, session, is_main) for both
+                    layouts (Claude's <project>/<session>/<stem>.jsonl,
+                    lanes' sessions/<project>/<session>/wire.jsonl);
+                    pairs subagent transcripts with their meta.json
+  lane_markers.py — stored project.json markers (etag + reader version);
+                    refetched only when missing or stale
+  lane_projects.py — lane-project identity: stored hash→project_id
+                    fallback, marker→stored→hash resolution, stall rekey
+  project_aliases.py — per-deploy alias fold (SV-PROJECT-ALIASES)
+  branding.py     — brand values → title/meta/logo/sign-in page/export
+                    filename (SV-BRAND-ESCAPE)
+  tool_errors.py  — tool-result text and the harness-generic failure
+                    classification (SV-WHY-COLUMNS)
+  target_paths.py — lexical target paths in the transcript's namespace
+                    (Windows drive/UNC/device vs POSIX incl. Git-Bash
+                    /c); no filesystem lookup
+  bash_argv.py    — churn for ARGV-array commands (Codex `monitor`),
+                    handed to bash_churn's scanners
+  bash_reads.py   — read/write targets and whole-vs-slice from Bash text
+                    (SV-CONTEXT-INTAKE)
+  bash_literals.py — bounded shell words and literal output, provenance
+                    kept; no expansion or execution
+  bash_loops.py   — heredoc repeat count from enclosing literal loops
+  bash_dash_c.py  — Python stdin/`-c` matching and inline tokenization
+  bash_churn.py   — churn from Bash text: heredoc writes, git-apply/patch
+                    hunks, literal python read/replace/write bodies, and
+                    the paths they write; counting rules in SV-BASH-CHURN
+  bash_churn_errors.py — whether a heredoc write survives a later
+                    stage's failure
+  bash_heredocs.py — what a heredoc opener's context means (patch,
+                    python, file write) and diff-body hunk counts; split
+                    from bash_churn for size
+  pricing.py      — model and (model, provider) rate resolution; logic
+                    only (SV-RATE-DATA, SV-PROVIDER-RATES)
+  pricing_load.py — loads src/pricing.json's rate tables, checked, at
+                    import; pricing.py re-exports them (SV-RATE-DATA)
+  long_context.py — the long-context meter's global constants (threshold,
+                    multipliers) — the DEFAULT a member without a
+                    long_context_meters entry keeps; dependency-free; the
+                    meter membership and per-model thresholds are
+                    pricing.json data (long_context_models,
+                    long_context_meters), re-exported through
+                    pricing.LONG_CONTEXT_MODELS/_METERS
+  rate_fingerprint.py — per-(model, provider) digest of the rate data
+                    resolve() consults, plus the pricing modules' source;
+                    the reprice pass's clean restamp proves a row clean
+                    from it (SV-REPRICE)
+  ingest.py       — R2 walk, reparse decision, two-phase persistence,
+                    ingest_done SSE
+  ingest_walk.py  — project identity and stored-version helpers
+  ingest_persist.py — `_persist`: one file per transaction, rows
+                    written by COPY
+  ingest_progress.py — /health: progress readout, the cache block
+                    (outcome counters + pool gauges), last-ingest row
+  ingest_timing.py — per-run timing state
+  ingest_scope.py — per-run dirty scope and derived-state fingerprint
+                    (SV-ROLLUP, SV-SCHEMA-AUTOAPPLY)
+  ingest_fetch.py — fetch/parse worker pools, cooperative abort, thread
+                    and process pipelines (CLAUDIT_INGEST_PARSE_PROCESSES /
+                    CLAUDIT_INGEST_PERSIST_THREADS); re-exported via ingest so
+                    tests keep their patch seams
+  ingest_resolve.py — per-item outcome pairing (resolve /
+                    resolve_futures), failure booking and the fetch
+                    error classes; split from ingest_fetch for size
+  ingest_rollup_state.py — suppression, canonical flags,
+                    replayed-model adoption, teammate resolution
+  ingest_rollup_hourly.py — the seven hour-keyed rollup rebuilds
+  ingest_rollup_latency.py — latency_rollup rebuilds
+  ingest_rollup_web_metrics.py — web_metrics_rollup rebuilds, over the
+                    beacon retention window
+  ingest_rollups.py — compatibility re-exports of the derived rebuilds (their order
+                    lives in ingest.py)
+  ingest_reprice.py — the reprice pass: recomputes cost_usd and
+                    records.long_context in place, no R2 fetch
+                    (SV-REPRICE)
+  ingest_orphans.py — orphan sweeps: file rows whose R2 key is gone,
+                    unreferenced projects
+  ingest_scan.py  — the ingest's listing scan: transcripts paired with
+                    meta.json sidecars (_Wire), lane markers
+  ingest_runs.py  — ingest_runs row lifecycle: open at run start, close
+                    at run end; failure summary for /health
+  ingest_lockwatch.py — liveness guard for the db-wide ingest advisory
+                    lock; a lost lock aborts the run
+  ingest_warm.py  — response-cache warming after an ingest or restart
+                    (warm_common, WARM_RANGES)
+  r2.py           — S3 client with file:// mirror fallback; get_object
+                    consults the deploy's disk blob cache when handed an
+                    etag (#684)
+  auth.py         — PBKDF2-SHA256 hashing/verification
+  login.py        — /login, /logout, /login/guest, rate limiting
+  login_page.py   — the sign-in page's HTML template and response
+                    builder; every slot escaped at its own site, CSP
+                    nonce on the inline style (SV-BRAND-ESCAPE)
+  login_workers.py — runs login CPU work without releasing its
+                    admission slots early (WorkerReservation)
+  session.py      — HMAC session cookies, auth middleware, guest sentinel
+  events.py       — thread-safe SSE broadcaster
+  sse.py          — SSE body iteration and ownership of its waiters
+  db.py           — viz_pool (claudit) and auth_pool (auth DB,
+                    READ-ONLY); pools never join across DBs
+  cache.py        — LRU for raw transcript bytes (256 MB, 20-min idle)
+  cache_outcomes.py — the response cache's outcome counters; invalidate()
+                    logs the since-last-invalidate window, /health the totals
+  blob_cache.py   — disk blob cache for unchanged R2 objects, keyed
+                    (bucket-qualified key, etag), raw compressed bytes,
+                    best-effort, mtime-LRU prune (#684)
+  web_metrics.py  — the beacon sink's closed vocabulary and its write;
+                    the rollup grain's only writer
+  schema*.sql     — applied at every startup as one script under one
+                    stamp, in db.SCHEMA_PATHS order (SV-SCHEMA-AUTOAPPLY)
+
+public/           — index.html (React/Babel bootstrap; rewritten per
+                    request to inject window.BACKEND_URL, window.IS_GUEST
+                    and mtime ?v= cache-busts), app.css (dark theme)
+
+src/              — served at /src/* (in-browser Babel)
+  app.jsx         — shell, routing, dashboard fetcher, SSE, synthetic
+                    preview
+  parser.js       — browser transcript parser (SV-PARSER-SPEC)
+  rates.js        — browser rate resolution, pricing.resolve's mirror
+                    (SV-RATE-DATA); what computeSessionStats prices
+                    through; the Claude-path meter decision
+                    (longContextFlagFor)
+  pricing.json    — every rate table (SV-RATE-DATA)
+  parser-lanes.js — browser lane sniff + shared helpers + the Kimi
+                    parsers + window.LONG_CONTEXT_* +
+                    longContextThresholdFor
+                    (SV-PARSER-SPEC lockstep)
+  ctx-input.js    — window.usageCtxInput, moved out of parser.js (the
+                    browser half of backend/ctx_input.py)
+  parser-codex.js — browser codex lane parser: cumulative-token
+                    differencing, first-declared-model attribution,
+                    replay-prefix marking, multi-load record dedup
+                    (SV-PARSER-SPEC lockstep)
+  record-dedup.js — browser half of the canonical winner rule
+                    (SV-CANONICAL-FLAG): an original beats a replayed
+                    copy, an attributed copy an unattributed one
+  dashboard-binning.js — bin width, never finer than the server bucket
+  dashboard-fetch.js — the Overview's /api/dashboard request state:
+                    loading / empty / error outcomes (plain JS, so node
+                    can execute it)
+  dashboard-summary.jsx — the Overview's status block
+  dashboard-charts.jsx — core SVG panels
+  dashboard-charts-extra.jsx — context growth, cache TTL panels
+  context-growth-view.jsx — context growth components
+  detail-pane.jsx — session detail / inspector
+  sessions-list.jsx — sessions page: sortable table of reconstructed
+                    sessions
+  timeline-selection.js — shared Inspector timeline-selection: the one
+                    clamped selection index every consumer derives from
+  event-helpers.jsx — event formatting helpers
+  synthetic-data.js — synthetic dashboard data
+  views/          — cache-view.jsx, context-growth-view-v2.jsx
+
+scripts/plots/    — DB-backed usage plot (ccusage_plot_db.py, _render.py,
+                    _timeline.py) over `records`; visual parity with
+                    upstream nhz-io/ccusage-plot
+
+tests/            — pytest suite (conftest.py forces file-mode R2 and
+                    test-safe env defaults)
+
+fixtures/         — parser/, codex/, r2_mini/ (SV-FIXTURE-SIZE)
+
+examples/         — claudit.service
+
+.claude/rules/    — Doctrine — a cross-cutting core plus the
+                    path-scoped domain files (SV-* rules)
+```
 
 ## House style
 
