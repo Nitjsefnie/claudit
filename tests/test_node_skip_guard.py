@@ -5,8 +5,7 @@ including marks in module if/try blocks. Resolve per-test, class, inherited
 and conditional class marks, including predicates from module variables.
 A subprocess argv naming node grounds the closure; decorators, docstrings,
 incidental strings and comments do not. OR all same-file bases, as pytest does.
-Unresolved external helpers or conftest fixtures fail loud, except supported
-comment-measurement calls and the report CLI. Out-of-file/dotted/called bases collect no mark.
+Unresolved external helpers or conftest fixtures fail loud. Out-of-file/dotted/called bases collect no mark.
 os.system, shell wrappers and aliased/imported subprocess calls are not
 recognised; argv matching proves presence, not exclusivity."""
 from __future__ import annotations
