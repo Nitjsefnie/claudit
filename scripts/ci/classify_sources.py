@@ -2,18 +2,41 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import difflib
-import importlib
 import os
 import re
+import shlex
 from pathlib import Path
 
-measurement = importlib.import_module('scripts.ci.comment_share' if __package__ else 'comment_share')
 VERSION = re.compile(rb'''PRICING_VERSION\s*=\s*(['"])([0-9]+)\1\s*''')
+
+SUFFIXES = {'.py': 'python', '.js': 'javascript', '.jsx': 'javascript',
+            '.mjs': 'javascript', '.cjs': 'javascript', '.yaml': 'yaml',
+            '.yml': 'yaml', '.sh': 'shell'}
+SHELLS = {'sh', 'bash', 'dash', 'ash', 'ksh', 'mksh', 'zsh'}
+
+
+def language_for(path: Path) -> str | None:
+    language = SUFFIXES.get(path.suffix)
+    if language or path.suffix:
+        return language
+    with path.open('rb') as handle:
+        first = handle.readline()
+    if not first.startswith(b'#!'):
+        return None
+    words = shlex.split(first[2:].decode('utf-8'))
+    if not words:
+        return None
+    executable = Path(words[0]).name
+    if executable == 'env':
+        words = [word for word in words[1:]
+                 if not word.startswith('-') and '=' not in word]
+        executable = Path(words[0]).name if words else ''
+    return 'shell' if executable in SHELLS else None
 
 
 def measured(paths: list[str]) -> bool:
     try:
-        return any(measurement.language_for(Path(path)) for path in paths)
+        return any(language_for(Path(path)) for path in paths)
     except (OSError, ValueError):
         return True
 
