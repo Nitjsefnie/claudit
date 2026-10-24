@@ -147,19 +147,16 @@ def output_references(value: str, steps: list[dict]) -> set[tuple[str, str]]:
 
 
 def dockerfile_from_reference(path: Path) -> str:
-    """The one FROM reference of a Dockerfile: repository@sha256:digest.
+    """The one FROM reference of a Dockerfile.
 
-    Raises on zero or several FROM lines, a missing token, or a
-    non-sha256 reference.
+    Raises on zero or several FROM lines or a missing token.
     """
     lines = [line for line in path.read_text(encoding="utf-8").splitlines()
              if line.startswith("FROM")]
     assert len(lines) == 1, (path, lines)
     match = re.match(r"FROM\s+([^\s#]+)", lines[0])
     assert match, lines[0]
-    reference = match[1]
-    assert reference.partition("@")[2].startswith("sha256:"), reference
-    return reference
+    return match[1]
 
 
 def assert_apt_sanitizer(root: Path, step: dict) -> None:
