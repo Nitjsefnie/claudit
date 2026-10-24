@@ -224,7 +224,9 @@ workflows as reusable legs, and folds them into one verdict —
 **`ci gate / aggregate`**. A documentation-only change (`*.md`,
 `PRESENTATION.txt`, `examples/`, `.claude/`, licences) narrows the
 expensive legs by classification instead of by `paths-ignore`, so
-every check still reports rather than going MISSING. Prose changes in
+every check still reports rather than going MISSING. Python and JS/TS
+sources, `action.yml`/`action.yaml` and `examples/claudit.service` under
+those paths still run the full gate set. Prose changes in
 `README.md`, `CONTRIBUTING.md` or `AGENTS.md` also skip the legs when their
 pinned setup facts are unchanged. A documentation-only change to those
 facts runs only the inline `setup-docs` job (`tests/test_docs_setup.py`);

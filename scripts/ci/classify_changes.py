@@ -7,7 +7,7 @@ this script reads the run's changed paths and emits the class
 outputs, which condition the legs while the
 aggregate job still reports.
 
-Documentation excludes measured sources. Setup docs compare their pinned
+Documentation excludes leg-read sources. Setup docs compare their pinned
 facts through setup_docs: identical facts permit docs-only, changed facts
 select setup-only, and unreadable refs, blobs or sections run the full gate.
 Every fallback over-runs, never skips verification over unreadable inputs.
@@ -146,7 +146,7 @@ def is_documentation(path):
 def documentation_only(paths):
     """Whether paths can narrow as docs, subject to setup-block comparison."""
     return (bool(paths) and all(is_documentation(path) for path in paths)
-            and not sources.measured(paths))
+            and not any(sources.leg_reads(path) for path in paths))
 
 
 def data_only(paths):
@@ -400,9 +400,10 @@ def classify(event, run):
         return thresholds.unreadable_or_thresholds(paths)
     if documentation_only(paths):
         return setup_docs.classify(paths, event, run, _refs, _blob)
-    if all(is_documentation(path) for path in paths) and sources.measured(paths):
+    if all(is_documentation(path) for path in paths) and any(
+            sources.leg_reads(path) for path in paths):
         return (False, False, False, False, False,
-                'documentation paths touch measured sources; running the full gate set')
+                'a gate leg reads a documentation path; running the full gate set')
     if (data_only(paths) and bot.is_bot_push(event, run)
             and sources.pricing_change(event, run, _refs, _blob)):
         return (False, True, False, False, False,
