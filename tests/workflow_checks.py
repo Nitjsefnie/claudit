@@ -146,6 +146,24 @@ def output_references(value: str, steps: list[dict]) -> set[tuple[str, str]]:
     return found
 
 
+def dockerfile_from_reference(path: Path) -> str:
+    """The one digest-pinned FROM reference of a Dockerfile.
+
+    Raises when the file carries zero or several FROM lines, a FROM with
+    no reference token, or a reference that is not
+    ``repository@sha256:`` — consumers derive repository and digest from
+    the returned token instead of pinning their own literal.
+    """
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines()
+             if line.startswith("FROM")]
+    assert len(lines) == 1, (path, lines)
+    match = re.match(r"FROM\s+([^\s#]+)", lines[0])
+    assert match, lines[0]
+    reference = match[1]
+    assert reference.partition("@")[2].startswith("sha256:"), reference
+    return reference
+
+
 def assert_apt_sanitizer(root: Path, step: dict) -> None:
     """Resolve the called local composite and check its Microsoft source removal."""
     ref = step.get("uses", "")

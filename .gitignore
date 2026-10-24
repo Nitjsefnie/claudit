@@ -80,6 +80,8 @@
 /.github/actions/*
 !/.github/actions/*/
 !/.github/actions/*/action.yml
+# The Postgres base-image pin's one FROM line, beside its composite action.
+!/.github/actions/*/Dockerfile
 
 # ---- backend/ — FastAPI app ------------------------------------------------
 # `!/backend/*.py` is deliberately unanchored-free (no `**`): it matches only

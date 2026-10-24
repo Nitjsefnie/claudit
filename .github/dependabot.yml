@@ -109,3 +109,26 @@ updates:
         applies-to: security-updates
         patterns:
           - "*"
+
+  # The Postgres base image is pinned by digest on one FROM line in
+  # .github/actions/postgres-image/Dockerfile, which this entry owns. The
+  # ignore holds the pin inside major 16: a major bump changes on-disk
+  # storage semantics and belongs to a deliberate migration, not a weekly
+  # PR. Dependabot names the ECR reference docker/library/postgres — an
+  # ignore on `postgres` does not match it.
+  - package-ecosystem: docker # zizmor: ignore[dependabot-cooldown] -- Exact pins and weekly CI-tested updates; fixes need no extra delay.
+    directory: /.github/actions/postgres-image
+    schedule:
+      interval: weekly
+      day: wednesday
+      time: "04:30"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+    ignore:
+      - dependency-name: docker/library/postgres
+        update-types:
+          - version-update:semver-major

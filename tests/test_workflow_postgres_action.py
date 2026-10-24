@@ -8,12 +8,14 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.workflow_checks import output_references, references
+from tests.workflow_checks import (dockerfile_from_reference,
+                                   output_references, references)
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIONS = ROOT / ".github/actions"
 ACTION = ACTIONS / "postgres/action.yml"
 IMAGE_ACTION = ACTIONS / "postgres-image/action.yml"
+DOCKERFILE = ACTIONS / "postgres-image/Dockerfile"
 CACHED_ACTION = ACTIONS / "cached-image/action.yml"
 LOCAL_ACTION = "$/.github/actions/postgres"
 # The first database consumer in each job, including wrapper scripts.
@@ -76,9 +78,9 @@ def test_image_digest_matches_compose_and_keys_both_cache_operations():
     cached = _cached_step()["with"]
     producer_ids = {producer for producer, _ in output_references(cached["ref"], steps)}
     image, = [step for step in steps if step.get("id") in producer_ids]
-    digest = image["env"]["CLAUDIT_POSTGRES_DIGEST"]
+    reference = dockerfile_from_reference(DOCKERFILE)
     compose_image = _load(ROOT / "compose.yaml")["services"]["db"]["image"]
-    assert compose_image.rpartition("@")[2] == digest
+    assert compose_image == reference
     # The key is emitted from the same digest used by the pull, not a copy.
     for key in ("ref", "key"):
         output_references(cached[key], steps)
@@ -86,8 +88,12 @@ def test_image_digest_matches_compose_and_keys_both_cache_operations():
     assert 'docker pull "$ref"' in acquire["run"]
     assert acquire["env"]["CLAUDIT_IMAGE_REF"] == "${{ inputs.ref }}"
     assert '@${CLAUDIT_POSTGRES_DIGEST}' in image["run"]
+    assert ('echo "tag=claudit-postgres:${CLAUDIT_POSTGRES_DIGEST#sha256:}"'
+            in image["run"])
     assert ('key=postgres-${RUNNER_OS}-${RUNNER_ARCH}-${CLAUDIT_POSTGRES_DIGEST}'
             in image["run"])
+    # The image step derives its values from the Dockerfile beside it.
+    assert '"${GITHUB_ACTION_PATH}/Dockerfile"' in image["run"]
     action = _load(CACHED_ACTION)
     caches = [step for step in action["runs"]["steps"]
               if step.get("uses", "").startswith("actions/cache/")]
@@ -146,11 +152,13 @@ def test_start_uses_the_saved_local_tag_without_a_pull():
 def test_fallback_uses_the_primary_digest_and_is_tried_second():
     image = _step(IMAGE_ACTION, id="image")
     acquire = _step(CACHED_ACTION, id="acquire")
-    assert image["env"].get("CLAUDIT_POSTGRES_FALLBACK_REPOSITORY") == (
-        "mirror.gcr.io/library/postgres")
-    outputs = dict(shlex.split(line)[1].split("=", 1)
-                   for line in image["run"].splitlines()
-                   if line.strip().startswith("echo "))
+    assert ('CLAUDIT_POSTGRES_FALLBACK_REPOSITORY="mirror.gcr.io/library/postgres"'
+            in image["run"])
+    echoes = [shlex.split(line)[1] for line in image["run"].splitlines()
+              if line.strip().startswith("echo ")]
+    # The error echoes are not GITHUB_OUTPUT writes; only name=value ones are.
+    outputs = dict(token.split("=", 1) for token in echoes
+                   if re.match(r"\w+=", token))
     assert outputs["ref"] == "${CLAUDIT_POSTGRES_REPOSITORY}@${CLAUDIT_POSTGRES_DIGEST}"
     assert outputs.get("fallback") == (
         "${CLAUDIT_POSTGRES_FALLBACK_REPOSITORY}@${CLAUDIT_POSTGRES_DIGEST}")

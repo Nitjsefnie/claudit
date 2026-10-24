@@ -64,6 +64,7 @@ jobs:
           persist-credentials: false
 
       - name: Restore or pull the pinned Postgres image
+        id: postgres
         uses: $/.github/actions/postgres-image
 
       # The Dockerfile's FROM, pinned here and checked against the file,
@@ -108,6 +109,8 @@ jobs:
       # interpolated straight into the stack this step exists to prove
       # needs none.
       - name: Assert the resolved config is file-backed and credential-free
+        env:
+          CLAUDIT_POSTGRES_TAG: ${{ steps.postgres.outputs.tag }}
         run: |
           for name in CLAUDIT_R2_ENDPOINT CLAUDIT_R2_BUCKET CLAUDIT_R2_ACCESS_KEY_ID CLAUDIT_R2_SECRET_ACCESS_KEY; do
             unset "$name" "${name#CLAUDIT_}"
@@ -127,6 +130,8 @@ jobs:
       # env: or a runner-exported CLAUDIT_R2_* or legacy credential must not reach the stack
       # a credential-free assert just proved.
       - name: Build the image and start the stack
+        env:
+          CLAUDIT_POSTGRES_TAG: ${{ steps.postgres.outputs.tag }}
         run: |
           for name in CLAUDIT_R2_ENDPOINT CLAUDIT_R2_BUCKET CLAUDIT_R2_ACCESS_KEY_ID CLAUDIT_R2_SECRET_ACCESS_KEY; do
             unset "$name" "${name#CLAUDIT_}"
@@ -216,6 +221,8 @@ jobs:
       # server log beside the failed check.
       - name: Dump the stack log on failure
         if: failure()
+        env:
+          CLAUDIT_POSTGRES_TAG: ${{ steps.postgres.outputs.tag }}
         run: |
           for name in CLAUDIT_R2_ENDPOINT CLAUDIT_R2_BUCKET CLAUDIT_R2_ACCESS_KEY_ID CLAUDIT_R2_SECRET_ACCESS_KEY; do
             unset "$name" "${name#CLAUDIT_}"
@@ -224,6 +231,8 @@ jobs:
 
       - name: Tear the stack down
         if: always()
+        env:
+          CLAUDIT_POSTGRES_TAG: ${{ steps.postgres.outputs.tag }}
         run: |
           for name in CLAUDIT_R2_ENDPOINT CLAUDIT_R2_BUCKET CLAUDIT_R2_ACCESS_KEY_ID CLAUDIT_R2_SECRET_ACCESS_KEY; do
             unset "$name" "${name#CLAUDIT_}"
