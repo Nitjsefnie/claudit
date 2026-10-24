@@ -4,41 +4,21 @@ from collections.abc import Callable
 import difflib
 import os
 import re
-import shlex
 from pathlib import Path
 
 VERSION = re.compile(rb'''PRICING_VERSION\s*=\s*(['"])([0-9]+)\1\s*''')
 
-SUFFIXES = {'.py': 'python', '.js': 'javascript', '.jsx': 'javascript',
-            '.mjs': 'javascript', '.cjs': 'javascript', '.yaml': 'yaml',
-            '.yml': 'yaml', '.sh': 'shell'}
-SHELLS = {'sh', 'bash', 'dash', 'ash', 'ksh', 'mksh', 'zsh'}
+# A ci-gate leg reads: tracked .py files (lint), CodeQL's Python and
+# JS/TS extension set, action.yml/action.yaml anywhere (zizmor), and
+# the shipped unit file. Only files no leg reads narrow as docs-only.
+LEG_READ_SUFFIXES = frozenset({'.py', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx'})
 
 
-def language_for(path: Path) -> str | None:
-    language = SUFFIXES.get(path.suffix)
-    if language or path.suffix:
-        return language
-    with path.open('rb') as handle:
-        first = handle.readline()
-    if not first.startswith(b'#!'):
-        return None
-    words = shlex.split(first[2:].decode('utf-8'))
-    if not words:
-        return None
-    executable = Path(words[0]).name
-    if executable == 'env':
-        words = [word for word in words[1:]
-                 if not word.startswith('-') and '=' not in word]
-        executable = Path(words[0]).name if words else ''
-    return 'shell' if executable in SHELLS else None
-
-
-def measured(paths: list[str]) -> bool:
-    try:
-        return any(language_for(Path(path)) for path in paths)
-    except (OSError, ValueError):
-        return True
+def leg_reads(path: str) -> bool:
+    """Whether a ci-gate leg reads `path`, so the change runs full gates."""
+    return (Path(path).suffix in LEG_READ_SUFFIXES
+            or Path(path).name in ('action.yml', 'action.yaml')
+            or path == 'examples/claudit.service')
 
 
 def pricing_change(event: dict, run: Callable, refs_reader: Callable, blob_reader: Callable) -> bool:

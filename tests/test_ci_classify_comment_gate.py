@@ -39,20 +39,21 @@ def _classify(paths, before='', after='', unreadable=False, *, event=None, autho
     return classify.classify(EVENT if event is None else event, run)[:3]
 
 
-@pytest.mark.parametrize('path', ['examples/x.py', '.claude/x.sh', 'examples/x.mjs', '.claude/x.yaml'])
-def test_measured_additions_in_docs_globs_run_full(path):
-    assert _classify([path]) == (False, False, False)
+@pytest.mark.parametrize('path,want', [
+    ('examples/x.py', (False, False, False)),
+    ('examples/x.mjs', (False, False, False)),
+    ('examples/x.ts', (False, False, False)),
+    ('examples/a/action.yml', (False, False, False)),
+    ('examples/claudit.service', (False, False, False)),
+    ('.claude/x.sh', (True, False, False)),
+    ('.claude/x.yaml', (True, False, False)),
+])
+def test_docs_glob_additions_run_full_only_when_a_leg_reads_the_file(path, want):
+    assert _classify([path]) == want
 
 
-def test_extensionless_head_shebang_and_read_failures_run_full(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    path = tmp_path / 'examples/tool'
-    path.parent.mkdir()
-    for content in ('#!/bin/sh\n# comment\n', "#!'\n"):
-        path.write_text(content)
-        assert _classify(['examples/tool']) == (False, False, False)
-    path.unlink()
-    assert _classify(['examples/tool']) == (False, False, False)
+def test_extensionless_examples_file_narrows_as_docs():
+    assert _classify(['examples/tool']) == (True, False, False)
 
 
 def test_pure_markdown_remains_docs_only():
@@ -94,7 +95,7 @@ def test_bot_paths_without_a_bot_authored_push_run_full(notices, event, author):
                      event=event, author=author) == (False, False, False)
 
 
-def test_comment_edit_in_a_measured_docs_path_is_full():
+def test_comment_edit_in_a_leg_read_docs_path_is_full():
     assert _classify(['examples/known.py'], 'x = 1\ny = 2\n# before\n',
                      'x = 1\ny = 2\n# after\n') == (False, False, False)
 
