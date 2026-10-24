@@ -8,14 +8,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.workflow_checks import (dockerfile_from_reference,
-                                   output_references, references)
+from tests.workflow_checks import output_references, references
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIONS = ROOT / ".github/actions"
 ACTION = ACTIONS / "postgres/action.yml"
 IMAGE_ACTION = ACTIONS / "postgres-image/action.yml"
-DOCKERFILE = ACTIONS / "postgres-image/Dockerfile"
 CACHED_ACTION = ACTIONS / "cached-image/action.yml"
 LOCAL_ACTION = "$/.github/actions/postgres"
 # The first database consumer in each job, including wrapper scripts.
@@ -78,9 +76,11 @@ def test_image_digest_matches_compose_and_keys_both_cache_operations():
     cached = _cached_step()["with"]
     producer_ids = {producer for producer, _ in output_references(cached["ref"], steps)}
     image, = [step for step in steps if step.get("id") in producer_ids]
-    reference = dockerfile_from_reference(DOCKERFILE)
-    compose_image = _load(ROOT / "compose.yaml")["services"]["db"]["image"]
-    assert compose_image == reference
+    compose_db = _load(ROOT / "compose.yaml")["services"]["db"]
+    # The digest lives only in the Dockerfile: local compose builds its
+    # directory under a fixed local name, with no reference of its own.
+    assert compose_db["build"] == ".github/actions/postgres-image"
+    assert compose_db["image"] == "claudit-postgres:local"
     # The key is emitted from the same digest used by the pull, not a copy.
     for key in ("ref", "key"):
         output_references(cached[key], steps)
