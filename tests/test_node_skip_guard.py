@@ -179,54 +179,6 @@ def test_node_parameter_data_and_other_decorators_are_not_skips() -> None:
         assert not _skip_without_node_lines(tree)
 
 
-def test_comment_measurement_entry_points_ground_real_node_skips() -> None:
-    for imports, body in (
-        ("from scripts.ci import comment_share as counter\n", "counter.measure_files(Path('.'), {'a.js': 'javascript'})"),
-        ("import scripts.ci.comment_share as counter\n", "counter.measure_files(Path('.'), {'a.js': 'javascript'})"),
-        ("from scripts.ci.comment_share import measure_files as measure\n", "measure(Path('.'), {'a.js': 'javascript'})"),
-        ("from scripts.ci import comment_share as counter\n", "counter.javascript_comments(Path('.'), ['a.mjs'])"),
-        ("from scripts.ci.comment_share import javascript_comments as measure\n", "measure(root=Path('.'), paths=('a.cjs',))"),
-        ("from scripts.ci import comment_share as counter\n", "counter.measure_files(sources={'a.jsx': 'javascript'})"),
-        ("import subprocess\n", "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report'])"),
-        ("import subprocess\n", "subprocess.run([sys.executable, ROOT / 'scripts/ci/comment_share.py', '--report'])"),
-        ("import subprocess\n", "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report', '--root', '.'])"),
-        ("import subprocess\n", "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--root', '.', '--report'])"),
-    ):
-        tree = ast.parse(imports + "@pytest.mark.skipif(shutil.which('node') is None)\n"
-                         + f"def test_measure():\n    {body}\n")
-        assert not _skip_without_node_lines(tree)
-
-
-@pytest.mark.parametrize('body', [
-    "counter.python_comments('x = 1')",
-    "counter.main(['--help'])",
-    "counter.javascript_comments(Path('.'), [])",
-    "counter.measure_files(Path('.'), {})",
-    "counter.measure_files()",
-    "counter.javascript_comments(Path('.'), paths)",
-    "counter.measure_files(Path('.'), {'a.py': 'python'})",
-    "counter.measure_files(Path('.'), {'a.js': 'python'})",
-    "counter.measure_files(Path('.'), sources)",
-    "counter.measure_files(Path('.'), sources=None)",
-    "counter.javascript_comments(Path('.'), ['a.js'], **options)",
-    "subprocess.run(['echo', 'scripts/ci/comment_share.py'])",
-    "subprocess.run(['python3', 'other.py', 'scripts/ci/comment_share.py'])",
-    "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--help'])",
-    "subprocess.run(['python3', 'scripts/ci/comment_share.py', '-h'])",
-    "subprocess.run(['python3', 'other-scripts/ci/comment_share.py', '--report'])",
-    "subprocess.run(['python3', OTHER / 'scripts/ci/comment_share.py', '--report'])",
-    "subprocess.run(['python3', 'scripts/ci/comment_share.py'])",
-    "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report', '--help'])",
-    "subprocess.run(['python3', 'scripts/ci/comment_share.py', 'src/parser.js'])",
-    "subprocess.run(['python3', 'scripts/ci/comment_share.py', '--report', 'src/parser.js'])"
-])
-def test_measurement_names_without_an_entry_point_do_not_ground_skips(body) -> None:
-    tree = ast.parse("from scripts.ci import comment_share as counter\nimport subprocess\n"
-                     "@pytest.mark.skipif(shutil.which('node') is None)\n"
-                     + f"def test_python():\n    {body}\n")
-    assert _skip_without_node_lines(tree) == [(4, 'test_python')]
-
-
 def test_a_node_running_class_member_is_left_alone() -> None:
     """The control for shape one: a class whose every member grounds
     through the helper keeps its class mark."""

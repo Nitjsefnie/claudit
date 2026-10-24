@@ -66,7 +66,6 @@ def _context_from_tree(tree: ast.Module, root: Path | None,
         "imported": _imported_names(tree),
         "node_names": _node_names(tree),
         "mark_names": _mark_names(tree),
-        "measurement_imports": _measurement_imports(tree),
     }
 
 
@@ -191,7 +190,7 @@ def _grounds_in_node(func, ctx, class_methods,
         return False
     visited.add(id(func))
     flat = [n for stmt in _closure_stmts(func) for n in ast.walk(stmt)]
-    if _launches_node(flat) or _measurement_launch(flat, ctx["measurement_imports"]):
+    if _launches_node(flat):
         return True
     targets = _call_targets(flat, func, ctx, class_methods)
     return any(_grounds_in_node(t, tctx, tcls, visited)
@@ -392,91 +391,6 @@ def _skip_mark_mentions_node(value: ast.expr, names: dict, marks: dict) -> bool:
     return (isinstance(value, ast.Call)
             and _mark_name(value.func, marks).rsplit('.', 1)[-1] in ('skip', 'skipif')
             and _mentions_node_ref(value, names))
-
-
-def _measurement_imports(tree: ast.Module) -> dict[str, str]:
-    imported = {}
-    for stmt, _line in _module_level_statements(tree):
-        if isinstance(stmt, ast.ImportFrom) and stmt.module in ('scripts.ci', 'scripts.ci.comment_share'):
-            for alias in stmt.names:
-                imported[alias.asname or alias.name] = f'{stmt.module}.{alias.name}'
-        elif isinstance(stmt, ast.Import):
-            for alias in stmt.names:
-                if alias.name == 'scripts.ci.comment_share':
-                    imported[alias.asname or alias.name] = alias.name
-    return imported
-
-
-def _measurement_launch(nodes: list[ast.AST], imported: dict[str, str]) -> bool:
-    for node in nodes:
-        if not isinstance(node, ast.Call):
-            continue
-        name = ast.unparse(node.func)
-        for local, qualified in imported.items():
-            target = qualified + name[len(local):] if name == local or name.startswith(local + '.') else ''
-            if target in ('scripts.ci.comment_share.measure_files',
-                          'scripts.ci.comment_share.javascript_comments') and _measurement_input(node, target):
-                return True
-        if _measurement_cli(node):
-            return True
-    return False
-
-
-def _measurement_input(node: ast.Call, target: str) -> bool:
-    argument = 'sources' if target.endswith('.measure_files') else 'paths'
-    if len(node.args) > 2 or any(isinstance(arg, ast.Starred) for arg in node.args):
-        return False
-    if (any(kw.arg not in ('root', argument) for kw in node.keywords)
-            or len(node.args) == 2 and node.keywords
-            or node.args and any(kw.arg == 'root' for kw in node.keywords)):
-        return False
-    value = node.args[1] if len(node.args) == 2 else next(
-        (kw.value for kw in node.keywords if kw.arg == argument), None)
-    try:
-        data = ast.literal_eval(value) if value is not None else None
-    except (ValueError, TypeError, SyntaxError):
-        return False
-    if argument == 'sources':
-        return isinstance(data, dict) and any(
-            isinstance(path, str) and path.endswith(('.js', '.jsx', '.mjs', '.cjs'))
-            and language == 'javascript' for path, language in data.items())
-    return isinstance(data, (list, tuple)) and bool(data) and all(
-        isinstance(path, str) and path.endswith(('.js', '.jsx', '.mjs', '.cjs')) for path in data)
-
-
-def _measurement_cli(node: ast.Call) -> bool:
-    if not (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == 'subprocess' and node.func.attr in _SUBPROCESS_LAUNCHERS):
-        return False
-    if not node.args or not isinstance(node.args[0], (ast.List, ast.Tuple)):
-        return False
-    args = node.args[0].elts
-    if len(args) < 2:
-        return False
-    executable = ast.unparse(args[0])
-    if executable != 'sys.executable' and not (
-            isinstance(args[0], ast.Constant) and isinstance(args[0].value, str)
-            and Path(args[0].value).name.startswith('python')):
-        return False
-    return _measurement_args(args[1:])
-
-
-def _measurement_args(args: list[ast.expr]) -> bool:
-    script = args[0]
-    if isinstance(script, ast.BinOp) and isinstance(script.op, ast.Div):
-        if not isinstance(script.left, ast.Name) or script.left.id != 'ROOT':
-            return False
-        script = script.right
-    if not isinstance(script, ast.Constant) or script.value != 'scripts/ci/comment_share.py':
-        return False
-    values = [arg.value for arg in args[1:] if isinstance(arg, ast.Constant) and isinstance(arg.value, str)]
-    if not values or len(values) != len(args) - 1 or not all(values):
-        return False
-    if values == ['--report']:
-        return True
-    if len(values) == 3 and values[0] == '--root':
-        values = values[2:] + values[:2]
-    return len(values) == 3 and values[:2] == ['--report', '--root'] and not values[2].startswith('-')
 
 
 def _pytestmark_value(stmt: ast.stmt) -> ast.expr | None:
