@@ -135,4 +135,4 @@ jobs:
           # known-vulnerable action versions). Read-only, and this workflow
           # declares contents: read.
           GH_TOKEN: ${{ github.token }}
-        run: zizmor --no-progress .github/workflows/
+        run: zizmor --no-progress .
