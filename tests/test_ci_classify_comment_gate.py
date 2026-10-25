@@ -41,6 +41,7 @@ def _classify(paths, before='', after='', unreadable=False, *, event=None, autho
 
 @pytest.mark.parametrize('path,want', [
     ('examples/x.py', (False, False, False)),
+    ('examples/x.pyw', (False, False, False)),
     ('examples/x.mjs', (False, False, False)),
     ('examples/x.ts', (False, False, False)),
     ('.claude/x.mts', (False, False, False)),
@@ -53,11 +54,14 @@ def _classify(paths, before='', after='', unreadable=False, *, event=None, autho
     ('examples/a/xs-app.json', (False, False, False)),
     ('examples/a/x.view.json', (False, False, False)),
     ('examples/a/codeql-javascript-default.json', (False, False, False)),
+    ('examples/requirements.txt', (False, False, False)),
+    ('examples/requirements-dev.in', (False, False, False)),
     ('examples/a/tsconfig.build.json', (False, False, False)),
     ('examples/.eslintrc', (False, False, False)),
     ('examples/a/.xsaccess', (False, False, False)),
     ('examples/a/action.yml', (False, False, False)),
     ('examples/claudit.service', (False, False, False)),
+    ('examples/a/actions.lock', (False, False, False)),
     ('examples/x.lock', (True, False, False)),
     ('.claude/x.sh', (True, False, False)),
     ('.claude/x.yaml', (False, False, False)),

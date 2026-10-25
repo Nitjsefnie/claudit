@@ -9,20 +9,23 @@ from pathlib import Path
 
 VERSION = re.compile(rb'''PRICING_VERSION\s*=\s*(['"])([0-9]+)\1\s*''')
 
-# Files a ci-gate leg reads: tracked .py (lint); CodeQL javascript-
-# typescript setupFilters (FileExtractor HTML/JS/YAML-minus-.lock/TS
-# enums, JSON config names, index-filter patterns); zizmor's walk —
-# its action/dependabot/pre-commit names are all .y(a)ml, covered by
-# the YAML suffix members.
-LEG_READ_SUFFIXES = frozenset({'.py', '.htm', '.html', '.xhtm', '.xhtml',
-                               '.vue', '.hbs', '.ejs', '.njk', '.erb', '.jsp',
-                               '.dot', '.js', '.jsx', '.mjs', '.cjs', '.es6',
-                               '.es', '.xsjs', '.xsjslib', '.raml', '.yaml',
-                               '.yml', '.ts', '.tsx', '.mts', '.cts'})
-LEG_READ_BASENAMES = frozenset({'action.yml', 'action.yaml', 'package.json',
-                                'manifest.json', 'xs-app.json', '.xsaccess'})
+# Files a ci-gate leg reads: .py (lint) and .pyw (CodeQL python); the
+# javascript-typescript setupFilters (HTML/JS/TS enums; YAML minus the
+# JS pass's -**/*.lock — the actions pass re-includes actions.lock;
+# JSON names, index-filter patterns); zizmor (.y(a)ml names, covered by
+# the YAML members); the tests leg's *requirements* sweep.
+LEG_READ_SUFFIXES = frozenset({'.py', '.pyw', '.htm', '.html', '.xhtm',
+                               '.xhtml', '.vue', '.hbs', '.ejs', '.njk',
+                               '.erb', '.jsp', '.dot', '.js', '.jsx', '.mjs',
+                               '.cjs', '.es6', '.es', '.xsjs', '.xsjslib',
+                               '.raml', '.yaml', '.yml', '.ts', '.tsx',
+                               '.mts', '.cts'})
+LEG_READ_BASENAMES = frozenset({'action.yml', 'action.yaml', 'actions.lock',
+                                'package.json', 'manifest.json',
+                                'xs-app.json', '.xsaccess'})
 LEG_READ_PATTERNS = ('*.view.json', '*tsconfig*.json', '.eslintrc*',
-                     'codeql-javascript-*.json')
+                     'codeql-javascript-*.json', '*requirements*.txt',
+                     '*requirements*.in')
 
 
 def leg_reads(path: str) -> bool:

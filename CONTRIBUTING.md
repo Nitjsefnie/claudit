@@ -224,8 +224,9 @@ workflows as reusable legs, and folds them into one verdict —
 **`ci gate / aggregate`**. A documentation-only change (`*.md`,
 `PRESENTATION.txt`, `examples/`, `.claude/`, licences) narrows the
 expensive legs by classification instead of by `paths-ignore`, so
-every check still reports rather than going MISSING. Python, JS/TS,
-HTML-family and YAML-family sources, the CodeQL config-JSON names, and
+every check still reports rather than going MISSING. Python, `.pyw`, JS/TS,
+HTML-family and YAML-family sources, the CodeQL config-JSON names,
+`actions.lock`, `*requirements*.txt`/`.in` files, and
 `examples/claudit.service` under those paths still run the full gate set. Prose changes in
 `README.md`, `CONTRIBUTING.md` or `AGENTS.md` also skip the legs when their
 pinned setup facts are unchanged. A documentation-only change to those
