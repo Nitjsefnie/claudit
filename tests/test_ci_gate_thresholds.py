@@ -23,8 +23,12 @@ def _workflow(name):
 @pytest.mark.parametrize('paths,expected', [
     ([THRESHOLDS], True),
     (['.github/comment-share.json'], True),
+    (['.github/size-baseline.json'], True),
     ([THRESHOLDS, '.github/comment-share.json'], True),
+    ([THRESHOLDS, '.github/size-baseline.json'], True),
+    (['.github/size-baseline.json', '.github/comment-share.json'], True),
     ([THRESHOLDS, 'backend/app.py'], False),
+    (['.github/size-baseline.json', 'backend/app.py'], False),
     ([THRESHOLDS, 'docs/guide.md'], False),
     ([THRESHOLDS, '.github/old-thresholds.json'], False),
     (['docs/guide.md'], False),
