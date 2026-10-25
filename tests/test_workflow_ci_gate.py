@@ -309,6 +309,8 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert 'echo "size=$size"' in listing_run
     assert "records=false" in listing_run
     assert "records=true" in listing_run
+    assert "size=false" in listing_run
+    assert "size=true" in listing_run
     assert ('if [ "$ratchet" = true ] || [ "$suite" = true ] '
             '|| [ "$records" = true ] || [ "$size" = true ]; then'
             in listing_run)

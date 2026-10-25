@@ -557,6 +557,13 @@ def test_size_baseline_stages_only_tightened_records():
     # is the bot's no-op signal.
     doc = _load("tests.yml")
     job = _job(doc, "size-baseline")
+    checkout, = [step for step in _steps(job)
+                 if (step.get("uses") or "").startswith("actions/checkout@")]
+    assert checkout["with"] == {
+        # Judge the PR head tree; full history for the base; no token kept.
+        "ref": "${{ github.event.pull_request.head.sha || github.sha }}",
+        "fetch-depth": "0",
+        "persist-credentials": "false"}
     stage, = [step for step in _steps(job) if step.get("id") == "size_stage"]
     lines = _run_lines(stage)
     assert lines[0] == "changed=0"
