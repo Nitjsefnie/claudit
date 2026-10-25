@@ -644,8 +644,11 @@ def test_size_empty_base_refused_in_chain_and_landing(tmp_path):
             in result.stderr)
     assert "Master moved while this run measured" not in result.stderr
     assert "nothing to commit" not in result.stdout
-    # The healthy size-only shape resolves its base and reaches the
-    # no-change ending (every tool faked): neither check is trip-happy.
+    # The healthy shape here is multi-artifact: the thresholds fixture
+    # staged above stays present, so the chain resolves its base and the
+    # size elif never evaluates -- with every tool faked the run reaches
+    # the no-change ending, so neither check is trip-happy. The healthy
+    # size-only path is the chain case's drive above.
     size_base_txt.write_text("a" * 40 + "\n")
     result = _drive()
     assert result.returncode == 0, result.stderr
