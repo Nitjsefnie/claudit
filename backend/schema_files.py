@@ -14,7 +14,7 @@ SCHEMA_PATH = _HERE / "schema.sql"
 
 # Apply ordered schema files as one script, lock set and content stamp.
 #
-# The module-size ratchet requires additions in separate files; schema.sql
+# The size-ratchet action requires additions in separate files; schema.sql
 # stays first because later ALTERs depend on it. Run additive files before
 # schema_dims' guarded fact/rollup rebuild, so all columns exist on the
 # shape being converted. schema_types then converges surrogate column

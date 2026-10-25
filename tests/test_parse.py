@@ -1,4 +1,4 @@
-# Fixture-driven parser tests live here 1:1 per testing convention; the module size is governed by the size baseline (scripts/ci/size_baseline.py), not pylint's flat module limit.
+# Fixture-driven parser tests live here 1:1 per testing convention; the module size is governed by the size-ratchet action, not pylint's flat module limit.
 """parse.py — per-file extraction.
 
 Returns requestId max-merged records and per-turn ctx_turns.

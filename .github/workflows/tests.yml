@@ -186,9 +186,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -r requirements-test.txt
-      - name: Module size baseline
-        if: ${{ !cancelled() && inputs.thresholds_only != 'true' }}
-        run: python3 scripts/ci/size_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
       - name: Pylint suppression baseline
         if: ${{ !cancelled() && inputs.thresholds_only != 'true' }}
         run: python3 scripts/ci/suppression_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
@@ -374,7 +371,6 @@ jobs:
           python3 scripts/ci/ratchet.py --language javascript \
             --measured "${CLAUDIT_JS_MEASURED}"
           python3 scripts/ci/reparse_ratchet.py --measured-file reparse-bench.json
-          python3 scripts/ci/size_baseline.py --tighten
           python3 scripts/ci/suppression_baseline.py --tighten
           python3 scripts/ci/thresholds.py --check
           if [ -n "$(git status --porcelain .github/ci-thresholds.json)" ]; then
@@ -388,9 +384,8 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Python coverage ${measured}%, JavaScript coverage" \
-              "${CLAUDIT_JS_MEASURED}% and unchanged module sizes" \
-              "justify no raise."
+            echo "Python coverage ${measured}% and JavaScript coverage" \
+              "${CLAUDIT_JS_MEASURED}% justify no raise."
           fi
       - name: Stage the ratchet data
         if: steps.ratchet.outputs.changed == 'true'

@@ -6,7 +6,7 @@ fold — must gate exactly like a run that inserted, reparsed or deleted
 a file.
 
 Split from test_ingest.py's planned additions: that module sits at its
-committed size-baseline entry (957), so new tests live here and borrow
+committed size-gate entry, so new tests live here and borrow
 its fixtures, the way test_ingest_fetch.py already does.
 """
 from __future__ import annotations

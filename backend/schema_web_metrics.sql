@@ -4,10 +4,10 @@
 --
 -- A SEPARATE file from schema.sql, applied immediately after it in the same
 -- transaction and under the same content stamp (db.SCHEMA_PATHS). The reason
--- is the module-size ratchet: schema.sql sits exactly at its recorded
--- ceiling, a recorded size that is never raised and never seeded for an
--- existing family, so a table added there fails the gate for good. The
--- ratchet's own remedy — relocate the code into a new module — is what this
+-- is the size-ratchet gate: schema.sql sits exactly at its recorded
+-- ceiling in .github/size-baseline.json, a count that is never raised by
+-- hand, so a table added there fails the gate for good. The gate's own
+-- remedy — relocate the code into a new module — is what this
 -- is, and keeping the tables together here means the next split has a
 -- precedent and a boundary to follow.
 --

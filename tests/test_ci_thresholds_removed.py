@@ -12,7 +12,7 @@ from tests.test_ci_thresholds_guard import (
 
 
 BASELINE_VALUES = {
-    "module_size_baseline": 900, "pylint_suppression_baseline": 2,
+    "pylint_suppression_baseline": 2,
 }
 REMOVED_ENTRIES = ["coverage.python", "coverage.javascript", "suite_cost",
                    "reparse", *BASELINE_VALUES]
@@ -159,7 +159,7 @@ def test_exemptions_intersect_committed_removals_declarations_and_candidates(tmp
     for base_ref, head_ref in [(None, 'HEAD'), (' ', 'HEAD'), ('missing', 'HEAD'),
                                (base_rev, 'missing'), ('HEAD', 'HEAD')]:
         assert thresholds_removed.exempt_paths(
-            base_ref, head_ref, root, 'module_size_baseline', {}, ['backend/kept.py']) == set()
+            base_ref, head_ref, root, 'pylint_suppression_baseline', {}, ['backend/kept.py']) == set()
 
 
 def test_unreadable_base_or_range_grants_no_exemptions(tmp_path, monkeypatch):
@@ -179,7 +179,7 @@ def test_unreadable_base_or_range_grants_no_exemptions(tmp_path, monkeypatch):
                 return subprocess.CompletedProcess(argv, int(answer is None), answer)
             assert argv[3:] == ['log', '--format=%B', 'base..HEAD']
             return subprocess.CompletedProcess(
-                argv, 0, b'Thresholds-Removed: module_size_baseline=definition')
+                argv, 0, b'Thresholds-Removed: pylint_suppression_baseline=definition')
         monkeypatch.setattr(thresholds_removed.subprocess, 'run', read_git)
         assert thresholds_removed.exempt_paths(
-            'base', 'HEAD', tmp_path, 'module_size_baseline', {}, ['backend/kept.py']) == set()
+            'base', 'HEAD', tmp_path, 'pylint_suppression_baseline', {}, ['backend/kept.py']) == set()

@@ -83,7 +83,6 @@ def _document(suite=None):
             "python": {"measured": 92.6, "floor": 91.1},
             "javascript": {"measured": 50.0, "floor": 48.5},
         },
-        "module_size_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": copy.deepcopy(suite) if suite is not None else None,
         # The reparse family is inert here — nothing in this module

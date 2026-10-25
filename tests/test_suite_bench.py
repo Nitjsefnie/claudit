@@ -146,7 +146,6 @@ def _thresholds_for(tmp_path, measurement, lift=Decimal("0.0"),
                        "floor": Decimal("91.1")},
             "javascript": {"measured": 50.0, "floor": 48.5},
         },
-        "module_size_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": suite,
         # The loader requires EVERY top-level family, so a synthetic

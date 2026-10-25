@@ -72,17 +72,15 @@ def _document_bytes():
             "javascript": {"measured": Decimal("50.0"), "floor": Decimal("48.5")},
         },
         "reparse": _reparse(),
-        "module_size_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": SUITE_COST,
     }, protocol=5)
 
 
-def _document(measured="92.6", floor="91.1", baseline=None, reparse=None,
+def _document(measured="92.6", floor="91.1", reparse=None,
               suite=None):
     doc = pickle.loads(_document_bytes())
     doc["coverage"]["python"] = {"measured": Decimal(measured), "floor": Decimal(floor)}
-    doc["module_size_baseline"] = baseline or {}
     if reparse is not None:
         doc["reparse"] = reparse
     if suite is not None:
@@ -180,7 +178,8 @@ def test_normalised_document_keeps_exact_values():
 
 def test_write_publishes_canonical_bytes(tmp_path):
     target = tmp_path / "ci-thresholds.json"
-    doc = _document(baseline={"backend/api.py": 984})
+    doc = _document()
+    doc["pylint_suppression_baseline"] = {"backend/api.py": 984}
     thresholds.write(target, doc)
     text = target.read_text(encoding="utf-8")
     assert text.endswith("\n")
@@ -260,7 +259,7 @@ def test_non_finite_number_refused(tmp_path):
     target = tmp_path / "ci-thresholds.json"
     target.write_text(
         '{"schema_version": 1, "coverage": {"python": {"measured": NaN,'
-        ' "floor": 91.1}}, "module_size_baseline": {}}',
+        ' "floor": 91.1}}, "pylint_suppression_baseline": {}}',
         encoding="utf-8")
     with pytest.raises(ValueError, match="non-finite"):
         thresholds.load(target)
@@ -270,8 +269,8 @@ def test_duplicate_key_refused(tmp_path):
     target = tmp_path / "ci-thresholds.json"
     target.write_text(
         '{"schema_version": 1, "coverage": {"python": {"measured": 92.6,'
-        ' "floor": 91.1}}, "module_size_baseline": {},'
-        ' "module_size_baseline": {}}',
+        ' "floor": 91.1}}, "pylint_suppression_baseline": {},'
+        ' "pylint_suppression_baseline": {}}',
         encoding="utf-8")
     with pytest.raises(ValueError, match="duplicate JSON key"):
         thresholds.load(target)
@@ -321,31 +320,6 @@ def test_absent_suite_cost_and_reparse_families_load(tmp_path):
     assert "reparse" not in loaded
     assert thresholds.suite_cost(loaded) == {}
     assert thresholds.reparse(loaded) == {}
-
-
-def test_absent_baseline_member_loads(tmp_path):
-    target = _written_document(tmp_path)
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    del payload["module_size_baseline"]
-    target.write_text(json.dumps(payload), encoding="utf-8")
-
-    assert "module_size_baseline" not in thresholds.load(target)
-    assert thresholds.module_size_baseline(
-        thresholds.load(target)) == {}
-
-
-def test_absent_baseline_reader_returns_empty_mapping(tmp_path):
-    for member in [
-        "module_size_baseline",
-    ]:
-        target = _written_document(tmp_path)
-        payload = json.loads(target.read_text(encoding="utf-8"))
-        del payload[member]
-        target.write_text(json.dumps(payload), encoding="utf-8")
-        loaded = thresholds.load(target)
-
-        reader = getattr(thresholds, member)
-        assert reader(loaded) == {}
 
 
 def test_optional_families_round_trip_without_reappearing(tmp_path):
@@ -403,7 +377,8 @@ def test_baseline_value_must_be_positive_int(tmp_path):
     for value in ["0", "-5", "1.5"]:
         target = _written_document(tmp_path)
         payload = json.loads(target.read_text(encoding="utf-8"))
-        payload["module_size_baseline"] = {"backend/api.py": json.loads(value)}
+        payload["pylint_suppression_baseline"] = {
+            "backend/api.py": json.loads(value)}
         target.write_text(json.dumps(payload), encoding="utf-8")
         with pytest.raises(ValueError, match="positive integer"):
             thresholds.load(target)
@@ -414,7 +389,7 @@ def test_unsafe_baseline_path_refused(tmp_path):
                  "C:\\evil.py"]:
         target = _written_document(tmp_path)
         payload = json.loads(target.read_text(encoding="utf-8"))
-        payload["module_size_baseline"] = {path: 100}
+        payload["pylint_suppression_baseline"] = {path: 100}
         target.write_text(json.dumps(payload), encoding="utf-8")
         with pytest.raises(ValueError, match="unsafe module path"):
             thresholds.load(target)

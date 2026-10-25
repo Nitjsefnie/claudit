@@ -1,6 +1,6 @@
 """Warm default response-cache views after ingest or restart.
 
-Keep warming outside ingest's module-size ceiling; ingest re-exports
+Keep warming outside ingest's size-gate ceiling; ingest re-exports
 warm_common and WARM_RANGES for callers and test patch seams."""
 from __future__ import annotations
 

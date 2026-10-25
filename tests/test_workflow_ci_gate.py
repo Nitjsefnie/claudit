@@ -473,7 +473,7 @@ def test_parallel_canary_jobs_keep_the_gate_step_order():
                              "measured", "Coverage summary", "Upload coverage.xml",
                              "Patch coverage against the merge base", "Stage the patch-coverage comment",
                              "Upload the patch-coverage comment", "Coverage gate"],
-        "baselines": [*preparation, "Module size baseline", "Pylint suppression baseline",
+        "baselines": [*preparation, "Pylint suppression baseline",
                       "Threshold direction guard"],
         "js-coverage": ["actions/checkout", "Start cached Postgres", "actions/setup-python",
                         "actions/setup-node", "Resolve the threshold base", "Restore the pip cache",

@@ -49,7 +49,6 @@ def _document(reparse):
                            "floor": Decimal("48.5")},
         },
         "reparse": reparse,
-        "module_size_baseline": {},
         "pylint_suppression_baseline": {},
         # The loader requires EVERY top-level family, so a synthetic
         # reparse document must also carry a valid suite_cost family. It

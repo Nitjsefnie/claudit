@@ -139,7 +139,7 @@ def test_canary_skips_only_the_unrelated_gates():
     assert jobs['baselines']['if'] == "${{ !cancelled() }}"
     assert 'needs' not in jobs['baselines']
     steps = {step.get('name'): step for step in jobs['baselines']['steps']}
-    for name in ('Module size baseline', 'Pylint suppression baseline'):
+    for name in ('Pylint suppression baseline',):
         assert steps[name]['if'] == "${{ !cancelled() && inputs.thresholds_only != 'true' }}"
     assert steps['Threshold direction guard']['if'] == (
         "${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}")
@@ -187,7 +187,6 @@ def _threshold_base_action():
     ('tests.yml', 'pytest-thresholds', 'Run tests'),
     ('tests.yml', 'pytest-portable', 'Run tests'),
     ('tests.yml', 'coverage-combine', 'Combine shard coverage'),
-    ('tests.yml', 'baselines', 'Module size baseline'),
     ('tests.yml', 'js-coverage', 'JavaScript coverage gate'),
     ('tests.yml', 'reparse-gate', 'Reparse CPU gate'),
     ('tests.yml', 'suite-bench', 'Measure and gate the suite cost'),
@@ -256,8 +255,8 @@ def test_threshold_base_resolved_before_tests_and_shared(event, status, expected
         assert calls.read_text().splitlines() == [
             f'python3 scripts/ci/threshold_base.py {"b" * 40} .github/ci-thresholds.json']
     env['CLAUDIT_THRESHOLDS_BASE_REV'] = expected
-    for name, script in [('Module size baseline', 'size_baseline'),
-                         ('Pylint suppression baseline', 'suppression_baseline')]:
+    for name, script in [('Pylint suppression baseline',
+                          'suppression_baseline')]:
         step = next(step for job in _workflow('tests.yml')['jobs'].values()
                     for step in job['steps'] if step.get('name') == name)
         subprocess.run(['bash', '-e', '-c', step['run']], cwd=ROOT, env=env,

@@ -260,7 +260,7 @@ def _fetch_parse_persist(todo: list[tuple], parser_version_value: str,
                          failed: list[tuple[str, str]],
                          seen_keys: set[str]) -> tuple[int, int, int]:
     """Dispatch the chosen pipeline with this module's seams. The
-    mechanics live in ingest_fetch (module-size baseline); the seams stay
+    mechanics live in ingest_fetch (size-ratchet split); the seams stay
     here so tests patching `ingest.*` keep working.
     """
     return ingest_fetch.fetch_parse_persist(

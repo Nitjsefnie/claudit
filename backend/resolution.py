@@ -1,5 +1,5 @@
 """The resolver's outcome carrier. Split from backend/pricing.py — whose
-module size is a ratcheted ceiling — a pure frozen dataclass: no rate
+size the size-ratchet action caps — a pure frozen dataclass: no rate
 table is read here, and pricing re-exports the name so every
 ``pricing.Resolution`` reader keeps working."""
 from __future__ import annotations

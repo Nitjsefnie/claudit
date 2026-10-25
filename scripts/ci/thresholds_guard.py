@@ -13,20 +13,17 @@ rule no longer depends on review:
   ``feat:`` or ``feat(scope):``; missing or unreadable history fails closed;
 - suite_cost's workload identity remains seed-only, even for features;
 - a baseline entry is never raised;
-- an entry is added only when it seeds a brand-new member, or — for a
-  member the base already carries — when its path lies OUTSIDE the
-  frozen core families (the Python and src/ JavaScript scope) AND
-  inside the measured set, the
-  one-time family seed of a reviewed gate-definer change. An
-  addition under the frozen core, or for a path no ratchet measures, is
-  a hand-add and fails.
+- an entry is added only when it seeds a brand-new member; on a member
+  the base already carries, an addition OUTSIDE the frozen core
+  families (the Python and src/ JavaScript scope) is allowed, and one
+  under them is a hand-add and fails.
 
 An entry's removal requires a ``Thresholds-Removed: <entry>=<kind>``
 trailer in the judged range, with kind ``bug`` or ``definition``, unless
 it is a path-typed baseline entry whose subject is no longer tracked.
 A bare baseline family name declares every entry in that family.
-Lowers and the one-time seed of a family the base predates pass. Size
-and suppression seeds have separate committed-tree tests. Comment
+Lowers and the one-time seed of a family the base predates pass. The
+suppression seed has its own committed-tree test. Comment
 shares permit reductions until master tightens.
 
 The guard runs from the tree under test, like every other gate step: it
@@ -49,16 +46,16 @@ from pathlib import Path
 
 if __package__:
     # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import size_baseline, thresholds, thresholds_removed
+    from . import thresholds, thresholds_removed
 else:
     thresholds = importlib.import_module('thresholds')
-    size_baseline = importlib.import_module('size_baseline')
     thresholds_removed = importlib.import_module('thresholds_removed')
 
 
-# The size ratchet's frozen core families: an ADDED baseline entry on
-# one is a hand-add, so a new big file cannot seed its own entry. New
-# measured families seed outside this list.
+# The frozen core families: an ADDED baseline entry under one is a
+# hand-add, so a new suppression site there cannot seed its own entry.
+# The size gate itself is the Nitjsefnie-Actions/size-ratchet action,
+# whose records this document does not carry.
 CORE_PREFIXES = ('backend/', 'scripts/', 'tests/')
 
 COVERAGE_REMEDY = (
@@ -151,6 +148,10 @@ def _load_base(path):
         data[thresholds.SUITE_COST_FAMILY] = {
             phase: dict(record)
             for phase, record in _ABSENT_SUITE_COST.items()}
+    # A base predating a family's retirement may still carry it in these
+    # trusted bytes; the head's loader refuses an unknown field, so the
+    # retired member is dropped here — ignored, never compared.
+    data.pop('module_size_baseline', None)
     # Strict, and by fact: the stand-in above guarantees a family.
     return thresholds.normalise(data), established
 
@@ -241,11 +242,9 @@ def _reparse_moves(base, head, established, feature_present):
 
 
 def _baseline_moves(base, head, established):
-    """A baseline entry that is raised, or added outside a sanctioned
-    seed. The measured set is read once, and only when an addition
-    outside the frozen families actually needs it."""
+    """A baseline entry that is raised, or added under the frozen core
+    families."""
     moves = []
-    measured = None
     for member in thresholds.BASELINE_MEMBERS:
         before = base.get(member, {})
         if member not in head:
@@ -257,15 +256,8 @@ def _baseline_moves(base, head, established):
             if path not in before:
                 if member not in established:
                     continue  # a new member's entries ARE its seed
-                # An addition to an established member: only a new
-                # measured family's seed can be legitimate.
                 if _is_core_family(path):
                     moves.append(f'{member}.{path}: added')
-                    continue
-                if measured is None:
-                    measured = size_baseline.tracked_sizes()
-                if path not in measured:
-                    moves.append(f'{member}.{path}: added, unmeasured')
             elif value > before[path]:
                 moves.append(f'{member}.{path}: {before[path]} -> {value}')
     return moves
