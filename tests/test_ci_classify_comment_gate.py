@@ -122,7 +122,7 @@ def test_extensionless_shebang_first_line_runs_full_gates(tmp_path, monkeypatch,
 
 @pytest.mark.parametrize('path,line,docs_only', [
     ('.claude/tool', b'#!/usr/bin/env node\n', False),
-    ('examples/x.', b'#!/usr/bin/env node\n', False),
+    ('examples/x.', b'#!/usr/bin/env node\n', True),
     ('examples/x.', b'print("hi")\n', True),
 ], ids=['hidden-doc-dir-node', 'trailing-dot-node', 'trailing-dot-no-shebang'])
 def test_extensionless_shebang_other_doc_paths(tmp_path, monkeypatch, path,

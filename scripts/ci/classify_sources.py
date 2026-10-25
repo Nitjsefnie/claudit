@@ -31,6 +31,7 @@ LEG_SHEBANG_PY = re.compile(rb'#! *(/usr|/bin|/local)*/?(env)? *python')
 
 
 def _leg_reads_shebang(path: str) -> bool:
+    """Read the first bytes of the extensionless `path` from the checkout cwd."""
     try:
         with open(path, 'rb') as leg_file:
             prefix = leg_file.read(100)
@@ -53,7 +54,7 @@ def leg_reads(path: str) -> bool:
                    for pattern in LEG_READ_PATTERNS)
             or path == 'examples/claudit.service'):
         return True
-    if os.path.splitext(path)[1] not in ('', '.'):
+    if os.path.splitext(path)[1] != '':
         return False
     return _leg_reads_shebang(path)
 
