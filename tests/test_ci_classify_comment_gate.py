@@ -70,8 +70,68 @@ def test_docs_glob_additions_run_full_only_when_a_leg_reads_the_file(path, want)
     assert _classify([path]) == want
 
 
-def test_extensionless_examples_file_narrows_as_docs():
+def test_extensionless_examples_file_narrows_as_docs(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / 'examples' / 'tool'
+    path.parent.mkdir()
+    path.write_bytes(b'print("hi")\n')
     assert _classify(['examples/tool']) == (True, False, False)
+    path.unlink()
+    assert _classify(['examples/tool']) == (False, False, False)
+
+
+SHEBANG_ROWS = [
+    ('env-node', b'#!/usr/bin/env node\n', False),
+    ('env-python3', b'#!/usr/bin/env python3\n', False),
+    ('env-two-space-python', b'#!/usr/bin/env  python\n', False),
+    ('env-s-node-flags', b'#!/usr/bin/env -S node --x\n', False),
+    ('ts-node-hyphen-boundary', b'#!/usr/bin/ts-node\n', False),
+    ('nodejs-suffix', b'#!/usr/bin/env nodejs\n', False),
+    ('usr-local-python313', b'#!/usr/local/bin/python3.13\n', False),
+    ('local-env-glued', b'#!/localenv python\n', False),
+    ('crlf-ends-at-cr', b'#!/usr/bin/env node\r\n', False),
+    ('shebang-no-line-end-in-100', b'#!' + b'a' * 200, False),
+    ('plain-sh', b'#!/bin/sh\n', True),
+    ('nodemon-word-boundary', b'#!/usr/bin/nodemon\n', True),
+    ('bunx-word-boundary', b'#!/usr/bin/bunx\n', True),
+    ('deno', b'#!/usr/bin/deno\n', True),
+    ('node18-word-boundary', b'#!/usr/bin/node18\n', True),
+    ('env-s-python3', b'#!/usr/bin/env -S python3\n', True),
+    ('env-var-assignment', b'#!/usr/bin/env VAR=1 python\n', True),
+    ('tab-not-space', b'#!/usr/bin/env\tpython\n', True),
+    ('opt-python', b'#!/opt/python/bin/python\n', True),
+    ('bom-defeats-shebang', b'\xef\xbb\xbf#!/usr/bin/env node\n', True),
+    ('empty', b'', True),
+    ('no-shebang', b'print("hi")\n', True),
+    ('second-line-only', b'#!/bin/sh\nnode\n', True),
+    ('shebang-not-at-offset-0', b'x #!/usr/bin/env node\n', True),
+    ('cr-cut-second-line-not-read', b'#!/bin/sh\rnode\n', True),
+]
+
+
+@pytest.mark.parametrize('line,docs_only', [row[1:] for row in SHEBANG_ROWS],
+                         ids=[row[0] for row in SHEBANG_ROWS])
+def test_extensionless_shebang_first_line_runs_full_gates(tmp_path, monkeypatch,
+                                                          line, docs_only):
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / 'examples' / 'tool'
+    path.parent.mkdir()
+    path.write_bytes(line)
+    assert _classify(['examples/tool']) == (docs_only, False, False)
+
+
+@pytest.mark.parametrize('path,line,docs_only', [
+    ('.claude/tool', b'#!/usr/bin/env node\n', False),
+    ('examples/x.', b'#!/usr/bin/env node\n', False),
+    ('examples/x.', b'print("hi")\n', True),
+], ids=['hidden-doc-dir-node', 'trailing-dot-node', 'trailing-dot-no-shebang'])
+def test_extensionless_shebang_other_doc_paths(tmp_path, monkeypatch, path,
+                                               line, docs_only):
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / path
+    target.parent.mkdir(parents=True)
+    target.write_bytes(line)
+    assert _classify([path]) == (docs_only, False, False)
 
 
 def test_pure_markdown_remains_docs_only():

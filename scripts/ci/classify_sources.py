@@ -26,16 +26,36 @@ LEG_READ_BASENAMES = frozenset({'action.yml', 'action.yaml', 'actions.lock',
 LEG_READ_PATTERNS = ('*.view.json', '*tsconfig*.json', '.eslintrc*',
                      'codeql-javascript-*.json', '*requirements*.txt',
                      '*requirements*.in')
+LEG_SHEBANG_JS = re.compile(rb'\b(node(js)?|bun|tsx)\b')
+LEG_SHEBANG_PY = re.compile(rb'#! *(/usr|/bin|/local)*/?(env)? *python')
+
+
+def _leg_reads_shebang(path: str) -> bool:
+    try:
+        with open(path, 'rb') as leg_file:
+            prefix = leg_file.read(100)
+    except OSError:
+        return True
+    if not prefix.startswith(b'#!'):
+        return False
+    line = re.split(rb'[\r\n]', prefix, maxsplit=1)[0]
+    if len(line) == len(prefix):
+        return True
+    return bool(LEG_SHEBANG_JS.search(line) or LEG_SHEBANG_PY.match(line))
 
 
 def leg_reads(path: str) -> bool:
     """Whether a ci-gate leg reads `path`, so the change runs full gates."""
     name = Path(path).name
-    return (Path(path).suffix.lower() in LEG_READ_SUFFIXES
+    if (Path(path).suffix.lower() in LEG_READ_SUFFIXES
             or name in LEG_READ_BASENAMES
             or any(fnmatch.fnmatchcase(name, pattern)
                    for pattern in LEG_READ_PATTERNS)
-            or path == 'examples/claudit.service')
+            or path == 'examples/claudit.service'):
+        return True
+    if os.path.splitext(path)[1] not in ('', '.'):
+        return False
+    return _leg_reads_shebang(path)
 
 
 def pricing_change(event: dict, run: Callable, refs_reader: Callable, blob_reader: Callable) -> bool:

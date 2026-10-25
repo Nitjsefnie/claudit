@@ -226,8 +226,11 @@ workflows as reusable legs, and folds them into one verdict —
 expensive legs by classification instead of by `paths-ignore`, so
 every check still reports rather than going MISSING. Python, `.pyw`, JS/TS,
 HTML-family and YAML-family sources, the CodeQL config-JSON names,
-`actions.lock`, `*requirements*.txt`/`.in` files, and
-`examples/claudit.service` under those paths still run the full gate set. Prose changes in
+`actions.lock`, `*requirements*.txt`/`.in` files,
+`examples/claudit.service`, and an extensionless or trailing-dot file under
+those paths whose first line carries a node/bun/tsx or python shebang
+(CodeQL's extractors still extract such scripts) still run the full gate
+set. Prose changes in
 `README.md`, `CONTRIBUTING.md` or `AGENTS.md` also skip the legs when their
 pinned setup facts are unchanged. A documentation-only change to those
 facts runs only the inline `setup-docs` job (`tests/test_docs_setup.py`);
