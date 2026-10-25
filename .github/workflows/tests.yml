@@ -4,17 +4,13 @@ on:
   workflow_call: {inputs: {comment_only: {description: "narrow the portable matrix", type: string, default: "false"}, thresholds_only: {description: "narrow to thresholds checks and calibration gates", type: string, default: "false"}}}
   workflow_dispatch:
 
-# Least privilege: without an explicit block every job inherits the
-# repository default, which can be read/write for the whole token.
+# Least privilege: without an explicit block every job inherits the repository default, which can be read/write for the whole token.
 permissions: {contents: read}
 
 concurrency:
-  # ci-gate legs join this group under the caller's event: a
-  # master-push leg occupies tests-refs/heads/master — ci-gate's
-  # per-SHA push groups make this queue what serializes
-  # master runs — and PR legs cancel in progress. Dispatch queues by
-  # ref. The ratchet push itself is serialized by ratchet-push.yml's
-  # own group.
+  # ci-gate's per-SHA push groups make this the queue that serializes
+  # master runs; PR legs cancel in progress, and ratchet-push.yml
+  # serializes the ratchet push itself.
   group: tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -52,7 +48,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -r requirements-test.txt
-      # A shared cache key has exactly one matrix writer, on master.
+      # One matrix writer per shared cache key, on master.
       - name: Save the pip cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.shard == 1
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -170,7 +166,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      # Independent gates still run when a pytest job fails.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -203,6 +198,52 @@ jobs:
             --base "$RUNNER_TEMP/base-thresholds.json" \
             --head .github/ci-thresholds.json \
             --base-rev "$base" --head-rev HEAD
+
+  size-baseline:
+    if: ${{ !cancelled() && inputs.thresholds_only != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Judge the PR head tree: check mode's seed fallback compares the
+          # head's records against a seeding tighten of the same tree.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Size baseline (check on a pull request, tighten on master)
+        uses: Nitjsefnie-Actions/size-ratchet@67bb01e536611398a3b5cedd3f3cf95fd6e5693e # v1.0.1
+        with:
+          # auto fails closed on workflow_dispatch, which ci gate also
+          # serves, so the mode is spelled per event instead.
+          mode: ${{ github.event_name == 'pull_request' && 'check' || 'tighten' }}
+          overrides: 'tests/: 700'
+          base-ref: ${{ github.event.pull_request.base.sha }}
+      - name: Stage the size records
+        id: size_stage
+        run: |
+          changed=0
+          git diff --quiet -- .github/size-baseline.json || changed=$?
+          if [ "$changed" -gt 1 ]; then
+            echo "git diff failed with $changed" >&2
+            exit "$changed"
+          fi
+          if [ "$changed" -eq 0 ]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/size-ratchet"
+          cp .github/size-baseline.json "$RUNNER_TEMP/size-ratchet/size-baseline.json"
+          git rev-parse HEAD > "$RUNNER_TEMP/size-ratchet/base.txt"
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+      - name: Upload the size records
+        if: steps.size_stage.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: size-ratchet-push
+          path: ${{ runner.temp }}/size-ratchet
+          if-no-files-found: error
+          retention-days: 1
 
   js-coverage:
     if: inputs.thresholds_only != 'true'
@@ -268,7 +309,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      # This job starts no pytest session before the measured bench.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -398,10 +438,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: {"name": "ratchet-push", "path": "${{ runner.temp }}/ratchet-data", "if-no-files-found": "error", "retention-days": "1"}
   pytest-portable:
-    # The suite minus every DB-touching test (tests/db_marker.py's
-    # mechanical split), where no Postgres container runs: the full
-    # suite, the ratchets and the DB tests stay in the `pytest` job.
-    # A comment-only change skips the matrix; the canary still runs it.
+    # The suite minus every DB-touching test (tests/db_marker.py's mechanical split); a comment-only change skips the matrix, the canary still runs it.
     if: inputs.comment_only != 'true' && inputs.thresholds_only != 'true'
     name: pytest (${{ matrix.os }}, ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
@@ -414,13 +451,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # Full history lets each cell resolve the judged range for
-          # declared-removal exemptions in the committed-tree tests.
-          fetch-depth: 0
-          # No step in this job pushes; persist-credentials: false keeps
-          # the job token out of .git/config for any later step to reuse.
-          persist-credentials: false
+        # Full history lets each cell resolve the judged range for declared-removal exemptions; no step here pushes, so no token stays in .git/config.
+        with: {fetch-depth: 0, persist-credentials: false}
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -447,14 +479,10 @@ jobs:
             pip-${{ runner.os }}-${{ matrix.python-version }}-
 
       - name: Install dependencies
-        # backend/requirements.txt already pins pytest, pytest-asyncio
-        # and httpx2; requirements-test.txt adds only the coverage
-        # toolchain. One command, because the default pwsh shell on
-        # windows-latest propagates only the last line's exit code.
+        # One command: the default pwsh shell on windows-latest propagates only the last line's exit code.
         run: python -m pip install --upgrade pip -r backend/requirements.txt -r requirements-test.txt
 
-      # Saved here, not in a post-job step, so the cache is written only
-      # from a master push.
+      # Saved here, not in a post-job step, so the cache is written only from a master push.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -466,7 +494,5 @@ jobs:
           key: pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
 
       - name: Run tests
-        # A plain `python -m pytest`: the db-marked tests are the ones
-        # the portable cells cannot serve; the Linux job runs the full
-        # suite.
+        # A plain `python -m pytest`: the db-marked tests are the ones the portable cells cannot serve.
         run: python -m pytest tests/ -q --tb=short -ra -m "not db"

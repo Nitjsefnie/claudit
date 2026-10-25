@@ -250,6 +250,7 @@ def test_ci_gate_push_trigger_keeps_the_ratchet_paths_ignore():
     ignored = push.get("paths-ignore") or []
     assert ".github/ci-thresholds.json" in ignored, ignored
     assert ".github/comment-share.json" in ignored, ignored
+    assert ".github/size-baseline.json" in ignored, ignored
 
 
 def _ratchet_push_run() -> str:
@@ -289,8 +290,9 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
 
     steps = job["steps"]
-    assert len(steps) == 5
-    listing, download, suite_download, records_download, push = steps
+    assert len(steps) == 6
+    (listing, download, suite_download, records_download, size_download,
+     push) = steps
     assert listing["name"] == "List the triggering run's artifacts"
     listing_run = listing.get("run") or ""
     assert listing["env"]["GH_TOKEN"] == "${{ github.token }}"
@@ -300,13 +302,16 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "grep -qx 'ratchet-push'" in listing_run
     assert "grep -qx 'suite-measurement'" in listing_run
     assert "grep -qx 'comment-share-ratchet'" in listing_run
+    assert "grep -qx 'size-ratchet-push'" in listing_run
     assert 'echo "ratchet=$ratchet"' in listing_run
     assert 'echo "suite=$suite"' in listing_run
     assert 'echo "records=$records"' in listing_run
+    assert 'echo "size=$size"' in listing_run
     assert "records=false" in listing_run
     assert "records=true" in listing_run
     assert ('if [ "$ratchet" = true ] || [ "$suite" = true ] '
-            '|| [ "$records" = true ]; then' in listing_run)
+            '|| [ "$records" = true ] || [ "$size" = true ]; then'
+            in listing_run)
     assert 'echo "any=true"' in listing_run
 
     assert download["name"] == "Download the ratchet data"
@@ -315,11 +320,20 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert suite_download["if"] == "steps.list.outputs.suite == 'true'"
     assert records_download["name"] == "Download the comment-share records"
     assert records_download["if"] == "steps.list.outputs.records == 'true'"
-    # The two staged artifacts must come from the SAME revision of the
+    assert size_download["name"] == "Download the size records"
+    assert size_download["if"] == "steps.list.outputs.size == 'true'"
+    # The staged artifacts must come from the SAME revision of the
     # download action: a bump landing on only one step is a half-applied
     # dependency change. Derived from the workflow itself, quoting no
     # value (fleet-rules, "Merging and CI").
     assert download["uses"] == suite_download["uses"]
+    assert download["uses"] == records_download["uses"]
+    assert download["uses"] == size_download["uses"]
+    # The size records are a cross-run download like their siblings: the
+    # triggering run's artifacts, not this workflow's run.
+    assert size_download["with"]["name"] == "size-ratchet-push"
+    assert size_download["with"]["run-id"] == (
+        "${{ github.event.workflow_run.id }}")
 
     # The push step admits only when at least one artifact was staged.
     assert push["name"] == "Push the ratchet commit to master"
@@ -352,7 +366,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert ('elif [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]'
             in run)
     assert 'base="$CLAUDIT_BASE_FALLBACK"' in run
-    assert "no ratchet data, suite measurement or comment-share records to push" in run
+    assert "no ratchet data, suite measurement, comment-share or size records to push" in run
     assert (run.index("remote=") < run.index('base="$CLAUDIT_BASE_FALLBACK"')
             < run.index("git init") < run.index('remote add origin "$remote"')
             < run.index("fetch --quiet origin master")
@@ -378,6 +392,11 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "41898282+github-actions[bot]@users.noreply.github.com" in run
     assert ("Ratchet ci-thresholds: raise coverage floor / tighten "
             "baselines (automated)" in run)
+    # The records arms compose one message naming what landed; each
+    # single-arm text is the historical one.
+    assert 'message="chore(ratchet): tighten $subjects records (automated)"' in run
+    assert 'subjects="${subjects:+$subjects and }comment-share"' in run
+    assert 'subjects="${subjects:+$subjects and }size-baseline"' in run
     # The commit names no co-author: a github-actions[bot] commit is
     # authored by no model, so a trailer on it attributes work to a
     # model that never ran. Pinned by ABSENCE from every
@@ -402,7 +421,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert run.index("suite_ratchet.py") < run.index(
         'add .github/ci-thresholds.json')
     assert ("status --porcelain .github/ci-thresholds.json "
-            ".github/comment-share.json" in run)
+            ".github/comment-share.json .github/size-baseline.json" in run)
     assert run.index("status --porcelain") < run.index("commit -m")
     assert "nothing to commit" in run
     assert 'git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master' in run
@@ -421,8 +440,9 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "ssh-agent" not in tests_raw
     assert "x-access-token" not in tests_raw
     assert set(_tests_workflow()["jobs"]) == {
-        "pytest-shards", "coverage-combine", "baselines", "js-coverage",
-        "reparse-gate", "suite-bench", "pytest-thresholds", "ratchet", "pytest-portable"}
+        "pytest-shards", "coverage-combine", "baselines", "size-baseline",
+        "js-coverage", "reparse-gate", "suite-bench", "pytest-thresholds",
+        "ratchet", "pytest-portable"}
 
 
 def test_the_tests_callee_is_capped_at_what_its_jobs_use():
@@ -475,6 +495,10 @@ def test_parallel_canary_jobs_keep_the_gate_step_order():
                              "Upload the patch-coverage comment", "Coverage gate"],
         "baselines": [*preparation, "Pylint suppression baseline",
                       "Threshold direction guard"],
+        "size-baseline": [
+            "actions/checkout",
+            "Size baseline (check on a pull request, tighten on master)",
+            "Stage the size records", "Upload the size records"],
         "js-coverage": ["actions/checkout", "Start cached Postgres", "actions/setup-python",
                         "actions/setup-node", "Resolve the threshold base", "Restore the pip cache",
                         "Install dependencies", "Install the JS toolchain from the lockfile",

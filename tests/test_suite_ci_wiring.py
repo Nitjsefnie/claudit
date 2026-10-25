@@ -203,6 +203,7 @@ def test_the_suite_measurement_upload_is_unique_repo_wide():
     expected = {
         "comment-share-ratchet": "comment-share.yml:comment-share:comment-share-ratchet",
         "ratchet-push": "tests.yml:ratchet:ratchet-push",
+        "size-ratchet-push": "tests.yml:size-baseline:size-ratchet-push",
         "suite-measurement": "tests.yml:suite-bench:suite-measurement"}
     assert download_names == sorted(expected)
     assert sorted(uploaders) == sorted(expected.values()), sorted(uploaders)
@@ -417,7 +418,9 @@ def test_the_bench_runner_sets_up_one_interpreter():
             continue
         setups = [step for step in _steps(job)
                   if (step.get("uses") or "").startswith("actions/setup-python")]
-        assert len(setups) == 1
+        # The size job runs no Python of its own: the action sets its
+        # interpreter up itself.
+        assert len(setups) == (0 if job_id == "size-baseline" else 1)
 
 
 def test_records_only_runs_select_their_measured_base_before_fetching():
@@ -430,10 +433,11 @@ def test_records_only_runs_select_their_measured_base_before_fetching():
     end = lines.index("else", records + 1)
     assert lines[end:end + 4] == [
         "else",
-        'echo "no ratchet data, suite measurement or comment-share records to push" >&2',
+        'echo "no ratchet data, suite measurement, comment-share or size records to push" >&2',
         "exit 1", "fi"]
     fetch = lines.index('git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master')
-    assert ratchet < suite < records < fetch
+    size = lines.index('elif [ -f "$RUNNER_TEMP/size-data/base.txt" ]; then')
+    assert ratchet < suite < records < size < fetch
 
 
 def test_records_base_reads_are_guarded_on_artifact_presence():
@@ -547,15 +551,154 @@ def test_successful_records_merge_is_validated_before_selection_and_staging():
             < copy < ready < validate < selected < stage_thresholds < stage_records)
 
 
-def test_records_selection_controls_commit_message_and_both_files_are_checked():
+def test_size_baseline_stages_only_tightened_records():
+    # tests.yml's size job stages the records plus the measured base only
+    # when tighten moved the file; a no-change run uploads nothing, which
+    # is the bot's no-op signal.
+    doc = _load("tests.yml")
+    job = _job(doc, "size-baseline")
+    stage, = [step for step in _steps(job) if step.get("id") == "size_stage"]
+    lines = _run_lines(stage)
+    assert lines[0] == "changed=0"
+    assert 'git diff --quiet -- .github/size-baseline.json || changed=$?' in lines
+    quiet = lines.index('git diff --quiet -- .github/size-baseline.json || changed=$?')
+    unchanged = lines.index("if [ \"$changed\" -eq 0 ]; then")
+    assert quiet < unchanged
+    assert lines[unchanged + 1:unchanged + 3] == [
+        "echo 'changed=false' >> \"$GITHUB_OUTPUT\"", "exit 0"]
+    assert 'cp .github/size-baseline.json "$RUNNER_TEMP/size-ratchet/size-baseline.json"' in lines
+    assert 'git rev-parse HEAD > "$RUNNER_TEMP/size-ratchet/base.txt"' in lines
+    upload, = [step for step in _steps(job)
+               if step.get("with", {}).get("name") == "size-ratchet-push"]
+    assert "if" not in stage
+    assert upload["if"] == "steps.size_stage.outputs.changed == 'true'"
+
+
+def test_size_records_landing_reads_the_measured_base():
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    guard = lines.index('if [ -f "$RUNNER_TEMP/size-data/base.txt" ]; then')
+    read = lines.index('size_base="$(cat "$RUNNER_TEMP/size-data/base.txt")"')
+    empty = lines.index('if [ -z "$size_base" ]; then')
+    end = lines.index("fi", empty + 1)
+    assert lines[empty + 1:end] == [
+        'echo "the size data carried no base; the measuring job is broken" >&2',
+        "exit 1"]
+    assert guard < read < empty < end
+    # Adoption commits the seed: a missing file on current master is a
+    # deletion requiring review, never permission to auto-create one.
+    current = lines.index(
+        'if ! git -C "$RUNNER_TEMP/ratchet-repo" show '
+        '"$fetched:.github/size-baseline.json" > "$current"; then')
+    current_end = lines.index("fi", current + 1)
+    assert lines[current + 1:current_end] == [
+        'echo "Current master has no size-baseline records; deletion requires review" >&2',
+        "exit 1"]
+    assert lines.index(TIGHTEN_CMD) < guard < current < current_end
+
+
+def test_size_records_stale_measurement_drops_the_run():
+    # A measurement whose base predates any non-records change on master
+    # is stale: landing it could record below the file's real count and
+    # no later run could raise it, so the whole run drops for the next
+    # master push to measure again.
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    stale = lines.index('if [ "$fetched" != "$size_base" ]; then')
+    moved = lines.index(
+        'if [ -n "$(git -C "$RUNNER_TEMP/ratchet-repo" diff --name-only '
+        '"$size_base" "$fetched" '
+        "-- ':!.github/size-baseline.json' ':!.github/comment-share.json' "
+        "':!.github/ci-thresholds.json')\" ]; then")
+    assert stale < moved
+    dropped = lines.index("fi", moved + 1)
+    branch = lines[moved + 1:dropped]
+    assert ("echo '::notice::Master moved under the measurement; "
+            "the next master push measures again'") in branch
+    assert "echo '### Dropped: master moved under the measurement'" in branch
+    assert '} >> "$GITHUB_STEP_SUMMARY"' in branch
+    assert branch[-1] == "exit 0"
+
+
+@pytest.mark.parametrize(("command", "notice", "heading"), [
+    ('if ! git -C "$RUNNER_TEMP/ratchet-repo" show '
+     '"$size_base:.github/size-baseline.json" > "$RUNNER_TEMP/base-size.json"; then',
+     "Ancestor size records are unreadable", "ancestor size records could not be read"),
+    ('elif ! git merge-file "$current" "$RUNNER_TEMP/base-size.json" '
+     '"$RUNNER_TEMP/size-data/size-baseline.json"; then',
+     "Size records changes conflict", "size records merge conflicted"),
+    ('if ! python3 -I -m json.tool "$current" >/dev/null; then',
+     "Merged size records are invalid", "size records failed JSON validation"),
+])
+def test_size_records_drop_branches_preserve_other_ratchets(command, notice, heading):
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    # The json.tool command text recurs in the comment-share arm; the
+    # size block starts at its own base-presence guard, so search there.
+    size_guard = lines.index('if [ -f "$RUNNER_TEMP/size-data/base.txt" ]; then')
+    start = lines.index(command, size_guard)
+    end = next(index for index in range(start + 1, len(lines))
+               if lines[index] in {"else", "fi"} or lines[index].startswith("elif "))
+    branch = lines[start + 1:end]
+    assert any(line.startswith(f'echo "::notice::{notice};') for line in branch)
+    assert f'echo "### Dropped: {heading}"' in branch
+    assert ('echo "This run\'s size tightening is dropped; '
+            'the next master push measures again."' in branch)
+    assert '} >> "$GITHUB_STEP_SUMMARY"' in branch
+    assert not any(line.startswith("exit ") for line in branch)
+    assert "size_selected=true" not in branch
+    if "json.tool" not in command:
+        assert branch[-1] == "size_merge_ok=false"
+    commit = next(index for index, line in enumerate(lines) if " commit -m " in line)
+    assert lines.index(TIGHTEN_CMD) < start < end < commit
+
+
+def test_size_records_success_is_validated_before_selection_and_staging():
+    job = _job(_load("ratchet-push.yml"), "push")
+    lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
+    initial = lines.index("size_selected=false")
+    stale = lines.index('if [ "$fetched" != "$size_base" ]; then')
+    ancestor = next(index for index, line in enumerate(lines)
+                    if 'show "$size_base:.github/size-baseline.json"' in line)
+    merge = next(index for index, line in enumerate(lines) if 'git merge-file "$current" "$RUNNER_TEMP/base-size.json"' in line)
+    assert lines[stale - 1] == "size_merge_ok=true"
+    copy = lines.index('cp "$RUNNER_TEMP/size-data/size-baseline.json" "$current"')
+    assert lines[copy - 1] == "else"
+    assert lines[copy - 2] == "fi"
+    ready = lines.index('if [ "$size_merge_ok" = true ]; then')
+    validate = lines.index('if ! python3 -I -m json.tool "$current" >/dev/null; then',
+                           ready)
+    selected = lines.index("size_selected=true")
+    assert lines[selected - 2:selected] == [
+        "else", 'cp "$current" "$RUNNER_TEMP/ratchet-repo/.github/size-baseline.json"']
+    stage_thresholds = lines.index('git -C "$RUNNER_TEMP/ratchet-repo" add .github/ci-thresholds.json')
+    stage_records = lines.index('git -C "$RUNNER_TEMP/ratchet-repo" add .github/comment-share.json')
+    stage_size = lines.index('git -C "$RUNNER_TEMP/ratchet-repo" add .github/size-baseline.json')
+    assert lines[stage_size - 1] == 'if [ "$size_selected" = true ]; then'
+    assert lines[stage_size + 1] == "fi"
+    assert (lines.index(TIGHTEN_CMD) < initial < stale < ancestor < merge
+            < copy < ready < validate < selected
+            < stage_thresholds < stage_records < stage_size)
+
+
+def test_records_selection_controls_commit_message_and_all_files_are_checked():
     job = _job(_load("ratchet-push.yml"), "push")
     lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
     guard = lines.index(
         'if [ -z "$(git -C "$RUNNER_TEMP/ratchet-repo" status --porcelain '
-        '.github/ci-thresholds.json .github/comment-share.json)" ]; then')
-    message = lines.index("message='Ratchet ci-thresholds: raise coverage floor / tighten baselines (automated)'")
-    assert lines[message + 1:message + 5] == [
-        'if [ "$records_selected" = true ]; then',
-        "message='chore(ratchet): tighten comment-share records (automated)'",
+        '.github/ci-thresholds.json .github/comment-share.json '
+        '.github/size-baseline.json)" ]; then')
+    # One message composed from what landed: each records arm appends its
+    # subject, and the thresholds-only default names no records file.
+    default = lines.index(
+        "message='Ratchet ci-thresholds: raise coverage floor / tighten "
+        "baselines (automated)'")
+    assert lines[default - 2:default] == [
+        'message="chore(ratchet): tighten $subjects records (automated)"',
+        "else"]
+    assert lines[default + 1:default + 3] == [
         "fi", 'git -C "$RUNNER_TEMP/ratchet-repo" commit -m "$message"']
-    assert lines.index("records_selected=true") < guard < message
+    comment_share = lines.index('subjects="${subjects:+$subjects and }comment-share"')
+    size = lines.index('subjects="${subjects:+$subjects and }size-baseline"')
+    assert comment_share < size < default - 2
+    assert lines.index("records_selected=true") < lines.index("size_selected=true") < guard
