@@ -211,6 +211,29 @@ def test_the_suite_measurement_upload_is_unique_repo_wide():
     assert sorted(uploaders) == sorted(expected.values()), sorted(uploaders)
 
 
+def test_every_cross_run_download_names_the_triggering_run():
+    # A download-artifact step without run-id reads THIS workflow's run,
+    # so a bot step that must fetch the triggering run's artifact would
+    # silently fetch nothing (or another run's data). Every workflow the
+    # workflow_run event triggers sweeps here: each of its download
+    # steps must take the run id from that event, and the sweep is
+    # non-vacuous (the bot alone downloads four artifacts).
+    swept = 0
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        doc = _load(path.name)
+        if "workflow_run" not in (doc.get("on") or {}):
+            continue
+        for job_id, job in (doc.get("jobs") or {}).items():
+            for step in (job or {}).get("steps") or []:
+                if not (step.get("uses") or "").startswith(
+                        "actions/download-artifact"):
+                    continue
+                swept += 1
+                assert (step.get("with") or {}).get("run-id") == (
+                    "${{ github.event.workflow_run.id }}"), (path.name, job_id)
+    assert swept, "no download-artifact step under any workflow_run trigger"
+
+
 def test_the_canary_never_compares_two_checkouts():
     # The A/B design is GONE, and the things that existed only to serve
     # it are gone with it: no baseline-release lookup, no merge-base,
@@ -562,16 +585,11 @@ def test_successful_records_merge_is_validated_before_selection_and_staging():
 def test_size_baseline_stages_only_tightened_records():
     # tests.yml's size job stages the records plus the measured base only
     # when tighten moved the file; a no-change run uploads nothing, which
-    # is the bot's no-op signal.
+    # is the bot's no-op signal. The checkout's own shape is held by the
+    # repo-wide sweep in tests/test_workflow_checkout_credentials.py
+    # (every checkout drops its token), not by per-step literals here.
     doc = _load("tests.yml")
     job = _job(doc, "size-baseline")
-    checkout, = [step for step in _steps(job)
-                 if (step.get("uses") or "").startswith("actions/checkout@")]
-    assert checkout["with"] == {
-        # Judge the PR head tree; full history for the base; no token kept.
-        "ref": "${{ github.event.pull_request.head.sha || github.sha }}",
-        "fetch-depth": "0",
-        "persist-credentials": "false"}
     stage, = [step for step in _steps(job) if step.get("id") == "size_stage"]
     lines = _run_lines(stage)
     assert lines[0] == "changed=0"

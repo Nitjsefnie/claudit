@@ -331,11 +331,10 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert download["uses"] == suite_download["uses"]
     assert download["uses"] == records_download["uses"]
     assert download["uses"] == size_download["uses"]
-    # The size records are a cross-run download like their siblings: the
-    # triggering run's artifacts, not this workflow's run.
-    assert size_download["with"]["name"] == "size-ratchet-push"
-    assert size_download["with"]["run-id"] == (
-        "${{ github.event.workflow_run.id }}")
+    # The size download's name and its cross-run run-id are pinned by the
+    # repo-wide enumerations in tests/test_suite_ci_wiring.py (the
+    # upload/download map and the triggering-run sweep), not here: a
+    # per-step literal would age against the same workflows it reads.
 
     # The push step admits only when at least one artifact was staged.
     assert push["name"] == "Push the ratchet commit to master"
