@@ -590,12 +590,12 @@ def test_size_baseline_stages_only_tightened_records():
 
 
 @pytest.mark.skipif(os.name == 'nt', reason='the step runs under POSIX Bash')
-def test_size_only_run_dies_on_an_empty_measured_base(tmp_path):
-    # Drive the real push step: a size-only artifact set whose base.txt is
-    # empty must die at the base chain with the broken-handoff message —
-    # an empty base once resolved to "" there, and a size-only run then
-    # died at the staleness classifier with the misleading "Master moved"
-    # notice (or, with every tool faked, landed nothing and exited 0).
+def test_size_empty_base_refused_in_chain_and_landing(tmp_path):
+    # Drive the real push step in both empty-base shapes. The base chain's
+    # size elif runs only when no earlier arm resolved the base, so the
+    # chain check covers a size-only run and the landing guard covers a
+    # multi-artifact run whose earlier arm resolved: an empty staged base
+    # must die with the broken-handoff message either way, never land.
     step = _find_step(_job(_load("ratchet-push.yml"), "push"),
                       'suite_ratchet.py" --tighten')
     fakes = tmp_path / "bin"
@@ -616,23 +616,38 @@ def test_size_only_run_dies_on_an_empty_measured_base(tmp_path):
     (runner / "size-data").mkdir(parents=True)
     # The faked git runs no checkout, so stand in the directory tree the
     # scratch checkout would have had when the step reaches the landing.
+    (runner / "size-data" / "base.txt").write_text("")
     (runner / "ratchet-repo" / ".github").mkdir(parents=True)
-    base_txt = runner / "size-data" / "base.txt"
-    base_txt.write_text("")
+    size_base_txt = runner / "size-data" / "base.txt"
+
+    def _drive():
+        return subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
+                              capture_output=True, text=True, check=False,
+                              timeout=60)
+
+    # Size-only run, empty base: the chain's size elif resolves here and
+    # must refuse before anything else runs.
     env["RUNNER_TEMP"] = str(runner)
-    result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
-                            capture_output=True, text=True, check=False,
-                            timeout=60)
+    result = _drive()
     assert result.returncode != 0
     assert ("the size data carried no base; the measuring job is broken"
             in result.stderr)
     assert "Master moved while this run measured" not in result.stderr
-    # The healthy shape resolves its base and reaches the no-change ending
-    # (every tool faked): the chain is not trip-happy on a good run.
-    base_txt.write_text("a" * 40 + "\n")
-    result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
-                            capture_output=True, text=True, check=False,
-                            timeout=60)
+    # Multi-artifact run: a thresholds raise resolved the chain's base, so
+    # the size elif never evaluated — the landing guard must refuse the
+    # same empty file the chain never saw.
+    (runner / "ratchet-data").mkdir()
+    (runner / "ratchet-data" / "base.txt").write_text("b" * 40 + "\n")
+    result = _drive()
+    assert result.returncode != 0
+    assert ("the size data carried no base; the measuring job is broken"
+            in result.stderr)
+    assert "Master moved while this run measured" not in result.stderr
+    assert "nothing to commit" not in result.stdout
+    # The healthy size-only shape resolves its base and reaches the
+    # no-change ending (every tool faked): neither check is trip-happy.
+    size_base_txt.write_text("a" * 40 + "\n")
+    result = _drive()
     assert result.returncode == 0, result.stderr
     assert ("No ratchet move is justified by this run: nothing to commit."
             in result.stdout)
@@ -644,10 +659,16 @@ def test_size_records_landing_reads_the_measured_base():
     lines = _run_lines(_find_step(job, 'suite_ratchet.py" --tighten'))
     guard = lines.index('if [ -f "$RUNNER_TEMP/size-data/base.txt" ]; then')
     read = lines.index('size_base="$(cat "$RUNNER_TEMP/size-data/base.txt")"')
-    # The base chain's own empty-file refusal (pinned on the elif) has
-    # already fired for any file this guard admits, so the landing block
-    # reads its arm's own base and goes straight to the records.
+    # The chain's size elif runs only when no earlier arm resolved the
+    # base, so the landing guard admits an empty file on multi-artifact
+    # runs: the arm refuses its own empty file here, not only in the chain.
     assert guard < read
+    empty = lines.index('if [ -z "$size_base" ]; then')
+    empty_end = lines.index("fi", empty + 1)
+    assert lines[empty + 1:empty_end] == [
+        'echo "the size data carried no base; the measuring job is broken" >&2',
+        "exit 1"]
+    assert read < empty < empty_end
     # Adoption commits the seed: a missing file on current master is a
     # deletion requiring review, never permission to auto-create one.
     current = lines.index(
@@ -657,7 +678,7 @@ def test_size_records_landing_reads_the_measured_base():
     assert lines[current + 1:current_end] == [
         'echo "Current master has no size-baseline records; deletion requires review" >&2',
         "exit 1"]
-    assert lines.index(TIGHTEN_CMD) < guard < current < current_end
+    assert lines.index(TIGHTEN_CMD) < guard < empty < current < current_end
 
 
 def test_size_records_stale_measurement_drops_the_run():
