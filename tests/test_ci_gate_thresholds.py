@@ -138,6 +138,8 @@ def test_canary_skips_only_the_unrelated_gates():
     assert jobs['reparse-gate']['if'] == "${{ !cancelled() }}"
     assert jobs['baselines']['if'] == "${{ !cancelled() }}"
     assert 'needs' not in jobs['baselines']
+    assert jobs['size-baseline']['if'] == (
+        "${{ !cancelled() && inputs.thresholds_only != 'true' }}")
     steps = {step.get('name'): step for step in jobs['baselines']['steps']}
     for name in ('Pylint suppression baseline',):
         assert steps[name]['if'] == "${{ !cancelled() && inputs.thresholds_only != 'true' }}"
