@@ -320,9 +320,14 @@ jobs:
           fi
           size_selected=false
           if [ -f "$RUNNER_TEMP/size-data/base.txt" ]; then
-            # The chain already refused an empty file; this read is the
-            # arm's own measured base, distinct from the shared one above.
+            # The chain's size elif runs only when no earlier arm resolved
+            # the base; a multi-artifact run resolves elsewhere and lands
+            # here, so this arm refuses its own empty file.
             size_base="$(cat "$RUNNER_TEMP/size-data/base.txt")"
+            if [ -z "$size_base" ]; then
+              echo "the size data carried no base; the measuring job is broken" >&2
+              exit 1
+            fi
             current="$RUNNER_TEMP/current-size.json"
             if ! git -C "$RUNNER_TEMP/ratchet-repo" show "$fetched:.github/size-baseline.json" > "$current"; then
               echo "Current master has no size-baseline records; deletion requires review" >&2
