@@ -12,7 +12,8 @@ EXPLICIT. Files named by hand. Two kinds:
 
 - Gate parameters the extraction also finds, held by hand anyway so
   their presence never depends on a spelling surviving in a workflow
-  text: `.github/ci-thresholds.json` and `.github/comment-share.json`
+  text: `.github/ci-thresholds.json`, `.github/comment-share.json` and
+  `.github/size-baseline.json`
   — a tighten raises what the gates demand of
   the same source tree even though it touches nothing in any pull
   request's diff —
@@ -81,6 +82,9 @@ EXPLICIT = (
     # A records tighten raises what the comment gate demands of the same
     # source tree, so a head that lacks it can be stranded red.
     ".github/comment-share.json",
+    # The size records: the same records shape — the size gate tightens
+    # them on master and a head that lacks the raise can be stranded red.
+    ".github/size-baseline.json",
     ".gitleaks.toml",
     "backend/requirements.txt",
     "requirements-dev.txt",

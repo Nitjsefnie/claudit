@@ -55,6 +55,7 @@ def test_families_are_the_gate_shaped_directories():
 def test_explicit_names_the_ratchet_data_and_the_scanner_config():
     assert ".github/ci-thresholds.json" in gts.EXPLICIT
     assert ".github/comment-share.json" in gts.EXPLICIT
+    assert ".github/size-baseline.json" in gts.EXPLICIT
     assert ".gitleaks.toml" in gts.EXPLICIT
 
 
@@ -65,6 +66,7 @@ def test_explicit_names_every_convention_read_config():
     assert set(gts.EXPLICIT) == {
         ".github/ci-thresholds.json",
         ".github/comment-share.json",
+        ".github/size-baseline.json",
         ".gitleaks.toml",
         "backend/requirements.txt",
         "requirements-dev.txt",
