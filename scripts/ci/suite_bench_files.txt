@@ -15,7 +15,6 @@ tests/test_git_meta.py
 tests/test_ci_thresholds.py
 tests/test_ci_thresholds_guard.py
 tests/test_ci_ratchets.py
-tests/test_ci_size_baseline.py
 tests/test_ci_suppression_baseline.py
 tests/test_ci_gate_modules.py
 tests/test_ci_classify_verified_base.py

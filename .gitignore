@@ -62,6 +62,8 @@
 /.github/*
 !/.github/dependabot.yml
 !/.github/ci-thresholds.json
+# The adopted size gate's records seed.
+!/.github/size-baseline.json
 # The adopted comment gate's records seed.
 !/.github/comment-share.json
 # docker-smoke's CI-only Compose override (cached Postgres image).
