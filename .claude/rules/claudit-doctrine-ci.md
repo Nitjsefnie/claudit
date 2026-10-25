@@ -12,9 +12,11 @@ paths:
 
 ## CI thresholds are self-raising ratchets (SV-CI-RATCHETS)
 
-Coverage and module size are governed by
-`.github/ci-thresholds.json`, validated by `scripts/ci/thresholds.py`
-and enforced in `tests.yml` — never hand-set numbers in a workflow.
+Coverage is governed by `.github/ci-thresholds.json`, validated by
+`scripts/ci/thresholds.py` and enforced in `tests.yml` — never hand-set
+numbers in a workflow. Module size is gated by the
+`Nitjsefnie-Actions/size-ratchet` action, whose records live at
+`.github/size-baseline.json`, not in this document.
 
 - Coverage: per language (`python`, `javascript`), `measured` and
   `floor = measured − 1.5`. On a `master` push,
@@ -82,23 +84,13 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   uploads it as the `reparse-measurement` workflow artifact. An absent
   family gates no recorded budget; master seeds it from that run's
   measurement through `reparse_ratchet.py`'s tighten path.
-- Module size (`module_size_baseline`): every tracked `*.py` under
-  `backend/`, `scripts/`, `tests/`, every tracked `src/**/*.js(x)`, and
-  the shipped SQL, CSS and workflow-YAML families (`backend/*.sql`,
-  `public/*.css`, `.github/workflows/*.yml|yaml`) is capped per file
-  (production 500 / test 700; everything but `tests/` is production)
-  by `scripts/ci/size_baseline.py`. Entries are never added or
-  raised by hand — an outgrown file moves code into a new module. CI
-  tightens an entry as its file shrinks and drops it once back under
-  the ceiling. A new file family may be seeded exactly once, at current
-  line counts, through the loader's own writer; every later run follows
-  the rule unchanged.
 - Pylint suppressions (`pylint_suppression_baseline`): the per-file
   count of inline `pylint: disable`/`disable-next` comments naming a
   complexity check (`too-many-*`) over tracked `*.py` under `backend/`
   and `scripts/` (`tests/` stays outside), checked and tightened by
   `scripts/ci/suppression_baseline.py` under the same never-added,
-  never-raised, only-shrinks rules as module size.
+  never-raised, only-shrinks rules as the size-ratchet action applies
+  to its records.
 - Comment share: `.github/workflows/comment-share.yml` runs the pinned
   `Nitjsefnie-Actions/comment-ratchet` action on every pull request,
   checking against the records at its base, and tightens on every
@@ -159,9 +151,9 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   `tests.yml`) enforces the mechanically checkable removal rule: a removed
   entry whose subject still exists is refused unless the judged range
   carries a `Thresholds-Removed: <entry>=<bug|definition>` trailer naming
-  it. Tokens are exact; only the path-typed baseline families
-  (`module_size_baseline`, `pylint_suppression_baseline`) admit a bare
-  family name declaring their entries, while `coverage`, `suite_cost`
+  it. Tokens are exact; only the path-typed baseline family
+  (`pylint_suppression_baseline`) admits a bare
+  family name declaring its entries, while `coverage`, `suite_cost`
   and `reparse` require full entry names.
   Path-typed baseline entries whose file is gone need no declaration.
   Coverage languages, `suite_cost` and `reparse` always need one.
@@ -171,9 +163,9 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
 - An absent entry or family is seeded from its measurement on the next
   full master run: `ratchet.py` for coverage; `reparse_ratchet.py`'s tighten
   path from the reparse measurement; `suite_ratchet.py --tighten` from
-  the suite measurement through `ratchet-push.yml`; and the two
-  baseline writers (`size_baseline.py`, `suppression_baseline.py`)
-  with `--tighten` for their entries; coverage
+  the suite measurement through `ratchet-push.yml`; and the baseline
+  writer (`suppression_baseline.py`)
+  with `--tighten` for its entries; coverage
   without a calibration still measures and reports, but gates no floor.
   A thresholds-only change schedules no measurement; a valid removal
   ships with the code change or subject deletion that justifies it, and
@@ -183,8 +175,8 @@ and enforced in `tests.yml` — never hand-set numbers in a workflow.
   exactly the declared path entries from the unrecorded default ceiling
   until master's ratchet seeds the successor.
 - The direction guard also refuses lowered coverage, raised baseline
-  entries, hand-added entries under the frozen core families or for
-  unmeasured paths, and moved workload identity. Suite-cost and reparse
+  entries, hand-added entries under the frozen core families, and moved
+  workload identity. Suite-cost and reparse
   budget raises require a subject starting with `feat:` or `feat(scope):`
   in the judged range. Missing, unreadable or empty ranges prove no
   feature and refuse raises. The feature exception admits numeric cost

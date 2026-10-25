@@ -79,7 +79,6 @@ def _document(measured="92.6", floor="91.1"):
             },
         },
         "reparse": _reparse_family(),
-        "module_size_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": {
             "collection": {"measured": Decimal("25.8"),
@@ -162,7 +161,7 @@ def test_raise_beyond_hysteresis(
     assert record["floor"] == Decimal(floor)
     # Nothing outside the raised calibration moved.
     assert updated["schema_version"] == 1
-    assert updated["module_size_baseline"] == {}
+    assert updated["pylint_suppression_baseline"] == {}
     assert updated["coverage"][other_language] == {
         "measured": Decimal(other_measured),
         "floor": Decimal(other_floor),
@@ -277,7 +276,7 @@ def test_tighten_beyond_hysteresis():
     # Nothing outside the tightened phase moved.
     assert updated["schema_version"] == 1
     assert updated["coverage"] == _document()["coverage"]
-    assert updated["module_size_baseline"] == {}
+    assert updated["pylint_suppression_baseline"] == {}
     assert updated["reparse"]["parse_body"]["bytecodes"] == {
         "measured": Decimal("10.0"), "floor": Decimal("11.5")}
 

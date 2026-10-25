@@ -50,21 +50,21 @@ def _decoded_instructions(target, profile_file):
 def test_unchanged_bytes_decode_once_with_fresh_results_and_live_validation(tmp_path, monkeypatch):
     target = tmp_path / 'thresholds.json'
     data = thresholds.load()
-    data['module_size_baseline'] = {'unique-byte-cache.py': 100}
+    data['pylint_suppression_baseline'] = {'unique-byte-cache.py': 100}
     thresholds.write(target, data)
     profile = tmp_path / 'profile.json'
     monkeypatch.setenv('CLAUDIT_DEBUG_SUITE_INSTRUCTIONS', str(profile))
     cold, first = _decoded_instructions(target, profile)
     assert cold > 0
-    first['module_size_baseline']['unique-byte-cache.py'] = 0
+    first['pylint_suppression_baseline']['unique-byte-cache.py'] = 0
     warm, fresh = _decoded_instructions(target, profile)
     assert warm == 0
     rows = json.loads(profile.read_text())
     assert not any(row['function'] == 'normalise' and Path(row['file']).name == 'thresholds.py'
                    for row in rows)
-    assert fresh['module_size_baseline'] == {'unique-byte-cache.py': 100}
+    assert fresh['pylint_suppression_baseline'] == {'unique-byte-cache.py': 100}
     payload = json.loads(target.read_text())
-    payload['module_size_baseline']['unique-byte-cache.py'] = 0
+    payload['pylint_suppression_baseline']['unique-byte-cache.py'] = 0
     target.write_text(json.dumps(payload), encoding='utf-8')
-    with pytest.raises(ValueError, match='module_size_baseline'):
+    with pytest.raises(ValueError, match='pylint_suppression_baseline'):
         thresholds.load(target)

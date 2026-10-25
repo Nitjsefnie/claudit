@@ -7,9 +7,7 @@ import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
-BASELINE_FAMILIES = frozenset({
-    'module_size_baseline', 'pylint_suppression_baseline',
-})
+BASELINE_FAMILIES = frozenset({'pylint_suppression_baseline'})
 
 
 class Declarations(frozenset[str]):

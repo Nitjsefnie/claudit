@@ -49,7 +49,6 @@ def _document(reparse=True):
             "javascript": {"measured": Decimal("90.4"),
                            "floor": Decimal("88.9")},
         },
-        "module_size_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": {
             phase: {"measured": Decimal("10.0"),

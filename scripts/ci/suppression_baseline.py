@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Check and tighten the inline pylint suppression baseline.
 
-A second only-shrinks baseline beside the module-size one:
+The only-shrinks baseline beside the size-ratchet gate:
 the per-file count of inline ``pylint: disable``/``disable-next``
 comments whose check list names a complexity check — any check starting
 ``too-many-`` — over tracked ``*.py`` under ``backend/`` and
 ``scripts/``. ``tests/`` stays outside: a suppression there is not
 production complexity debt. An entry is never added or raised by hand,
-exactly like ``module_size_baseline``; the remedy is to reduce the
+exactly like the size gate's records; the remedy is to reduce the
 complexity (or rely on master's --tighten to follow a shrunk count down
 and drop a clean or missing file). A counted site is a LINE containing
 at least one qualifying disable, so a long check list counts once.

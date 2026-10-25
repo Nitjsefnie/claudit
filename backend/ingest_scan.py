@@ -1,7 +1,7 @@
 """Pair listed transcripts with sidecars and collect lane markers.
 
 One r2.list_keys pass builds _Wire items and a separate marker-fetch
-round. Keep scan machinery outside ingest's module-size ceiling.
+round. Keep scan machinery outside ingest's size-gate ceiling.
 Resolve ingest._fetch_with_retry at call time so ingest's test patch
 seam also governs marker GETs."""
 from __future__ import annotations

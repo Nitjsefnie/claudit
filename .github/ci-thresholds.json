@@ -9,17 +9,6 @@
       "measured": 95.6
     }
   },
-  "module_size_baseline": {
-    "backend/api.py": 587,
-    "backend/bash_churn.py": 857,
-    "backend/ingest.py": 598,
-    "backend/parse.py": 505,
-    "backend/schema.sql": 753,
-    "public/app.css": 683,
-    "scripts/plots/ccusage_plot_render.py": 624,
-    "src/dashboard-charts-extra.jsx": 1143,
-    "src/dashboard-charts.jsx": 846
-  },
   "pylint_suppression_baseline": {
     "backend/bash_dash_c.py": 2,
     "backend/ingest.py": 2,

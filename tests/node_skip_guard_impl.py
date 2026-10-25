@@ -1,8 +1,9 @@
 """The node-skip guard's AST machinery (tests/test_node_skip_guard.py).
 
 Split out of the test module to stay under the tests/ size ceiling
-(scripts/ci/size_baseline.py); the tests import the entry points from
-here. A node skip rides a test that itself runs node, judged by its
+(the Nitjsefnie-Actions/size-ratchet action); the tests import the
+entry points from here. A node skip rides a test that itself runs node,
+judged by its
 transitive same-file call closure LAUNCHING node through a subprocess
 call - never by an incidental string constant in the body - and
 a mark predicate built from a module-level variable that names node is

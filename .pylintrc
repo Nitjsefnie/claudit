@@ -16,11 +16,11 @@ disable=
     global-statement,
     too-few-public-methods,
 # The flat 1000-line module limit is replaced by the per-file size
-# ratchet: scripts/ci/size_baseline.py plus module_size_baseline in
-# .github/ci-thresholds.json cap every file (production 500 / test 700,
-# entries seeded for files already over) and are never raised or added by
-# hand — grow by moving code into a new module. For every file under its
-# ceiling this is stricter than the flat 1000.
+# gate: the Nitjsefnie-Actions/size-ratchet action caps every file
+# (production 500 / test 700; .github/size-baseline.json records) and
+# never raises or adds an entry by hand — grow by moving code into a
+# new module. For every file under its ceiling this is stricter than
+# the flat 1000.
     too-many-lines
 max-attributes=30
 max-args=10

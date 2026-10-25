@@ -2,8 +2,8 @@
 
 For the ratchet data in.github/ci-thresholds.json, a coverage floor or
 measured value never decreases, a baseline entry is never raised,
-and an entry is added only to seed a
-brand-new member or a brand-new measured family. Cost budget raises
+and an addition to an established member is refused under the frozen
+core families. Cost budget raises
 require a feat: or feat(scope): subject in the judged range.
 The cases cover forbidden moves and the bots' and features' allowed moves.
 """
@@ -42,9 +42,8 @@ def _load(name):
 @cache
 def _ci_modules():
     thresholds = _load("thresholds")
-    size_baseline = _load("size_baseline")
     guard = _load("thresholds_guard")
-    return thresholds, size_baseline, guard
+    return thresholds, guard
 
 
 def _thresholds():
@@ -52,7 +51,7 @@ def _thresholds():
 
 
 def _guard():
-    return _ci_modules()[2]
+    return _ci_modules()[1]
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -110,16 +109,14 @@ def _document_bytes():
             "javascript": {"measured": 50.0, "floor": 48.5},
         },
         "reparse": _reparse(),
-        "module_size_baseline": {},
         "pylint_suppression_baseline": {},
         "suite_cost": SUITE_COST,
     }, protocol=5)
 
 
-def _document(baseline=None, suppression=None, reparse=None, suite=None):
+def _document(suppression=None, reparse=None, suite=None):
     doc = pickle.loads(_document_bytes())
-    for family, value in [("module_size_baseline", baseline),
-                          ("pylint_suppression_baseline", suppression),
+    for family, value in [("pylint_suppression_baseline", suppression),
                           ("reparse", reparse)]:
         if value is not None:
             doc[family] = value
@@ -134,23 +131,19 @@ def _written(tmp_path, doc, name):
     return target
 
 
-def _guard_result(tmp_path, base, head, tracked=None):
+def _guard_result(tmp_path, base, head):
     guard = _guard()
-    with pytest.MonkeyPatch.context() as patch:
-        if tracked is not None:
-            patch.setattr(guard.size_baseline, "tracked_sizes", lambda: tracked)
-        base_path = _written(tmp_path, base, "base.json")
-        head_path = _written(tmp_path, head, "head.json")
-        return guard.main([
-            "--base", str(base_path), "--head", str(head_path)])
+    base_path = _written(tmp_path, base, "base.json")
+    head_path = _written(tmp_path, head, "head.json")
+    return guard.main([
+        "--base", str(base_path), "--head", str(head_path)])
 
 
 def test_committed_document_against_itself_is_clean(tmp_path, committed_thresholds):
     git_meta.require_own_git_metadata(REPO_ROOT)
     committed = pickle.loads(pickle.dumps(committed_thresholds, protocol=5))
     assert _guard_result(
-        tmp_path, committed, pickle.loads(pickle.dumps(committed, protocol=5)),
-        tracked={"backend/api.py": 986}) == 0
+        tmp_path, committed, pickle.loads(pickle.dumps(committed, protocol=5))) == 0
 
 
 def test_coverage_lowered_fails(tmp_path):
@@ -187,47 +180,13 @@ def test_coverage_raised_is_clean(tmp_path):
     assert _guard_result(tmp_path, base, head) == 0
 
 
-def test_size_entry_raised_fails(tmp_path):
-    base = _document(baseline={"backend/api.py": 986})
-    head = _document(baseline={"backend/api.py": 1486})
-    assert _guard_result(tmp_path, base, head) == 1
-
-
-def test_core_family_entry_added_fails(tmp_path):
-    # The audit's exploit shape: a new 900-line backend file seeds itself
-    # a 900-line entry. The original families are frozen at the guard's
-    # landing — an addition under them is a hand-add and always fails.
-    # The added path is IN the measured set on purpose: the core rule
-    # must be the only thing that can go red here — a fixture missing
-    # the tree would let the "added, unmeasured" backstop mask its
-    # deletion green.
-    base = _document(baseline={"backend/api.py": 986})
-    head = _document(
-        baseline={"backend/api.py": 986, "backend/audit_new_big.py": 900})
-    assert _guard_result(
-        tmp_path, base, head,
-        tracked={"backend/api.py": 986,
-                 "backend/audit_new_big.py": 900}) == 1
-
-
-def test_non_core_entry_added_outside_the_measured_set_fails(tmp_path):
-    # An entry for a path no ratchet measures is inert — refuse it too.
-    base = _document(baseline={})
-    head = _document(baseline={"public/index.html": 900})
-    assert _guard_result(
-        tmp_path, base, head,
-        tracked={"src/parser.js": 1024}) == 1
-
-
-def test_family_seed_for_a_new_measured_family_is_clean(tmp_path):
-    # The sanctioned path: a new measured family seeds its entries
-    # once, through the loader's writer, in a reviewed gate-definer PR.
-    base = _document(baseline={"backend/api.py": 986})
-    head = _document(
-        baseline={"backend/api.py": 986, "backend/schema.sql": 834})
-    assert _guard_result(
-        tmp_path, base, head,
-        tracked={"backend/api.py": 986, "backend/schema.sql": 834}) == 0
+def test_non_core_entry_added_is_clean(tmp_path):
+    # On an established member, an addition OUTSIDE the frozen core
+    # families is allowed: no in-tree oracle measures a measured set any
+    # more, so the addition checks nothing but the frozen-core refusal.
+    base = _document(suppression={})
+    head = _document(suppression={"public/app.css": 1})
+    assert _guard_result(tmp_path, base, head) == 0
 
 
 def test_new_member_seeded_is_clean(tmp_path):
@@ -235,10 +194,9 @@ def test_new_member_seeded_is_clean(tmp_path):
     # introduces it; the committed-document-matches-tree tests
     # pin each seed truthful. The base predates the member, so its
     # bytes are placed directly — the writer refuses a memberless doc.
-    base = _document(baseline={})
+    base = _document()
     base.pop("pylint_suppression_baseline")
     head = _document(
-        baseline={},
         suppression={"backend/ingest_fetch.py": 5})
     guard = _guard()
     base_path = tmp_path / "base.json"
@@ -249,22 +207,28 @@ def test_new_member_seeded_is_clean(tmp_path):
 
 
 def test_suppression_entry_added_after_landing_fails(tmp_path):
-    # Once the member exists in the base, a new suppression site is a
-    # hand-add under a frozen family: reduce the complexity instead.
-    # The added path sits in the measured set so the frozen-core rule,
-    # not the unmeasured backstop, is what fails this case.
+    # Once the member exists in the base, a new suppression site under a
+    # frozen core family is a hand-add: reduce the complexity instead.
     base = _document(suppression={"backend/ingest.py": 2})
     head = _document(
         suppression={"backend/ingest.py": 2, "backend/new.py": 1})
-    assert _guard_result(
-        tmp_path, base, head,
-        tracked={"backend/ingest.py": 675, "backend/new.py": 100}) == 1
+    assert _guard_result(tmp_path, base, head) == 1
 
 
 def test_suppression_entry_raised_fails(tmp_path):
     base = _document(suppression={"backend/ingest.py": 2})
     head = _document(suppression={"backend/ingest.py": 3})
     assert _guard_result(tmp_path, base, head) == 1
+
+
+def test_retired_family_in_base_is_ignored(tmp_path):
+    # Master's trusted bytes may predate the family's removal and still
+    # carry the retired member: the head's loader refuses an unknown
+    # field, so the base loader drops it — ignored, never compared, and
+    # its entries' absence from the head is no removal.
+    base = _document()
+    base["module_size_baseline"] = {"backend/api.py": 986}
+    assert _guard_result(tmp_path, base, _document()) == 0
 
 
 def test_bot_shaped_raise_is_clean(tmp_path):
@@ -290,30 +254,27 @@ def test_bot_shaped_raise_is_clean(tmp_path):
 
 
 def test_bot_shaped_tighten_is_clean(tmp_path):
-    # The other bot shape: --tighten follows shrunk files down and drops
-    # a graduated entry; the suppression tighten does the same for counts.
-    # Synthetic entries keep these moves exercised when the committed
-    # families have no entries or are absent entirely.
+    # The other bot shape: --tighten follows shrunk counts down and drops
+    # a graduated entry. Synthetic entries keep the move exercised when
+    # the committed family has no entries or is absent entirely.
     base = _document(
-        baseline={"backend/shrunk.py": 900, "tests/graduated.py": 900},
-        suppression={"backend/shrunk.py": 2})
+        suppression={"backend/shrunk.py": 2, "tests/graduated.py": 2})
     head = pickle.loads(pickle.dumps(base, protocol=5))
-    head["module_size_baseline"]["backend/shrunk.py"] -= 1
-    del head["module_size_baseline"]["tests/graduated.py"]
     head["pylint_suppression_baseline"]["backend/shrunk.py"] -= 1
+    del head["pylint_suppression_baseline"]["tests/graduated.py"]
     assert _guard_result(tmp_path, base, head) == 0
 
 
 def test_entry_lowered_is_clean(tmp_path):
-    base = _document(baseline={"backend/api.py": 986, "src/app.jsx": 1424})
-    head = _document(baseline={"backend/api.py": 950, "src/app.jsx": 1424})
+    base = _document(suppression={"backend/api.py": 986, "backend/warm.py": 1424})
+    head = _document(suppression={"backend/api.py": 950, "backend/warm.py": 1424})
     assert _guard_result(tmp_path, base, head) == 0
 
 
 def test_empty_family_removed_is_clean(tmp_path):
     # An empty family carries no entries to remove.
-    base = _document(baseline={"backend/api.py": 986})
-    head = _document(baseline={"backend/api.py": 986})
+    base = _document()
+    head = _document()
     head.pop("pylint_suppression_baseline")
     base_path = _written(tmp_path, base, "base.json")
     head_path = tmp_path / "head.json"
@@ -332,14 +293,14 @@ def test_garbage_head_document_fails(tmp_path):
 
 
 def test_main_prints_each_forbidden_move(tmp_path, capsys):
-    base = _document(baseline={"backend/api.py": 986})
-    head = _document(baseline={"backend/api.py": 1486})
+    base = _document(suppression={"backend/api.py": 986})
+    head = _document(suppression={"backend/api.py": 1486})
     head["coverage"]["python"] = {"measured": 90.0, "floor": 88.5}
     assert _guard_result(tmp_path, base, head) == 1
     captured = capsys.readouterr()
     assert "coverage.python.floor" in captured.err
     assert "coverage.python.measured" in captured.err
-    assert "module_size_baseline.backend/api.py" in captured.err
+    assert "pylint_suppression_baseline.backend/api.py" in captured.err
     assert "never lowered by hand" in captured.err
     assert "never raised or added by hand" in captured.err
 
@@ -619,9 +580,9 @@ def test_feature_raise_keeps_other_refusals(judged_base_path, monkeypatch, capsy
             head["suite_cost"]["tests_tree_lines"] = 40250
             forbidden = "suite_cost.tests_tree_lines"
         else:
-            base["module_size_baseline"]["backend/api.py"] = 986
-            head["module_size_baseline"]["backend/api.py"] = 1486
-            forbidden = "module_size_baseline.backend/api.py"
+            base["pylint_suppression_baseline"]["backend/api.py"] = 986
+            head["pylint_suppression_baseline"]["backend/api.py"] = 1486
+            forbidden = "pylint_suppression_baseline.backend/api.py"
         assert _judged_guard(
             judged_base_path, monkeypatch, base, head, ["feat: add a panel"],
             ["--base-rev", "HEAD^", "--head-rev", "HEAD"]) == 1

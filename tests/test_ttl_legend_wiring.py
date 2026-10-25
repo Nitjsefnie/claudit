@@ -6,7 +6,7 @@ right edge at a 320px viewport. The rendered half is asserted by the
 browser guard (scripts/ci/panel_layout.mjs); this module is the
 source-level half, which fails on the revert before any browser runs.
 The panel itself moved to src/cache-ttl-panel.jsx in the same fix: the
-module-size ratchet's committed entry for dashboard-charts-extra.jsx
+size-ratchet gate's committed entry for dashboard-charts-extra.jsx
 never rises, so the code the fix adds moved out instead of growing a
 file already far over the ceiling.
 """
@@ -31,7 +31,7 @@ def _strip_line_comments(src: str) -> str:
 
 def _ttl_module() -> Path:
     """The one module that defines CacheTTLPanel. It is its own
-    file: the module-size ratchet's committed entry for
+    file: the size-ratchet gate's committed entry for
     dashboard-charts-extra.jsx never rises, so the code the fix adds moved
     out instead of growing a file that is already far over the ceiling."""
     hits = [p for p in (CHARTS, EXTRA, TTL) if p.exists() and re.search(

@@ -23,7 +23,7 @@ from psycopg_pool import ConnectionPool
 # stamp. Re-exported because `db.SCHEMA_PATH` and
 # `db.SCHEMA_PATHS` are the names the startup tests reach for, and
 # the list itself lives in schema_files so this module stays inside
-# the module-size ratchet's 500-line ceiling.
+# the size-ratchet action's 500-line ceiling.
 # pylint: disable=unused-import
 from backend.env_config import load_dotenv, require_env
 from backend.schema_files import (  # noqa: F401
