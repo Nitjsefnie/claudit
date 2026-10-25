@@ -212,12 +212,9 @@ def test_the_suite_measurement_upload_is_unique_repo_wide():
 
 
 def test_every_cross_run_download_names_the_triggering_run():
-    # A download-artifact step without run-id reads THIS workflow's run,
-    # so a bot step that must fetch the triggering run's artifact would
-    # silently fetch nothing (or another run's data). Every workflow the
-    # workflow_run event triggers sweeps here: each of its download
-    # steps must take the run id from that event, and the sweep is
-    # non-vacuous (the bot alone downloads four artifacts).
+    # Without run-id a download step reads THIS workflow's run, never the
+    # triggering run's: every download step under a workflow_run trigger
+    # takes the run id from the event.
     swept = 0
     for path in sorted(WORKFLOWS.glob("*.yml")):
         doc = _load(path.name)
@@ -583,11 +580,8 @@ def test_successful_records_merge_is_validated_before_selection_and_staging():
 
 
 def test_size_baseline_stages_only_tightened_records():
-    # tests.yml's size job stages the records plus the measured base only
-    # when tighten moved the file; a no-change run uploads nothing, which
-    # is the bot's no-op signal. The checkout's own shape is held by the
-    # repo-wide sweep in tests/test_workflow_checkout_credentials.py
-    # (every checkout drops its token), not by per-step literals here.
+    # Stages records plus the measured base only when tighten moved the
+    # file; a no-change run uploads nothing, the bot's no-op signal.
     doc = _load("tests.yml")
     job = _job(doc, "size-baseline")
     stage, = [step for step in _steps(job) if step.get("id") == "size_stage"]
