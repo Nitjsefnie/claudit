@@ -72,8 +72,8 @@ jobs:
       - name: Identify the Dockerfile's base image
         id: base
         env:
-          CLAUDIT_BASE_IMAGE: public.ecr.aws/docker/library/python:3.13-slim
-          CLAUDIT_BASE_FALLBACK_IMAGE: mirror.gcr.io/library/python:3.13-slim
+          CLAUDIT_BASE_IMAGE: public.ecr.aws/docker/library/python:3.15-slim
+          CLAUDIT_BASE_FALLBACK_IMAGE: mirror.gcr.io/library/python:3.15-slim
         run: |
           set -euo pipefail
           if [ "$(grep -c '^FROM ' Dockerfile)" != 1 ] || ! grep -Fxq "FROM $CLAUDIT_BASE_IMAGE" Dockerfile; then

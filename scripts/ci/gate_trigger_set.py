@@ -16,7 +16,7 @@ EXPLICIT. Files named by hand. Two kinds:
   — a tighten raises what the gates demand of
   the same source tree even though it touches nothing in any pull
   request's diff —
-  the scanner config, the five requirements files the audit, test and
+  the scanner config, the six requirements files the audit, test and
   lint legs install from or audit, the JS lockfile the eslint and
   JS-tokenizer steps pin their tool versions from, and the container
   leg's CI-only Compose override, which decides the image its db service runs.
@@ -86,6 +86,7 @@ EXPLICIT = (
     "backend/requirements.txt",
     "requirements-dev.txt",
     "requirements-test.txt",
+    "requirements-pyyaml.txt",
     "requirements-pip-audit.txt",
     "requirements-zizmor.txt",
     "package-lock.json",

@@ -9,7 +9,7 @@
 
 # Tag-pinned (no digest): the repo has no docker-update machinery to keep a
 # digest honest, so the tag is the pin the maintainers can see and bump.
-FROM public.ecr.aws/docker/library/python:3.13-slim
+FROM public.ecr.aws/docker/library/python:3.15-slim
 
 # Logs reach the container runtime unbuffered (the unit's journal equivalent)
 # and the tree stays free of .pyc written at run time.

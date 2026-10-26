@@ -71,7 +71,7 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.13"
+          python-version: "3.15"
 
       # Schedule/dispatch has no judged removal range: the resolver exports
       # an empty base, so committed-tree checks grant no exemptions. These
@@ -92,9 +92,9 @@ jobs:
             ~/.cache/pip
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
+          key: pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
           restore-keys: |
-            pip-${{ runner.os }}-3.13-
+            pip-${{ runner.os }}-3.15-
 
       - name: Install postgresql-client
         timeout-minutes: 5
@@ -105,7 +105,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt -r requirements-test.txt
+          pip install -r backend/requirements.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt
 
       # Keep the common post-install save shape; its push gate excludes this workflow.
       - name: Save the pip cache
@@ -116,7 +116,7 @@ jobs:
             ~/.cache/pip
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
+          key: pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
 
       - name: Perturb and test, per wall-clock seed
         env:

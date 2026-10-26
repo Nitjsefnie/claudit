@@ -193,7 +193,7 @@ def test_types_installs_and_caches_the_full_import_toolchain():
     install, = [step for step in steps if step.get("name") == "Install dependencies"]
     assert install["run"].splitlines() == [
         "python -m pip install --upgrade pip",
-        "pip install -r backend/requirements.txt -r requirements-dev.txt -r requirements-test.txt"]
+        "pip install -r backend/requirements.txt -r requirements-dev.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt"]
     caches = [step for step in steps
               if _action(step) in ("actions/cache/restore", "actions/cache/save")]
     assert len(caches) == 2

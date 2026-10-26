@@ -41,7 +41,7 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.13"
+          python-version: "3.15"
 
       # The pip cache restores on every event but is saved only from a push
       # of master: `cache: pip` saves in a post-job step that runs after the
@@ -54,9 +54,9 @@ jobs:
             ~/.cache/pip
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt') }}
+          key: pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt') }}
           restore-keys: |
-            pip-${{ runner.os }}-3.13-
+            pip-${{ runner.os }}-3.15-
 
       - name: Install postgresql-client
         timeout-minutes: 5
@@ -80,7 +80,7 @@ jobs:
             ~/.cache/pip
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt') }}
+          key: pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt') }}
 
       - name: Boot the server and check it serves
         run: python3 scripts/ci/smoke.py

@@ -43,6 +43,7 @@ CONFIG_PATH = REPO_ROOT / ".github" / "dependabot.yml"
 EXPECTED_REQUIREMENTS_FILES = {
     "requirements-dev.txt",
     "requirements-test.txt",
+    "requirements-pyyaml.txt",
     "requirements-pip-audit.txt",
     "requirements-zizmor.txt",
     "backend/requirements.txt",

@@ -13,7 +13,8 @@
 coverage==7.16.2
 pytest-cov==7.1.0
 
-# Parses .github/workflows/*.yml for tests/test_workflow_pip_cache.py: the
-# workflow-shape test (issue #126) reads the gates the way actionlint does,
-# so the pip-cache rule is pinned by a test and not by convention.
-pyyaml==6.0.3
+# pyyaml parses .github/workflows/*.yml for the workflow-shape tests and
+# lives in requirements-pyyaml.txt since the Python 3.15 move: its --hash
+# turns pip's hash-checking on for every requirement in the same
+# invocation, so it installs as its own pip command (see that file's
+# header for the install shape).

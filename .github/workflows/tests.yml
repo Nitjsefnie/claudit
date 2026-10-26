@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   pytest-shards:
-    name: pytest shard ${{ matrix.shard }} (canary, pinned 3.13.14)
+    name: pytest shard ${{ matrix.shard }} (canary, pinned 3.15.1)
     if: inputs.thresholds_only != 'true'
     strategy: {fail-fast: false, matrix: {shard: [1, 2, 3, 4]}}
     runs-on: ubuntu-latest
@@ -29,7 +29,7 @@ jobs:
         uses: $/.github/actions/postgres
       # Pin runtimes: interpreter and V8 drift move the calibration.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with: {python-version: "3.13.14"}
+        with: {python-version: "3.15.1"}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: "24.17.0"}
       - name: Resolve the threshold base
@@ -38,7 +38,7 @@ jobs:
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install postgresql-client
         timeout-minutes: 5
         uses: $/.github/actions/apt-install
@@ -47,12 +47,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt -r requirements-test.txt
+          pip install -r backend/requirements.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt
       # One matrix writer per shared cache key, on master.
       - name: Save the pip cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.shard == 1
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}"}
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}"}
       - name: Run tests
         env: {"COVERAGE_FILE": "${{ github.workspace }}/shard-coverage/.coverage.${{ matrix.shard }}"}
         run: |
@@ -73,18 +73,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with: {python-version: "3.13.14"}
+        with: {python-version: "3.15.1"}
       - name: Resolve the threshold base
         id: threshold_base
         env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt -r requirements-test.txt
+          pip install -r backend/requirements.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt
       - name: Download coverage shards
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: {pattern: coverage-shard-*, path: shard-data/}
@@ -169,18 +169,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with: {python-version: "3.13.14"}
+        with: {python-version: "3.15.1"}
       - name: Resolve the threshold base
         id: threshold_base
         env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt -r requirements-test.txt
+          pip install -r backend/requirements.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt
       - name: Pylint suppression baseline
         if: ${{ !cancelled() && inputs.thresholds_only != 'true' }}
         run: python3 scripts/ci/suppression_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
@@ -257,7 +257,7 @@ jobs:
       - name: Start cached Postgres
         uses: $/.github/actions/postgres
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with: {python-version: "3.13.14"}
+        with: {python-version: "3.15.1"}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: "24.17.0"}
       - name: Resolve the threshold base
@@ -266,11 +266,11 @@ jobs:
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt -r requirements-test.txt
+          pip install -r backend/requirements.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt
       - name: Install the JS toolchain from the lockfile
         run: npm ci --no-audit --no-fund
       - name: JavaScript coverage gate
@@ -287,18 +287,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with: {python-version: "3.13.14"}
+        with: {python-version: "3.15.1"}
       - name: Resolve the threshold base
         id: threshold_base
         env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt -r requirements-test.txt
+          pip install -r backend/requirements.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt
       - name: Reparse CPU gate
         id: reparse
         uses: $/.github/actions/reparse-bench
@@ -312,22 +312,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with: {python-version: "3.13.14"}
+        with: {python-version: "3.15.1"}
       - name: Resolve the threshold base
         id: threshold_base
         env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt -r requirements-test.txt
+          pip install -r backend/requirements.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt
       - name: Save the pip cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}"}
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}"}
       - name: Measure and gate the suite cost
         id: suite_bench
         uses: $/.github/actions/suite-bench
@@ -339,7 +339,7 @@ jobs:
 
   pytest-thresholds:
     if: inputs.thresholds_only == 'true'
-    name: pytest thresholds subset (canary, pinned 3.13.14)
+    name: pytest thresholds subset (canary, pinned 3.15.1)
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env: {PGHOST: localhost, PGPORT: "5432", PGUSER: postgres, PGPASSWORD: postgres}
@@ -349,7 +349,7 @@ jobs:
       - name: Start cached Postgres
         uses: $/.github/actions/postgres
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with: {python-version: "3.13.14"}
+        with: {python-version: "3.15.1"}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: "24.17.0"}
       - name: Resolve the threshold base
@@ -358,7 +358,7 @@ jobs:
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install postgresql-client
         timeout-minutes: 5
         uses: $/.github/actions/apt-install
@@ -367,7 +367,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt -r requirements-test.txt
+          pip install -r backend/requirements.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt
       - name: Run tests
         run: |
           # shellcheck disable=SC2046
@@ -382,18 +382,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with: {python-version: "3.13.14"}
+        with: {python-version: "3.15.1"}
       - name: Resolve the threshold base
         id: threshold_base
         env: {"CLAUDIT_REPO": "${{ github.repository }}", "CLAUDIT_BASE_REF": "${{ github.event.pull_request.base.ref }}", "CLAUDIT_EVENT": "${{ github.event_name }}", "CLAUDIT_BEFORE": "${{ github.event.before }}"}
         uses: $/.github/actions/thresholds-base
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.13-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.13-\n"}
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt -r requirements-test.txt
+          pip install -r backend/requirements.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: "24.17.0"}
       - name: Install the JS toolchain from the lockfile
@@ -447,7 +447,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.13", "3.14"]
+        python-version: ["3.14", "3.15"]
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -480,7 +480,7 @@ jobs:
 
       - name: Install dependencies
         # One command: the default pwsh shell on windows-latest propagates only the last line's exit code.
-        run: python -m pip install --upgrade pip -r backend/requirements.txt -r requirements-test.txt
+        run: "python -m pip install --upgrade pip -r backend/requirements.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt"
 
       # Saved here, not in a post-job step, so the cache is written only from a master push.
       - name: Save the pip cache

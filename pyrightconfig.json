@@ -1,6 +1,6 @@
 {
     "typeCheckingMode": "basic",
-    "pythonVersion": "3.13",
+    "pythonVersion": "3.15",
     "extraPaths": ["scripts/ci"],
     "include": ["backend", "tests", "scripts"],
     "exclude": ["**/__pycache__", ".venv", "node_modules"]

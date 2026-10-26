@@ -1,14 +1,14 @@
 """Exercise the audit workflow's retry handling with a scripted pip-audit.
 
-The step audits THREE manifest sets per pass — the co-installed tree
-(backend/requirements.txt + dev + test), then requirements-pip-audit.txt
-and requirements-zizmor.txt each alone (a hash-pinned manifest beside
-un-hashed ones flips pip-audit's one internal resolution into
---require-hashes mode) — so a clean pass invokes pip-audit 3 times and a
-retry-then-succeed scenario consumes 4 scripted responses (fail, ok,
-ok, ok). A set that fails terminally ends the step, so exhaustion and
-no-retry scenarios never reach the later sets and their counts are
-unchanged.
+The step audits FOUR manifest sets per pass — the co-installed tree
+(backend/requirements.txt + dev + test), then requirements-pip-audit.txt,
+requirements-zizmor.txt and requirements-pyyaml.txt each alone (a
+hash-pinned manifest beside un-hashed ones flips pip-audit's one
+internal resolution into --require-hashes mode) — so a clean pass
+invokes pip-audit 4 times and a retry-then-succeed scenario consumes 5
+scripted responses (fail, ok, ok, ok, ok). A set that fails terminally
+ends the step, so exhaustion and no-retry scenarios never reach the
+later sets and their counts are unchanged.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ OK = ("audit ok\n", 0)
 
 
 def _pass_after_one_failure(failure: tuple[str, int]) -> list[tuple[str, int]]:
-    return [failure] + [OK] * 3
+    return [failure] + [OK] * 4
 
 
 pytestmark = pytest.mark.skipif(
@@ -163,7 +163,7 @@ def test_pip_audit_feed_connection_errors_retry(tmp_path: Path, message: str):
         tmp_path, _pass_after_one_failure((message, 1)))
 
     assert result.returncode == 0, _output(result)
-    assert calls == 4
+    assert calls == 5
 
 
 def test_package_named_service_error_is_reported_without_retry(tmp_path: Path):
