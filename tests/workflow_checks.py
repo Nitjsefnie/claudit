@@ -8,6 +8,14 @@ from pathlib import Path
 
 import yaml
 
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOWS = ROOT / ".github" / "workflows"
+
+TIGHTEN_CMD = (
+    'python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/suite_ratchet.py" '
+    '--tighten "$RUNNER_TEMP/suite-data/suite-measurement.json" '
+    '--thresholds '
+    '"$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"')
 
 _PROPERTY = r"[A-Za-z_][A-Za-z0-9_-]*"
 _TOKEN = re.compile(r"(?P<string>'(?:[^']|'')*')|(?P<name>" + _PROPERTY
@@ -17,6 +25,35 @@ _TOKEN = re.compile(r"(?P<string>'(?:[^']|'')*')|(?P<name>" + _PROPERTY
 def load_workflow(path: Path) -> dict:
     """Read workflow/action YAML with string keys, including on."""
     return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+
+def workflow_by_name(name: str) -> dict:
+    """A workflow file from the workflows directory, empty when blank."""
+    return load_workflow(WORKFLOWS / name) or {}
+
+
+def job_of(doc: dict, job_id: str) -> dict:
+    """The named job of a workflow."""
+    return doc["jobs"][job_id]
+
+
+def steps_of(job: dict) -> list:
+    """The job's step list."""
+    return job["steps"]
+
+
+def run_lines(step: dict) -> list[str]:
+    """The step's run block as stripped non-empty lines."""
+    return [line.strip() for line in (step.get("run") or "").splitlines()
+            if line.strip()]
+
+
+def find_step(job: dict, needle: str) -> dict:
+    """The one step whose run names needle; fails otherwise."""
+    matches = [step for step in steps_of(job)
+               if needle in (step.get("run") or "")]
+    assert len(matches) == 1, (needle, [s.get("name") for s in matches])
+    return matches[0]
 
 
 def is_checkout(step: dict) -> bool:
