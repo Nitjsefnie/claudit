@@ -304,8 +304,8 @@
     725
   ],
   "backend/ingest.py": [
-    8585,
-    20528
+    8583,
+    20526
   ],
   "backend/ingest_abort.py": [
     387,
@@ -360,8 +360,8 @@
     4138
   ],
   "backend/ingest_scan.py": [
-    2246,
-    4399
+    2244,
+    4397
   ],
   "backend/ingest_timing.py": [
     795,
@@ -376,8 +376,8 @@
     3498
   ],
   "backend/ingest_warm.py": [
-    966,
-    2023
+    964,
+    2021
   ],
   "backend/ingest_workers.py": [
     2818,
@@ -544,8 +544,8 @@
     4830
   ],
   "backend/schema_web_metrics.sql": [
-    2432,
-    3519
+    2421,
+    3508
   ],
   "backend/schema_web_search.sql": [
     299,
@@ -628,8 +628,8 @@
     11129
   ],
   "scripts/ci/gate_trigger_set.py": [
-    3833,
-    7244
+    3796,
+    7236
   ],
   "scripts/ci/js_comment_tokens.mjs": [
     1251,
@@ -731,10 +731,6 @@
     4771,
     9296
   ],
-  "scripts/ci/size_baseline.py": [
-    1523,
-    6008
-  ],
   "scripts/ci/smoke.py": [
     3426,
     10386
@@ -748,16 +744,16 @@
     7556
   ],
   "scripts/ci/suite_ratchet.py": [
-    4707,
-    9471
+    4698,
+    9462
   ],
   "scripts/ci/suite_report.py": [
     3024,
     9815
   ],
   "scripts/ci/suppression_baseline.py": [
-    1606,
-    5819
+    1600,
+    5813
   ],
   "scripts/ci/thresholds.py": [
     5248,
@@ -1288,8 +1284,8 @@
     2474
   ],
   "tests/test_ingest_cache_gate.py": [
-    2493,
-    9603
+    2487,
+    9597
   ],
   "tests/test_ingest_fetch.py": [
     4757,
@@ -1416,8 +1412,8 @@
     28204
   ],
   "tests/test_parse.py": [
-    6313,
-    22932
+    6290,
+    22909
   ],
   "tests/test_parse_codex.py": [
     6750,
@@ -1752,8 +1748,8 @@
     4548
   ],
   "tests/test_ttl_legend_wiring.py": [
-    1890,
-    4678
+    1886,
+    4674
   ],
   "tests/test_turn_flag_bits.py": [
     863,
