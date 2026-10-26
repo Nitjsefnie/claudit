@@ -473,9 +473,15 @@ def test_the_tests_callee_is_capped_at_what_its_jobs_use():
 def test_the_canary_job_is_named_for_what_it_is():
     # Name the canary distinctly from portability jobs and include its pinned
     # interpreter version so a failed check identifies the measured runtime.
+    # The name's version is read from the job's own setup-python pin, so a
+    # future interpreter move cannot leave the name stale.
     pytest_job = _tests_workflow()["jobs"]["pytest-shards"]
+    version, = [step["with"]["python-version"]
+                for step in pytest_job["steps"]
+                if step.get("uses", "").startswith("actions/setup-python@")]
+    assert version, "the canary job sets up no interpreter"
     assert pytest_job.get("name") == (
-        "pytest shard ${{ matrix.shard }} (canary, pinned 3.13.14)")
+        f"pytest shard ${{{{ matrix.shard }}}} (canary, pinned {version})")
     portable = _tests_workflow()["jobs"]["pytest-portable"]
     assert portable.get("name") == (
         "pytest (${{ matrix.os }}, ${{ matrix.python-version }})")

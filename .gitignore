@@ -47,6 +47,7 @@
 !/requirements-dev.txt
 !/requirements-pip-audit.txt
 !/requirements-test.txt
+!/requirements-pyyaml.txt
 !/requirements-zizmor.txt
 !/setup.cfg
 
