@@ -11,7 +11,6 @@
     "scripts/ci/panel_layout_rules.mjs": 2256,
     "scripts/plots/ccusage_plot_render.py": 624,
     "src/dashboard-charts-extra.jsx": 1143,
-    "src/dashboard-charts.jsx": 846,
-    "tests/test_suite_ci_wiring.py": 803
+    "src/dashboard-charts.jsx": 846
   }
 }
