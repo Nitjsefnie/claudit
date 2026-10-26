@@ -326,6 +326,7 @@
     "deepseek-v4-1-flash": {
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints at one current price",
+      "InferenceNet": "2 endpoints at one current price",
       "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-1-flash-1017": {
@@ -349,6 +350,7 @@
     },
     "glm-5-3": {
       "BaseTen": "2 endpoints at one current price",
+      "InferenceNet": "2 endpoints at one current price",
       "Mistral": "2 endpoints selected",
       "Sail Research": "2 endpoints at one current price"
     },
@@ -436,6 +438,7 @@
     },
     "kimi-k3": {
       "Fireworks": "2 endpoints at one current price",
+      "InferenceNet": "2 endpoints at one current price",
       "Sail Research": "2 endpoints at one current price"
     },
     "minimax-m3-1-flash": {
