@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Seed and tighten the recorded suite cost budgets.
 
-The mirror of ``ratchet.py`` with the direction inverted, next to the
-size and suppression tighten passes. A suite phase's number is a COST:
+The mirror of ``ratchet.py`` with the direction inverted, beside the
+suppression tighten pass. A suite phase's number is a COST:
 its ratchet only ever TIGHTENS -- a phase whose measured count beats the
 recorded value by more than the hysteresis has both its fields rewritten
 downward, and anything slower -- or within the hysteresis -- justifies
