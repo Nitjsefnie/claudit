@@ -132,8 +132,6 @@ def test_unadaptable_vendor_pair_keeps_original_ambiguity_refusal() -> None:
 
 
 @pytest.mark.parametrize("resolve,payload,needle", [
-    pytest.param({GPT_KEY: {"tag": "openai/gone", "why": "once was"}},
-                 _payload(_endpoint("openai", _price(1.0, 5.0))), "stale", id="stale-pin"),
     pytest.param({GPT_KEY: {"select": "cheapest"}},
                  _payload(_endpoint("openai", _price(1.0, 5.0))), "pin", id="malformed-pin"),
     pytest.param(
@@ -145,6 +143,16 @@ def test_unadaptable_vendor_pair_keeps_original_ambiguity_refusal() -> None:
 def test_invalid_vendor_selection_refuses(resolve, payload, needle):
     _, out = _run(_doc(resolve=resolve), _catalog(GPT_ID), {GPT_ID: payload})
     assert len(out.refusals) == 1 and needle in out.refusals[0]
+
+
+def test_stale_vendor_pin_with_one_price_is_a_notice():
+    doc, out = _run(_doc(resolve={GPT_KEY: {"tag": "openai/gone", "why": "once was"}}),
+                    _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0)))})
+    assert out.refusals == []
+    assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
+    notice, = out.notices
+    assert "openai/gone" in notice and "listed tags: 'openai'" in notice
+    assert "one price remained; no rule was needed" in notice
 
 
 def test_a_variant_id_is_never_added():

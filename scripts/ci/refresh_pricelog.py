@@ -21,6 +21,7 @@ from typing import Callable
 from refresh_logshape import PriceLogError, PriceSeries, read_log_payload
 from refresh_prices import (RefreshError, token_rates_of)
 from refresh_selection import selected_endpoint_indices
+from refresh_selection_rules import active_pin
 from backend import pricing as rate_pricing
 from backend.pricing_document import effective_rates, omit_default_rates
 
@@ -246,8 +247,6 @@ def _selection_indices(host: str, endpoints: list[dict], region: str | None,
     pin = resolutions.get(host)
     if pin is not None and not isinstance(pin, dict):
         return [], "host resolution is not an object"
-    if isinstance(pin, dict) and pin.get("select") == "cheapest":
-        return [], "cheapest resolution has no stable endpoint identity"
     if isinstance(pin, dict) and "tag" in pin:
         tag = pin.get("tag")
         if not isinstance(tag, str):
@@ -256,6 +255,9 @@ def _selection_indices(host: str, endpoints: list[dict], region: str | None,
         selected = selected_endpoint_indices(host, endpoints, region, pin, stored, at)
     except RefreshError as exc:
         return [], str(exc)
+    pin, _ = active_pin(host, pin, [e.get("tag", "") for e in endpoints])
+    if pin is not None and pin.get("select") == "cheapest":
+        return [], "cheapest resolution has no stable endpoint identity"
     if len(selected) != 1:
         return [], f"endpoint selection found {len(selected)} endpoints"
     return selected, None
