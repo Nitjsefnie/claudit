@@ -114,15 +114,15 @@ def test_start_refuses_nonempty_uninitialised_directory(
         port = str(listener.getsockname()[1])
     directory = tmp_path / "unrelated"
     directory.mkdir()
-    sentinel = directory / filename
-    sentinel.write_text("keep me", encoding="utf-8")
+    keep_file = directory / filename
+    keep_file.write_text("keep me", encoding="utf-8")
     try:
         started = _run("start", str(directory), port, cwd=ROOT)
         assert started.returncode != 0, started.stdout
         assert "refusing" in started.stderr.lower()
         assert not started.stdout
-        assert sentinel.read_text(encoding="utf-8") == "keep me"
-        assert list(directory.iterdir()) == [sentinel]
+        assert keep_file.read_text(encoding="utf-8") == "keep me"
+        assert list(directory.iterdir()) == [keep_file]
     finally:
         if (directory / ".scratch_pg").exists():
             stopped = _run("stop", str(directory), cwd=ROOT)
@@ -132,13 +132,13 @@ def test_start_refuses_nonempty_uninitialised_directory(
 def test_stop_refuses_uninitialised_directory(tmp_path: Path) -> None:
     directory = tmp_path / "unrelated"
     directory.mkdir()
-    sentinel = directory / "keep"
-    sentinel.write_text("keep me", encoding="utf-8")
+    keep_file = directory / "keep"
+    keep_file.write_text("keep me", encoding="utf-8")
     stopped = _run("stop", str(directory), "5443", cwd=ROOT)
     assert stopped.returncode != 0
     assert "marker" in stopped.stderr.lower()
     assert not stopped.stdout
-    assert sentinel.read_text(encoding="utf-8") == "keep me"
+    assert keep_file.read_text(encoding="utf-8") == "keep me"
 
 
 @pytest.mark.parametrize("args", [

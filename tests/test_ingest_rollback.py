@@ -46,12 +46,12 @@ def test_newer_stored_parser_version_is_never_reparsed(
             "UPDATE files SET parser_version = %s WHERE session_id = 'sess-A'",
             (str(int(parser_version.PARSER_VERSION) + 1),),
         )
-        sentinel = dims_seed.dim_id(c, "dim_provider", "sentinel")
+        sentinel_id = dims_seed.dim_id(c, "dim_provider", "sentinel")
         c.execute(
             "UPDATE records r SET provider_id = %s "
             "FROM files f "
             "WHERE r.file_id = f.file_id "
-            "AND f.file_key LIKE '%%sess-A.jsonl'", (sentinel,))
+            "AND f.file_key LIKE '%%sess-A.jsonl'", (sentinel_id,))
         planted = c.execute(
             "SELECT COUNT(*) FROM records r "
             "JOIN files f ON f.file_id = r.file_id "
