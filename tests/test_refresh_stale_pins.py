@@ -8,6 +8,7 @@ from tests.test_refresh_pricelog import _entries, _joined, _series
 from tests.vendor_rate_refresh_helpers import NOW, _catalog, _load, _payload, _run
 
 selection = _load("refresh_selection")
+refresh = _load("refresh_provider_rates")
 MODEL = "moonshotai/kimi-k2.7-code"
 KEY = "kimi-k2-7-code"
 HOST = "Moonshot AI"
@@ -127,3 +128,20 @@ def test_stale_provider_pin_reapplies_the_region_filter():
     assert any("rule-resolved (data region)" in note for note in notices)
     assert selection.selected_endpoint_indices(
         HOST, endpoints, "eu", {"tag": STALE}, None, NOW) == [1]
+
+
+@pytest.mark.parametrize("extra", [
+    {}, {"select": "cheapest"}, {"select": "cheapest", "ignore": ["context_length"]}])
+def test_stale_pin_notice_survives_model_region_refusal(extra):
+    doc = seed_doc(
+        tracked={KEY: {"id": MODEL, "resolve": {HOST: {"tag": STALE, **extra}}}},
+        providers={KEY: {HOST: [{"from": None, **BASE}]}})
+    doc["openrouter"]["data_region"] = "eu"
+    payload = _payload(_endpoint(HOST, BASE, tag="moonshotai/us"))
+    result = refresh.refresh(doc, lambda _model: payload, "2030-01-02T00:00:00Z")
+    assert result.refusals == [f"{KEY}: no endpoint in the data region"]
+    assert not result.moves and result.doc["providers"] == doc["providers"]
+    notice, = [note for note in result.notices if "stale pin" in note]
+    assert f"{KEY} via {HOST}" in notice
+    assert STALE in notice and "listed tags: 'moonshotai/us'" in notice
+    assert "rule-resolved" not in notice
