@@ -119,13 +119,11 @@ def _listing(endpoint: object, where: str, at: datetime,
 
 
 def listed_rows(model: str, payload: object, region: str | None, resolutions: dict,
-                stored: dict[str, dict], at: datetime
+                stored: dict[str, dict], at: datetime, notices: list[str] | None = None
                 ) -> tuple[dict[str, Listing], dict[str, str], list[str],
                            dict[str, str]]:
-    """Each host's one listing for `model`, each refused host's reason, the
-    notices for a human that refuse nothing, and each untracked host's
-    notice (a listed shape the refresh deliberately leaves untracked — its
-    row untouched, the run stays green).
+    """Return listings, refusals, notices and deliberately untracked hosts.
+    A supplied notices list retains findings even if the model refuses.
 
     Endpoints are grouped by host before any is read, so a malformed one
     refuses its own host only. The data-region filter admits endpoints with
@@ -137,7 +135,8 @@ def listed_rows(model: str, payload: object, region: str | None, resolutions: di
     used for price-order guards, the last-resort continuity rule, and the
     default a scheduled host fetched inside a window keeps; `at` is the fetch instant.
     """
-    rows, refused, notices, untracked = {}, {}, [], {}
+    rows, refused, untracked = {}, {}, {}
+    notices = [] if notices is None else notices
     for host, endpoints in _by_host(model, payload).items():
         try:
             chosen = _host_row(

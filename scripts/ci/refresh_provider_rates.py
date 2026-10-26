@@ -19,17 +19,10 @@ mechanical multi-price shapes — lives in refresh_selection.py and
 refresh_selection_rules.py. Tag/region normalisation and whole-week
 schedule coverage live in refresh_prices.py and are imported here.
 These refuse the host or model they concern, which appends nothing:
-- a host with two endpoints in that region at different prices and no
-  resolution for it (a tag, "cheapest" of otherwise identical twins, or
-  their combination with a recorded "ignore" of listing-artifact fields),
-  where no automatic rule fits the shape — a bare namespace endpoint
-  beside its service tiers, one quantization endpoint beside throughput
-  tiers, a base tag beside arbitrary suffix variants of identical
-  quantization and limits, the configured data region, one quantization's
-  price twins, and finally a unique price group matching the stored five
-  token rates (at ten decimals, ignoring search fees and schedules) each
-  resolve themselves and are reported as rule-resolved;
-- a resolution that no longer applies;
+- multiple in-region prices unresolved by a pin or the maintained automatic
+  rules in refresh_selection_rules.py;
+- a malformed resolution or active cheapest twins whose identities differ
+  beyond a recorded ignore, or whose price order ties or flips;
 - a price or override kind this script does not model, or a response
   shape it does not recognise. Web-search rates are sampled separately
   from the token price log and stored as a per-search rate. The one modelled override
@@ -187,12 +180,12 @@ def _same_rates(left: dict, right: dict) -> bool:
 
 
 def _listed_model(context: RefreshContext, model: str, source: dict,
-                  hosts: dict) -> ListedModel:
+                  hosts: dict, notices: list[str]) -> ListedModel:
     payload = _fetch(context.fetch, model, source)
     rows, refused, notices, untracked = listed_rows(
         model, payload, context.region, source.get("resolve", {}),
         {host: effective_rates(_occurrences(history, f"{model} via {host}")[-1])
-         for host, history in hosts.items()}, context.at)
+         for host, history in hosts.items()}, context.at, notices)
     return ListedModel(payload, rows, refused, notices, untracked)
 
 
@@ -207,10 +200,11 @@ def _refresh_model(context: RefreshContext, model: str, source: dict,
                    read: refresh_pricelog.LogRead) -> ModelResult:
     """Refresh one model while keeping refusals local to that model."""
     hosts = context.doc["providers"].setdefault(model, {})
+    notices: list[str] = []
     try:
-        listed = _listed_model(context, model, source, hosts)
+        listed = _listed_model(context, model, source, hosts, notices)
     except RefreshError as exc:
-        return ModelResult([], [], [str(exc)], [], {})
+        return ModelResult([], [], [str(exc)], notices, {})
     deferred_notices: list[str] = []
     logged = refresh_logrun.classify_log_rows(
         model, listed.payload, listed.rows, hosts, read, context.region,
