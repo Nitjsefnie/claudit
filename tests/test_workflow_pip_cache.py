@@ -197,7 +197,10 @@ def test_types_installs_and_caches_the_full_import_toolchain():
     assert commands.index(hashed) < commands.index(requirements), (
         "the hashed sdist installs first, so the build it pins is what "
         "every interpreter gets")
-    assert "--require-hashes" in hashed and "--no-binary=PyYAML" in hashed
+    assert ("--require-hashes" in hashed and "--no-binary=PyYAML" in hashed
+            and "--only-binary=:all:" in hashed)
+    assert "-r requirements-dev.txt" in requirements, (
+        "runtime deps too, so pyright resolves third-party imports")
     assert "python -m pip install --upgrade pip" in install["run"]
     caches = [step for step in steps
               if _action(step) in ("actions/cache/restore", "actions/cache/save")]
