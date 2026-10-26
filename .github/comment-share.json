@@ -84,8 +84,8 @@
     12827
   ],
   ".github/workflows/refresh-pricing.yml": [
-    5306,
-    13256
+    5262,
+    13414
   ],
   ".github/workflows/release.yml": [
     4231,
@@ -684,20 +684,20 @@
     4178
   ],
   "scripts/ci/refresh_provider_rates.py": [
-    6254,
-    14878
+    5855,
+    14538
   ],
   "scripts/ci/refresh_selection.py": [
-    4410,
-    12650
+    4224,
+    12590
   ],
   "scripts/ci/refresh_selection_rules.py": [
-    4668,
-    14441
+    4647,
+    14716
   ],
   "scripts/ci/refresh_vendor_rates.py": [
-    6389,
-    17445
+    5368,
+    16996
   ],
   "scripts/ci/release_gate.py": [
     4608,
