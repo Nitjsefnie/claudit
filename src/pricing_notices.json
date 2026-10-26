@@ -499,8 +499,7 @@
     ],
     "glm-5-3": [
       "Io Net",
-      "OpenInference",
-      "Tenstorrent"
+      "OpenInference"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
