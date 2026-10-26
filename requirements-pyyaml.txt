@@ -1,16 +1,18 @@
 # PyYAML parses .github/workflows/*.yml for the workflow-shape tests
-# (issue #126). It has no cp315 wheel yet (upstream yaml/pyyaml#981 and
-# #994 are open), so on Python 3.15 pip builds the pinned sdist from
-# source; the hash below pins that build. A --hash switches pip's
-# hash-checking on for EVERY requirement in the same invocation (verified
-# on pip 26.2.1: one hashed line turns on --require-hashes for the whole
-# install command), so this file installs as its own pip command after
-# backend/requirements.txt and requirements-test.txt:
+# (issue #126). It ships a cp314 wheel but no cp315 one yet (upstream
+# yaml/pyyaml#981 and #994 are open), so the hashed command below runs
+# FIRST on a fresh environment, before the backend/requirements.txt and
+# requirements-test.txt install, and pip builds the pinned sdist on
+# every interpreter — including 3.14, where --no-binary=PyYAML
+# deliberately overrides the existing cp314 wheel. The sdist hash pins
+# that build. A --hash switches pip's hash-checking on for EVERY
+# requirement in the same invocation (verified on pip 26.2.1: one hashed
+# line turns on --require-hashes for the whole install command), so the
+# file installs as its own pip command:
 #
 #   pip install --require-hashes --only-binary=:all: --no-binary=PyYAML \
 #     -r requirements-pyyaml.txt
 #
-# --only-binary=:all: allows no other package a source build;
-# --no-binary=PyYAML keeps every interpreter on the pinned sdist until a
-# cp315 wheel ships.
+# --only-binary=:all: allows no other package a source build in that
+# invocation.
 pyyaml==6.0.3 --hash=sha256:d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f

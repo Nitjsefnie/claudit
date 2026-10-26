@@ -247,17 +247,17 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/pip
-          key: pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
+          key: pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}
 
       - name: Install dependencies
-        run: "python3 -m pip install -r backend/requirements.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt"
+        run: "python3 -m pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && pip install -r backend/requirements.txt -r requirements-test.txt"
 
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         with:
           path: ~/.cache/pip
-          key: pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt') }}
+          key: pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}
 
       - name: Guard the pinned setup documentation
         run: python3 -m pytest tests/test_docs_setup.py -q
