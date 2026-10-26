@@ -32,8 +32,8 @@
     4853
   ],
   ".github/workflows/audit.yml": [
-    3719,
-    6074
+    3718,
+    6125
   ],
   ".github/workflows/ci-gate.yml": [
     6287,
@@ -628,8 +628,8 @@
     11129
   ],
   "scripts/ci/gate_trigger_set.py": [
-    3796,
-    7236
+    3795,
+    7261
   ],
   "scripts/ci/js_comment_tokens.mjs": [
     1251,
@@ -1008,8 +1008,8 @@
     2755
   ],
   "tests/scan_gate.py": [
-    3117,
-    3388
+    2932,
+    3203
   ],
   "tests/schema_policy.py": [
     63,
