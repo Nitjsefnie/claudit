@@ -5,7 +5,9 @@
 # requirements-test.txt install, and pip builds the pinned sdist on
 # every interpreter — including 3.14, where --no-binary=PyYAML
 # deliberately overrides the existing cp314 wheel. The sdist hash pins
-# that build. A --hash switches pip's hash-checking on for EVERY
+# that build; the build itself runs on a cold wheel cache, and a warm
+# one reuses the wheel pip built from that verified sdist, the hash
+# check running either way. A --hash switches pip's hash-checking on for EVERY
 # requirement in the same invocation (verified on pip 26.2.1: one hashed
 # line turns on --require-hashes for the whole install command), so the
 # file installs as its own pip command:
