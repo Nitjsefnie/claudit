@@ -67,8 +67,8 @@ it is built; it is a different product. Numbers in, numbers out.
 
 ## Getting it running
 
-Requires **Python 3.13+** and a local **PostgreSQL** you can create
-databases in.
+Requires **Python 3.14+** (the deployed service runs CPython 3.15.1) and
+a local **PostgreSQL** you can create databases in.
 
 ```bash
 createdb claudit
@@ -209,7 +209,7 @@ unpacked inside another git checkout — those tests **skip** with a
 reason naming that; run them from a git checkout for full coverage.
 
 The `db` marker splits the suite for CI's portability matrix (Linux,
-macOS and Windows × Python 3.13/3.14 run everything that needs no
+macOS and Windows × Python 3.14/3.15 run everything that needs no
 PostgreSQL). It is applied mechanically, derived from fixture usage —
 a test whose fixture closure reaches a fixture registered in
 `tests/db_marker.py` is marked for you — and the few tests that reach

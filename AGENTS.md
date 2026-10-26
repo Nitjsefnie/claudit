@@ -22,7 +22,8 @@ counts are readable off the command text (SV-BASH-CHURN).
 
 ## Technology stack
 
-- Backend: Python 3.13+, FastAPI, Uvicorn, psycopg3 (pooled), APScheduler
+- Backend: Python 3.14+ (the deployed service runs CPython 3.15.1),
+  FastAPI, Uvicorn, psycopg3 (pooled), APScheduler
   (BackgroundScheduler, hourly ingest), orjson.
 - Frontend: vendored React 18, in-browser Babel, vanilla JS/JSX; no webpack,
   vite or npm install. The root `package.json` is the **CI toolchain only**
