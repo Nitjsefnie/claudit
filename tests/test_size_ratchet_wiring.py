@@ -5,49 +5,9 @@ from __future__ import annotations
 
 import os
 import subprocess
-from pathlib import Path
 
 import pytest
-import yaml
-
-ROOT = Path(__file__).resolve().parents[1]
-WORKFLOWS = ROOT / ".github" / "workflows"
-
-TIGHTEN_CMD = (
-    'python3 "$RUNNER_TEMP/ratchet-repo/scripts/ci/suite_ratchet.py" '
-    '--tighten "$RUNNER_TEMP/suite-data/suite-measurement.json" '
-    '--thresholds '
-    '"$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"')
-
-
-def _load(name):
-    # BaseLoader, not safe_load: YAML 1.1 parses the bare key `on` as
-    # the boolean True, and these tests read decoded scalars.
-    return yaml.load(
-        (WORKFLOWS / name).read_text(encoding="utf-8"),
-        Loader=yaml.BaseLoader) or {}
-
-
-def _job(doc, job_id):
-    return doc["jobs"][job_id]
-
-
-def _steps(job):
-    return job["steps"]
-
-
-def _run_lines(step):
-    """The step's run block as a list of stripped non-empty lines."""
-    return [line.strip() for line in (step.get("run") or "").splitlines()
-            if line.strip()]
-
-
-def _find_step(job, needle):
-    """The one step whose run names `needle`; fails otherwise."""
-    matches = [step for step in _steps(job) if needle in (step.get("run")
-                                                          or "")]
-    assert len(matches) == 1, (needle, [s.get("name") for s in matches])
-    return matches[0]
+from tests.workflow_checks import (find_step as _find_step, run_lines as _run_lines, steps_of as _steps, workflow_by_name as _load, job_of as _job, TIGHTEN_CMD, WORKFLOWS)
 
 
 def test_size_baseline_stages_only_tightened_records():
