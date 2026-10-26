@@ -560,7 +560,7 @@ invariants most likely to trip a patch.
 CI runs on pushes to `master` and on pull requests against it — a pull
 request's commits are checked once, never once per event: `tests` (the
 full suite with a coverage ratchet on Linux + Postgres, plus a portable
-matrix over Linux/macOS/Windows × Python 3.13/3.14 for the no-database
+matrix over Linux/macOS/Windows × Python 3.14/3.15 for the no-database
 subset; the canary job also measures one pytest pass against the
 committed suite-cost budgets), `lint`, `types`, `eslint`, `smoke` (boots the
 real server against the fixture mirror), `codeql`, `audit` (`pip-audit`,
