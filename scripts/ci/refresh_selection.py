@@ -3,7 +3,7 @@
 
 Each host becomes one row via the data-region filter, its explicit
 openrouter.models.<model>.resolve pin, or refresh_selection_rules.py's rules.
-Refuse stale pins, twins differing beyond a recorded ignore, tied/flipped
+Refuse malformed pins, twins differing beyond a recorded ignore, tied/flipped
 price orders, price-keyed resolutions, and multi-price shapes no rule fits.
 A refused host appends nothing; refresh_provider_rates.py owns appending.
 
@@ -15,7 +15,7 @@ A refused host appends nothing; refresh_provider_rates.py owns appending.
     decision that identity differences are listing artifacts of one offering;
     'cheapest' compares the remaining fields.
 
-    Explicit pins take precedence. Otherwise region filtering precedes the
+    Stale tags select unpinned. Region filtering precedes the
     automatic rules: namespace/quantization bases, matching-identity tier
     extensions with arbitrary suffixes, quantization price twins, and finally
     a unique group at the stored token rates. Every automatic choice reports
@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from refresh_prices import (PRICED, RefreshError, Untracked,  # noqa: E402
                             as_listed, covers_week, entry_schedule,
                             in_a_window, is_zero, rates_of, unknown_suffixes)
-from refresh_selection_rules import (bare_namespace, price_groups,  # noqa: E402
+from refresh_selection_rules import (active_pin, bare_namespace, price_groups,  # noqa: E402
                                      price_order, same_quantization,
                                      select_region, stored_price_continuity,
                                      tier_variant_base, unique_quantization)
@@ -140,9 +140,9 @@ def listed_rows(model: str, payload: object, region: str | None, resolutions: di
     rows, refused, notices, untracked = {}, {}, [], {}
     for host, endpoints in _by_host(model, payload).items():
         try:
-            chosen, host_notices = _host_row(
+            chosen = _host_row(
                 f"{model} via {host}", endpoints, region,
-                resolutions.get(host), stored.get(host), at)
+                resolutions.get(host), stored.get(host), at, notices)
         except Untracked as exc:
             untracked[host] = f"{exc}; the host was left untouched"
             continue
@@ -151,7 +151,6 @@ def listed_rows(model: str, payload: object, region: str | None, resolutions: di
             continue
         if chosen is not None:
             rows[host] = chosen
-        notices += host_notices
     if not rows and not refused and not untracked:
         raise RefreshError(f"{model}: no endpoint in the data region")
     return rows, refused, notices, untracked
@@ -170,20 +169,29 @@ def _by_host(model: str, payload: object) -> dict[str, list[tuple[int, object]]]
 def _host_row(where: str, endpoints: list[tuple[int, object]],
               region: str | None,
               pin: object, stored: dict | None,
-              at: datetime) -> tuple[Listing | None, list[str]]:
-    """One host's listing, and its notices; RefreshError refuses the host."""
+              at: datetime, notices: list[str]) -> Listing | None:
+    """One host's listing; notices survive a subsequent price refusal."""
     listed = [_listing(e, f"{where} (endpoint {i})", at, stored)
               for i, e in endpoints]
+    pin, stale = active_pin(where, _override(where, pin) or None, [e.tag for e in listed])
+    notice_index = len(notices)
+    if stale:
+        notices.append(stale)
     chosen, notice = _host_price(where, listed, region, pin, stored)
-    notices = [f"{where}: tag {tag!r} names neither a known region nor a quantization"
-               for tag in sorted({e.tag for e in listed if unknown_suffixes(e.tag)})]
+    if stale and chosen is not None:
+        notices[notice_index] += ("; rule-resolved past a stale pin; "
+                                  f"{notice or 'one price remained; no rule was needed'}")
+    elif notice:
+        notices.append(notice)
+    notices.extend(f"{where}: tag {tag!r} names neither a known region nor a quantization"
+                   for tag in sorted({e.tag for e in listed if unknown_suffixes(e.tag)}))
     if (chosen is not None and stored is None and chosen.schedule
             and in_a_window(chosen.schedule, at)):
         notices.append(
             f"{where}: first seen inside one of its windows, whose schedule covers the "
             "whole week: no record is ever priced by the entry default, so the default "
             "starts as the listed top-level price")
-    return chosen, notices + ([notice] if notice else [])
+    return chosen
 
 
 def _endpoints_of(model: str, payload: object) -> list:
@@ -201,10 +209,11 @@ def _host_price(where: str, listed: list[Listing], region: str | None, pin: obje
                 stored: dict | None) -> tuple[Listing | None, str | None]:
     """A host's one listing (None when it lists nothing the account can
     use), and the notice a rule-resolved choice or a twin switch earns."""
-    override = _override(where, pin)
+    pin, _ = active_pin(where, _override(where, pin) or None, [e.tag for e in listed])
+    override = pin or {}
     chosen = notice = None
     if override.get("tag") is not None:
-        listed = _pinned_listings(where, listed, override["tag"])
+        listed = [e for e in listed if e.tag == override["tag"]]
     else:
         selected = select_region(where, listed, region, pin)
         listed, chosen, notice = selected.listings, selected.chosen, selected.notice
@@ -219,8 +228,9 @@ def selected_endpoint_indices(host: str, endpoints: list[dict], region: str | No
     chosen, _ = _host_price(host, listed, region, pin, stored)
     if chosen is None:
         return []
-    override = _override(host, pin)
-    eligible = (_pinned_listings(host, listed, override["tag"])
+    pin, _ = active_pin(host, _override(host, pin) or None, [e.tag for e in listed])
+    override = pin or {}
+    eligible = ([e for e in listed if e.tag == override["tag"]]
                 if override.get("tag") is not None
                 else select_region(host, listed, region, pin).listings)
     return [i for i, endpoint in enumerate(listed)
@@ -273,16 +283,6 @@ def _automatic_price_rule(
         if resolved is not None:
             return resolved
     return None
-
-
-def _pinned_listings(where: str, listed: list[Listing], tag: str) -> list[Listing]:
-    """The endpoints under an explicitly pinned tag, or the refusal naming
-    the tags the host does list."""
-    chosen = [endpoint for endpoint in listed if endpoint.tag == tag]
-    if not chosen:
-        tags = ", ".join(sorted({endpoint.tag for endpoint in listed}))
-        raise RefreshError(f"{where}: pinned tag {tag!r} is not listed ({tags})")
-    return chosen
 
 
 def _override(where: str, pin: object) -> dict:

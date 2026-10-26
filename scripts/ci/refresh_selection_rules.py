@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Resolution-free endpoint selection for one host's listed prices.
 
-Explicit resolve entries keep precedence. Otherwise multiple prices resolve
+Active resolve entries keep precedence. Otherwise multiple prices resolve
 by offering shape or continuity with stored token rates:
 
     - a bare namespace endpoint beside its service tiers takes the bare one;
@@ -21,10 +21,8 @@ match, including first-seen multi-price hosts with no structural fit.
 Identity mismatches disqualify tier-base; twin ties/flips refuse before
 continuity. Every automatic choice reports its rule as rule-resolved.
 
-An unrecognised region spelling has one suffix naming neither a known
-region, quantization nor tier (`azure/swedencentral`). Only a namespace
-with a global endpoint can treat it as regional: unknown offerings must
-not silently disappear.
+An unrecognised region spelling has one unknown suffix. Only a namespace
+with a global endpoint treats it as regional; unknown offerings remain.
 """
 from __future__ import annotations
 
@@ -50,6 +48,17 @@ class RegionSelection:
     listings: list[Listing]
     chosen: Listing | None
     notice: str | None
+
+
+def active_pin(where: str, pin: dict | None, tags: list[str]
+               ) -> tuple[dict | None, str | None]:
+    """Set aside a validated pin whose tag vanished, with a shared notice."""
+    tag = pin.get("tag") if pin else None
+    if tag is None or tag in tags:
+        return pin, None
+    listed = ", ".join(repr(tag) for tag in sorted(set(tags)))
+    return None, (f"{where}: stale pin tag {tag!r} is not listed; listed tags: "
+                  f"{listed}; selecting as unpinned")
 
 
 def namespace_of(tag: str) -> str:

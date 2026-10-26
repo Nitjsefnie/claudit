@@ -334,11 +334,17 @@ def test_a_tag_override_takes_its_endpoint(tmp_path, capsys, setup, tag):
     assert (entry["from"], entry["read"]) == (STAMP, 0.05)
 
 
-def test_a_tag_override_naming_no_listed_tag_is_refused(tmp_path, capsys):
+def test_a_stale_tag_over_ambiguous_prices_refuses_for_ambiguity(tmp_path, capsys):
     run = Run(tmp_path)
     _two_global_novitas(run)
     run.edit(_pin_novita("novita/int4"))
-    _refused(run, capsys, "Novita", "novita/int4", "novita/fp8")
+    before = run.snapshot()
+    rc, out, err = run(capsys)
+    assert rc != 0 and "2 different prices; resolve it" in err
+    assert "novita/fp4" in err and "novita/fp8" in err
+    assert "novita/int4" not in err
+    assert "stale pin tag 'novita/int4'" in out
+    assert run.snapshot() == before and not run.commit_msg.exists()
 
 
 def _pin_baseten(run: Run) -> None:

@@ -358,7 +358,7 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
     (newest rates, normalised below) equals exactly one endpoint's
     listed price, no two series matching one endpoint; no endpoint or
     series carries a schedule (`pricing.overrides` or a series
-    `schedule`); the host has no `cheapest` resolution; and the
+    `schedule`); the host has no active `cheapest` resolution; and the
     host's full endpoint selection — an explicit pin or the automatic
     rules of `refresh_selection_rules` — selects exactly ONE endpoint
     (an equal-price group with interchangeable tags remains ambiguous). The
@@ -477,9 +477,8 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
   - a host with multiple in-region prices that remain ambiguous after
     any explicit resolution, unpinned automatic rule, or eligible
     same-quantization rule within a tag-only pin;
-  - a stale resolution: a pinned tag not listed, or `cheapest` twins
-    that differ beyond price, tie in price order, or have flipped
-    order;
+  - `cheapest` twins that differ beyond a recorded ignore, tie in price
+    order, or have flipped order;
   - a resolution keyed on anything else, a price included;
   - an unrecognised response shape;
   - a tracked model still in the catalog with no endpoints, or none in
@@ -499,8 +498,16 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
   untouched-with-notice behaviour. The refreshed document still passes
   final validation before writing.
 
+- A well-formed resolution whose tag is no longer listed is set aside in
+  full, including `select` and `ignore`. A NOTICE names the model/host,
+  stale tag and listed tags. Selection then runs exactly as unpinned:
+  region filter, then automatic rules in their maintained order. A
+  successful choice reports rule-resolved past a stale pin, carrying the
+  rule's own notice, or states that one price remained without a rule.
+  Malformed pins still refuse; residual multi-price ambiguity refuses for
+  that ambiguity, rather than the stale tag. No stored pin is rewritten.
 - Automatic rules resolve the mechanical multi-price shapes with no
-  human decision, beneath an explicit resolution (which keeps precedence,
+  human decision, beneath an active explicit resolution (which keeps precedence,
   refusals included): a bare namespace endpoint beside its service tiers
   takes the bare one; the one quantization endpoint beside throughput
   tiers takes that one; the configured data region takes its own endpoint
@@ -538,9 +545,9 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
   unrelated tags at different prices, or a tracked host with no structural
   fit and no stored-price match. Twin ties and flips refuse before the
   continuity rule can run. The rules live in
-  `scripts/ci/refresh_selection_rules.py`, and none of them extends to the
-  price log's own endpoint selection: a host the log would otherwise back
-  needs its base pinned to stay log-backed.
+  `scripts/ci/refresh_selection_rules.py`. The price-log join uses the same
+  endpoint selection, including the stale-tag fallback: exactly one selected
+  endpoint can stay log-backed when the other join requirements hold.
 - The fix is a human decision recorded in
   `openrouter.models.<model>.resolve.<host>`, with a `why`:
   - `{"tag": ...}` narrows to that exact tag, whatever its region. If it
@@ -570,7 +577,7 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
     the tag, the price order and every flip and tie refusal stay.
     Without the record the artifact refuses like any other difference.
   - A log-backed host resolves through the same shapes: a pin carrying
-    `select`: `cheapest` — alone, with a tag, or with a recorded
+    active `select`: `cheapest` — alone, with a tag, or with a recorded
     ignore — has no stable endpoint identity and stays sampled; a bare
     tag pin selects by it, and must name exactly one endpoint.
 
@@ -634,8 +641,13 @@ pass moved.
 - **The vendor endpoint.** The BARE tag (namespace, no suffix) is the
   first-party price; the vendor's other tags are its own service tiers
   (fast, flex) or quantizations. A `{"tag": ..., "why": ...}` pin recorded
-  in `openrouter.vendor.resolve.<derived key>` narrows first and refuses
-  when its tag is not listed. With no pin or bare tag, the provider path's
+  in `openrouter.vendor.resolve.<derived key>` narrows first when listed.
+  A well-formed pin whose tag vanished is set aside with the same NOTICE
+  naming the model, stale tag and listed tags as the provider table. The
+  bare-tag path, then unique quantization, then single-price selection run
+  as unpinned; success reports rule-resolved past a stale pin with the rule's
+  notice, or states that one price remained without a rule. With no active
+  pin or bare tag, the provider path's
   unique-quantization rule takes the one quantization endpoint beside only
   service tiers and reports the rule and selected endpoint. Both paths
   call the SAME rule in `refresh_selection_rules.py`: one rule with two
@@ -683,10 +695,10 @@ pass moved.
   This includes scheduled meter bands, unknown override kinds or nonzero pricing
   keys, invalid web-search rates, multiple bands, bands that do not restate input
   and output, invalid thresholds, cache components that one input factor
-  cannot represent, and bands mixed with UTC fields. The two
-  notices remain a catalog the pass cannot read and a model with no
-  first-party endpoint. Multi-price ambiguity without a pin, a stale or
-  malformed pin, and broken or unrecognised fetches also refuse.
+  cannot represent, and bands mixed with UTC fields. Other notices include
+  a catalog the pass cannot read and a model with no
+  first-party endpoint. Malformed pins, residual multi-price ambiguity
+  after selection, and broken or unrecognised endpoint fetches still refuse.
 - **A web-search price is a provider rate.** A first-party listing's
   `web_search` value participates in endpoint selection and is validated
   as USD per search. The vendor pass keeps the selected `vendor_host` in

@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 """Track the first-party vendor table from OpenRouter's catalog (SV-VENDOR-RATES).
 
-Runs inside refresh_provider_rates.main(), in the same hourly run: one
-report, one PRICING_VERSION bump when anything moved, one commit. The
-tracked set is configured, not enumerated: `openrouter.vendor.prefixes`
-lists the vendor namespaces (the same list the loaders validate and the
-bare-id path resolves through), and catalog ids under a listed prefix join
-`openrouter.models` only when `architecture.output_modalities` is exactly
-`["text"]`. Entries without that declaration, and entries with any other
-output modality, are dropped silently before selection and auto-add.
+Runs inside refresh_provider_rates.main(): one report, bump and commit.
+`openrouter.vendor.prefixes` configures namespaces, shared with loaders and
+bare-id resolution. Only catalog entries declaring exactly `["text"]` in
+`architecture.output_modalities` reach selection and auto-add.
 
 Namespace rekeys follow SV-VENDOR-RATES.
 
@@ -24,10 +20,7 @@ per-model factors, and model-wide context_length when vendor endpoints agree.
 
 The vendor's own endpoint is selected refusing rather than guessing:
 
-- the BARE tag (the namespace with no suffix) is preferred: Anthropic lists
-  ``anthropic`` beside ``anthropic/fast`` (a throughput tier at double the
-  price), OpenAI lists ``openai`` beside ``openai/fast`` and ``openai/flex``
-  (service tiers) — the base tag is the first-party price;
+- the BARE namespace tag is preferred over service tiers and quantizations;
 - no pin or bare tag: the provider path's unique-quantization rule takes
   the one quantization endpoint beside only service tiers, and reports it;
 - otherwise every vendor-prefix endpoint must agree on one price —
@@ -39,13 +32,10 @@ The vendor's own endpoint is selected refusing rather than guessing:
   only through third-party hosts; there is no first-party selection to
   make, and any tracked entry's own state stands untouched.
 
-An unmodelled listed shape is a refusal: no entry is created, no existing
-entry is touched, and no membership folds. The vendor pass refuses
-first-party data the meter cannot represent because an operator can act on
-that listing and it would otherwise stay unpriced every hour. A catalog
-the pass cannot read, a model with no first-party endpoint, and a router
-with no price of its own are notices. Ambiguous prices without a pin, stale or malformed
-pins, and broken or unrecognised fetches also refuse:
+Unmodelled first-party data refuses its model, leaving it untouched.
+Unreadable catalogs, missing first-party endpoints and routers with no
+price are notices. Stale tags report and select unpinned; malformed pins,
+ambiguous prices and broken endpoint fetches refuse:
 
 - a pricing key outside PRICED at a nonzero price, or a web_search value
   that is not a finite non-negative USD-per-search decimal string;
@@ -57,15 +47,11 @@ pins, and broken or unrecognised fetches also refuse:
   threshold/factors into the matching long_context_meters group, and
   contributes no rates.
 
-The grouped long-context field is listing-governed for vendor-tracked keys:
-a banded model's key is added to its threshold group with any non-global
-factors (a member requires its tracked entry, which the same run adds); an
-unbanded vendor-tracked key is removed from its group, and every non-vendor
-key stands untouched. A threshold move changes groups, creating the new one
-and deleting the old one if it becomes empty. These changes move the version:
-the reprice pass re-derives records_price.long_context from membership, and a meter
-entry moves the rate fingerprint the reprice consults — so a quiet run (no
-rekey, add, or fold) still writes nothing.
+Vendor-tracked meter membership, thresholds and factors follow the listing;
+non-vendor keys stand untouched. Bands add members with tracked entries,
+absent bands remove them, and threshold moves create/delete groups as needed.
+These moves bump the version: reprice re-derives records_price.long_context,
+and meter entries move its rate fingerprint. Quiet runs write nothing.
 
     python3 scripts/ci/refresh_vendor_rates.py [--dry-run]
 """
@@ -89,7 +75,7 @@ from refresh_prices import (MIN_PROMPT_TOKENS as _MIN_PROMPT,  # noqa: E402
                             entry_schedule, is_zero, metered_band, rates_of)
 from refresh_report import vendor_report  # noqa: E402
 from refresh_selection import Listing  # noqa: E402
-from refresh_selection_rules import price_groups, unique_quantization  # noqa: E402
+from refresh_selection_rules import active_pin, price_groups, unique_quantization  # noqa: E402
 from refresh_vendor_keys import rekey, validate  # noqa: E402
 import refresh_pricelog  # noqa: E402
 from backend import pricing  # noqa: E402
@@ -239,41 +225,33 @@ def _choose(model_id: str, endpoints: list, pin: object, notices: list[str]
             and e["tag"].partition("/")[0] == ns]
     if not mine:
         return None
+    stale = None
+    fallback = "one price remained; no rule was needed"
     if pin is not None:
         if (not isinstance(pin, dict) or not isinstance(pin.get("tag"), str)
                 or not set(pin) <= {"tag", "why"} or "tag" not in pin):
             raise RefreshError(f"{model_id}: the resolve pin is a dict of a "
                                f"'tag' string and an optional 'why': {pin!r}")
+        pin, stale = active_pin(model_id, pin, [e["tag"] for e in mine])
+    notice_index = len(notices)
+    if stale:
+        notices.append(stale)
+    if pin is not None:
         mine = [e for e in mine if e["tag"] == pin["tag"]]
-        if not mine:
-            raise RefreshError(f"{model_id}: the pinned tag is not listed; the "
-                               "pin is stale")
     else:
-        # The bare tag is the list price; the vendor's other tags are
-        # service tiers (fast, flex) or quantizations of their own price.
         bare = [e for e in mine if e["tag"] == ns]
+        fallback = (f"the bare-tag rule took the bare vendor endpoint {ns!r}"
+                    if bare and len(bare) < len(mine) else fallback)
         mine = bare or mine
     listings = [_listing(model_id, e) for e in mine]
     if pin is None and not any(e["tag"] == ns for e in mine):
-        # Vendor validation stands above. If provider schedule normalization
-        # refuses any endpoint, skip the rule for this model and use the
-        # original vendor fallback below.
-        try:
-            listed = [Listing(
-                e["tag"], {key: e.get(key) for key in (
-                    "tag", "quantization", "context_length",
-                    "max_completion_tokens", "max_prompt_tokens")},
-                listing[0], entry_schedule(e["pricing"], f"{model_id} via {e['tag']!r}"),
-                Decimal(str(e["pricing"].get("discount", 0))))
-                for e, listing in zip(mine, listings)]
-        except RefreshError:
-            pass
-        else:
-            resolved = unique_quantization(model_id, price_groups(listed))
-            if resolved is not None:
-                chosen, notice = resolved
-                notices.append(notice)
-                return listings[listed.index(chosen)]
+        resolved = _quantization_choice(model_id, mine, listings)
+        if resolved is not None:
+            if stale:
+                notices[notice_index] += f"; rule-resolved past a stale pin; {resolved[1]}"
+            else:
+                notices.append(resolved[1])
+            return listings[resolved[0]]
     distinct = {json.dumps(listing, sort_keys=True) for listing in listings}
     if len(distinct) > 1:
         tags = ", ".join(sorted({e["tag"] for e in mine}))
@@ -281,7 +259,27 @@ def _choose(model_id: str, endpoints: list, pin: object, notices: list[str]
             f"{model_id}: the vendor lists {len(mine)} endpoints ({tags}) at "
             f"{len(distinct)} prices; record a pin in openrouter.vendor.resolve"
             f".{derive_key(model_id)}")
+    if stale:
+        notices[notice_index] += ("; rule-resolved past a stale pin; "
+                                  f"selected {mine[0]['tag']!r}; {fallback}")
     return listings[0]
+
+
+def _quantization_choice(model_id: str, mine: list, listings: list
+                         ) -> tuple[int, str] | None:
+    """Adapt vendor listings to the shared rule; schedule refusals fall back."""
+    try:
+        listed = [Listing(
+            e["tag"], {key: e.get(key) for key in (
+                "tag", "quantization", "context_length",
+                "max_completion_tokens", "max_prompt_tokens")},
+            listing[0], entry_schedule(e["pricing"], f"{model_id} via {e['tag']!r}"),
+            Decimal(str(e["pricing"].get("discount", 0))))
+            for e, listing in zip(mine, listings)]
+    except RefreshError:
+        return None
+    resolved = unique_quantization(model_id, price_groups(listed))
+    return (listed.index(resolved[0]), resolved[1]) if resolved is not None else None
 
 
 def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
