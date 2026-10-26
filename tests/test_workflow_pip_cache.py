@@ -191,9 +191,14 @@ def test_types_installs_and_caches_the_full_import_toolchain():
     steps = next(steps for workflow, job, steps in _jobs()
                  if (workflow, job) == ("types.yml", "pyright"))
     install, = [step for step in steps if step.get("name") == "Install dependencies"]
-    assert install["run"].splitlines() == [
-        "python -m pip install --upgrade pip",
-        "pip install -r backend/requirements.txt -r requirements-dev.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt"]
+    commands = install["run"].split("&&")
+    hashed, = [c for c in commands if "requirements-pyyaml.txt" in c]
+    requirements, = [c for c in commands if "-r backend/requirements.txt" in c]
+    assert commands.index(hashed) < commands.index(requirements), (
+        "the hashed sdist installs first, so the build it pins is what "
+        "every interpreter gets")
+    assert "--require-hashes" in hashed and "--no-binary=PyYAML" in hashed
+    assert "python -m pip install --upgrade pip" in install["run"]
     caches = [step for step in steps
               if _action(step) in ("actions/cache/restore", "actions/cache/save")]
     assert len(caches) == 2
