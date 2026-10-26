@@ -5,8 +5,8 @@ PRICING_VERSION bump, the suppression purge, or the project_aliases
 fold — must gate exactly like a run that inserted, reparsed or deleted
 a file.
 
-Split from test_ingest.py's planned additions: that module sits at its
-committed size-gate entry, so new tests live here and borrow
+Split from test_ingest.py's planned additions: the size gate holds
+every tests/ module to its ceiling, so new tests live here and borrow
 its fixtures, the way test_ingest_fetch.py already does.
 """
 from __future__ import annotations
