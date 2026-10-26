@@ -17,7 +17,10 @@ never hide a violation. The load-bearing claims, each pinned by a test:
 - every ``ast.Constant`` string value in a module's AST is visible in
   ``module_vocab``'s consts — the compiler folds implicit concats and
   resolves escapes (and folds constant containers), so a value no
-  plain-text grep can see is still there. Pinned over the real tree by
+  plain-text grep can see is still there; 3.15 additionally loads
+  ``''`` and ``None`` with LOAD_COMMON_CONSTANT (a built-in table, not
+  ``co_consts``), so ``''`` can sit out ``co_consts`` entirely and the
+  vocab admits it unconditionally. Pinned over the real tree by
   test_scan_gate's property test, so an interpreter change that
   alters folding fails loudly instead of silently narrowing the gate;
 - every identifier a scanner matches (fixture decorators, server-call

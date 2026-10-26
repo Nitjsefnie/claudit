@@ -181,7 +181,7 @@ def test_fold_operands_exempts_percent_format_literals(
 def test_tree_property_rejects_intact_operands_in_dead_code(
         tmp_path: Path, statement: str) -> None:
     source = f"if False:\n    {statement}\n"
-    assert not scan_gate.module_vocab(source)[0]
+    assert scan_gate.module_vocab(source)[0] == {''}
     (tmp_path / "dead_format.py").write_text(source, encoding="utf-8")
     with pytest.raises(AssertionError, match="gate misses the string constant"):
         _assert_gate_sees_string_constants(tmp_path)
@@ -191,7 +191,7 @@ def test_tree_property_accepts_an_intact_format_in_live_code(
         tmp_path: Path) -> None:
     source = "x = '%d!' % (name,)\n"
     probe = compile(source, "<expected>", "exec")
-    assert scan_gate.module_vocab(source)[0] == _constant_strings(probe)
+    assert scan_gate.module_vocab(source)[0] == {''} | _constant_strings(probe)
     (tmp_path / "live_format.py").write_text(source, encoding="utf-8")
     _assert_gate_sees_string_constants(tmp_path)
 
@@ -199,7 +199,7 @@ def test_tree_property_accepts_an_intact_format_in_live_code(
 def test_tree_property_accepts_a_rewritten_format(tmp_path: Path) -> None:
     source = "x = '%s-%s' % (a, b)\n"
     probe = compile(source, "<expected>", "exec")
-    assert scan_gate.module_vocab(source)[0] == _constant_strings(probe)
+    assert scan_gate.module_vocab(source)[0] == {''} | _constant_strings(probe)
     (tmp_path / "rewritten_format.py").write_text(source, encoding="utf-8")
     _assert_gate_sees_string_constants(tmp_path)
 
@@ -212,7 +212,7 @@ def test_fold_operands_keeps_intact_constant_mod_operands(
     expected = operands if operands.isdisjoint(_constant_strings(probe)) else set()
     exempted = _fold_operands(ast.walk(ast.parse(source)))
     assert {node.value for node in exempted} == expected
-    assert scan_gate.module_vocab(source)[0] == _constant_strings(
+    assert scan_gate.module_vocab(source)[0] == {''} | _constant_strings(
         compile(source, "<expected>", "exec"))
     (tmp_path / "constant_mod.py").write_text(source, encoding="utf-8")
     _assert_gate_sees_string_constants(tmp_path)
@@ -234,7 +234,8 @@ def test_tree_property_rejects_a_missed_call_argument(tmp_path: Path) -> None:
 def test_tree_property_accepts_operands_of_a_folded_chain(
         tmp_path: Path, source: str) -> None:
     consts, _ = scan_gate.module_vocab(source)
-    assert consts == _constant_strings(compile(source, "<expected>", "exec"))
+    assert consts == {''} | _constant_strings(
+        compile(source, "<expected>", "exec"))
     (tmp_path / "folded.py").write_text(source, encoding="utf-8")
     _assert_gate_sees_string_constants(tmp_path)
 

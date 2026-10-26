@@ -17,7 +17,9 @@ _indexes: dict[str, _Index] = {}
 
 
 def _build(code: types.CodeType) -> _Index:
-    consts: set[str] = set()
+    # 3.15 loads '' (and None) via LOAD_COMMON_CONSTANT, so '' can sit
+    # out co_consts; admitting it here is the fail-closed direction.
+    consts: set[str] = {''}
     used: set[str] = set()
     defined: set[str] = set()
     stack: list[object] = [code]
