@@ -189,6 +189,9 @@ def test_check_ignores_a_share_over_its_floor(tmp_path, capsys, committed):
     """
     thresholds_path = tmp_path / "ci-thresholds.json"
     if committed:
+        doc = thresholds.load(thresholds.THRESHOLDS)
+        if doc.get("reparse") is None:
+            pytest.skip("the committed document has no reparse budget")
         thresholds_path = thresholds.THRESHOLDS
     else:
         thresholds.write(thresholds_path, _document(_budgets()))
