@@ -38,13 +38,12 @@ name: refresh-pricing
 # dropped with a notice; the next hourly run re-fetches, re-tests and
 # lands it.
 #
-# Only endpoints in the account's data region count; a region-tagged one
-# (`host/us`) is not one it is billed by. These designed signals refuse the
-# host or model concerned and leave its rows untouched:
-#   - a host with two in-region endpoints at different prices and no
-#     resolution for it in the JSON;
-#   - a resolution that no longer applies (a pinned tag not listed, twins
-#     no longer identical, their price order tied or flipped);
+# Only endpoints in the account's data region count. A well-formed pin
+# naming a vanished tag emits a notice and selects as unpinned. These
+# signals refuse the affected host/model, leaving its rows untouched:
+#   - multiple in-region prices unresolved by a pin or automatic rules;
+#   - active `cheapest` twins that differ beyond a recorded ignore, tie in
+#     price order or flip;
 #   - a price or override kind the script does not model (a per-request
 #     fee), or a response shape it does not recognise; the long-context
 #     band is modelled: at the meter's shape it is tolerated (no window,
