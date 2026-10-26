@@ -31,7 +31,6 @@ def test_size_baseline_stages_only_tightened_records():
     assert upload["if"] == "steps.size_stage.outputs.changed == 'true'"
 
 
-@pytest.mark.skipif(os.name == 'nt', reason='the step runs under POSIX Bash')
 def test_every_cross_run_download_names_the_triggering_run():
     # Without run-id a download step reads THIS workflow's run, never the
     # triggering run's: every workflow_run download takes the event's id.
@@ -74,6 +73,7 @@ def test_records_only_runs_select_their_measured_base_before_fetching():
     assert ratchet < suite < records < size < fetch
 
 
+@pytest.mark.skipif(os.name == 'nt', reason='the drive runs POSIX Bash')
 def test_size_empty_base_refused_in_chain_and_landing(tmp_path):
     # Drive the real push step: the chain check covers a size-only run
     # and the landing guard a multi-artifact run whose earlier arm
