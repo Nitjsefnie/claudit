@@ -479,7 +479,7 @@ jobs:
             pip-${{ runner.os }}-${{ matrix.python-version }}-
 
       - name: Install dependencies
-        # One command: the default pwsh shell on windows-latest propagates only the last line's exit code.
+        # One line: the default pwsh shell on windows-latest propagates only the last line's exit code.
         run: "python -m pip install --upgrade pip -r backend/requirements.txt -r requirements-test.txt && pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt"
 
       # Saved here, not in a post-job step, so the cache is written only from a master push.
