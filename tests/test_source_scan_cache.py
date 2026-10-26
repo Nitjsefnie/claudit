@@ -53,7 +53,7 @@ def _reference_code(text: str) -> types.CodeType:
 def _reference_module_vocab(
         source: str) -> tuple[frozenset[str], frozenset[str]]:
     """Independent reference: scan_gate's original vocabulary algorithm."""
-    consts: set[str] = set()
+    consts: set[str] = {''}  # the always-seen empty string, as _build admits
     names: set[str] = set()
     stack = [compile(source, "<scan_gate>", "exec")]
     while stack:
@@ -84,7 +84,7 @@ def _reference_container_strings(value: Any) -> set[str]:
 
 def _reference_module_def_vocab(source: str) -> tuple[frozenset[str], bool]:
     """Independent reference: scan_gate's original def-site algorithm."""
-    consts: set[str] = set()
+    consts: set[str] = {''}  # the always-seen empty string, as _build admits
     names: set[str] = set()
     stack = [compile(source, "<scan_gate>", "exec")]
     while stack:
