@@ -525,6 +525,9 @@
     "minimax-m3": [
       "Ambient",
       "SambaNova"
+    ],
+    "minimax-m3-1-flash": [
+      "Relace"
     ]
   }
 }
