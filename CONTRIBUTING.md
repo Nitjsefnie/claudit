@@ -261,7 +261,12 @@ and pylint will report a clean run over every file except the one you
 just wrote.
 
 `pip install -r requirements-dev.txt -r requirements-test.txt` gets the
-pinned toolchain. Coverage is a self-raising ratchet, not a target, and
+pinned toolchain. Run the hashed
+`pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r
+requirements-pyyaml.txt` FIRST: `uvicorn[standard]` pulls PyYAML
+transitively, so a hashed command that runs after it only re-checks an
+already-satisfied requirement, and on 3.15 this is the step that builds
+the pinned sdist. Coverage is a self-raising ratchet, not a target, and
 it covers both shipped source families. The python measurement is the
 full pytest run (`--cov=backend`); the javascript measurement runs the
 node-executing tests under `NODE_V8_COVERAGE` and folds the result with
@@ -398,7 +403,8 @@ cross-run cache a later master run installs from.
 `tests/test_workflow_pip_cache.py` pins the shape.
 
 If you are changing dependencies, run `pip-audit -r backend/requirements.txt
--r requirements-dev.txt -r requirements-test.txt` too.
+-r requirements-dev.txt -r requirements-test.txt
+-r requirements-pyyaml.txt` too.
 
 The suite creates and drops its own `claudit_test_run_*` databases, so it
 needs a Postgres your user can `createdb` on. For a private cluster, run
