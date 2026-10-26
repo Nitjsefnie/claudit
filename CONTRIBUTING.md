@@ -266,7 +266,9 @@ pinned toolchain. Run the hashed
 requirements-pyyaml.txt` FIRST: `uvicorn[standard]` pulls PyYAML
 transitively, so a hashed command that runs after it only re-checks an
 already-satisfied requirement, and on 3.15 this is the step that builds
-the pinned sdist. Coverage is a self-raising ratchet, not a target, and
+the pinned sdist. The build itself runs on a cold wheel cache; a warm
+one reuses the wheel pip built from the verified sdist, and the hash
+check runs either way. Coverage is a self-raising ratchet, not a target, and
 it covers both shipped source families. The python measurement is the
 full pytest run (`--cov=backend`); the javascript measurement runs the
 node-executing tests under `NODE_V8_COVERAGE` and folds the result with
