@@ -15,5 +15,62 @@
     "backend/ingest_fetch.py": 5,
     "backend/ingest_reprice.py": 1
   },
-  "schema_version": 1
+  "reparse": {
+    "parse_body": {
+      "bytecodes": {
+        "floor": 34.9,
+        "measured": 33.4
+      },
+      "share": {
+        "floor": 88.4,
+        "measured": 86.9
+      }
+    },
+    "residual": {
+      "bytecodes": {
+        "floor": 3.5,
+        "measured": 2.0
+      },
+      "share": {
+        "floor": 6.8,
+        "measured": 5.3
+      }
+    },
+    "sidecar": {
+      "bytecodes": {
+        "floor": 1.8,
+        "measured": 0.3
+      },
+      "share": {
+        "floor": 2.2,
+        "measured": 0.7
+      }
+    },
+    "sniff": {
+      "bytecodes": {
+        "floor": 3.0,
+        "measured": 1.5
+      },
+      "share": {
+        "floor": 8.6,
+        "measured": 7.1
+      }
+    }
+  },
+  "schema_version": 1,
+  "suite_cost": {
+    "collection": {
+      "floor": 26.5,
+      "measured": 25.0
+    },
+    "residual": {
+      "floor": 6.1,
+      "measured": 4.6
+    },
+    "run": {
+      "floor": 90.0,
+      "measured": 88.5
+    },
+    "tests_tree_lines": 100665
+  }
 }
