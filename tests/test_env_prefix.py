@@ -77,7 +77,9 @@ def _reflective_os_origin(node: ast.Call, origins: dict[str, set[str]]) -> set[s
     return {"unresolved_os_attribute"}
 
 
-def _value_origins(node: ast.AST, origins: dict[str, set[str]]) -> set[str]:
+def _value_origins(node: ast.AST | None, origins: dict[str, set[str]]) -> set[str]:
+    # ast.AST | None: 3.15 types DictComp.value as optional; None falls
+    # through every branch to the empty set, like any unrecognized node.
     result: set[str] = set()
     if isinstance(node, ast.Name):
         result = origins.get(node.id, set()).copy()
