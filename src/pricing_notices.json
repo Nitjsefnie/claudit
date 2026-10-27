@@ -107,6 +107,7 @@
     "gpt-6-1-sol-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-1-sol-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex', 'openai/ultrafast'",
     "gpt-6-1-terra via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
+    "gpt-6-1-terra-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-6-astra via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/us'",
     "gpt-6-astra via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex', 'openai/ultrafast'",
     "gpt-6-astra-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/us'",
@@ -214,8 +215,8 @@
     "tag 'mistral/zdr' names neither a known region nor a quantization: glm-5-2 via Mistral, glm-5-3 via Mistral",
     "tag 'moonshotai/highspeed' names neither a known region nor a quantization: kimi-k2-7-code via Moonshot AI, kimi-k3-1-pro via Moonshot AI",
     "tag 'openai/default' names neither a known region nor a quantization: gpt-5 via OpenAI",
-    "tag 'openai/fast' names neither a known region nor a quantization: gpt-5-1 via OpenAI, gpt-5-2 via OpenAI, gpt-5-3-codex via OpenAI, gpt-5-4 via OpenAI, gpt-5-4-mini via OpenAI, gpt-5-5 via OpenAI, gpt-5-6-luna via OpenAI, gpt-5-6-luna-pro via OpenAI, gpt-5-6-sol via OpenAI, gpt-5-6-sol-pro via OpenAI, gpt-5-6-terra via OpenAI, gpt-5-6-terra-pro via OpenAI, gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-1-terra via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI, gpt-6-luna via OpenAI, gpt-6-luna-pro via OpenAI, gpt-6-sol via OpenAI, gpt-6-sol-pro via OpenAI",
-    "tag 'openai/flex' names neither a known region nor a quantization: gpt-5-1 via OpenAI, gpt-5-2 via OpenAI, gpt-5-4 via OpenAI, gpt-5-4-mini via OpenAI, gpt-5-4-nano via OpenAI, gpt-5-4-pro via OpenAI, gpt-5-5 via OpenAI, gpt-5-5-pro via OpenAI, gpt-5-6-luna via OpenAI, gpt-5-6-luna-pro via OpenAI, gpt-5-6-sol via OpenAI, gpt-5-6-sol-pro via OpenAI, gpt-5-6-terra via OpenAI, gpt-5-6-terra-pro via OpenAI, gpt-5-mini via OpenAI, gpt-5-nano via OpenAI, gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-1-terra via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI, gpt-6-luna via OpenAI, gpt-6-luna-pro via OpenAI, gpt-6-sol via OpenAI, gpt-6-sol-pro via OpenAI",
+    "tag 'openai/fast' names neither a known region nor a quantization: gpt-5-1 via OpenAI, gpt-5-2 via OpenAI, gpt-5-3-codex via OpenAI, gpt-5-4 via OpenAI, gpt-5-4-mini via OpenAI, gpt-5-5 via OpenAI, gpt-5-6-luna via OpenAI, gpt-5-6-luna-pro via OpenAI, gpt-5-6-sol via OpenAI, gpt-5-6-sol-pro via OpenAI, gpt-5-6-terra via OpenAI, gpt-5-6-terra-pro via OpenAI, gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-1-terra via OpenAI, gpt-6-1-terra-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI, gpt-6-luna via OpenAI, gpt-6-luna-pro via OpenAI, gpt-6-sol via OpenAI, gpt-6-sol-pro via OpenAI",
+    "tag 'openai/flex' names neither a known region nor a quantization: gpt-5-1 via OpenAI, gpt-5-2 via OpenAI, gpt-5-4 via OpenAI, gpt-5-4-mini via OpenAI, gpt-5-4-nano via OpenAI, gpt-5-4-pro via OpenAI, gpt-5-5 via OpenAI, gpt-5-5-pro via OpenAI, gpt-5-6-luna via OpenAI, gpt-5-6-luna-pro via OpenAI, gpt-5-6-sol via OpenAI, gpt-5-6-sol-pro via OpenAI, gpt-5-6-terra via OpenAI, gpt-5-6-terra-pro via OpenAI, gpt-5-mini via OpenAI, gpt-5-nano via OpenAI, gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-1-terra via OpenAI, gpt-6-1-terra-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI, gpt-6-luna via OpenAI, gpt-6-luna-pro via OpenAI, gpt-6-sol via OpenAI, gpt-6-sol-pro via OpenAI",
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
@@ -406,6 +407,9 @@
       "OpenAI": "long-context band"
     },
     "gpt-6-1-terra": {
+      "OpenAI": "long-context band"
+    },
+    "gpt-6-1-terra-pro": {
       "OpenAI": "long-context band"
     },
     "gpt-6-astra": {
