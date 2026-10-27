@@ -1,6 +1,6 @@
 {
   "notices": [
-    "alternating price: kimi-k3 via Relace: the listed rates equal the entry from 2026-10-24T08:40:39Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
+    "alternating price: kimi-k3 via Relace: the listed rates equal the entry from 2026-10-26T20:10:52Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe'",
     "claude-haiku-4-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us'",
     "claude-haiku-4-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us-east5'",
@@ -61,7 +61,6 @@
     "glm-5-3 via Fireworks: rule-resolved (tier variant base): took the base endpoint 'fireworks' over tier variants 'fireworks/fast', 'fireworks/spot'",
     "glm-5-3 via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/us'",
     "glm-5-3 via Mistral: rule-resolved (data region): the global data region leaves 'mistral/zdr'; dropped 'mistral/nvfp4/eu'; equal-price tags 'mistral/nvfp4', 'mistral/zdr' are interchangeable",
-    "glm-5-3 via Reka: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "glm-5-3 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp8'; dropped 'sail-research/us'",
     "glm-5-3 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/fp4'; dropped 'wafer/us'",
     "glm-5-3-flash via BaseTen: rule-resolved (data region): the global data region leaves 'baseten/fp8'; dropped 'baseten/fp8/us'",
