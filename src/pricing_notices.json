@@ -36,15 +36,18 @@
     "deepseek-v4-1-flash via Fireworks: rule-resolved (data region): took the global endpoint 'fireworks' over 'fireworks/spot'",
     "deepseek-v4-1-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp8'; dropped 'inference-net/us'",
     "deepseek-v4-1-flash via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
+    "deepseek-v4-1-flash via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
     "deepseek-v4-1-flash-1017 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-1-flash-1017 via Fireworks: rule-resolved (data region): took the global endpoint 'fireworks' over 'fireworks/spot'",
     "deepseek-v4-1-flash-1017 via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp8'; dropped 'inference-net/us'",
     "deepseek-v4-1-flash-1017 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
+    "deepseek-v4-1-flash-1017 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
     "deepseek-v4-flash-0731 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "deepseek-v4-flash-0731 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
     "deepseek-v4-pro via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba/fp8'; dropped 'alibaba/fp8/us-east-1'",
     "deepseek-v4-pro-0813 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "deepseek-v4-pro-0813 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
+    "deepseek-v4-pro-0813 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
     "delisted from OpenRouter's catalog; row kept, not fetched: claude-3-5-haiku- (anthropic/claude-3-5-haiku), claude-3-5-sonnet- (anthropic/claude-3-5-sonnet), claude-3-7-sonnet- (anthropic/claude-3-7-sonnet), claude-3-haiku- (anthropic/claude-3-haiku), claude-3-opus- (anthropic/claude-3-opus), claude-mythos-5 (anthropic/claude-mythos-5), claude-mythos-5-1 (anthropic/claude-mythos-5-1), claude-opus-4 (anthropic/claude-opus-4), claude-sonnet-4 (anthropic/claude-sonnet-4), gpt-3-5-turbo (openai/gpt-3.5-turbo), gpt-3-5-turbo-instruct (openai/gpt-3.5-turbo-instruct), gpt-4-turbo (openai/gpt-4-turbo), o1 (openai/o1), o1-pro (openai/o1-pro), o3-mini (openai/o3-mini), o3-mini-high (openai/o3-mini-high), o4-mini (openai/o4-mini), o4-mini-high (openai/o4-mini-high), stealth/space-bunny-alpha (stealth/space-bunny-alpha)",
     "glm-4-6 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
     "glm-4-7 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
@@ -66,6 +69,7 @@
     "glm-5-3-flash via Fireworks: rule-resolved (data region): the global data region leaves 'fireworks'; dropped 'fireworks/us'",
     "glm-5-3-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/us'",
     "glm-5-3-flash via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
+    "glm-5-3-flash via Wafer: rule-resolved (data region): the global data region leaves 'wafer/nvfp4'; dropped 'wafer/us'",
     "gpt-4-1 via Azure: rule-resolved (data region): took the global endpoint 'azure' over 'azure/swedencentral'",
     "gpt-4-1-mini via Azure: rule-resolved (data region): took the global endpoint 'azure' over 'azure/swedencentral'",
     "gpt-4-1-nano via Azure: rule-resolved (data region): took the global endpoint 'azure' over 'azure/swedencentral'",
@@ -354,7 +358,8 @@
     "glm-5-3-flash": {
       "BaseTen": "2 endpoints at one current price",
       "InferenceNet": "2 endpoints at one current price",
-      "Sail Research": "2 endpoints at one current price"
+      "Sail Research": "2 endpoints at one current price",
+      "Wafer": "2 endpoints at one current price"
     },
     "gpt-5-4": {
       "Azure": "long-context band",
