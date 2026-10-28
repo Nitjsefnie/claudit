@@ -120,18 +120,14 @@ jobs:
             python3 scripts/ci/track_vendor.py --namespace="$CLAUDIT_VENDOR_NAMESPACE" \
               --commit-msg "$RUNNER_TEMP/commit-msg.txt" || exit 1
           fi
-          rc=0
           # The script reads and rewrites src/pricing_notices.json itself: the
           # notice baseline that keeps a suppressed notice suppressed.
           # It is written only when the run appends.
-          exec 3> >(tee "$RUNNER_TEMP/refused.txt" >&2)
-          tee_pid=$!
+          # Tee stderr; PIPESTATUS keeps the fetch status.
           python3 scripts/ci/refresh_provider_rates.py \
             --commit-msg "$RUNNER_TEMP/commit-msg.txt" \
-            > "$RUNNER_TEMP/report.txt" 2>&3 || rc=$?
-          # Drain the tee before the summary reads its file.
-          exec 3>&-
-          wait "$tee_pid"
+            2>&1 > "$RUNNER_TEMP/report.txt" | tee "$RUNNER_TEMP/refused.txt" >&2
+          rc=${PIPESTATUS[0]}
           cat "$RUNNER_TEMP/report.txt"
           {
             echo '### OpenRouter provider rates'
