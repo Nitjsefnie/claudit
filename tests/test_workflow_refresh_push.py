@@ -79,6 +79,7 @@ def test_refresh_fetches_and_suite_runs_tests_without_the_key():
     job = _job("refresh")
     assert job["if"] == "github.ref == 'refs/heads/master'"
     assert job["timeout-minutes"] == 30
+    assert _step("refresh", "Fetch and append")["timeout-minutes"] == 10
     assert job["permissions"] == {"contents": "read"}
     assert not any("pytest" in step.get("run", "") for step in job["steps"])
     assert not any(step.get("name") == "Start cached Postgres" for step in job["steps"])
@@ -155,6 +156,46 @@ def test_fetch_step_tracks_only_nonempty_input_and_stops_on_refusal(
         env=env, capture_output=True, text=True, check=False)
     assert proc.returncode == rc, proc.stderr
     assert calls.read_text(encoding="utf-8").splitlines() == expected
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the Ubuntu workflow test uses GNU timeout")
+def test_fetch_step_streams_stderr_before_a_stall_is_killed(tmp_path):
+    shim = tmp_path / "python3"
+    shim.write_text('#!/bin/bash\nprintf "request stalled\\n" >&2\nexec sleep 10\n', encoding="utf-8")
+    shim.chmod(0o755)
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+           "CLAUDIT_VENDOR_NAMESPACE": "", "RUNNER_TEMP": str(tmp_path),
+           "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"), "GITHUB_OUTPUT": str(tmp_path / "output")}
+    proc = subprocess.run(
+        ["timeout", "-k", "2", "3", "bash", "-e", "-c", _step("refresh", "Fetch and append")["run"]],
+        env=env, capture_output=True, text=True, check=False, timeout=8)
+    assert proc.returncode == 124, proc.stderr
+    assert (tmp_path / "refused.txt").read_text(encoding="utf-8") == "request stalled\n"
+    assert proc.stderr == "request stalled\n"
+
+
+@ubuntu_run_block
+@pytest.mark.parametrize("refresh_rc", [0, 23])
+def test_fetch_step_drains_stderr_before_writing_summary(tmp_path, refresh_rc):
+    shim = tmp_path / "python3"
+    shim.write_text('#!/bin/bash\nprintf "report line\\n"\nprintf "refusal line\\n" >&2\n'
+                    'exit "$REFRESH_RC"\n', encoding="utf-8")
+    shim.chmod(0o755)
+    tee = tmp_path / "tee"
+    tee.write_text('#!/bin/bash\nsleep 0.2\nexec /usr/bin/tee "$@"\n', encoding="utf-8")
+    tee.chmod(0o755)
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+           "CLAUDIT_VENDOR_NAMESPACE": "", "RUNNER_TEMP": str(tmp_path), "REFRESH_RC": str(refresh_rc),
+           "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"), "GITHUB_OUTPUT": str(tmp_path / "output")}
+    proc = subprocess.run(
+        ["bash", "-e", "-c", _step("refresh", "Fetch and append")["run"]],
+        env=env, capture_output=True, text=True, check=False, timeout=8)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == "report line\n"
+    assert proc.stderr == "refusal line\n"
+    assert (tmp_path / "summary").read_text(encoding="utf-8") == (
+        "### OpenRouter provider rates\n\n```\nreport line\nrefusal line\n```\n")
+    assert (tmp_path / "output").read_text(encoding="utf-8") == f"rc={refresh_rc}\n"
 
 
 def test_the_key_appears_once_in_the_file_and_only_in_the_push_job():
