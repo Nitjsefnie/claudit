@@ -1,9 +1,6 @@
 {
   "notices": [
-    "alternating price: deepseek-v4-flash via Relace: the listed rates equal the entry from 2026-10-26T13:50:47Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: glm-5-2 via Inceptron: the listed rates equal the entry from 2026-10-26T15:25:42Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
-    "alternating price: glm-5-2 via StreamLake: the listed rates equal the entry from 2026-10-22T14:05:45Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
-    "alternating price: kimi-k2-7-code via Inceptron: the listed rates equal the entry from 2026-10-23T19:55:50Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe'",
     "claude-haiku-4-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us'",
     "claude-haiku-4-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us-east5'",
@@ -49,6 +46,7 @@
     "deepseek-v4-pro via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba/fp8'; dropped 'alibaba/fp8/us-east-1'",
     "deepseek-v4-pro-0813 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "deepseek-v4-pro-0813 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
+    "delisted from OpenRouter's catalog; row kept, not fetched: claude-3-5-haiku- (anthropic/claude-3-5-haiku), claude-3-5-sonnet- (anthropic/claude-3-5-sonnet), claude-3-7-sonnet- (anthropic/claude-3-7-sonnet), claude-3-haiku- (anthropic/claude-3-haiku), claude-3-opus- (anthropic/claude-3-opus), claude-mythos-5 (anthropic/claude-mythos-5), claude-mythos-5-1 (anthropic/claude-mythos-5-1), claude-opus-4 (anthropic/claude-opus-4), claude-sonnet-4 (anthropic/claude-sonnet-4), gpt-3-5-turbo (openai/gpt-3.5-turbo), gpt-3-5-turbo-instruct (openai/gpt-3.5-turbo-instruct), stealth/space-bunny-alpha (stealth/space-bunny-alpha)",
     "glm-4-6 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
     "glm-4-7 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
     "glm-5 via Venice: rule-resolved (stored price continuity): kept the endpoint 'venice/fp8' at the row's price; assumes the tracked endpoint did not reprice this hour",
@@ -125,131 +123,10 @@
     "kimi-k2-7-code via Moonshot AI: rule-resolved (bare namespace): took the bare namespace endpoint 'moonshotai' over service tiers 'moonshotai/highspeed'",
     "kimi-k3 via Fireworks: rule-resolved (tier variant base): took the base endpoint 'fireworks' over tier variants 'fireworks/fast', 'fireworks/spot'",
     "kimi-k3 via InferenceNet: rule-resolved (unique quantization): took the fp4 endpoint 'inference-net/fp4' over service tiers",
+    "kimi-k3 via Makora: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "kimi-k3 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
     "kimi-k3 via Wafer: rule-resolved (bare namespace): took the bare namespace endpoint 'wafer' over service tiers 'wafer/fast'",
     "kimi-k3-1-pro via Moonshot AI: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
-    "listed-pricing log unavailable for claude-fable-5-1: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-fable-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-haiku-4-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-haiku-5-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-opus-4-1: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-opus-4-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-opus-4-6: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-opus-4-7: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-opus-4-8: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-opus-5-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-opus-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-sonnet-4-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-sonnet-4-6: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-sonnet-5-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for claude-sonnet-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for deepseek-v4-1-flash-1017: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for deepseek-v4-1-flash: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for deepseek-v4-flash-0731: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for deepseek-v4-flash: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for deepseek-v4-pro-0813: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for deepseek-v4-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-4-5-air: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-4-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-4-5v: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-4-6: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-4-6v: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-4-7: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-5-1: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-5-2: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-5-3-flash: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-5-3-flashx: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-5-3: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-5-turbo: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for glm-5v-turbo: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-3-5-turbo-16k: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-4-1-mini: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-4-1-nano: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-4-1: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-4-turbo: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-4: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-4o-2024-05-13: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-4o-2024-08-06: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-4o-2024-11-20: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-4o-mini-2024-07-18: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-4o-mini: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-4o: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-1: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-2-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-2: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-3-codex: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-4-mini: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-4-nano: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-4-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-4: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-5-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-6-luna-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-6-luna: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-6-sol-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-6-sol: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-6-terra-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-6-terra: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-mini: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-nano: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-6-1-sol-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-6-1-sol: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-6-1-terra-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-6-1-terra: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-6-astra-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-6-astra: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-6-luna-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-6-luna: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-6-sol-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-6-sol: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for gpt-chat-latest: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for hy-mt2-1-8b: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for hy-mt2-30b-a3b: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for hy-mt2-7b: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for hy3: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for hy4-preview: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for inclusionai/ling-3-1-flash: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for kimi-k2-6: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for kimi-k2-7-code: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for kimi-k3-1-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for kimi-k3: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for mimo-v2-5-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for mimo-v2-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for mimo-v2-6-flash: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for mimo-v2-6-pro-ultraspeed: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for mimo-v2-6-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for minimax-01: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for minimax-m1: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for minimax-m2-1: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for minimax-m2-5: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for minimax-m2-7: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for minimax-m2-her: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for minimax-m2: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for minimax-m3-1-flash: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for minimax-m3: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for muse-spark-1-1: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for muse-spark-1-2-contributor: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for muse-spark-1-2: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for muse-spark-1-3-contributor: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for muse-spark-1-3: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for muse-wonder: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for nemotron-3-5-super-vl: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for o1-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for o1: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for o3-mini-high: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for o3-mini: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for o3-pro: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for o3: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for o4-mini-high: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for o4-mini: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for solar-mini4: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for solar-pro-3: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for solar-pro4: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for step-3-7-flash: models fetch failed: The read operation timed out; its hosts were sampled",
-    "listed-pricing log unavailable for step-5-preview: models fetch failed: The read operation timed out; its hosts were sampled",
     "minimax-m2-1 via Minimax: rule-resolved (bare namespace): took the bare namespace endpoint 'minimax' over service tiers 'minimax/highspeed'",
     "minimax-m2-5 via Minimax: rule-resolved (bare namespace): took the bare namespace endpoint 'minimax' over service tiers 'minimax/highspeed'",
     "minimax-m2-7 via Minimax: rule-resolved (bare namespace): took the bare namespace endpoint 'minimax' over service tiers 'minimax/highspeed'",
@@ -257,6 +134,66 @@
     "minimax-m3-1-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/fp4/us'",
     "moonshotai/kimi-k2.7-code: stale pin tag 'moonshotai/int4' is not listed; listed tags: 'moonshotai', 'moonshotai/highspeed'; selecting as unpinned; rule-resolved past a stale pin; selected 'moonshotai'; the bare-tag rule took the bare vendor endpoint 'moonshotai'",
     "moonshotai/kimi-k3.1-pro: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
+    "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Anthropic; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-fable-5-1 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-fable-5-1 via Anthropic; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-fable-5-1 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-fable-5-1 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-haiku-4-5 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-haiku-4-5 via Anthropic; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-haiku-4-5 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-haiku-4-5 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-1 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-5 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-5 via Anthropic; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-5 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-5 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-5 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-6 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-6 via Anthropic; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-6 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-6 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-6 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-7 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-7 via Anthropic; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-7 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-7 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-7 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-8 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-8 via Anthropic; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-8 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-8 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-8 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-5 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-5 via Anthropic; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-5 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-5 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-5 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-5-5 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-5-5 via Anthropic; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-5-5 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-5-5 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-opus-5-5 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-4-5 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-4-6 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-4-6 via Anthropic; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-4-6 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-4-6 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-4-6 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Anthropic; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Google; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Amazon Bedrock; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Azure; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Google; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba",
     "tag 'alibaba/prime' names neither a known region nor a quantization: glm-5-3 via Alibaba",
@@ -283,832 +220,247 @@
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
+    "the listing lags the listed-pricing log for deepseek-v4-1-flash via OpenInference; the host was sampled",
+    "the listing lags the listed-pricing log for glm-5-2 via Inceptron; the host was sampled",
     "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, deepseek/deepseek-chat, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-chat-v3.1, deepseek/deepseek-r1-0528, deepseek/deepseek-v3.1-terminus, deepseek/deepseek-v3.2, deepseek/deepseek-v3.2-exp, deepseek/deepseek-v4-flash, deepseek/deepseek-v4-flash-0731, deepseek/deepseek-v4-flash-vision-exp, deepseek/deepseek-v4-pro, deepseek/deepseek-v4.1-flash, google/gemini-2.5-flash, google/gemini-2.5-flash-lite, google/gemini-2.5-pro, google/gemini-2.5-pro-preview, google/gemini-3-flash-preview, google/gemini-3.1-flash-lite, google/gemini-3.1-flash-lite-preview, google/gemini-3.1-pro-preview, google/gemini-3.1-pro-preview-customtools, google/gemini-3.5-flash, google/gemini-3.5-flash-lite, google/gemini-3.6-flash, google/gemini-3.7-flash, google/gemini-3.8-flash, google/gemini-4-argon, google/gemma-2-27b-it, google/gemma-3-12b-it, google/gemma-3-27b-it, google/gemma-3-4b-it, google/gemma-4-26b-a4b-it, google/gemma-4-31b-it, meta-llama/llama-3.1-70b-instruct, meta-llama/llama-3.1-8b-instruct, meta-llama/llama-3.2-1b-instruct, meta-llama/llama-3.2-3b-instruct, meta-llama/llama-3.3-70b-instruct, meta-llama/llama-4-maverick, meta-llama/llama-4-scout, meta-llama/llama-guard-4-12b, meta/muse-glimmer-30b, meta/muse-spark-open, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, nvidia/nemotron-3-nano-30b-a3b, nvidia/nemotron-3-super-120b-a12b, nvidia/nemotron-3-ultra-550b-a55b, nvidia/nemotron-3.5-content-safety, nvidia/nemotron-3.5-lightning, nvidia/nemotron-3.5-super-vl, openai/gpt-3.5-turbo-0613, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-chat, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, stepfun/step-3.5-flash, tencent/hunyuan-a13b-instruct, tencent/hy3-preview, xiaomi/mimo-v2.5, xiaomi/mimo-v2.5-pro, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
   ],
   "sampled": {
     "claude-fable-5": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Claude Platform on AWS": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
     },
     "claude-fable-5-1": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Google": "no matching log state"
     },
     "claude-haiku-4-5": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Google": "no matching log state"
     },
     "claude-haiku-5-5": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Claude Platform on AWS": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "long-context band",
+      "Anthropic": "long-context band",
+      "Azure": "long-context band",
+      "Claude Platform on AWS": "long-context band",
+      "Google": "long-context band"
     },
     "claude-opus-4-1": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state"
     },
     "claude-opus-4-5": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Claude Platform on AWS": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
     },
     "claude-opus-4-6": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Claude Platform on AWS": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
     },
     "claude-opus-4-7": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Claude Platform on AWS": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
     },
     "claude-opus-4-8": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Claude Platform on AWS": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
     },
     "claude-opus-5": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Claude Platform on AWS": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
     },
     "claude-opus-5-5": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Claude Platform on AWS": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
     },
     "claude-sonnet-4-5": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Claude Platform on AWS": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "long-context band",
+      "Anthropic": "long-context band",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "long-context band",
+      "Google": "long-context band"
     },
     "claude-sonnet-4-6": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Claude Platform on AWS": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
     },
     "claude-sonnet-5": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Claude Platform on AWS": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
     },
     "claude-sonnet-5-5": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Anthropic": "models fetch failed: The read operation timed out",
-      "Azure": "models fetch failed: The read operation timed out",
-      "Claude Platform on AWS": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out"
+      "Amazon Bedrock": "no matching log state",
+      "Anthropic": "no matching log state",
+      "Azure": "no matching log state",
+      "Claude Platform on AWS": "no matching log state",
+      "Google": "no matching log state"
     },
     "deepseek-v4-1-flash": {
-      "Alibaba": "models fetch failed: The read operation timed out",
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "Baidu": "models fetch failed: The read operation timed out",
-      "BaseTen": "models fetch failed: The read operation timed out",
-      "Cohere": "models fetch failed: The read operation timed out",
-      "CoreWeave": "models fetch failed: The read operation timed out",
-      "Crusoe": "models fetch failed: The read operation timed out",
-      "Decart": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "Fireworks": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out",
-      "InferenceNet": "models fetch failed: The read operation timed out",
-      "Makora": "models fetch failed: The read operation timed out",
-      "Mancer 2": "models fetch failed: The read operation timed out",
-      "Modal": "models fetch failed: The read operation timed out",
-      "ModelRun": "models fetch failed: The read operation timed out",
-      "Morph": "models fetch failed: The read operation timed out",
-      "Nebius": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "OpenInference": "models fetch failed: The read operation timed out",
-      "Parasail": "models fetch failed: The read operation timed out",
-      "Phala": "models fetch failed: The read operation timed out",
-      "PrimeIntellect": "models fetch failed: The read operation timed out",
-      "Reka": "models fetch failed: The read operation timed out",
-      "Relace": "models fetch failed: The read operation timed out",
-      "Sail Research": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Together": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out",
-      "Wafer": "models fetch failed: The read operation timed out"
+      "Alibaba": "endpoint schedule",
+      "BaseTen": "2 endpoints at one current price",
+      "InferenceNet": "2 endpoints at one current price",
+      "OpenInference": "listing lags log",
+      "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-1-flash-1017": {
-      "Alibaba": "models fetch failed: The read operation timed out",
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "Baidu": "models fetch failed: The read operation timed out",
-      "BaseTen": "models fetch failed: The read operation timed out",
-      "Cloudflare": "models fetch failed: The read operation timed out",
-      "Crusoe": "models fetch failed: The read operation timed out",
-      "Decart": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "DeepSeek": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "Fireworks": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "InferenceNet": "models fetch failed: The read operation timed out",
-      "Ionstream": "models fetch failed: The read operation timed out",
-      "Makora": "models fetch failed: The read operation timed out",
-      "Modal": "models fetch failed: The read operation timed out",
-      "Morph": "models fetch failed: The read operation timed out",
-      "Nebius": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "OpenInference": "models fetch failed: The read operation timed out",
-      "Parasail": "models fetch failed: The read operation timed out",
-      "Phala": "models fetch failed: The read operation timed out",
-      "PrimeIntellect": "models fetch failed: The read operation timed out",
-      "Reka": "models fetch failed: The read operation timed out",
-      "Relace": "models fetch failed: The read operation timed out",
-      "Sail Research": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Together": "models fetch failed: The read operation timed out",
-      "Wafer": "models fetch failed: The read operation timed out"
-    },
-    "deepseek-v4-flash": {
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "Baidu": "models fetch failed: The read operation timed out",
-      "Cloudflare": "models fetch failed: The read operation timed out",
-      "Crusoe": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "Fireworks": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Mancer 2": "models fetch failed: The read operation timed out",
-      "Parasail": "models fetch failed: The read operation timed out",
-      "Relace": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out",
-      "Wafer": "models fetch failed: The read operation timed out"
+      "Alibaba": "endpoint schedule",
+      "DeepSeek": "endpoint schedule",
+      "InferenceNet": "2 endpoints at one current price",
+      "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-flash-0731": {
-      "Alibaba": "models fetch failed: The read operation timed out",
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "Baidu": "models fetch failed: The read operation timed out",
-      "BaseTen": "models fetch failed: The read operation timed out",
-      "Cloudflare": "models fetch failed: The read operation timed out",
-      "Cohere": "models fetch failed: The read operation timed out",
-      "CoreWeave": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Inceptron": "models fetch failed: The read operation timed out",
-      "Mancer 2": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Parasail": "models fetch failed: The read operation timed out",
-      "Phala": "models fetch failed: The read operation timed out",
-      "Reka": "models fetch failed: The read operation timed out",
-      "Relace": "models fetch failed: The read operation timed out",
-      "Sail Research": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out",
-      "Wafer": "models fetch failed: The read operation timed out"
-    },
-    "deepseek-v4-pro": {
-      "Alibaba": "models fetch failed: The read operation timed out",
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "Baidu": "models fetch failed: The read operation timed out",
-      "Cloudflare": "models fetch failed: The read operation timed out",
-      "Crusoe": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Relace": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out"
+      "Alibaba": "endpoint schedule",
+      "BaseTen": "2 endpoints selected",
+      "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-pro-0813": {
-      "Alibaba": "models fetch failed: The read operation timed out",
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "Baidu": "models fetch failed: The read operation timed out",
-      "BaseTen": "models fetch failed: The read operation timed out",
-      "Cloudflare": "models fetch failed: The read operation timed out",
-      "CoreWeave": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "DeepSeek": "models fetch failed: The read operation timed out",
-      "DekaLLM": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Ionstream": "models fetch failed: The read operation timed out",
-      "Nebius": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Parasail": "models fetch failed: The read operation timed out",
-      "Phala": "models fetch failed: The read operation timed out",
-      "Relace": "models fetch failed: The read operation timed out",
-      "Sail Research": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Together": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out",
-      "Wafer": "models fetch failed: The read operation timed out"
-    },
-    "glm-4-5": {
-      "Z.AI": "models fetch failed: The read operation timed out"
-    },
-    "glm-4-5-air": {
-      "Novita": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "Z.AI": "models fetch failed: The read operation timed out"
-    },
-    "glm-4-5v": {
-      "Novita": "models fetch failed: The read operation timed out",
-      "Z.AI": "models fetch failed: The read operation timed out"
-    },
-    "glm-4-6": {
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out",
-      "Z.AI": "models fetch failed: The read operation timed out"
-    },
-    "glm-4-6v": {
-      "Novita": "models fetch failed: The read operation timed out",
-      "Z.AI": "models fetch failed: The read operation timed out"
-    },
-    "glm-4-7": {
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "Google": "models fetch failed: The read operation timed out",
-      "Mancer 2": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out",
-      "Z.AI": "models fetch failed: The read operation timed out"
-    },
-    "glm-5": {
-      "Amazon Bedrock": "models fetch failed: The read operation timed out",
-      "Baidu": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out",
-      "Z.AI": "models fetch failed: The read operation timed out"
-    },
-    "glm-5-1": {
-      "Alibaba": "models fetch failed: The read operation timed out",
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "Baidu": "models fetch failed: The read operation timed out",
-      "Chutes": "models fetch failed: The read operation timed out",
-      "Friendli": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Nebius": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Phala": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out",
-      "Z.AI": "models fetch failed: The read operation timed out"
+      "Alibaba": "endpoint schedule",
+      "DeepSeek": "endpoint schedule",
+      "Sail Research": "2 endpoints at one current price"
     },
     "glm-5-2": {
-      "Alibaba": "models fetch failed: The read operation timed out",
-      "Ambient": "models fetch failed: The read operation timed out",
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "Baidu": "models fetch failed: The read operation timed out",
-      "BaseTen": "models fetch failed: The read operation timed out",
-      "Cloudflare": "models fetch failed: The read operation timed out",
-      "CoreWeave": "models fetch failed: The read operation timed out",
-      "Decart": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "Friendli": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Inceptron": "models fetch failed: The read operation timed out",
-      "Mistral": "models fetch failed: The read operation timed out",
-      "Morph": "models fetch failed: The read operation timed out",
-      "Nebius": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Parasail": "models fetch failed: The read operation timed out",
-      "Relace": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Together": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out",
-      "Wafer": "models fetch failed: The read operation timed out",
-      "Z.AI": "models fetch failed: The read operation timed out"
+      "BaseTen": "2 endpoints at one current price",
+      "Inceptron": "listing lags log"
     },
     "glm-5-3": {
-      "AkashML": "models fetch failed: The read operation timed out",
-      "Alibaba": "models fetch failed: The read operation timed out",
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "Baidu": "models fetch failed: The read operation timed out",
-      "BaseTen": "models fetch failed: The read operation timed out",
-      "Cloudflare": "models fetch failed: The read operation timed out",
-      "CoreWeave": "models fetch failed: The read operation timed out",
-      "Crusoe": "models fetch failed: The read operation timed out",
-      "Decart": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "DekaLLM": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "Fireworks": "models fetch failed: The read operation timed out",
-      "Friendli": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Inceptron": "models fetch failed: The read operation timed out",
-      "InferenceNet": "models fetch failed: The read operation timed out",
-      "Io Net": "models fetch failed: The read operation timed out",
-      "Makora": "models fetch failed: The read operation timed out",
-      "Mistral": "models fetch failed: The read operation timed out",
-      "Modal": "models fetch failed: The read operation timed out",
-      "ModelRun": "models fetch failed: The read operation timed out",
-      "Morph": "models fetch failed: The read operation timed out",
-      "Nebius": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Parasail": "models fetch failed: The read operation timed out",
-      "Phala": "models fetch failed: The read operation timed out",
-      "PrimeIntellect": "models fetch failed: The read operation timed out",
-      "Reka": "models fetch failed: The read operation timed out",
-      "Relace": "models fetch failed: The read operation timed out",
-      "Sail Research": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "Tenstorrent": "models fetch failed: The read operation timed out",
-      "Together": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out",
-      "Wafer": "models fetch failed: The read operation timed out",
-      "Z.AI": "models fetch failed: The read operation timed out"
+      "BaseTen": "2 endpoints at one current price",
+      "InferenceNet": "2 endpoints at one current price",
+      "Mistral": "2 endpoints selected",
+      "Sail Research": "2 endpoints at one current price"
     },
     "glm-5-3-flash": {
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "BaseTen": "models fetch failed: The read operation timed out",
-      "Cohere": "models fetch failed: The read operation timed out",
-      "CoreWeave": "models fetch failed: The read operation timed out",
-      "Crusoe": "models fetch failed: The read operation timed out",
-      "Darkbloom": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "Fireworks": "models fetch failed: The read operation timed out",
-      "Friendli": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Inceptron": "models fetch failed: The read operation timed out",
-      "InferenceNet": "models fetch failed: The read operation timed out",
-      "Makora": "models fetch failed: The read operation timed out",
-      "Mistral": "models fetch failed: The read operation timed out",
-      "Modal": "models fetch failed: The read operation timed out",
-      "Morph": "models fetch failed: The read operation timed out",
-      "Near AI": "models fetch failed: The read operation timed out",
-      "Nebius": "models fetch failed: The read operation timed out",
-      "NextBit": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "OpenInference": "models fetch failed: The read operation timed out",
-      "Parasail": "models fetch failed: The read operation timed out",
-      "Phala": "models fetch failed: The read operation timed out",
-      "PrimeIntellect": "models fetch failed: The read operation timed out",
-      "Reka": "models fetch failed: The read operation timed out",
-      "Relace": "models fetch failed: The read operation timed out",
-      "Sail Research": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Together": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out",
-      "Wafer": "models fetch failed: The read operation timed out",
-      "Z.AI": "models fetch failed: The read operation timed out"
-    },
-    "glm-5-3-flashx": {
-      "Z.AI": "models fetch failed: The read operation timed out"
-    },
-    "glm-5-turbo": {
-      "Z.AI": "models fetch failed: The read operation timed out"
-    },
-    "glm-5v-turbo": {
-      "Z.AI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-3-5-turbo-16k": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-4": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-4-1": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-4-1-mini": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-4-1-nano": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-4-turbo": {
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-4o": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-4o-2024-05-13": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-4o-2024-08-06": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-4o-2024-11-20": {
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-4o-mini": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-4o-mini-2024-07-18": {
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-5": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-5-1": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-5-2": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-5-2-pro": {
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-5-3-codex": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "BaseTen": "2 endpoints at one current price",
+      "InferenceNet": "2 endpoints at one current price",
+      "Sail Research": "2 endpoints at one current price"
     },
     "gpt-5-4": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-5-4-mini": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-5-4-nano": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-5-4-pro": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-5-5": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-5-5-pro": {
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "OpenAI": "long-context band"
     },
     "gpt-5-6-luna": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-5-6-luna-pro": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-5-6-sol": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-5-6-sol-pro": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-5-6-terra": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-5-6-terra-pro": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-5-mini": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-5-nano": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-5-pro": {
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-6-1-sol": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-6-1-sol-pro": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-6-1-terra": {
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "OpenAI": "long-context band"
     },
     "gpt-6-1-terra-pro": {
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "OpenAI": "long-context band"
     },
     "gpt-6-astra": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-6-astra-pro": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-6-luna": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-6-luna-pro": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-6-sol": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "gpt-6-sol-pro": {
-      "Azure": "models fetch failed: The read operation timed out",
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "gpt-chat-latest": {
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "hy-mt2-1-8b": {
-      "Tencent": "models fetch failed: The read operation timed out"
-    },
-    "hy-mt2-30b-a3b": {
-      "Tencent": "models fetch failed: The read operation timed out"
-    },
-    "hy-mt2-7b": {
-      "Tencent": "models fetch failed: The read operation timed out"
+      "Azure": "long-context band",
+      "OpenAI": "long-context band"
     },
     "hy3": {
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Phala": "models fetch failed: The read operation timed out",
-      "Tencent": "models fetch failed: The read operation timed out"
+      "Tencent": "endpoint schedule"
     },
     "hy4-preview": {
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "Cohere": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "Tencent": "models fetch failed: The read operation timed out"
-    },
-    "inclusionai/ling-3-1-flash": {
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out"
-    },
-    "kimi-k2-6": {
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "Baidu": "models fetch failed: The read operation timed out",
-      "Chutes": "models fetch failed: The read operation timed out",
-      "Cloudflare": "models fetch failed: The read operation timed out",
-      "CoreWeave": "models fetch failed: The read operation timed out",
-      "Crusoe": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Inceptron": "models fetch failed: The read operation timed out",
-      "Moonshot AI": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Parasail": "models fetch failed: The read operation timed out",
-      "Phala": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out"
-    },
-    "kimi-k2-7-code": {
-      "Alibaba": "models fetch failed: The read operation timed out",
-      "Cloudflare": "models fetch failed: The read operation timed out",
-      "CoreWeave": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Inceptron": "models fetch failed: The read operation timed out",
-      "Moonshot AI": "models fetch failed: The read operation timed out",
-      "Nebius": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "SiliconFlow": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out"
+      "Tencent": "endpoint schedule"
     },
     "kimi-k3": {
-      "AkashML": "models fetch failed: The read operation timed out",
-      "Alibaba": "models fetch failed: The read operation timed out",
-      "BaseTen": "models fetch failed: The read operation timed out",
-      "Chutes": "models fetch failed: The read operation timed out",
-      "Decart": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "Fireworks": "models fetch failed: The read operation timed out",
-      "InferenceNet": "models fetch failed: The read operation timed out",
-      "Makora": "models fetch failed: The read operation timed out",
-      "Modal": "models fetch failed: The read operation timed out",
-      "Moonshot AI": "models fetch failed: The read operation timed out",
-      "Morph": "models fetch failed: The read operation timed out",
-      "Parasail": "models fetch failed: The read operation timed out",
-      "Phala": "models fetch failed: The read operation timed out",
-      "Relace": "models fetch failed: The read operation timed out",
-      "Sail Research": "models fetch failed: The read operation timed out",
-      "Together": "models fetch failed: The read operation timed out",
-      "Wafer": "models fetch failed: The read operation timed out"
-    },
-    "kimi-k3-1-pro": {
-      "Moonshot AI": "models fetch failed: The read operation timed out"
-    },
-    "mimo-v2-5": {
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out"
-    },
-    "mimo-v2-5-pro": {
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out"
-    },
-    "mimo-v2-6-flash": {
-      "Cohere": "models fetch failed: The read operation timed out",
-      "Darkbloom": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Io Net": "models fetch failed: The read operation timed out",
-      "Makora": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Relace": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out",
-      "Xiaomi": "models fetch failed: The read operation timed out"
-    },
-    "mimo-v2-6-pro": {
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Xiaomi": "models fetch failed: The read operation timed out"
-    },
-    "mimo-v2-6-pro-ultraspeed": {
-      "Xiaomi": "models fetch failed: The read operation timed out"
-    },
-    "minimax-01": {
-      "Minimax": "models fetch failed: The read operation timed out"
-    },
-    "minimax-m1": {
-      "Minimax": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out"
-    },
-    "minimax-m2": {
-      "Google": "models fetch failed: The read operation timed out",
-      "Minimax": "models fetch failed: The read operation timed out"
-    },
-    "minimax-m2-1": {
-      "Minimax": "models fetch failed: The read operation timed out"
-    },
-    "minimax-m2-5": {
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Minimax": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out"
-    },
-    "minimax-m2-7": {
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Groq": "models fetch failed: The read operation timed out",
-      "Minimax": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out"
-    },
-    "minimax-m2-her": {
-      "Minimax": "models fetch failed: The read operation timed out"
-    },
-    "minimax-m3": {
-      "AtlasCloud": "models fetch failed: The read operation timed out",
-      "CoreWeave": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "Mara": "models fetch failed: The read operation timed out",
-      "Minimax": "models fetch failed: The read operation timed out",
-      "ModelRun": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Parasail": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Together": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out"
+      "Fireworks": "2 endpoints at one current price",
+      "InferenceNet": "2 endpoints at one current price",
+      "Sail Research": "2 endpoints at one current price"
     },
     "minimax-m3-1-flash": {
-      "DigitalOcean": "models fetch failed: The read operation timed out",
-      "Fireworks": "models fetch failed: The read operation timed out",
-      "GMICloud": "models fetch failed: The read operation timed out",
-      "InferenceNet": "models fetch failed: The read operation timed out",
-      "Minimax": "models fetch failed: The read operation timed out",
-      "ModelRun": "models fetch failed: The read operation timed out",
-      "Nebius": "models fetch failed: The read operation timed out",
-      "Novita": "models fetch failed: The read operation timed out",
-      "Parasail": "models fetch failed: The read operation timed out",
-      "SambaNova": "models fetch failed: The read operation timed out",
-      "StreamLake": "models fetch failed: The read operation timed out",
-      "Together": "models fetch failed: The read operation timed out"
-    },
-    "muse-spark-1-1": {
-      "Meta": "models fetch failed: The read operation timed out"
-    },
-    "muse-spark-1-2": {
-      "Meta": "models fetch failed: The read operation timed out"
-    },
-    "muse-spark-1-2-contributor": {
-      "Meta": "models fetch failed: The read operation timed out"
-    },
-    "muse-spark-1-3": {
-      "Meta": "models fetch failed: The read operation timed out"
-    },
-    "muse-spark-1-3-contributor": {
-      "Meta": "models fetch failed: The read operation timed out"
-    },
-    "muse-wonder": {
-      "Meta": "models fetch failed: The read operation timed out"
-    },
-    "nemotron-3-5-super-vl": {
-      "BaseTen": "models fetch failed: The read operation timed out",
-      "CoreWeave": "models fetch failed: The read operation timed out",
-      "Crusoe": "models fetch failed: The read operation timed out",
-      "Darkbloom": "models fetch failed: The read operation timed out",
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "Io Net": "models fetch failed: The read operation timed out",
-      "Nebius": "models fetch failed: The read operation timed out",
-      "Together": "models fetch failed: The read operation timed out",
-      "Venice": "models fetch failed: The read operation timed out"
-    },
-    "o1": {
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "o1-pro": {
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "o3": {
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "o3-mini": {
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "o3-mini-high": {
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "o3-pro": {
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "InferenceNet": "2 endpoints at one current price"
     },
     "o4-mini": {
-      "OpenAI": "models fetch failed: The read operation timed out"
-    },
-    "o4-mini-high": {
-      "OpenAI": "models fetch failed: The read operation timed out"
+      "OpenAI": "log series count mismatch"
     },
     "solar-mini4": {
-      "Upstage": "models fetch failed: The read operation timed out"
-    },
-    "solar-pro-3": {
-      "Upstage": "models fetch failed: The read operation timed out"
+      "Upstage": "2 endpoints selected"
     },
     "solar-pro4": {
-      "Upstage": "models fetch failed: The read operation timed out"
-    },
-    "step-3-7-flash": {
-      "Novita": "models fetch failed: The read operation timed out",
-      "StepFun": "models fetch failed: The read operation timed out"
-    },
-    "step-5-preview": {
-      "DeepInfra": "models fetch failed: The read operation timed out",
-      "Featherless": "models fetch failed: The read operation timed out",
-      "StepFun": "models fetch failed: The read operation timed out"
+      "Upstage": "2 endpoints selected"
     }
   },
   "vanished": {
