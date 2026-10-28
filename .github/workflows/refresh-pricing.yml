@@ -108,15 +108,13 @@ jobs:
 
       - name: Fetch and append
         id: fetch
+        timeout-minutes: 10
         env:
           CLAUDIT_VENDOR_NAMESPACE: ${{ inputs.vendor }}
-        # stdlib only: nothing is installed before the fetch, so beyond the
-        # cached Postgres a quiet hour costs one checkout, one model-catalog
-        # request, and two requests per tracked model. A refused host blocks
-        # only itself: the script still
-        # writes every other move and exits nonzero, so this step records the
-        # code instead of failing, the moves are tested here and pushed by
-        # the push job, and the verdict job turns the run red.
+        # Stdlib only: the scheduled fetch reads two catalogs, up to one log
+        # and one endpoint listing per tracked model, plus one endpoint listing
+        # per eligible vendor-catalog id, all sequential. Refusals leave the exit
+        # code to the verdict job so other moves can still be tested and pushed.
         run: |
           if [ -n "$CLAUDIT_VENDOR_NAMESPACE" ]; then
             python3 scripts/ci/track_vendor.py --namespace="$CLAUDIT_VENDOR_NAMESPACE" \
@@ -126,10 +124,15 @@ jobs:
           # The script reads and rewrites src/pricing_notices.json itself: the
           # notice baseline that keeps a suppressed notice suppressed.
           # It is written only when the run appends.
+          exec 3> >(tee "$RUNNER_TEMP/refused.txt" >&2)
+          tee_pid=$!
           python3 scripts/ci/refresh_provider_rates.py \
             --commit-msg "$RUNNER_TEMP/commit-msg.txt" \
-            > "$RUNNER_TEMP/report.txt" 2> "$RUNNER_TEMP/refused.txt" || rc=$?
-          cat "$RUNNER_TEMP/report.txt" "$RUNNER_TEMP/refused.txt"
+            > "$RUNNER_TEMP/report.txt" 2>&3 || rc=$?
+          # Drain the tee before the summary reads its file.
+          exec 3>&-
+          wait "$tee_pid"
+          cat "$RUNNER_TEMP/report.txt"
           {
             echo '### OpenRouter provider rates'
             echo
