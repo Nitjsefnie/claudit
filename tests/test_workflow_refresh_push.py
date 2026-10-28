@@ -198,6 +198,27 @@ def test_fetch_step_drains_stderr_before_writing_summary(tmp_path, refresh_rc):
     assert (tmp_path / "output").read_text(encoding="utf-8") == f"rc={refresh_rc}\n"
 
 
+@ubuntu_run_block
+@pytest.mark.parametrize("refresh_rc", [0, 23])
+def test_fetch_step_fails_when_stderr_tee_fails(tmp_path, refresh_rc):
+    shim = tmp_path / "python3"
+    shim.write_text('#!/bin/bash\nprintf "refusal line\\n" >&2\nexit "$REFRESH_RC"\n', encoding="utf-8")
+    shim.chmod(0o755)
+    tee = tmp_path / "tee"
+    tee.write_text('#!/bin/bash\n/usr/bin/tee "$@"\nexit 37\n', encoding="utf-8")
+    tee.chmod(0o755)
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+           "CLAUDIT_VENDOR_NAMESPACE": "", "RUNNER_TEMP": str(tmp_path), "REFRESH_RC": str(refresh_rc),
+           "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"), "GITHUB_OUTPUT": str(tmp_path / "output")}
+    proc = subprocess.run(
+        ["bash", "-e", "-c", _step("refresh", "Fetch and append")["run"]],
+        env=env, capture_output=True, text=True, check=False, timeout=8)
+    assert proc.returncode == 37, proc.stderr
+    assert proc.stderr == "refusal line\n"
+    assert not (tmp_path / "summary").exists()
+    assert not (tmp_path / "output").exists()
+
+
 def test_the_key_appears_once_in_the_file_and_only_in_the_push_job():
     raw = WORKFLOW.read_text(encoding="utf-8")
     # The only load site in the whole file is the push step's env mapping:
