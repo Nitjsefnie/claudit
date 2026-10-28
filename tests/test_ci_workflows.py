@@ -536,7 +536,9 @@ class TestRefreshPricingShards:
         verdict, = refresh_jobs["verdict"]["steps"]
         assert verdict["env"]["CLAUDIT_FETCH_RC"] == "${{ needs.refresh.outputs.fetch_rc }}"
         assert "python3 scripts/ci/refresh_provider_rates.py" in fetch
-        assert 'rc=${PIPESTATUS[0]}' in fetch
+        fetch_lines = [line.strip() for line in fetch.splitlines()]
+        tee_line = '2>&1 > "$RUNNER_TEMP/report.txt" | tee "$RUNNER_TEMP/refused.txt" >&2'
+        assert fetch_lines[fetch_lines.index(tee_line) + 1] == 'rc=${PIPESTATUS[0]}'
         assert 'echo "rc=$rc" >> "$GITHUB_OUTPUT"' in fetch
         moved = steps["moved"]["run"]
         assert "git diff --quiet -- src/pricing.json backend/constants.py" in moved
