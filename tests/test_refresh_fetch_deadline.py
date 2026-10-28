@@ -29,80 +29,62 @@ def _limits(monkeypatch, *, deadline=0.12, attempt=0.3, notice=1.0):
     return guard
 
 
-def _nested_pytest(tmp_path, plugin: str, *tests: str):
-    (tmp_path / "deadline_isolation_probe.py").write_text(plugin, encoding="utf-8")
-    env = dict(os.environ, PYTHONPATH=str(tmp_path) + os.pathsep + os.environ.get("PYTHONPATH", ""))
-    return subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-s", "--tb=short", "-p",
-         "deadline_isolation_probe", *tests],
-        cwd=Path(__file__).resolve().parents[1], env=env,
-        capture_output=True, text=True, check=False, timeout=30)
-
-
 def test_deadline_is_cleared_around_existing_retry_tests(tmp_path):
-    plugin = '''
+    probe = tmp_path / "deadline_isolation_probe.py"
+    probe.write_text('''
+import importlib
 import sys
 from pathlib import Path
 import pytest
 sys.path.insert(0, str(Path.cwd() / "scripts" / "ci"))
-import refresh_fetch_deadline as guard
 now = [100000.0]
 count = 0
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
     global count
     count += 1
-    if count == 1:
+    if count in (2, 4):
+        guard = sys.modules["refresh_fetch_deadline"]
+        assert (guard._deadline_at, guard._failed_url, guard._last_url) == (None, None, None)
+    if count == 3:
+        guard = sys.modules["refresh_fetch_deadline"]
         guard._now = lambda: now[0]
         guard._deadline_at = 99999.0
         guard._failed_url = "old failure"
         guard._last_url = "old request"
-    else:
-        assert (guard._deadline_at, guard._failed_url, guard._last_url) == (None, None, None)
+    if count == 4:
         now[0] += 481.0
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_teardown(item, nextitem):
-    if count == 1:
-        guard._failed_url = "failure from first test"
-'''
-    result = _nested_pytest(
-        tmp_path, plugin,
-        "tests/test_refresh_pricelog.py::test_a_server_error_gets_its_retry",
-        "tests/test_refresh_pricelog.py::test_a_rate_limit_answer_gets_its_retry")
+    if count == 3:
+        sys.modules["refresh_fetch_deadline"]._failed_url = "failure from first test"
+def test_no_import_then_late_import():
+    assert "refresh_fetch_deadline" not in sys.modules
+    guard = importlib.import_module("refresh_fetch_deadline")
+    guard._deadline_at = 123.0
+    guard._failed_url = "late failure"
+    guard._last_url = "late request"
+    from tests.test_cache import test_ttlcache_clear
+    test_ttlcache_clear()
+def test_late_import_was_reset():
+    from tests.test_cache import test_cache_response_decorator_caches_and_bypasses
+    test_cache_response_decorator_caches_and_bypasses()
+@pytest.mark.parametrize(("retry", "expected_time"), [
+    ("test_a_server_error_gets_its_retry", 100000.0),
+    ("test_a_rate_limit_answer_gets_its_retry", 100481.0)])
+def test_retry_after_reset(monkeypatch, retry, expected_time):
+    assert sys.modules["refresh_fetch_deadline"]._now() == expected_time
+    from tests import test_refresh_pricelog
+    getattr(test_refresh_pricelog, retry)(monkeypatch)
+''', encoding="utf-8")
+    env = dict(os.environ, PYTHONPATH=str(tmp_path) + os.pathsep + os.environ.get("PYTHONPATH", ""))
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-s", "--tb=short", "-p",
+         "tests.conftest", "-p", "deadline_isolation_probe", str(probe)],
+        cwd=Path(__file__).resolve().parents[1], env=env,
+        capture_output=True, text=True, check=False, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "2 passed" in result.stdout
-
-
-def test_deadline_reset_does_not_import_an_unused_module(tmp_path):
-    plugin = '''
-import importlib
-import sys
-from pathlib import Path
-import pytest
-count = 0
-sys.path.insert(0, str(Path.cwd() / "scripts" / "ci"))
-@pytest.hookimpl(tryfirst=True)
-def pytest_runtest_setup(item):
-    global count
-    count += 1
-    if count == 2:
-        guard = sys.modules["refresh_fetch_deadline"]
-        assert (guard._deadline_at, guard._failed_url, guard._last_url) == (None, None, None)
-@pytest.hookimpl(tryfirst=True)
-def pytest_runtest_call(item):
-    if count == 1:
-        assert "refresh_fetch_deadline" not in sys.modules
-        guard = importlib.import_module("refresh_fetch_deadline")
-        guard._deadline_at = 123.0
-        guard._failed_url = "late failure"
-        guard._last_url = "late request"
-'''
-    result = _nested_pytest(
-        tmp_path, plugin,
-        "tests/test_cache.py::test_ttlcache_clear",
-        "tests/test_cache.py::test_cache_response_decorator_caches_and_bypasses")
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "2 passed" in result.stdout
+    assert "4 passed" in result.stdout
 
 
 def test_deadline_stops_a_trickling_body_and_later_urls(monkeypatch):
