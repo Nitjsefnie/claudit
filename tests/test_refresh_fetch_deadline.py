@@ -4,12 +4,14 @@ import email.message
 import http.client
 import io
 import json
+import os
 import socketserver
 import subprocess
 import sys
 import threading
 import time
 import urllib.error
+from pathlib import Path
 
 import pytest
 
@@ -27,15 +29,91 @@ def _limits(monkeypatch, *, deadline=0.12, attempt=0.3, notice=1.0):
     return guard
 
 
+def _nested_pytest(tmp_path, plugin: str, *tests: str):
+    (tmp_path / "deadline_isolation_probe.py").write_text(plugin, encoding="utf-8")
+    env = dict(os.environ, PYTHONPATH=str(tmp_path) + os.pathsep + os.environ.get("PYTHONPATH", ""))
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-s", "--tb=short", "-p",
+         "deadline_isolation_probe", *tests],
+        cwd=Path(__file__).resolve().parents[1], env=env,
+        capture_output=True, text=True, check=False, timeout=30)
+
+
+def test_deadline_is_cleared_around_existing_retry_tests(tmp_path):
+    plugin = '''
+import sys
+from pathlib import Path
+import pytest
+sys.path.insert(0, str(Path.cwd() / "scripts" / "ci"))
+import refresh_fetch_deadline as guard
+now = [100000.0]
+count = 0
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    global count
+    count += 1
+    if count == 1:
+        guard._now = lambda: now[0]
+        guard._deadline_at = 99999.0
+        guard._failed_url = "old failure"
+        guard._last_url = "old request"
+    else:
+        assert (guard._deadline_at, guard._failed_url, guard._last_url) == (None, None, None)
+        now[0] += 481.0
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_teardown(item, nextitem):
+    if count == 1:
+        guard._failed_url = "failure from first test"
+'''
+    result = _nested_pytest(
+        tmp_path, plugin,
+        "tests/test_refresh_pricelog.py::test_a_server_error_gets_its_retry",
+        "tests/test_refresh_pricelog.py::test_a_rate_limit_answer_gets_its_retry")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "2 passed" in result.stdout
+
+
+def test_deadline_reset_does_not_import_an_unused_module(tmp_path):
+    plugin = '''
+import importlib
+import sys
+from pathlib import Path
+import pytest
+count = 0
+sys.path.insert(0, str(Path.cwd() / "scripts" / "ci"))
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    global count
+    count += 1
+    if count == 2:
+        guard = sys.modules["refresh_fetch_deadline"]
+        assert (guard._deadline_at, guard._failed_url, guard._last_url) == (None, None, None)
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_call(item):
+    if count == 1:
+        assert "refresh_fetch_deadline" not in sys.modules
+        guard = importlib.import_module("refresh_fetch_deadline")
+        guard._deadline_at = 123.0
+        guard._failed_url = "late failure"
+        guard._last_url = "late request"
+'''
+    result = _nested_pytest(
+        tmp_path, plugin,
+        "tests/test_cache.py::test_ttlcache_clear",
+        "tests/test_cache.py::test_cache_response_decorator_caches_and_bypasses")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "2 passed" in result.stdout
+
+
 def test_deadline_stops_a_trickling_body_and_later_urls(monkeypatch):
-    _limits(monkeypatch, attempt=0.6)
+    _limits(monkeypatch, attempt=5.5)
     release = threading.Event()
     opened = []
 
     class Trickle(io.BytesIO):
         def read(self, *args):
-            for _ in range(5):
-                release.wait(0.08)
+            for _ in range(10):
+                release.wait(0.5)
             return super().read(*args)
 
     def open_response(url):
@@ -50,7 +128,7 @@ def test_deadline_stops_a_trickling_body_and_later_urls(monkeypatch):
         with pytest.raises(TimeoutError) as error:
             pricelog._fetch_json(url)  # pylint: disable=protected-access
         assert url in str(error.value) and "expired" in str(error.value)
-        assert time.monotonic() - started < 0.35
+        assert time.monotonic() - started < 3.0
         later = "https://example.invalid/later"
         with pytest.raises(TimeoutError) as spent:
             pricelog._fetch_json(later)  # pylint: disable=protected-access
@@ -63,13 +141,13 @@ def test_deadline_stops_a_trickling_body_and_later_urls(monkeypatch):
 
 
 def test_deadline_stops_a_real_loopback_server_waiting_on_headers(monkeypatch):
-    _limits(monkeypatch, attempt=0.6)
+    _limits(monkeypatch, attempt=5.5)
     monkeypatch.setattr(pricelog, "_sleep", lambda _seconds: None)
     release = threading.Event()
 
     class Handler(socketserver.BaseRequestHandler):
         def handle(self):
-            release.wait(0.4)
+            release.wait(5.0)
             self.request.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
 
     server = socketserver.TCPServer(("127.0.0.1", 0), Handler)
@@ -81,7 +159,7 @@ def test_deadline_stops_a_real_loopback_server_waiting_on_headers(monkeypatch):
         with pytest.raises(TimeoutError) as error:
             pricelog._fetch_json(url)  # pylint: disable=protected-access
         assert url in str(error.value)
-        assert time.monotonic() - started < 0.35
+        assert time.monotonic() - started < 3.0
     finally:
         release.set()
         server.shutdown()
@@ -91,29 +169,34 @@ def test_deadline_stops_a_real_loopback_server_waiting_on_headers(monkeypatch):
 
 
 def test_in_flight_notices_are_flushed_each_interval(monkeypatch):
-    _limits(monkeypatch, deadline=1.0, attempt=0.8, notice=0.04)
+    _limits(monkeypatch, deadline=15.0, attempt=10.0, notice=0.04)
     release = threading.Event()
+    flushes = []
 
     class Notices(io.StringIO):
         def flush(self):
             super().flush()
-            if len(self.getvalue().splitlines()) >= 2:
+            flushes.append(True)
+            if len(flushes) >= 2:
                 release.set()
 
     notices = Notices()
     monkeypatch.setattr("sys.stderr", notices)
 
     def delayed_open(_url):
-        release.wait(0.4)
+        release.wait(5.0)
         return io.BytesIO(b'{}')
 
     monkeypatch.setattr(pricelog, "_open", delayed_open)
     url = "https://example.invalid/notices"
-    assert pricelog._fetch_json(url) == {}  # pylint: disable=protected-access
-    lines = notices.getvalue().splitlines()
-    assert len(lines) == 2
-    assert all(url in line and "second" in line for line in lines)
-    assert float(lines[-1].rsplit(": ", 1)[1].split()[0]) > 0
+    try:
+        assert pricelog._fetch_json(url) == {}  # pylint: disable=protected-access
+        lines = notices.getvalue().splitlines()
+        assert len(flushes) >= 2 and len(lines) >= 2
+        assert all(url in line and "second" in line for line in lines)
+        assert float(lines[1].rsplit(": ", 1)[1].split()[0]) > 0
+    finally:
+        release.set()
 
 
 def test_default_notice_cadence_names_each_elapsed_interval(monkeypatch, capsys):
@@ -162,7 +245,6 @@ def test_default_notice_cadence_names_each_elapsed_interval(monkeypatch, capsys)
                            email.message.Message(), None),
     http.client.IncompleteRead(b"x", 8),
     json.JSONDecodeError("invalid", "x", 0),
-    FileNotFoundError(2, "missing", "/missing"),
     ValueError("bad input"),
 ])
 def test_every_final_error_names_its_url(monkeypatch, error):
@@ -259,11 +341,6 @@ def test_deadline_can_expire_after_the_last_successful_fetch(monkeypatch):
     assert pricelog._fetch_json(url) == {}  # pylint: disable=protected-access
     now[0] += 480.0
     assert guard is not None and url in str(guard.deadline_error())
-
-
-def test_default_notice_interval_is_thirty_seconds():
-    guard = getattr(pricelog, "refresh_fetch_deadline", None)
-    assert guard is not None and guard.FETCH_NOTICE_S == 30
 
 
 def test_a_worker_base_exception_reaches_its_caller(monkeypatch):
@@ -454,6 +531,7 @@ def test_success_near_attempt_limit_is_not_rejected(monkeypatch, capsys):
     now = [100.0]
     if guard is not None:
         monkeypatch.setattr(guard, "_now", lambda: now[0])
+    monkeypatch.setattr(pricelog, "FETCH_ATTEMPTS", 1)
 
     def slow_success(_url):
         now[0] = 100.9

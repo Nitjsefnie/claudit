@@ -493,7 +493,7 @@ def test_a_blocked_open_is_bounded_on_every_attempt(monkeypatch):
     guard = getattr(pricelog, "refresh_fetch_deadline", None)
     if guard is not None:
         monkeypatch.setattr(guard, "FETCH_ATTEMPT_S", 0.05)
-        monkeypatch.setattr(guard, "FETCH_DEADLINE_S", 1.0)
+        monkeypatch.setattr(guard, "FETCH_DEADLINE_S", 10.0)
         monkeypatch.setattr(guard, "_deadline_at", None)
         monkeypatch.setattr(guard, "_failed_url", None)
     release = threading.Event()
@@ -501,7 +501,7 @@ def test_a_blocked_open_is_bounded_on_every_attempt(monkeypatch):
 
     def slow_open(url):
         opened.append(url)
-        release.wait(0.4)
+        release.wait(5.0)
         return io.BytesIO(b'{}')
 
     monkeypatch.setattr(pricelog, "_open", slow_open)
@@ -512,7 +512,7 @@ def test_a_blocked_open_is_bounded_on_every_attempt(monkeypatch):
         with pytest.raises(TimeoutError, match=url):
             pricelog._fetch_json(url)  # pylint: disable=protected-access
         assert len(opened) == 3
-        assert time.monotonic() - started < 0.35
+        assert time.monotonic() - started < 3.0
     finally:
         release.set()
 

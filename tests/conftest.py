@@ -165,6 +165,19 @@ def synthetic_provider_dated_rate(monkeypatch):
     )
 
 
+def _reset_fetch_deadline():
+    module = sys.modules.get("refresh_fetch_deadline")
+    if module is not None:
+        vars(module).update(_deadline_at=None, _failed_url=None, _last_url=None)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_fetch_deadline():
+    _reset_fetch_deadline()
+    yield
+    _reset_fetch_deadline()
+
+
 @pytest.fixture(autouse=True)
 def _reset_response_cache():
     # response_cache is a process-global. Two tests with different fixtures
