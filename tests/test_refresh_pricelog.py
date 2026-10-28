@@ -6,6 +6,8 @@ import importlib.util
 import io
 import json
 import sys
+import threading
+import time
 import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
@@ -485,6 +487,34 @@ def _fetch_with(monkeypatch, outcomes: list, sleeps: list) -> object:
     monkeypatch.setattr(pricelog, "_open", _fake_open(outcomes)[0])
     monkeypatch.setattr(pricelog, "_sleep", sleeps.append)
     return pricelog._fetch_json(pricelog.MODELS_URL)  # pylint: disable=protected-access
+
+
+def test_a_blocked_open_is_bounded_on_every_attempt(monkeypatch):
+    guard = getattr(pricelog, "refresh_fetch_deadline", None)
+    if guard is not None:
+        monkeypatch.setattr(guard, "FETCH_ATTEMPT_S", 0.05)
+        monkeypatch.setattr(guard, "FETCH_DEADLINE_S", 1.0)
+        monkeypatch.setattr(guard, "_deadline_at", None)
+        monkeypatch.setattr(guard, "_failed_url", None)
+    release = threading.Event()
+    opened = []
+
+    def slow_open(url):
+        opened.append(url)
+        release.wait(0.4)
+        return io.BytesIO(b'{}')
+
+    monkeypatch.setattr(pricelog, "_open", slow_open)
+    monkeypatch.setattr(pricelog, "_sleep", lambda _seconds: None)
+    url = "https://example.invalid/blocked-open"
+    started = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError, match=url):
+            pricelog._fetch_json(url)  # pylint: disable=protected-access
+        assert len(opened) == 3
+        assert time.monotonic() - started < 0.35
+    finally:
+        release.set()
 
 
 def test_one_catalog_timeout_is_retried_so_the_delisted_skip_survives(monkeypatch):

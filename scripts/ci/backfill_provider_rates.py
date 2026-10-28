@@ -250,13 +250,18 @@ def main(argv: list[str] | None = None, *, fetch: FetchEndpoints = refresh_price
         if rewrote:
             constants = hourly.bump_pricing_version(constants)
     except (hourly.RefreshError, ValueError, OSError) as exc:
-        print(f"backfill_provider_rates: {exc}", file=sys.stderr)
+        error = refresh_pricelog.refresh_fetch_deadline.deadline_error() or exc
+        print(f"backfill_provider_rates: {error}", file=sys.stderr)
         return 1
     print(_render(args.as_of, reports))
     if rewrote and not args.dry_run:
         pricing_path.write_text(serialize_pricing_doc(result),
                                 encoding="utf-8", newline="\n")
         constants_path.write_text(constants, encoding="utf-8", newline="\n")
+    error = refresh_pricelog.refresh_fetch_deadline.deadline_error()
+    if error is not None:
+        print(f"backfill_provider_rates: {error}", file=sys.stderr)
+        return 1
     return 0
 
 
