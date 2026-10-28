@@ -296,6 +296,29 @@ def test_a_completion_after_its_attempt_limit_is_refused(monkeypatch):
     assert url in str(caught.value)
 
 
+def test_an_attempt_timeout_can_retry_and_succeed(monkeypatch):
+    guard = _limits(monkeypatch, deadline=10.0, attempt=0.05)
+    release = threading.Event()
+    opened = []
+    sleeps = []
+
+    def open_response(url):
+        opened.append(url)
+        if len(opened) == 1:
+            release.wait(0.4)
+        return io.BytesIO(b'{"ok": true}')
+
+    monkeypatch.setattr(pricelog, "_open", open_response)
+    monkeypatch.setattr(pricelog, "_sleep", sleeps.append)
+    url = "https://example.invalid/attempt-retry"
+    try:
+        assert pricelog._fetch_json(url) == {"ok": True}  # pylint: disable=protected-access
+        assert opened == [url, url] and sleeps == [2.0]
+        assert guard is not None and guard.deadline_error() is None
+    finally:
+        release.set()
+
+
 def test_invalid_utf8_keeps_its_error_type_and_names_the_url(monkeypatch):
     _limits(monkeypatch, deadline=1.0)
     monkeypatch.setattr(pricelog, "_open", lambda _url: io.BytesIO(b'\xff'))
