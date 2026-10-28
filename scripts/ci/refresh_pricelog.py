@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Callable
 
+import refresh_fetch_deadline
 from refresh_logshape import PriceLogError, PriceSeries, read_log_payload
 from refresh_prices import (RefreshError, token_rates_of)
 from refresh_selection import selected_endpoint_indices
@@ -95,16 +96,8 @@ def _sleep(seconds: float) -> None:
 
 
 def _fetch_json(url: str) -> object:
-    """GET the URL as JSON, retrying bounded transient transport failures."""
-    for attempt in range(FETCH_ATTEMPTS):
-        try:
-            with _open(url) as response:
-                return json.load(response)
-        except _TRANSIENT as exc:
-            if not _transient(exc) or attempt + 1 == FETCH_ATTEMPTS:
-                raise
-            _sleep(FETCH_BACKOFF_S * 2 ** attempt)
-    raise AssertionError("unreachable: every attempt returns or raises")
+    return refresh_fetch_deadline.fetch_json(
+        url, _open, _sleep, _transient, FETCH_ATTEMPTS, FETCH_BACKOFF_S)
 
 
 def _rounded(value: float) -> float:

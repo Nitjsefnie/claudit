@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import io
 import json
 import sys
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -413,6 +415,120 @@ def test_backfill_unavailable_log_preserves_history_and_reports_failure():
     assert result["providers"][MODEL]["Wafer"] == history
     assert any("untouched Wafer" in line and "synthetic unavailable log" in line
                for line in reports[MODEL])
+
+
+def test_main_refuses_a_deadline_swallowed_by_the_model_catch(tmp_path, capsys, monkeypatch):
+    module = backfill.refresh_pricelog
+    guard = getattr(module, "refresh_fetch_deadline", None)
+    if guard is not None:
+        monkeypatch.setattr(guard, "FETCH_DEADLINE_S", 0.08)
+        monkeypatch.setattr(guard, "FETCH_ATTEMPT_S", 0.2)
+        monkeypatch.setattr(guard, "_deadline_at", None)
+        monkeypatch.setattr(guard, "_failed_url", None)
+    release = threading.Event()
+
+    def slow_open(_url):
+        release.wait(0.3)
+        return io.BytesIO(b'{"data": {"endpoints": []}}')
+
+    monkeypatch.setattr(module, "_open", slow_open)
+    pricing_path = tmp_path / "pricing.json"
+    constants_path = tmp_path / "constants.py"
+    pricing_path.write_text(serialize_pricing_doc(_doc({"Wafer": [_entry(None, RATE_A)]})),
+                            encoding="utf-8")
+    constants_path.write_text('PRICING_VERSION = "31"\n', encoding="utf-8")
+    url = "https://example.invalid/stalled-endpoint"
+    try:
+        rc = backfill.main(
+            ["--as-of", AS_OF, "--dry-run"],
+            fetch=lambda _model: module._fetch_json(url),  # pylint: disable=protected-access
+            fetch_models=lambda: {"data": [{"id": MODEL_ID, "canonical_slug": SLUG}]},
+            fetch_log=lambda _slug: {"data": {"series": []}},
+            pricing_path=pricing_path, constants_path=constants_path, now=NOW)
+        assert rc != 0
+        assert url in capsys.readouterr().err
+    finally:
+        release.set()
+
+
+def test_a_deadline_refusal_still_writes_earlier_valid_rewrites(tmp_path, capsys, monkeypatch):
+    module = backfill.refresh_pricelog
+    guard = getattr(module, "refresh_fetch_deadline", None)
+    if guard is not None:
+        monkeypatch.setattr(guard, "FETCH_DEADLINE_S", 0.08)
+        monkeypatch.setattr(guard, "_deadline_at", None)
+        monkeypatch.setattr(guard, "_failed_url", None)
+    release = threading.Event()
+
+    def slow_open(_url):
+        release.wait(0.3)
+        return io.BytesIO(b'{"data": {"endpoints": []}}')
+
+    monkeypatch.setattr(module, "_open", slow_open)
+    doc = seed_doc(
+        models={MODEL: [_entry(None, RATE_A)], "synthetic/other": [_entry(None, RATE_A)]},
+        providers={MODEL: {"Wafer": [_entry(None, RATE_A)]},
+                   "synthetic/other": {"Wafer": [_entry(None, RATE_A)]}},
+        tracked={MODEL: {"id": MODEL_ID}, "synthetic/other": {"id": "synthetic/other-id"}},
+        fetched=AS_OF)
+    pricing_path, constants_path = tmp_path / "pricing.json", tmp_path / "constants.py"
+    pricing_path.write_text(serialize_pricing_doc(doc), encoding="utf-8")
+    constants_path.write_text('PRICING_VERSION = "31"\n', encoding="utf-8")
+    log = {"data": {"series": [_series("Wafer", "wafer", [
+        ("2030-12-31T23:00:00Z", RATE_A), ("2031-01-01T00:10:00Z", RATE_B)])]}}
+    url = "https://example.invalid/partial-endpoint"
+
+    def fetch(model_id):
+        if model_id == MODEL_ID:
+            return {"data": {"endpoints": [fixture_endpoint("Wafer", RATE_B, tag="wafer/fp8")]}}
+        return module._fetch_json(url)  # pylint: disable=protected-access
+
+    try:
+        rc = backfill.main(["--as-of", AS_OF], fetch=fetch,
+                           fetch_models=lambda: {"data": [
+                               {"id": MODEL_ID, "canonical_slug": SLUG},
+                               {"id": "synthetic/other-id", "canonical_slug": "synthetic/other"}]},
+                           fetch_log=lambda _slug: log,
+                           pricing_path=pricing_path, constants_path=constants_path, now=NOW)
+        assert rc != 0 and url in capsys.readouterr().err
+        assert _saved_doc(pricing_path)["providers"][MODEL]["Wafer"] == [
+            _entry(None, RATE_A), _entry("2031-01-01T00:10:00Z", RATE_B)]
+        assert 'PRICING_VERSION = "32"' in constants_path.read_text(encoding="utf-8")
+    finally:
+        release.set()
+
+
+def test_main_names_a_swallowed_deadline_before_a_later_backfill_error(tmp_path, capsys, monkeypatch):
+    module = backfill.refresh_pricelog
+    guard = getattr(module, "refresh_fetch_deadline", None)
+    if guard is not None:
+        monkeypatch.setattr(guard, "FETCH_DEADLINE_S", 0.05)
+        monkeypatch.setattr(guard, "_deadline_at", None)
+        monkeypatch.setattr(guard, "_failed_url", None)
+    release = threading.Event()
+
+    def slow_open(_url):
+        release.wait(0.3)
+        return io.BytesIO(b'{}')
+
+    monkeypatch.setattr(module, "_open", slow_open)
+    url = "https://example.invalid/prior-endpoint"
+
+    def fail_after_deadline(*_args):
+        try:
+            module._fetch_json(url)  # pylint: disable=protected-access
+        except TimeoutError:
+            pass
+        raise backfill.hourly.RefreshError("later failure")
+
+    monkeypatch.setattr(backfill, "backfill", fail_after_deadline)
+    pricing_path = tmp_path / "pricing.json"
+    pricing_path.write_text("{}", encoding="utf-8")
+    try:
+        rc = backfill.main(["--as-of", AS_OF], pricing_path=pricing_path)
+        assert rc != 0 and url in capsys.readouterr().err
+    finally:
+        release.set()
 
 
 def test_backfill_preserves_search_rate_and_as_of(tmp_path, capsys):

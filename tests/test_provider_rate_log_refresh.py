@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import io
 import json
 import shutil
 import sys
+import threading
 import urllib.error
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -417,6 +419,93 @@ def test_log_fetch_failure_samples_moved_price_without_refusing_the_run(
         _entry(None, RATE_A), _entry(STAMP, RATE_C)]
     assert f'PRICING_VERSION = "{version + 1}"' in constants_path.read_text(
         encoding="utf-8")
+
+
+def test_main_refuses_a_deadline_swallowed_by_a_log_fetch(tmp_path, capsys, monkeypatch):
+    module = refresh.refresh_pricelog
+    guard = getattr(module, "refresh_fetch_deadline", None)
+    if guard is not None:
+        monkeypatch.setattr(guard, "FETCH_DEADLINE_S", 0.08)
+        monkeypatch.setattr(guard, "FETCH_ATTEMPT_S", 0.2)
+        monkeypatch.setattr(guard, "_deadline_at", None)
+        monkeypatch.setattr(guard, "_failed_url", None)
+    release = threading.Event()
+
+    def slow_open(_url):
+        release.wait(0.3)
+        return io.BytesIO(b'{"data": {"series": []}}')
+
+    monkeypatch.setattr(module, "_open", slow_open)
+    url = "https://example.invalid/stalled-log"
+    try:
+        rc, _, err, _, _ = _run(
+            tmp_path, capsys, history=[("2030-12-31T23:00:00Z", RATE_A)],
+            endpoint_rates=RATE_A,
+            log_fetch=lambda: module._fetch_json(url))  # pylint: disable=protected-access
+        assert rc != 0
+        assert url in err
+    finally:
+        release.set()
+
+
+def test_a_deadline_refusal_still_writes_other_valid_moves(tmp_path, capsys, monkeypatch):
+    module = refresh.refresh_pricelog
+    guard = getattr(module, "refresh_fetch_deadline", None)
+    if guard is not None:
+        monkeypatch.setattr(guard, "FETCH_DEADLINE_S", 0.08)
+        monkeypatch.setattr(guard, "_deadline_at", None)
+        monkeypatch.setattr(guard, "_failed_url", None)
+    release = threading.Event()
+
+    def slow_open(_url):
+        release.wait(0.3)
+        return io.BytesIO(b'{"data": {"series": []}}')
+
+    monkeypatch.setattr(module, "_open", slow_open)
+    url = "https://example.invalid/partial-log"
+    try:
+        rc, _, err, path, constants = _run(
+            tmp_path, capsys, history=[("2030-12-31T23:00:00Z", RATE_A)],
+            endpoint_rates=RATE_C,
+            log_fetch=lambda: module._fetch_json(url))  # pylint: disable=protected-access
+        saved = decoded_pricing_doc(json.loads(path.read_text(encoding="utf-8")))
+        assert rc != 0 and url in err
+        assert saved["providers"][MODEL][HOST] == [_entry(None, RATE_A), _entry(STAMP, RATE_C)]
+        assert 'PRICING_VERSION = "14"' in constants.read_text(encoding="utf-8")
+    finally:
+        release.set()
+
+
+def test_main_names_a_swallowed_deadline_before_a_later_refresh_error(tmp_path, capsys, monkeypatch):
+    module = refresh.refresh_pricelog
+    guard = getattr(module, "refresh_fetch_deadline", None)
+    if guard is not None:
+        monkeypatch.setattr(guard, "FETCH_DEADLINE_S", 0.05)
+        monkeypatch.setattr(guard, "_deadline_at", None)
+        monkeypatch.setattr(guard, "_failed_url", None)
+    release = threading.Event()
+
+    def slow_open(_url):
+        release.wait(0.3)
+        return io.BytesIO(b'{}')
+
+    monkeypatch.setattr(module, "_open", slow_open)
+    url = "https://example.invalid/prior-log"
+
+    def fail_after_deadline(*_args):
+        try:
+            module._fetch_json(url)  # pylint: disable=protected-access
+        except TimeoutError:
+            pass
+        raise refresh.RefreshError("later failure")
+
+    monkeypatch.setattr(refresh, "refresh", fail_after_deadline)
+    try:
+        rc, _, err, _, _ = _run(
+            tmp_path, capsys, history=[("2030-12-31T23:00:00Z", RATE_A)])
+        assert rc != 0 and url in err
+    finally:
+        release.set()
 
 
 def test_report_lists_each_sampled_host_with_a_short_reason():
