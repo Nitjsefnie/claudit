@@ -29,6 +29,7 @@
     "claude-sonnet-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us-east-1'",
     "claude-sonnet-5 via Azure: rule-resolved (data region): the global data region leaves 'azure/global'; dropped 'azure/us'",
     "claude-sonnet-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
+    "claude-sonnet-5-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us-east-1'",
     "claude-sonnet-5-5 via Azure: rule-resolved (data region): the global data region leaves 'azure/global'; dropped 'azure/us'",
     "claude-sonnet-5-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
     "deepseek-v4-1-flash via BaseTen: rule-resolved (bare namespace): took the bare namespace endpoint 'baseten' over service tiers 'baseten/fast'",
@@ -469,6 +470,7 @@
       "DekaLLM",
       "Ionstream",
       "Krea",
+      "ModelRun",
       "NextBit"
     ],
     "deepseek-v4-flash": [
