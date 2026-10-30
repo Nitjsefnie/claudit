@@ -1,5 +1,7 @@
 {
   "notices": [
+    "alternating price: kimi-k3 via Relace: the listed rates equal the entry from 2026-10-25T11:55:38Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
+    "alternating price: kimi-k3 via Wafer: the listed rates equal the entry from 2026-10-29T04:55:49Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe'",
     "claude-haiku-4-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us'",
     "claude-haiku-4-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us-east5'",
@@ -203,7 +205,6 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-1-flash via Morph; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba",
     "tag 'alibaba/prime' names neither a known region nor a quantization: glm-5-3 via Alibaba",
@@ -230,6 +231,8 @@
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
+    "the listing lags the listed-pricing log for kimi-k3 via Relace; the host was sampled",
+    "the listing lags the listed-pricing log for kimi-k3 via Wafer; the host was sampled",
     "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, deepseek/deepseek-chat, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-chat-v3.1, deepseek/deepseek-r1-0528, deepseek/deepseek-v3.1-terminus, deepseek/deepseek-v3.2, deepseek/deepseek-v3.2-exp, deepseek/deepseek-v4-flash, deepseek/deepseek-v4-flash-0731, deepseek/deepseek-v4-flash-vision-exp, deepseek/deepseek-v4-pro, deepseek/deepseek-v4.1-flash, google/gemini-2.5-flash, google/gemini-2.5-flash-lite, google/gemini-2.5-pro, google/gemini-2.5-pro-preview, google/gemini-3-flash-preview, google/gemini-3.1-flash-lite, google/gemini-3.1-flash-lite-preview, google/gemini-3.1-pro-preview, google/gemini-3.1-pro-preview-customtools, google/gemini-3.5-flash, google/gemini-3.5-flash-lite, google/gemini-3.6-flash, google/gemini-3.7-flash, google/gemini-3.8-flash, google/gemini-4-argon, google/gemma-2-27b-it, google/gemma-3-12b-it, google/gemma-3-27b-it, google/gemma-3-4b-it, google/gemma-4-26b-a4b-it, google/gemma-4-31b-it, meta-llama/llama-3.1-70b-instruct, meta-llama/llama-3.1-8b-instruct, meta-llama/llama-3.2-1b-instruct, meta-llama/llama-3.2-3b-instruct, meta-llama/llama-3.3-70b-instruct, meta-llama/llama-4-maverick, meta-llama/llama-4-scout, meta-llama/llama-guard-4-12b, meta/muse-glimmer-30b, meta/muse-spark-open, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, nvidia/nemotron-3-nano-30b-a3b, nvidia/nemotron-3-super-120b-a12b, nvidia/nemotron-3-ultra-550b-a55b, nvidia/nemotron-3.5-content-safety, nvidia/nemotron-3.5-lightning, nvidia/nemotron-3.5-super-vl, openai/gpt-3.5-turbo-0613, openai/gpt-4, openai/gpt-4.1-nano, openai/gpt-4o-2024-05-13, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-chat, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, stepfun/step-3.5-flash, tencent/hunyuan-a13b-instruct, tencent/hy3-preview, xiaomi/mimo-v2.5, xiaomi/mimo-v2.5-pro, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
   ],
   "sampled": {
@@ -336,7 +339,6 @@
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints at one current price",
       "InferenceNet": "2 endpoints at one current price",
-      "Morph": "no matching log state",
       "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-1-flash-1017": {
@@ -461,7 +463,9 @@
     "kimi-k3": {
       "Fireworks": "2 endpoints at one current price",
       "InferenceNet": "2 endpoints at one current price",
-      "Sail Research": "2 endpoints at one current price"
+      "Relace": "listing lags log",
+      "Sail Research": "2 endpoints at one current price",
+      "Wafer": "listing lags log"
     },
     "minimax-m3-1-flash": {
       "InferenceNet": "2 endpoints at one current price"
