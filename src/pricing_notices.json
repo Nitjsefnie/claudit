@@ -36,7 +36,7 @@
     "claude-sonnet-5-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us-east-1'",
     "claude-sonnet-5-5 via Azure: rule-resolved (data region): the global data region leaves 'azure/global'; dropped 'azure/us'",
     "claude-sonnet-5-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
-    "deepseek-v4-1-flash via BaseTen: rule-resolved (bare namespace): took the bare namespace endpoint 'baseten' over service tiers 'baseten/fast'",
+    "deepseek-v4-1-flash via BaseTen: rule-resolved (data region): the global data region leaves 'baseten'; dropped 'baseten/us'",
     "deepseek-v4-1-flash via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-1-flash via Fireworks: rule-resolved (data region): took the global endpoint 'fireworks' over 'fireworks/spot'",
     "deepseek-v4-1-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp8'; dropped 'inference-net/us'",
@@ -213,7 +213,7 @@
     "tag 'anthropic/fast' names neither a known region nor a quantization: claude-opus-4-8 via Anthropic, claude-opus-5 via Anthropic, claude-opus-5-5 via Anthropic",
     "tag 'azure/swedencentral' names neither a known region nor a quantization: gpt-4-1 via Azure, gpt-4-1-mini via Azure, gpt-4-1-nano via Azure, gpt-4o-mini via Azure, gpt-5 via Azure, gpt-5-1 via Azure, gpt-5-mini via Azure, gpt-5-nano via Azure",
     "tag 'baidu/fast' names neither a known region nor a quantization: glm-5-2 via Baidu",
-    "tag 'baseten/fast' names neither a known region nor a quantization: deepseek-v4-1-flash via BaseTen, glm-5-2 via BaseTen, glm-5-3 via BaseTen",
+    "tag 'baseten/fast' names neither a known region nor a quantization: glm-5-2 via BaseTen, glm-5-3 via BaseTen",
     "tag 'baseten/us/fast' names neither a known region nor a quantization: glm-5-2 via BaseTen, glm-5-3 via BaseTen",
     "tag 'decart/fast' names neither a known region nor a quantization: glm-5-2 via Decart",
     "tag 'deepinfra/fp4/flex' names neither a known region nor a quantization: glm-4-6 via DeepInfra, glm-4-7 via DeepInfra, glm-5-2 via DeepInfra",
@@ -337,7 +337,7 @@
     },
     "deepseek-v4-1-flash": {
       "Alibaba": "endpoint schedule",
-      "BaseTen": "log series count mismatch",
+      "BaseTen": "2 endpoints at one current price",
       "InferenceNet": "2 endpoints at one current price",
       "Sail Research": "2 endpoints at one current price"
     },
