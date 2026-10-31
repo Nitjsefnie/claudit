@@ -2,6 +2,7 @@
   "notices": [
     "alternating price: deepseek-v4-1-flash via InferenceNet: the listed rates equal the entry from 2026-10-30T17:54:02Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: glm-5-3 via InferenceNet: the listed rates equal the entry from 2026-10-30T22:53:36Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
+    "alternating price: glm-5-3-flash via InferenceNet: the listed rates equal the entry from 2026-10-28T00:35:24Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: kimi-k3 via InferenceNet: the listed rates equal the entry from 2026-10-30T17:54:02Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe'",
     "claude-haiku-4-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us'",
@@ -336,7 +337,7 @@
     },
     "deepseek-v4-1-flash": {
       "Alibaba": "endpoint schedule",
-      "BaseTen": "2 endpoints at one current price",
+      "BaseTen": "log series count mismatch",
       "InferenceNet": "2 endpoints at one current price",
       "Sail Research": "2 endpoints at one current price"
     },
