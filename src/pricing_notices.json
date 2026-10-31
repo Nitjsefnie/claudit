@@ -531,7 +531,8 @@
     "glm-5-3-flash": [
       "Cloudflare",
       "Decart",
-      "DekaLLM"
+      "DekaLLM",
+      "Tenstorrent"
     ],
     "gpt-3-5-turbo-16k": [
       "OpenAI"
