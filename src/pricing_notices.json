@@ -1,7 +1,7 @@
 {
   "notices": [
-    "alternating price: deepseek-v4-1-flash via InferenceNet: the listed rates equal the entry from 2026-10-30T17:54:02Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
-    "alternating price: glm-5-3 via InferenceNet: the listed rates equal the entry from 2026-10-30T22:53:36Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
+    "alternating price: deepseek-v4-1-flash via InferenceNet: the listed rates equal the entry from 2026-10-26T18:53:57Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
+    "alternating price: glm-5-3 via InferenceNet: the listed rates equal the entry from 2026-10-25T06:26:19Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: glm-5-3-flash via InferenceNet: the listed rates equal the entry from 2026-10-28T00:35:24Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: kimi-k3 via InferenceNet: the listed rates equal the entry from 2026-10-30T17:54:02Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe'",
