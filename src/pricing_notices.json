@@ -139,6 +139,9 @@
     "kimi-k3 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
     "kimi-k3 via Wafer: rule-resolved (bare namespace): took the bare namespace endpoint 'wafer' over service tiers 'wafer/fast'",
     "kimi-k3-1-pro via Moonshot AI: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
+    "listed-pricing log unavailable for claude-opus-4-1: HTTP Error 408: Request Timeout; its hosts were sampled",
+    "listed-pricing log unavailable for glm-5-3-flash: HTTP Error 408: Request Timeout; its hosts were sampled",
+    "listed-pricing log unavailable for mimo-v2-5-pro: HTTP Error 408: Request Timeout; its hosts were sampled",
     "minimax-m2-1 via Minimax: rule-resolved (bare namespace): took the bare namespace endpoint 'minimax' over service tiers 'minimax/highspeed'",
     "minimax-m2-5 via Minimax: rule-resolved (bare namespace): took the bare namespace endpoint 'minimax' over service tiers 'minimax/highspeed'",
     "minimax-m2-7 via Minimax: rule-resolved (bare namespace): took the bare namespace endpoint 'minimax' over service tiers 'minimax/highspeed'",
@@ -159,7 +162,6 @@
     "no in-force state of the listed-pricing log matches the listing for claude-haiku-4-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-haiku-4-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-haiku-4-5 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-1 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-5 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-5 via Azure; the host was sampled",
@@ -262,7 +264,7 @@
       "Google": "long-context band"
     },
     "claude-opus-4-1": {
-      "Amazon Bedrock": "no matching log state"
+      "Amazon Bedrock": "HTTP Error 408: Request Timeout"
     },
     "claude-opus-4-5": {
       "Amazon Bedrock": "no matching log state",
@@ -366,8 +368,41 @@
       "Sail Research": "2 endpoints at one current price"
     },
     "glm-5-3-flash": {
-      "BaseTen": "2 endpoints at one current price",
-      "InferenceNet": "2 endpoints at one current price"
+      "AtlasCloud": "HTTP Error 408: Request Timeout",
+      "BaseTen": "HTTP Error 408: Request Timeout",
+      "Cohere": "HTTP Error 408: Request Timeout",
+      "CoreWeave": "HTTP Error 408: Request Timeout",
+      "Crusoe": "HTTP Error 408: Request Timeout",
+      "Darkbloom": "HTTP Error 408: Request Timeout",
+      "DeepInfra": "HTTP Error 408: Request Timeout",
+      "DigitalOcean": "HTTP Error 408: Request Timeout",
+      "Fireworks": "HTTP Error 408: Request Timeout",
+      "Friendli": "HTTP Error 408: Request Timeout",
+      "GMICloud": "HTTP Error 408: Request Timeout",
+      "Inceptron": "HTTP Error 408: Request Timeout",
+      "InferenceNet": "HTTP Error 408: Request Timeout",
+      "Makora": "HTTP Error 408: Request Timeout",
+      "Mistral": "HTTP Error 408: Request Timeout",
+      "Modal": "HTTP Error 408: Request Timeout",
+      "Morph": "HTTP Error 408: Request Timeout",
+      "Near AI": "HTTP Error 408: Request Timeout",
+      "Nebius": "HTTP Error 408: Request Timeout",
+      "NextBit": "HTTP Error 408: Request Timeout",
+      "Novita": "HTTP Error 408: Request Timeout",
+      "OpenInference": "HTTP Error 408: Request Timeout",
+      "Parasail": "HTTP Error 408: Request Timeout",
+      "Particle AI": "HTTP Error 408: Request Timeout",
+      "Phala": "HTTP Error 408: Request Timeout",
+      "PrimeIntellect": "HTTP Error 408: Request Timeout",
+      "Reka": "HTTP Error 408: Request Timeout",
+      "Relace": "HTTP Error 408: Request Timeout",
+      "Sail Research": "HTTP Error 408: Request Timeout",
+      "SiliconFlow": "HTTP Error 408: Request Timeout",
+      "StreamLake": "HTTP Error 408: Request Timeout",
+      "Together": "HTTP Error 408: Request Timeout",
+      "Venice": "HTTP Error 408: Request Timeout",
+      "Wafer": "HTTP Error 408: Request Timeout",
+      "Z.AI": "HTTP Error 408: Request Timeout"
     },
     "gpt-5-4": {
       "Azure": "long-context band",
@@ -461,6 +496,11 @@
       "Fireworks": "2 endpoints at one current price",
       "InferenceNet": "2 endpoints at one current price"
     },
+    "mimo-v2-5-pro": {
+      "AtlasCloud": "HTTP Error 408: Request Timeout",
+      "DigitalOcean": "HTTP Error 408: Request Timeout",
+      "GMICloud": "HTTP Error 408: Request Timeout"
+    },
     "minimax-m3-1-flash": {
       "InferenceNet": "2 endpoints at one current price",
       "Minimax": "endpoint schedule"
@@ -527,8 +567,7 @@
     ],
     "glm-5-3": [
       "ModelRun",
-      "OpenInference",
-      "Tenstorrent"
+      "OpenInference"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
