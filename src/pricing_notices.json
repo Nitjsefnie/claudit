@@ -213,7 +213,6 @@
     "tag 'baidu/fast' names neither a known region nor a quantization: glm-5-2 via Baidu",
     "tag 'baseten/fast' names neither a known region nor a quantization: glm-5-2 via BaseTen, glm-5-3 via BaseTen",
     "tag 'baseten/us/fast' names neither a known region nor a quantization: glm-5-2 via BaseTen, glm-5-3 via BaseTen",
-    "tag 'decart/fast' names neither a known region nor a quantization: glm-5-2 via Decart",
     "tag 'deepinfra/fp4/flex' names neither a known region nor a quantization: glm-4-6 via DeepInfra, glm-4-7 via DeepInfra, glm-5-2 via DeepInfra",
     "tag 'deepinfra/fp8/flex' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra, minimax-m3 via DeepInfra",
     "tag 'deepinfra/fp8/priority' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra",
@@ -520,6 +519,7 @@
       "Google"
     ],
     "glm-5-2": [
+      "Decart",
       "InferenceNet",
       "Phala"
     ],
