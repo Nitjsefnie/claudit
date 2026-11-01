@@ -477,6 +477,7 @@
     ],
     "deepseek-v4-1-flash": [
       "Cloudflare",
+      "Decart",
       "DeepSeek",
       "DekaLLM",
       "Ionstream",
@@ -485,6 +486,7 @@
       "NextBit"
     ],
     "deepseek-v4-1-flash-1017": [
+      "Decart",
       "ModelRun"
     ],
     "deepseek-v4-flash": [
