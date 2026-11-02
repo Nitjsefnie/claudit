@@ -529,8 +529,7 @@
     ],
     "glm-5-3": [
       "ModelRun",
-      "OpenInference",
-      "Tenstorrent"
+      "OpenInference"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
