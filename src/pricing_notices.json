@@ -505,6 +505,7 @@
       "Nebius",
       "NextBit",
       "OpenInference",
+      "PrimeIntellect",
       "Together"
     ],
     "deepseek-v4-pro": [
@@ -568,6 +569,9 @@
       "Novita",
       "StreamLake",
       "Xiaomi"
+    ],
+    "mimo-v2-6-flash": [
+      "Relace"
     ],
     "minimax-m2": [
       "Google"
