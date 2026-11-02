@@ -38,6 +38,7 @@
     "deepseek-v4-1-flash via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-1-flash via Fireworks: rule-resolved (data region): took the global endpoint 'fireworks' over 'fireworks/spot'",
     "deepseek-v4-1-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp8'; dropped 'inference-net/us'",
+    "deepseek-v4-1-flash via Relace: rule-resolved (unique quantization): took the fp4 endpoint 'relace/fp4' over service tiers",
     "deepseek-v4-1-flash via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
     "deepseek-v4-1-flash via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
     "deepseek-v4-1-flash-1017 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
@@ -228,7 +229,7 @@
     "tag 'openai/fast' names neither a known region nor a quantization: gpt-5-1 via OpenAI, gpt-5-2 via OpenAI, gpt-5-3-codex via OpenAI, gpt-5-4 via OpenAI, gpt-5-4-mini via OpenAI, gpt-5-5 via OpenAI, gpt-5-6-luna via OpenAI, gpt-5-6-luna-pro via OpenAI, gpt-5-6-sol via OpenAI, gpt-5-6-sol-pro via OpenAI, gpt-5-6-terra via OpenAI, gpt-5-6-terra-pro via OpenAI, gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-1-terra via OpenAI, gpt-6-1-terra-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI, gpt-6-luna via OpenAI, gpt-6-luna-pro via OpenAI, gpt-6-sol via OpenAI, gpt-6-sol-pro via OpenAI",
     "tag 'openai/flex' names neither a known region nor a quantization: gpt-5-1 via OpenAI, gpt-5-2 via OpenAI, gpt-5-4 via OpenAI, gpt-5-4-mini via OpenAI, gpt-5-4-nano via OpenAI, gpt-5-4-pro via OpenAI, gpt-5-5 via OpenAI, gpt-5-5-pro via OpenAI, gpt-5-6-luna via OpenAI, gpt-5-6-luna-pro via OpenAI, gpt-5-6-sol via OpenAI, gpt-5-6-sol-pro via OpenAI, gpt-5-6-terra via OpenAI, gpt-5-6-terra-pro via OpenAI, gpt-5-mini via OpenAI, gpt-5-nano via OpenAI, gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-1-terra via OpenAI, gpt-6-1-terra-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI, gpt-6-luna via OpenAI, gpt-6-luna-pro via OpenAI, gpt-6-sol via OpenAI, gpt-6-sol-pro via OpenAI",
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
-    "tag 'relace/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Relace",
+    "tag 'relace/fast' names neither a known region nor a quantization: deepseek-v4-1-flash via Relace, deepseek-v4-1-flash-1017 via Relace, deepseek-v4-flash-0731 via Relace",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
@@ -349,6 +350,7 @@
     "deepseek-v4-flash-0731": {
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints selected",
+      "Relace": "2 endpoints selected",
       "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-pro-0813": {
@@ -505,7 +507,6 @@
       "Nebius",
       "NextBit",
       "OpenInference",
-      "PrimeIntellect",
       "Together"
     ],
     "deepseek-v4-pro": [
