@@ -125,6 +125,7 @@
     "gpt-6-astra via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex', 'openai/ultrafast'",
     "gpt-6-astra-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/us'",
     "gpt-6-astra-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex', 'openai/ultrafast'",
+    "gpt-6-luna via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/us-east-1'",
     "gpt-6-luna via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-luna via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-6-luna-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
@@ -437,6 +438,7 @@
       "OpenAI": "long-context band"
     },
     "gpt-6-luna": {
+      "Amazon Bedrock": "long-context band",
       "Azure": "long-context band",
       "OpenAI": "long-context band"
     },
@@ -548,9 +550,6 @@
     ],
     "gpt-4o-2024-05-13": [
       "OpenAI"
-    ],
-    "gpt-6-luna": [
-      "Amazon Bedrock"
     ],
     "hy4-preview": [
       "Io Net"
