@@ -1,4 +1,4 @@
-const { useState, useMemo, useEffect } = React;
+var { useState, useMemo, useEffect } = React;
 
 function TokenBreakdownPanel({ events }) {
   const [activeModel, setActiveModel] = useState('');
@@ -17,7 +17,7 @@ function TokenBreakdownPanel({ events }) {
     [events, activeModel]);
   const { rows, costRows, tokenTotal, costTotal } = useMemo(
     () => window.computeTokenBreakdown(filtered), [filtered]);
-  // A free lane (bonsai-2-27b at $0) gives every row cost 0, and
+  // A free lane (bonsai-2-27b at $0) gives each row cost 0, and
   // computeTokenBreakdown floors costTotal at 1 to keep the division
   // finite — so the bars would all read "$0 (0.0%)" rather than say
   // nothing. Drop the bar instead; the token bar above is unaffected.

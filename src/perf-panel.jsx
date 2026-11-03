@@ -1,4 +1,4 @@
-// Page performance readout — the browser half of the
+// Performance readout — the browser half of the
 // journey, layout-stability and blocking telemetry that src/perf.js
 // beacons, read back from /api/web-metrics.
 // `series` is the POOLED range-level readout and `buckets` the same grain
@@ -23,7 +23,7 @@
 // value. The panel carries no static declaration: one on a panel that
 // renders data fails the sweep.
 
-const { useState, useEffect } = React;
+var { useState, useEffect } = React;
 
 function perfMs(v) {
   if (v == null || typeof v !== 'number' || !isFinite(v)) return '—';

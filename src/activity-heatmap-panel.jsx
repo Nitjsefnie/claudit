@@ -1,8 +1,8 @@
 // DST handling lives in the backend (Postgres AT TIME ZONE); this panel
 // only renders the dow/hour cells it is given.
-const TH_X = window.dashboardTheme;
-const COL_X = window.dashboardCol;
-const humanFmt_X = window.humanFmt;
+var TH_X = window.dashboardTheme;
+var COL_X = window.dashboardCol;
+var humanFmt_X = window.humanFmt;
 
 const _HEAT_DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const _HEAT_METRICS = [

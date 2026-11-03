@@ -1,4 +1,4 @@
-const { useState } = React;
+var { useState } = React;
 const BRAND = window.BRAND || {};
 
 function RangePicker({ active, onChange }) {

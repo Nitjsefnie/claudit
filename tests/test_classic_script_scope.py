@@ -18,7 +18,6 @@ semantics the page has, so the same collisions throw here as there.
 The tag list is parsed from index.html at test time, at load order, so a
 newly added classic script is guarded by construction. /vendor/ and CDN
 scripts are skipped: this checks our globals, not third-party browser runtimes.
-Babel transpiles type="text/babel" tags outside classic-script instantiation.
 
 The seams' typeof alone cannot catch a miswired seam: a rename in
 parser-lanes.js leaves every seam a function bound to undefined helpers,
@@ -44,6 +43,7 @@ from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML = ROOT / "public" / "index.html"
+BOOT_LOADER = ROOT / "src" / "babel-loader.js"
 CODEX_PROBE_FIXTURE = ROOT / "fixtures" / "parser" / "codex_min.jsonl"
 KIMI_CODE_PROBE_FIXTURE = ROOT / "fixtures" / "parser" / "kimi_code_min.jsonl"
 KIMI_LEGACY_PROBE_FIXTURE = (
@@ -69,7 +69,7 @@ _SEAMS = (
 # failing script is reported on stderr and exits nonzero.
 _RUNNER = """
 const vm = require('vm');
-const { scripts, probes } = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+const { scripts, probes, babelScripts } = JSON.parse(require('fs').readFileSync(0, 'utf8'));
 // pricing-loader.js takes its node path in the sandbox (no document
 // here): it reads the rate document beside __dirname, so hand the
 // context the require/__dirname pair its own docstring names as the
@@ -77,6 +77,8 @@ const { scripts, probes } = JSON.parse(require('fs').readFileSync(0, 'utf8'));
 const ctx = vm.createContext({
   require: (name) => require(name),
   __dirname: process.env.CLAUDIT_SRC_DIR,
+  Babel: {disableScriptTags() {}},
+  addEventListener() {},
 });
 vm.runInContext('var window = globalThis;', ctx, { filename: '<prelude>' });
 for (const [name, code] of scripts) {
@@ -85,6 +87,24 @@ for (const [name, code] of scripts) {
   } catch (e) {
     console.error(name + ': ' + e);
     process.exit(1);
+  }
+}
+if (babelScripts.length) {
+  const Babel = require(process.env.CLAUDIT_BABEL_FILE);
+  ctx.React = {createElement() {}, useState() {}, useEffect() {}, useMemo() {},
+    useRef() {}, useLayoutEffect() {}, useId() {}};
+  ctx.ReactDOM = {createRoot() { return {render() {}}; }};
+  ctx.document = {documentElement: {}, getElementById() { return {}; }};
+  ctx.getComputedStyle = () => ({getPropertyValue: () => ''});
+  for (const [name, code] of babelScripts) {
+    try {
+      const compiled = Babel.transform(code, {presets: ['react'], plugins: [], filename: name,
+        sourceFileName: name, sourceMaps: 'inline'}).code;
+      vm.runInContext('"use strict";' + compiled, ctx, { filename: name });
+    } catch (e) {
+      console.error(name + ': ' + e);
+      process.exit(1);
+    }
   }
 }
 const seams = %SEAMS%;
@@ -159,7 +179,8 @@ def _classic_scripts() -> list[tuple[str, str]]:
     return out
 
 
-def _realm_summary(scripts: list[tuple[str, str]]) -> dict:
+def _realm_summary(scripts: list[tuple[str, str]],
+                   babel_scripts: list[tuple[str, str]] | None = None) -> dict:
     """Load one ordered script set and probe its globals and parser seams."""
     runner = _RUNNER.replace("%SEAMS%", repr(list(_SEAMS)))
     probes = {
@@ -171,16 +192,32 @@ def _realm_summary(scripts: list[tuple[str, str]]) -> dict:
         ["node", "-e", runner],
         input=json.dumps({
             "scripts": scripts,
+            "babelScripts": babel_scripts or [],
             "probes": {name: path.read_text(encoding="utf-8")
                        for name, path in probes.items()},
         }).encode(),
         capture_output=True,
         timeout=60,
-        env={**os.environ, "CLAUDIT_SRC_DIR": str(ROOT / "src")},
+        env={**os.environ, "CLAUDIT_SRC_DIR": str(ROOT / "src"),
+             "CLAUDIT_BABEL_FILE": str(ROOT / "public" / "vendor" / "babel.min.js")},
         check=False,
     )
     assert proc.returncode == 0, proc.stderr.decode()
     return json.loads(proc.stdout.decode())
+
+
+def _babel_scripts() -> list[tuple[str, str]]:
+    collector = _ScriptTagCollector()
+    collector.feed(INDEX_HTML.read_text(encoding="utf-8"))
+    out = []
+    for attrs, body in collector.scripts:
+        tag = dict(attrs)
+        if tag.get("type") != "text/babel":
+            continue
+        url = tag.get("src")
+        out.append((url, (ROOT / url.lstrip("/")).read_text(encoding="utf-8"))
+                   if url else ("Inline Babel script", body))
+    return out
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
@@ -225,3 +262,184 @@ def test_classic_scripts_load_in_one_realm() -> None:
             "dropped or reordered in index.html, or its helpers bound to "
             "undefined)"
         )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_babel_scripts_share_the_classic_realm() -> None:
+    scripts = _classic_scripts()
+    babel_scripts = _babel_scripts()
+    assert babel_scripts and babel_scripts[-1][0] == "Inline Babel script"
+    _realm_summary(scripts, babel_scripts)
+    first, *rest = babel_scripts
+    duplicate = first[0], first[1] + "\nconst __claudit_scope_probe = 1;\n"
+    second = rest[0][0], rest[0][1] + "\nconst __claudit_scope_probe = 2;\n"
+    with pytest.raises(AssertionError, match="__claudit_scope_probe"):
+        _realm_summary(scripts, [duplicate, second, *rest[1:]])
+    with pytest.raises(AssertionError, match="__claudit_scope_probe"):
+        _realm_summary([*scripts, ("probe.js", "const __claudit_scope_probe = 1;")],
+                       [duplicate, *rest])
+
+
+_BOOT_RUNNER = r"""
+const fs = require('fs');
+const vm = require('vm');
+const scenario = process.argv[1];
+const path = process.argv[2];
+const urls = ['https://dashboard.test/a.jsx?v=1', 'https://dashboard.test/b.jsx?v=2'];
+const tags = [
+  {src: urls[0], nonce: 'nonce-a', innerHTML: ''},
+  {src: urls[1], nonce: 'nonce-b', innerHTML: ''},
+  {src: '', nonce: 'nonce-inline',
+    innerHTML: "events.push((function () { return this === undefined; })() ? 'inline-strict' : 'inline-sloppy')"},
+];
+const requests = {}, tasks = [], errors = [], calls = [], events = [];
+let ready, disabled = false, tick = 0;
+const context = vm.createContext({
+  events,
+  Babel: {
+    disableScriptTags() { disabled = true; },
+    transform(source, options) {
+      calls.push({source, options, tick});
+      if (source === 'bad syntax') throw new SyntaxError('compile failed');
+      return {code: source};
+    },
+  },
+  fetch(url, options) {
+    events.push('fetch:' + url);
+    return new Promise((resolve, reject) => { requests[url] = {resolve, reject, options}; });
+  },
+  setTimeout(fn) { tasks.push(fn); },
+});
+context.window = context;
+context.addEventListener = (type, fn) => { if (type === 'DOMContentLoaded') ready = fn; };
+context.document = {
+  querySelectorAll(selector) {
+    if (selector !== 'script[type="text/babel"]') throw Error('unexpected selector: ' + selector);
+    return tags;
+  },
+  createElement(type) {
+    if (type !== 'script') throw Error('unexpected element: ' + type);
+    return {};
+  },
+  head: {appendChild(script) {
+    events.push('nonce:' + script.nonce);
+    try { vm.runInContext(script.text, context); } catch (e) { errors.push(String(e)); }
+  }},
+};
+const settle = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
+async function drain() {
+  let count = 0;
+  while (tasks.length && count++ < 30) {
+    tick++;
+    try { tasks.shift()(); } catch (e) { errors.push(String(e)); }
+    await settle();
+  }
+  if (tasks.length) throw Error('task queue failed to drain');
+}
+function respond(url, status, text) {
+  requests[url].resolve({status, text: () => Promise.resolve(text)});
+}
+(async () => {
+  vm.runInContext(fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : '', context);
+  const beforeReady = {disabled, requests: Object.keys(requests).length};
+  if (!ready) {
+    console.log(JSON.stringify({disabled, ready: false}));
+    return;
+  }
+  ready();
+  await settle();
+  const started = Object.keys(requests);
+  if (started.length !== urls.length) {
+    console.log(JSON.stringify({disabled, ready: true, beforeReady, started}));
+    return;
+  }
+  if (scenario === 'success' || scenario === 'status-zero') {
+    respond(urls[1], scenario === 'status-zero' ? 0 : 200, "events.push('b')");
+    await settle();
+    await drain();
+    respond(urls[0], 200, "events.push('a')");
+  } else if (scenario === 'fetch-error') {
+    respond(urls[1], 200, "events.push('b')");
+    await settle();
+    respond(urls[0], 404, 'missing');
+  } else if (scenario === 'network-error') {
+    respond(urls[1], 200, "events.push('b')");
+    await settle();
+    requests[urls[0]].reject(new TypeError('network failure'));
+  } else if (scenario === 'compile-error') {
+    respond(urls[0], 200, 'bad syntax');
+    await settle();
+    await drain();
+    respond(urls[1], 200, "events.push('b')");
+  } else if (scenario === 'compile-error-all-loaded') {
+    respond(urls[1], 200, "events.push('b')");
+    await settle();
+    respond(urls[0], 200, 'bad syntax');
+  }
+  await settle();
+  await drain();
+  console.log(JSON.stringify({disabled, ready: true, beforeReady, started, events, errors, calls,
+    fetchOptions: urls.map(url => requests[url].options)}));
+})().catch(e => { console.error(e.stack); process.exitCode = 1; });
+"""
+
+
+def _boot_probe(scenario: str) -> dict:
+    proc = run_node(
+        ["node", "-e", _BOOT_RUNNER, scenario, str(BOOT_LOADER)],
+        capture_output=True, timeout=60, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr.decode()
+    return json.loads(proc.stdout.decode())
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize("scenario", ["success", "status-zero"])
+def test_babel_loader_runs_in_order_in_separate_tasks(scenario: str) -> None:
+    out = _boot_probe(scenario)
+    assert out["disabled"] and out["ready"]
+    assert out["beforeReady"] == {"disabled": True, "requests": 0}
+    assert out["started"] == [
+        "https://dashboard.test/a.jsx?v=1", "https://dashboard.test/b.jsx?v=2"]
+    assert out["events"][2:] == [
+        "nonce:nonce-a", "a", "nonce:nonce-b", "b", "nonce:nonce-inline", "inline-strict"]
+    assert out["errors"] == []
+    assert out["fetchOptions"] == [{"mode": "same-origin"}] * 2
+    assert len({call["tick"] for call in out["calls"]}) == 3
+    assert [call["options"] for call in out["calls"]] == [
+        {"presets": ["react"], "plugins": [], "filename": filename,
+         "sourceFileName": filename, "sourceMaps": "inline"}
+        for filename in (*out["started"], "Inline Babel script")]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize("scenario", ["fetch-error", "network-error"])
+def test_babel_loader_reports_failed_fetch_and_continues(scenario: str) -> None:
+    out = _boot_probe(scenario)
+    assert out["disabled"] and out["ready"]
+    assert out["events"][2:] == ["nonce:nonce-b", "b", "nonce:nonce-inline", "inline-strict"]
+    assert out["errors"] == ["Error: Could not load https://dashboard.test/a.jsx?v=1"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_babel_loader_resumes_after_compile_error_when_another_fetch_finishes() -> None:
+    out = _boot_probe("compile-error")
+    assert out["disabled"] and out["ready"]
+    assert out["errors"] == ["SyntaxError: compile failed"]
+    assert out["events"][2:] == ["nonce:nonce-b", "b", "nonce:nonce-inline", "inline-strict"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_babel_loader_stops_after_compile_error_without_another_fetch() -> None:
+    out = _boot_probe("compile-error-all-loaded")
+    assert out["disabled"] and out["ready"]
+    assert out["errors"] == ["SyntaxError: compile failed"]
+    assert out["events"][2:] == []
+
+
+def test_babel_loader_tag_follows_babel() -> None:
+    collector = _ScriptTagCollector()
+    collector.feed(INDEX_HTML.read_text(encoding="utf-8"))
+    sources = [dict(attrs).get("src") for attrs, _ in collector.scripts]
+    assert "/src/babel-loader.js" in sources
+    assert sources.index("/src/babel-loader.js") == sources.index("/vendor/babel.min.js") + 1

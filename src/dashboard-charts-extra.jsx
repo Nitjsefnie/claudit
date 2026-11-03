@@ -1,9 +1,8 @@
-// Extra dashboard panels: Per-Session Context Growth.
 // Loaded after dashboard-charts.jsx; depends on its globals (TH/COL/humanFmt).
 
-const TH_X       = window.dashboardTheme;
-const COL_X      = window.dashboardCol;
-const humanFmt_X = window.humanFmt;
+var TH_X       = window.dashboardTheme;
+var COL_X      = window.dashboardCol;
+var humanFmt_X = window.humanFmt;
 
 // The observed peak plus headroom covers new models without a per-model
 // cap table. Every context panel shares src/ctx-axis.js.
@@ -337,7 +336,7 @@ function _toolColor(name) {
   const hue = ((h % 360) + 360) % 360;
   return `hsl(${hue}, 60%, 55%)`;
 }
-const _OTHER_COLOR = '#5a627a';
+var _OTHER_COLOR = '#5a627a';
 
 // Tool error rate (per-model sub-panels mirroring ContextGrowthPanel
 // layout). Each sub-panel shows EMA(α=0.15) lines for "Aggregate"
