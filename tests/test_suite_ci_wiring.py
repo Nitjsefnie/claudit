@@ -173,6 +173,10 @@ def test_the_canary_never_compares_two_checkouts():
     for name in (WORKFLOWS / "tests.yml",
                  ROOT / ".github" / "actions" / "suite-bench" / "action.yml"):
         text = (ROOT / name).read_text(encoding="utf-8")
+        if name.name == "tests.yml":
+            # The portable cells' junit report is stall evidence, not a comparator input.
+            portable = text.index("\n  pytest-portable:\n")
+            text = text[:portable] + text[portable:].replace(" --junitxml=pytest-junit.xml", "", 1)
         for gone in ("compare_durations", "merge_base", "MAX_REGRESSION",
                      "ROUNDS", "junitxml", "venv-base", "venv-head",
                      "releases/latest"):
