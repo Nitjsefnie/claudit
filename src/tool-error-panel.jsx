@@ -56,13 +56,13 @@ function ToolErrorRatePanel({ project, range, nonce }) {
 
   React.useEffect(() => {
     const q = (project ? `&project=${encodeURIComponent(project)}` : '');
-    fetch(`/api/tool-error-rate?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
+    return window.dashboardFetch.whenSettled(() => fetch(`/api/tool-error-rate?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
       .then(r => r.json())
       .then(b => {
         setData(b.buckets || []);
         if (b.bucket_s) setBucketMs(b.bucket_s * 1000);
       })
-      .catch(err => console.error('tool-error-rate fetch failed', err));
+      .catch(err => console.error('tool-error-rate fetch failed', err)));
   }, [project, range, nonce]);
 
   const byModel = React.useMemo(() => {

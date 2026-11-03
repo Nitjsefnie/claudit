@@ -28,14 +28,14 @@ function CostByAgentPanel({ models, project, range, nonce }) {
   React.useEffect(() => {
     const q = (project ? `&project=${encodeURIComponent(project)}` : '')
             + (activeModel ? `&model=${encodeURIComponent(activeModel)}` : '');
-    fetch(`/api/cost-by-agent?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
+    return window.dashboardFetch.whenSettled(() => fetch(`/api/cost-by-agent?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
       .then(r => r.json())
       .then(b => {
         setRows(b.agents || []);
         setTotal(b.total_cost_usd || 0);
         setTotalTokens(b.total_tokens || 0);
       })
-      .catch(err => console.error('cost-by-agent fetch failed', err));
+      .catch(err => console.error('cost-by-agent fetch failed', err)));
   }, [project, range, activeModel, nonce]);
 
   const modelOpts = React.useMemo(() => {
