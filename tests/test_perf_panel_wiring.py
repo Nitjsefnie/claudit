@@ -350,7 +350,7 @@ def test_the_dashboard_journey_brackets_the_dashboard_fetch():
         "the dashboard journey opens AFTER the fetch it is timing")
     fetch = src[i:src.index(".catch(err =>", i)]
     guard = fetch.index("if (!run.isCurrent()) return;")
-    assert re.search(r"window\.dashboardFetch\.load\(\s*url\s*,[^;]*?\(?(\w+)\)?\s*=>\s*\{?\s*parse\s*=\s*\1\b", fetch), (
+    assert re.search(r"window\.dashboardFetch\.load\(\s*url\s*,\s*\{[^}]*\}\s*,\s*null\s*,\s*\(?(\w+)\)?\s*=>\s*\{?\s*parse\s*=\s*\1\b", fetch), (
         "the dashboard request no longer hands its parse time to `parse`")
     close_call = re.search(r"window\.perf\.closeFetch\(\s*'dashboard_open'\s*,\s*\{\s*url\s*,\s*parse\s*,?\s*\}\s*,?\s*\)", fetch)
     assert close_call, "closeFetch no longer passes the request url and its parse time"
