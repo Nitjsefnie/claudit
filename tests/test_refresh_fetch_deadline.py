@@ -322,7 +322,8 @@ def test_deadline_can_expire_after_the_last_successful_fetch(monkeypatch):
     url = "https://example.invalid/last-fetch"
     assert pricelog._fetch_json(url) == {}  # pylint: disable=protected-access
     now[0] += 480.0
-    assert guard is not None and url in str(guard.deadline_error())
+    assert guard is not None
+    assert str(guard.deadline_error()) == f"fetch deadline expired after {url}"
 
 
 def test_a_worker_base_exception_reaches_its_caller(monkeypatch):
@@ -353,6 +354,24 @@ def test_a_completion_after_its_attempt_limit_is_refused(monkeypatch):
     with pytest.raises(TimeoutError) as caught:
         pricelog._fetch_json(url)  # pylint: disable=protected-access
     assert url in str(caught.value)
+
+
+def test_a_fetch_attempt_is_bounded_at_sixty_seconds(monkeypatch):
+    guard = getattr(pricelog, "refresh_fetch_deadline", None)
+    now = [100.0]
+    if guard is not None:
+        monkeypatch.setattr(guard, "_deadline_at", None)
+        monkeypatch.setattr(guard, "_failed_url", None)
+        monkeypatch.setattr(guard, "_now", lambda: now[0])
+    monkeypatch.setattr(pricelog, "FETCH_ATTEMPTS", 1)
+
+    def too_late(_url):
+        now[0] += 61.0
+        return io.BytesIO(b'{}')
+
+    monkeypatch.setattr(pricelog, "_open", too_late)
+    with pytest.raises(TimeoutError, match="timed out after 60 seconds"):
+        pricelog._fetch_json("https://example.invalid/sixty")  # pylint: disable=protected-access
 
 
 def test_an_attempt_timeout_can_retry_and_succeed(monkeypatch):

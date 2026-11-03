@@ -526,7 +526,9 @@ def test_main_names_a_swallowed_deadline_before_a_later_backfill_error(tmp_path,
     pricing_path.write_text("{}", encoding="utf-8")
     try:
         rc = backfill.main(["--as-of", AS_OF], pricing_path=pricing_path)
-        assert rc != 0 and url in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert rc != 0 and url in err and "later failure" in err
+        assert err.index(url) < err.index("later failure")
     finally:
         release.set()
 

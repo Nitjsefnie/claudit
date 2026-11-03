@@ -351,8 +351,8 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
         if result.moves or (outcome is not None and outcome.moves):
             constants = bump_pricing_version(constants)
     except RefreshError as exc:
-        print(f"refresh_provider_rates: "
-              f"{refresh_pricelog.refresh_fetch_deadline.deadline_error() or exc}", file=sys.stderr)
+        refresh_pricelog.refresh_fetch_deadline.report_deadline("refresh_provider_rates")
+        print(f"refresh_provider_rates: {exc}", file=sys.stderr)
         return 1
     # The notice baseline is read ONCE, before this run
     # rewrites it: the stdout report keeps every block, while the commit
