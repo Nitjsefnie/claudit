@@ -117,7 +117,9 @@
     "gpt-6-1-sol via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex', 'openai/ultrafast'",
     "gpt-6-1-sol-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-1-sol-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex', 'openai/ultrafast'",
+    "gpt-6-1-terra via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-1-terra via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
+    "gpt-6-1-terra-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-1-terra-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-6-astra via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/us-west-2'",
     "gpt-6-astra via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/us'",
@@ -424,9 +426,11 @@
       "OpenAI": "long-context band"
     },
     "gpt-6-1-terra": {
+      "Azure": "long-context band",
       "OpenAI": "long-context band"
     },
     "gpt-6-1-terra-pro": {
+      "Azure": "long-context band",
       "OpenAI": "long-context band"
     },
     "gpt-6-astra": {
@@ -533,8 +537,7 @@
     ],
     "glm-5-3": [
       "ModelRun",
-      "OpenInference",
-      "Tenstorrent"
+      "OpenInference"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
