@@ -98,6 +98,7 @@ if (babelScripts.length) {
   const sources = Object.fromEntries(babelScripts);
   const tasks = [];
   ctx.Babel.transform = (code, options) => Babel.transform(code, options);
+  ctx.pricingReady = Promise.resolve();
   ctx.fetch = async (url) => ({status: 200, text: async () => sources[url]});
   ctx.MessageChannel = class {
     constructor() {
@@ -311,6 +312,7 @@ def test_babel_scripts_share_the_classic_realm() -> None:
 _EARLY_READ_RUNNER = r"""
 const vm = require('vm');
 const { scripts } = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+const scenario = process.argv[1];
 const LOADER = '/src/pricing-loader.js';
 const base = () => ({require, __dirname: process.env.CLAUDIT_SRC_DIR,
   Babel: {disableScriptTags() {}}, addEventListener() {}});
@@ -328,7 +330,9 @@ const nodePath = base();
 let before;
 load(nodePath, (start) => { before = start ? new Set(Object.keys(nodePath)) : before; });
 const names = Object.keys(nodePath).filter((name) => !before.has(name));
-const browser = {...base(), MessageChannel, URL};
+let boot;
+const browser = {...base(), MessageChannel, URL,
+  addEventListener(type, fn) { if (type === 'DOMContentLoaded') boot = fn; }};
 const reads = new Set();
 for (const name of names) {
   Object.defineProperty(browser, name, {configurable: true, enumerable: true,
@@ -337,18 +341,42 @@ for (const name of names) {
 }
 let respond;
 browser.fetch = (url) => new Promise((resolve) => {
-  respond = () => resolve({status: 200, url, text: async () => require('fs').readFileSync(
-    require('path').join(process.env.CLAUDIT_SRC_DIR, new URL(url).pathname.split('/').pop()), 'utf8')});
+  respond = () => resolve(scenario === 'refused' ? {status: 404, url, text: async () => ''}
+    : {status: 200, url, text: async () => require('fs').readFileSync(
+      require('path').join(process.env.CLAUDIT_SRC_DIR, new URL(url).pathname.split('/').pop()), 'utf8')});
 });
 const ctx = load(browser, (start) => {
   if (start) browser.document = {currentScript: {src: 'https://claudit.test/src/pricing-loader.js', dataset: {}}};
   else delete browser.document;
 });
 const early = [...reads];
-respond();
-browser.pricingReady.then(() => console.log(JSON.stringify({names, early,
-  installed: names.filter((name) => Object.getOwnPropertyDescriptor(browser, name).get === undefined),
-  tier: vm.runInContext("window.resolveModelRate('claude-opus-99-unlisted', null, null).kind", ctx)})));
+// The real src/babel-loader.js boots over one app script standing in for
+// every text/babel script; it records whether the tables existed when it ran.
+const root = {};
+browser.Babel.transform = (code) => ({code});
+browser.document = {
+  querySelectorAll: () => [{src: '', innerHTML: 'window.appSaw = window.longContextModels !== undefined;'}],
+  createElement: () => ({}),
+  getElementById: (id) => (id === 'root' ? root : null),
+  head: {appendChild(script) { vm.runInContext(script.text, ctx); }},
+};
+const unhandled = [];
+process.on('unhandledRejection', (e) => unhandled.push(String(e)));
+const turns = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
+(async () => {
+  boot();
+  await turns();
+  const heldRun = 'appSaw' in browser;
+  respond();
+  await Promise.resolve(browser.pricingReady).catch(() => {});
+  await turns();
+  console.log(JSON.stringify({names, early, heldRun, appSaw: browser.appSaw ?? null,
+    rootText: root.textContent ?? null, unhandled,
+    installed: names.filter((name) => Object.getOwnPropertyDescriptor(browser, name).get === undefined),
+    tier: scenario === 'refused' ? null
+      : vm.runInContext("window.resolveModelRate('claude-opus-99-unlisted', null, null).kind", ctx)}));
+  process.exit(0);  // the loader's message port would keep node alive
+})();
 """
 
 
@@ -390,9 +418,11 @@ const context = vm.createContext({
 });
 context.window = context;
 let settlePricing;
-if (scenario.startsWith('pricing-')) {
+if (!scenario.startsWith('pricing-')) context.pricingReady = Promise.resolve();
+else if (scenario !== 'pricing-absent') {
   context.pricingReady = new Promise((resolve, reject) => { settlePricing = {resolve, reject}; });
 }
+const root = {};
 process.on('unhandledRejection', (e) => errors.push('unhandled: ' + String(e)));
 context.addEventListener = (type, fn) => { if (type === 'DOMContentLoaded') ready = fn; };
 context.document = {
@@ -403,6 +433,10 @@ context.document = {
   createElement(type) {
     if (type !== 'script') throw Error('unexpected element: ' + type);
     return {};
+  },
+  getElementById(id) {
+    if (id !== 'root') throw Error('unexpected id: ' + id);
+    return root;
   },
   head: {appendChild(script) {
     events.push('nonce:' + script.nonce);
@@ -457,14 +491,14 @@ function respond(url, status, text) {
     await settle();
     await drain();
     respond(urls[1], 200, "events.push('b')");
-  } else if (scenario === 'pricing-resolved' || scenario === 'pricing-rejected') {
+  } else if (scenario.startsWith('pricing-')) {
     respond(urls[0], 200, "events.push('a')");
     respond(urls[1], 200, "events.push('b')");
     await settle();
     await drain();
     held = events.slice(2);
     if (scenario === 'pricing-resolved') settlePricing.resolve();
-    else settlePricing.reject(new Error('refused: HTTP 404'));
+    else if (scenario === 'pricing-rejected') settlePricing.reject(new Error('refused: HTTP 404'));
   } else if (scenario === 'compile-error-all-loaded') {
     respond(urls[1], 200, "events.push('b')");
     await settle();
@@ -474,6 +508,7 @@ function respond(url, status, text) {
   await drain();
   await new Promise((resolve) => setImmediate(resolve));
   console.log(JSON.stringify({disabled, ready: true, beforeReady, started, held, events, errors, calls,
+    rootText: root.textContent ?? null,
     fetchOptions: urls.map(url => requests[url].options)}));
 })().catch(e => { console.error(e.stack); process.exitCode = 1; });
 """
@@ -549,30 +584,50 @@ def test_babel_scripts_wait_for_the_pricing_tables() -> None:
     assert out["held"] == []
     assert out["events"][2:] == [
         "nonce:nonce-a", "a", "nonce:nonce-b", "b", "nonce:nonce-inline", "inline-strict"]
-    assert out["errors"] == []
+    assert out["errors"] == [] and out["rootText"] is None
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_babel_scripts_never_run_over_refused_pricing() -> None:
-    out = _boot_probe("pricing-rejected")
+@pytest.mark.parametrize("scenario, message", [
+    ("pricing-rejected", "refused: HTTP 404"),
+    ("pricing-absent", "pricing.json: the rate loader never ran"),
+])
+def test_babel_scripts_never_run_over_refused_pricing(scenario: str, message: str) -> None:
+    out = _boot_probe(scenario)
     assert out["held"] == [] and out["events"][2:] == []
-    assert out["errors"] == ["unhandled: Error: refused: HTTP 404"]
+    assert out["rootText"] == message
+    assert out["errors"] == ["unhandled: Error: " + message]
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_no_classic_script_reads_a_pricing_table_before_the_fetch_installs_it() -> None:
+def _early_read_probe(scenario: str) -> dict:
     proc = run_node(
-        ["node", "-e", _EARLY_READ_RUNNER],
+        ["node", "-e", _EARLY_READ_RUNNER, scenario],
         input=json.dumps({"scripts": _classic_scripts()}).encode(),
         capture_output=True, timeout=60,
         env={**os.environ, "CLAUDIT_SRC_DIR": str(ROOT / "src")}, check=False,
     )
     assert proc.returncode == 0, proc.stderr.decode()
-    out = json.loads(proc.stdout.decode())
+    return json.loads(proc.stdout.decode())
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_no_classic_script_reads_a_pricing_table_before_the_fetch_installs_it() -> None:
+    out = _early_read_probe("installed")
     assert {"modelRates", "providerRates", "longContextMeters"} <= set(out["names"])
     assert out["early"] == []
     assert out["installed"] == out["names"]
     assert out["tier"] == "tier"
+    assert not out["heldRun"] and out["appSaw"] is True
+    assert out["rootText"] is None and out["unhandled"] == []
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_refused_pricing_fetch_shows_its_error_and_runs_no_app_script() -> None:
+    out = _early_read_probe("refused")
+    message = "pricing.json: HTTP 404 from https://claudit.test/src/pricing.json"
+    assert not out["heldRun"] and out["appSaw"] is None
+    assert out["rootText"] == message
+    assert out["unhandled"] == ["Error: " + message]
 
 
 def test_babel_loader_tag_follows_babel() -> None:
