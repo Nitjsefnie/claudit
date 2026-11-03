@@ -286,6 +286,7 @@ def _write_workflow(root: Path, jobs: dict[str, list[str]]) -> None:
     ([BACKEND_INSTALL, HASHED_PYYAML], True),
     ([_chain(BACKEND_INSTALL, HASHED_PYYAML, BACKEND_INSTALL)], True),
     ([BACKEND_INSTALL], True),
+    (['pip install -r "backend/requirements.txt"'], True),
     ([_lines("# " + HASHED_PYYAML, BACKEND_INSTALL)], True),
     ([_lines("echo '" + HASHED_PYYAML + "'", BACKEND_INSTALL)], True),
     ([_chain(HASHED_PYYAML + " || true", BACKEND_INSTALL)], True),
