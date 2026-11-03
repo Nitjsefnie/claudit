@@ -169,6 +169,8 @@ class _SelectiveGZip(GZipMiddleware):
 # - script-src: SRI pins the vendored scripts; 'self' admits external files.
 #   The loader copies each text/babel tag's response nonce to its compiled
 #   inline script, so neither 'unsafe-inline' nor 'unsafe-eval' is needed.
+#   Hashes cannot replace it: compiled text varies per file and Babel version.
+#   No eval: output runs as script elements; pinned Babel has no new Function.
 # - style-src: the Google Fonts stylesheet host, and the sign-in page's
 #   inline <style> block by the same per-response nonce — no
 #   'unsafe-inline' anywhere in the policy. React sets styles through

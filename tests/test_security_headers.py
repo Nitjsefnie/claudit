@@ -144,15 +144,15 @@ def test_existing_headers_are_not_clobbered():
     assert _header_values(sent, "x-content-type-options") == ["nosniff"]
 
 
-# The loader copies each source tag's nonce to the compiled inline script,
-# so script-src needs neither 'unsafe-inline' nor 'unsafe-eval'. The sign-in page's inline style block
-# is the only inline style, admitted by the response's nonce; React's CSSOM
-# styling is not CSP-governed. fetch/XHR/SSE are same-origin; the Google
-# Fonts pair needs one style host and one font host. default-src 'none',
-# base-uri 'none' and form-action 'self' are the deny-by-default floor;
-# frame-ancestors 'none' stays from. The two nonce-shaped directives
-# (script-src, style-src) are pinned against the body nonce by the page
-# tests, not by this fixed-value table.
+# The loader copies each source tag's nonce to the compiled inline script, so
+# script-src needs neither 'unsafe-inline' nor 'unsafe-eval'. The sign-in
+# page's inline style block is the only inline style, admitted by the
+# response's nonce; React's CSSOM styling is not CSP-governed. fetch/XHR/SSE
+# are same-origin; the Google Fonts pair needs one style host and one font
+# host. default-src 'none', base-uri 'none' and form-action 'self' are the
+# deny-by-default floor; frame-ancestors 'none' stays from. The two
+# nonce-shaped directives (script-src, style-src) are pinned against the body
+# nonce by the page tests, not by this fixed-value table.
 _EXPECTED_CSP_DIRECTIVES = {
     "default-src": "'none'",
     "font-src": "https://fonts.gstatic.com",
