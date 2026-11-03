@@ -24,7 +24,7 @@ from tests.test_provider_rate_refresh import (
 from tests.test_provider_rate_log_refresh import (
     MODEL, HOST, RATE_A, RATE_B, RATE_C, _run)
 
-_STATE_KEYS = ["notices", "sampled", "vanished"]
+_STATE_KEYS = ["delisted", "notices", "sampled", "vanished"]
 _STANDING_PREFIXES = ("  vanished  ", "  sampled   ")
 
 

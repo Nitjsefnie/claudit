@@ -154,9 +154,12 @@ def test_the_shipped_baseline_has_the_documents_shape():
     predates it, so they are shape-checked only while present."""
     doc = json.loads(_NOTICES_JSON.read_text(encoding="utf-8"))
 
-    assert set(doc) <= {"notices", "sampled", "vanished"}
+    assert set(doc) <= {"delisted", "notices", "sampled", "vanished"}
     assert isinstance(doc["notices"], list)
     assert all(isinstance(line, str) for line in doc["notices"])
+    if "delisted" in doc:
+        assert isinstance(doc["delisted"], list)
+        assert all(isinstance(model_id, str) for model_id in doc["delisted"])
     if "sampled" in doc:
         assert isinstance(doc["sampled"], dict)
         assert all(isinstance(classifications, dict)
