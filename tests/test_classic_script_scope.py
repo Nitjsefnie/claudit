@@ -304,6 +304,54 @@ def test_babel_scripts_share_the_classic_realm() -> None:
                        [duplicate, *rest])
 
 
+# Learns the names pricing-loader.js writes from a node-path load, then loads
+# every classic script again on the browser path with the pricing fetch held
+# open: each such name is an accessor that records a read until the loader
+# assigns it, so a script reading a table at its own evaluation is named.
+_EARLY_READ_RUNNER = r"""
+const vm = require('vm');
+const { scripts } = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+const LOADER = '/src/pricing-loader.js';
+const base = () => ({require, __dirname: process.env.CLAUDIT_SRC_DIR,
+  Babel: {disableScriptTags() {}}, addEventListener() {}});
+function load(sandbox, around) {
+  const ctx = vm.createContext(sandbox);
+  vm.runInContext('var window = globalThis;', ctx);
+  for (const [name, code] of scripts) {
+    if (name === LOADER) around(true);
+    vm.runInContext(code, ctx, {filename: name});
+    if (name === LOADER) around(false);
+  }
+  return ctx;
+}
+const nodePath = base();
+let before;
+load(nodePath, (start) => { before = start ? new Set(Object.keys(nodePath)) : before; });
+const names = Object.keys(nodePath).filter((name) => !before.has(name));
+const browser = {...base(), MessageChannel, URL};
+const reads = new Set();
+for (const name of names) {
+  Object.defineProperty(browser, name, {configurable: true, enumerable: true,
+    get() { reads.add(name); return undefined; },
+    set(value) { Object.defineProperty(browser, name, {value, writable: true, enumerable: true, configurable: true}); }});
+}
+let respond;
+browser.fetch = (url) => new Promise((resolve) => {
+  respond = () => resolve({status: 200, url, text: async () => require('fs').readFileSync(
+    require('path').join(process.env.CLAUDIT_SRC_DIR, new URL(url).pathname.split('/').pop()), 'utf8')});
+});
+const ctx = load(browser, (start) => {
+  if (start) browser.document = {currentScript: {src: 'https://claudit.test/src/pricing-loader.js', dataset: {}}};
+  else delete browser.document;
+});
+const early = [...reads];
+respond();
+browser.pricingReady.then(() => console.log(JSON.stringify({names, early,
+  installed: names.filter((name) => Object.getOwnPropertyDescriptor(browser, name).get === undefined),
+  tier: vm.runInContext("window.resolveModelRate('claude-opus-99-unlisted', null, null).kind", ctx)})));
+"""
+
+
 _BOOT_RUNNER = r"""
 const fs = require('fs');
 const vm = require('vm');
@@ -317,7 +365,7 @@ const tags = [
     innerHTML: "events.push((function () { return this === undefined; })() ? 'inline-strict' : 'inline-sloppy')"},
 ];
 const requests = {}, tasks = [], errors = [], calls = [], events = [];
-let ready, disabled = false, tick = 0, kind = null;
+let ready, held, disabled = false, tick = 0, kind = null;
 const context = vm.createContext({
   events,
   Babel: {
@@ -341,6 +389,11 @@ const context = vm.createContext({
   },
 });
 context.window = context;
+let settlePricing;
+if (scenario.startsWith('pricing-')) {
+  context.pricingReady = new Promise((resolve, reject) => { settlePricing = {resolve, reject}; });
+}
+process.on('unhandledRejection', (e) => errors.push('unhandled: ' + String(e)));
 context.addEventListener = (type, fn) => { if (type === 'DOMContentLoaded') ready = fn; };
 context.document = {
   querySelectorAll(selector) {
@@ -404,6 +457,14 @@ function respond(url, status, text) {
     await settle();
     await drain();
     respond(urls[1], 200, "events.push('b')");
+  } else if (scenario === 'pricing-resolved' || scenario === 'pricing-rejected') {
+    respond(urls[0], 200, "events.push('a')");
+    respond(urls[1], 200, "events.push('b')");
+    await settle();
+    await drain();
+    held = events.slice(2);
+    if (scenario === 'pricing-resolved') settlePricing.resolve();
+    else settlePricing.reject(new Error('refused: HTTP 404'));
   } else if (scenario === 'compile-error-all-loaded') {
     respond(urls[1], 200, "events.push('b')");
     await settle();
@@ -411,7 +472,8 @@ function respond(url, status, text) {
   }
   await settle();
   await drain();
-  console.log(JSON.stringify({disabled, ready: true, beforeReady, started, events, errors, calls,
+  await new Promise((resolve) => setImmediate(resolve));
+  console.log(JSON.stringify({disabled, ready: true, beforeReady, started, held, events, errors, calls,
     fetchOptions: urls.map(url => requests[url].options)}));
 })().catch(e => { console.error(e.stack); process.exitCode = 1; });
 """
@@ -479,6 +541,38 @@ def test_babel_loader_stops_after_compile_error_without_another_fetch() -> None:
     assert out["disabled"] and out["ready"]
     assert out["errors"] == ["SyntaxError: compile failed"]
     assert out["events"][2:] == []
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_babel_scripts_wait_for_the_pricing_tables() -> None:
+    out = _boot_probe("pricing-resolved")
+    assert out["held"] == []
+    assert out["events"][2:] == [
+        "nonce:nonce-a", "a", "nonce:nonce-b", "b", "nonce:nonce-inline", "inline-strict"]
+    assert out["errors"] == []
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_babel_scripts_never_run_over_refused_pricing() -> None:
+    out = _boot_probe("pricing-rejected")
+    assert out["held"] == [] and out["events"][2:] == []
+    assert out["errors"] == ["unhandled: Error: refused: HTTP 404"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_no_classic_script_reads_a_pricing_table_before_the_fetch_installs_it() -> None:
+    proc = run_node(
+        ["node", "-e", _EARLY_READ_RUNNER],
+        input=json.dumps({"scripts": _classic_scripts()}).encode(),
+        capture_output=True, timeout=60,
+        env={**os.environ, "CLAUDIT_SRC_DIR": str(ROOT / "src")}, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr.decode()
+    out = json.loads(proc.stdout.decode())
+    assert {"modelRates", "providerRates", "longContextMeters"} <= set(out["names"])
+    assert out["early"] == []
+    assert out["installed"] == out["names"]
+    assert out["tier"] == "tier"
 
 
 def test_babel_loader_tag_follows_babel() -> None:

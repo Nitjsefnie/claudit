@@ -113,13 +113,13 @@ def test_invalid_pricing_data_is_refused_in_the_browser(
     pytest.param("/src/pricing.json?v=7", "/src/pricing.json?v=7", id="page-url"),
     pytest.param(None, "/src/pricing.json", id="beside-script"),
 ])
-def test_the_browser_loads_pricing_synchronously(attr, url):
+def test_the_browser_fetches_pricing_without_blocking(attr, url):
     got = _browser_load(pricing_attr=attr)
     assert got["error"] is None
     assert got["requests"] == [{
-        "method": "GET", "url": ORIGIN + url,
-        "async": False, "headers": {"Cache-Control": "no-cache"},
+        "url": ORIGIN + url, "options": {"headers": {"Cache-Control": "no-cache"}},
     }]
+    assert got["installedAtRequire"] is False
     assert got["fresh"] == pricing._list_rates("claude-opus-4-7")["fresh"]  # pylint: disable=protected-access
 
 
@@ -132,8 +132,8 @@ def test_the_browser_loads_pricing_synchronously(attr, url):
     pytest.param({"status": 200, "body": "{not json"}, "not JSON", id="garbled"),
 ])
 def test_a_failed_browser_load_throws_naming_the_file(response, reason):
-    """No rates means no honest price, so the script stops rather than
-    priming the resolver with nothing; the thrown error names the file and
+    """No rates means no honest price, so the load rejects rather than
+    priming the resolver with nothing; the error names the file and
     the cause — a signed-out redirect included, which would otherwise
     surface as a bare JSON syntax error."""
     got = _browser_load(**response)

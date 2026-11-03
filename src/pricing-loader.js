@@ -1,13 +1,11 @@
 // The pricing.json loader (SV-RATE-DATA): the browser half of
-// backend/pricing_load.py. Reads src/pricing.json synchronously —
-// window.modelRates and the other derived tables below exist the moment
-// this script has run, so the app prices during render with no hook to
-// await a load — and refuses a rule-breaking file, naming the row: with
-// no valid rates there is no honest price, so nothing resolves over
-// nothing. Node (the test suite) reads the file beside this module; the
-// browser fetches the URL the page names on this script tag (data-pricing,
-// which the backend cache-busts like every /src asset), else the file
-// beside this script, and revalidates either way.
+// backend/pricing_load.py. Refuses a rule-breaking file, naming the row:
+// with no valid rates there is no honest price, so nothing resolves over
+// nothing. Node reads the file beside this module; the browser fetches the
+// URL the page names on this script tag (data-pricing, which the backend
+// cache-busts like every /src asset), else the file beside this script,
+// revalidating either way, and installs the tables over several tasks:
+// window.pricingReady resolves once they exist.
 // Exposes the derived token and web-search rate tables, dated boundaries,
 // provider schedules, and the weekly schedule lookup used by src/rates.js.
 
@@ -70,9 +68,9 @@ function checkCompactShape(raw, decoded = null) {
   }
 }
 
-function _readPricing() {
-  if (typeof document === 'undefined') {
-    let text;
+function _readPricing(text) {
+  const fetched = text !== undefined;
+  if (!fetched) {
     try {
       /* eslint-disable no-undef */
       text = require('fs').readFileSync(
@@ -81,30 +79,13 @@ function _readPricing() {
     } catch (e) {
       throw _pricingError(e.message);
     }
-    _checkHhmmSpelling(text);
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      throw _pricingError(e.message);
-    }
   }
-  const script = document.currentScript;
-  const url = new URL(script.dataset.pricing || 'pricing.json', script.src).href;
-  const xhr = new XMLHttpRequest();
-  xhr.open('GET', url, false);
-  xhr.setRequestHeader('Cache-Control', 'no-cache');
-  xhr.send();
-  if (xhr.status !== 200) throw _pricingError(`HTTP ${xhr.status} from ${url}`);
-  // Signed out, the request is redirected to the sign-in page, which is a 200.
-  if (xhr.responseURL !== url) throw _pricingError(`redirected to ${xhr.responseURL}`);
-  _checkHhmmSpelling(xhr.responseText);
-  let doc;
+  _checkHhmmSpelling(text);
   try {
-    doc = JSON.parse(xhr.responseText);
+    return JSON.parse(text);
   } catch (e) {
-    throw _pricingError(`not JSON (${e.message})`);
+    throw _pricingError(fetched ? `not JSON (${e.message})` : e.message);
   }
-  return doc;
 }
 
 const _RATE_FIELDS = { fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h', read: 'read', out: 'output' };
@@ -120,7 +101,7 @@ const _ratesOf = (entry, mayHaveSearch = false) => ({
 // Mirrors pricing._INSTANT. The instant is computed here, never by
 // Date.parse, which rolls 24:00 and 02-30 over where Python refuses them.
 const _INSTANT = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:Z|([+-])([0-9]{2}):([0-9]{2}))$/;
-function _instantMs(stamp) {
+function _parseInstant(stamp) {
   const m = typeof stamp === 'string' ? _INSTANT.exec(stamp) : null;
   if (!m) return NaN;
   const [y, mo, d, h, mi, s] = m.slice(1, 7).map(Number);
@@ -132,6 +113,12 @@ function _instantMs(stamp) {
     && wall.getUTCFullYear() === y && wall.getUTCMonth() === mo - 1 && wall.getUTCDate() === d
     && wall.getUTCHours() === h && wall.getUTCMinutes() === mi && wall.getUTCSeconds() === s;
   return inRange ? wall.getTime() - (m[7] === '-' ? -1 : 1) * (oh * 60 + om) * 60000 : NaN;
+}
+// Memoised: a stamp recurs across rows and both history passes.
+const _instants = new Map();
+function _instantMs(stamp) {
+  if (!_instants.has(stamp)) _instants.set(stamp, _parseInstant(stamp));
+  return _instants.get(stamp);
 }
 const _isRate = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
@@ -296,56 +283,6 @@ function _history(entries, where, mayBegin = false, fetchedMs = NaN) {
   };
 }
 
-const _RAW_PRICING = _readPricing();
-const _PRICING = _pricingRows.decodePricingDoc(_RAW_PRICING);
-if (typeof document !== 'undefined') checkCompactShape(_RAW_PRICING, _PRICING);
-const _fetchedMs = _instantMs(_PRICING.provider_rates_fetched);
-if (Number.isNaN(_fetchedMs)) {
-  throw _pricingError(`provider_rates_fetched: ${JSON.stringify(_PRICING.provider_rates_fetched)} is not YYYY-MM-DDTHH:MM:SS with Z or ±HH:MM`);
-}
-window.modelRates = {};
-window.datedRates = {};
-for (const [key, entries] of Object.entries(_PRICING.models)) {
-  if (!key) {
-    throw _pricingError(
-      `models key ${JSON.stringify(key)} is not a non-empty string`);
-  }
-  const { list, windows } = _history(entries, key, false, _fetchedMs);
-  window.modelRates[key] = list;
-  if (windows.length) window.datedRates[key] = windows;
-}
-window.providerRates = {};
-window.providerContextLengths = {};
-window.providerDatedRates = {};
-window.providerStarts = {};
-window.providerSchedules = {};
-for (const [model, hosts] of Object.entries(_PRICING.providers)) {
-  for (const [host, entries] of Object.entries(hosts)) {
-    const newest = _pricingRows.flattenPricingHistory(entries, `${model} via ${host}`, _instantMs).entries.at(-1);
-    if ('context_length' in newest) {
-      (window.providerContextLengths[model] = window.providerContextLengths[model] || {})[host] = newest.context_length;
-    }
-    const { list, windows, start, schedules } = _history(
-      entries, `${model} via ${host}`, true, _fetchedMs);
-    if (Object.keys(schedules).length) {
-      (window.providerSchedules[model] = window.providerSchedules[model] || {})[host] = schedules;
-    }
-    (window.providerRates[model] = window.providerRates[model] || {})[host] = list;
-    if (windows.length) {
-      (window.providerDatedRates[model] = window.providerDatedRates[model] || {})[host] = windows;
-    }
-    if (start !== null) {
-      (window.providerStarts[model] = window.providerStarts[model] || {})[host] = start;
-    }
-  }
-}
-window.rateEpochs = [...new Set([
-  ...[...Object.values(window.datedRates),
-      ...Object.values(window.providerDatedRates).flatMap(Object.values)]
-    .flat().map((w) => w.endExclusive),
-  ...Object.values(window.providerStarts).flatMap(Object.values),
-])].sort((a, b) => a - b);
-
 // The vendor tables (SV-RATE-DATA): built by src/vendor-tables.js — the
 // browser loads it ahead of this script (index.html's tag order; it also
 // installs keyListRates there) and node requires it from here. Mirrors
@@ -357,108 +294,184 @@ const _vendorTables = (typeof module !== 'undefined'
   : window;
 const _buildVendorTables = _vendorTables.buildVendorTables;
 /* eslint-enable no-undef */
-window.vendorBare = {};
-window.vendorHosts = {};
-_buildVendorTables(_PRICING, window.modelRates, window.vendorBare,
-                   window.vendorHosts);
-window.trackedModels = _PRICING.openrouter.models;
-window.vendorPrefixes = [..._PRICING.openrouter.vendor.prefixes];
-window.vendorBareForms = Object.keys(window.vendorBare);
-window.keyListRates = _vendorTables.keyListRates;
 
-// The default estimate needs its row the moment the first unknown id
-// resolves, so a document naming no claude-opus-4-7 row in either table
-// refuses at load — the mirror of the backend loader's own refusal. A
-// tracked-but-rowless claude-opus-4-7 refuses the same way: the row the
-// bare path would read does not exist, and keyListRates would otherwise
-// throw a raw TypeError at resolve time.
-const _defaultTracked = window.vendorBare['claude-opus-4-7'];
-const _defaultRow = window.modelRates['claude-opus-4-7']
-  ?? (_defaultTracked === undefined || window.vendorHosts[_defaultTracked] === undefined
-      ? undefined
-      : (window.providerRates[_defaultTracked] || {})[
-           window.vendorHosts[_defaultTracked]]);
-if (_defaultRow === undefined) {
-  throw _pricingError('no claude-opus-4-7 row prices the default estimate');
-}
-
-// Every rate an OpenRouter free model carries: zero. Returned for any id
-// ending in ':free' or starting with 'stealth/' — see _isFreeModel in
-// src/rates.js.
-// Deliberately NOT a window.modelRates row, so it is not enumerable as an
-// exact key.
-window.FREE_RATES = Object.fromEntries(Object.keys(_RATE_FIELDS).map((k) => [k, 0]));
-window.scheduleRatesAt = _scheduledRates;
-
-// The grouped long-context meter carries both membership and
-// threshold. Fold it to the complete per-model entries used by rates.js;
-// mirrors backend/meter_tables.py.
-if (Object.prototype.hasOwnProperty.call(_PRICING, 'long_context_models'))
-  throw _pricingError('long_context_models is removed; use long_context_meters');
-if (!Object.prototype.hasOwnProperty.call(_PRICING, 'long_context_meters'))
-  throw _pricingError('long_context_meters is missing');
-const _lcGroups = _PRICING.long_context_meters;
-if (!Array.isArray(_lcGroups))
-  throw _pricingError('long_context_meters: not a list of groups');
-// Meter membership includes every tracked key, including keys without a
-// vendor_host and prefixed keys; vendorBare is only the resolvable bare subset.
-const _trackedMeterModels = _PRICING.openrouter.models;
-
-window.longContextMeters = {};
-const _lcThresholds = new Set();
-for (const [i, group] of _lcGroups.entries()) {
-  const at = `long_context_meters[${i}]`;
-  if (group === null || typeof group !== 'object' || Array.isArray(group))
-    throw _pricingError(`${at}: group is not an object`);
-  const unknown = Object.keys(group).filter((field) =>
-    !['threshold', 'models'].includes(field));
-  if (unknown.length) throw _pricingError(`${at}: unknown field ${unknown[0]}`);
-  if (!Number.isInteger(group.threshold) || group.threshold <= 0)
-    throw _pricingError(`${at}: no positive integer threshold`);
-  if (_lcThresholds.has(group.threshold))
-    throw _pricingError(`long_context_meters: duplicate threshold ${group.threshold}`);
-  _lcThresholds.add(group.threshold);
-  if (!Array.isArray(group.models) || !group.models.length)
-    throw _pricingError(`${at}: models is empty or not a list`);
-
-  for (const entry of group.models) {
-    let key;
-    let factors;
-    if (typeof entry === 'string') {
-      key = entry;
-      factors = {};
-    } else if (entry !== null && typeof entry === 'object'
-               && !Array.isArray(entry) && Object.keys(entry).length === 1) {
-      [key, factors] = Object.entries(entry)[0];
-      if (!factors || typeof factors !== 'object' || Array.isArray(factors))
-        throw _pricingError(`long_context_meters: ${key} multipliers are not an object`);
-      const unknownFactors = Object.keys(factors).filter((field) =>
-        !['input_mult', 'output_mult'].includes(field));
-      if (unknownFactors.length)
-        throw _pricingError(`long_context_meters: ${key} unknown field ${unknownFactors[0]}`);
-    } else {
-      throw _pricingError(`${at}: each model is a key or a one-key multiplier object`);
-    }
-    if (!key)
-      throw _pricingError(`${at}: models entries need non-empty model keys`);
-    if (Object.prototype.hasOwnProperty.call(window.longContextMeters, key))
-      throw _pricingError(`long_context_meters: ${key} appears more than once`);
-    if (!Object.prototype.hasOwnProperty.call(window.modelRates, key)
-        && !Object.prototype.hasOwnProperty.call(_trackedMeterModels, key))
-      throw _pricingError(`long_context_meters: ${key} names no models-table or tracked key`);
-
-    const meter = { threshold: group.threshold };
-    for (const field of ['input_mult', 'output_mult']) {
-      if (!Object.prototype.hasOwnProperty.call(factors, field)) continue;
-      if (typeof factors[field] !== 'number' || !Number.isFinite(factors[field])
-          || factors[field] <= 0)
-        throw _pricingError(`long_context_meters: ${key} has invalid ${field}; expected a positive finite number`);
-      meter[field] = factors[field];
-    }
-    window.longContextMeters[key] = meter;
+// One step per yield: node runs them at once, the browser one task each.
+// A provider row costs about its history's length.
+const _ENTRIES_PER_TASK = 1000;
+function* _installPricing(read, fetched) {
+  const _RAW_PRICING = read();
+  yield;
+  const _PRICING = _pricingRows.decodePricingDoc(_RAW_PRICING);
+  if (fetched) checkCompactShape(_RAW_PRICING, _PRICING);
+  const _fetchedMs = _instantMs(_PRICING.provider_rates_fetched);
+  if (Number.isNaN(_fetchedMs)) {
+    throw _pricingError(`provider_rates_fetched: ${JSON.stringify(_PRICING.provider_rates_fetched)} is not YYYY-MM-DDTHH:MM:SS with Z or ±HH:MM`);
   }
+  yield;
+  window.modelRates = {};
+  window.datedRates = {};
+  for (const [key, entries] of Object.entries(_PRICING.models)) {
+    if (!key) {
+      throw _pricingError(
+        `models key ${JSON.stringify(key)} is not a non-empty string`);
+    }
+    const { list, windows } = _history(entries, key, false, _fetchedMs);
+    window.modelRates[key] = list;
+    if (windows.length) window.datedRates[key] = windows;
+  }
+  window.providerRates = {};
+  window.providerContextLengths = {};
+  window.providerDatedRates = {};
+  window.providerStarts = {};
+  window.providerSchedules = {};
+  let work = _ENTRIES_PER_TASK;
+  for (const [model, hosts] of Object.entries(_PRICING.providers)) {
+    for (const [host, entries] of Object.entries(hosts)) {
+      if (work >= _ENTRIES_PER_TASK) {
+        work = 0;
+        yield;
+      }
+      const flat = _pricingRows.flattenPricingHistory(entries, `${model} via ${host}`, _instantMs).entries;
+      work += flat.length;
+      const newest = flat.at(-1);
+      if ('context_length' in newest) {
+        (window.providerContextLengths[model] = window.providerContextLengths[model] || {})[host] = newest.context_length;
+      }
+      const { list, windows, start, schedules } = _history(
+        entries, `${model} via ${host}`, true, _fetchedMs);
+      if (Object.keys(schedules).length) {
+        (window.providerSchedules[model] = window.providerSchedules[model] || {})[host] = schedules;
+      }
+      (window.providerRates[model] = window.providerRates[model] || {})[host] = list;
+      if (windows.length) {
+        (window.providerDatedRates[model] = window.providerDatedRates[model] || {})[host] = windows;
+      }
+      if (start !== null) {
+        (window.providerStarts[model] = window.providerStarts[model] || {})[host] = start;
+      }
+    }
+  }
+  yield;
+  window.rateEpochs = [...new Set([
+    ...[...Object.values(window.datedRates),
+        ...Object.values(window.providerDatedRates).flatMap(Object.values)]
+      .flat().map((w) => w.endExclusive),
+    ...Object.values(window.providerStarts).flatMap(Object.values),
+  ])].sort((a, b) => a - b);
+
+  window.vendorBare = {};
+  window.vendorHosts = {};
+  _buildVendorTables(_PRICING, window.modelRates, window.vendorBare,
+                     window.vendorHosts);
+  window.trackedModels = _PRICING.openrouter.models;
+  window.vendorPrefixes = [..._PRICING.openrouter.vendor.prefixes];
+  window.vendorBareForms = Object.keys(window.vendorBare);
+  window.keyListRates = _vendorTables.keyListRates;
+
+  // The default estimate needs its row the moment the first unknown id
+  // resolves, so a document naming no claude-opus-4-7 row in either table
+  // refuses at load — the mirror of the backend loader's own refusal. A
+  // tracked-but-rowless claude-opus-4-7 refuses the same way: the row the
+  // bare path would read does not exist, and keyListRates would otherwise
+  // throw a raw TypeError at resolve time.
+  const _defaultTracked = window.vendorBare['claude-opus-4-7'];
+  const _defaultRow = window.modelRates['claude-opus-4-7']
+    ?? (_defaultTracked === undefined || window.vendorHosts[_defaultTracked] === undefined
+        ? undefined
+        : (window.providerRates[_defaultTracked] || {})[
+             window.vendorHosts[_defaultTracked]]);
+  if (_defaultRow === undefined) {
+    throw _pricingError('no claude-opus-4-7 row prices the default estimate');
+  }
+
+  // Every rate an OpenRouter free model carries: zero. Returned for any id
+  // ending in ':free' or starting with 'stealth/' — see _isFreeModel in
+  // src/rates.js.
+  // Deliberately NOT a window.modelRates row, so it is not enumerable as an
+  // exact key.
+  window.FREE_RATES = Object.fromEntries(Object.keys(_RATE_FIELDS).map((k) => [k, 0]));
+  window.scheduleRatesAt = _scheduledRates;
+
+  // The grouped long-context meter carries both membership and
+  // threshold. Fold it to the complete per-model entries used by rates.js;
+  // mirrors backend/meter_tables.py.
+  if (Object.prototype.hasOwnProperty.call(_PRICING, 'long_context_models'))
+    throw _pricingError('long_context_models is removed; use long_context_meters');
+  if (!Object.prototype.hasOwnProperty.call(_PRICING, 'long_context_meters'))
+    throw _pricingError('long_context_meters is missing');
+  const _lcGroups = _PRICING.long_context_meters;
+  if (!Array.isArray(_lcGroups))
+    throw _pricingError('long_context_meters: not a list of groups');
+  // Meter membership includes every tracked key, including keys without a
+  // vendor_host and prefixed keys; vendorBare is only the resolvable bare subset.
+  const _trackedMeterModels = _PRICING.openrouter.models;
+
+  window.longContextMeters = {};
+  const _lcThresholds = new Set();
+  for (const [i, group] of _lcGroups.entries()) {
+    const at = `long_context_meters[${i}]`;
+    if (group === null || typeof group !== 'object' || Array.isArray(group))
+      throw _pricingError(`${at}: group is not an object`);
+    const unknown = Object.keys(group).filter((field) =>
+      !['threshold', 'models'].includes(field));
+    if (unknown.length) throw _pricingError(`${at}: unknown field ${unknown[0]}`);
+    if (!Number.isInteger(group.threshold) || group.threshold <= 0)
+      throw _pricingError(`${at}: no positive integer threshold`);
+    if (_lcThresholds.has(group.threshold))
+      throw _pricingError(`long_context_meters: duplicate threshold ${group.threshold}`);
+    _lcThresholds.add(group.threshold);
+    if (!Array.isArray(group.models) || !group.models.length)
+      throw _pricingError(`${at}: models is empty or not a list`);
+
+    for (const entry of group.models) {
+      let key;
+      let factors;
+      if (typeof entry === 'string') {
+        key = entry;
+        factors = {};
+      } else if (entry !== null && typeof entry === 'object'
+                 && !Array.isArray(entry) && Object.keys(entry).length === 1) {
+        [key, factors] = Object.entries(entry)[0];
+        if (!factors || typeof factors !== 'object' || Array.isArray(factors))
+          throw _pricingError(`long_context_meters: ${key} multipliers are not an object`);
+        const unknownFactors = Object.keys(factors).filter((field) =>
+          !['input_mult', 'output_mult'].includes(field));
+        if (unknownFactors.length)
+          throw _pricingError(`long_context_meters: ${key} unknown field ${unknownFactors[0]}`);
+      } else {
+        throw _pricingError(`${at}: each model is a key or a one-key multiplier object`);
+      }
+      if (!key)
+        throw _pricingError(`${at}: models entries need non-empty model keys`);
+      if (Object.prototype.hasOwnProperty.call(window.longContextMeters, key))
+        throw _pricingError(`long_context_meters: ${key} appears more than once`);
+      if (!Object.prototype.hasOwnProperty.call(window.modelRates, key)
+          && !Object.prototype.hasOwnProperty.call(_trackedMeterModels, key))
+        throw _pricingError(`long_context_meters: ${key} names no models-table or tracked key`);
+
+      const meter = { threshold: group.threshold };
+      for (const field of ['input_mult', 'output_mult']) {
+        if (!Object.prototype.hasOwnProperty.call(factors, field)) continue;
+        if (typeof factors[field] !== 'number' || !Number.isFinite(factors[field])
+            || factors[field] <= 0)
+          throw _pricingError(`long_context_meters: ${key} has invalid ${field}; expected a positive finite number`);
+        meter[field] = factors[field];
+      }
+      window.longContextMeters[key] = meter;
+    }
+  }
+  window.longContextModels = Object.keys(window.longContextMeters);
 }
-window.longContextModels = Object.keys(window.longContextMeters);
+
+if (typeof document === 'undefined') {
+  const steps = _installPricing(() => _readPricing(), false);
+  while (!steps.next().done);
+} else {
+  const script = document.currentScript;
+  window.pricingReady = window.fetchPricing(
+    new URL(script.dataset.pricing || 'pricing.json', script.src).href, _pricingError,
+    (text) => _installPricing(() => _readPricing(text), true));
+}
 
 /* eslint-disable no-undef */
 if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {

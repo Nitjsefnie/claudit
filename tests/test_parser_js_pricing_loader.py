@@ -91,7 +91,7 @@ def _render(doc: dict, spelling: str | None = None) -> str:
 
 def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
     """Require the real parser.js beside `text` as pricing.json in one
-    `node -e` run, on the node path or the fake-browser (XHR) path.
+    `node -e` run, on the node path or the fake-browser (fetch) path.
 
     Returns {error, untouched, rates}: the require's error message, whether
     the doc the loader parsed equals a plain JSON.parse of the same text
@@ -107,6 +107,7 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
     shutil.copy(VENDOR_TABLES_JS, where / "vendor-tables.js")
     shutil.copy(HHMM_JS, where / "hhmm-spelling.js")
     shutil.copy(HHMM_JS.with_name("pricing-rows.js"), where / "pricing-rows.js")
+    shutil.copy(ROOT / "src" / "pricing-fetch.js", where / "pricing-fetch.js")
     shutil.copy(ROOT / "src" / "rates.js", where / "rates.js")
     shutil.copy(ROOT / "src" / "parser-usage.js", where / "parser-usage.js")
     shutil.copy(ROOT / "src" / "parser.js", where / "parser.js")
@@ -124,11 +125,8 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
             "                   src: require('url').pathToFileURL("
             f"{json.dumps(str(where / 'pricing-loader.js'))}).href }},\n"
             "};\n"
-            "global.XMLHttpRequest = class {\n"
-            "  open(method, url) { this.responseURL = url; }\n"
-            "  setRequestHeader() {}\n"
-            "  send() { this.status = 200; this.responseText = text; }\n"
-            "};"
+            "global.fetch = async (url) => ({ status: 200, url: String(url),\n"
+            "                                 text: async () => text });"
         )
     script = f"""
       global.window = {{}};
@@ -143,8 +141,12 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
         if (captured === null) captured = {{doc: got, text: t}};
         return got;
       }};
-      try {{ require({json.dumps(str(where / "pricing-loader.js"))}); }}
-      catch (e) {{ error = String(e.message); }}
+      (async () => {{
+      try {{
+        if ({json.dumps(browser)}) require({json.dumps(str(where / "pricing-fetch.js"))});
+        require({json.dumps(str(where / "pricing-loader.js"))});
+        await window.pricingReady;
+      }} catch (e) {{ error = String(e.message); }}
       if (error === null) {{
         try {{ require({json.dumps(str(where / "rates.js"))}); }}
         catch (e) {{ error = String(e.message); }}
@@ -179,6 +181,7 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
                                null, null).search ?? 0)
         : null;
       console.log(JSON.stringify({{error, untouched, rates, vendorSearch}}));
+      }})();
     """
     proc = run_node(["node", "-e", script], capture_output=True,
                     text=True, timeout=60, check=False)
@@ -238,7 +241,7 @@ def test_the_browser_load_path_checks_the_spelling_and_prices_a_valid_file(
         tmp_path):
     bad = _run(tmp_path, _render(_doc(end1=SENTINEL), spelling="30.0"),
                browser=True)
-    assert bad["error"], "the XHR path must refuse a fractional spelling too"
+    assert bad["error"], "the fetch path must refuse a fractional spelling too"
     assert "pricing.json" in bad["error"]
     assert "30.0" in bad["error"], bad["error"]
     assert "offset" in bad["error"], bad["error"]
@@ -434,3 +437,61 @@ def test_the_loader_tables_match_the_file():
     assert "long_context_models" not in raw
     assert got["models"] == list(expected)
     assert got["meters"] == expected
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_the_browser_installs_the_tables_across_short_tasks(tmp_path):
+    """The parse, the models and each run of provider rows holding about
+    1000 history entries take their own task; the fetch callback itself
+    parses nothing."""
+    doc = _doc()
+    history = [{"from": None, **DAY}] + [
+        {**DAY, "from": f"2026-01-{1 + k // 24:02d}T{k % 24:02d}:00:00Z",
+         "fresh": DAY["fresh"] + k / 1000} for k in range(1, 50)]
+    doc["providers"][ROW_KEY].update({f"Host{i:02d}": history for i in range(40)})
+    fixture = tmp_path / "pricing.json"
+    fixture.write_text(_render(doc), encoding="utf-8")
+    for name in ("pricing-loader.js", "vendor-tables.js", "hhmm-spelling.js",
+                 "pricing-rows.js", "pricing-fetch.js"):
+        shutil.copy(ROOT / "src" / name, tmp_path / name)
+    script = f"""
+      global.window = {{}};
+      const text = require('fs').readFileSync({json.dumps(str(fixture))}, 'utf8');
+      global.document = {{currentScript: {{dataset: {{}},
+        src: require('url').pathToFileURL({json.dumps(str(tmp_path / 'pricing-loader.js'))}).href}}}};
+      global.fetch = async (url) => ({{status: 200, url: String(url), text: async () => text}});
+      const tasks = [];
+      global.MessageChannel = class {{
+        constructor() {{
+          this.port1 = {{close() {{}}}};
+          this.port2 = {{postMessage: () => tasks.push(() => this.port1.onmessage({{}}))}};
+        }}
+      }};
+      let parsed = false;
+      const realParse = JSON.parse;
+      JSON.parse = (t, reviver) => {{ parsed ||= t === text; return realParse(t, reviver); }};
+      const state = () => ({{parsed, models: 'modelRates' in window,
+        rows: Object.values(window.providerRates || {{}})
+          .reduce((n, hosts) => n + Object.keys(hosts).length, 0),
+        meters: 'longContextMeters' in window}});
+      (async () => {{
+        require({json.dumps(str(tmp_path / 'pricing-fetch.js'))});
+        require({json.dumps(str(tmp_path / 'pricing-loader.js'))});
+        for (let i = 0; i < 10; i++) await Promise.resolve();
+        const states = [state()];
+        while (tasks.length) {{ tasks.shift()(); states.push(state()); }}
+        await window.pricingReady;
+        console.log(JSON.stringify(states));
+      }})();
+    """
+    proc = run_node(["node", "-e", script], capture_output=True, text=True,
+                    timeout=60, check=False)
+    assert proc.returncode == 0, proc.stderr
+    states = json.loads(proc.stdout)
+    assert not states[0]["parsed"] and not states[0]["models"]
+    assert states[-1] == {"parsed": True, "models": True, "rows": 41, "meters": True}
+    models_at = next(i for i, s in enumerate(states) if s["models"])
+    assert states[models_at]["rows"] == 0 and states[models_at - 1]["parsed"]
+    assert sum(1 for s in states if s["parsed"] and not s["models"]) == 2
+    steps = [b["rows"] - a["rows"] for a, b in zip(states, states[1:])]
+    assert max(steps) <= 21

@@ -91,26 +91,27 @@ def test_generated_rate_vectors_round_trip_with_exact_numeric_types(seed):
 def _node(tmp_path, doc, browser=False):
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / 'pricing.json').write_text(json.dumps(doc), encoding='utf-8')
-    for name in ('pricing-loader.js', 'hhmm-spelling.js', 'vendor-tables.js', 'pricing-rows.js'):
+    for name in ('pricing-loader.js', 'hhmm-spelling.js', 'vendor-tables.js', 'pricing-rows.js',
+                 'pricing-fetch.js'):
         shutil.copy(ROOT / 'src' / name, tmp_path / name)
     script = f"""
       global.window = {{}};
       if ({str(browser).lower()}) {{
         global.document = {{ currentScript: {{ dataset: {{ pricing: 'pricing.json' }},
           src: require('url').pathToFileURL({str(tmp_path / 'pricing-loader.js')!r}).href }} }};
-        global.XMLHttpRequest = class {{
-          open(method, url) {{ this.url = url; }}
-          setRequestHeader() {{}}
-          send() {{ this.status = 200; this.responseURL = this.url;
-            this.responseText = require('fs').readFileSync({str(tmp_path / 'pricing.json')!r}, 'utf8'); }}
-        }};
+        global.fetch = async (url) => ({{ status: 200, url: String(url),
+          text: async () => require('fs').readFileSync({str(tmp_path / 'pricing.json')!r}, 'utf8') }});
+        require({str(tmp_path / 'pricing-fetch.js')!r});
       }}
       let error = null, decoded = null;
-      try {{
-        const loader = require({str(tmp_path / 'pricing-loader.js')!r});
-        decoded = loader.decodePricingDoc({json.dumps(doc)});
-      }} catch (e) {{ error = e.message; }}
-      console.log(JSON.stringify({{error, decoded, tables: window}}));
+      (async () => {{
+        try {{
+          const loader = require({str(tmp_path / 'pricing-loader.js')!r});
+          await window.pricingReady;
+          decoded = loader.decodePricingDoc({json.dumps(doc)});
+        }} catch (e) {{ error = e.message; }}
+        console.log(JSON.stringify({{error, decoded, tables: window}}));
+      }})();
     """
     result = run_node(['node', '-e', script], capture_output=True,
                       text=True, check=False, timeout=60)
