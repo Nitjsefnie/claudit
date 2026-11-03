@@ -1,4 +1,4 @@
-// Chart theme comes from dashboard-charts.jsx.
+// Loaded after dashboard-charts.jsx, whose TH/COL/humanFmt/fmtDate it reads.
 var TH_X       = window.dashboardTheme;
 var COL_X      = window.dashboardCol;
 var humanFmt_X = window.humanFmt;
