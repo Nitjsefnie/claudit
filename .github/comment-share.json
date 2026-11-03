@@ -84,8 +84,8 @@
     12827
   ],
   ".github/workflows/refresh-pricing.yml": [
-    5262,
-    13414
+    5189,
+    13350
   ],
   ".github/workflows/release.yml": [
     4231,
@@ -672,8 +672,8 @@
     1977
   ],
   "scripts/ci/refresh_pricelog.py": [
-    2509,
-    15536
+    2387,
+    15376
   ],
   "scripts/ci/refresh_prices.py": [
     840,
@@ -684,8 +684,8 @@
     4178
   ],
   "scripts/ci/refresh_provider_rates.py": [
-    5855,
-    14538
+    4813,
+    14148
   ],
   "scripts/ci/refresh_selection.py": [
     4224,
@@ -1552,16 +1552,16 @@
     20903
   ],
   "tests/test_provider_rate_refresh.py": [
-    3517,
-    20501
+    3472,
+    20456
   ],
   "tests/test_provider_rate_refresh_alternation.py": [
     738,
     4380
   ],
   "tests/test_provider_rate_refresh_notices.py": [
-    1678,
-    5632
+    1677,
+    5761
   ],
   "tests/test_provider_rate_refresh_pins.py": [
     463,
