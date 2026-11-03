@@ -122,7 +122,7 @@ def _run(body: str, **cfg) -> dict:
     # CreateProcess command line over 32k (WinError 206).
     proc = run_node(
         ["node"], input=script, capture_output=True, text=True, timeout=60,
-        check=False,
+        check=False, encoding="utf-8",
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
     lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
