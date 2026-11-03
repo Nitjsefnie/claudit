@@ -38,16 +38,18 @@
       }
       entry.url = entry.src;
       fetch(entry.url, {mode: 'same-origin'}).then(response => {
-        if (response.status !== 0 && response.status !== 200) throw new Error();
-        return response.text();
-      }).then(content => {
+        if (response.status !== 0 && response.status !== 200) {
+          entry.error = true;
+          schedule();
+          setTimeout(() => { throw new Error('Could not load ' + entry.url); }, 0);
+          return null;
+        }
+        return response.text().catch(() => '');
+      }, () => '').then(content => {
+        if (content === null) return;
         entry.content = content;
         entry.loaded = true;
         schedule();
-      }, () => {
-        entry.error = true;
-        schedule();
-        setTimeout(() => { throw new Error('Could not load ' + entry.url); }, 0);
       });
     }
 

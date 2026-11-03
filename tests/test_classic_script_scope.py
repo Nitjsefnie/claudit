@@ -362,10 +362,11 @@ function respond(url, status, text) {
     respond(urls[1], 200, "events.push('b')");
     await settle();
     respond(urls[0], 404, 'missing');
-  } else if (scenario === 'network-error') {
+  } else if (scenario === 'network-error' || scenario === 'read-error') {
     respond(urls[1], 200, "events.push('b')");
     await settle();
-    requests[urls[0]].reject(new TypeError('network failure'));
+    if (scenario === 'network-error') requests[urls[0]].reject(new TypeError('network failure'));
+    else requests[urls[0]].resolve({status: 200, text: () => Promise.reject(new TypeError('read failure'))});
   } else if (scenario === 'compile-error') {
     respond(urls[0], 200, 'bad syntax');
     await settle();
@@ -413,12 +414,22 @@ def test_babel_loader_runs_in_order_in_separate_tasks(scenario: str) -> None:
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-@pytest.mark.parametrize("scenario", ["fetch-error", "network-error"])
-def test_babel_loader_reports_failed_fetch_and_continues(scenario: str) -> None:
-    out = _boot_probe(scenario)
+def test_babel_loader_reports_failed_fetch_and_continues() -> None:
+    out = _boot_probe("fetch-error")
     assert out["disabled"] and out["ready"]
     assert out["events"][2:] == ["nonce:nonce-b", "b", "nonce:nonce-inline", "inline-strict"]
     assert out["errors"] == ["Error: Could not load https://dashboard.test/a.jsx?v=1"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize("scenario", ["network-error", "read-error"])
+def test_babel_loader_uses_empty_source_for_network_failure(scenario: str) -> None:
+    out = _boot_probe(scenario)
+    assert out["disabled"] and out["ready"]
+    assert out["events"][2:] == [
+        "nonce:nonce-a", "nonce:nonce-b", "b", "nonce:nonce-inline", "inline-strict"]
+    assert out["calls"][0]["source"] == ""
+    assert out["errors"] == []
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
