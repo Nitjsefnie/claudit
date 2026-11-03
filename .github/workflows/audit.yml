@@ -66,9 +66,9 @@ jobs:
       # The pip cache restores on every event but is saved only from a push
       # of master: `cache: pip` saves in a post-job step that runs after the
       # pull-request checkout, so untrusted code would write the cross-run
-      # cache a trusted run later installs from. This job's
-      # only manifest is requirements-pip-audit.txt, so the key hashes that
-      # file, and a pin bump starts a fresh cache entry.
+      # cache a trusted run later installs from. This job's manifests are
+      # requirements-pip-audit.txt and requirements-pyyaml.txt, so the key
+      # hashes both, and a pin bump starts a fresh cache entry.
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -76,7 +76,7 @@ jobs:
             ~/.cache/pip
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.15-${{ hashFiles('requirements-pip-audit.txt') }}
+          key: pip-${{ runner.os }}-3.15-${{ hashFiles('requirements-pip-audit.txt', 'requirements-pyyaml.txt') }}
           restore-keys: |
             pip-${{ runner.os }}-3.15-
 
@@ -87,7 +87,12 @@ jobs:
         # `--upgrade pip` either: it would install whatever bytes the index
         # serves, unpinned — an unaudited component ahead of the audit
         # gate itself. The runner's stock pip installs the manifest.
-        run: python -m pip install -r requirements-pip-audit.txt
+        # PyYAML first, hashed. The audit resolves backend/requirements.txt
+        # in a throwaway venv and would otherwise fetch the newest PyYAML
+        # sdist unhashed, so the wheel built from the pinned sdist goes to
+        # a find-links dir; the first audit call below takes PyYAML only from it.
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && python -m pip install -r requirements-pip-audit.txt && python -m pip wheel --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt -w "$RUNNER_TEMP/pyyaml-wheel"
 
       # Saved here, not in a post-job step: the install above populated the
       # cache, and the gate keeps every event but a push of master from
@@ -100,7 +105,7 @@ jobs:
             ~/.cache/pip
             ~/Library/Caches/pip
             ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-3.15-${{ hashFiles('requirements-pip-audit.txt') }}
+          key: pip-${{ runner.os }}-3.15-${{ hashFiles('requirements-pip-audit.txt', 'requirements-pyyaml.txt') }}
 
       - name: Audit dependencies
         # Each SET below is resolved and audited the way its install
@@ -165,7 +170,7 @@ jobs:
             return 1
           }
 
-          audit_set \
+          PIP_FIND_LINKS="$RUNNER_TEMP/pyyaml-wheel" PIP_ONLY_BINARY=pyyaml audit_set \
             --requirement backend/requirements.txt \
             --requirement requirements-dev.txt \
             --requirement requirements-test.txt || exit 1
