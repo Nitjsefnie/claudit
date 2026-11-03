@@ -12,6 +12,7 @@
 
 # ---- repository root ------------------------------------------------------
 !/VERSION
+!/requirements-pyyaml.txt
 
 # ---- backend/ — the app, its requirements and the schema files ------------
 !backend/

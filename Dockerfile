@@ -18,10 +18,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /opt/claudit
 
-# The requirements file first, on its own, so a code-only change reuses the
+# The requirements files first, on their own, so a code-only change reuses the
 # install layer.
+COPY requirements-pyyaml.txt requirements-pyyaml.txt
 COPY backend/requirements.txt backend/requirements.txt
-RUN pip install --no-cache-dir -r backend/requirements.txt
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt \
+    && pip install --no-cache-dir -r backend/requirements.txt
 
 # The same unprivileged account the unit runs as, created after the pip
 # layer and before any source copy: a code-only change then reuses this
