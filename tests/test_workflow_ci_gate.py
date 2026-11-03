@@ -482,7 +482,7 @@ def test_the_canary_job_is_named_for_what_it_is():
         f"pytest shard ${{{{ matrix.shard }}}} (canary, pinned {version})")
     portable = _tests_workflow()["jobs"]["pytest-portable"]
     assert portable.get("name") == (
-        "pytest (${{ matrix.os }}, ${{ matrix.python-version }})")
+        "pytest (${{ matrix.os }}, ${{ matrix.python-version }}, shard ${{ matrix.shard }}/2)")
 
 
 def test_parallel_canary_jobs_keep_the_gate_step_order():
@@ -512,6 +512,7 @@ def test_parallel_canary_jobs_keep_the_gate_step_order():
         "suite-bench": [*preparation, "Save the pip cache", "Measure and gate the suite cost",
                         "Upload the suite measurement"],
         "pytest-thresholds": [*database, "Run tests"],
+        "pytest-portable": [*preparation, "Save the pip cache", "Run tests", "actions/upload-artifact"],
         "ratchet": [*preparation, "actions/setup-node", "Install the JS toolchain from the lockfile",
                     "actions/download-artifact", "actions/download-artifact",
                     "Ratchet the thresholds", "Stage the ratchet data", "Upload the ratchet data"],

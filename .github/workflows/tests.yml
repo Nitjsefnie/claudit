@@ -438,9 +438,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: {"name": "ratchet-push", "path": "${{ runner.temp }}/ratchet-data", "if-no-files-found": "error", "retention-days": "1"}
   pytest-portable:
-    # The suite minus every DB-touching test (tests/db_marker.py's mechanical split); a comment-only change skips the matrix, the canary still runs it.
+    # The suite minus every DB-touching test (tests/db_marker.py's mechanical split), halved per cell; a comment-only change skips the matrix, the canary still runs it.
     if: inputs.comment_only != 'true' && inputs.thresholds_only != 'true'
-    name: pytest (${{ matrix.os }}, ${{ matrix.python-version }})
+    name: pytest (${{ matrix.os }}, ${{ matrix.python-version }}, shard ${{ matrix.shard }}/2)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -448,6 +448,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.14", "3.15"]
+        shard: [1, 2]
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -469,30 +470,27 @@ jobs:
 
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cache/pip
-            ~/Library/Caches/pip
-            ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}
-          restore-keys: |
-            pip-${{ runner.os }}-${{ matrix.python-version }}-
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}", "restore-keys": "pip-${{ runner.os }}-${{ matrix.python-version }}-\n"}
 
       - name: Install dependencies
         # One line: the default pwsh shell on windows-latest propagates only the last line's exit code.
         run: "pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && python -m pip install --upgrade pip -r backend/requirements.txt -r requirements-test.txt"
 
-      # Saved here, not in a post-job step, so the cache is written only from a master push.
+      # Saved here, not in a post-job step, so the cache is written only from a master push, by one shard per key.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        with:
-          path: |
-            ~/.cache/pip
-            ~/Library/Caches/pip
-            ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.shard == 1
+        with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}"}
 
       - name: Run tests
-        # A plain `python -m pytest`: the db-marked tests are the ones the portable cells cannot serve.
-        run: python -m pytest tests/ -q --tb=short -ra -m "not db"
+        # Bash on every OS, so the shard's file list splits into arguments; exec makes pytest the process a step timeout interrupts, so it still writes its report.
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          files=$(python scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 2)
+          # shellcheck disable=SC2086
+          exec python -m pytest $files -q --tb=short -ra -m "not db" -o faulthandler_timeout=120 --durations=20 --junitxml=pytest-junit.xml
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: {name: "pytest-junit-${{ matrix.os }}-${{ matrix.python-version }}-shard-${{ matrix.shard }}", path: pytest-junit.xml, retention-days: 30}

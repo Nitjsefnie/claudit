@@ -184,9 +184,10 @@ def test_restore_and_save_steps_share_their_cache_key():
             assert restore_keys == save_keys, (workflow, job)
 
 
-def test_only_one_pytest_shard_saves_the_shared_pip_cache():
+@pytest.mark.parametrize("job_id", ["pytest-shards", "pytest-portable"])
+def test_only_one_pytest_shard_saves_the_shared_pip_cache(job_id):
     steps = next(steps for workflow, job, steps in _jobs()
-                 if (workflow, job) == ("tests.yml", "pytest-shards"))
+                 if (workflow, job) == ("tests.yml", job_id))
     save, = [step for step in steps if _action(step) == "actions/cache/save"]
     assert save["if"] == (
         "github.event_name == 'push' && github.ref == 'refs/heads/master' "

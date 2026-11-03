@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -169,6 +170,41 @@ def test_shards_cover_four_partitions_and_publish_even_after_failure():
     upload, = [step for step in job['steps']
                if step.get('with', {}).get('name') == 'coverage-shard-${{ matrix.shard }}']
     assert upload['if'] == '${{ !cancelled() }}'
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='the step runs under POSIX Bash here')
+def test_portable_cells_run_half_the_suite_each_as_the_steps_own_process(tmp_path):
+    job = _workflow('tests.yml')['jobs']['pytest-portable']
+    assert job['strategy']['matrix']['shard'] == ['1', '2']
+    assert int(job['timeout-minutes']) == 20
+    steps = job['steps']
+    run, = [step for step in steps if step.get('name') == 'Run tests']
+    assert run['shell'] == 'bash' and int(run['timeout-minutes']) < 20
+    upload, = [step for step in steps if step.get('uses', '').startswith('actions/upload-artifact@')]
+    assert upload['if'] == 'always()'
+    fake = tmp_path / 'python'
+    fake.write_text('#!/bin/sh\nif [ "$1" = scripts/ci/pytest_shards.py ]; then exec "$REAL" "$@"; fi\n'
+                    'echo "$$" > "$PID"\nprintf "%s\\n" "$@" > "$ARGV"\n')
+    fake.chmod(0o755)
+    shards = []
+    for shard in ('1', '2'):
+        script = tmp_path / f'step-{shard}.sh'
+        script.write_text(run['run'].replace('${{ matrix.shard }}', shard))
+        env = dict(os.environ, PATH=f'{tmp_path}{os.pathsep}{os.environ["PATH"]}', REAL=sys.executable,
+                   PID=str(tmp_path / 'pid'), ARGV=str(tmp_path / 'argv'))
+        # The runner's own bash invocation; its step-timeout SIGINT goes to this process.
+        with subprocess.Popen(['bash', '--noprofile', '--norc', '-eo', 'pipefail', str(script)],
+                              cwd=ROOT, env=env) as step:
+            assert step.wait() == 0
+        assert (tmp_path / 'pid').read_text().split() == [str(step.pid)]
+        argv = (tmp_path / 'argv').read_text().splitlines()
+        assert argv[:2] == ['-m', 'pytest'] and argv[-9:] == [
+            '-q', '--tb=short', '-ra', '-m', 'not db', '-o', 'faulthandler_timeout=120',
+            '--durations=20', '--junitxml=pytest-junit.xml']
+        shards.append(argv[2:-9])
+    assert all(shards)
+    assert sorted(shards[0] + shards[1]) == sorted(
+        path.relative_to(ROOT).as_posix() for path in (ROOT / 'tests').rglob('test_*.py'))
 
 
 def _threshold_commands(tmp_path):
