@@ -18,9 +18,10 @@
 // being cost in view. Zeros here would say "we never measured this" in
 // the visual language of "we measured nothing wrong".
 // The journey rows answer hover: the hovered row highlights and the
-// shared tooltip reads the same series rows the table renders, never a
-// re-derived value. The panel carries no static declaration: one on a
-// panel that renders data fails the sweep.
+// shared tooltip lists each part's series row, including the dashboard's
+// network, parse and wait, which have no column; never a re-derived
+// value. The panel carries no static declaration: one on a panel that
+// renders data fails the sweep.
 
 const { useState, useEffect } = React;
 
@@ -134,9 +135,8 @@ function WebMetricsPanel({ range, nonce }) {
   // unmeasured one must look different.
   if (!series.length) return null;
 
-  const parts = ['total', 'fetch', 'client', 'network', 'parse', 'wait'];
-  const header = ['journey', 'samples']
-    .concat(parts.flatMap(part => ['p50 ' + part, 'p75 ' + part]));
+  const header = ['journey', 'samples', 'p50 total', 'p75 total',
+                  'p50 fetch', 'p75 fetch', 'p50 client', 'p75 client'];
 
   const onMove = e => {
     const tr = e.target.closest('tr[data-journey]');
@@ -144,7 +144,7 @@ function WebMetricsPanel({ range, nonce }) {
     const rect = e.currentTarget.getBoundingClientRect();
     const metric = tr.getAttribute('data-journey');
     const journey = journeys.find(j => j.metric === metric);
-    const lines = parts.map(part => {
+    const lines = ['total', 'fetch', 'client', 'network', 'parse', 'wait'].map(part => {
       const row = rowFor(metric, part);
       return [part, row
         ? `${row.n.toLocaleString()} · p50 ${perfMs(row.p50)} / `
@@ -205,6 +205,8 @@ function WebMetricsPanel({ range, nonce }) {
         <tbody>
           {journeys.map(j => {
             const total = rowFor(j.metric, 'total');
+            const fetchRow = rowFor(j.metric, 'fetch');
+            const clientRow = rowFor(j.metric, 'client');
             return (
               <tr key={j.metric} data-hover-target="" data-journey={j.metric}
                 style={{
@@ -213,13 +215,12 @@ function WebMetricsPanel({ range, nonce }) {
                 }}>
                 <th scope="row" style={{ ...PERF_HEAD, color: 'var(--fg)' }}>{j.label}</th>
                 <td style={PERF_CELL}>{total ? total.n.toLocaleString() : '—'}</td>
-                {parts.flatMap(part => {
-                  const row = rowFor(j.metric, part);
-                  return [
-                    <td key={part + ' p50'} style={PERF_CELL}>{perfPair(row, v => perfMs(v))}</td>,
-                    <td key={part + ' p75'} style={PERF_CELL}>{row ? perfMs(row.p75) : '—'}</td>,
-                  ];
-                })}
+                <td style={PERF_CELL}>{perfPair(total, v => perfMs(v))}</td>
+                <td style={PERF_CELL}>{total ? perfMs(total.p75) : '—'}</td>
+                <td style={PERF_CELL}>{perfPair(fetchRow, v => perfMs(v))}</td>
+                <td style={PERF_CELL}>{fetchRow ? perfMs(fetchRow.p75) : '—'}</td>
+                <td style={PERF_CELL}>{perfPair(clientRow, v => perfMs(v))}</td>
+                <td style={PERF_CELL}>{clientRow ? perfMs(clientRow.p75) : '—'}</td>
               </tr>
             );
           })}
