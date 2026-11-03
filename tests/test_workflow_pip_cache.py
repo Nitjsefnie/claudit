@@ -214,12 +214,14 @@ def _commands(script: str) -> list[list[str]]:
             if PIP_INSTALL.match(segment.strip()) or (audited and BACKEND_REQUIREMENTS in segment)]
 
 
-def _install_sites() -> dict[str, list[list[str]]]:
+def _install_sites() -> dict[str, list[tuple[bool, list[list[str]]]]]:
     sites = {
-        f"{workflow}:{job}": [words for step in steps if "run" in step
-                              for words in _commands(step["run"])]
+        f"{workflow}:{job}": [("if" in step or bool(step.get("continue-on-error")), _commands(step["run"]))
+                              for step in steps if "run" in step]
         for workflow, job, steps in _jobs()}
-    sites["Dockerfile"] = _commands((ROOT / "Dockerfile").read_text(encoding="utf-8"))
+    stages = re.split(r"(?im)^[ \t]*FROM\b", (ROOT / "Dockerfile").read_text(encoding="utf-8"))
+    for number, stage in enumerate(stages):
+        sites[f"Dockerfile:{number}" if number else "Dockerfile"] = [(False, _commands(stage))]
     return sites
 
 
@@ -245,22 +247,30 @@ def _audit_takes_pyyaml_from_hashed_wheel(words: list[str], earlier: list[list[s
                     for before in earlier))
 
 
-def _backend_sites(sites: dict[str, list[list[str]]]) -> list[str]:
-    return [site for site, installs in sites.items()
-            if any(_installs_backend(words) for words in installs)]
+def _backend_sites(sites: dict[str, list[tuple[bool, list[list[str]]]]]) -> list[str]:
+    return [site for site, steps in sites.items()
+            if any(_installs_backend(words) for _, installs in steps for words in installs)]
 
 
-def _sites_without_hashed_pyyaml_first(sites: dict[str, list[list[str]]]) -> list[str]:
+def _lacks_hashed_pyyaml(installs: list[list[str]], first: int) -> bool:
+    words = installs[first]
+    audit = not {"install", "wheel"} & set(words)
+    return (not any(_is_hashed_pyyaml(before) for before in installs[:first])
+            or audit and not _audit_takes_pyyaml_from_hashed_wheel(words, installs[:first]))
+
+
+def _sites_without_hashed_pyyaml_first(sites: dict[str, list[tuple[bool, list[list[str]]]]]) -> list[str]:
     violations = []
     for site in _backend_sites(sites):
-        installs = sites[site]
-        first = next(index for index, words in enumerate(installs)
-                     if _installs_backend(words))
-        words = installs[first]
-        audit = not {"install", "wheel"} & set(words)
-        if (not any(_is_hashed_pyyaml(before) for before in installs[:first])
-                or audit and not _audit_takes_pyyaml_from_hashed_wheel(words, installs[:first])):
-            violations.append(site)
+        earlier: list[list[str]] = []
+        for skippable, installs in sites[site]:
+            first = next((index for index, words in enumerate(installs)
+                          if _installs_backend(words)), None)
+            if first is not None and _lacks_hashed_pyyaml(earlier + installs, len(earlier) + first):
+                violations.append(site)
+                break
+            if not skippable:
+                earlier += installs
     return violations
 
 
@@ -290,10 +300,15 @@ WRAPPED_AUDIT = ('audit_set() {\n  pip-audit "$@"\n}\n'
 SPREAD = HASHED_PYYAML.replace(" -", "\\\n -")
 
 
-def _write_workflow(root: Path, jobs: dict[str, list[str]]) -> None:
+def _step(run: str, key: str, value: object) -> dict:
+    return {"run": run, key: value}
+
+
+def _write_workflow(root: Path, jobs: dict[str, list[str | dict]]) -> None:
     (root / ".github/workflows").mkdir(parents=True)
-    doc = {"jobs": {job: {"steps": [{"run": run} for run in runs]}
-                    for job, runs in jobs.items()}}
+    doc = {"jobs": {job: {"steps": [step if isinstance(step, dict) else {"run": step}
+                                    for step in steps]}
+                    for job, steps in jobs.items()}}
     (root / ".github/workflows/sample.yaml").write_text(yaml.safe_dump(doc), encoding="utf-8")
     (root / "Dockerfile").touch()
 
@@ -334,6 +349,7 @@ def _write_workflow(root: Path, jobs: dict[str, list[str]]) -> None:
     ([AUDIT], True),
     ([AUDIT, PREPARED], True),
     ([PREPARED, PLAIN_AUDIT], True),
+    ([PREPARED, AUDIT, PLAIN_AUDIT], True),
     ([PREPARED, AUDIT.replace("=pyyaml", "=test")], True),
     ([_chain(AUDIT, PREPARED)], True),
     ([_lines(AUDIT, HASHED_PYYAML, WHEEL)], True),
@@ -352,6 +368,32 @@ def _write_workflow(root: Path, jobs: dict[str, list[str]]) -> None:
     ([PREPARED, AUDIT.replace(f"PIP_FIND_LINKS={WHEEL_DIR} ", "")], True),
     ([PREPARED, AUDIT.replace("PIP_FIND_LINKS=", "PIP_FIND_LINKS_X=")], True),
     ([HASHED_PYYAML, WHEEL.replace(f" -w {WHEEL_DIR}", ""), AUDIT.replace(f"PIP_FIND_LINKS={WHEEL_DIR} ", "")], True),
+    ([_step(HASHED_PYYAML, "if", "always()"), BACKEND_INSTALL], True),
+    ([_step(HASHED_PYYAML, "if", False), BACKEND_INSTALL], True),
+    ([_step(HASHED_PYYAML, "if", "github.event_name == 'push'"), BACKEND_INSTALL], True),
+    ([_step(HASHED_PYYAML, "continue-on-error", True), BACKEND_INSTALL], True),
+    ([_step(HASHED_PYYAML, "continue-on-error", "${{ matrix.experimental }}"), BACKEND_INSTALL], True),
+    ([_step(HASHED_PYYAML, "continue-on-error", False), BACKEND_INSTALL], False),
+    ([_step(_chain(HASHED_PYYAML, BACKEND_INSTALL), "if", "always()")], False),
+    ([_step(_chain(HASHED_PYYAML, BACKEND_INSTALL), "continue-on-error", True)], False),
+    ([_step(_chain(BACKEND_INSTALL, HASHED_PYYAML), "if", "always()")], True),
+    ([_step(BACKEND_INSTALL, "if", "always()")], True),
+    ([_step(_chain(HASHED_PYYAML, BACKEND_INSTALL), "if", False), BACKEND_INSTALL], True),
+    ([_step(_chain(HASHED_PYYAML, BACKEND_INSTALL), "continue-on-error", True), BACKEND_INSTALL], True),
+    ([_step(_chain(HASHED_PYYAML, BACKEND_INSTALL), "if", False), HASHED_PYYAML, BACKEND_INSTALL], False),
+    ([_chain(HASHED_PYYAML, BACKEND_INSTALL), BACKEND_INSTALL], False),
+    ([BACKEND_INSTALL, BACKEND_INSTALL], True),
+    ([_step(_lines(PREPARED, AUDIT), "if", False), AUDIT], True),
+    ([HASHED_PYYAML, _step(BACKEND_INSTALL, "if", "always()")], False),
+    ([HASHED_PYYAML, _step(WHEEL, "if", "always()"), AUDIT], True),
+    ([HASHED_PYYAML, _step(WHEEL, "if", False), AUDIT], True),
+    ([HASHED_PYYAML, _step(WHEEL, "if", "github.event_name == 'push'"), AUDIT], True),
+    ([HASHED_PYYAML, _step(WHEEL, "continue-on-error", True), AUDIT], True),
+    ([HASHED_PYYAML, _step(WHEEL, "continue-on-error", "${{ matrix.experimental }}"), AUDIT], True),
+    ([HASHED_PYYAML, _step(WHEEL, "continue-on-error", False), AUDIT], False),
+    ([_step(HASHED_PYYAML, "if", "always()"), WHEEL, AUDIT], True),
+    ([_step(_lines(PREPARED, AUDIT), "if", "always()")], False),
+    ([_step(PREPARED, "continue-on-error", True), AUDIT], True),
     ([PREPARED, "pip wheel -r backend/requirements.txt"], False),
     ([_lines(PREPARED, WRAPPED_AUDIT.replace(f"PIP_FIND_LINKS={WHEEL_DIR} ", ""))], True),
     ([AUDIT.replace("--requirement", "-r")], True),
@@ -401,6 +443,23 @@ def test_hashed_pyyaml_check_reads_the_dockerfile(tmp_path, monkeypatch, dockerf
     monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
     assert _sites_without_hashed_pyyaml_first(_install_sites()) == (
         ["Dockerfile"] if violates else [])
+
+
+@pytest.mark.parametrize("dockerfile,violating", [
+    (_lines("FROM a", "RUN " + HASHED_PYYAML, "FROM b", "RUN " + BACKEND_INSTALL), ["Dockerfile:2"]),
+    (_lines("FROM a", "RUN " + HASHED_PYYAML, "FROM b", "RUN " + HASHED_PYYAML, "RUN " + BACKEND_INSTALL), []),
+    (_lines("FROM a", "RUN " + BACKEND_INSTALL, "FROM b", "RUN " + HASHED_PYYAML), ["Dockerfile:1"]),
+    (_lines("FROM a", "RUN " + BACKEND_INSTALL, "FROM b", "RUN " + HASHED_PYYAML, "RUN " + BACKEND_INSTALL),
+     ["Dockerfile:1"]),
+    (_lines("FROM a", "RUN " + HASHED_PYYAML, "from b", "RUN " + BACKEND_INSTALL), ["Dockerfile:2"]),
+    (_lines("FROM a", "RUN " + HASHED_PYYAML, "  FROM b", "RUN " + BACKEND_INSTALL), ["Dockerfile:2"]),
+    (_lines("FROM a", "RUN " + HASHED_PYYAML, "# FROM b", "RUN " + BACKEND_INSTALL), []),
+    (_lines("FROM a", "RUN " + HASHED_PYYAML + " && echo \\", "FROMAGE && " + BACKEND_INSTALL), []),
+])
+def test_hashed_pyyaml_check_keys_the_dockerfile_by_stage(tmp_path, monkeypatch, dockerfile, violating):
+    (tmp_path / "Dockerfile").write_text(dockerfile, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    assert _sites_without_hashed_pyyaml_first(_install_sites()) == violating
 
 
 @pytest.mark.parametrize("matrix,gate,accepted", [
