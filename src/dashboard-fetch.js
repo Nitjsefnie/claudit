@@ -4,6 +4,7 @@
   const ERROR = 'error';
 
   const EMPTY_TEXT = 'no usage data in range';
+  const inFlight = new Set();
 
   function start() { return { status: LOADING, detail: '' }; }
 
@@ -20,13 +21,9 @@
   //   ready   + no shape → the empty state (a range with no rows)
   //   ready   + a shape  → the stat block
   //   error              → the status, plus a detail line naming it
-  //   error + a shape    → the stat block AND the error: a refetch that
-  //                        fails leaves the previous response's numbers
-  //                        on screen, and quietly keeping them is worse
-  //                        than saying they are stale
-  // `hasData` is what the panels actually rendered (backendDashToShape
-  // retains surviving sessions, responses or projects without hours,
-  // and returns null only when no usable dashboard data survives): the shape
+  //   error + a shape    → the stat block AND the error: a failed refetch
+  //                        leaves stale numbers on screen, so say so
+  // `hasData` is what the panels actually rendered: the shape
   // answers WHETHER there is data, and the state answers WHICH of the
   // other three states the caller is in when there is not.
   function summary(state, hasData) {
@@ -49,7 +46,7 @@
   // for a `detail` field and the status stands alone when there is none.
   function load(url, init, fetchImpl, onParse) {
     const opts = Object.assign({ credentials: 'same-origin' }, init || {});
-    return (fetchImpl || fetch)(url, opts).then(r => {
+    const request = (fetchImpl || fetch)(url, opts).then(r => {
       if (r.ok) {
         return r.text().then(text => {
           const t0 = performance.now();
@@ -66,12 +63,26 @@
         () => { throw new Error('HTTP ' + r.status); },
       );
     });
+    inFlight.add(request);
+    const drop = () => { inFlight.delete(request); };
+    request.then(drop, drop);
+    return request;
+  }
+
+  // Run request once every load now in flight settles; returns a cancel.
+  // Waits a microtask: React runs a child's effects before its parent's, so
+  // a panel effect precedes the dashboard effect of its commit.
+  function whenSettled(request) {
+    let cancelled = false;
+    const run = () => { if (!cancelled) request(); };
+    Promise.resolve().then(() => Promise.allSettled(Array.from(inFlight))).then(run);
+    return () => { cancelled = true; };
   }
 
   window.dashboardFetch = {
     LOADING: LOADING, READY: READY, ERROR: ERROR,
     EMPTY_TEXT: EMPTY_TEXT,
     start: start, loaded: loaded, failed: failed,
-    summary: summary, load: load,
+    summary: summary, load: load, whenSettled: whenSettled,
   };
 })();

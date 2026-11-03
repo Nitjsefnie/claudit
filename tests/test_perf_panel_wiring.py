@@ -185,6 +185,7 @@ def test_the_table_and_its_tooltip_render_the_payload():
       Object.assign(window, { perfFeatureVisible: () => true, DashTooltip: () => null,
         useChartA11y: () => ({ label: '', descId: 'd', descText: '' }) });
       fetch = () => Promise.resolve({ json: () => Promise.resolve(%(payload)s) });
+      require(%(gate)s);
       (0, eval)(code);
       const render = () => { slot = 0; return window.WebMetricsPanel({ range: '1d', nonce: 0 }); };
       render();
@@ -213,7 +214,8 @@ def test_the_table_and_its_tooltip_render_the_payload():
         console.log(JSON.stringify({ head, rows, tips }));
       });
     """ % {"babel": json.dumps(str(ROOT / "public" / "vendor" / "babel.min.js")),
-           "panel": json.dumps(str(PANEL)), "payload": json.dumps({"series": _SERIES})},
+           "panel": json.dumps(str(PANEL)), "payload": json.dumps({"series": _SERIES}),
+           "gate": json.dumps(str(ROOT / "src" / "dashboard-fetch.js"))},
         sendBeacon=True, observers=[])
     assert out["head"] == ["journey", "samples"] + [
         f"{q} {part}" for part in ("total", "fetch", "client") for q in ("p50", "p75")], out

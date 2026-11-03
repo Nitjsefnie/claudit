@@ -64,10 +64,10 @@ function WebMetricsPanel({ range, nonce }) {
     // carries no project: the client is a page, not a session on a project.
     // A parameter the server drops is worse than no parameter, since the
     // URL claims a narrowing the answer does not have.
-    fetch(`/api/web-metrics?range=${range || 'all'}`, { credentials: 'same-origin' })
+    return window.dashboardFetch.whenSettled(() => fetch(`/api/web-metrics?range=${range || 'all'}`, { credentials: 'same-origin' })
       .then(r => r.json())
       .then(b => setBody(b))
-      .catch(err => console.error('web-metrics fetch failed', err));
+      .catch(err => console.error('web-metrics fetch failed', err)));
   }, [range, nonce]);
 
   const series = (body && body.series) || [];

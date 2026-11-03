@@ -211,3 +211,108 @@ def test_load_times_the_json_parse_and_hands_it_to_the_caller():
         {"body": {"rows": [1, 2]}}], out
     assert out["results"][3]["error"].startswith("SyntaxError: "), out
     assert out["seen"] == [7], out
+
+
+_GATE = """
+  const F = window.dashboardFetch;
+  const seen = [];
+  const request = () => {
+    let settle;
+    const ctrl = new AbortController();
+    const stub = () => new Promise((resolve, reject) => {
+      settle = {
+        ok: () => resolve({ok: true, status: 200, text: () => Promise.resolve('{}')}),
+        http: () => resolve({ok: false, status: 503, json: () => Promise.resolve({})}),
+        network: () => reject(new TypeError('network')),
+        abort: () => ctrl.abort(),
+      };
+      ctrl.signal.addEventListener('abort', () => reject(new Error('AbortError')));
+    });
+    const p = F.load('/api/dashboard', {signal: ctrl.signal}, stub);
+    p.then(() => seen.push('landed'), () => seen.push('rejected'));
+    return outcome => { seen.push('settle'); settle[outcome](); };
+  };
+  const later = fn => setTimeout(fn, 0);
+  const report = () => later(() => console.log(JSON.stringify(seen)));
+"""
+
+
+@pytest.mark.parametrize("outcome,first", [
+    pytest.param("ok", "landed", id="success"),
+    pytest.param("http", "rejected", id="http-failure"),
+    pytest.param("network", "rejected", id="network-failure"),
+    pytest.param("abort", "rejected", id="abort"),
+])
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_panel_request_waits_for_the_dashboard_request_to_settle(outcome, first):
+    out = _node(_GATE + f"""
+      const settle = request();
+      F.whenSettled(() => seen.push('panel'));
+      later(() => {{ settle({outcome!r}); report(); }});
+    """)
+    assert out == ["settle", first, "panel"], out
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_panel_request_issued_before_the_dashboard_request_in_the_same_tick_waits():
+    out = _node(_GATE + """
+      F.whenSettled(() => seen.push('panel'));
+      const settle = request();
+      later(() => { settle('ok'); report(); });
+    """)
+    assert out == ["settle", "landed", "panel"], out
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_panel_request_waits_for_the_request_that_superseded_the_first():
+    out = _node(_GATE + """
+      const stale = request();
+      const fresh = request();
+      F.whenSettled(() => seen.push('panel'));
+      later(() => {
+        stale('abort');
+        later(() => { seen.push('stale settled'); fresh('ok'); report(); });
+      });
+    """)
+    assert out == ["settle", "rejected", "stale settled", "settle", "landed",
+                   "panel"], out
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_panel_request_waits_for_every_request_in_flight():
+    out = _node(_GATE + """
+      const older = request();
+      const newer = request();
+      F.whenSettled(() => seen.push('panel'));
+      later(() => {
+        newer('ok');
+        later(() => { seen.push('newer settled'); older('http'); report(); });
+      });
+    """)
+    assert out == ["settle", "landed", "newer settled", "settle", "rejected",
+                   "panel"], out
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_panel_request_runs_at_once_when_no_dashboard_request_is_in_flight():
+    out = _node(_GATE + """
+      F.whenSettled(() => seen.push('panel'));
+      seen.push('sync');
+      later(() => {
+        const settled = request();
+        settled('ok');
+        later(() => { F.whenSettled(() => seen.push('panel after')); seen.push('sync'); report(); });
+      });
+    """)
+    assert out == ["sync", "panel", "settle", "landed", "sync", "panel after"], out
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_cancelled_panel_request_never_starts():
+    out = _node(_GATE + """
+      F.whenSettled(() => seen.push('idle panel'))();
+      const settle = request();
+      const cancel = F.whenSettled(() => seen.push('held panel'));
+      later(() => { cancel(); settle('ok'); report(); });
+    """)
+    assert out == ["settle", "landed"], out
