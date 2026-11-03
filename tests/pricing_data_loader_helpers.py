@@ -108,7 +108,8 @@ ORIGIN = "https://claudit.example"
 
 
 def _browser_load(*, pricing_attr: str | None = None, status: int = 200,
-                  body: str | None = None, redirected_to: str | None = None):
+                  body: str | None = None, redirected_to: str | None = None,
+                  fail: str = ""):
     """Load the real pricing-loader.js as a page would: currentScript
     is /src/pricing-loader.js?v=1 on a page at /dashboard/deep/path."""
     dataset = {"pricing": pricing_attr} if pricing_attr else {}
@@ -123,8 +124,13 @@ def _browser_load(*, pricing_attr: str | None = None, status: int = 200,
       }};
       global.fetch = async (url, options) => {{
         requests.push({{ url: String(url), options }});
+        const fail = {json.dumps(fail)};
+        if (fail === 'network') throw new TypeError('Failed to fetch');
         return {{ status: {status}, url: {json.dumps(redirected_to)} || String(url),
-                 text: async () => {json.dumps(body)} }};
+                 text: async () => {{
+                   if (fail === 'read') throw new TypeError('body stream interrupted');
+                   return {json.dumps(body)};
+                 }} }};
       }};
       let error = null;
       let installedAtRequire = null;
