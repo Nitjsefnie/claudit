@@ -229,6 +229,7 @@
     "tag 'openai/fast' names neither a known region nor a quantization: gpt-5-1 via OpenAI, gpt-5-2 via OpenAI, gpt-5-3-codex via OpenAI, gpt-5-4 via OpenAI, gpt-5-4-mini via OpenAI, gpt-5-5 via OpenAI, gpt-5-6-luna via OpenAI, gpt-5-6-luna-pro via OpenAI, gpt-5-6-sol via OpenAI, gpt-5-6-sol-pro via OpenAI, gpt-5-6-terra via OpenAI, gpt-5-6-terra-pro via OpenAI, gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-1-terra via OpenAI, gpt-6-1-terra-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI, gpt-6-luna via OpenAI, gpt-6-luna-pro via OpenAI, gpt-6-sol via OpenAI, gpt-6-sol-pro via OpenAI",
     "tag 'openai/flex' names neither a known region nor a quantization: gpt-5-1 via OpenAI, gpt-5-2 via OpenAI, gpt-5-4 via OpenAI, gpt-5-4-mini via OpenAI, gpt-5-4-nano via OpenAI, gpt-5-4-pro via OpenAI, gpt-5-5 via OpenAI, gpt-5-5-pro via OpenAI, gpt-5-6-luna via OpenAI, gpt-5-6-luna-pro via OpenAI, gpt-5-6-sol via OpenAI, gpt-5-6-sol-pro via OpenAI, gpt-5-6-terra via OpenAI, gpt-5-6-terra-pro via OpenAI, gpt-5-mini via OpenAI, gpt-5-nano via OpenAI, gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-1-terra via OpenAI, gpt-6-1-terra-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI, gpt-6-luna via OpenAI, gpt-6-luna-pro via OpenAI, gpt-6-sol via OpenAI, gpt-6-sol-pro via OpenAI",
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
+    "tag 'particle-ai/us/flex' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Particle AI",
     "tag 'relace/fast' names neither a known region nor a quantization: deepseek-v4-1-flash via Relace, deepseek-v4-1-flash-1017 via Relace, deepseek-v4-flash-0731 via Relace",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
@@ -491,7 +492,8 @@
       "NextBit"
     ],
     "deepseek-v4-1-flash-1017": [
-      "Makora"
+      "Makora",
+      "Particle AI"
     ],
     "deepseek-v4-flash": [
       "Alibaba",
