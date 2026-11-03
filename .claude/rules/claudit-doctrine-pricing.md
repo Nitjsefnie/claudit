@@ -467,8 +467,9 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
   (rows kept) and the sampled host classifications — which reprinted
   byte-identically every run (issue #933). The run's own stdout report
   keeps both blocks, and a committing run records them in the same state
-  file as `vanished` (model → hosts) and `sampled` (model → host → the
-  display classification), so a changed set or classification shows as a
+  file as `vanished` (model → hosts), `sampled` (model → host → the
+  display classification) and `delisted` (the sorted OpenRouter ids the run
+  skipped as delisted), so a changed set or classification shows as a
   diff of that file. The subject carries this run's counts — changed,
   new, refused — and the bare keys of provider moves rekeyed by the same
   run; vanished hosts stay in the standing state.
@@ -485,8 +486,10 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
     the data region. A model gone from /api/v1/models is a delisting,
     not a refusal: the run skips it with a notice, its provider row
     keeps pricing stored records, and it rejoins the refresh on its own
-    when the catalog relists it. An unreadable catalog proves nothing,
-    so the empty-endpoints refusal stands while it cannot be read.
+    when the catalog relists it. A readable catalog overrides the recorded
+    delistings; while it cannot be read, the run skips the ids the last
+    committing run recorded as delisted, and any other model's empty
+    endpoints answer is still refused.
 
   When the refreshed document passes final validation, a refusal blocks
   only itself: every other move is rewritten or appended, tested and

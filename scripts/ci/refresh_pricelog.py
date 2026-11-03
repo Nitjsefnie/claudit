@@ -192,8 +192,7 @@ def read_logs(tracked: dict, fetch_catalog: FetchModels | None,
     Also returns the catalog's model-id set, or None whenever the catalog
     could not be read (no fetcher, a failed fetch, an unrecognised or empty
     listing): the caller cannot then tell a delisted model from a broken
-    catalog fetch, and keeps refusing a still-tracked model's empty
-    endpoints answer."""
+    catalog fetch."""
     if fetch_catalog is None or fetch_log is None:
         return _unavailable(tracked, "listed-pricing fetch is not configured"), None
     try:

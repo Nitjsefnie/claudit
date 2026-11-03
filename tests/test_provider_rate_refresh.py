@@ -503,10 +503,9 @@ def test_a_delisted_model_is_skipped_with_a_notice_and_blocks_nothing(
 ])
 def test_an_unreadable_catalog_keeps_the_empty_endpoints_refusal(
         tmp_path, capsys, catalog_payload):
-    """A catalog that could not be read proves nothing about delisting: an
-    empty endpoints answer from a tracked model is still refused, never
-    skipped. An empty data list is a spelling of unreadable — a transient
-    empty listing must not mass-delist every tracked model."""
+    """With no recorded delisting, an unreadable catalog proves nothing: an
+    empty endpoints answer is refused, never skipped. An empty data list is
+    unreadable too, so a transient empty listing cannot mass-delist."""
     run = Run(tmp_path)
     run.endpoints(V41).clear()
     rc, _, err = run(capsys, catalog=catalog_payload)

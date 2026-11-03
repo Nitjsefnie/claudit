@@ -518,10 +518,8 @@ def test_a_blocked_open_is_bounded_on_every_attempt(monkeypatch):
 
 
 def test_one_catalog_timeout_is_retried_so_the_delisted_skip_survives(monkeypatch):
-    """a single read timeout on the models read must not leave
-    the catalog unreadable — an unreadable catalog proves nothing, so the
-    empty-endpoints refusal stood and the run went red although the model
-    was delisted all along."""
+    """A single read timeout on the models read must not leave the catalog
+    unreadable, or the delisting could not be seen."""
     catalog = {"data": [{"id": "synth/model", "canonical_slug": "synth/canonical"}]}
     sleeps: list[float] = []
 
