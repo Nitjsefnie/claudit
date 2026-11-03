@@ -207,18 +207,19 @@ def test_types_installs_and_caches_the_full_import_toolchain():
     assert len(caches) == 2
 
 
-def _installs(script: str) -> list[list[str]]:
+def _commands(script: str) -> list[list[str]]:
+    audited = re.search(r"pip[-_]audit", script)
     segments = re.split(r"&&|\n", script.replace("\\\n", ""))
-    return [shlex.split(segment) for segment in segments
-            if PIP_INSTALL.match(segment.strip())]
+    return [shlex.split(segment, comments=True) for segment in segments
+            if PIP_INSTALL.match(segment.strip()) or (audited and BACKEND_REQUIREMENTS in segment)]
 
 
 def _install_sites() -> dict[str, list[list[str]]]:
     sites = {
         f"{workflow}:{job}": [words for step in steps if "run" in step
-                              for words in _installs(step["run"])]
+                              for words in _commands(step["run"])]
         for workflow, job, steps in _jobs()}
-    sites["Dockerfile"] = _installs((ROOT / "Dockerfile").read_text(encoding="utf-8"))
+    sites["Dockerfile"] = _commands((ROOT / "Dockerfile").read_text(encoding="utf-8"))
     return sites
 
 
@@ -242,7 +243,10 @@ def _sites_without_hashed_pyyaml_first(sites: dict[str, list[list[str]]]) -> lis
         installs = sites[site]
         first = next(index for index, words in enumerate(installs)
                      if _installs_backend(words))
-        if not any(_is_hashed_pyyaml(words) for words in installs[:first]):
+        audit = "install" not in installs[first]
+        if audit and "PIP_ONLY_BINARY=pyyaml" not in installs[first]:
+            violations.append(site)
+        elif not any(_is_hashed_pyyaml(words) for words in installs[:first]):
             violations.append(site)
     return violations
 
@@ -250,7 +254,7 @@ def _sites_without_hashed_pyyaml_first(sites: dict[str, list[list[str]]]) -> lis
 def test_every_backend_requirements_install_follows_the_hashed_pyyaml_install():
     sites = _install_sites()
     assert not _sites_without_hashed_pyyaml_first(sites)
-    assert len(_backend_sites(sites)) >= 16
+    assert len(_backend_sites(sites)) >= 17
 
 
 def _chain(*commands: str) -> str:
@@ -262,6 +266,11 @@ def _lines(*commands: str) -> str:
 
 
 BACKEND_INSTALL = "pip install -r backend/requirements.txt"
+PLAIN_AUDIT = "pip-audit --requirement backend/requirements.txt"
+AUDIT = "PIP_ONLY_BINARY=pyyaml " + PLAIN_AUDIT
+WRAPPED_AUDIT = ('audit_set() {\n  pip-audit "$@"\n}\n'
+                 "PIP_ONLY_BINARY=pyyaml audit_set \\\n  --requirement backend/requirements.txt \\\n"
+                 "  --requirement requirements-dev.txt || exit 1")
 SPREAD = HASHED_PYYAML.replace(" -", "\\\n -")
 
 
@@ -300,7 +309,29 @@ def _write_workflow(root: Path, jobs: dict[str, list[str]]) -> None:
     ([_chain(HASHED_PYYAML.replace(" --no-binary=PyYAML", ""), BACKEND_INSTALL)], True),
     ([_chain(HASHED_PYYAML.replace("pyyaml", "test"), BACKEND_INSTALL)], True),
     (["echo " + BACKEND_INSTALL], False),
-    (["pip-audit --requirement backend/requirements.txt"], False),
+    ([_chain(HASHED_PYYAML, "pip install -r requirements-pip-audit.txt"), AUDIT], False),
+    ([_lines(HASHED_PYYAML, AUDIT)], False),
+    ([HASHED_PYYAML, WRAPPED_AUDIT], False),
+    ([HASHED_PYYAML, AUDIT.replace("--requirement", "-r")], False),
+    ([AUDIT], True),
+    ([AUDIT, HASHED_PYYAML], True),
+    ([HASHED_PYYAML, PLAIN_AUDIT], True),
+    ([HASHED_PYYAML, AUDIT.replace("=pyyaml", "=test")], True),
+    ([_chain(AUDIT, HASHED_PYYAML)], True),
+    ([_lines(AUDIT, HASHED_PYYAML)], True),
+    ([WRAPPED_AUDIT], True),
+    ([AUDIT.replace("--requirement", "-r")], True),
+    ([_lines("echo it's", HASHED_PYYAML, AUDIT)], False),
+    ([AUDIT.replace("backend/requirements.txt", '"backend/requirements.txt"')], True),
+    ([HASHED_PYYAML.replace(" --no-binary=PyYAML", ""), AUDIT], True),
+    ([HASHED_PYYAML.replace("pyyaml", "test"), AUDIT], True),
+    (["pip-audit --requirement requirements-dev.txt"], False),
+    (["pip-audit -r requirements-dev.txt -r requirements-test.txt"], False),
+    (["pip-audit --requirement other/backend/requirements.txt"], False),
+    (["# " + AUDIT], False),
+    (["audit-tool --requirement backend/requirements.txt"], False),
+    ([_lines("pip-audit -r requirements-dev.txt", "pip download -r backend/requirements.txt")], True),
+    ([AUDIT.replace("pip-audit", "python -m pip_audit")], True),
     (["pip download -r backend/requirements.txt"], False),
     (["pip install-x -r backend/requirements.txt"], False),
 ])
