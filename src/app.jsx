@@ -1,6 +1,6 @@
-const { useState, useEffect, useMemo, useRef, useId } = React;
+var { useState, useEffect, useMemo, useRef, useId } = React;
 
-// One effect run owns one request so a slow stale response cannot
+// One effect owns one request so a stale response cannot
 // overwrite a fresher one. mintRunSignal pairs an AbortController with
 // an isCurrent() check: every handler checks the run before applying a
 // result. Abort is cancellation, not failure, and the effect's cleanup
@@ -189,12 +189,14 @@ function App() {
     if (!window.dashboardFeaturesOn()) return;
     const run = mintRunSignal();
     const q = activeProject ? `&project=${encodeURIComponent(activeProject)}` : '';
+    const url = `/api/dashboard?range=${activeRange}${q}`;
+    let parse = null;
     setDashFetch(window.dashboardFetch.start());
     window.perf.openJourney('dashboard_open');
-    window.dashboardFetch.load(`/api/dashboard?range=${activeRange}${q}`, { signal: run.signal })
+    window.dashboardFetch.load(url, { signal: run.signal }, null, ms => { parse = ms; })
       .then(b => {
         if (!run.isCurrent()) return;
-        window.perf.closeFetch('dashboard_open');
+        window.perf.closeFetch('dashboard_open', { url, parse });
         setBackendDash(b);
         setDashFetch(window.dashboardFetch.loaded());
         // Announce only once the refetch the event asked for has

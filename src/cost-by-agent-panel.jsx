@@ -1,4 +1,4 @@
-// The card declares data-max-h: the interaction guard checks a
+// Card declares data-max-h: the interaction guard checks a
 // panel that declares a bound against that ABSOLUTE ceiling in both of
 // its payload worlds (2 roles vs 30+), instead of the equal-heights
 // equality every unbounded panel owes — a capped list is shorter at 2
@@ -10,7 +10,7 @@
 // subagent transcript predating Claude Code 2.1.126 all read the same
 // in the file. The subtitle says so, because a bar this large silently
 // meaning "unattributed" would be read as a measurement.
-const humanFmt_X = window.humanFmt;
+var humanFmt_X = window.humanFmt;
 const MAX_VISIBLE = 8;
 // HBar's svg stands 32 + rows*36 + 18 tall — 338px at the cap, and
 // that svg height is what the guard measures against this attribute.
@@ -28,14 +28,14 @@ function CostByAgentPanel({ models, project, range, nonce }) {
   React.useEffect(() => {
     const q = (project ? `&project=${encodeURIComponent(project)}` : '')
             + (activeModel ? `&model=${encodeURIComponent(activeModel)}` : '');
-    fetch(`/api/cost-by-agent?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
+    return window.dashboardFetch.whenSettled(() => fetch(`/api/cost-by-agent?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
       .then(r => r.json())
       .then(b => {
         setRows(b.agents || []);
         setTotal(b.total_cost_usd || 0);
         setTotalTokens(b.total_tokens || 0);
       })
-      .catch(err => console.error('cost-by-agent fetch failed', err));
+      .catch(err => console.error('cost-by-agent fetch failed', err)));
   }, [project, range, activeModel, nonce]);
 
   const modelOpts = React.useMemo(() => {

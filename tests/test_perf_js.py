@@ -46,10 +46,14 @@ _PREAMBLE = r"""
   fake('window', {
     addEventListener: (n, f) => { (window._l = window._l || {})[n] = f; },
   });
+  fake('location', { href: 'https://claudit.test/' });
   fake('performance', {
     timeOrigin: 1000000,
     now: () => clock,
     getEntriesByType: t => (CFG.nav && t === 'navigation') ? [CFG.nav] : [],
+    getEntriesByName: (n, t) => (CFG.resources || []).filter(e => t === 'resource' && e.name === n),
+    addEventListener: (n, f) => { (performance._l = performance._l || {})[n] = f; },
+    clearResourceTimings: () => { performance.cleared = (performance.cleared || 0) + 1; },
   });
   fake('sessionStorage', {
     _d: Object.assign({}, CFG.session || {}),
@@ -118,7 +122,7 @@ def _run(body: str, **cfg) -> dict:
     # CreateProcess command line over 32k (WinError 206).
     proc = run_node(
         ["node"], input=script, capture_output=True, text=True, timeout=60,
-        check=False,
+        check=False, encoding="utf-8",
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
     lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
@@ -145,6 +149,50 @@ def test_journey_reports_its_measured_parts_only():
     assert [r["part"] for r in rows] == ["total", "fetch", "client"], rows
     assert all(r["metric"] == "dashboard_open" for r in rows)
     assert [r["value"] for r in rows] == [1000, 400, 600], rows
+
+
+_DASH = "https://claudit.test/api/dashboard?range=1d"
+_FRESH = {"name": _DASH, "startTime": 1005, "responseEnd": 1300}
+
+
+@pytest.mark.parametrize("journey,resources,parse,split", [
+    ("dashboard_open", [_FRESH], 30, {"network": 300, "parse": 30, "wait": 70}),
+    ("dashboard_open", [], 30, {"parse": 30}),
+    ("dashboard_open", [{**_FRESH, "startTime": 995}], 30, {"parse": 30}),
+    ("dashboard_open", [_FRESH, {**_FRESH, "startTime": 1010, "responseEnd": 1350}], 30,
+     {"network": 350, "parse": 30, "wait": 20}),
+    ("dashboard_open", [{**_FRESH, "name": _DASH + "&project=p"}], 30, {"parse": 30}),
+    ("dashboard_open", [{**_FRESH, "responseEnd": 1450}], 30, {"parse": 30}),
+    ("dashboard_open", [_FRESH], None, {"network": 300}),
+    ("dashboard_open", [_FRESH], 150, {"network": 300, "parse": 150}),
+    ("inspector_open", [_FRESH], 30, {}),
+], ids=["measured", "no-entry", "stale-entry", "most-recent-entry", "other-url",
+        "network-past-fetch", "no-parse", "negative-wait", "other-journey"])
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_dashboard_open_splits_its_fetch_into_network_parse_and_wait(
+        journey, resources, parse, split):
+    out = _run("""
+      window.perf.openJourney(%(j)s);
+      clock = 1400;
+      window.perf.closeFetch(%(j)s, { url: '/api/dashboard?range=1d', parse: %(p)s });
+      clock = 2000;
+      window.perf.closeJourney(%(j)s);
+      __tick();
+      console.log(JSON.stringify({ beacons: beacons() }));
+    """ % {"j": json.dumps(journey), "p": json.dumps(parse)},
+        sendBeacon=True, observers=[], resources=resources)
+    rows = {r["part"]: r["value"] for r in out["beacons"]}
+    assert rows == {"total": 1000, "fetch": 400, "client": 600, **split}, rows
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_full_resource_timing_buffer_is_cleared_so_new_entries_land():
+    out = _run("""
+      const before = performance.cleared || 0;
+      ((performance._l || {}).resourcetimingbufferfull || (() => {}))();
+      console.log(JSON.stringify({ before, after: performance.cleared || 0 }));
+    """, sendBeacon=True, observers=[])
+    assert out == {"before": 0, "after": 1}, out
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
@@ -559,7 +607,9 @@ def test_every_beacon_the_module_emits_is_inside_the_contract():
     walk runs over all five metrics at once."""
     allowed = {
         ("dashboard_open", "fetch"), ("dashboard_open", "client"),
-        ("dashboard_open", "total"), ("inspector_open", "fetch"),
+        ("dashboard_open", "total"), ("dashboard_open", "network"),
+        ("dashboard_open", "parse"), ("dashboard_open", "wait"),
+        ("inspector_open", "fetch"),
         ("inspector_open", "client"), ("inspector_open", "total"),
         ("signin", "fetch"), ("signin", "client"), ("signin", "total"),
         ("layout_shift", "shift"), ("longtask", "block"),
@@ -567,7 +617,7 @@ def test_every_beacon_the_module_emits_is_inside_the_contract():
     out = _run("""
       for (const name of %s) {
         window.perf.openJourney(name);
-        window.perf.closeFetch(name);
+        window.perf.closeFetch(name, { url: '/api/dashboard?range=1d', parse: 0 });
         window.perf.closeJourney(name);
       }
       const mk = reg => ({ getAttribute: n => (n === 'data-perf-region' ? reg : null),
@@ -580,8 +630,9 @@ def test_every_beacon_the_module_emits_is_inside_the_contract():
       __emit('longtask', [{ duration: 42 }, { duration: 43 }]);
       __tick();
       console.log(JSON.stringify({ beacons: beacons() }));
-    """ % json.dumps(list(JOURNEYS)), sendBeacon=True, observers=_BOTH)
+    """ % json.dumps(list(JOURNEYS)), sendBeacon=True, observers=_BOTH, resources=[{**_FRESH, "startTime": 1000, "responseEnd": 1000}])
     assert out["beacons"], "no beacons at all -- the walk proves nothing"
+    assert {(r["metric"], r["part"]) for r in out["beacons"]} == allowed, out
     regions = {"panel_grid", "inspector", "signin", "other"}
     phases = {"pre_paint", "post_usable", "sse_update"}
     for row in out["beacons"]:

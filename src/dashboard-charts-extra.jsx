@@ -1,9 +1,8 @@
-// Extra dashboard panels: Per-Session Context Growth.
 // Loaded after dashboard-charts.jsx; depends on its globals (TH/COL/humanFmt).
 
-const TH_X       = window.dashboardTheme;
-const COL_X      = window.dashboardCol;
-const humanFmt_X = window.humanFmt;
+var TH_X       = window.dashboardTheme;
+var COL_X      = window.dashboardCol;
+var humanFmt_X = window.humanFmt;
 
 // The observed peak plus headroom covers new models without a per-model
 // cap table. Every context panel shares src/ctx-axis.js.
@@ -119,7 +118,7 @@ function ContextGrowthPanel({ events, realSessions, project, range, nonce }) {
 
   React.useEffect(() => {
     const q = project ? `&project=${encodeURIComponent(project)}` : '';
-    fetch(`/api/context-growth/traces?range=${range || 'all'}${q}`,
+    return window.dashboardFetch.whenSettled(() => fetch(`/api/context-growth/traces?range=${range || 'all'}${q}`,
           { credentials: 'same-origin' })
       .then(r => r.json())
       // Defer the per-model transform out of the commit that lands the
@@ -127,7 +126,7 @@ function ContextGrowthPanel({ events, realSessions, project, range, nonce }) {
       // the frame the response arrived on. window.deferred runs the
       // callback on an idle callback (or the next macrotask).
       .then(b => window.deferred.run(b.traces || [], setTraces))
-      .catch(() => setTraces([]));
+      .catch(() => setTraces([])));
   }, [project, range, nonce]);
 
   // Prefer real per-session ctx traces from the backend when present;
@@ -337,7 +336,7 @@ function _toolColor(name) {
   const hue = ((h % 360) + 360) % 360;
   return `hsl(${hue}, 60%, 55%)`;
 }
-const _OTHER_COLOR = '#5a627a';
+var _OTHER_COLOR = '#5a627a';
 
 // Tool error rate (per-model sub-panels mirroring ContextGrowthPanel
 // layout). Each sub-panel shows EMA(α=0.15) lines for "Aggregate"
@@ -396,13 +395,13 @@ function ToolUsagePanel({ models, project, range, nonce }) {
   React.useEffect(() => {
     const q = (project ? `&project=${encodeURIComponent(project)}` : '')
             + (activeModel ? `&model=${encodeURIComponent(activeModel)}` : '');
-    fetch(`/api/tool-usage?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
+    return window.dashboardFetch.whenSettled(() => fetch(`/api/tool-usage?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
       .then(r => r.json())
       .then(b => {
         setData(b.buckets || []);
         if (b.bucket_s) setBucketMs(b.bucket_s * 1000);
       })
-      .catch(err => console.error('tool-usage fetch failed', err));
+      .catch(err => console.error('tool-usage fetch failed', err)));
   }, [project, range, activeModel, nonce]);
 
   const modelOpts = React.useMemo(() => {
@@ -876,7 +875,7 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
   React.useEffect(() => {
     const q = (project ? `&project=${encodeURIComponent(project)}` : '')
             + (activeModel ? `&model=${encodeURIComponent(activeModel)}` : '');
-    window.costByContext.fetch(`/api/cost-by-context?range=${range || 'all'}${q}`)
+    return window.dashboardFetch.whenSettled(() => window.costByContext.fetch(`/api/cost-by-context?range=${range || 'all'}${q}`)
       .then(b => {
         setData(b.buckets || []);
         setMeta({
@@ -886,7 +885,7 @@ function CostByContextPanel({ models, project, range, nonce, measure }) {
           total_tokens: b.total_tokens || 0,
         });
       })
-      .catch(err => console.error('cost-by-context fetch failed', err));
+      .catch(err => console.error('cost-by-context fetch failed', err)));
   }, [project, range, activeModel, nonce]);
 
   const modelOpts = React.useMemo(() => {

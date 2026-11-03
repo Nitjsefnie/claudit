@@ -81,7 +81,7 @@ const fetchImpl = async url => {
   calls.push(url);
   return url.startsWith('/api/dashboard')
     ? {ok:false, status:404, json:async () => ({detail:'feature disabled'})}
-    : {ok:true, json:async () => ({buckets:[{ts:1767225600, tool:'Read', n:4}]})};
+    : {ok:true, text:async () => JSON.stringify({buckets:[{ts:1767225600, tool:'Read', n:4}]})};
 };
 (async () => {
   const range = '7d';

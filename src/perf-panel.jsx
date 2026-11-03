@@ -1,4 +1,4 @@
-// Page performance readout — the browser half of the
+// Performance readout — the browser half of the
 // journey, layout-stability and blocking telemetry that src/perf.js
 // beacons, read back from /api/web-metrics.
 // `series` is the POOLED range-level readout and `buckets` the same grain
@@ -17,14 +17,13 @@
 // renders nothing at all, the way every cost surface is gated on there
 // being cost in view. Zeros here would say "we never measured this" in
 // the visual language of "we measured nothing wrong".
-// The journey rows answer hover: the row under the pointer
-// highlights and the shared tooltip names the journey's measured parts.
-// The readout stays a readout — the tooltip reads the same series rows
-// the table renders, never a re-derived value — and the panel carries
-// no static declaration: a static declaration on a panel that
+// The journey rows answer hover: the hovered row highlights and the
+// shared tooltip lists each part's series row, including the dashboard's
+// network, parse and wait, which have no column; never a re-derived
+// value. The panel carries no static declaration: one on a panel that
 // renders data fails the sweep.
 
-const { useState, useEffect } = React;
+var { useState, useEffect } = React;
 
 function perfMs(v) {
   if (v == null || typeof v !== 'number' || !isFinite(v)) return '—';
@@ -65,10 +64,10 @@ function WebMetricsPanel({ range, nonce }) {
     // carries no project: the client is a page, not a session on a project.
     // A parameter the server drops is worse than no parameter, since the
     // URL claims a narrowing the answer does not have.
-    fetch(`/api/web-metrics?range=${range || 'all'}`, { credentials: 'same-origin' })
+    return window.dashboardFetch.whenSettled(() => fetch(`/api/web-metrics?range=${range || 'all'}`, { credentials: 'same-origin' })
       .then(r => r.json())
       .then(b => setBody(b))
-      .catch(err => console.error('web-metrics fetch failed', err));
+      .catch(err => console.error('web-metrics fetch failed', err)));
   }, [range, nonce]);
 
   const series = (body && body.series) || [];
@@ -145,7 +144,7 @@ function WebMetricsPanel({ range, nonce }) {
     const rect = e.currentTarget.getBoundingClientRect();
     const metric = tr.getAttribute('data-journey');
     const journey = journeys.find(j => j.metric === metric);
-    const lines = ['total', 'fetch', 'client'].map(part => {
+    const lines = ['total', 'fetch', 'client', 'network', 'parse', 'wait'].map(part => {
       const row = rowFor(metric, part);
       return [part, row
         ? `${row.n.toLocaleString()} · p50 ${perfMs(row.p50)} / `

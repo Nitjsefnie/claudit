@@ -1,6 +1,5 @@
 // The Tool Error Rate panel — ONE chart, not a sub-panel
 // per model.
-// Its own module keeps dashboard-charts-extra.jsx within the size ratchet.
 // Model checkboxes select the series in one fixed-height chart, so
 // adding models does not grow a grid of sub-panels.
 // Each checked model adds its AGGREGATE error-rate EMA (α=0.15) line in
@@ -11,15 +10,15 @@
 // src/rate-series.js — plain JS, node-testable. Numerator = n_error,
 // denominator = n_total over settled calls; unmatched calls excluded by
 // the API.
-const TH_X = window.dashboardTheme;
+var TH_X = window.dashboardTheme;
 
 // One dash pattern per tool, by PICKER position; cycled when the picker
 // holds more tools than patterns. Indexed only inside the toolDash map.
 const TOOL_DASHES = ['', '4,3', '1,3', '7,3', '2,4', '5,2'];
 
-const PROBE_CHARS = '0123456789abcdefghij';
+var PROBE_CHARS = '0123456789abcdefghij';
 const OTHER = '__OTHER__';
-const _OTHER_COLOR = '#5a627a';
+var _OTHER_COLOR = '#5a627a';
 
 function ToolErrorRatePanel({ project, range, nonce }) {
   const ref = React.useRef(null);
@@ -56,13 +55,13 @@ function ToolErrorRatePanel({ project, range, nonce }) {
 
   React.useEffect(() => {
     const q = (project ? `&project=${encodeURIComponent(project)}` : '');
-    fetch(`/api/tool-error-rate?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
+    return window.dashboardFetch.whenSettled(() => fetch(`/api/tool-error-rate?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
       .then(r => r.json())
       .then(b => {
         setData(b.buckets || []);
         if (b.bucket_s) setBucketMs(b.bucket_s * 1000);
       })
-      .catch(err => console.error('tool-error-rate fetch failed', err));
+      .catch(err => console.error('tool-error-rate fetch failed', err)));
   }, [project, range, nonce]);
 
   const byModel = React.useMemo(() => {

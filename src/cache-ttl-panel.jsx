@@ -1,8 +1,7 @@
-// Loaded after
-// dashboard-charts.jsx, whose globals (TH/COL/humanFmt/fmtDate) it reads.
-const TH_X       = window.dashboardTheme;
-const COL_X      = window.dashboardCol;
-const humanFmt_X = window.humanFmt;
+// Loaded after dashboard-charts.jsx, whose TH/COL/humanFmt/fmtDate it reads.
+var TH_X       = window.dashboardTheme;
+var COL_X      = window.dashboardCol;
+var humanFmt_X = window.humanFmt;
 const fmtDate_X  = window.fmtDate;
 
 function CacheTTLPanel({ events, range, binMs }) {

@@ -1,8 +1,8 @@
 // DST handling lives in the backend (Postgres AT TIME ZONE); this panel
 // only renders the dow/hour cells it is given.
-const TH_X = window.dashboardTheme;
-const COL_X = window.dashboardCol;
-const humanFmt_X = window.humanFmt;
+var TH_X = window.dashboardTheme;
+var COL_X = window.dashboardCol;
+var humanFmt_X = window.humanFmt;
 
 const _HEAT_DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const _HEAT_METRICS = [
@@ -29,10 +29,10 @@ function ActivityHeatmapPanel({ models, project, range, nonce }) {
   React.useEffect(() => {
     const q = (project ? `&project=${encodeURIComponent(project)}` : '')
             + (activeModel ? `&model=${encodeURIComponent(activeModel)}` : '');
-    fetch(`/api/activity-heatmap?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
+    return window.dashboardFetch.whenSettled(() => fetch(`/api/activity-heatmap?range=${range || 'all'}${q}`, { credentials: 'same-origin' })
       .then(r => r.json())
       .then(b => setCells(b.cells || []))
-      .catch(err => console.error('activity-heatmap fetch failed', err));
+      .catch(err => console.error('activity-heatmap fetch failed', err)));
   }, [project, range, activeModel, nonce]);
 
   const modelOpts = React.useMemo(() => {

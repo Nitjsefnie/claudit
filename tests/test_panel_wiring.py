@@ -498,7 +498,7 @@ def _dashboard_effect(src: str) -> str:
     Overview's fetch state and the supersede guard in each handler."""
     assert "window.dashboardFetch.load(" in src, (
         "app.jsx no longer drives the Overview's state through the module")
-    i = src.index("window.dashboardFetch.load(`")
+    i = src.index("window.dashboardFetch.load(url")
     return src[src.rindex("useEffect(", 0, i):src.index(
         "}, [backendOn, activeProject, activeRange, dashNonce]);", i)]
 
@@ -513,7 +513,7 @@ def test_dashboard_fetch_state_is_written_at_every_outcome():
     leave every other assertion in this file green.
     """
     body = _dashboard_effect(_app())
-    opening = body.index("window.dashboardFetch.load(`")
+    opening = body.index("window.dashboardFetch.load(url")
     reset = body.find("setDashFetch(window.dashboardFetch.start());")
     assert reset >= 0, (
         "no run resets the state -- a range change out of the error state "

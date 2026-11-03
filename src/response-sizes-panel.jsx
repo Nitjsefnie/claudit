@@ -1,15 +1,15 @@
-// Response Sizes panel — visible-text-character daily-bucketed time
+// Visible-text-character daily-bucketed time
 // series per model. Each line = that model's daily median chars in
 // `text` content blocks; dashed line = p90. Log y-axis (response sizes
 // span 4+ orders of magnitude). Chars (not output_tokens) because
 // output_tokens silently includes thinking, and per-model thinking
 // shares vary 0.7%–25% — token-based percentiles would conflate
 // "longer responses" with "more thinking".
-const TH_X = window.dashboardTheme;
+var TH_X = window.dashboardTheme;
 // Render-time bindings into the shared modules (load order puts
 // dashboard-charts-extra.jsx first; these resolve at first render).
-const LegendCheckboxRow = window.LegendCheckboxRow;
-const extendBucketSeries = window.extendBucketSeries;
+var LegendCheckboxRow = window.LegendCheckboxRow;
+var extendBucketSeries = window.extendBucketSeries;
 
 function ResponseSizesPanel({ data, bucketS }) {
   const ref = React.useRef(null);

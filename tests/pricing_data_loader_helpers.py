@@ -101,14 +101,15 @@ def _provider_string_rate() -> dict:
 
 
 # --- the browser load path ---------------------------------------------------
-# node has no document or XMLHttpRequest, so parser.js takes its require path
-# there. These stub both, so the path the browser actually runs is exercised.
+# node has no document, so parser.js takes its require path there. These stub
+# it and fetch, so the path the browser actually runs is exercised.
 
 ORIGIN = "https://claudit.example"
 
 
 def _browser_load(*, pricing_attr: str | None = None, status: int = 200,
-                  body: str | None = None, redirected_to: str | None = None):
+                  body: str | None = None, redirected_to: str | None = None,
+                  fail: str = ""):
     """Load the real pricing-loader.js as a page would: currentScript
     is /src/pricing-loader.js?v=1 on a page at /dashboard/deep/path."""
     dataset = {"pricing": pricing_attr} if pricing_attr else {}
@@ -121,27 +122,31 @@ def _browser_load(*, pricing_attr: str | None = None, status: int = 200,
         currentScript: {{ src: {json.dumps(ORIGIN + "/src/pricing-loader.js?v=1")},
                           dataset: {json.dumps(dataset)} }},
       }};
-      global.XMLHttpRequest = class {{
-        open(method, url, async) {{
-          this.url = String(url);
-          requests.push({{ method, url: this.url, async, headers: {{}} }});
-        }}
-        setRequestHeader(name, value) {{
-          requests[requests.length - 1].headers[name] = value;
-        }}
-        send() {{
-          this.status = {status};
-          this.responseText = {json.dumps(body)};
-          this.responseURL = {json.dumps(redirected_to)} || this.url;
-        }}
+      global.fetch = async (url, options) => {{
+        requests.push({{ url: String(url), options }});
+        const fail = {json.dumps(fail)};
+        if (fail === 'network') throw new TypeError('Failed to fetch');
+        return {{ status: {status}, url: {json.dumps(redirected_to)} || String(url),
+                 text: async () => {{
+                   if (fail === 'read') throw new TypeError('body stream interrupted');
+                   return {json.dumps(body)};
+                 }} }};
       }};
       let error = null;
-      try {{ require({str(LOADER_JS)!r}); }} catch (e) {{ error = e.message; }}
-      console.log(JSON.stringify({{
-        requests, error,
-        fresh: window.keyListRates && window.keyListRates('claude-opus-4-7')
-          ? window.keyListRates('claude-opus-4-7').fresh : null,
-      }}));
+      let installedAtRequire = null;
+      (async () => {{
+        try {{
+          require({str(LOADER_JS.with_name("pricing-fetch.js"))!r});
+          require({str(LOADER_JS)!r});
+          installedAtRequire = 'modelRates' in window;
+          await window.pricingReady;
+        }} catch (e) {{ error = e.message; }}
+        console.log(JSON.stringify({{
+          requests, error, installedAtRequire,
+          fresh: window.keyListRates && window.keyListRates('claude-opus-4-7')
+            ? window.keyListRates('claude-opus-4-7').fresh : null,
+        }}));
+      }})();
     """)
 
 

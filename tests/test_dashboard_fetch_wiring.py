@@ -110,7 +110,7 @@ def test_each_effect_run_owns_its_request():
         # Dashboard uses dashboardFetch.load while projects calls fetch
         # directly. Both must carry the run signal, so match either shape.
         m = re.search(r"(?:fetch|window\.dashboardFetch\.load)"
-                      r"\(`[^`]*`, \{([^}]*)\}\)", effect)
+                      r"\((?:`[^`]*`|url), \{([^}]*)\}[,)]", effect)
         assert m, "the effect's request call moved"
         assert "signal: run.signal" in m.group(1), (
             "the run's request must carry its run guard's signal")

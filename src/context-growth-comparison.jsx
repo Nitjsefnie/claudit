@@ -3,13 +3,13 @@
 // last wrapped row. Pure packing lives in src/panel-layout.js so it can
 // be tested without a browser.
 
-const TH_X = window.dashboardTheme;
-const humanFmt_X = window.humanFmt;
+var TH_X = window.dashboardTheme;
+var humanFmt_X = window.humanFmt;
 const perTurnStats = window.perTurnStats;
 
 // The fixed string both advance probes are measured from: letters and
-// digits only, so no glyph in it is a special width.
-const PROBE_CHARS = '0123456789abcdefghij';
+// digits only, so no glyph has a special width.
+var PROBE_CHARS = '0123456789abcdefghij';
 
 function ComparisonRow({ models, byModel, w, h, showSessions }) {
   const ref = React.useRef(null);
