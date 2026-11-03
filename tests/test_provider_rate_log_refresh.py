@@ -503,7 +503,8 @@ def test_main_names_a_swallowed_deadline_before_a_later_refresh_error(tmp_path, 
     try:
         rc, _, err, _, _ = _run(
             tmp_path, capsys, history=[("2030-12-31T23:00:00Z", RATE_A)])
-        assert rc != 0 and url in err
+        assert rc != 0 and url in err and "later failure" in err
+        assert err.index(url) < err.index("later failure")
     finally:
         release.set()
 

@@ -44,8 +44,13 @@ def deadline_error() -> FetchDeadlineError | None:
     if _failed_url is not None:
         return FetchDeadlineError(f"{_failed_url}: fetch deadline expired")
     if _deadline_at is not None and _last_url is not None and _now() >= _deadline_at:
-        return _expired(_last_url)
+        return FetchDeadlineError(f"fetch deadline expired after {_last_url}")
     return None
+
+
+def report_deadline(label: str) -> None:
+    if (expired := deadline_error()) is not None:
+        print(f"{label}: {expired}", file=sys.stderr)
 
 
 def _remaining(url: str) -> float:

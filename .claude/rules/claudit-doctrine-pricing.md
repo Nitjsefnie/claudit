@@ -467,12 +467,12 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
   (rows kept) and the sampled host classifications — which reprinted
   byte-identically every run (issue #933). The run's own stdout report
   keeps both blocks, and a committing run records them in the same state
-  file as `vanished` (model → hosts), `sampled` (model → host → the
-  display classification) and `delisted` (the sorted OpenRouter ids the run
-  skipped as delisted), so a changed set or classification shows as a
-  diff of that file. The subject carries this run's counts — changed,
-  new, refused — and the bare keys of provider moves rekeyed by the same
-  run; vanished hosts stay in the standing state.
+  file as `vanished` (model → hosts) and `sampled` (model → host → the
+  display classification), so a changed set or classification shows as a
+  diff of that file. The same file's `delisted` key records the sorted
+  OpenRouter ids the run skipped as delisted. The subject carries this
+  run's counts — changed, new, refused — and the bare keys of provider
+  moves rekeyed by the same run; vanished hosts stay in the standing state.
 - Ambiguity is never guessed. Each of these refuses its host or model,
   leaving its rows untouched:
   - a host with multiple in-region prices that remain ambiguous after
