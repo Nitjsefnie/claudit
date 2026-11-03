@@ -68,17 +68,19 @@ _SEAMS = (
 # the full load plus each probe's assistant_usage count. The first
 # failing script is reported on stderr and exits nonzero.
 _RUNNER = """
+(async () => {
 const vm = require('vm');
 const { scripts, probes, babelScripts } = JSON.parse(require('fs').readFileSync(0, 'utf8'));
 // pricing-loader.js takes its node path in the sandbox (no document
 // here): it reads the rate document beside __dirname, so hand the
 // context the require/__dirname pair its own docstring names as the
 // test mode.
+let boot = null;
 const ctx = vm.createContext({
   require: (name) => require(name),
   __dirname: process.env.CLAUDIT_SRC_DIR,
   Babel: {disableScriptTags() {}},
-  addEventListener() {},
+  addEventListener(type, fn) { if (type === 'DOMContentLoaded') boot = fn; },
 });
 vm.runInContext('var window = globalThis;', ctx, { filename: '<prelude>' });
 for (const [name, code] of scripts) {
@@ -89,22 +91,43 @@ for (const [name, code] of scripts) {
     process.exit(1);
   }
 }
+// The text/babel scripts run through the real src/babel-loader.js, so they
+// compile under the loader's own options; only the browser around it is stubbed.
 if (babelScripts.length) {
   const Babel = require(process.env.CLAUDIT_BABEL_FILE);
+  const sources = Object.fromEntries(babelScripts);
+  const tasks = [];
+  ctx.Babel.transform = (code, options) => Babel.transform(code, options);
+  ctx.fetch = async (url) => ({status: 200, text: async () => sources[url]});
+  ctx.MessageChannel = class {
+    constructor() {
+      this.port1 = {};
+      this.port2 = {postMessage: () => tasks.push(() => this.port1.onmessage({}))};
+    }
+  };
   ctx.React = {createElement() {}, useState() {}, useEffect() {}, useMemo() {},
     useRef() {}, useLayoutEffect() {}, useId() {}};
   ctx.ReactDOM = {createRoot() { return {render() {}}; }};
-  ctx.document = {documentElement: {}, getElementById() { return {}; }};
   ctx.getComputedStyle = () => ({getPropertyValue: () => ''});
-  for (const [name, code] of babelScripts) {
+  ctx.document = {
+    documentElement: {},
+    getElementById() { return {}; },
+    querySelectorAll: () => babelScripts.map(([name, code]) => (
+      name === 'Inline Babel script' ? {src: '', innerHTML: code} : {src: name, innerHTML: ''})),
+    createElement: () => ({}),
+    head: {appendChild(script) { vm.runInContext(script.text, ctx); }},
+  };
+  boot();
+  const settle = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
+  await settle();
+  while (tasks.length) {
     try {
-      const compiled = Babel.transform(code, {presets: ['react'], plugins: [], filename: name,
-        sourceFileName: name, sourceMaps: 'inline'}).code;
-      vm.runInContext('"use strict";' + compiled, ctx, { filename: name });
+      tasks.shift()();
     } catch (e) {
-      console.error(name + ': ' + e);
+      console.error(String(e));
       process.exit(1);
     }
+    await settle();
   }
 }
 const seams = %SEAMS%;
@@ -123,6 +146,7 @@ console.log(JSON.stringify({
   seams: Object.fromEntries(seams.map((n) => [n, seam(n)])),
   probe: probeOut,
 }));
+})();
 """
 
 
@@ -293,13 +317,13 @@ const tags = [
     innerHTML: "events.push((function () { return this === undefined; })() ? 'inline-strict' : 'inline-sloppy')"},
 ];
 const requests = {}, tasks = [], errors = [], calls = [], events = [];
-let ready, disabled = false, tick = 0;
+let ready, disabled = false, tick = 0, kind = null;
 const context = vm.createContext({
   events,
   Babel: {
     disableScriptTags() { disabled = true; },
     transform(source, options) {
-      calls.push({source, options, tick});
+      calls.push({source, options, tick, kind});
       if (source === 'bad syntax') throw new SyntaxError('compile failed');
       return {code: source};
     },
@@ -308,7 +332,13 @@ const context = vm.createContext({
     events.push('fetch:' + url);
     return new Promise((resolve, reject) => { requests[url] = {resolve, reject, options}; });
   },
-  setTimeout(fn) { tasks.push(fn); },
+  setTimeout(fn) { tasks.push(['timer', fn]); },
+  MessageChannel: class {
+    constructor() {
+      this.port1 = {};
+      this.port2 = {postMessage: () => tasks.push(['message', () => this.port1.onmessage({})])};
+    }
+  },
 });
 context.window = context;
 context.addEventListener = (type, fn) => { if (type === 'DOMContentLoaded') ready = fn; };
@@ -331,7 +361,9 @@ async function drain() {
   let count = 0;
   while (tasks.length && count++ < 30) {
     tick++;
-    try { tasks.shift()(); } catch (e) { errors.push(String(e)); }
+    const [taskKind, fn] = tasks.shift();
+    kind = taskKind;
+    try { fn(); } catch (e) { errors.push(String(e)); }
     await settle();
   }
   if (tasks.length) throw Error('task queue failed to drain');
@@ -407,6 +439,7 @@ def test_babel_loader_runs_in_order_in_separate_tasks(scenario: str) -> None:
     assert out["errors"] == []
     assert out["fetchOptions"] == [{"mode": "same-origin"}] * 2
     assert len({call["tick"] for call in out["calls"]}) == 3
+    assert {call["kind"] for call in out["calls"]} == {"message"}
     assert [call["options"] for call in out["calls"]] == [
         {"presets": ["react"], "plugins": [], "filename": filename,
          "sourceFileName": filename, "sourceMaps": "inline"}
