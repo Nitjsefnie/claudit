@@ -167,7 +167,7 @@ _SERIES.append({"metric": "inspector_open", "part": "total", "n": 2, "p50": 800,
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_the_table_renders_the_fetch_split_from_the_payload():
+def test_the_table_and_its_tooltip_render_the_payload():
     out = _run("""
       const Babel = require(%(babel)s);
       const code = Babel.transform(require('fs').readFileSync(%(panel)s, 'utf8'),
@@ -200,20 +200,33 @@ def test_the_table_renders_the_fetch_split_from_the_payload():
           rows[tr.props['data-journey']] = tr.kids.filter(k => k && k.type === 'td').map(text);
         }
         const head = all.filter(n => n.type === 'th' && n.props.scope === 'col').map(text);
-        console.log(JSON.stringify({ head, rows }));
+        const tips = {};
+        for (const metric of ['dashboard_open', 'inspector_open']) {
+          render().props.onMouseMove({ clientX: 1, clientY: 1,
+            target: { closest: () => ({ getAttribute: () => metric }) },
+            currentTarget: { getBoundingClientRect: () => ({ left: 0, top: 0 }) } });
+          const found = [];
+          const find = n => { if (n && typeof n === 'object') { if (n.props.tip) found.push(n.props.tip.lines); n.kids.forEach(find); } };
+          find(render());
+          tips[metric] = found;
+        }
+        console.log(JSON.stringify({ head, rows, tips }));
       });
     """ % {"babel": json.dumps(str(ROOT / "public" / "vendor" / "babel.min.js")),
            "panel": json.dumps(str(PANEL)), "payload": json.dumps({"series": _SERIES})},
         sendBeacon=True, observers=[])
-    parts = ["total", "fetch", "client", "network", "parse", "wait"]
     assert out["head"] == ["journey", "samples"] + [
-        f"{q} {part}" for part in parts for q in ("p50", "p75")], out
+        f"{q} {part}" for part in ("total", "fetch", "client") for q in ("p50", "p75")], out
     assert out["rows"]["dashboard_open"] == ["4"] + [
-        cell for v in (900, 400, 500, 300, 30, 70)
-        for cell in (f"{v} ms / {v + 1} ms", f"{v + 1} ms")], out
-    assert out["rows"]["inspector_open"] == [
-        "2", "800 ms / 801 ms", "801 ms"] + [EM_DASH] * 10, out
-    assert out["rows"]["signin"] == [EM_DASH] * 13, out
+        cell for v in (900, 400, 500) for cell in (f"{v} ms / {v + 1} ms", f"{v + 1} ms")], out
+    assert out["rows"]["inspector_open"] == ["2", "800 ms / 801 ms", "801 ms"] + [EM_DASH] * 4, out
+    assert out["rows"]["signin"] == [EM_DASH] * 7, out
+    parts = ["total", "fetch", "client", "network", "parse", "wait"]
+    assert out["tips"]["dashboard_open"] == [[
+        [part, f"4 \u00b7 p50 {v} ms / p75 {v + 1} ms"]
+        for part, v in zip(parts, (900, 400, 500, 300, 30, 70))]], out
+    assert out["tips"]["inspector_open"] == [
+        [["total", "2 \u00b7 p50 800 ms / p75 801 ms"]] + [[part, EM_DASH] for part in parts[1:]]], out
 
 
 def test_layout_shift_and_longtask_totals_are_summed_not_averaged():
@@ -335,8 +348,11 @@ def test_the_dashboard_journey_brackets_the_dashboard_fetch():
         "the dashboard journey opens AFTER the fetch it is timing")
     fetch = src[i:src.index(".catch(err =>", i)]
     guard = fetch.index("if (!run.isCurrent()) return;")
-    assert "window.dashboardFetch.load(url, { signal: run.signal }, null, ms => { parse = ms; })" in fetch
-    close = fetch.index("window.perf.closeFetch('dashboard_open', { url, parse })")
+    assert re.search(r"window\.dashboardFetch\.load\(\s*url\s*,[^;]*?\(?(\w+)\)?\s*=>\s*\{?\s*parse\s*=\s*\1\b", fetch), (
+        "the dashboard request no longer hands its parse time to `parse`")
+    close_call = re.search(r"window\.perf\.closeFetch\(\s*'dashboard_open'\s*,\s*\{\s*url\s*,\s*parse\s*,?\s*\}\s*,?\s*\)", fetch)
+    assert close_call, "closeFetch no longer passes the request url and its parse time"
+    close = close_call.start()
     assert guard < close, (
         "closeFetch runs before the supersede guard, so an abandoned "
         "response ends the journey the live one is still waiting on")
