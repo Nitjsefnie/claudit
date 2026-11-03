@@ -330,8 +330,17 @@ const nodePath = base();
 let before;
 load(nodePath, (start) => { before = start ? new Set(Object.keys(nodePath)) : before; });
 const names = Object.keys(nodePath).filter((name) => !before.has(name));
+// One FIFO task queue for every port, as in a browser: node delivers a
+// self-posting port's whole chain before another port's message.
+const tasks = [];
+class FifoChannel {
+  constructor() {
+    this.port1 = {close() {}};
+    this.port2 = {postMessage: () => tasks.push(() => this.port1.onmessage({}))};
+  }
+}
 let boot;
-const browser = {...base(), MessageChannel, URL,
+const browser = {...base(), MessageChannel: FifoChannel, URL,
   addEventListener(type, fn) { if (type === 'DOMContentLoaded') boot = fn; }};
 const reads = new Set();
 for (const name of names) {
@@ -362,21 +371,27 @@ browser.document = {
 };
 const unhandled = [];
 process.on('unhandledRejection', (e) => unhandled.push(String(e)));
-const turns = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
+const turns = async () => {
+  for (let idle = 0, ran = 0; idle < 20;) {
+    await new Promise((r) => setImmediate(r));
+    if (!tasks.length) { idle++; continue; }
+    if (++ran > 5000) throw Error('task queue failed to drain');
+    idle = 0;
+    tasks.shift()();
+  }
+};
 (async () => {
   boot();
   await turns();
   const heldRun = 'appSaw' in browser;
   respond();
-  await Promise.resolve(browser.pricingReady).catch(() => {});
   await turns();
   console.log(JSON.stringify({names, early, heldRun, appSaw: browser.appSaw ?? null,
     rootText: root.textContent ?? null, unhandled,
     installed: names.filter((name) => Object.getOwnPropertyDescriptor(browser, name).get === undefined),
     tier: scenario === 'refused' ? null
       : vm.runInContext("window.resolveModelRate('claude-opus-99-unlisted', null, null).kind", ctx)}));
-  process.exit(0);  // the loader's message port would keep node alive
-})();
+})().catch((e) => { console.error(e.stack); process.exitCode = 1; });
 """
 
 

@@ -130,6 +130,8 @@ def test_the_browser_fetches_pricing_without_blocking(attr, url):
                   "redirected_to": ORIGIN + "/login"},
                  "redirected to " + ORIGIN + "/login", id="signed-out"),
     pytest.param({"status": 200, "body": "{not json"}, "not JSON", id="garbled"),
+    pytest.param({"fail": "network"}, "Failed to fetch", id="network"),
+    pytest.param({"fail": "read"}, "body stream interrupted", id="body-read"),
 ])
 def test_a_failed_browser_load_throws_naming_the_file(response, reason):
     """No rates means no honest price, so the load rejects rather than

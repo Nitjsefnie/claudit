@@ -111,8 +111,10 @@ membership is exactly its key set, so every member has a threshold.
 `backend/pricing.py` and `src/rates.js` hold logic only and both read
 it — the backend at import through `backend/pricing_load.py`, which
 `pricing.py` re-exports, the browser asynchronously, installing the
-tables behind `window.pricingReady`, which every app script awaits (node
-reads it beside the module, synchronously). Nothing the deployed app reads may
+tables behind `window.pricingReady`: `src/babel-loader.js` runs no
+text/babel script before it resolves, and classic scripts read the tables
+only when called, never while they load (node reads it beside the module,
+synchronously). Nothing the deployed app reads may
 redirect which document the backend loads; the suite-cost bench's
 bounded document is injected on the bench side only (SV-CI-RATCHETS). The browser fetches the URL in the
 pricing-loader tag's `data-pricing` attribute in `public/index.html`,
@@ -217,9 +219,10 @@ log's to rewrite. A rewrite that reprices stored usage bumps
 `PRICING_VERSION`, repricing from stored columns with no reparse. Hand
 corrections remain an additional path with the same bump requirement.
 Both loaders refuse a rule-breaking file,
-naming the row; in the browser any load failure rejects
-`window.pricingReady` with an error naming `pricing.json`, and the page
-shows that message instead of mounting the app.
+naming the row; in the browser a failed request or body read, a non-200
+or redirected response, or a refused file rejects `window.pricingReady`
+with an error naming `pricing.json`, and the page shows that message
+instead of mounting the app.
 
 A correction that moves a web-search price out of a legacy note and into
 `web_search` is a human SV-RATE-DATA edit: keep any discount note, remove
