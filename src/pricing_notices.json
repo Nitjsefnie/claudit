@@ -1,4 +1,26 @@
 {
+  "delisted": [
+    "anthropic/claude-3-5-haiku",
+    "anthropic/claude-3-5-sonnet",
+    "anthropic/claude-3-7-sonnet",
+    "anthropic/claude-3-haiku",
+    "anthropic/claude-3-opus",
+    "anthropic/claude-mythos-5",
+    "anthropic/claude-mythos-5-1",
+    "anthropic/claude-opus-4",
+    "anthropic/claude-sonnet-4",
+    "openai/gpt-3.5-turbo",
+    "openai/gpt-3.5-turbo-instruct",
+    "openai/gpt-4-turbo",
+    "openai/o1",
+    "openai/o1-pro",
+    "openai/o3-mini",
+    "openai/o3-mini-high",
+    "openai/o4-mini",
+    "openai/o4-mini-high",
+    "stealth/space-bunny-alpha",
+    "upstage/solar-pro-3"
+  ],
   "notices": [
     "alternating price: glm-5-3-flash via InferenceNet: the listed rates equal the entry from 2026-10-28T00:35:24Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe'",
