@@ -1,4 +1,4 @@
-const { useState, useMemo } = React;
+var { useState, useMemo } = React;
 
 function SessionsList({ synth, onOpen }) {
   const [sort, setSort] = useState('recent');

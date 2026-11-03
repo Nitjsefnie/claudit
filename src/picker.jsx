@@ -1,4 +1,4 @@
-const { useState, useLayoutEffect, useRef } = React;
+var { useState, useLayoutEffect, useRef } = React;
 
 function ProjectPicker({ projects, active, onChange }) {
   const stripRef = useRef(null);

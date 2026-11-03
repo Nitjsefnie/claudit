@@ -1,8 +1,8 @@
-const TH_X = window.dashboardTheme;
+var TH_X = window.dashboardTheme;
 // Render-time bindings into the shared modules (load order puts
 // dashboard-charts-extra.jsx first; these resolve at first render).
-const LegendCheckboxRow = window.LegendCheckboxRow;
-const extendBucketSeries = window.extendBucketSeries;
+var LegendCheckboxRow = window.LegendCheckboxRow;
+var extendBucketSeries = window.extendBucketSeries;
 
 function ReplyLatencyPanel({ project, range, nonce, models }) {
   const ref = React.useRef(null);

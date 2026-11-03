@@ -1,6 +1,6 @@
-const { useState, useEffect, useMemo, useRef, useId } = React;
+var { useState, useEffect, useMemo, useRef, useId } = React;
 
-// One effect run owns one request so a slow stale response cannot
+// One effect owns one request so a stale response cannot
 // overwrite a fresher one. mintRunSignal pairs an AbortController with
 // an isCurrent() check: every handler checks the run before applying a
 // result. Abort is cancellation, not failure, and the effect's cleanup
