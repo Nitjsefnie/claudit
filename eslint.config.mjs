@@ -1,7 +1,7 @@
 // ESLint 10 requires flat config. Browser globals come from globals.browser;
 // cross-file names below reflect classic scripts loaded by public/index.html.
-// package.json overrides eslint-plugin-react's peer range so installation
-// uses the pinned toolchain without --legacy-peer-deps.
+// package.json overrides the plugin's peer range (no --legacy-peer-deps),
+// forces minimatch 11: its minimatch rules can throw.
 import globals from 'globals';
 import reactPlugin from 'eslint-plugin-react';
 
