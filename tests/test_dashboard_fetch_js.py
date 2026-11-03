@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FETCH_JS = ROOT / "src" / "dashboard-fetch.js"
 
 
-def _node(body: str):
+def _node(body: str, gc: bool = False):
     script = f"""
       global.window = {{}};
       global.fetch = undefined;
@@ -26,7 +26,8 @@ def _node(body: str):
     # Over STDIN, not -e: the payload below embeds JSON, and Windows
     # refuses a CreateProcess command line over 32k (WinError 206).
     proc = run_node(
-        ["node"], input=script, capture_output=True, text=True, timeout=60,
+        ["node", "--expose-gc"] if gc else ["node"], input=script,
+        capture_output=True, text=True, timeout=60,
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
@@ -213,6 +214,21 @@ def test_load_times_the_json_parse_and_hands_it_to_the_caller():
     assert out["seen"] == [7], out
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_settled_dashboard_payload_is_released():
+    out = _node("""
+      const F = window.dashboardFetch;
+      let ref;
+      F.load('/api/dashboard', {}, () => Promise.resolve({ok: true, status: 200,
+        text: () => Promise.resolve('{"rows": [1, 2]}')})).then(b => { ref = new WeakRef(b); });
+      setTimeout(() => setTimeout(() => {
+        gc();
+        setTimeout(() => console.log(JSON.stringify({held: ref.deref() !== undefined})), 0);
+      }, 0), 0);
+    """, gc=True)
+    assert out == {"held": False}
+
+
 _GATE = """
   const F = window.dashboardFetch;
   const seen = [];
@@ -316,3 +332,22 @@ def test_a_cancelled_panel_request_never_starts():
       later(() => { cancel(); settle('ok'); report(); });
     """)
     assert out == ["settle", "landed"], out
+
+
+@pytest.mark.parametrize("outcome,last", [
+    pytest.param("ok", "landed", id="success"),
+    pytest.param("network", "rejected", id="network-failure"),
+    pytest.param("abort", "rejected", id="abort"),
+])
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_waiting_panel_request_also_waits_for_a_dashboard_request_started_later(outcome, last):
+    out = _node(_GATE + f"""
+      const open = request();
+      F.whenSettled(() => seen.push('panel'));
+      later(() => {{
+        open('abort');
+        const change = request();
+        later(() => {{ seen.push('change in flight'); change({outcome!r}); report(); }});
+      }});
+    """)
+    assert out == ["settle", "rejected", "change in flight", "settle", last, "panel"], out

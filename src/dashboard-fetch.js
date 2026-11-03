@@ -69,13 +69,17 @@
     return request;
   }
 
-  // Run request once every load now in flight settles; returns a cancel.
+  // Run request once no load is in flight; returns a cancel.
   // Waits a microtask: React runs a child's effects before its parent's, so
   // a panel effect precedes the dashboard effect of its commit.
   function whenSettled(request) {
     let cancelled = false;
-    const run = () => { if (!cancelled) request(); };
-    Promise.resolve().then(() => Promise.allSettled(Array.from(inFlight))).then(run);
+    const wait = () => {
+      if (cancelled) return;
+      if (!inFlight.size) request();
+      else Promise.allSettled(Array.from(inFlight)).then(wait);
+    };
+    Promise.resolve().then(wait);
     return () => { cancelled = true; };
   }
 
