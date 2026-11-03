@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND_REQUIREMENTS = "backend/requirements.txt"
 HASHED_FLAGS = ("--require-hashes", "--only-binary=:all:", "--no-binary=PyYAML")
 HASHED_PYYAML = "pip install " + " ".join(HASHED_FLAGS) + " -r requirements-pyyaml.txt"
-PIP_INSTALL = re.compile(r"(?:RUN )?(?:python3? -m )?pip install ")
+PIP_INSTALL = re.compile(r"(?:RUN )?(?:python3? -m )?pip (?:install|wheel) ")
 
 
 def _jobs() -> Iterator[tuple[str, str, list]]:
@@ -227,9 +227,22 @@ def _installs_backend(words: list[str]) -> bool:
     return BACKEND_REQUIREMENTS in words
 
 
-def _is_hashed_pyyaml(words: list[str]) -> bool:
-    return (all(flag in words for flag in HASHED_FLAGS)
+def _is_hashed_pyyaml(words: list[str], verb: str = "install") -> bool:
+    return (verb in words and all(flag in words for flag in HASHED_FLAGS)
             and "requirements-pyyaml.txt" in words and "||" not in words)
+
+
+def _wheel_dir(words: list[str]) -> str | None:
+    return next((value for flag, value in zip(words, words[1:])
+                 if flag in ("-w", "--wheel-dir")), None)
+
+
+def _audit_takes_pyyaml_from_hashed_wheel(words: list[str], earlier: list[list[str]]) -> bool:
+    links = next((word.removeprefix("PIP_FIND_LINKS=") for word in words
+                  if word.startswith("PIP_FIND_LINKS=")), None)
+    return ("PIP_ONLY_BINARY=pyyaml" in words and links is not None
+            and any(_is_hashed_pyyaml(before, "wheel") and _wheel_dir(before) == links
+                    for before in earlier))
 
 
 def _backend_sites(sites: dict[str, list[list[str]]]) -> list[str]:
@@ -243,10 +256,10 @@ def _sites_without_hashed_pyyaml_first(sites: dict[str, list[list[str]]]) -> lis
         installs = sites[site]
         first = next(index for index, words in enumerate(installs)
                      if _installs_backend(words))
-        audit = "install" not in installs[first]
-        if audit and "PIP_ONLY_BINARY=pyyaml" not in installs[first]:
-            violations.append(site)
-        elif not any(_is_hashed_pyyaml(words) for words in installs[:first]):
+        words = installs[first]
+        audit = not {"install", "wheel"} & set(words)
+        if (not any(_is_hashed_pyyaml(before) for before in installs[:first])
+                or audit and not _audit_takes_pyyaml_from_hashed_wheel(words, installs[:first])):
             violations.append(site)
     return violations
 
@@ -267,9 +280,12 @@ def _lines(*commands: str) -> str:
 
 BACKEND_INSTALL = "pip install -r backend/requirements.txt"
 PLAIN_AUDIT = "pip-audit --requirement backend/requirements.txt"
-AUDIT = "PIP_ONLY_BINARY=pyyaml " + PLAIN_AUDIT
+WHEEL_DIR = '"$RUNNER_TEMP/pyyaml-wheel"'
+WHEEL = "pip wheel " + " ".join(HASHED_FLAGS) + " -r requirements-pyyaml.txt -w " + WHEEL_DIR
+PREPARED = _chain(HASHED_PYYAML, WHEEL)
+AUDIT = f"PIP_FIND_LINKS={WHEEL_DIR} PIP_ONLY_BINARY=pyyaml " + PLAIN_AUDIT
 WRAPPED_AUDIT = ('audit_set() {\n  pip-audit "$@"\n}\n'
-                 "PIP_ONLY_BINARY=pyyaml audit_set \\\n  --requirement backend/requirements.txt \\\n"
+                 f"PIP_FIND_LINKS={WHEEL_DIR} PIP_ONLY_BINARY=pyyaml audit_set \\\n  --requirement backend/requirements.txt \\\n"
                  "  --requirement requirements-dev.txt || exit 1")
 SPREAD = HASHED_PYYAML.replace(" -", "\\\n -")
 
@@ -309,22 +325,40 @@ def _write_workflow(root: Path, jobs: dict[str, list[str]]) -> None:
     ([_chain(HASHED_PYYAML.replace(" --no-binary=PyYAML", ""), BACKEND_INSTALL)], True),
     ([_chain(HASHED_PYYAML.replace("pyyaml", "test"), BACKEND_INSTALL)], True),
     (["echo " + BACKEND_INSTALL], False),
-    ([_chain(HASHED_PYYAML, "pip install -r requirements-pip-audit.txt"), AUDIT], False),
-    ([_lines(HASHED_PYYAML, AUDIT)], False),
-    ([HASHED_PYYAML, WRAPPED_AUDIT], False),
-    ([HASHED_PYYAML, AUDIT.replace("--requirement", "-r")], False),
+    ([_chain(HASHED_PYYAML, "pip install -r requirements-pip-audit.txt", WHEEL), AUDIT], False),
+    ([_lines(HASHED_PYYAML, WHEEL, AUDIT)], False),
+    ([PREPARED, WRAPPED_AUDIT], False),
+    ([PREPARED, AUDIT.replace("--requirement", "-r")], False),
+    ([HASHED_PYYAML, WHEEL.replace(" -w ", " --wheel-dir "), AUDIT], False),
+    ([HASHED_PYYAML, WHEEL.replace('"', ""), AUDIT], False),
     ([AUDIT], True),
-    ([AUDIT, HASHED_PYYAML], True),
-    ([HASHED_PYYAML, PLAIN_AUDIT], True),
-    ([HASHED_PYYAML, AUDIT.replace("=pyyaml", "=test")], True),
-    ([_chain(AUDIT, HASHED_PYYAML)], True),
-    ([_lines(AUDIT, HASHED_PYYAML)], True),
-    ([WRAPPED_AUDIT], True),
+    ([AUDIT, PREPARED], True),
+    ([PREPARED, PLAIN_AUDIT], True),
+    ([PREPARED, AUDIT.replace("=pyyaml", "=test")], True),
+    ([_chain(AUDIT, PREPARED)], True),
+    ([_lines(AUDIT, HASHED_PYYAML, WHEEL)], True),
+    ([HASHED_PYYAML, AUDIT, WHEEL], True),
+    ([HASHED_PYYAML, AUDIT], True),
+    ([WHEEL, AUDIT], True),
+    ([WHEEL, BACKEND_INSTALL], True),
+    ([HASHED_PYYAML, WHEEL + " || true", AUDIT], True),
+    ([HASHED_PYYAML, WHEEL.replace(" --require-hashes", ""), AUDIT], True),
+    ([HASHED_PYYAML, WHEEL.replace(" --only-binary=:all:", ""), AUDIT], True),
+    ([HASHED_PYYAML, WHEEL.replace(" --no-binary=PyYAML", ""), AUDIT], True),
+    ([HASHED_PYYAML, WHEEL.replace("pyyaml.txt", "test.txt"), AUDIT], True),
+    ([HASHED_PYYAML, "pip wheel --no-binary=PyYAML pyyaml==6.0.3 -w " + WHEEL_DIR, AUDIT], True),
+    ([HASHED_PYYAML, WHEEL.replace("pyyaml-wheel", "other"), AUDIT], True),
+    ([PREPARED, AUDIT.replace("pyyaml-wheel", "other")], True),
+    ([PREPARED, AUDIT.replace(f"PIP_FIND_LINKS={WHEEL_DIR} ", "")], True),
+    ([PREPARED, AUDIT.replace("PIP_FIND_LINKS=", "PIP_FIND_LINKS_X=")], True),
+    ([HASHED_PYYAML, WHEEL.replace(f" -w {WHEEL_DIR}", ""), AUDIT.replace(f"PIP_FIND_LINKS={WHEEL_DIR} ", "")], True),
+    ([PREPARED, "pip wheel -r backend/requirements.txt"], False),
+    ([_lines(PREPARED, WRAPPED_AUDIT.replace(f"PIP_FIND_LINKS={WHEEL_DIR} ", ""))], True),
     ([AUDIT.replace("--requirement", "-r")], True),
-    ([_lines("echo it's", HASHED_PYYAML, AUDIT)], False),
+    ([_lines("echo it's", PREPARED, AUDIT)], False),
     ([AUDIT.replace("backend/requirements.txt", '"backend/requirements.txt"')], True),
-    ([HASHED_PYYAML.replace(" --no-binary=PyYAML", ""), AUDIT], True),
-    ([HASHED_PYYAML.replace("pyyaml", "test"), AUDIT], True),
+    ([_chain(HASHED_PYYAML.replace(" --no-binary=PyYAML", ""), WHEEL), AUDIT], True),
+    ([_chain(HASHED_PYYAML.replace("pyyaml", "test"), WHEEL), AUDIT], True),
     (["pip-audit --requirement requirements-dev.txt"], False),
     (["pip-audit -r requirements-dev.txt -r requirements-test.txt"], False),
     (["pip-audit --requirement other/backend/requirements.txt"], False),
