@@ -97,7 +97,7 @@ def test_the_browser_check_accepts_the_committed_document():
 @needs_node
 def test_the_page_ingest_refuses_an_uncompacted_document():
     """The page's raw-ingest path CALLS the check (not just exposes it):
-    an XHR body with a present equal pair fails the load naming the row."""
+    a body with a present equal pair fails the load naming the row."""
     got = _browser_load(body=json.dumps(_entry_violation()))
     assert got["error"] and "bonsai-2-27b[0]" in got["error"], got["error"]
     assert "is present and equals fresh" in got["error"], got["error"]

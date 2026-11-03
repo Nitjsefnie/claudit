@@ -2,9 +2,9 @@
 // moved out so the parser file stays under its committed size entry (the
 // ratchet's "code moves out first"). Holds resolution logic only and reads
 // the tables of src/pricing.json (SV-RATE-DATA) through window.modelRates
-// and its siblings, which src/pricing-loader.js loads and validates before
-// this script runs: the tier-fallback table below is built from
-// window.modelRates at load time. resolveModelRate is pricing.resolve's
+// and its siblings, which src/pricing-loader.js installs, in the browser
+// after this script runs: the tier-fallback table below is built from them
+// at first use. resolveModelRate is pricing.resolve's
 // mirror — 'exact' | 'tier' | 'default', anything but exact an estimate —
 // and rateForModel its rates-only shorthand. computeSessionStats
 // (parser.js) and the Token Breakdown panel (app.jsx, token-breakdown.js)
@@ -13,9 +13,9 @@
 
 // Every rate lives in src/pricing.json (SV-RATE-DATA), the same file
 // backend/pricing.py loads; this file holds resolution logic only. The
-// rate tables are read and validated by src/pricing-loader.js, which runs
-// before this script and exposes window.modelRates, provider rates,
-// window.FREE_RATES and window.scheduleRatesAt.
+// rate tables are read and validated by src/pricing-loader.js, which
+// exposes window.modelRates, provider rates, window.FREE_RATES and
+// window.scheduleRatesAt.
 
 // Family fallbacks for unrecognised Claude models — current-generation
 // list rates for the tier, never a dated promotion. The generation is the
@@ -51,12 +51,13 @@ const _latestKey = (families) => {
   }
   return best;
 };
-const _TIER_FALLBACKS = [
+let _tierTable = null;
+const _tierFallbacks = () => _tierTable || (_tierTable = [
   [/fable|mythos/, _latestKey(['fable', 'mythos'])],
   [/opus/, _latestKey(['opus'])],
   [/sonnet/, _latestKey(['sonnet'])],
   [/haiku/, _latestKey(['haiku'])],
-];
+]);
 // A dated snapshot suffix ('-YYYYMMDD') is the same model; a short version
 // suffix ('-9') or mode suffix ('-fast') is a DIFFERENT model.
 const _SNAPSHOT_SUFFIX = /^-?\d{6,8}$/;
@@ -207,7 +208,7 @@ window.resolveModelRate = function resolveModelRate(model, ts, provider) {
       }
     }
   }
-  for (const [re, tierKey] of _TIER_FALLBACKS) {
+  for (const [re, tierKey] of _tierFallbacks()) {
     if (re.test(norm)) return { rates: window.keyListRates(tierKey), kind: 'tier', key: null };
   }
   return { rates: window.keyListRates('claude-opus-4-7'), kind: 'default', key: null };

@@ -59,8 +59,8 @@
       });
     }
 
-    // Every promise here must resolve before the first script runs.
-    const readiness = [];
+    // The app prices at render, so no script runs before the rate tables exist.
+    const readiness = [window.pricingReady];
     Promise.all(readiness).then(() => { ready = true; schedule(); });
   });
 })();
