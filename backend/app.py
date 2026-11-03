@@ -166,26 +166,16 @@ class _SelectiveGZip(GZipMiddleware):
 
 # The document policy both HTML surfaces get, instantiated per response
 # with a fresh nonce:
-# - script-src: /vendor/* carries the pinned, SRI-hashed React,
-#   ReactDOM and Babel builds; /vendor/* and /src/* are 'self'. SRI
-#   pins the vendored bytes independently; every <script> tag the dashboard
-#   serves carries the response's nonce (root_index injects it), which
-#   is what admits in-browser Babel: babel.min.js 7.29.0 reads each
-#   text/babel source tag's nonce and sets it on the inline script
-#   element it generates for the compiled output (`nonce:d.nonce` →
-#   `t.nonce&&(r.nonce=t.nonce)`, verified in the pinned bytes), so one
-#   per-response nonce covers the whole pipeline. The compiled text
-#   itself varies per file and per Babel version, so hashes cannot cover
-#   it; 'unsafe-eval' is NOT required (no new Function in the pinned
-#   bytes; zero eval refusals recorded). A Babel bump re-pins the SRI
-#   hash by hand — re-check the propagation there.
+# - script-src: SRI pins the vendored scripts; 'self' admits external files.
+#   The loader copies each text/babel tag's response nonce to its compiled
+#   inline script, so neither 'unsafe-inline' nor 'unsafe-eval' is needed.
 # - style-src: the Google Fonts stylesheet host, and the sign-in page's
 #   inline <style> block by the same per-response nonce — no
 #   'unsafe-inline' anywhere in the policy. React sets styles through
 #   CSSOM, which CSP does not govern.
 # - font-src: the Google Fonts binary host.
-# - connect-src 'self': /api/* fetches, the SSE stream and Babel's XHR
-#   fetches of the text/babel scripts are all same-origin.
+# - connect-src 'self': /api/* fetches, the SSE stream and source fetches
+#   are all same-origin.
 # - img-src 'self': favicons and panel images; no data: URIs are used.
 # - default-src 'none', base-uri 'none', form-action 'self' and
 #   frame-ancestors 'none' are the deny-by-default floor.
@@ -320,13 +310,7 @@ async def root_index(request: Request) -> Response:
         return m.group(0).replace(path, f"{path}?v={v}{identity}")
 
     html = re.sub(r'(?:src|data-pricing)="(/(?:src|vendor)/[^"?]+)"', _bust_asset, html)
-    # Every script ELEMENT's open tag carries the response's CSP nonce
-    # (kept LAST so it sees the final HTML). The two inline scripts are
-    # admitted by it directly, and Babel standalone propagates a
-    # text/babel source tag's nonce onto the inline script element it
-    # generates for the compiled output (see _CSP_TEMPLATE), so
-    # script-src needs no 'unsafe-inline'. The external script files are
-    # also admitted by 'self'.
+    # Stamp the final HTML so the loader can propagate each source nonce.
     nonce = getattr(request.state, "csp_nonce", None)
     if nonce:
         html = _nonce_script_elements(html, nonce)
