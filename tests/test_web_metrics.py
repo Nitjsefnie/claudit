@@ -177,6 +177,17 @@ def test_normalise_accepts_every_documented_pair():
             assert web_metrics.normalise(raw)[:2] == (metric, part)
 
 
+@pytest.mark.parametrize("part", ["network", "parse", "wait"])
+def test_only_dashboard_open_carries_the_fetch_split(part):
+    beacon = {"metric": "dashboard_open", "part": part, "value": 5.0}
+    assert web_metrics.normalise(beacon) == ("dashboard_open", part, "", "", 5.0)
+    assert web_metrics.normalise({**beacon, "value": 1e12})[4] == 3_600_000.0
+    assert web_metrics.normalise({**beacon, "value": -5.0})[4] == 0.0
+    for metric in ("inspector_open", "signin"):
+        with pytest.raises(web_metrics.BeaconError, match="unknown part"):
+            web_metrics.normalise({**beacon, "metric": metric})
+
+
 @pytest.mark.parametrize("raw", [
     {"metric": "dashboard_open", "part": "total", "value": 1e12},
     {"metric": "layout_shift", "part": "shift", "region": "other",
@@ -497,7 +508,7 @@ def test_every_beacon_the_client_can_emit_is_inside_the_sink_contract():
       for (const name of ['dashboard_open', 'inspector_open', 'signin']) {
         window.perf.openJourney(name);
         clock += 100;
-        window.perf.closeFetch(name);
+        window.perf.closeFetch(name, { url: '/api/dashboard?range=1d', parse: 20 });
         clock += 300;
         window.perf.closeJourney(name);
       }
@@ -516,7 +527,8 @@ def test_every_beacon_the_client_can_emit_is_inside_the_sink_contract():
       __emit('longtask', [{ duration: 250 }]);
       __tick();
       console.log(JSON.stringify({ beacons: beacons() }));
-    """, sendBeacon=True, observers=["layout-shift", "longtask"])
+    """, sendBeacon=True, observers=["layout-shift", "longtask"], resources=[
+        {"name": "https://claudit.test/api/dashboard?range=1d", "startTime": 1000, "responseEnd": 1050}])
 
     rows = out["beacons"]
     assert rows, "the driver emitted nothing, so this proves nothing"
@@ -533,7 +545,7 @@ def test_every_beacon_the_client_can_emit_is_inside_the_sink_contract():
                 f"{row!r} -- {error}")
     # The sink accepts terms the client never emits, which is fine and
     # expected, so this is a floor on coverage and not an equality.
-    assert len(rows) == 3 * 3 + 2 + 1
+    assert len(rows) == 3 * 3 + 3 + 2 + 1
 
 
 _ROOT = Path(__file__).resolve().parents[1]

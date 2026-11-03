@@ -117,7 +117,7 @@ def test_load_parses_a_successful_response():
       const F = window.dashboardFetch;
       const stub = () => Promise.resolve({
         ok: true, status: 200,
-        json: () => Promise.resolve({hourly: [{hour: '2026-09-30T00:00:00Z'}]}),
+        text: () => Promise.resolve('{"hourly": [{"hour": "2026-09-30T00:00:00Z"}]}'),
       });
       F.load('/api/dashboard?range=1d', {signal: 'S'}, stub)
         .then(b => console.log(JSON.stringify({rows: b.hourly.length})));
@@ -134,7 +134,7 @@ def test_load_carries_the_run_signal_and_credentials():
       let seen = null;
       const stub = (url, init) => {
         seen = init;
-        return Promise.resolve({ok: true, status: 200, json: () => Promise.resolve({})});
+        return Promise.resolve({ok: true, status: 200, text: () => Promise.resolve('{}')});
       };
       F.load('/api/dashboard?range=1d', {signal: 'SIG'}, stub)
         .then(() => console.log(JSON.stringify({
@@ -180,3 +180,34 @@ def test_load_surfaces_a_json_detail_field():
               e => console.log(JSON.stringify({msg: e.message})));
     """)
     assert out["msg"] == "HTTP 503: database is down", out
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_load_times_the_json_parse_and_hands_it_to_the_caller():
+    out = _node("""
+      const F = window.dashboardFetch;
+      let clock = 100;
+      Object.defineProperty(globalThis, 'performance', {
+        value: {now: () => clock}, configurable: true, writable: true});
+      const parse = JSON.parse;
+      JSON.parse = text => { clock += 7; return parse(text); };
+      const seen = [];
+      const stub = (body, ok) => () => {
+        clock += 50;
+        return Promise.resolve({ok, status: ok ? 200 : 503,
+          text: () => { clock += 50; return Promise.resolve(body); },
+          json: () => { clock += 50; return Promise.resolve(parse(body)); }});
+      };
+      const settle = p => p.then(b => ({body: b}), e => ({error: e.name + ': ' + e.message}));
+      Promise.all([
+        settle(F.load('/api/dashboard', {}, stub('{"rows": [1, 2]}', true), ms => seen.push(ms))),
+        settle(F.load('/api/dashboard', {}, stub('{"detail": "down"}', false), ms => seen.push(ms))),
+        settle(F.load('/api/dashboard', {}, stub('{"rows": [1, 2]}', true))),
+        settle(F.load('/api/dashboard', {}, stub('nope', true), ms => seen.push(ms))),
+      ]).then(results => console.log(JSON.stringify({results, seen})));
+    """)
+    assert out["results"][:3] == [
+        {"body": {"rows": [1, 2]}}, {"error": "Error: HTTP 503: down"},
+        {"body": {"rows": [1, 2]}}], out
+    assert out["results"][3]["error"].startswith("SyntaxError: "), out
+    assert out["seen"] == [7], out

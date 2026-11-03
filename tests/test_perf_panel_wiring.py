@@ -26,8 +26,13 @@ reports a page that rendered nothing.
 """
 from __future__ import annotations
 
+import json
 import re
+import shutil
 from pathlib import Path
+
+import pytest
+from test_perf_js import _run
 
 ROOT = Path(__file__).resolve().parents[1]
 PANEL = ROOT / "src" / "perf-panel.jsx"
@@ -151,8 +156,64 @@ def test_the_split_that_separates_server_from_browser_is_shown():
     while its client share did not is a different problem. Both parts
     must be read, from the rows themselves."""
     src = _panel_src("WebMetricsPanel")
-    for part in ("'total'", "'fetch'", "'client'"):
+    for part in ("'total'", "'fetch'", "'client'", "'network'", "'parse'", "'wait'"):
         assert part in src, f"the journey readout never reads the {part} part"
+
+
+_SERIES = [{"metric": "dashboard_open", "part": part, "n": 4, "p50": v, "p75": v + 1}
+           for part, v in (("total", 900), ("fetch", 400), ("client", 500),
+                           ("network", 300), ("parse", 30), ("wait", 70))]
+_SERIES.append({"metric": "inspector_open", "part": "total", "n": 2, "p50": 800, "p75": 801})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_the_table_renders_the_fetch_split_from_the_payload():
+    out = _run("""
+      const Babel = require(%(babel)s);
+      const code = Babel.transform(require('fs').readFileSync(%(panel)s, 'utf8'),
+        { presets: [['react', { runtime: 'classic' }]] }).code;
+      const slots = []; const effects = []; let slot = 0;
+      global.React = {
+        createElement: (type, props, ...kids) => ({ type, props: props || {}, kids: kids.flat(9) }),
+        useState: init => {
+          const i = slot++;
+          if (!(i in slots)) slots[i] = init;
+          return [slots[i], v => { slots[i] = v; }];
+        },
+        useEffect: f => effects.push(f),
+      };
+      Object.assign(window, { perfFeatureVisible: () => true, DashTooltip: () => null,
+        useChartA11y: () => ({ label: '', descId: 'd', descText: '' }) });
+      fetch = () => Promise.resolve({ json: () => Promise.resolve(%(payload)s) });
+      (0, eval)(code);
+      const render = () => { slot = 0; return window.WebMetricsPanel({ range: '1d', nonce: 0 }); };
+      render();
+      effects.forEach(f => f());
+      setImmediate(() => {
+        const text = n => (n == null || typeof n === 'boolean') ? ''
+          : typeof n !== 'object' ? String(n) : n.kids.map(text).join('');
+        const all = [];
+        const walk = n => { if (n && typeof n === 'object') { all.push(n); n.kids.forEach(walk); } };
+        walk(render());
+        const rows = {};
+        for (const tr of all.filter(n => n.type === 'tr' && n.props['data-journey'])) {
+          rows[tr.props['data-journey']] = tr.kids.filter(k => k && k.type === 'td').map(text);
+        }
+        const head = all.filter(n => n.type === 'th' && n.props.scope === 'col').map(text);
+        console.log(JSON.stringify({ head, rows }));
+      });
+    """ % {"babel": json.dumps(str(ROOT / "public" / "vendor" / "babel.min.js")),
+           "panel": json.dumps(str(PANEL)), "payload": json.dumps({"series": _SERIES})},
+        sendBeacon=True, observers=[])
+    parts = ["total", "fetch", "client", "network", "parse", "wait"]
+    assert out["head"] == ["journey", "samples"] + [
+        f"{q} {part}" for part in parts for q in ("p50", "p75")], out
+    assert out["rows"]["dashboard_open"] == ["4"] + [
+        cell for v in (900, 400, 500, 300, 30, 70)
+        for cell in (f"{v} ms / {v + 1} ms", f"{v + 1} ms")], out
+    assert out["rows"]["inspector_open"] == [
+        "2", "800 ms / 801 ms", "801 ms"] + [EM_DASH] * 10, out
+    assert out["rows"]["signin"] == [EM_DASH] * 13, out
 
 
 def test_layout_shift_and_longtask_totals_are_summed_not_averaged():
@@ -274,7 +335,8 @@ def test_the_dashboard_journey_brackets_the_dashboard_fetch():
         "the dashboard journey opens AFTER the fetch it is timing")
     fetch = src[i:src.index(".catch(err =>", i)]
     guard = fetch.index("if (!run.isCurrent()) return;")
-    close = fetch.index("window.perf.closeFetch('dashboard_open')")
+    assert "window.dashboardFetch.load(url, { signal: run.signal }, null, ms => { parse = ms; })" in fetch
+    close = fetch.index("window.perf.closeFetch('dashboard_open', { url, parse })")
     assert guard < close, (
         "closeFetch runs before the supersede guard, so an abandoned "
         "response ends the journey the live one is still waiting on")
