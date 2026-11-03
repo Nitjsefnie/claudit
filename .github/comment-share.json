@@ -172,8 +172,8 @@
     11288
   ],
   "backend/app.py": [
-    8042,
-    14414
+    7314,
+    13686
   ],
   "backend/auth.py": [
     2757,
@@ -584,8 +584,8 @@
     4534
   ],
   "backend/web_metrics.py": [
-    6823,
-    11566
+    6813,
+    11692
   ],
   "compose.yaml": [
     1757,
@@ -808,8 +808,8 @@
     425
   ],
   "src/app.jsx": [
-    3600,
-    15704
+    3593,
+    15755
   ],
   "src/burn-rate-legend.js": [
     147,
@@ -820,20 +820,20 @@
     15151
   ],
   "src/cache-ttl-panel.jsx": [
-    2436,
-    12177
+    2425,
+    12160
   ],
   "src/context-growth-comparison.jsx": [
-    2959,
-    11056
+    2956,
+    11047
   ],
   "src/context-growth-view.jsx": [
     1441,
     9243
   ],
   "src/cost-by-agent-panel.jsx": [
-    1348,
-    4735
+    1345,
+    4775
   ],
   "src/cost-by-context.js": [
     254,
@@ -852,16 +852,16 @@
     970
   ],
   "src/dashboard-charts-extra.jsx": [
-    8533,
-    36420
+    8485,
+    36499
   ],
   "src/dashboard-charts.jsx": [
     6620,
     27672
   ],
   "src/dashboard-fetch.js": [
-    935,
-    2218
+    896,
+    2692
   ],
   "src/dashboard-shape.js": [
     1791,
@@ -920,40 +920,40 @@
     5476
   ],
   "src/parser.js": [
-    4200,
-    14881
+    4174,
+    14855
   ],
   "src/per-turn-stats.js": [
     320,
     1291
   ],
   "src/perf-panel.jsx": [
-    2857,
-    9009
+    2805,
+    9025
   ],
   "src/perf.js": [
-    5625,
-    11632
+    5505,
+    12469
   ],
   "src/picker-fit.js": [
     1236,
     2479
   ],
   "src/pricing-loader.js": [
-    3112,
-    17844
+    3041,
+    17778
   ],
   "src/rates.js": [
-    3735,
-    8805
+    3702,
+    8820
   ],
   "src/record-dedup.js": [
     4001,
     6518
   ],
   "src/response-sizes-panel.jsx": [
-    1929,
-    9404
+    1908,
+    9377
   ],
   "src/timeline-selection.js": [
     316,
@@ -964,8 +964,8 @@
     2687
   ],
   "src/tool-error-panel.jsx": [
-    2500,
-    13762
+    2434,
+    13735
   ],
   "src/vendor-tables.js": [
     987,
@@ -996,8 +996,8 @@
     16302
   ],
   "tests/pricing_data_loader_helpers.py": [
-    2842,
-    10502
+    2832,
+    10691
   ],
   "tests/refresh_fixture_builders.py": [
     1644,
@@ -1127,10 +1127,6 @@
     3920,
     19507
   ],
-  "tests/test_classic_script_scope.py": [
-    2527,
-    7305
-  ],
   "tests/test_cold_load_legs.py": [
     1696,
     4876
@@ -1158,10 +1154,6 @@
   "tests/test_ctx_input_js.py": [
     1070,
     2873
-  ],
-  "tests/test_dashboard_fetch_js.py": [
-    974,
-    5852
   ],
   "tests/test_dashboard_fetch_wiring.py": [
     1462,
@@ -1512,8 +1504,8 @@
     19386
   ],
   "tests/test_pricing_compact_shape.py": [
-    696,
-    3023
+    692,
+    3019
   ],
   "tests/test_pricing_data.py": [
     2563,
@@ -1664,8 +1656,8 @@
     16066
   ],
   "tests/test_security_headers.py": [
-    2819,
-    9611
+    2338,
+    9130
   ],
   "tests/test_sequence_allocation.py": [
     1786,
