@@ -149,7 +149,7 @@ def test_the_shipped_baseline_has_the_documents_shape():
     on every committing run, so only its SHAPE is pinned, never its content
     (SV-TEST-DATA).
 
-    The ``sampled`` and ``vanished`` standing-state keys join
+    The ``delisted``, ``sampled`` and ``vanished`` keys join
     the file at the first committing run on that code; the shipped baseline
     predates it, so they are shape-checked only while present."""
     doc = json.loads(_NOTICES_JSON.read_text(encoding="utf-8"))
