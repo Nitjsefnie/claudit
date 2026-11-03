@@ -34,16 +34,16 @@ METRICS = JOURNEYS + OBSERVED
 #: The three parts of every journey. `fetch` is the wait on the network,
 #: `client` is what the browser did with the answer (Babel evaluating the
 #: bundle, React rendering the panels), and `total` is the sum the user felt.
-#: Reporting the first two beside the third is what "disambiguate client work
-#: from the fetch wait" means: the panel can show a total that regressed while
-#: the client share of it did not, or the reverse.
+#: Reporting the first two beside the third lets the panel show a total that
+#: regressed while the client share of it did not, or the reverse.
 TIMING_PARTS = ("fetch", "client", "total")
 
-#: (metric, part) pairs the sink accepts. Every journey carries the three
-#: timing parts; `layout_shift` carries one dimensionless score and
-#: `longtask` one blocking duration.
+#: (metric, part) pairs the sink accepts. Every journey carries the timing
+#: parts; dashboard_open splits fetch into network, parse and main-thread wait.
+#: `layout_shift` carries one score and `longtask` one blocking duration.
 METRIC_PARTS = {
     **{journey: TIMING_PARTS for journey in JOURNEYS},
+    "dashboard_open": TIMING_PARTS + ("network", "parse", "wait"),
     "layout_shift": ("shift",),
     "longtask": ("block",),
 }
@@ -149,6 +149,9 @@ PART_LIMITS = {
     "fetch": (0.0, 3_600_000.0),
     "client": (0.0, 3_600_000.0),
     "total": (0.0, 3_600_000.0),
+    "network": (0.0, 3_600_000.0),
+    "parse": (0.0, 3_600_000.0),
+    "wait": (0.0, 3_600_000.0),
     "block": (0.0, 3_600_000.0),
     "shift": (0.0, 1000.0),
 }

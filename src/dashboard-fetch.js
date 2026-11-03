@@ -43,14 +43,21 @@
     return { kind: 'empty', text: EMPTY_TEXT, detail: '', error: false };
   }
 
-  // GET /api/dashboard → the parsed payload, or throw naming the status.
-  // A failed request is not JSON by default (a 500 is text/plain), so the
-  // body is read defensively for a `detail` field and the status stands
-  // alone when there is none — the same shape the transcript loader uses.
-  function load(url, init, fetchImpl) {
+  // GET /api/dashboard → the parsed payload, or throw naming the status;
+  // onParse receives the JSON.parse milliseconds. A failed request may not
+  // be JSON (a 500 is text/plain), so the body is read defensively
+  // for a `detail` field and the status stands alone when there is none.
+  function load(url, init, fetchImpl, onParse) {
     const opts = Object.assign({ credentials: 'same-origin' }, init || {});
     return (fetchImpl || fetch)(url, opts).then(r => {
-      if (r.ok) return r.json();
+      if (r.ok) {
+        return r.text().then(text => {
+          const t0 = performance.now();
+          const body = JSON.parse(text);
+          if (onParse) onParse(performance.now() - t0);
+          return body;
+        });
+      }
       return r.json().then(
         body => {
           const detail = body && typeof body.detail === 'string' ? body.detail : '';

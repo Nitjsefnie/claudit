@@ -1,7 +1,8 @@
 // Browser performance telemetry: journey timings, layout
 // stability and main-thread blocking, batched into POST /api/metrics.
 // Three journeys are timed, each as a total with a fetch/client split so
-// a slow server can be told apart from a slow browser, and two
+// a slow server can be told apart from a slow browser (dashboard_open
+// splits its fetch into network, parse and main-thread wait), and two
 // PerformanceObservers carry the observed metrics.
 // Plain JS on purpose -- no React, no JSX -- so node can execute it and
 // tests/test_perf_js.py drives the real thing against faked browser
@@ -83,12 +84,11 @@
   // so the origin itself never leaks into a reported value.
   function now() {
     const p = typeof performance !== 'undefined' ? performance : null;
-    if (p && typeof p.now === 'function') {
-      if (typeof p.timeOrigin === 'number') return p.timeOrigin + p.now();
-      return p.now();
-    }
+    if (p && typeof p.now === 'function') return originOf(p) + p.now();
     return Date.now();
   }
+
+  function originOf(p) { return typeof p.timeOrigin === 'number' ? p.timeOrigin : 0; }
 
   function ok(v) { return typeof v === 'number' && isFinite(v) && v >= 0; }
 
@@ -155,10 +155,24 @@
     open[name] = { t0: now(), fetch: null };
   }
 
-  function closeFetch(name) {
+  function closeFetch(name, detail) {
     const j = open[name];
     if (!j) return;
     j.fetch = now() - j.t0;
+    if (detail && name === 'dashboard_open') { j.url = detail.url; j.parse = detail.parse; }
+  }
+
+  // Read at close: the spec queues the entry in a task after the body ends.
+  function networkMs(j) {
+    const p = typeof performance !== 'undefined' ? performance : null;
+    if (!p || typeof p.getEntriesByName !== 'function') return null;
+    let list;
+    try {
+      list = p.getEntriesByName(new URL(j.url, location.href).href, 'resource') || [];
+    } catch (_) { return null; }
+    const e = list[list.length - 1];
+    if (!e || originOf(p) + e.startTime < j.t0) return null;
+    return originOf(p) + e.responseEnd - j.t0;
   }
 
   function closeJourney(name) {
@@ -177,6 +191,12 @@
       if (ok(j.fetch) && j.fetch <= total) {
         rows.push({ metric: name, part: 'fetch', value: j.fetch });
         rows.push({ metric: name, part: 'client', value: total - j.fetch });
+        const network = j.url ? networkMs(j) : null;
+        const net = ok(network) && network <= j.fetch;
+        if (net) rows.push({ metric: name, part: 'network', value: network });
+        if (ok(j.parse)) rows.push({ metric: name, part: 'parse', value: j.parse });
+        const wait = j.fetch - network - j.parse;
+        if (net && ok(j.parse) && wait >= 0) rows.push({ metric: name, part: 'wait', value: wait });
       }
     }
     for (const row of rows) push(row);
@@ -189,19 +209,14 @@
 
   function sseUpdate() { phase = 'sse_update'; }
 
-  // The new document's own Navigation Timing is a real measurement of the
-  // same navigation -- time from navigation start to first byte -- so the
-  // sign-in fetch part is read from it rather than guessed at. It is only
-  // consulted when the login page's marker says a sign-in really happened:
+  // The new document's Navigation Timing measures the same navigation
+  // (navigation start to first byte), so the sign-in fetch part is read
+  // from it, only when the login page's marker says a sign-in happened:
   // Navigation Timing exists on every navigation, including a plain load.
-  // It is NOT the same interval as the other two journeys' `fetch`, and the
-  // panel's three rows sit side by side, so say so here where a reader of
-  // this function will see it: this one spans the whole chain (the POST,
-  // the 303, and the GET of `/` that follows it), where a dashboard or
-  // Inspector `fetch` is one endpoint's wait. Comparing a sign-in fetch
-  // against the other two compares a chain with a request. When Navigation
-  // Timing is absent the part is simply not sent, and the panel's em dash
-  // says "not measured" rather than charging the network to the client.
+  // It is NOT the interval the other journeys call `fetch`: it spans the
+  // POST, the 303 and the GET of `/`, where a dashboard or Inspector
+  // `fetch` is one endpoint's wait. When Navigation Timing is absent the
+  // part is not sent, and the panel's em dash says "not measured".
   function navigationFetchMs() {
     const p = typeof performance !== 'undefined' ? performance : null;
     if (!p || typeof p.getEntriesByType !== 'function') return null;
@@ -337,6 +352,12 @@
       // A bfcache eviction fires pagehide, not visibilitychange.
       window.addEventListener('pagehide', onHidden);
     }
+    // A full Resource Timing buffer drops new entries; clearing keeps them.
+    if (typeof performance !== 'undefined' && performance.addEventListener) {
+      performance.addEventListener('resourcetimingbufferfull', function () {
+        performance.clearResourceTimings();
+      });
+    }
   } catch (_) { /* no lifecycle events: the timer still flushes */ }
 
   adoptSigninStart();
@@ -345,8 +366,8 @@
     openJourney: function (name) {
       try { openJourney(name); } catch (_) {}
     },
-    closeFetch: function (name) {
-      try { closeFetch(name); } catch (_) {}
+    closeFetch: function (name, detail) {
+      try { closeFetch(name, detail); } catch (_) {}
     },
     closeJourney: function (name) {
       try { closeJourney(name); } catch (_) {}
