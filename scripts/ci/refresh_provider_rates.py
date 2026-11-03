@@ -38,10 +38,8 @@ These refuse the host or model they concern, which appends nothing:
   every window starts the row;
 - a tracked model still in the catalog with no endpoints, or none in the
   region. A model gone from the catalog (/api/v1/models) is a delisting,
-  not a refusal: the run skips it with a notice, its row keeps pricing
-  stored records, and it rejoins the refresh on its own when the catalog
-  relists it. An unreadable catalog proves nothing about delisting, so
-  the empty-endpoints refusal stands while the catalog cannot be read.
+  so the run skips it with a notice and keeps its row. A readable catalog
+  overrides the recorded delistings; an unreadable one uses them instead.
 
 Refusals keep rows untouched and exit 1; other moves publish before exiting
 1. provider_rates_fetched keeps the later of its stored instant and detection,
@@ -61,12 +59,9 @@ new or changed lines appear. The baseline includes suppressed lines to
 prevent alternating reappearance. Missing, unreadable or malformed files
 suppress nothing. Quiet runs publish no commit and leave the baseline.
 
-The vanished-host set and the sampled classifications are standing
-state: they never enter the commit body. The run's own stdout
-report keeps both blocks, and a committing run records them in the same
-state file beside the notices (keys ``vanished`` and ``sampled``), so a
-vanished set or a classification that changes shows as a diff of that
-file instead of re-printing every run.
+The vanished-host set and sampled classifications stay out of commit
+messages; stdout keeps both blocks. A committing run records those and
+skipped delisted ids beside the notices in the same state file.
 
     python3 scripts/ci/refresh_provider_rates.py [--dry-run] [--commit-msg FILE]
 """
@@ -76,7 +71,7 @@ import http.client
 import json
 import sys
 import urllib.error
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import partial
 from itertools import combinations
 from typing import Callable
@@ -144,6 +139,7 @@ class Result:
     refusals: list[str]
     notices: list[str]
     sampled: dict[str, dict[str, str]]
+    delisted: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -189,11 +185,11 @@ def _listed_model(context: RefreshContext, model: str, source: dict,
     return ListedModel(payload, rows, refused, notices, untracked)
 
 
-def _delisted(source: dict, catalog: set[str] | None) -> bool:
-    """Whether OpenRouter's /api/v1/models catalog no longer lists the
-    tracked id. A catalog that could not be read (None) proves nothing."""
-    return (catalog is not None and isinstance(source.get("id"), str)
-            and source["id"] not in catalog)
+def _delisted(source: dict, catalog: set[str] | None,
+              known_delisted: frozenset[str]) -> bool:
+    model_id = source.get("id")
+    return isinstance(model_id, str) and (
+        model_id not in catalog if catalog is not None else model_id in known_delisted)
 
 
 def _refresh_model(context: RefreshContext, model: str, source: dict,
@@ -227,7 +223,8 @@ def _refresh_model(context: RefreshContext, model: str, source: dict,
 
 def refresh(doc: dict, fetch: Fetch, stamp: str,
             fetch_models: FetchModels | None = None,
-            fetch_log: FetchLog | None = None) -> Result:
+            fetch_log: FetchLog | None = None,
+            known_delisted: frozenset[str] = frozenset()) -> Result:
     """Rewrite log-backed histories and sample the rest."""
     try:
         pricing.load_tables(doc)
@@ -239,7 +236,7 @@ def refresh(doc: dict, fetch: Fetch, stamp: str,
     context = RefreshContext(
         source_doc, fetch, region, stamp,
         datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc))
-    result = _refresh_models(context, tracked, logs, catalog)
+    result = _refresh_models(context, tracked, logs, catalog, known_delisted)
     # The loaders' own rules, run on what would be written, including the
     # stored fetch stamp bounding every retained entry.
     try:
@@ -250,17 +247,18 @@ def refresh(doc: dict, fetch: Fetch, stamp: str,
 
 
 def _refresh_models(context: RefreshContext, tracked: dict,
-                    logs: dict, catalog: set[str] | None) -> Result:
+                    logs: dict, catalog: set[str] | None,
+                    known_delisted: frozenset[str]) -> Result:
     result = Result(context.doc, [], [], [], [], {})
     for model, source in tracked.items():
-        # Every model is fetched even after one is refused, so a red run
-        # names everything a human must look at. A model the catalog no
-        # longer lists is delisted: skipped with a notice, row kept — it
-        # rejoins on its own when the catalog relists it.
-        if _delisted(source, catalog):
+        # Fetch every non-delisted model even after one is refused.
+        if _delisted(source, catalog, known_delisted):
+            result.delisted.add(source["id"])
+            reason = (" (catalog unreadable; last recorded as delisted)"
+                      if catalog is None else "")
             result.notices.append(
                 f"{model} ({source['id']}): delisted from OpenRouter's catalog; "
-                "row kept, not fetched")
+                f"row kept, not fetched{reason}")
             continue
         outcome = _refresh_model(context, model, source, logs[model])
         result.moves += outcome.moves
@@ -282,26 +280,15 @@ def _refusals(result: Result, outcome) -> list[str]:
 
 
 def _notices_path(pricing_path: Path) -> Path:
-    """The committed state file beside the pricing document it describes:
-    the last run's carried notice lines and its standing
-    vanished/sampled state."""
+    """The last committing run's state, beside its pricing document."""
     return pricing_path.with_name("pricing_notices.json")
 
 
-def _published_notices(pricing_path: Path) -> frozenset[str]:
-    """The notice lines the last committing run carried.
-
-    That run's FULL rendered notice set — the lines it showed and the lines
-    it suppressed — because the baseline must not move when a run suppresses
-    a line: a baseline read from the previous commit's message would drop the
-    suppressed line and re-emit it in the next commit, alternating forever.
-
-    An absent, unreadable or malformed file yields the empty set, which
-    suppresses nothing: the baseline can only under-suppress, never hide a
-    notice."""
+def _published_values(pricing_path: Path, key: str) -> frozenset[str]:
+    """Read string entries from a list in the last committing run's state."""
     try:
         carried = json.loads(
-            _notices_path(pricing_path).read_text(encoding="utf-8"))["notices"]
+            _notices_path(pricing_path).read_text(encoding="utf-8"))[key]
     except (OSError, ValueError, KeyError, TypeError):
         return frozenset()
     if not isinstance(carried, list):
@@ -310,13 +297,10 @@ def _published_notices(pricing_path: Path) -> frozenset[str]:
 
 
 def _write_state(pricing_path: Path, lines: list[str], result: Result) -> None:
-    """Record this run's notice baseline and standing vanished/sampled state.
-
-    Both blocks stay queryable and diffable in the state file instead of
-    being re-printed in every commit body.
-    """
+    """Record notices, delisted ids and standing vanished/sampled state."""
     _notices_path(pricing_path).write_text(
-        json.dumps({"notices": sorted(set(lines)),
+        json.dumps({"delisted": sorted(result.delisted),
+                    "notices": sorted(set(lines)),
                     "sampled": sampled_state(result.sampled),
                     "vanished": vanished_state(result.vanished)},
                    indent=2, sort_keys=True)
@@ -351,7 +335,7 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
     stamp = detection_stamp(now or datetime.now(timezone.utc))
     try:
         result = refresh(json.loads(pricing_path.read_text(encoding="utf-8")), fetch, stamp,
-                         fetch_models, fetch_log)
+                         fetch_models, fetch_log, _published_values(pricing_path, "delisted"))
         # The vendor pass runs on the provider pass's own document, after its
         # loader validation; it validates the would-be file again itself.
         outcome = (vendor(result.doc, fetch_models, fetch)
@@ -374,7 +358,7 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
     # rewrites it: the stdout report keeps every block, while the commit
     # body drops the standing vanished/sampled ones, which
     # are recorded in the state file instead.
-    previous = _published_notices(pricing_path)
+    previous = _published_values(pricing_path, "notices")
     print(_report_body(stamp, result, outcome, previous))
     if (result.moves or (outcome is not None and outcome.moves)) \
             and not args.dry_run:
