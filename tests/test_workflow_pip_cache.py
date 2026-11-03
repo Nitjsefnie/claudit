@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import re
+import shlex
 import sys
 from pathlib import Path
 from typing import Iterator
@@ -21,11 +22,16 @@ import yaml
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+BACKEND_REQUIREMENTS = "backend/requirements.txt"
+HASHED_FLAGS = ("--require-hashes", "--only-binary=:all:", "--no-binary=PyYAML")
+HASHED_PYYAML = "pip install " + " ".join(HASHED_FLAGS) + " -r requirements-pyyaml.txt"
+PIP_INSTALL = re.compile(r"(?:RUN )?(?:python3? -m )?pip install ")
 
 
 def _jobs() -> Iterator[tuple[str, str, list]]:
     """Yield (workflow, job, steps) for every job of every workflow."""
-    for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+    workflows = ROOT / ".github" / "workflows"
+    for path in sorted(workflows.glob("*.yml")) + sorted(workflows.glob("*.yaml")):
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for job_id, job in (doc.get("jobs") or {}).items():
             yield path.name, job_id, (job or {}).get("steps") or []
@@ -192,19 +198,143 @@ def test_types_installs_and_caches_the_full_import_toolchain():
                  if (workflow, job) == ("types.yml", "pyright"))
     install, = [step for step in steps if step.get("name") == "Install dependencies"]
     commands = install["run"].split("&&")
-    hashed, = [c for c in commands if "requirements-pyyaml.txt" in c]
     requirements, = [c for c in commands if "-r backend/requirements.txt" in c]
-    assert commands.index(hashed) < commands.index(requirements), (
-        "the hashed sdist installs first, so the build it pins is what "
-        "every interpreter gets")
-    assert ("--require-hashes" in hashed and "--no-binary=PyYAML" in hashed
-            and "--only-binary=:all:" in hashed)
     assert "-r requirements-dev.txt" in requirements, (
         "runtime deps too, so pyright resolves third-party imports")
     assert "python -m pip install --upgrade pip" in install["run"]
     caches = [step for step in steps
               if _action(step) in ("actions/cache/restore", "actions/cache/save")]
     assert len(caches) == 2
+
+
+def _installs(script: str) -> list[list[str]]:
+    segments = re.split(r"&&|\n", script.replace("\\\n", ""))
+    return [shlex.split(segment) for segment in segments
+            if PIP_INSTALL.match(segment.strip())]
+
+
+def _install_sites() -> dict[str, list[list[str]]]:
+    sites = {
+        f"{workflow}:{job}": [words for step in steps if "run" in step
+                              for words in _installs(step["run"])]
+        for workflow, job, steps in _jobs()}
+    sites["Dockerfile"] = _installs((ROOT / "Dockerfile").read_text(encoding="utf-8"))
+    return sites
+
+
+def _installs_backend(words: list[str]) -> bool:
+    return BACKEND_REQUIREMENTS in words
+
+
+def _is_hashed_pyyaml(words: list[str]) -> bool:
+    return (all(flag in words for flag in HASHED_FLAGS)
+            and "requirements-pyyaml.txt" in words and "||" not in words)
+
+
+def _backend_sites(sites: dict[str, list[list[str]]]) -> list[str]:
+    return [site for site, installs in sites.items()
+            if any(_installs_backend(words) for words in installs)]
+
+
+def _sites_without_hashed_pyyaml_first(sites: dict[str, list[list[str]]]) -> list[str]:
+    violations = []
+    for site in _backend_sites(sites):
+        installs = sites[site]
+        first = next(index for index, words in enumerate(installs)
+                     if _installs_backend(words))
+        if not any(_is_hashed_pyyaml(words) for words in installs[:first]):
+            violations.append(site)
+    return violations
+
+
+def test_every_backend_requirements_install_follows_the_hashed_pyyaml_install():
+    sites = _install_sites()
+    assert not _sites_without_hashed_pyyaml_first(sites)
+    assert len(_backend_sites(sites)) >= 16
+
+
+def _chain(*commands: str) -> str:
+    return " && ".join(commands)
+
+
+def _lines(*commands: str) -> str:
+    return "\n".join(commands)
+
+
+BACKEND_INSTALL = "pip install -r backend/requirements.txt"
+SPREAD = HASHED_PYYAML.replace(" -", "\\\n -")
+
+
+def _write_workflow(root: Path, jobs: dict[str, list[str]]) -> None:
+    (root / ".github/workflows").mkdir(parents=True)
+    doc = {"jobs": {job: {"steps": [{"run": run} for run in runs]}
+                    for job, runs in jobs.items()}}
+    (root / ".github/workflows/sample.yaml").write_text(yaml.safe_dump(doc), encoding="utf-8")
+    (root / "Dockerfile").touch()
+
+
+@pytest.mark.parametrize("steps,violates", [
+    ([_chain(HASHED_PYYAML, BACKEND_INSTALL)], False),
+    ([_lines("python -m pip install --upgrade pip", HASHED_PYYAML, BACKEND_INSTALL)], False),
+    ([HASHED_PYYAML, BACKEND_INSTALL], False),
+    ([_chain("python3 -m " + HASHED_PYYAML, "python -m " + BACKEND_INSTALL + " -r requirements-test.txt")], False),
+    ([_chain(SPREAD, BACKEND_INSTALL)], False),
+    ([_chain(BACKEND_INSTALL.replace("-r ", "--requirement "), HASHED_PYYAML)], True),
+    ([_chain(BACKEND_INSTALL, HASHED_PYYAML)], True),
+    ([_lines(BACKEND_INSTALL, HASHED_PYYAML)], True),
+    ([HASHED_PYYAML + " & " + BACKEND_INSTALL], True),
+    ([BACKEND_INSTALL, HASHED_PYYAML], True),
+    ([_chain(BACKEND_INSTALL, HASHED_PYYAML, BACKEND_INSTALL)], True),
+    ([BACKEND_INSTALL], True),
+    ([_lines("# " + HASHED_PYYAML, BACKEND_INSTALL)], True),
+    ([_lines("echo '" + HASHED_PYYAML + "'", BACKEND_INSTALL)], True),
+    ([_chain(HASHED_PYYAML + " || true", BACKEND_INSTALL)], True),
+    ([_chain(HASHED_PYYAML + " --quiet", BACKEND_INSTALL)], False),
+    ([_chain("pip install -r requirements-pyyaml.txt " + " ".join(HASHED_FLAGS), BACKEND_INSTALL)], False),
+    ([HASHED_PYYAML + " -r backend/requirements.txt"], True),
+    ([BACKEND_INSTALL + " -r requirements-pyyaml.txt"], True),
+    ([HASHED_PYYAML.replace("-r ", "-r backend/requirements.txt -r ")], True),
+    ([_chain(HASHED_PYYAML.replace(" --require-hashes", ""), BACKEND_INSTALL)], True),
+    ([_chain(HASHED_PYYAML.replace(" --only-binary=:all:", ""), BACKEND_INSTALL)], True),
+    ([_chain(HASHED_PYYAML.replace(" --no-binary=PyYAML", ""), BACKEND_INSTALL)], True),
+    ([_chain(HASHED_PYYAML.replace("pyyaml", "test"), BACKEND_INSTALL)], True),
+    (["echo " + BACKEND_INSTALL], False),
+    (["pip-audit --requirement backend/requirements.txt"], False),
+    (["pip download -r backend/requirements.txt"], False),
+    (["pip install-x -r backend/requirements.txt"], False),
+])
+def test_hashed_pyyaml_check_flags_exactly_the_violating_job(tmp_path, monkeypatch, steps, violates):
+    _write_workflow(tmp_path, {"job": steps})
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    assert _sites_without_hashed_pyyaml_first(_install_sites()) == (
+        ["sample.yaml:job"] if violates else [])
+
+
+def test_hashed_pyyaml_check_judges_each_job_on_its_own_steps(tmp_path, monkeypatch):
+    _write_workflow(tmp_path, {"hashed": [HASHED_PYYAML], "late": [BACKEND_INSTALL],
+                               "good": [HASHED_PYYAML, BACKEND_INSTALL], "bad": [BACKEND_INSTALL]})
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    assert _sites_without_hashed_pyyaml_first(_install_sites()) == [
+        "sample.yaml:bad", "sample.yaml:late"]
+
+
+@pytest.mark.parametrize("dockerfile,violates", [
+    ("RUN " + _chain(HASHED_PYYAML, BACKEND_INSTALL) + "\n", False),
+    ("RUN " + HASHED_PYYAML + " \\\n    && " + BACKEND_INSTALL + "\n", False),
+    (_lines("RUN " + HASHED_PYYAML, "COPY a b", "RUN " + BACKEND_INSTALL), False),
+    ("RUN " + BACKEND_INSTALL + " \\\n    && " + HASHED_PYYAML + "\n", True),
+    (_lines("RUN " + BACKEND_INSTALL, "RUN " + HASHED_PYYAML), True),
+    ("RUN " + BACKEND_INSTALL, True),
+    (_lines("# RUN " + HASHED_PYYAML, "RUN " + BACKEND_INSTALL), True),
+    ("RUN " + _chain(HASHED_PYYAML.replace(" --require-hashes", ""), BACKEND_INSTALL), True),
+    ("RUN " + HASHED_PYYAML, False),
+    ("COPY backend/requirements.txt backend/requirements.txt", False),
+])
+def test_hashed_pyyaml_check_reads_the_dockerfile(tmp_path, monkeypatch, dockerfile, violates):
+    (tmp_path / "Dockerfile").write_text(dockerfile, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    assert _sites_without_hashed_pyyaml_first(_install_sites()) == (
+        ["Dockerfile"] if violates else [])
 
 
 @pytest.mark.parametrize("matrix,gate,accepted", [
