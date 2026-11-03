@@ -60,7 +60,11 @@
     }
 
     // The app prices at render, so no script runs before the rate tables exist.
-    const readiness = [window.pricingReady];
-    Promise.all(readiness).then(() => { ready = true; schedule(); });
+    const readiness = [window.pricingReady
+      || Promise.reject(new Error('pricing.json: the rate loader never ran'))];
+    Promise.all(readiness).then(() => { ready = true; schedule(); }, (error) => {
+      document.getElementById('root').textContent = error.message;
+      throw error;
+    });
   });
 })();

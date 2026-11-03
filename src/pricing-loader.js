@@ -101,7 +101,7 @@ const _ratesOf = (entry, mayHaveSearch = false) => ({
 // Mirrors pricing._INSTANT. The instant is computed here, never by
 // Date.parse, which rolls 24:00 and 02-30 over where Python refuses them.
 const _INSTANT = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:Z|([+-])([0-9]{2}):([0-9]{2}))$/;
-function _parseInstant(stamp) {
+function _instantMs(stamp) {
   const m = typeof stamp === 'string' ? _INSTANT.exec(stamp) : null;
   if (!m) return NaN;
   const [y, mo, d, h, mi, s] = m.slice(1, 7).map(Number);
@@ -113,12 +113,6 @@ function _parseInstant(stamp) {
     && wall.getUTCFullYear() === y && wall.getUTCMonth() === mo - 1 && wall.getUTCDate() === d
     && wall.getUTCHours() === h && wall.getUTCMinutes() === mi && wall.getUTCSeconds() === s;
   return inRange ? wall.getTime() - (m[7] === '-' ? -1 : 1) * (oh * 60 + om) * 60000 : NaN;
-}
-// Memoised: a stamp recurs across rows and both history passes.
-const _instants = new Map();
-function _instantMs(stamp) {
-  if (!_instants.has(stamp)) _instants.set(stamp, _parseInstant(stamp));
-  return _instants.get(stamp);
 }
 const _isRate = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 

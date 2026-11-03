@@ -6,7 +6,7 @@
 // Lane transcripts (Codex rollouts, the two Kimi wire formats) are parsed
 // by src/parser-lanes.js, which emits the same shapes; parseTranscript
 // sniffs the format and delegates. One rate table only — src/pricing.json,
-// loaded by src/pricing-loader.js, which runs before this script.
+// loaded by src/pricing-loader.js.
 
 // The browser loads parser-usage.js before this file. Node loads it lazily
 // only when the Claude parser needs usage normalization.
