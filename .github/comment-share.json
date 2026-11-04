@@ -47,10 +47,6 @@
     2330,
     3281
   ],
-  ".github/workflows/comment-share.yml": [
-    1055,
-    2498
-  ],
   ".github/workflows/coverage-comment.yml": [
     6072,
     14124
@@ -80,8 +76,8 @@
     2455
   ],
   ".github/workflows/ratchet-push.yml": [
-    3775,
-    12827
+    2227,
+    8832
   ],
   ".github/workflows/refresh-pricing.yml": [
     5189,
@@ -116,8 +112,8 @@
     2243
   ],
   ".github/workflows/version-guard.yml": [
-    2457,
-    3939
+    2362,
+    3932
   ],
   "backend/agent_sidecar.py": [
     1887,
