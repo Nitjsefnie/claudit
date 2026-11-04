@@ -1,64 +1,29 @@
 name: ratchet push
 
-# The data-only push half of the CI ratchets. A workflow_call callee
-# cannot read an environment's secret, and the job token's push is
-# rejected by the ruleset's required
-# aggregate check, which only the deploy key's bypass clears. So the
-# push lives HERE, a top-level workflow where `environment:
-# master-push` resolves, keyed on ci-gate and comment share completion.
+# The data-only push half of the CI ratchets. The tests workflow is a
+# workflow_call callee, so its master-push environment secret is unavailable;
+# this top-level workflow takes the deploy key after ci-gate completes.
+# The keyless measuring jobs stage thresholds and suite measurements.
+# Only a successful master push publishes their data; this job uses the
+# fetched master's helpers, runs no PR code, and stops its ssh-agent.
 #
-# tests.yml is a workflow_call callee and produces no run of its own on
-# a master push — the run that carries the ratchet-push, suite-measurement
-# and size-ratchet-push artifacts is ci-gate's. The comment share workflow
-# stages comment-share-ratchet and the tests workflow stages
-# size-ratchet-push, each with its own measured base.txt. Both
-# measuring halves stay keyless, and this workflow lists the triggering
-# run's artifacts, downloads whichever exist, tightens the suite-cost
-# budgets from the measurement, and pushes the ratchet commit when
-# there is something to push.
-#
-# THE SUITE GATES THE PUSH, TWICE OVER: only a run whose pytest and
-# JavaScript-coverage legs were green stages the suite measurement,
-# only one whose reparse bench was green too stages the ratchet data,
-# and only a FULLY green gate run (conclusion: success) publishes
-# either. Records publish only after a successful comment share run.
-# The push job runs the staleness classifier, thresholds check
-# and suite_ratchet.py from fetched master, with no checkout of PR code,
-# no pip and no npm, and stops its ssh-agent when the step ends. The deploy
-# key lives in the master-push environment, reachable only from
-# master. Like the pricing bot's deploy-key push, the ratchet commit
-# starts workflow runs — but ci-gate ignores
-# .github/ci-thresholds.json-only, .github/comment-share.json-only and
-# .github/size-baseline.json-only commits. A records-only commit is exempt there; comment share runs
-# again, tightens nothing and stages no artifact, ending the push chain.
-#
-# Master movement is checked twice. The measured base — the
-# staged base.txt when the run raised, else the triggering run's own
-# head for a suite-only run, else the records artifact's own base —
-# may trail master's tip only across
-# data-only commits. A three-way file merge preserves intervening
-# threshold changes; conflicts or invalid thresholds drop the run.
-# Suite measurements are reused only when the fetched thresholds match
-# the measured base, compared before the artifact raise is applied.
-# Records merge against their own measured base; an unreadable ancestor,
-# conflict or invalid JSON drops only the records update. The size
-# records additionally refuse a measurement whose base predates any
-# non-records change on master: a clean merge could record below the
-# file's real count, and tighten never raises one.
-# A push rejected while master stood still is an
-# error, and a push rejected after master moved drops this run's data:
-# the next master run measures and raises instead.
+# A measured base may trail master only across data-only commits. A
+# three-way merge preserves intervening threshold changes; conflicts or
+# invalid thresholds drop the run. A suite measurement is reused only if
+# the fetched thresholds match the measured base.
+# A push rejected while master stood still is an error; if master moved,
+# this run's data is dropped and the next master run measures again.
 
 on:
   workflow_run:  # zizmor: ignore[dangerous-triggers]
-    # The two measuring workflows' `name:` values. The trigger's hazard — event data or
+    # The measuring workflow's `name:` value. The trigger's hazard — event data or
     # code from another branch's run reaching a privileged job — does
     # not apply: the job's if admits only a push event whose head
     # branch is master (a fork PR's run never passes it), the job
     # runs only the fetched master's data helpers, downloads this repository's own
     # artifacts from the triggering run, and authenticates the push
     # with the deploy key, not the job token.
-    workflows: [ci gate, comment share]
+    workflows: [ci gate]
     types: [completed]
 
 permissions: {}
@@ -100,26 +65,16 @@ jobs:
             | sort -u)"
           ratchet=false
           suite=false
-          records=false
-          size=false
           if printf '%s\n' "$names" | grep -qx 'ratchet-push'; then
             ratchet=true
           fi
           if printf '%s\n' "$names" | grep -qx 'suite-measurement'; then
             suite=true
           fi
-          if printf '%s\n' "$names" | grep -qx 'comment-share-ratchet'; then
-            records=true
-          fi
-          if printf '%s\n' "$names" | grep -qx 'size-ratchet-push'; then
-            size=true
-          fi
           {
             echo "ratchet=$ratchet"
             echo "suite=$suite"
-            echo "records=$records"
-            echo "size=$size"
-            if [ "$ratchet" = true ] || [ "$suite" = true ] || [ "$records" = true ] || [ "$size" = true ]; then
+            if [ "$ratchet" = true ] || [ "$suite" = true ]; then
               echo "any=true"
             fi
           } >> "$GITHUB_OUTPUT"
@@ -142,24 +97,6 @@ jobs:
         with:
           name: suite-measurement
           path: ${{ runner.temp }}/suite-data
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download the comment-share records
-        if: steps.list.outputs.records == 'true'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: comment-share-ratchet
-          path: ${{ runner.temp }}/comment-share-data
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download the size records
-        if: steps.list.outputs.size == 'true'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: size-ratchet-push
-          path: ${{ runner.temp }}/size-data
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -194,25 +131,13 @@ jobs:
           export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes'
           remote="${CLAUDIT_PUSH_REMOTE:-git@github.com:${CLAUDIT_REPO}.git}"
           # The measured base: a raise staged base.txt; a suite-only run
-          # measured the triggering run's own head; records carry their own.
+          # measured the triggering run's own head.
           if [ -f "$RUNNER_TEMP/ratchet-data/base.txt" ]; then
             base="$(cat "$RUNNER_TEMP/ratchet-data/base.txt")"
           elif [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]; then
             base="$CLAUDIT_BASE_FALLBACK"
-          elif [ -f "$RUNNER_TEMP/comment-share-data/base.txt" ]; then
-            base="$(cat "$RUNNER_TEMP/comment-share-data/base.txt")"
-            if [ -z "$base" ]; then
-              echo "the comment-share data carried no base; the measuring job is broken" >&2
-              exit 1
-            fi
-          elif [ -f "$RUNNER_TEMP/size-data/base.txt" ]; then
-            base="$(cat "$RUNNER_TEMP/size-data/base.txt")"
-            if [ -z "$base" ]; then
-              echo "the size data carried no base; the measuring job is broken" >&2
-              exit 1
-            fi
           else
-            echo "no ratchet data, suite measurement, comment-share or size records to push" >&2
+            echo "no ratchet data or suite measurement to push" >&2
             exit 1
           fi
           git init -q "$RUNNER_TEMP/ratchet-repo"
@@ -273,137 +198,14 @@ jobs:
               echo "### Dropped suite measurement: master's thresholds moved while this run measured" >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
-          records_selected=false
-          if [ -f "$RUNNER_TEMP/comment-share-data/base.txt" ]; then
-            records_base="$(cat "$RUNNER_TEMP/comment-share-data/base.txt")"
-            if [ -z "$records_base" ]; then
-              echo "the comment-share data carried no base; the measuring job is broken" >&2
-              exit 1
-            fi
-            current="$RUNNER_TEMP/current-records.json"
-            if ! git -C "$RUNNER_TEMP/ratchet-repo" show "$fetched:.github/comment-share.json" > "$current"; then
-              echo "Current master has no comment-share records; deletion requires review" >&2
-              exit 1
-            fi
-            records_merge_ok=true
-            if [ "$fetched" != "$records_base" ]; then
-              if ! git -C "$RUNNER_TEMP/ratchet-repo" show "$records_base:.github/comment-share.json" > "$RUNNER_TEMP/base-records.json"; then
-                echo "::notice::Ancestor records are unreadable; the next master push measures again"
-                {
-                  echo "### Dropped: ancestor records could not be read"
-                  echo "This run's records tightening is dropped; the next master push measures again."
-                } >> "$GITHUB_STEP_SUMMARY"
-                records_merge_ok=false
-              elif ! git merge-file "$current" "$RUNNER_TEMP/base-records.json" "$RUNNER_TEMP/comment-share-data/comment-share.json"; then
-                echo "::notice::Records changes conflict; the next master push measures again"
-                {
-                  echo "### Dropped: records merge conflicted"
-                  echo "This run's records tightening is dropped; the next master push measures again."
-                } >> "$GITHUB_STEP_SUMMARY"
-                records_merge_ok=false
-              fi
-            else
-              cp "$RUNNER_TEMP/comment-share-data/comment-share.json" "$current"
-            fi
-            if [ "$records_merge_ok" = true ]; then
-              if ! python3 -I -m json.tool "$current" >/dev/null; then
-                echo "::notice::Merged records are invalid; the next master push measures again"
-                {
-                  echo "### Dropped: records failed JSON validation"
-                  echo "This run's records tightening is dropped; the next master push measures again."
-                } >> "$GITHUB_STEP_SUMMARY"
-              else
-                cp "$current" "$RUNNER_TEMP/ratchet-repo/.github/comment-share.json"
-                records_selected=true
-              fi
-            fi
-          fi
-          size_selected=false
-          if [ -f "$RUNNER_TEMP/size-data/base.txt" ]; then
-            # The chain's size elif runs only when no earlier arm resolved
-            # the base; a multi-artifact run resolves elsewhere and lands
-            # here, so this arm refuses its own empty file.
-            size_base="$(cat "$RUNNER_TEMP/size-data/base.txt")"
-            if [ -z "$size_base" ]; then
-              echo "the size data carried no base; the measuring job is broken" >&2
-              exit 1
-            fi
-            current="$RUNNER_TEMP/current-size.json"
-            if ! git -C "$RUNNER_TEMP/ratchet-repo" show "$fetched:.github/size-baseline.json" > "$current"; then
-              echo "Current master has no size-baseline records; deletion requires review" >&2
-              exit 1
-            fi
-            size_merge_ok=true
-            if [ "$fetched" != "$size_base" ]; then
-              # A measurement older than any non-records change on master is
-              # stale: landing it could record below the file's real count,
-              # and tighten never raises one.
-              if [ -n "$(git -C "$RUNNER_TEMP/ratchet-repo" diff --name-only "$size_base" "$fetched" -- ':!.github/size-baseline.json' ':!.github/comment-share.json' ':!.github/ci-thresholds.json')" ]; then
-                echo '::notice::Master moved under the measurement; the next master push measures again'
-                {
-                  echo '### Dropped: master moved under the measurement'
-                  echo "This run's size tightening is dropped; the next master push measures again."
-                } >> "$GITHUB_STEP_SUMMARY"
-                exit 0
-              fi
-              if ! git -C "$RUNNER_TEMP/ratchet-repo" show "$size_base:.github/size-baseline.json" > "$RUNNER_TEMP/base-size.json"; then
-                echo "::notice::Ancestor size records are unreadable; the next master push measures again"
-                {
-                  echo "### Dropped: ancestor size records could not be read"
-                  echo "This run's size tightening is dropped; the next master push measures again."
-                } >> "$GITHUB_STEP_SUMMARY"
-                size_merge_ok=false
-              elif ! git merge-file "$current" "$RUNNER_TEMP/base-size.json" "$RUNNER_TEMP/size-data/size-baseline.json"; then
-                echo "::notice::Size records changes conflict; the next master push measures again"
-                {
-                  echo "### Dropped: size records merge conflicted"
-                  echo "This run's size tightening is dropped; the next master push measures again."
-                } >> "$GITHUB_STEP_SUMMARY"
-                size_merge_ok=false
-              fi
-            else
-              cp "$RUNNER_TEMP/size-data/size-baseline.json" "$current"
-            fi
-            if [ "$size_merge_ok" = true ]; then
-              if ! python3 -I -m json.tool "$current" >/dev/null; then
-                echo "::notice::Merged size records are invalid; the next master push measures again"
-                {
-                  echo "### Dropped: size records failed JSON validation"
-                  echo "This run's size tightening is dropped; the next master push measures again."
-                } >> "$GITHUB_STEP_SUMMARY"
-              else
-                cp "$current" "$RUNNER_TEMP/ratchet-repo/.github/size-baseline.json"
-                size_selected=true
-              fi
-            fi
-          fi
           git -C "$RUNNER_TEMP/ratchet-repo" add .github/ci-thresholds.json
-          if [ "$records_selected" = true ]; then
-            git -C "$RUNNER_TEMP/ratchet-repo" add .github/comment-share.json
-          fi
-          if [ "$size_selected" = true ]; then
-            git -C "$RUNNER_TEMP/ratchet-repo" add .github/size-baseline.json
-          fi
           git -C "$RUNNER_TEMP/ratchet-repo" config user.name 'github-actions[bot]'
           git -C "$RUNNER_TEMP/ratchet-repo" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          if [ -z "$(git -C "$RUNNER_TEMP/ratchet-repo" status --porcelain .github/ci-thresholds.json .github/comment-share.json .github/size-baseline.json)" ]; then
+          if [ -z "$(git -C "$RUNNER_TEMP/ratchet-repo" status --porcelain .github/ci-thresholds.json)" ]; then
             echo "No ratchet move is justified by this run: nothing to commit."
             exit 0
           fi
-          # One message composed from what landed: the single-arm texts are
-          # the historical ones, and multi-arm runs name every records file.
-          subjects=''
-          if [ "$records_selected" = true ]; then
-            subjects="${subjects:+$subjects and }comment-share"
-          fi
-          if [ "$size_selected" = true ]; then
-            subjects="${subjects:+$subjects and }size-baseline"
-          fi
-          if [ -n "$subjects" ]; then
-            message="chore(ratchet): tighten $subjects records (automated)"
-          else
-            message='Ratchet ci-thresholds: raise coverage floor / tighten baselines (automated)'
-          fi
+          message='Ratchet ci-thresholds: raise coverage floor / tighten baselines (automated)'
           git -C "$RUNNER_TEMP/ratchet-repo" commit -m "$message"
           if ! git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master; then
             git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
