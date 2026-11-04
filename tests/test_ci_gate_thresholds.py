@@ -187,7 +187,8 @@ def test_portable_cells_run_half_the_suite_each_as_the_steps_own_process(tmp_pat
     shards = []
     for shard in ('1', '2'):
         script = tmp_path / f'step-{shard}.sh'
-        script.write_text(run['run'].replace('${{ matrix.shard }}', shard))
+        script.write_text(run['run'].replace('${{ matrix.shard }}', shard).replace(
+            '${{ matrix.os }}', 'ubuntu-latest'), encoding='utf-8', newline='\n')
         env = dict(os.environ, PATH=f'{tmp_path}{os.pathsep}{os.environ["PATH"]}', REAL=sys.executable,
                    PID=str(tmp_path / 'pid'), ARGV=str(tmp_path / 'argv'))
         # The runner's own bash invocation; its step-timeout SIGINT goes to this process.
