@@ -82,9 +82,12 @@ def test_the_height_diagnostic_marks_only_rows_one_world_lacks():
         [{label: '1:div[data-role=title]', h: 18}]];
       const many = ['P', 219, false, null, ['shared', 'only many'],
         [{label: '1:div[data-role=title]', h: 31}, {label: '2:table', h: 84}]];
+      const late = ['P', 2, false, null, [...Array(40).keys()].map(String).concat('late'), []];
       console.log(JSON.stringify({both: mod.describeHeightGrowth(two, many),
-        alone: mod.describeHeightGrowth(['P', 5, false, null, ['r'], []], null)}));
+        alone: mod.describeHeightGrowth(['P', 5, false, null, ['r'], []], null),
+        late: mod.describeHeightGrowth(['P', 1, false, null, ['late'], []], late)}));
     """)
+    assert out["late"][:4] == _world("2 models", 1, [], ["      late"])
     assert out["both"] == [
         *_world("2 models", 173, ["      1:div[data-role=title]: 18px"],
                 ["      shared", "    - only two"]),
