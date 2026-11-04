@@ -72,7 +72,7 @@ export async function createSweepContext(browser, options = {}, deps = {}) {
     await context.route(url, route => route.fulfill(responses[i]));
   }
   const hosts = new Set([...fonts.keys()].map(url => new URL(url).host));
-  // A face the served stylesheet never named aborts alike in every context.
+  // A face neither the stylesheet nor a preload names aborts everywhere.
   if (fonts.size) {
     await context.route(url => hosts.has(url.host), route => {
       const hit = fonts.get(route.request().url());
