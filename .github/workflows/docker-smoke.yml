@@ -27,7 +27,7 @@ name: docker-smoke
 # the stack needs — the pinned Postgres compose.yaml builds and the
 # Dockerfile's tag-pinned Python base — can hit anonymous registry limits.
 # Both arrive through .github/actions/cached-image
-# (the Postgres one through postgres-image, the same entry the five
+# (Postgres through postgres-image, the same entry the five
 # database workflows restore, which refresh-pricing's hourly master runs
 # keep warm). Every compose call adds .github/docker-smoke.compose.yaml,
 # which runs db from the cached local tag with `pull_policy: never`; the

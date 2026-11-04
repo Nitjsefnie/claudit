@@ -6,10 +6,10 @@ outputs:
     description: Local tag of the pinned image; start it with --pull never.
     value: ${{ steps.image.outputs.tag }}
 
-# The Postgres digest's one CI home is the FROM line of the Dockerfile
-# beside this file; Dependabot's docker entry updates it. The Postgres
+# The Postgres digest's CI home is compose/postgres/Dockerfile; Dependabot's
+# docker entry updates its FROM line. The Postgres
 # action starts it for the five database workflows; docker-smoke runs it as
-# compose's db service. compose.yaml builds this directory locally.
+# compose's db service. compose.yaml builds that directory locally.
 # The digest stays reviewed because ratchet-push publishes its measurements.
 # A warm cache avoids anonymous registry pull limits.
 # A cold miss retries Google's mirror, then ECR at the same digest, so an
@@ -27,7 +27,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        dockerfile="${GITHUB_ACTION_PATH}/Dockerfile"
+        dockerfile="${GITHUB_ACTION_PATH}/../../../compose/postgres/Dockerfile"
         froms="$(grep -c '^FROM' "$dockerfile" || true)"
         if [ "$froms" != 1 ]; then
           echo "::error::$dockerfile carries '$froms' FROM lines; exactly one is required"

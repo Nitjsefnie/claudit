@@ -83,8 +83,6 @@
 /.github/actions/*
 !/.github/actions/*/
 !/.github/actions/*/action.yml
-# The Postgres base-image pin's one FROM line, beside its composite action.
-!/.github/actions/*/Dockerfile
 
 # ---- backend/ — FastAPI app ------------------------------------------------
 # `!/backend/*.py` is deliberately unanchored-free (no `**`): it matches only
@@ -107,10 +105,13 @@
 # ---- compose/ — the dev stack's Postgres first-boot init -------------------
 # The docker compose stack's init SQL (issue #941): deliberately NOT under
 # examples/, which the CI classifier marks documentation, so a change to it
-# still runs the smoke leg. Only .sql is shipped here.
+# still runs the smoke leg. The pinned Postgres Dockerfile ships here too.
 !/compose/
 /compose/*
 !/compose/*.sql
+!/compose/postgres/
+/compose/postgres/*
+!/compose/postgres/Dockerfile
 
 # ---- examples/ — sample systemd unit ---------------------------------------
 !/examples/

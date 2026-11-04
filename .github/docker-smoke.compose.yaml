@@ -1,6 +1,6 @@
 # CI-only Compose override for the docker-smoke leg, passed after
-# compose.yaml with `-f`. It resets compose's local build of the pinned
-# Dockerfile and runs the image the leg restored from the Actions cache
+# compose.yaml with `-f`. It resets the compose/postgres Dockerfile build
+# and runs the image the leg restored from the Actions cache
 # under its local tag, never pulling. The workflow feeds
 # CLAUDIT_POSTGRES_TAG from the postgres-image action's tag output; this
 # file holds no digest copy.

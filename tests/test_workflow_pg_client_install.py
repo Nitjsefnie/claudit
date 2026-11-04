@@ -178,7 +178,7 @@ def test_composite_commands_are_announced_and_failures_remain_visible():
 
 def test_client_major_matches_postgres_container_major():
     reference = dockerfile_from_reference(
-        ROOT / ".github/actions/postgres-image/Dockerfile")
+        ROOT / "compose/postgres/Dockerfile")
     match = re.search(r"/postgres:(\d+)(?:\.|@)", reference)
     assert match, reference
     for _, _, step in _client_steps():

@@ -71,6 +71,7 @@ def test_explicit_names_every_convention_read_config():
         ".gitleaks.toml",
         ".pylintrc",
         "backend/requirements.txt",
+        "compose/postgres/Dockerfile",
         "eslint.config.mjs",
         "package-lock.json",
         "pyrightconfig.json",

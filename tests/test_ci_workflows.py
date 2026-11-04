@@ -247,7 +247,7 @@ def test_every_postgres_job_uses_the_cached_action() -> None:
 def test_postgres_action_uses_the_gcr_mirror_primary() -> None:
     """The pinned primary reference is the Google mirror; public ECR falls back."""
     reference = dockerfile_from_reference(
-        REPO_ROOT / ".github/actions/postgres-image/Dockerfile")
+        REPO_ROOT / "compose/postgres/Dockerfile")
     assert reference.startswith(POSTGRES_PRIMARY)
 
 

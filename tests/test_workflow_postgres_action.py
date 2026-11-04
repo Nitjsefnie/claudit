@@ -1,14 +1,16 @@
 """CI starts one digest-pinned, cached Postgres before database consumers."""
 from __future__ import annotations
 
+import os
 import re
 import shlex
+import subprocess
 from pathlib import Path
 
 import pytest
 import yaml
 
-from tests.workflow_checks import output_references, references
+from tests.workflow_checks import dockerfile_from_reference, output_references, references
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIONS = ROOT / ".github/actions"
@@ -79,7 +81,7 @@ def test_compose_builds_the_pinned_dockerfile_and_keys_both_cache_operations():
     compose_db = _load(ROOT / "compose.yaml")["services"]["db"]
     # The digest lives only in the Dockerfile: local compose builds its
     # directory under a fixed local name, with no reference of its own.
-    assert compose_db["build"] == ".github/actions/postgres-image"
+    assert compose_db["build"] == "compose/postgres"
     assert compose_db["image"] == "claudit-postgres:local"
     # The key is emitted from the same digest used by the pull, not a copy.
     for key in ("ref", "key"):
@@ -92,8 +94,6 @@ def test_compose_builds_the_pinned_dockerfile_and_keys_both_cache_operations():
             in image["run"])
     assert ('key=postgres-${RUNNER_OS}-${RUNNER_ARCH}-${CLAUDIT_POSTGRES_DIGEST}'
             in image["run"])
-    # The image step derives its values from the Dockerfile beside it.
-    assert '"${GITHUB_ACTION_PATH}/Dockerfile"' in image["run"]
     action = _load(CACHED_ACTION)
     caches = [step for step in action["runs"]["steps"]
               if step.get("uses", "").startswith("actions/cache/")]
@@ -104,6 +104,30 @@ def test_compose_builds_the_pinned_dockerfile_and_keys_both_cache_operations():
             assert all(len(ref) == 1 and ref[0] in action["inputs"]
                        for ref in refs), refs
         assert "restore-keys" not in step["with"]
+
+
+def test_compose_dependabot_and_image_action_use_the_same_dockerfile(tmp_path):
+    compose_db = _load(ROOT / "compose.yaml")["services"]["db"]
+    dockerfile = ROOT / compose_db["build"] / "Dockerfile"
+    updates = _load(ROOT / ".github/dependabot.yml")["updates"]
+    docker_update, = [entry for entry in updates if entry["package-ecosystem"] == "docker"]
+    assert ROOT / docker_update["directory"].lstrip("/") / "Dockerfile" == dockerfile
+    action_dir = tmp_path / ".github/actions/postgres-image"
+    action_dir.mkdir(parents=True)
+    pinned_copy = tmp_path / compose_db["build"] / "Dockerfile"
+    pinned_copy.parent.mkdir(parents=True)
+    pinned_copy.write_bytes(dockerfile.read_bytes())
+    workdir = tmp_path / "caller"
+    workdir.mkdir()
+    output = tmp_path / "output"
+    env = os.environ | {
+        "GITHUB_ACTION_PATH": str(action_dir),
+        "GITHUB_OUTPUT": str(output), "RUNNER_OS": "Linux", "RUNNER_ARCH": "X64"}
+    image = _step(IMAGE_ACTION, id="image")
+    subprocess.run(["bash", "-c", image["run"]], cwd=workdir, env=env,
+                   check=True, capture_output=True, text=True)
+    outputs = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
+    assert outputs["ref"] == dockerfile_from_reference(dockerfile)
 
 
 def test_cache_save_is_gated_on_acquisition_output():

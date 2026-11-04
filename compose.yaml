@@ -13,9 +13,8 @@
 
 services:
   db:
-    # Local Compose builds the pinned one-line Dockerfile; CI's smoke
-    # override swaps in the cached tag.
-    build: .github/actions/postgres-image
+    # Local Compose builds the pin; CI's smoke override uses the cached tag.
+    build: compose/postgres
     image: claudit-postgres:local
     environment:
       POSTGRES_USER: postgres
