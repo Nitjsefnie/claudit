@@ -101,6 +101,9 @@ def mark_db_items(items: Iterable[Any]) -> None:
 # while the real offender is left to be found. Moved here from the guard
 # test module so the registry and its allowlist live in one place; the guard reads it as tests.db_marker.MARK_ALLOWLIST.
 MARK_ALLOWLIST: dict[str, str] = {
+    "test_workflow_portable_pghost.py:test_empty_pghost_is_not_a_timeout":
+        "sets PGHOST to an empty directory, so the call reaches no server "
+        "and the test must run in the portable cells",
     "test_version.py:test_health_error_branch_answers_503":
         "monkeypatches db.viz_conn with a function that raises, so the "
         "health endpoint's error branch runs with no server at all",
