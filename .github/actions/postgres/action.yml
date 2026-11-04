@@ -10,7 +10,7 @@ inputs:
     default: claudit-ci-postgres
 
 # Fixtures need CREATEDB: the stock postgres superuser provides it.
-# postgres-image owns the digest, its cache entry and the local tag; this
+# postgres-image uses the digest for the cache and local tag; this
 # action only starts that tag and waits for it.
 runs:
   using: composite

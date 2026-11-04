@@ -118,7 +118,7 @@ docker compose up
 That builds the root `Dockerfile` and starts two services:
 
 - **db** — PostgreSQL 16, built locally from the one-line Dockerfile CI
-  pins (`.github/actions/postgres-image`; the same image CI's smoke leg
+  pins (`compose/postgres/Dockerfile`; the same image CI's smoke leg
   runs from its cache). On its first boot, against an
   empty data directory,
   `compose/postgres-init.sql` creates the `claudit` application database and
@@ -369,8 +369,8 @@ tagged and saved. Concurrent saves may lose the race without failing the
 job. A loaded archive carries a local tag, and callers use that tag, never
 a registry reference.
 
-The Postgres image's identity lives in `.github/actions/postgres-image/action.yml`:
-the full pinned digest, the key (digest plus runner OS/architecture), the
+The Postgres image's digest lives in `compose/postgres/Dockerfile`.
+`.github/actions/postgres-image/action.yml` derives the key (digest plus runner OS/architecture), the
 `public.ecr.aws/docker/library/postgres` fallback at the same digest, and the local
 tag `claudit-postgres:<digest>`. The five database workflows (`tests`,
 `test-data`, `test-data-explore`, `smoke`, `refresh-pricing`) start

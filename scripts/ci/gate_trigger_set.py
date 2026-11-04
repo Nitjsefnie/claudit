@@ -84,6 +84,7 @@ EXPLICIT = (
     ".github/size-baseline.json",
     ".gitleaks.toml",
     "backend/requirements.txt",
+    "compose/postgres/Dockerfile",
     "requirements-dev.txt",
     "requirements-test.txt",
     "requirements-pyyaml.txt",
