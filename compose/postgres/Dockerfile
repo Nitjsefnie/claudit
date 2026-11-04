@@ -3,4 +3,4 @@
 # of .github/actions/postgres-image/action.yml derives its pull ref, ECR fallback,
 # local tag and cache key from it; compose.yaml builds this directory
 # locally, and CI's smoke override feeds the action's tag output.
-FROM mirror.gcr.io/library/postgres:16.15@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
+FROM mirror.gcr.io/library/postgres:16.15@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a
