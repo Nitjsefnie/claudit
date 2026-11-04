@@ -28,7 +28,7 @@ def _node(body: str, gc: bool = False):
     proc = run_node(
         ["node", "--expose-gc"] if gc else ["node"], input=script,
         capture_output=True, text=True, timeout=60,
-        check=False,
+        check=False, encoding="utf-8",
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
