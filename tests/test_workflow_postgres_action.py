@@ -5,6 +5,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -106,12 +107,18 @@ def test_compose_builds_the_pinned_dockerfile_and_keys_both_cache_operations():
         assert "restore-keys" not in step["with"]
 
 
-def test_compose_dependabot_and_image_action_use_the_same_dockerfile(tmp_path):
+def test_compose_and_dependabot_use_the_same_dockerfile():
     compose_db = _load(ROOT / "compose.yaml")["services"]["db"]
     dockerfile = ROOT / compose_db["build"] / "Dockerfile"
     updates = _load(ROOT / ".github/dependabot.yml")["updates"]
     docker_update, = [entry for entry in updates if entry["package-ecosystem"] == "docker"]
     assert ROOT / docker_update["directory"].lstrip("/") / "Dockerfile" == dockerfile
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="image script requires POSIX Bash")
+def test_image_action_uses_compose_dockerfile(tmp_path):
+    compose_db = _load(ROOT / "compose.yaml")["services"]["db"]
+    dockerfile = ROOT / compose_db["build"] / "Dockerfile"
     action_dir = tmp_path / ".github/actions/postgres-image"
     action_dir.mkdir(parents=True)
     pinned_copy = tmp_path / compose_db["build"] / "Dockerfile"
