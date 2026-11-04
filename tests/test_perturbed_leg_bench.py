@@ -334,7 +334,7 @@ def test_the_junit_report_upload_stays_outside_the_combine_pattern():
                if step.get("uses", "").startswith("actions/upload-artifact@")
                and step["with"]["path"] == junit.partition("=")[2]]
     upload, = uploads
-    assert upload["if"] == "${{ !cancelled() }}"
+    assert upload.get("if") == "${{ !cancelled() }}"
     name = upload["with"]["name"]
     # One artifact per seed and shard, or the uploads would collide.
     assert "${{ matrix.seed }}" in name and "${{ matrix.shard }}" in name

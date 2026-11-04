@@ -16,6 +16,7 @@ PROC_STAT_READABLE = os.path.exists("/proc/self/stat")
 WALL_CEILING_MULTIPLE = 5
 POLL_SECONDS = 0.25
 TAIL_CHARS = 2000
+STALL_DEBUG_FILES = ("/proc/{pid}/wchan", "/proc/{pid}/stack", "/proc/pressure/io", "/proc/pressure/cpu", "/proc/pressure/memory")
 
 
 def run_node(
@@ -90,7 +91,7 @@ def _kill(process: subprocess.Popen[Any], timeout: float, bound: str, wall: floa
 
 def _stall_debug(pid: int) -> list[str]:
     notes = []
-    for path in (f"/proc/{pid}/wchan", f"/proc/{pid}/stack", "/proc/pressure/io", "/proc/pressure/cpu", "/proc/pressure/memory"):
+    for path in (template.format(pid=pid) for template in STALL_DEBUG_FILES):
         try:
             notes.append(f"{path}:\n{Path(path).read_text(encoding='utf-8', errors='replace')}")
         except OSError as error:
