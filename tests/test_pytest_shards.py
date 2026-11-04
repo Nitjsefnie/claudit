@@ -271,8 +271,8 @@ def test_portable_step_uses_the_matrix_os_weights(tmp_path: Path):
     assert len(systems) >= 2
     weight_maps = {}
     for index, system in enumerate(systems):
-        values = (100, 90, 80) if index % 2 == 0 else (80, 90, 100)
-        weight_maps[system] = dict(zip((f"tests/test_{c}.py" for c in "abc"), values))
+        weight_maps[system] = dict(zip((f"tests/test_{c}.py" for c in "abc"),
+                                       (100, 90, 80) if index % 2 == 0 else (80, 90, 100)))
     table = tmp_path / "scripts/ci/pytest_shard_weights.json"
     table.parent.mkdir(parents=True)
     table.write_text(json.dumps({"run_id": "123", "weights": weight_maps}),
