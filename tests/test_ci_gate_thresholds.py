@@ -199,7 +199,7 @@ def test_portable_cells_run_half_the_suite_each_as_the_steps_own_process(tmp_pat
         assert (tmp_path / 'pid').read_text().split() == [str(step.pid)]
         argv = (tmp_path / 'argv').read_text().splitlines()
         assert argv[:2] == ['-m', 'pytest'] and argv[-9:] == [
-            '-q', '--tb=short', '-ra', '-m', 'not db', '-o', 'faulthandler_timeout=120',
+            '-q', '--tb=short', '-ra', '-m', 'not db', '-o', 'faulthandler_timeout=240',
             '--durations=20', '--junitxml=pytest-junit.xml']
         shards.append(argv[2:-9])
     assert all(shards)

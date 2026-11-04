@@ -483,13 +483,13 @@ jobs:
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}"}
 
       - name: Run tests
-        # Bash on every OS, so the shard's file list splits into arguments; exec makes pytest the process a step timeout interrupts, so it still writes its report.
+        # Bash splits the file list into arguments; exec hands pytest a POSIX step timeout's SIGINT (Windows' Ctrl-C reaches it anyway) so it writes its report.
         shell: bash
         timeout-minutes: 15
         run: |
           files=$(python scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 2)
           # shellcheck disable=SC2086
-          exec python -m pytest $files -q --tb=short -ra -m "not db" -o faulthandler_timeout=120 --durations=20 --junitxml=pytest-junit.xml
+          exec python -m pytest $files -q --tb=short -ra -m "not db" -o faulthandler_timeout=240 --durations=20 --junitxml=pytest-junit.xml
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
