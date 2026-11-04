@@ -163,3 +163,11 @@ def test_the_guard_exits_without_dropping_piped_output():
     src = GUARD.read_text(encoding="utf-8")
     assert "process.exitCode = failures ? 1 : 0;" in src
     assert "process.exit(failures" not in src
+
+
+def test_the_guard_hands_each_width_snapshot_to_the_report():
+    """The one browser-side link the node tests cannot drive: without it
+    every height-growth block reads both worlds as not rendered."""
+    src = GUARD.read_text(encoding="utf-8")
+    assert src.count("snapshots.set(width, heights);") == 1
+    assert "reportLines([...findings.values()], stale, failures, snapshots)" in src
