@@ -1,6 +1,10 @@
 """Suite bench and ratchet workflow wiring."""
 from __future__ import annotations
 
+import os
+import subprocess
+
+import pytest
 import yaml
 from tests.workflow_checks import (ROOT, job_of as _job, workflow_by_name as _load, find_step as _find_step, run_lines as _run_lines, steps_of as _steps, TIGHTEN_CMD, WORKFLOWS)
 
@@ -154,6 +158,25 @@ def test_the_suite_measurement_upload_is_unique_repo_wide():
         "suite-measurement": "tests.yml:suite-bench:suite-measurement"}
     assert download_names == sorted(expected)
     assert sorted(uploaders) == sorted(expected.values()), sorted(uploaders)
+
+
+def test_every_cross_run_download_names_the_triggering_run():
+    # Without run-id a download step reads THIS workflow's run, never the
+    # triggering run's: every workflow_run download takes the event's id.
+    swept = 0
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        doc = _load(path.name)
+        if "workflow_run" not in (doc.get("on") or {}):
+            continue
+        for job_id, job in (doc.get("jobs") or {}).items():
+            for step in (job or {}).get("steps") or []:
+                if not (step.get("uses") or "").startswith(
+                        "actions/download-artifact"):
+                    continue
+                swept += 1
+                assert (step.get("with") or {}).get("run-id") == (
+                    "${{ github.event.workflow_run.id }}"), (path.name, job_id)
+    assert swept, "no download-artifact step under any workflow_run trigger"
 
 
 def test_the_canary_never_compares_two_checkouts():
@@ -358,6 +381,45 @@ def test_ratchet_data_reads_are_guarded_on_artifact_presence():
                        if index > cat_index and line == "fi")
     tighten_index = lines.index(TIGHTEN_CMD)
     assert close_index < tighten_index
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the drive runs POSIX Bash")
+@pytest.mark.parametrize("artifact", ["ratchet", "suite", "none"])
+def test_ratchet_push_executes_surviving_artifact_paths(tmp_path, artifact):
+    step = _find_step(_job(_load("ratchet-push.yml"), "push"),
+                      'suite_ratchet.py" --tighten')
+    fakes = tmp_path / "bin"
+    fakes.mkdir()
+    for name, body in {
+        "ssh-agent": "#!/bin/sh\nexit 0\n",
+        "ssh-add": "#!/bin/sh\nexit 0\n",
+        "git": '#!/bin/sh\nif [ "$3" = rev-parse ]; then printf "%040d\\n" 0; fi\n',
+        "python3": '#!/bin/sh\nprintf "%s\\n" "$*" > "$RUNNER_TEMP/python-calls"\n',
+    }.items():
+        fake = fakes / name
+        fake.write_text(body, encoding="utf-8", newline="\n")
+        fake.chmod(0o755)
+    runner = tmp_path / "runner"
+    (runner / "ratchet-repo" / ".github").mkdir(parents=True)
+    if artifact == "ratchet":
+        (runner / "ratchet-data").mkdir()
+        (runner / "ratchet-data" / "base.txt").write_text("0" * 40 + "\n", encoding="utf-8", newline="\n")
+    elif artifact == "suite":
+        (runner / "suite-data").mkdir()
+        (runner / "suite-data" / "suite-measurement.json").write_text("{}\n", encoding="utf-8", newline="\n")
+    env = dict(os.environ, PATH=f"{fakes}{os.pathsep}{os.environ['PATH']}",
+               HOME=str(tmp_path), RUNNER_TEMP=str(runner), CLAUDIT_MASTER_PUSH_DEPLOY_KEY="key",
+               CLAUDIT_REPO="o/r", CLAUDIT_BASE_FALLBACK="0" * 40)
+    result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
+                            capture_output=True, text=True, check=False, timeout=60)
+    if artifact == "none":
+        assert result.returncode != 0
+        assert "no ratchet data or suite measurement to push" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        assert "nothing to commit" in result.stdout
+    if artifact == "suite":
+        assert "suite_ratchet.py --tighten" in (runner / "python-calls").read_text(encoding="utf-8")
 
 
 def test_the_bench_runner_sets_up_one_interpreter():
