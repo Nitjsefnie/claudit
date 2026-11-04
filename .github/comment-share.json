@@ -632,8 +632,8 @@
     1907
   ],
   "scripts/ci/panel_interactions.mjs": [
-    11708,
-    30025
+    8974,
+    28983
   ],
   "scripts/ci/panel_interactions_seeds.mjs": [
     786,
@@ -1384,8 +1384,8 @@
     6800
   ],
   "tests/test_panel_interactions_js.py": [
-    7239,
-    25461
+    6482,
+    25785
   ],
   "tests/test_panel_layout_js.py": [
     4537,
