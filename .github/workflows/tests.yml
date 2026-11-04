@@ -484,6 +484,7 @@ jobs:
 
       - name: Run tests
         # Bash splits the file list into arguments; exec hands pytest a POSIX step timeout's SIGINT (Windows' Ctrl-C reaches it anyway) so it writes its report.
+        env: {PGHOST: "${{ runner.temp }}"} # No socket here: fail without Windows TCP connect timeouts.
         shell: bash
         timeout-minutes: 15
         run: |
