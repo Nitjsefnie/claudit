@@ -178,7 +178,7 @@ def test_node_prompt_program_keeps_large_payload_off_argv(monkeypatch):
         captured["input"] = kwargs.get("input")
         return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(f"{__name__}.run_node", fake_run)
     transcript = _make_transcript(["x" * 40_000])
     assert len(transcript) > 32_767
 
