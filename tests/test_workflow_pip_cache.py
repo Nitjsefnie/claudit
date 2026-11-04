@@ -15,6 +15,7 @@ import math
 import re
 import shlex
 import sys
+from itertools import dropwhile
 from pathlib import Path
 from typing import Iterator
 
@@ -26,6 +27,12 @@ BACKEND_REQUIREMENTS = "backend/requirements.txt"
 HASHED_FLAGS = ("--require-hashes", "--only-binary=:all:", "--no-binary=PyYAML")
 HASHED_PYYAML = "pip install " + " ".join(HASHED_FLAGS) + " -r requirements-pyyaml.txt"
 PIP_INSTALL = re.compile(r"(?:RUN )?(?:python3? -m )?pip (?:install|wheel) ")
+RUNNER_TEMP_EXPRESSION = "${{ runner.temp }}"
+EXPRESSION = re.compile(r"\$\{\{\s*runner\.temp\s*\}\}")
+RUNNER_TEMP = re.compile(r"\$RUNNER_TEMP(?!\w)|\$\{RUNNER_TEMP\}|" + EXPRESSION.pattern)
+PIP_AUDIT = re.compile(r"(?:python3? -m )?pip[-_]audit(?!\S)")
+Command = tuple[str, list[str]]
+Sites = dict[str, list[tuple[bool, list[Command]]]]
 
 
 def _jobs() -> Iterator[tuple[str, str, list]]:
@@ -208,16 +215,31 @@ def test_types_installs_and_caches_the_full_import_toolchain():
     assert len(caches) == 2
 
 
-def _commands(script: str) -> list[list[str]]:
+def _runner_temp(text: str) -> str:
+    return RUNNER_TEMP.sub(RUNNER_TEMP_EXPRESSION, text)
+
+
+def _commands(script: str, links: object = None) -> list[Command]:
     audited = re.search(r"pip[-_]audit", script)
-    segments = re.split(r"&&|\n", script.replace("\\\n", ""))
-    return [shlex.split(segment, comments=True) for segment in segments
-            if PIP_INSTALL.match(segment.strip()) or (audited and BACKEND_REQUIREMENTS in segment)]
+    commands = []
+    for segment in re.split(r"&&|\n", script.replace("\\\n", "")):
+        wanted = PIP_INSTALL.match(segment.strip()) or audited and BACKEND_REQUIREMENTS in segment
+        words = [_runner_temp(word) for word in shlex.split(segment, comments=True)] if wanted else []
+        if words and links is not None:
+            words.insert(0, EXPRESSION.sub(RUNNER_TEMP_EXPRESSION, f"PIP_FIND_LINKS={links}"))
+        commands.append(("" if segment.lstrip().startswith("#") else _runner_temp(segment), words))
+    return commands
 
 
-def _install_sites() -> dict[str, list[tuple[bool, list[list[str]]]]]:
+def _step_links(step: dict) -> object:
+    env = step.get("env")
+    return env.get("PIP_FIND_LINKS") if isinstance(env, dict) else None
+
+
+def _install_sites() -> Sites:
     sites = {
-        f"{workflow}:{job}": [("if" in step or bool(step.get("continue-on-error")), _commands(step["run"]))
+        f"{workflow}:{job}": [("if" in step or bool(step.get("continue-on-error")),
+                               _commands(step["run"], _step_links(step)))
                               for step in steps if "run" in step]
         for workflow, job, steps in _jobs()}
     stages = re.split(r"(?im)^[ \t]*FROM\b", (ROOT / "Dockerfile").read_text(encoding="utf-8"))
@@ -236,42 +258,83 @@ def _is_hashed_pyyaml(words: list[str], verb: str = "install") -> bool:
 
 
 def _wheel_dir(words: list[str]) -> str | None:
-    return next((value for flag, value in zip(words, words[1:])
-                 if flag in ("-w", "--wheel-dir")), None)
+    wheel_dir = None
+    for word, following in zip(words, [*words[1:], None]):
+        if word in ("-w", "--wheel-dir"):
+            wheel_dir = following
+        elif word.startswith("--wheel-dir="):
+            wheel_dir = word.removeprefix("--wheel-dir=")
+        elif word.startswith("-w"):
+            wheel_dir = word.removeprefix("-w")
+    return wheel_dir
 
 
-def _audit_takes_pyyaml_from_hashed_wheel(words: list[str], earlier: list[list[str]]) -> bool:
-    links = next((word.removeprefix("PIP_FIND_LINKS=") for word in words
+def _names(text: str, directory: str) -> bool:
+    return re.search(re.escape(directory) + r"(?![\w.-])", text) is not None
+
+
+def _writes_hashed_wheel(words: list[str], directory: str) -> bool:
+    return _is_hashed_pyyaml(words, "wheel") and _wheel_dir(words) == directory
+
+
+def _is_audit(words: list[str]) -> bool:
+    return not {"install", "wheel"} & set(words)
+
+
+def _is_earlier_audit(text: str, words: list[str], links: str) -> bool:
+    text = re.sub(r"\s*\|\|\s*exit(?:\s+\d+)?\s*$", "", text)
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return False
+    if re.search(r"\$\(|`", text) or any(re.fullmatch(r"[;<>|&]+", token) for token in tokens):
+        return False
+    own = re.compile(r"PIP_FIND_LINKS=([\"']?)" + re.escape(links) + r"\1(?![\w.-])")
+    if _names(own.sub("", text), links) or any(_names(token, links) for token in tokens if token != f"PIP_FIND_LINKS={links}"):
+        return False
+    command = " ".join(dropwhile(lambda token: re.match(r"\w+=", token), tokens))
+    return PIP_AUDIT.match(command) is not None or _installs_backend(words) and _is_audit(words)
+
+
+def _audit_takes_pyyaml_from_hashed_wheel(words: list[str], earlier: list[list[str]],
+                                          trail: list[Command]) -> bool:
+    links = next((word.removeprefix("PIP_FIND_LINKS=") for word in reversed(words)
                   if word.startswith("PIP_FIND_LINKS=")), None)
     return ("PIP_ONLY_BINARY=pyyaml" in words and links is not None
-            and any(_is_hashed_pyyaml(before, "wheel") and _wheel_dir(before) == links
-                    for before in earlier))
+            and any(_writes_hashed_wheel(before, links) for before in earlier)
+            and all(_writes_hashed_wheel(before, links) or not _names(text, links)
+                    or _is_earlier_audit(text, before, links)
+                    for text, before in trail))
 
 
-def _backend_sites(sites: dict[str, list[tuple[bool, list[list[str]]]]]) -> list[str]:
+def _backend_sites(sites: Sites) -> list[str]:
     return [site for site, steps in sites.items()
-            if any(_installs_backend(words) for _, installs in steps for words in installs)]
+            if any(_installs_backend(words) for _, commands in steps for _, words in commands)]
 
 
-def _lacks_hashed_pyyaml(installs: list[list[str]], first: int) -> bool:
-    words = installs[first]
-    audit = not {"install", "wheel"} & set(words)
-    return (not any(_is_hashed_pyyaml(before) for before in installs[:first])
-            or audit and not _audit_takes_pyyaml_from_hashed_wheel(words, installs[:first]))
+def _lacks_hashed_pyyaml(words: list[str], earlier: list[list[str]], trail: list[Command]) -> bool:
+    return (not any(_is_hashed_pyyaml(before) for before in earlier)
+            or _is_audit(words) and not _audit_takes_pyyaml_from_hashed_wheel(words, earlier, trail))
 
 
-def _sites_without_hashed_pyyaml_first(sites: dict[str, list[tuple[bool, list[list[str]]]]]) -> list[str]:
+def _sites_without_hashed_pyyaml_first(sites: Sites) -> list[str]:
     violations = []
     for site in _backend_sites(sites):
         earlier: list[list[str]] = []
-        for skippable, installs in sites[site]:
-            first = next((index for index, words in enumerate(installs)
+        trail: list[Command] = []
+        for skippable, commands in sites[site]:
+            first = next((index for index, (_, words) in enumerate(commands)
                           if _installs_backend(words)), None)
-            if first is not None and _lacks_hashed_pyyaml(earlier + installs, len(earlier) + first):
+            if first is not None and _lacks_hashed_pyyaml(
+                    commands[first][1], earlier + [words for _, words in commands[:first]], trail + commands[:first]):
                 violations.append(site)
                 break
             if not skippable:
-                earlier += installs
+                earlier += [words for _, words in commands]
+            trail += commands
     return violations
 
 
@@ -299,10 +362,17 @@ WRAPPED_AUDIT = ('audit_set() {\n  pip-audit "$@"\n}\n'
                  f"PIP_FIND_LINKS={WHEEL_DIR} PIP_ONLY_BINARY=pyyaml audit_set \\\n  --requirement backend/requirements.txt \\\n"
                  "  --requirement requirements-dev.txt || exit 1")
 SPREAD = HASHED_PYYAML.replace(" -", "\\\n -")
+BARE_AUDIT = AUDIT.replace(f"PIP_FIND_LINKS={WHEEL_DIR} ", "")
+DEV_AUDIT = AUDIT.replace("backend/requirements.txt", "requirements-dev.txt")
+EXPRESSION_DIR = "${{ runner.temp }}/pyyaml-wheel"
 
 
 def _step(run: str, key: str, value: object) -> dict:
     return {"run": run, key: value}
+
+
+def _env_audit(links: object, key: str = "PIP_FIND_LINKS") -> dict:
+    return _step(BARE_AUDIT, "env", {key: links})
 
 
 def _write_workflow(root: Path, jobs: dict[str, list[str | dict]]) -> None:
@@ -351,6 +421,30 @@ def _write_workflow(root: Path, jobs: dict[str, list[str | dict]]) -> None:
     ([AUDIT, PREPARED], True),
     ([PREPARED, PLAIN_AUDIT], True),
     ([PREPARED, AUDIT, PLAIN_AUDIT], True),
+    ([PREPARED, AUDIT, AUDIT], False),
+    ([PREPARED, WRAPPED_AUDIT, AUDIT], False),
+    ([PREPARED, DEV_AUDIT, AUDIT], False),
+    ([PREPARED, DEV_AUDIT.replace("pip-audit", "pip_audit"), AUDIT], False),
+    ([PREPARED, DEV_AUDIT.replace("pip-audit", "python -m pip_audit"), AUDIT], False),
+    ([PREPARED, DEV_AUDIT.replace("pip-audit", "pip-auditor"), AUDIT], True),
+    ([PREPARED, DEV_AUDIT.replace("pip-audit", "echo pip-audit"), AUDIT], True),
+    ([PREPARED, DEV_AUDIT + " 'oops", AUDIT], True),
+    ([PREPARED, DEV_AUDIT + " 'oops'", AUDIT], False),
+    ([PREPARED, DEV_AUDIT + ' --desc "a;b|c>d"', AUDIT], False),
+    *[([PREPARED, DEV_AUDIT + tail, AUDIT], True) for tail in (" ; true", " || true", " | true", " & true", " > x", " >> x", " < x")],
+    *[([PREPARED, DEV_AUDIT + tail, AUDIT], False) for tail in (" || exit", " ||exit 12")],
+    *[([PREPARED, DEV_AUDIT + tail, AUDIT], True) for tail in (" x#y; true", " $# | true", " $(true)", " `true`")],
+    *[([PREPARED, DEV_AUDIT.replace('wheel" ', f'wheel"{tail} '), AUDIT], True) for tail in ("x", ".x", "-x")],
+    ([HASHED_PYYAML, WHEEL.replace(WHEEL_DIR, "/opt/w"), DEV_AUDIT.replace(WHEEL_DIR, "/opt/w/sub"), AUDIT.replace(WHEEL_DIR, "/opt/w")], True),
+    ([PREPARED, DEV_AUDIT.replace("pyyaml-wheel", "pyyaml-wheel/sub"), AUDIT], True),
+    ([PREPARED, BACKEND_INSTALL + f" PIP_FIND_LINKS={WHEEL_DIR}", AUDIT], True),
+    ([PREPARED, _env_audit(EXPRESSION_DIR.replace("runner.temp", "runner_temp"))], True),
+    ([HASHED_PYYAML, WHEEL.replace(WHEEL_DIR, "$HOME/w"), DEV_AUDIT.replace(WHEEL_DIR, "$HOME/w"), AUDIT.replace(WHEEL_DIR, "$HOME/w")], False),
+    ([PREPARED, AUDIT.replace("PIP_ONLY_BINARY=pyyaml ", "")], True),
+    ([HASHED_PYYAML, WHEEL.replace(f" -w {WHEEL_DIR}", ""), BARE_AUDIT], True),
+    ([_chain(HASHED_PYYAML + " # it's", BACKEND_INSTALL)], False),
+    ([PREPARED, _env_audit("${{runner.temp}}/pyyaml-wheel")], False),
+    ([HASHED_PYYAML, WHEEL.replace("$RUNNER_TEMP", "${{runner.temp}}"), _env_audit(EXPRESSION_DIR)], False),
     ([PREPARED, AUDIT.replace("=pyyaml", "=test")], True),
     ([_chain(AUDIT, PREPARED)], True),
     ([_lines(AUDIT, HASHED_PYYAML, WHEEL)], True),
