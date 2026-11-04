@@ -1,4 +1,4 @@
-"""Sweeps support local scripts and recover resets for any CDN scripts."""
+"""Sweeps serve the page's webfonts from one fetch and recover CDN resets."""
 from __future__ import annotations
 
 import hashlib
@@ -71,31 +71,130 @@ def _node(body: str, *, cdn_page: bool = True) -> dict:
     return json.loads(proc.stdout)
 
 
+# The real page's webfonts behind a double of Google Fonts: the stylesheet
+# names woff2 faces only for a browser user agent, as the live service does.
+FONTS = r"""
+  const {readFileSync} = await import('node:fs');
+  const html = readFileSync('public/index.html', 'utf8');
+  assert.ok(!html.includes('https://unpkg.com/'));
+  const css2 = html.match(/href="(https:\/\/fonts\.googleapis\.com\/css2[^"]+)"/)[1];
+  const preloads = [...html.matchAll(/href="(https:\/\/fonts\.gstatic\.com\/s\/[^"]+)"/g)]
+    .map(match => match[1]);
+  const extra = 'https://fonts.gstatic.com/s/fixture/v1/latin-ext.woff2';
+  const faces = [...preloads, extra];
+  const sheet = list => list.map(url => `@font-face{src:url(${url}) format('woff2')}`).join('\n');
+  const woff2Css = sheet([...faces, preloads[0]]);
+  const ttfCss = sheet(['https://fonts.gstatic.com/s/fixture/v1/face.ttf']);
+  const calls = new Map(), agents = [], waits = [], unmodelled = [];
+  const bytes = url => Buffer.from(`face ${url} é`);
+  const serve = (url, init) => {
+    if (url === css2) {
+      agents.push(init.headers?.['user-agent']);
+      const css = /Chrome\/\d/.test(init.headers?.['user-agent'] ?? '') ? woff2Css : ttfCss;
+      return new Response(css, {headers: {'content-type': 'text/css; charset=utf-8'}});
+    }
+    if (faces.includes(url)) return new Response(bytes(url), {headers: {'content-type': 'font/woff2'}});
+    unmodelled.push(url);
+    return new Response('', {status: 404, statusText: 'Not Modelled'});
+  };
+  let created = 0;
+  const browser = {async newContext(options) {
+    created++;
+    const routes = [];
+    return {options, routes, async route(matcher, handler) {
+      if (typeof matcher !== 'string' && typeof matcher !== 'function') assert.fail('unmodelled matcher');
+      routes.push({matcher, handler});
+    },
+    // Playwright hands a request to the last registered route that matches it.
+    async request(url) {
+      const hit = routes.findLast(({matcher}) => (typeof matcher === 'function'
+        ? matcher(new URL(url)) : matcher === url));
+      if (!hit) return {network: true};
+      let result;
+      await hit.handler({request: () => ({url: () => url}),
+        fulfill: async value => { result = {fulfilled: value}; },
+        abort: async () => { result = {aborted: true}; },
+        continue: async () => assert.fail('a font route never falls through to the network')});
+      return result;
+    }};
+  }};
+  const deps = {fetchImpl: (...args) => fetchImpl(...args), wait: async ms => { waits.push(ms); }};
+"""
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_local_page_creates_context_without_fetching_or_routing():
-    out = _node("""
-      const {readFileSync} = await import('node:fs');
-      const html = readFileSync('public/index.html', 'utf8');
-      assert.ok(!html.includes('https://unpkg.com/'));
-      const options = {viewport: {width: 375, height: 900}};
-      const page = {local: true};
-      const context = {
-        async route() { assert.fail('local scripts need no CDN route'); },
-        async newPage() { return page; },
-      };
-      const browser = {async newContext(received) {
-        assert.deepEqual(received, options);
-        return context;
-      }};
-      const actual = await mod.createSweepContext(browser, options, {
-        fetchImpl() { assert.fail('local scripts need no CDN fetch'); },
-        wait() { assert.fail('local scripts need no retry'); },
-      });
-      assert.equal(actual, context);
-      assert.equal(await actual.newPage(), page);
-      console.log(JSON.stringify({local: true}));
+def test_webfonts_are_fetched_once_and_served_identically_to_every_context():
+    """Every context renders from one run-wide copy of the page's woff2 faces,
+    so no context can measure the fallback font another context did not."""
+    out = _node(FONTS + """
+      async function fetchImpl(url, init) {
+        const n = (calls.get(url) || 0) + 1;
+        calls.set(url, n);
+        if (n === 1) throw new TypeError('fetch failed', {cause: new Error('ECONNRESET')});
+        return serve(url, init);
+      }
+      const options = {viewport: {width: 320, height: 900}};
+      const contexts = await Promise.all([mod.createSweepContext(browser, options, deps),
+        mod.createSweepContext(browser, options, deps)]);
+      const served = [];
+      for (const context of contexts) {
+        assert.deepEqual(context.options, options);
+        assert.equal(context.routes.length, 1, 'the webfonts are the only route');
+        const sheet = (await context.request(css2)).fulfilled;
+        assert.equal(sheet.body.toString('utf8'), woff2Css);
+        assert.equal(sheet.headers['content-type'], 'text/css; charset=utf-8');
+        for (const url of faces) {
+          const face = (await context.request(url)).fulfilled;
+          assert.deepEqual(face.body, bytes(url));
+          assert.equal(face.status, 200);
+          assert.equal(face.headers['content-type'], 'font/woff2');
+          assert.equal(face.headers['access-control-allow-origin'], '*');
+        }
+        served.push({
+          unknown: await context.request('https://fonts.gstatic.com/s/rotated/v9/face.woff2'),
+          page: await context.request('http://127.0.0.1:8000/'),
+          api: await context.request('http://127.0.0.1:8000/api/web-metrics'),
+        });
+      }
+      console.log(JSON.stringify({calls: Object.fromEntries(calls), faces, css2, agents,
+        waits, unmodelled, served, created, families: mod.fontFamilies}));
     """, cdn_page=False)
-    assert out["local"] is True
+    assert out["created"] == 2
+    assert out["calls"] == {url: 2 for url in [out["css2"], *out["faces"]]}
+    assert len(out["waits"]) == len(out["calls"])
+    assert out["agents"] and all("Chrome/" in agent for agent in out["agents"])
+    assert out["unmodelled"] == []
+    assert out["served"] == [{"unknown": {"aborted": True}, "page": {"network": True},
+                              "api": {"network": True}}] * 2
+    assert out["families"] == ["Inter", "JetBrains Mono"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+@pytest.mark.parametrize("target", ["stylesheet", "face"])
+def test_an_exhausted_webfont_fetch_rejects_setup_naming_its_url(target: str):
+    out = _node(f"const target = {json.dumps(target)};\n" + FONTS + """
+      async function fetchImpl(url, init) {
+        const n = (calls.get(url) || 0) + 1;
+        calls.set(url, n);
+        if (url === (target === 'stylesheet' ? css2 : extra)) {
+          throw new TypeError('fetch failed', {cause: new Error(`ECONNRESET attempt ${n}`)});
+        }
+        return serve(url, init);
+      }
+      let message;
+      try { await mod.createSweepContext(browser, {}, deps); }
+      catch (error) { message = error.message; }
+      assert.ok(message, 'exhausted font setup must reject');
+      await assert.rejects(() => mod.createSweepContext(browser, {}, deps),
+        error => error.message === message);
+      console.log(JSON.stringify({message, url: target === 'stylesheet' ? css2 : extra,
+        created, unmodelled, failing: calls.get(target === 'stylesheet' ? css2 : extra)}));
+    """, cdn_page=False)
+    assert out["url"] in out["message"]
+    assert "ECONNRESET attempt 3" in out["message"]
+    assert out["failing"] == 3
+    assert out["created"] == 0
+    assert out["unmodelled"] == []
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
