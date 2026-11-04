@@ -19,11 +19,12 @@ def test_portable_pytest_uses_step_scoped_socket_directory():
     assert "PGHOST" not in (job.get("env") or {})
 
 
-def test_empty_pghost_is_not_a_timeout(tmp_path, monkeypatch):
-    monkeypatch.setenv("PGHOST", str(tmp_path))
+def test_empty_pghost_is_not_a_timeout(tmp_path_factory, monkeypatch):
+    socket_dir = tmp_path_factory.mktemp("s")  # short: libpq caps socket paths
+    monkeypatch.setenv("PGHOST", str(socket_dir))
     with pytest.raises(psycopg.OperationalError) as caught:
         scratch_db.admin_connection()
     assert not isinstance(caught.value, psycopg.errors.ConnectionTimeout)
     message = str(caught.value)
-    assert f"{tmp_path}/.s.PGSQL." in message
+    assert f"{socket_dir}/.s.PGSQL." in message
     assert "too long" not in message
