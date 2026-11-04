@@ -15,7 +15,7 @@ apscheduler==3.11.3
 # Not imported anywhere; FastAPI needs it to parse the login form
 # (backend/login.py uses Form()). Removing it breaks POST /login at
 # runtime, not at import.
-python-multipart==0.0.32
+python-multipart==0.0.33
 pytest==9.2.0
 pytest-asyncio==1.4.0
 httpx2==2.16.0
