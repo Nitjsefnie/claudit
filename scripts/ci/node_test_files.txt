@@ -28,6 +28,7 @@ tests/test_model_colors.py
 tests/test_model_group_wiring.py
 tests/test_model_select_js.py
 tests/test_panel_interactions_js.py
+tests/test_panel_interactions_report_js.py
 tests/test_panel_layout_js.py
 tests/test_panel_layout_rules_js.py
 tests/test_parse_non_object.py

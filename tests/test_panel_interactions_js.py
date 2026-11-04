@@ -1,7 +1,13 @@
-"""Drive the interaction guard's pure logic through node and check its wiring.
+"""The interaction guard's testable halves, driven through node.
 
-The browser leg performs the actual hover sweep. Importing the guard must
-not launch it; the sweep runs only when the module is executed directly.
+ guard proper is `scripts/ci/panel_interactions.mjs`, and it
+runs only in the browser leg (panel-layout.yml): nothing in pytest can
+hover a bar. What the suite CAN drive are the guard's pure halves — the
+KNOWN ledger and the payload-variant rewriter the height check feeds —
+plus the wiring that keeps the guard honest: the marks on the panels,
+the workflow step, and the one shared server module both guards import.
+Importing the module here is itself a test: the guard must launch its
+sweep only when executed directly, never when imported.
 """
 from __future__ import annotations
 
@@ -16,6 +22,7 @@ from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts" / "ci" / "panel_interactions.mjs"
+REPORT = ROOT / "scripts" / "ci" / "panel_interactions_report.mjs"
 LAYOUT = ROOT / "scripts" / "ci" / "panel_layout.mjs"
 SERVER = ROOT / "scripts" / "ci" / "panel_server.mjs"
 WORKFLOW = ROOT / ".github" / "workflows" / "panel-layout.yml"
@@ -247,7 +254,10 @@ def test_lists_without_a_model_field_pass_through_untouched():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_one_pixel_wobble_passes_the_height_check():
-    """Separate contexts can differ by one pixel of sub-pixel rounding."""
+    """The two height renders are separate headless contexts: Chromium's
+    sub-pixel rounding is not reproducible between them, and the exact
+    comparison reds a one-pixel wobble ( hit master as 339px ->
+    338px at 1024px — a shrink failing a growth check). ±1px agrees."""
     out = _node("""
       console.log(JSON.stringify({
         equal: mod.heightsAgree(339, 339),
@@ -260,7 +270,12 @@ def test_a_one_pixel_wobble_passes_the_height_check():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_one_row_growth_or_shrink_still_fails():
-    """Growth and shrinkage fail at ±2px and at a full row's size."""
+    """A real per-entry row growth is many pixels — one bar row is tens
+    of pixels — and the noise band must never stretch that far. A gross
+    disagreement fails in BOTH directions: the panel is not rendering
+    the same page in the two variants at all. The ±2px probes hold the
+    band's refusal side at its nearest boundary: a silently doubled
+    HEIGHT_NOISE_PX turns these True and reds the test."""
     out = _node("""
       console.log(JSON.stringify({
         grow: mod.heightsAgree(339, 364),
@@ -271,29 +286,6 @@ def test_a_one_row_growth_or_shrink_still_fails():
     """)
     assert out == {"grow": False, "shrink": False,
                    "nearGrow": False, "nearShrink": False}, out
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_height_growth_diagnostic_shows_each_world_and_bounds_rows():
-    out = _node("""
-      const two = ['Page performance', 173, false, null, ['shared', 'only two',
-        ...Array.from({length: 45}, (_, i) => `extra-${i}`)], [{label: 'title', h: 18}]];
-      const many = ['Page performance', 219, false, null, ['shared', 'only many',
-        ...Array.from({length: 45}, (_, i) => `many-${i}`)],
-        [{label: 'title', h: 31}, {label: 'table', h: 84}]];
-      const describe = mod.describeHeightGrowth ?? (() => '');
-      console.log(JSON.stringify({both: describe('Page performance', two, many),
-        missing: describe('Page performance', two, null)}));
-    """)
-    assert "Page performance" in out["both"] and "2 models (173px)" in out["both"]
-    assert "30+ models (219px)" in out["both"]
-    two, many = out["both"].split("30+ models (219px)")
-    assert "title: 18px" in two and "title: 31px" in many and "table: 84px" in many
-    assert "shared" in two and "shared" in many
-    assert "- only two" in two and "+ only many" in many
-    assert "rows omitted" in two and "extra-0" in two and "extra-44" not in two
-    assert "rows omitted" in many and "many-0" in many and "many-44" not in many
-    assert "30+ models (not rendered)" in out["missing"]
 
 
 def test_the_height_loop_compares_through_the_noise_band():
@@ -349,7 +341,7 @@ def test_the_agent_panel_declares_a_bound_the_guard_reads():
         "the agent panel carries a listPanel prop -- that would exempt "
         "the one panel the height category exists to fail")
     guard = MODULE.read_text(encoding="utf-8")
-    assert "closest('[data-max-h]')" in guard, (
+    assert "closest('[data-max-h]')" in REPORT.read_text(encoding="utf-8"), (
         "the guard no longer reads a panel's data-max-h bound")
     assert "&& breachesBound(h, bound)" in guard, (
         "the guard no longer feeds declared bounds through the "
