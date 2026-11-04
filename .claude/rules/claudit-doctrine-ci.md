@@ -95,11 +95,10 @@ numbers in a workflow. Module size is gated by the
   `Nitjsefnie-Actions/comment-ratchet` action on every pull request,
   checking against the records at its base. The action measures tracked
   Python, JavaScript/TypeScript, YAML, shell and SQL files at a 15% target;
-  only files above it carry
-  exact `[comment bytes, non-whitespace bytes]` records in
-  `.github/comment-share.json`. Pull requests carry tightened records
-  for changed files. Keep the action pinned and its records separate from
-  `.github/ci-thresholds.json`.
+  only files above it carry exact `[comment bytes, non-whitespace bytes]`
+  records in `.github/comment-share.json`. Pull requests carry tightened
+  records for changed files. Keep the action pinned and its records
+  separate from `.github/ci-thresholds.json`.
 - Suite cost (`suite_cost`): per-phase instruction counts (millions of
   bytecode instructions, one decimal; phases `collection`, `run`,
   `residual`) of ONE pytest pass over the pinned fixture
