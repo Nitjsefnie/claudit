@@ -384,8 +384,9 @@ def test_ratchet_data_reads_are_guarded_on_artifact_presence():
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the drive runs POSIX Bash")
-@pytest.mark.parametrize("artifact", ["ratchet", "suite", "none"])
-def test_ratchet_push_executes_surviving_artifact_paths(tmp_path, artifact):
+@pytest.mark.parametrize("artifact,fetched", [
+    ("ratchet", "0" * 40), ("suite", "0" * 40), ("none", "0" * 40), ("suite", "1" * 40)])
+def test_ratchet_push_executes_surviving_artifact_paths(tmp_path, artifact, fetched):
     step = _find_step(_job(_load("ratchet-push.yml"), "push"),
                       'suite_ratchet.py" --tighten')
     fakes = tmp_path / "bin"
@@ -393,14 +394,15 @@ def test_ratchet_push_executes_surviving_artifact_paths(tmp_path, artifact):
     for name, body in {
         "ssh-agent": "#!/bin/sh\nexit 0\n",
         "ssh-add": "#!/bin/sh\nexit 0\n",
-        "git": '#!/bin/sh\nif [ "$3" = rev-parse ]; then printf "%040d\\n" 0; fi\n',
-        "python3": '#!/bin/sh\nprintf "%s\\n" "$*" > "$RUNNER_TEMP/python-calls"\n',
+        "git": f'#!/bin/sh\nif [ "$3" = rev-parse ]; then echo {fetched}; fi\n',
+        "python3": '#!/bin/sh\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/python-calls"\n',
     }.items():
         fake = fakes / name
         fake.write_text(body, encoding="utf-8", newline="\n")
         fake.chmod(0o755)
     runner = tmp_path / "runner"
     (runner / "ratchet-repo" / ".github").mkdir(parents=True)
+    (runner / "ratchet-repo" / ".github" / "ci-thresholds.json").write_text("{}\n", encoding="utf-8", newline="\n")
     if artifact == "ratchet":
         (runner / "ratchet-data").mkdir()
         (runner / "ratchet-data" / "base.txt").write_text("0" * 40 + "\n", encoding="utf-8", newline="\n")
@@ -409,7 +411,7 @@ def test_ratchet_push_executes_surviving_artifact_paths(tmp_path, artifact):
         (runner / "suite-data" / "suite-measurement.json").write_text("{}\n", encoding="utf-8", newline="\n")
     env = dict(os.environ, PATH=f"{fakes}{os.pathsep}{os.environ['PATH']}",
                HOME=str(tmp_path), RUNNER_TEMP=str(runner), CLAUDIT_MASTER_PUSH_DEPLOY_KEY="key",
-               CLAUDIT_REPO="o/r", CLAUDIT_BASE_FALLBACK="0" * 40)
+               CLAUDIT_REPO="o/r", CLAUDIT_BASE_FALLBACK="0" * 40, GITHUB_STEP_SUMMARY=str(tmp_path / "summary"))
     result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
                             capture_output=True, text=True, check=False, timeout=60)
     if artifact == "none":
@@ -419,7 +421,14 @@ def test_ratchet_push_executes_surviving_artifact_paths(tmp_path, artifact):
         assert result.returncode == 0, result.stderr
         assert "nothing to commit" in result.stdout
     if artifact == "suite":
-        assert "suite_ratchet.py --tighten" in (runner / "python-calls").read_text(encoding="utf-8")
+        calls = (runner / "python-calls").read_text(encoding="utf-8")
+        moved = fetched != "0" * 40
+        # Master moved past data-only commits that changed the thresholds:
+        # classified, then the measurement is dropped, never tightened.
+        assert (f"--base {'0' * 40} --tip {fetched}" in calls) is moved
+        assert ("suite_ratchet.py --tighten" in calls) is not moved
+        assert ("thresholds moved while this run measured" in result.stdout) is moved
+        assert (tmp_path / "summary").exists() is moved
 
 
 def test_the_bench_runner_sets_up_one_interpreter():
