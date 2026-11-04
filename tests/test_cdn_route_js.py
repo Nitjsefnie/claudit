@@ -199,6 +199,44 @@ def test_an_exhausted_webfont_fetch_rejects_setup_naming_its_url(target: str):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_the_picker_context_deadline_never_pays_for_the_font_prefetch():
+    """The prefetch is bounded by its own per-fetch timeouts; the fixture
+    context's 30 s deadline starts only once the faces are in the cache."""
+    out = _node(FONTS + """
+      const cases = await import('./scripts/ci/picker_cases.mjs');
+      let release, now = 0, serial = 0, opened = 0;
+      const gate = new Promise(resolve => { release = resolve; });
+      globalThis.fetch = async (url, init) => { await gate; return serve(url, init); };
+      const timers = new Map();
+      globalThis.setTimeout = (fn, ms) => { timers.set(++serial, {fn, at: now + ms}); return serial; };
+      globalThis.clearTimeout = id => timers.delete(id);
+      const turns = async () => {
+        for (let i = 0; i < 50; i++) await new Promise(resolve => setImmediate(resolve));
+      };
+      const advance = async ms => {
+        now += ms;
+        for (const [id, timer] of [...timers]) if (timer.at <= now && timers.delete(id)) timer.fn();
+        await turns();
+      };
+      const result = {};
+      cases.runPickerCases({newContext: async () => { opened++; return new Promise(() => {}); }},
+        'http://test', [], {}).catch(error => Object.assign(result, {error: error.message}));
+      await turns();
+      await advance(31_000);
+      const stalled = {...result, opened};
+      release();
+      await turns();
+      const fetched = {...result, opened};
+      await advance(31_000);
+      console.log(JSON.stringify({stalled, fetched, final: result, unmodelled}));
+    """, cdn_page=False)
+    assert out["stalled"] == {"opened": 0}
+    assert out["fetched"] == {"opened": 1}
+    assert out["final"]["error"] == "timed out waiting for picker fixture context"
+    assert out["unmodelled"] == []
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_sweep_server_serves_backend_bytes_and_cleans_up():
     expected = {}
     for path in sorted((ROOT / "src").rglob("*")):

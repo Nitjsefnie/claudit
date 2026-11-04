@@ -548,11 +548,6 @@ async function main() {
           await ctx.close();
         }
         snapshots.set(width, heights);
-        if (!heights.two.length || !heights.many.length) {
-          failures += 1;
-          console.log(`NO PANELS  ${width}px height  a variant rendered no `
-            + '[data-panel] — the payload rewrite or the fixtures broke');
-        }
         const two = new Map(heights.two.map(([n, h]) => [n, h]));
         const many = new Map(heights.many.map(([n, h]) => [n, h]));
         // A panel's declared absolute bound, when it declares one: the

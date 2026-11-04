@@ -1,5 +1,5 @@
 // Independent API fixtures for picker states that the dashboard fixture lacks.
-import { createSweepContext } from './cdn_route.mjs';
+import { createSweepContext, prefetchSweepAssets } from './cdn_route.mjs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { API, FIXTURES } from './panel_server.mjs';
@@ -52,6 +52,7 @@ async function sweepWidths(page, checks, target, projectCount) {
 }
 
 export async function runPickerCases(browser, base, rules, checks) {
+  await prefetchSweepAssets();
   const template = JSON.parse(await readFile(join(FIXTURES, 'projects.json'), 'utf8'))
     .projects[4];
   const failures = [], passed = [];
