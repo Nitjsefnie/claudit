@@ -1,16 +1,9 @@
-"""The tests canary measures and gates the suite bench once per ci-gate run.
-Assert decoded scalars, expressions, commands and artifact names so decoy
-script text cannot satisfy the workflow contract."""
+"""Suite bench and ratchet workflow wiring."""
 from __future__ import annotations
 
 import yaml
 from tests.workflow_checks import (ROOT, job_of as _job, workflow_by_name as _load, find_step as _find_step, run_lines as _run_lines, steps_of as _steps, TIGHTEN_CMD, WORKFLOWS)
 
-# The exact commands the shared composite action's steps must run, as
-# the runner's shell sees them: the measurement (its --summary lands in
-# the step summary) and the gate (its exit code must be the step's own,
-# so a failed check fails the caller's job). The measurement env var is
-# the action's input; the callers all point it at the same file.
 MEASURE_CMD = (
     'python scripts/ci/suite_bench.py --write "$CLAUDIT_MEASUREMENT" '
     '--summary "$GITHUB_STEP_SUMMARY"')
@@ -335,8 +328,6 @@ def test_ratchet_push_rejected_push_handler_stays_guarded():
         'fi',
     ]
 
-
-# --- the deleted A/B machinery stays deleted ---------------------------------
 
 def test_compare_durations_is_gone():
     assert not (ROOT / "scripts" / "ci" / "compare_durations.py").exists()
