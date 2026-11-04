@@ -525,6 +525,7 @@
     "deepseek-v4-flash": [
       "Alibaba",
       "Azure",
+      "Cloudflare",
       "NextBit",
       "Novita",
       "OpenInference",
@@ -540,6 +541,7 @@
       "Together"
     ],
     "deepseek-v4-pro": [
+      "Cloudflare",
       "NextBit",
       "Parasail",
       "Reka"
@@ -564,8 +566,7 @@
     "glm-5-3-flash": [
       "Cloudflare",
       "Decart",
-      "DekaLLM",
-      "Tenstorrent"
+      "DekaLLM"
     ],
     "gpt-3-5-turbo-16k": [
       "OpenAI"
@@ -583,6 +584,7 @@
       "Io Net"
     ],
     "kimi-k2-7-code": [
+      "Nebius",
       "Phala"
     ],
     "mimo-v2-5": [
