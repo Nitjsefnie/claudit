@@ -1,0 +1,35 @@
+name: size baseline
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow == 'size baseline' && format('size-baseline-{0}', github.ref) || format('size-baseline-called-{0}', github.run_id) }}
+  cancel-in-progress: true
+jobs:
+  size-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)
+        uses: Nitjsefnie-Actions/size-ratchet@cb0deb632f24962ed3aee44811c576b7b8e9ba29 # v2.0.4
+        with:
+          ceilings: ''
+          overrides: 'tests/: 700'
+          exclude: ''
+          unclassified: 'ignore'
+          records: '.github/size-baseline.json'
+          member: ''
+          mode: 'auto'
+          base-ref: ${{ github.event.pull_request.base.sha }}
+          stale: 'warn'
+          require-tight: 'true'
