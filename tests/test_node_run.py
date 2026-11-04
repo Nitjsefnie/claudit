@@ -1,4 +1,4 @@
-"""The node runner kills a child on its own CPU time, never on a slow runner's wall time."""
+"""The node runner budgets CPU with a wall ceiling, or wall time without /proc."""
 from __future__ import annotations
 
 import os
@@ -12,6 +12,7 @@ from unittest.mock import Mock, call
 import pytest
 
 from tests import node_run
+from tests.node_run import _cpu_seconds
 
 needs_proc = pytest.mark.skipif(not os.path.exists("/proc/self/stat"), reason="needs /proc/<pid>/stat")
 KILL_NOTE = re.compile(r"killed on the (.+) after (\S+) s wall and (\S+) s CPU")
@@ -98,12 +99,13 @@ def test_a_blocked_child_outlives_its_cpu_budget_in_wall_time():
 @needs_proc
 @pytest.mark.parametrize("spin", ["while True: pass", "zero = open('/dev/zero', 'rb')\nwhile True: zero.read(1 << 20)"],
                          ids=["user", "system"])
-def test_a_spinning_child_is_killed_on_its_cpu_budget_with_evidence(request, spin):
+def test_a_spinning_child_is_killed_on_its_cpu_budget_with_evidence(monkeypatch, request, spin):
+    monkeypatch.setattr(node_run, "POLL_SECONDS", 0.05)
     script = "import sys; print('started', flush=True); sys.stderr.write('warming\\n'); sys.stderr.flush()\n" + spin
     with pytest.raises(subprocess.TimeoutExpired) as raised:
-        node_run.run_node([sys.executable, "-c", script], timeout=0.3, capture_output=True)
+        node_run.run_node([sys.executable, "-c", script], timeout=0.5, capture_output=True)
     bound, _, cpu = _kill_note(raised.value)
-    assert bound == "CPU budget of 0.3 s" and 0.3 <= cpu < 1.3
+    assert bound == "CPU budget of 0.5 s" and 0.5 <= cpu < 0.75
     assert f"stalled test: {request.node.nodeid} (call)" in raised.value.__notes__
     assert b"started" in raised.value.output and b"warming" in (raised.value.stderr or b"")
     assert "node stdout tail:\nstarted\n" in raised.value.__notes__
@@ -115,21 +117,49 @@ def test_a_child_asleep_past_the_wall_ceiling_is_killed(monkeypatch):
     monkeypatch.setattr(node_run, "WALL_CEILING_MULTIPLE", 2)
     with pytest.raises(subprocess.TimeoutExpired) as raised:
         node_run.run_node([sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.5)
-    bound, wall, cpu = _kill_note(raised.value)
-    assert bound == "wall ceiling of 1.0 s" and wall >= 1.0 and cpu < 0.5
+    bound, _, cpu = _kill_note(raised.value)
+    assert bound == "wall ceiling of 1.0 s" and cpu < 0.5
 
 
 @needs_proc
-def test_the_shipped_wall_ceiling_kills_and_a_held_pipe_keeps_the_partial_output():
+def test_wall_ceiling_in_note_is_the_ceiling_that_fires(monkeypatch):
+    monkeypatch.setattr(node_run, "WALL_CEILING_MULTIPLE", 2)
+    monkeypatch.setattr(node_run, "time", Mock(monotonic=Mock(side_effect=[0.0, 0.75, 1.5, 2.5])))
+    monkeypatch.setattr(node_run, "_cpu_seconds", Mock(side_effect=[0.1, 0.2, 1.0]))
+    with pytest.raises(subprocess.TimeoutExpired) as raised:
+        node_run.run_node([sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.5)
+    bound, _, cpu = _kill_note(raised.value)
+    assert bound == "wall ceiling of 1.0 s"
+    assert cpu == 0.2
+
+
+@needs_proc
+def test_the_shipped_wall_ceiling_kills_and_a_held_pipe_keeps_the_partial_output(tmp_path):
     """At the shipped multiple a 0.2 s budget's ceiling is 1.0 s; the grandchild keeps the pipes open past the kill."""
+    marker = tmp_path / "finished"
+    grandchild = "import pathlib, sys, time; time.sleep(5); pathlib.Path(sys.argv[1]).touch()"
     script = ("import subprocess, sys, time\n"
-              "held = subprocess.Popen([sys.executable, '-S', '-c', 'import time; time.sleep(5)'])\n"
+              f"held = subprocess.Popen([sys.executable, '-S', '-c', {grandchild!r}, sys.argv[1]])\n"
               "print(held.pid, flush=True); time.sleep(3)")
     with pytest.raises(subprocess.TimeoutExpired) as raised:
-        node_run.run_node([sys.executable, "-S", "-c", script], timeout=0.2, capture_output=True)
-    os.kill(int(raised.value.output), signal.SIGKILL)
-    bound, wall, _ = _kill_note(raised.value)
-    assert bound == "wall ceiling of 1.0 s" and wall >= 1.0
+        node_run.run_node([sys.executable, "-S", "-c", script, str(marker)], timeout=0.2, capture_output=True)
+    try:
+        assert not marker.exists(), "drain waited for the grandchild to finish"
+    finally:
+        if not marker.exists():
+            try:
+                os.kill(int(raised.value.output), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    bound, _, _ = _kill_note(raised.value)
+    assert bound == "wall ceiling of 1.0 s"
+
+
+@needs_proc
+def test_cpu_stat_command_name_can_contain_a_closing_parenthesis(monkeypatch):
+    stat = b"123 (worker) name) R 1 2 3 4 5 6 7 8 9 10 100 200"
+    monkeypatch.setattr(Path, "read_bytes", lambda _path: stat)
+    assert _cpu_seconds(123) == 300 / os.sysconf("SC_CLK_TCK")
 
 
 @needs_proc
@@ -145,12 +175,48 @@ def test_an_error_while_polling_kills_the_child(monkeypatch, tmp_path):
 
 
 @needs_proc
-@pytest.mark.parametrize("check", [False, True])
-def test_input_capture_text_and_check_behave_as_subprocess_run(monkeypatch, check):
+def test_an_interrupt_while_polling_kills_and_reaps_the_child(monkeypatch):
+    communicate = subprocess.Popen.communicate
+    processes = []
+
+    def interrupted_communicate(process, *args, **kwargs):
+        processes.append(process)
+        signal.setitimer(signal.ITIMER_REAL, 0.05)
+        try:
+            return communicate(process, *args, **kwargs)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+
+    def interrupt(_signum, _frame):
+        raise KeyboardInterrupt("poll interrupted")
+
+    monkeypatch.setattr(subprocess.Popen, "communicate", interrupted_communicate)
+    saved_timer = signal.setitimer(signal.ITIMER_REAL, 0)
+    saved_handler = signal.signal(signal.SIGALRM, interrupt)
+    try:
+        with pytest.raises(KeyboardInterrupt, match="poll interrupted"):
+            node_run.run_node([sys.executable, "-c", "import time; time.sleep(30)"], timeout=5)
+        process = processes[0]
+        assert process.returncode == -signal.SIGKILL
+        with pytest.raises(ChildProcessError):
+            os.waitpid(process.pid, os.WNOHANG)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+        signal.signal(signal.SIGALRM, saved_handler)
+        signal.setitimer(signal.ITIMER_REAL, *saved_timer)
+
+
+@needs_proc
+@pytest.mark.parametrize(("check", "exit_code"), [(False, 3), (True, 3), (True, 0)])
+def test_input_capture_text_and_check_behave_as_subprocess_run(monkeypatch, check, exit_code):
     """The child reads stdin only after several poll slices, so the input outlives the first slice."""
     monkeypatch.setattr(node_run, "POLL_SECONDS", 0.05)
     script = ("import sys, time; time.sleep(0.3); data = sys.stdin.read()\n"
-              "print(len(data)); sys.stderr.write(data[:3]); sys.exit(3)")
+              f"print(len(data)); sys.stderr.write(data[:3]); sys.exit({exit_code})")
     argv = [sys.executable, "-c", script]
     kwargs = {"input": "abc" * 100_000, "capture_output": True, "text": True, "check": check}
     outcomes = []
@@ -161,7 +227,7 @@ def test_input_capture_text_and_check_behave_as_subprocess_run(monkeypatch, chec
         except subprocess.CalledProcessError as error:
             outcomes.append((type(error), error.cmd, error.returncode, error.output, error.stderr))
     assert outcomes[0] == outcomes[1]
-    assert outcomes[1][2:] == (3, "300000\n", "abc")
+    assert outcomes[1][2:] == (exit_code, "300000\n", "abc")
 
 
 @needs_proc
@@ -176,8 +242,11 @@ def test_the_stall_debug_flag_alone_reads_wchan_stack_and_pressure(monkeypatch):
         return read_text(path, *args, **kwargs)
     monkeypatch.setattr(Path, "read_text", recording_read_text)
     debug_file = re.compile(r"/proc/(\d+/(wchan|stack|absent)|pressure/(io|cpu|memory))")
-    for flag in ("", "1"):
-        monkeypatch.setenv("CLAUDIT_DEBUG_NODE_STALL", flag)
+    for flag in (None, "", "1"):
+        if flag is None:
+            monkeypatch.delenv("CLAUDIT_DEBUG_NODE_STALL", raising=False)
+        else:
+            monkeypatch.setenv("CLAUDIT_DEBUG_NODE_STALL", flag)
         seen.clear()
         with pytest.raises(subprocess.TimeoutExpired) as raised:
             node_run.run_node([sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.25)

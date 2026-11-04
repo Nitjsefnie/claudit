@@ -49,6 +49,7 @@ def _run_on_cpu_budget(
     with subprocess.Popen(node_argv, **run_kwargs) as process:
         started = time.monotonic()
         try:
+            ceiling = timeout * WALL_CEILING_MULTIPLE
             while True:
                 try:
                     stdout, stderr = process.communicate(stdin_data, timeout=POLL_SECONDS)
@@ -58,10 +59,11 @@ def _run_on_cpu_budget(
                 cpu, wall = _cpu_seconds(process.pid), time.monotonic() - started
                 if cpu > timeout:
                     raise _kill(process, timeout, f"CPU budget of {timeout} s", wall, cpu)
-                if wall > timeout * WALL_CEILING_MULTIPLE:
-                    raise _kill(process, timeout, f"wall ceiling of {timeout * WALL_CEILING_MULTIPLE} s", wall, cpu)
+                if wall > ceiling:
+                    raise _kill(process, timeout, f"wall ceiling of {ceiling} s", wall, cpu)
         except BaseException:
             process.kill()
+            process.wait()
             raise
         retcode = process.wait()
     if check and retcode:
