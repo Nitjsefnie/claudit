@@ -16,7 +16,7 @@ apscheduler==3.11.3
 # (backend/login.py uses Form()). Removing it breaks POST /login at
 # runtime, not at import.
 python-multipart==0.0.32
-pytest==9.1.1
+pytest==9.2.0
 pytest-asyncio==1.4.0
 httpx2==2.16.0
 # Transitive floors (issue #938): urllib3 arrives under botocore and
