@@ -1,74 +1,25 @@
-// The rendered interaction guard for the dashboard panels.
+// The rendered interaction guard complements panel_layout.mjs with:
+//   cold-cls         cold-load layout shifts totaling over 0.1;
+//   sweep-shift      any layout shift during a hover sweep;
+//   hover-tooltip    a missing tooltip at a target's centre or bottom row;
+//   hover-style      a target whose style does not change on hover;
+//   tooltip-overflow a tooltip escaping the viewport, scrolling, or failing
+//                    to wrap a long key in the real primitive probe;
+//   other-region     a shift attributed to `other` by src/perf.js;
+//   height-growth    heights disagree at 2 vs 30+ models beyond ±1px,
+//                    or exceed a declared data-max-h ceiling.
 //
-// scripts/ci/panel_layout.mjs answers whether the panels LAY OUT — the
-// boxes do not overlap and nothing escapes its panel. It cannot answer
-// whether the panels RESPOND: whether a bar highlights when the pointer
-// rests on its bottom row, whether the tooltip the hover summons stays
-// inside its own box, whether the page still moves around while the user
-// looks at it. This guard pins those categories:
+// Targets come from [data-hover-target]; a data panel with none fails as
+// no-targets. A deliberately static panel must declare data-static-panel
+// and be listed in STATIC_PANELS; an unlisted declaration fails. A
+// data-list-panel is exempt from height-growth and printed on every run.
+// No panels, no targets anywhere, or an unfired ledger entry also fails.
 //
-//   cold-cls        the sum of layout-shift scores on a cold load
-//                   exceeds 0.1 (web.dev's "poor" threshold);
-//   sweep-shift     any layout shift at all during the hover sweep —
-//                   an interaction must not rearrange the page;
-//   hover-tooltip   hovering a marked target (its centre, and its
-//                   bottom pixel row) must summon the panel's tooltip;
-//   hover-style     and must change the target's rendered style away
-//                   from its resting style, so the response is visible
-//                   on the element itself, panel to panel alike;
-//   tooltip-overflow a visible tooltip must stay inside the viewport
-//                   and must not scroll its own content, and a
-//                   rendered long-KEY row must wrap inside the box — the
-//                   probe mounts the real primitive with one;
-//   other-region    every sweep-time layout shift must resolve to a
-//                   named region or panel through src/perf.js — `other` means 'outside the panel grid',
-//                   a real answer for a filter row and a wrong one for
-//                   a shifted bar;
-//   height-growth   no panel's height grows with the number of models:
-//                   the same payloads with 2 vs 30+ models must render
-//                   every panel at the same height within ±1px of
-//                   rendering noise, so a per-model grid cannot ship --
-//                   or stay under the absolute ceiling a panel declares
-//                   with data-max-h, the bounded treatment a capped
-//                   list takes: shorter at 2 roles than at 30+
-//                   is the design there, not growth.
-//
-// Hover targets are enumerated from the DOM, so a new panel is covered
-// automatically: every bar, bucket and point a panel makes interactive
-// carries `data-hover-target`. A panel that renders with data but none
-// is a `no-targets` finding — the sweep FAILS it, so coverage is
-// never opt-in. A panel that carries no interactive surface by
-// design (a legend, a stat panel) declares `data-static-panel` — but
-// the declaration is listed, not free: STATIC_PANELS below names every
-// static panel the guard has reviewed, and a declaration off the list
-// is the `unlisted-static` finding — a data panel cannot exempt
-// itself. A panel whose height is a per-entry LIST by design (one
-// bar per row: Cost by Model, Tokens by Model) carries
-// `data-list-panel` and is exempt from height-growth, printed every
-// run like the ledger above.
-//
-// What WOULD hide a regression is failed loudly instead of passed
-// silently:
-//
-//   * a page that renders no [data-panel] at all;
-//   * a page whose sweep finds not one marked target anywhere;
-//   * a ledger entry that never fired — the fix landed or the sweep can
-//     no longer see the defect; either way the line is stale and the
-//     guard is lying about something. Delete the line, or fix the sweep.
-//
-// Like panel_layout.mjs, this drives the REAL page (panel_server.mjs:
-// the same public/index.html, the same src/*.jsx, the same in-browser
-// Babel) against the frozen fixture set in fixtures/layout/. It needs no
-// database and no R2. The browser driver is a devDependency like every
-// other CI tool here; nothing in the shipped app reads package.json.
-//
-// Bounds: the sweep hovers every marked target twice (centre, bottom
-// row) at every width, which is the guard's whole cost.
-// CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS defaults to 0 — unlimited (a
-// cap that silently samples is a guard that checks less than it
-// claims). An explicit cap that BITES is the `unhovered-targets`
-// finding and fails the run; the knob is for local debugging only.
-// A truncation is printed, never silent.
+// The real page and in-browser Babel run against fixtures/layout/ through
+// panel_server.mjs, without a database or R2. Every target is hovered at
+// its centre and bottom row at every width. The local debugging cap
+// CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS defaults to 0 (unlimited); a cap
+// that truncates the sweep is printed and fails as unhovered-targets.
 import { createSweepContext } from './cdn_route.mjs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -134,27 +85,34 @@ export function heightsAgree(twoPx, manyPx) {
   return Math.abs(manyPx - twoPx) <= HEIGHT_NOISE_PX;
 }
 
-// Rewrites the frozen base payloads into the height check's two worlds.
-// A top-level array whose first row carries a string `model` (or
-// `agent_type`) field is keyed by that identity — `two` keeps the
-// list's first two identities' rows, `many` expands it to at least 30
-// distinct ones by cycling whole rows under suffixed names, so every
-// panel that reads models or agent roles reads them
-// at both scales. The LAST expanded copy carries a deliberately
-// over-long identity: the hover sweep runs over this set, so the
-// tooltip-overflow assertion is exercised against the longest label
-// the page can render at every run.
-//
-// PRECONDITION: a rewritten list is UNIFORM — every row carries the
-// list's identity field. A totals row without one would be dropped by
-// `two` and invented into an `undefined~i` identity by `many`; no
-// fixture list is mixed, and one that becomes so must refuse here
-// rather than skew the comparison.
-//
-// Lists with neither identity field (heatmap cells, tool-usage buckets,
-// cost-by-context buckets) pass through untouched: their heights must
-// not move, and this is what makes the comparison read an identity-
-// count change and nothing else.
+export function describeHeightGrowth(name, two, many) {
+  const lines = [name];
+  for (const [world, entry, mark, other] of [
+    ['2 models', two, '-', many], ['30+ models', many, '+', two],
+  ]) {
+    if (!entry) { lines.push(`  ${world} (not rendered)`); continue; }
+    const rows = entry[4], regions = entry[5];
+    const otherRows = new Set((other ? other[4] : []).slice(0, 40));
+    lines.push(`  ${world} (${entry[1]}px)`, '    regions:');
+    for (const region of regions.slice(0, 40)) {
+      lines.push(`      ${region.label.slice(0, 100)}: ${region.h}px`);
+    }
+    if (regions.length > 40) lines.push('      ... regions omitted');
+    lines.push('    rows (marked when absent from the other displayed rows):');
+    for (const row of rows.slice(0, 40)) {
+      lines.push(`    ${otherRows.has(row) ? ' ' : mark} ${row.slice(0, 240)}`);
+    }
+    if (rows.length > 40) lines.push('      ... rows omitted');
+  }
+  return lines.join('\n');
+}
+
+// Rewrite model- or agent_type-keyed fixture lists for the height check:
+// two keeps the first two identities; many cycles rows to at least 30,
+// with an over-long last identity for the tooltip-overflow sweep. Lists
+// without either field pass through, so their heights must not move.
+// Rewritten lists must be uniform: a missing identity is dropped in two
+// and becomes undefined in many, skewing the comparison.
 export function variantsFrom(base) {
   const MANY = 30;
   const LONG = '~a-very-long-identity-name-probing-tooltip-overflow';
@@ -547,16 +505,32 @@ async function main() {
           await page.waitForSelector('[data-panel]', { timeout: 60_000 })
             .catch(() => { });
           await page.waitForTimeout(1_500);
-          heights[set] = await page.evaluate(() =>
-            [...document.querySelectorAll('[data-panel]')]
-              .filter(s => s.getBoundingClientRect().height > 0)
-              .map(s => {
-                const host = s.closest('[data-max-h]');
-                return [s.getAttribute('data-panel'),
-                  Math.round(s.getBoundingClientRect().height),
-                  s.hasAttribute('data-list-panel'),
-                  host ? host.getAttribute('data-max-h') : null];
-              }));
+          heights[set] = await page.evaluate(() => {
+            const panels = [...document.querySelectorAll('[data-panel]')]
+              .filter(s => s.getBoundingClientRect().height > 0);
+            const measured = panels.map(s => {
+              const host = s.closest('[data-max-h]');
+              return [s.getAttribute('data-panel'),
+                Math.round(s.getBoundingClientRect().height),
+                s.hasAttribute('data-list-panel'),
+                host ? host.getAttribute('data-max-h') : null];
+            });
+            return measured.map((entry, i) => {
+              const s = panels[i];
+              const rows = (s.innerText ?? s.textContent ?? '').split('\n')
+                .map(row => row.trim()).filter(Boolean).slice(0, 41)
+                .map(row => row.length > 240 ? `${row.slice(0, 239)}…` : row);
+              const regions = [...s.children].slice(0, 41).map((el, j) => {
+                const role = el.getAttribute('data-role');
+                const cls = el.getAttribute('class');
+                const suffix = role ? `[data-role=${role}]`
+                  : cls ? `.${cls.trim().split(/\s+/).join('.')}` : '';
+                return { label: `${j + 1}:${el.localName}${suffix}`.slice(0, 100),
+                  h: Math.round(el.getBoundingClientRect().height) };
+              });
+              return [...entry, rows, regions];
+            });
+          });
           await ctx.close();
         }
         if (!heights.two.length || !heights.many.length) {
@@ -566,6 +540,9 @@ async function main() {
         }
         const two = new Map(heights.two.map(([n, h]) => [n, h]));
         const many = new Map(heights.many.map(([n, h]) => [n, h]));
+        const describe = name => describeHeightGrowth(name,
+          heights.two.findLast(([n]) => n === name),
+          heights.many.findLast(([n]) => n === name));
         // A panel's declared absolute bound, when it declares one: the
         // nearest [data-max-h] ancestor the page reported. A bounded
         // panel is judged against its ceiling in BOTH worlds and skips
@@ -591,9 +568,10 @@ async function main() {
         for (const [name, hMany] of many) {
           if (!two.has(name) || lists.has(name) || boundOf.has(name)) continue;
           if (heightsAgree(two.get(name), hMany)) continue;
-          record('height-growth', name,
+          const finding = record('height-growth', name,
             `height ${two.get(name)}px at 2 models -> ${hMany}px at 30+`,
             width);
+          (finding.diagnostics ||= new Map()).set(width, describe(name));
         }
         // The absolute bound, both worlds, every width: the ceiling a
         // bounded panel declares is its own promise. A breach
@@ -603,9 +581,10 @@ async function main() {
           for (const set of [two, many]) {
             const h = set.get(name);
             if (h !== undefined && breachesBound(h, bound)) {
-              record('height-growth', name,
+              const finding = record('height-growth', name,
                 `height ${h}px exceeds its ${bound}px data-max-h bound`,
                 width);
+              (finding.diagnostics ||= new Map()).set(width, describe(name));
             }
           }
         }
@@ -871,6 +850,9 @@ async function main() {
     console.log(`${tag} ${f.kind.padEnd(16)} ${f.panel}: ${f.detail}`
       + `  [${[...f.widths].sort((a, b) => a - b).join(', ')}px]`
       + (f.issue ? ` (filed as #${f.issue})` : ''));
+    for (const [width, diagnostic] of f.diagnostics || []) {
+      console.log(`  ${width}px ${diagnostic}`);
+    }
   }
   const stale = FILED.filter(f => !ledgerFired.has(f));
   for (const f of stale) {
