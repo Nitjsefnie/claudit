@@ -69,7 +69,8 @@ TELEMETRY_NOTE = (
 DEFAULT_PRICING = REPO_ROOT / "src" / "pricing.json"
 DEFAULT_CONSTANTS = REPO_ROOT / "backend" / "constants.py"
 DEFAULT_PARSER_VERSION = REPO_ROOT / "backend" / "parser_version.py"
-DEFAULT_PYTEST_ARGS = ["tests/", "-q", "--tb=short", "-ra"]
+DEFAULT_PYTEST_ARGS = ["tests/", "-q", "--tb=short", "-ra", "-o", "faulthandler_timeout=240",
+                       "--durations=20", "--junitxml=pytest-junit.xml"]
 
 
 class SeedRun(NamedTuple):

@@ -9,6 +9,7 @@ report-shape and wiring tests run everywhere.
 """
 from __future__ import annotations
 
+import fnmatch
 import importlib.util
 import json
 import re
@@ -160,9 +161,11 @@ def test_a_failing_suite_stops_the_run_and_is_the_exit(tmp_path):
 
 def test_the_default_pytest_args_are_the_legs_historical_invocation():
     # Literal pin: the workflow passes no --pytest-args (the wiring pin
-    # below asserts that), so this constant IS what the leg runs — the
-    # removed loop's exact invocation.
-    assert bench.DEFAULT_PYTEST_ARGS == ["tests/", "-q", "--tb=short", "-ra"]
+    # below asserts that), so this constant IS what the leg runs: the
+    # removed loop's invocation plus the stall evidence the portable cells keep.
+    assert bench.DEFAULT_PYTEST_ARGS == [
+        "tests/", "-q", "--tb=short", "-ra", "-o", "faulthandler_timeout=240",
+        "--durations=20", "--junitxml=pytest-junit.xml"]
 
 
 def test_a_perturb_failure_names_it_and_is_nonzero(tmp_path, capsys):
@@ -296,7 +299,7 @@ def test_cli_selects_exact_shard_files(tmp_path, monkeypatch, capsys, shard, exp
     assert bench.main(args) == 0
     assert sorted((tmp_path / "executed").read_text(encoding="utf-8").splitlines()) == expected
     measurement = json.loads(measurement_path.read_text(encoding="utf-8"))
-    flags = ["-q", "--tb=short", "-ra"]
+    flags = bench.DEFAULT_PYTEST_ARGS[1:]
     assert measurement["pytest_args"] == (
         ["tests/", *flags] if shard is None else
         [*(f"tests/test_{name}.py" for name in expected), *flags])
@@ -322,3 +325,27 @@ def test_combine_runs_after_failed_shards_and_publishes_measurements():
         "python scripts/ci/perturbed_leg_combine.py --measurements shard-data "
         "--seed 42 --seed 1234567890 --seed 1720000000 --of 4 "
         '--summary "$GITHUB_STEP_SUMMARY"')
+
+
+def test_the_junit_report_upload_stays_outside_the_combine_pattern():
+    jobs = _workflow_doc()["jobs"]
+    junit, = [arg for arg in bench.DEFAULT_PYTEST_ARGS if arg.startswith("--junitxml=")]
+    uploads = [step for step in jobs["perturbed-suite"]["steps"]
+               if step.get("uses", "").startswith("actions/upload-artifact@")
+               and step["with"]["path"] == junit.partition("=")[2]]
+    upload, = uploads
+    assert upload["if"] == "${{ !cancelled() }}"
+    name = upload["with"]["name"]
+    # One artifact per seed and shard, or the uploads would collide.
+    assert "${{ matrix.seed }}" in name and "${{ matrix.shard }}" in name
+    download, = [step for step in jobs["perturbed-combine"]["steps"]
+                 if step.get("uses", "").startswith("actions/download-artifact@")]
+    pattern = download["with"]["pattern"]
+    concrete = name.replace("${{ matrix.seed }}", "42").replace("${{ matrix.shard }}", "1")
+    # The combine step reads every json under what it downloads: the report must not be
+    # ingested as a measurement, while the measurement upload (the control) is.
+    measurement, = [step for step in jobs["perturbed-suite"]["steps"]
+                    if step.get("name") == "Upload the shard measurement"]
+    assert fnmatch.fnmatchcase(measurement["with"]["name"].replace(
+        "${{ matrix.seed }}", "42").replace("${{ matrix.shard }}", "1"), pattern)
+    assert not fnmatch.fnmatchcase(concrete, pattern)
