@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -49,7 +50,7 @@ def test_one_timeout_retries_with_the_same_argv_input_bound_and_kwargs(monkeypat
 def test_two_timeouts_propagate_after_two_calls_at_the_default_bound(monkeypatch, without_proc):
     argv = ("node",)
     first = subprocess.TimeoutExpired(argv, 60)
-    second = subprocess.TimeoutExpired(argv, 60, output=b"partial", stderr=b"warn")
+    second = subprocess.TimeoutExpired(argv, 60, output=b"partial", stderr=b"HEAD" + b"x" * 5000 + b"TAIL")
     run = Mock(side_effect=[first, second])
     monkeypatch.setattr(node_run.subprocess, "run", run)
 
@@ -62,7 +63,9 @@ def test_two_timeouts_propagate_after_two_calls_at_the_default_bound(monkeypatch
         call(argv, input=None, timeout=60.0),
     ]
     assert "killed on the wall timeout of 60.0 s after" in raised.value.__notes__[-3]
-    assert raised.value.__notes__[-2:] == ["node stdout tail:\npartial", "node stderr tail:\nwarn"]
+    stdout_note, stderr_note = raised.value.__notes__[-2:]
+    assert stdout_note == "node stdout tail:\npartial"
+    assert stderr_note.startswith("node stderr tail:\nxx") and stderr_note.endswith("xTAIL") and len(stderr_note) < 5000
 
 
 @pytest.mark.parametrize("failure", ["returncode", "called-process-error", "os-error"])
@@ -93,13 +96,14 @@ def test_a_blocked_child_outlives_its_cpu_budget_in_wall_time():
 
 
 @needs_proc
-def test_a_spinning_child_is_killed_on_its_cpu_budget_with_evidence(request):
-    script = ("import sys; print('started', flush=True); sys.stderr.write('warming\\n'); sys.stderr.flush()\n"
-              "while True: pass")
+@pytest.mark.parametrize("spin", ["while True: pass", "zero = open('/dev/zero', 'rb')\nwhile True: zero.read(1 << 20)"],
+                         ids=["user", "system"])
+def test_a_spinning_child_is_killed_on_its_cpu_budget_with_evidence(request, spin):
+    script = "import sys; print('started', flush=True); sys.stderr.write('warming\\n'); sys.stderr.flush()\n" + spin
     with pytest.raises(subprocess.TimeoutExpired) as raised:
         node_run.run_node([sys.executable, "-c", script], timeout=0.3, capture_output=True)
     bound, _, cpu = _kill_note(raised.value)
-    assert bound == "CPU budget of 0.3 s" and cpu >= 0.3
+    assert bound == "CPU budget of 0.3 s" and 0.3 <= cpu < 1.3
     assert f"stalled test: {request.node.nodeid} (call)" in raised.value.__notes__
     assert b"started" in raised.value.output and b"warming" in (raised.value.stderr or b"")
     assert "node stdout tail:\nstarted\n" in raised.value.__notes__
@@ -113,6 +117,31 @@ def test_a_child_asleep_past_the_wall_ceiling_is_killed(monkeypatch):
         node_run.run_node([sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.5)
     bound, wall, cpu = _kill_note(raised.value)
     assert bound == "wall ceiling of 1.0 s" and wall >= 1.0 and cpu < 0.5
+
+
+@needs_proc
+def test_the_shipped_wall_ceiling_kills_and_a_held_pipe_keeps_the_partial_output():
+    """At the shipped multiple a 0.2 s budget's ceiling is 1.0 s; the grandchild keeps the pipes open past the kill."""
+    script = ("import subprocess, sys, time\n"
+              "held = subprocess.Popen([sys.executable, '-S', '-c', 'import time; time.sleep(5)'])\n"
+              "print(held.pid, flush=True); time.sleep(3)")
+    with pytest.raises(subprocess.TimeoutExpired) as raised:
+        node_run.run_node([sys.executable, "-S", "-c", script], timeout=0.2, capture_output=True)
+    os.kill(int(raised.value.output), signal.SIGKILL)
+    bound, wall, _ = _kill_note(raised.value)
+    assert bound == "wall ceiling of 1.0 s" and wall >= 1.0
+
+
+@needs_proc
+def test_an_error_while_polling_kills_the_child(monkeypatch, tmp_path):
+    def unreadable_stat(pid):
+        raise OSError(f"stat of {pid} unreadable")
+    monkeypatch.setattr(node_run, "_cpu_seconds", unreadable_stat)
+    marker = tmp_path / "survived"
+    script = "import pathlib, sys, time; time.sleep(3); pathlib.Path(sys.argv[1]).write_text('')"
+    with pytest.raises(OSError, match="unreadable"):
+        node_run.run_node([sys.executable, "-S", "-c", script, str(marker)], timeout=5)
+    assert not marker.exists()
 
 
 @needs_proc
@@ -138,6 +167,7 @@ def test_input_capture_text_and_check_behave_as_subprocess_run(monkeypatch, chec
 @needs_proc
 def test_the_stall_debug_flag_alone_reads_wchan_stack_and_pressure(monkeypatch):
     monkeypatch.setattr(node_run, "WALL_CEILING_MULTIPLE", 2)
+    monkeypatch.setattr(node_run, "STALL_DEBUG_FILES", (*node_run.STALL_DEBUG_FILES, "/proc/{pid}/absent"))
     read_text = vars(Path)["read_text"]
     seen: list[str] = []
 
@@ -145,7 +175,7 @@ def test_the_stall_debug_flag_alone_reads_wchan_stack_and_pressure(monkeypatch):
         seen.append(str(path))
         return read_text(path, *args, **kwargs)
     monkeypatch.setattr(Path, "read_text", recording_read_text)
-    debug_file = re.compile(r"/proc/(\d+/(wchan|stack)|pressure/(io|cpu|memory))")
+    debug_file = re.compile(r"/proc/(\d+/(wchan|stack|absent)|pressure/(io|cpu|memory))")
     for flag in ("", "1"):
         monkeypatch.setenv("CLAUDIT_DEBUG_NODE_STALL", flag)
         seen.clear()
@@ -155,8 +185,10 @@ def test_the_stall_debug_flag_alone_reads_wchan_stack_and_pressure(monkeypatch):
         read = [path for path in seen if debug_file.fullmatch(path)]
         if flag:
             assert [re.sub(r"\d+", "N", path) for path in noted] == [
-                "/proc/N/wchan", "/proc/N/stack", "/proc/pressure/io", "/proc/pressure/cpu", "/proc/pressure/memory"]
+                "/proc/N/wchan", "/proc/N/stack", "/proc/pressure/io", "/proc/pressure/cpu", "/proc/pressure/memory",
+                "/proc/N/absent"]
             assert read == noted
             assert "unreadable" not in next(note for note in raised.value.__notes__ if "/wchan" in note)
+            assert ": unreadable: " in next(note for note in raised.value.__notes__ if "/absent" in note)
         else:
             assert not noted and not read
