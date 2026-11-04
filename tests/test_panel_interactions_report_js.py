@@ -206,54 +206,98 @@ def test_only_a_family_with_a_loaded_face_and_no_failed_one_is_ready():
                    "neverLoaded": ["JetBrains Mono"], "healthy": []}
 
 
-# A page double driving the real layout_waits barrier: every call is logged,
-# each resolves a turn later, and an evaluate it does not model fails.
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_the_font_reader_reports_each_faces_own_status():
+    """The set's own status reads `loaded` over an error face and over an
+    empty set, so each face must report its own."""
+    out = _node("""
+      const read = (faces, status) => {
+        globalThis.document = {fonts: Object.assign(faces, {status})};
+        return mod.listFontFaces();
+      };
+      console.log(JSON.stringify({
+        loaded: read([{family: 'Inter', status: 'loaded', weight: '400'},
+          {family: 'JetBrains Mono', status: 'loaded'}], 'loaded'),
+        failed: read([{family: 'Inter', status: 'error'},
+          {family: 'JetBrains Mono', status: 'unloaded'}], 'loaded'),
+        empty: read([], 'loaded')}));
+    """)
+    assert out == {
+        "loaded": [{"family": "Inter", "status": "loaded"},
+                   {"family": "JetBrains Mono", "status": "loaded"}],
+        "failed": [{"family": "Inter", "status": "error"},
+                   {"family": "JetBrains Mono", "status": "unloaded"}],
+        "empty": []}
+
+
+# A page double under the real layout_waits barrier: each call resolves a
+# turn later and is logged; whatever settleDashboard evaluates is "settle".
 PAGE = """
-  const events = [];
+  const events = [], loaded = [{family: 'Inter', status: 'loaded'},
+    {family: 'JetBrains Mono', status: 'loaded'}];
+  const full = [['P', 7, false, null, ['row'], [{label: '1:div', h: 7}]]];
+  let faces = loaded, captured = full, visible = true;
   const turn = () => new Promise(resolve => setImmediate(resolve));
   const page = {
     on: name => { events.push(`on ${name}`); },
     goto: async (url, {waitUntil}) => { await turn(); events.push(`goto ${url} ${waitUntil}`); },
-    waitForFunction: async () => { await turn(); events.push('panel visible'); },
+    waitForFunction: async () => {
+      await turn();
+      if (!visible) throw new Error('page.waitForFunction: Timeout 60000ms exceeded.');
+      events.push('settle');
+    },
     evaluate: async fn => {
       await turn();
       if (fn === mod.listFontFaces) { events.push('faces'); return faces; }
-      if (fn === mod.capturePanels) { events.push('capture'); return [['P', 7]]; }
-      const src = String(fn);
-      if (src.includes('document.fonts.ready')) { events.push('fonts ready'); return; }
-      if (src.includes('requestAnimationFrame')) { events.push('frames'); return; }
-      throw new Error(`unmodelled evaluate: ${src}`);
+      if (fn === mod.capturePanels) { events.push('capture'); return captured; }
+      events.push('settle');
     }};
   const context = {newPage: async () => { events.push('newPage'); return page; }};
+  const outcome = () => mod.snapshotWorld(context, 'http://fixture/', 'two world at 320px')
+    .then(heights => ({heights}), error => ({message: error.message}));
 """
-SETTLED = ["newPage", "on request", "on requestfinished", "on requestfailed",
-           "goto http://fixture/ load", "panel visible", "frames", "fonts ready",
-           "frames", "faces"]
+
+
+def _settled_first(events: list[str]) -> list[str]:
+    """Tracking precedes the load, and the barrier ends before anything else."""
+    goto = events.index("goto http://fixture/ load")
+    assert {"on request", "on requestfinished"} <= set(events[:goto])
+    settle = [i for i, event in enumerate(events) if event == "settle"]
+    assert settle and settle[0] > goto, events
+    return events[settle[-1] + 1:]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_world_is_measured_only_after_the_settle_barrier_and_its_fonts():
-    out = _node("""
-      const faces = [{family: 'Inter', status: 'loaded'},
-        {family: 'JetBrains Mono', status: 'loaded'}];
-    """ + PAGE + """
-      const heights = await mod.snapshotWorld(context, 'http://fixture/', 'two world at 320px');
-      console.log(JSON.stringify({events, heights}));
-    """)
-    assert out == {"events": [*SETTLED, "capture"], "heights": [["P", 7]]}
+    out = _node(PAGE + "console.log(JSON.stringify({...await outcome(), events}));")
+    assert _settled_first(out["events"]) == ["faces", "capture"]
+    assert out["heights"] == [["P", 7, False, None, ["row"], [{"label": "1:div", "h": 7}]]]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_a_world_whose_webfonts_failed_is_an_infrastructure_error():
-    out = _node("const faces = [{family: 'Inter', status: 'loaded'}];\n" + PAGE + """
-      let message;
-      try { await mod.snapshotWorld(context, 'http://fixture/', 'two world at 320px'); }
-      catch (error) { message = error.message; }
-      console.log(JSON.stringify({events, message}));
+    out = _node(PAGE + """
+      faces = [loaded[0]];
+      console.log(JSON.stringify({...await outcome(), events}));
     """)
-    assert out == {"events": SETTLED, "message": (
+    assert _settled_first(out["events"]) == ["faces"]
+    assert out["message"] == (
         "infrastructure: two world at 320px: webfont JetBrains Mono did not load, so "
-        "its heights would measure a fallback font, not a height-growth verdict")}
+        "its heights would measure a fallback font, not a height-growth verdict")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_world_that_renders_no_panel_names_its_world():
+    out = _node(PAGE + """
+      visible = false;
+      const hidden = await outcome();
+      visible = true; captured = [];
+      console.log(JSON.stringify({hidden, empty: await outcome()}));
+    """)
+    assert out == {
+        "hidden": {"message": "two world at 320px: page.waitForFunction: Timeout 60000ms exceeded."},
+        "empty": {"message": "two world at 320px: rendered no [data-panel]; the payload "
+                  "rewrite or the fixtures broke"}}
 
 
 def test_the_guard_exits_without_dropping_piped_output():

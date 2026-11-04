@@ -47,14 +47,20 @@ export async function snapshotWorld(context, url, world) {
   const page = await context.newPage();
   trackLayoutRequests(page);
   await page.goto(url, { waitUntil: 'load' });
-  await settleDashboard(page, 60_000);
+  await settleDashboard(page, 60_000).catch(error => {
+    throw new Error(`${world}: ${error.message}`, { cause: error });
+  });
   // A failed stylesheet leaves document.fonts empty and ready, so ask the faces.
   const missing = fontsNotLoaded(await page.evaluate(listFontFaces), fontFamilies);
   if (missing.length) {
     throw new Error(`infrastructure: ${world}: webfont ${missing.join(', ')} did not load, `
       + 'so its heights would measure a fallback font, not a height-growth verdict');
   }
-  return page.evaluate(capturePanels);
+  const panels = await page.evaluate(capturePanels);
+  if (!panels.length) {
+    throw new Error(`${world}: rendered no [data-panel]; the payload rewrite or the fixtures broke`);
+  }
+  return panels;
 }
 
 const MAX_ROWS = 40, MAX_REGIONS = 40, MAX_ROW_CHARS = 240, MAX_LABEL_CHARS = 100;

@@ -57,13 +57,16 @@ async function fetchFonts(fetchImpl, wait) {
     .map(([url, response]) => [new URL(url).href, response]));
 }
 
-export async function createSweepContext(browser, options = {}, {
-  fetchImpl = globalThis.fetch, wait = setTimeout,
-} = {}) {
+// Every fetch is bounded on its own; a caller may await this before its own deadline.
+export function prefetchSweepAssets({fetchImpl = globalThis.fetch, wait = setTimeout} = {}) {
+  return Promise.all([
+    Promise.all(urls.map(url => fetchOnce(url, fetchImpl, wait))), fetchFonts(fetchImpl, wait)]);
+}
+
+export async function createSweepContext(browser, options = {}, deps = {}) {
   // Local scripts need no recovery: the sweep server supplies them directly.
   // Prefetch before allocating a context so exhaustion rejects setup, outside a route callback.
-  const [responses, fonts] = await Promise.all([
-    Promise.all(urls.map(url => fetchOnce(url, fetchImpl, wait))), fetchFonts(fetchImpl, wait)]);
+  const [responses, fonts] = await prefetchSweepAssets(deps);
   const context = await browser.newContext(options);
   for (const [i, url] of urls.entries()) {
     await context.route(url, route => route.fulfill(responses[i]));
