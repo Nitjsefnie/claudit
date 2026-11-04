@@ -86,7 +86,7 @@ def record(reports: Path, files: list[tuple[str, int]], run_id: str) -> dict:
 
 
 def write_record(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    """Record a downloaded run, reporting invalid input as a usage error."""
+    """Record a downloaded run."""
     if not args.run_id or args.output is None:
         parser.error("--record requires --run-id and --output")
     try:
