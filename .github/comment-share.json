@@ -8,8 +8,8 @@
     1666
   ],
   ".github/actions/postgres/action.yml": [
-    271,
-    1223
+    265,
+    1281
   ],
   ".github/actions/reparse-bench/action.yml": [
     962,
@@ -24,8 +24,8 @@
     3866
   ],
   ".github/docker-smoke.compose.yaml": [
-    309,
-    446
+    303,
+    440
   ],
   ".github/workflows/actionlint.yml": [
     3007,
@@ -56,8 +56,8 @@
     14124
   ],
   ".github/workflows/docker-smoke.yml": [
-    3782,
-    8259
+    3776,
+    8253
   ],
   ".github/workflows/eslint.yml": [
     965,
@@ -588,8 +588,8 @@
     11692
   ],
   "compose.yaml": [
-    1757,
-    5239
+    1732,
+    5200
   ],
   "compose/postgres-init.sql": [
     1113,
