@@ -38,7 +38,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: Nitjsefnie-Actions/comment-ratchet@8433cde403c63b6494b05f5de4244d0fd2592f4f # v1.2.1
+      - uses: Nitjsefnie-Actions/comment-ratchet@fc6e1aec44a358f5e88420b3d3795a9b0bce7823 # v2.0.1
         with:
           target: '15'
           records: '.github/comment-share.json'
