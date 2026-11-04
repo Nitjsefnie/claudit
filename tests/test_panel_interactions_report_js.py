@@ -160,17 +160,119 @@ def test_the_report_prints_verdicts_and_summary_before_capped_blocks():
         *blocks, "... 2 height-growth block(s) omitted"]
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_an_unusable_snapshot_still_prints_every_verdict_and_the_summary():
+    """A capture that lost its rows, or a width missing a world, says so in
+    its block; it never costs the FAIL lines or the summary."""
+    out = _node("""
+      const good = [['P', 9, false, null, ['r'], []]];
+      const snapshots = new Map([[320, {two: [['P', 1, false, null]], many: good}],
+        [375, {two: good}], [1440, {two: good, many: good}]]);
+      console.log(JSON.stringify(mod.reportLines([{kind: 'height-growth', panel: 'P',
+        detail: 'grew', widths: new Set([1440, 375, 320]), issue: null}], [], 1, snapshots)));
+    """)
+    assert out[:2] == ["FAIL height-growth    P: grew  [320, 375, 1440px]",
+                       "panel-interactions: 1 new violation(s), no known defect"]
+    assert [line for line in out if line.startswith("HEIGHT")] == [
+        f"HEIGHT      P at {width}px" for width in (320, 375, 1440)]
+    unusable = [i for i, line in enumerate(out) if line.startswith("  snapshot unusable: ")]
+    assert unusable == [3, 5], out
+    assert out[7:] == [*_world("2 models", 9, [], ["      r"]),
+                       *_world("30+ models", 9, [], ["      r"])]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_only_a_family_with_a_loaded_face_and_no_failed_one_is_ready():
+    """document.fonts.ready resolves on a failed stylesheet (no faces at all)
+    and on a failed woff2 (an `error` face); only the faces tell."""
+    out = _node("""
+      const face = (family, status) => ({family, status});
+      const ready = faces => mod.fontsNotLoaded(faces, ['Inter', 'JetBrains Mono']);
+      console.log(JSON.stringify({
+        noStylesheet: ready([]),
+        otherFamily: ready([face('Fallback', 'loaded')]),
+        failedWoff2: ready([face('Inter', 'loaded'), face('JetBrains Mono', 'error'),
+          face('JetBrains Mono', 'unloaded')]),
+        errorBesideLoaded: ready([face('Inter', 'loaded'), face('Inter', 'error'),
+          face('JetBrains Mono', 'loaded')]),
+        neverLoaded: ready([face('Inter', 'loaded'), face('JetBrains Mono', 'unloaded')]),
+        healthy: ready([face('Inter', 'unloaded'), face('Inter', 'loaded'),
+          face('JetBrains Mono', 'loaded'), face('JetBrains Mono', 'unloaded')]),
+      }));
+    """)
+    assert out == {"noStylesheet": ["Inter", "JetBrains Mono"],
+                   "otherFamily": ["Inter", "JetBrains Mono"],
+                   "failedWoff2": ["JetBrains Mono"], "errorBesideLoaded": ["Inter"],
+                   "neverLoaded": ["JetBrains Mono"], "healthy": []}
+
+
+# A page double driving the real layout_waits barrier: every call is logged,
+# each resolves a turn later, and an evaluate it does not model fails.
+PAGE = """
+  const events = [];
+  const turn = () => new Promise(resolve => setImmediate(resolve));
+  const page = {
+    on: name => { events.push(`on ${name}`); },
+    goto: async (url, {waitUntil}) => { await turn(); events.push(`goto ${url} ${waitUntil}`); },
+    waitForFunction: async () => { await turn(); events.push('panel visible'); },
+    evaluate: async fn => {
+      await turn();
+      if (fn === mod.listFontFaces) { events.push('faces'); return faces; }
+      if (fn === mod.capturePanels) { events.push('capture'); return [['P', 7]]; }
+      const src = String(fn);
+      if (src.includes('document.fonts.ready')) { events.push('fonts ready'); return; }
+      if (src.includes('requestAnimationFrame')) { events.push('frames'); return; }
+      throw new Error(`unmodelled evaluate: ${src}`);
+    }};
+  const context = {newPage: async () => { events.push('newPage'); return page; }};
+"""
+SETTLED = ["newPage", "on request", "on requestfinished", "on requestfailed",
+           "goto http://fixture/ load", "panel visible", "frames", "fonts ready",
+           "frames", "faces"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_world_is_measured_only_after_the_settle_barrier_and_its_fonts():
+    out = _node("""
+      const faces = [{family: 'Inter', status: 'loaded'},
+        {family: 'JetBrains Mono', status: 'loaded'}];
+    """ + PAGE + """
+      const heights = await mod.snapshotWorld(context, 'http://fixture/', 'two world at 320px');
+      console.log(JSON.stringify({events, heights}));
+    """)
+    assert out == {"events": [*SETTLED, "capture"], "heights": [["P", 7]]}
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_a_world_whose_webfonts_failed_is_an_infrastructure_error():
+    out = _node("const faces = [{family: 'Inter', status: 'loaded'}];\n" + PAGE + """
+      let message;
+      try { await mod.snapshotWorld(context, 'http://fixture/', 'two world at 320px'); }
+      catch (error) { message = error.message; }
+      console.log(JSON.stringify({events, message}));
+    """)
+    assert out == {"events": SETTLED, "message": (
+        "infrastructure: two world at 320px: webfont JetBrains Mono did not load, so "
+        "its heights would measure a fallback font, not a height-growth verdict")}
+
+
 def test_the_guard_exits_without_dropping_piped_output():
     """process.exit() drops stdout still queued for a pipe; the guard sets
-    the exit code and lets node exit once the browser and server close."""
+    the exit code and lets node exit once the browser and server close.
+    Only the two exit-2 refusals (a bad seed, a crash) may force an exit."""
     src = GUARD.read_text(encoding="utf-8")
     assert "process.exitCode = failures ? 1 : 0;" in src
-    assert "process.exit(failures" not in src
+    assert src.count("process.exit(") == src.count("process.exit(2);") == 2
 
 
 def test_the_guard_hands_each_width_snapshot_to_the_report():
     """The one browser-side link the node tests cannot drive: without it
-    every height-growth block reads both worlds as not rendered."""
+    every height-growth block reads both worlds as not rendered. Anchored
+    to its neighbours, so a commented-out or guarded copy fails."""
     src = GUARD.read_text(encoding="utf-8")
-    assert src.count("snapshots.set(width, heights);") == 1
+    assert src.count(
+        "          heights[set] = await snapshotWorld(ctx, origin, `${set} world at ${width}px`);\n"
+        "          await ctx.close();\n"
+        "        }\n"
+        "        snapshots.set(width, heights);\n") == 1
     assert "reportLines([...findings.values()], stale, failures, snapshots)" in src

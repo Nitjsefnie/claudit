@@ -74,7 +74,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { API, FIXTURES, serve, WIDTHS } from './panel_server.mjs';
-import { capturePanels, reportLines } from './panel_interactions_report.mjs';
+import { reportLines, snapshotWorld } from './panel_interactions_report.mjs';
 
 // Defects this guard FOUND on panels that predate it, each filed as its
 // own issue rather than fixed here — the same ledger shape panel_layout
@@ -499,6 +499,7 @@ async function main() {
   const payloads = { base, ...variantsFrom(base) };
 
   const server = await serve();
+  const origin = 'http://127.0.0.1:' + server.address().port + '/';
   const browser = await chromium.launch();
   let failures = 0;
   const findings = new Map();
@@ -543,13 +544,7 @@ async function main() {
             viewport: { width, height: 1000 },
           });
           await ctx.route('**/api/**', routeTo(set));
-          const page = await ctx.newPage();
-          await page.goto('http://127.0.0.1:' + server.address().port + '/',
-            { waitUntil: 'load' });
-          await page.waitForSelector('[data-panel]', { timeout: 60_000 })
-            .catch(() => { });
-          await page.waitForTimeout(1_500);
-          heights[set] = await page.evaluate(capturePanels);
+          heights[set] = await snapshotWorld(ctx, origin, `${set} world at ${width}px`);
           await ctx.close();
         }
         snapshots.set(width, heights);
@@ -629,8 +624,7 @@ async function main() {
       }
       await ctx.addInitScript(INSTALL);
       const page = await ctx.newPage();
-      await page.goto('http://127.0.0.1:' + server.address().port + '/',
-        { waitUntil: 'load' });
+      await page.goto(origin, { waitUntil: 'load' });
       await page.waitForSelector('[data-panel]', { timeout: 60_000 })
         .catch(() => { });
       await page.waitForTimeout(1_500);

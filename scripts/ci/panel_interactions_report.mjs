@@ -1,4 +1,6 @@
-// The interaction guard's height snapshot and its final log, pure for node.
+// The interaction guard's height snapshot and its final log.
+import { fontFamilies } from './cdn_route.mjs';
+import { settleDashboard, trackLayoutRequests } from './layout_waits.mjs';
 
 // Runs in the page through page.evaluate, so it may reference nothing outside.
 export function capturePanels() {
@@ -27,6 +29,32 @@ export function capturePanels() {
     });
     return [...entry, rows.map(row => row.trim()).filter(Boolean), regions];
   });
+}
+
+export function listFontFaces() {
+  return [...document.fonts].map(face => ({ family: face.family, status: face.status }));
+}
+
+export function fontsNotLoaded(faces, families) {
+  return families.filter(family => {
+    const own = faces.filter(face => face.family === family);
+    return !own.some(face => face.status === 'loaded')
+      || own.some(face => face.status === 'error');
+  });
+}
+
+export async function snapshotWorld(context, url, world) {
+  const page = await context.newPage();
+  trackLayoutRequests(page);
+  await page.goto(url, { waitUntil: 'load' });
+  await settleDashboard(page, 60_000);
+  // A failed stylesheet leaves document.fonts empty and ready, so ask the faces.
+  const missing = fontsNotLoaded(await page.evaluate(listFontFaces), fontFamilies);
+  if (missing.length) {
+    throw new Error(`infrastructure: ${world}: webfont ${missing.join(', ')} did not load, `
+      + 'so its heights would measure a fallback font, not a height-growth verdict');
+  }
+  return page.evaluate(capturePanels);
 }
 
 const MAX_ROWS = 40, MAX_REGIONS = 40, MAX_ROW_CHARS = 240, MAX_LABEL_CHARS = 100;
@@ -73,8 +101,10 @@ export function reportLines(findings, stale, failures, snapshots) {
     for (const width of widths) {
       const pick = set => snapshots.get(width)?.[set]
         .findLast(([n]) => n === f.panel);
-      blocks.push([`HEIGHT      ${f.panel} at ${width}px`,
-        ...describeHeightGrowth(pick('two'), pick('many'))]);
+      let block;
+      try { block = describeHeightGrowth(pick('two'), pick('many')); }
+      catch (error) { block = [`  snapshot unusable: ${error.message}`]; }
+      blocks.push([`HEIGHT      ${f.panel} at ${width}px`, ...block]);
     }
   }
   for (const f of stale) {
