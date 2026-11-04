@@ -1,12 +1,10 @@
-"""Cross-run artifact downloads name their triggering run."""
+"""Cross-run downloads."""
 from __future__ import annotations
 
 from tests.workflow_checks import WORKFLOWS, workflow_by_name as _load
 
 
 def test_every_cross_run_download_names_the_triggering_run():
-    # Without run-id a download step reads THIS workflow's run, never the
-    # triggering run's: every workflow_run download takes the event's id.
     swept = 0
     for path in sorted(WORKFLOWS.glob("*.yml")):
         doc = _load(path.name)
