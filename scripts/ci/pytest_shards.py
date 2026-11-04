@@ -54,10 +54,10 @@ def artifact_os(name: str) -> str:
     prefix = "pytest-junit-"
     cell, sep, shard = name.removeprefix(prefix).rpartition("-shard-")
     os_name, divider, version = cell.rpartition("-")
-    if (not name.startswith(prefix) or not sep or not divider or not os_name
-            or not shard.isdecimal() or int(shard) < 1
-            or len(version.split(".")) < 2
-            or not all(part.isdecimal() for part in version.split("."))):
+    parts = version.split(".")
+    valid_version = len(parts) >= 2 and all(part.isdecimal() for part in parts)
+    valid_shard = shard.isdecimal() and int(shard) > 0
+    if not all((name.startswith(prefix), sep, divider, os_name, valid_version, valid_shard)):
         raise ValueError(f"unparseable report directory: {name}")
     return os_name
 
@@ -85,6 +85,17 @@ def record(reports: Path, files: list[tuple[str, int]], run_id: str) -> dict:
         for os_name, totals in durations.items()}}
 
 
+def write_record(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Record a downloaded run, reporting invalid input as a usage error."""
+    if not args.run_id or args.output is None:
+        parser.error("--record requires --run-id and --output")
+    try:
+        result = record(args.record, discover(), args.run_id)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+    args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+
 def main() -> None:
     """Print shard assignments or record portable test durations."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -100,13 +111,7 @@ def main() -> None:
     if (args.weights is None) != (args.os is None):
         parser.error("--weights and --os must be used together")
     if args.record is not None:
-        if not args.run_id or args.output is None:
-            parser.error("--record requires --run-id and --output")
-        try:
-            result = record(args.record, discover(), args.run_id)
-        except (OSError, ValueError) as exc:
-            parser.error(str(exc))
-        args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8", newline="\n")
+        write_record(parser, args)
         return
     if args.run_id or args.output:
         parser.error("--run-id and --output require --record")
@@ -133,7 +138,7 @@ def main() -> None:
             lines = sum(lines for _, lines in group)
             unit = "weight" if args.weights else "lines"
             print(f"shard {index}: {len(group)} files, {lines} {unit}")
-    elif args.shard is not None:
+    else:
         print(" ".join(path for path, _ in groups[args.shard - 1]))
 
 
