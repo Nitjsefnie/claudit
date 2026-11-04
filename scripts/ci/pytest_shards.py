@@ -96,6 +96,19 @@ def write_record(parser: argparse.ArgumentParser, args: argparse.Namespace) -> N
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 
+def load_weighted(parser: argparse.ArgumentParser, files: list[tuple[str, int]],
+                  table: Path, os_name: str | None) -> list[tuple[str, int]]:
+    """Load the selected OS weights and apply them to discovered files."""
+    weights = json.loads(table.read_text(encoding="utf-8"))["weights"]
+    if os_name not in weights:
+        parser.error(f"no weights for OS {os_name}; regenerate the table")
+    try:
+        result = weighted(files, weights[os_name])
+    except ValueError as exc:
+        parser.error(str(exc))
+    return result
+
+
 def main() -> None:
     """Print shard assignments or record portable test durations."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -125,20 +138,14 @@ def main() -> None:
     if not files:
         parser.error("tests/ contains no test_*.py files")
     if args.weights is not None:
-        weights = json.loads(args.weights.read_text(encoding="utf-8"))["weights"]
-        if args.os not in weights:
-            parser.error(f"no weights for OS {args.os}; regenerate the table")
-        try:
-            files = weighted(files, weights[args.os])
-        except ValueError as exc:
-            parser.error(str(exc))
+        files = load_weighted(parser, files, args.weights, args.os)
     groups = partition(files, args.of)
     if args.table:
         for index, group in enumerate(groups, start=1):
             lines = sum(lines for _, lines in group)
             unit = "weight" if args.weights else "lines"
             print(f"shard {index}: {len(group)} files, {lines} {unit}")
-    else:
+    elif args.shard is not None:
         print(" ".join(path for path, _ in groups[args.shard - 1]))
 
 
