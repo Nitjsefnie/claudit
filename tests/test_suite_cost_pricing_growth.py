@@ -65,13 +65,15 @@ def _measure(copy: Path) -> dict:
     owner are one tree, so an injection-timing regression cannot read a
     shared original document behind the comparison's back."""
     out = copy / "m.json"
+    socket_dir = copy / "no-pg-socket"
+    socket_dir.mkdir()
     result = subprocess.run(  # pylint: disable=subprocess-run-check
         [sys.executable, str(copy / "scripts" / "ci" / "suite_bench.py"),
          "--write", str(out),
          "--repo-root", str(copy),
          "--fixture", str(copy / "bench_files.txt")],
-        cwd=str(copy), env=dict(os.environ), capture_output=True,
-        text=True, check=False, timeout=600)
+        cwd=str(copy), env=dict(os.environ, PGHOST=str(socket_dir)),
+        capture_output=True, text=True, check=False, timeout=600)
     assert result.returncode == 0, result.stderr
     return json.loads(out.read_text(encoding="utf-8"))
 
