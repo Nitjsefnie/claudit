@@ -22,6 +22,7 @@
     "upstage/solar-pro-3"
   ],
   "notices": [
+    "alternating price: kimi-k3 via Sail Research: the listed rates equal the entry from 2026-11-04T07:00:31Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe'",
     "claude-haiku-4-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us'",
     "claude-haiku-4-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us-east5'",
@@ -164,7 +165,7 @@
     "kimi-k3 via Parasail: rule-resolved (unique quantization): took the fp4 endpoint 'parasail/fp4' over service tiers",
     "kimi-k3 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
     "kimi-k3 via Wafer: rule-resolved (bare namespace): took the bare namespace endpoint 'wafer' over service tiers 'wafer/fast'",
-    "kimi-k3-1-pro via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/mxfp4'; dropped 'inference-net/mxfp4/us'",
+    "kimi-k3-1-pro via InferenceNet: rule-resolved (unique quantization): took the mxfp4 endpoint 'inference-net/mxfp4' over service tiers",
     "kimi-k3-1-pro via Moonshot AI: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
     "minimax-m2-1 via Minimax: rule-resolved (bare namespace): took the bare namespace endpoint 'minimax' over service tiers 'minimax/highspeed'",
     "minimax-m2-5 via Minimax: rule-resolved (bare namespace): took the bare namespace endpoint 'minimax' over service tiers 'minimax/highspeed'",
@@ -246,8 +247,8 @@
     "tag 'deepinfra/fp8/priority' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra",
     "tag 'fireworks/fast' names neither a known region nor a quantization: glm-5-3 via Fireworks, kimi-k3 via Fireworks",
     "tag 'fireworks/spot' names neither a known region nor a quantization: deepseek-v4-1-flash via Fireworks, deepseek-v4-1-flash-1017 via Fireworks, glm-5-3 via Fireworks, kimi-k3 via Fireworks",
-    "tag 'inference-net/fast' names neither a known region nor a quantization: kimi-k3 via InferenceNet",
-    "tag 'inference-net/us/fast' names neither a known region nor a quantization: kimi-k3 via InferenceNet",
+    "tag 'inference-net/fast' names neither a known region nor a quantization: kimi-k3 via InferenceNet, kimi-k3-1-pro via InferenceNet",
+    "tag 'inference-net/us/fast' names neither a known region nor a quantization: kimi-k3 via InferenceNet, kimi-k3-1-pro via InferenceNet",
     "tag 'minimax/highspeed' names neither a known region nor a quantization: minimax-m2-1 via Minimax, minimax-m2-5 via Minimax, minimax-m2-7 via Minimax",
     "tag 'mistral/zdr' names neither a known region nor a quantization: glm-5-2 via Mistral, glm-5-3 via Mistral",
     "tag 'moonshotai/highspeed' names neither a known region nor a quantization: kimi-k2-7-code via Moonshot AI, kimi-k3-1-pro via Moonshot AI",
@@ -567,7 +568,8 @@
     ],
     "glm-5-3": [
       "Io Net",
-      "OpenInference"
+      "OpenInference",
+      "Tenstorrent"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
