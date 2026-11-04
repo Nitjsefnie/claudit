@@ -442,7 +442,7 @@ jobs:
         shell: bash
         timeout-minutes: 15
         run: |
-          files=$(python scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 2)
+          files=$(python scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 2 --weights scripts/ci/pytest_shard_weights.json --os ${{ matrix.os }})
           # shellcheck disable=SC2086
           exec python -m pytest $files -q --tb=short -ra -m "not db" -o faulthandler_timeout=240 --durations=20 --junitxml=pytest-junit.xml
 
