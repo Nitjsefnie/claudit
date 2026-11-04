@@ -388,8 +388,7 @@
     "glm-5-3": {
       "BaseTen": "2 endpoints at one current price",
       "InferenceNet": "2 endpoints at one current price",
-      "Mistral": "2 endpoints selected",
-      "Sail Research": "2 endpoints at one current price"
+      "Mistral": "2 endpoints selected"
     },
     "glm-5-3-flash": {
       "BaseTen": "2 endpoints at one current price",
