@@ -93,13 +93,12 @@ numbers in a workflow. Module size is gated by the
   to its records.
 - Comment share: `.github/workflows/comment-share.yml` runs the pinned
   `Nitjsefnie-Actions/comment-ratchet` action on every pull request,
-  checking against the records at its base, and tightens on every
-  `master` push. The action measures tracked Python, JavaScript/TypeScript,
-  YAML, shell and SQL files at a 15% target; only files above it carry
+  checking against the records at its base. The action measures tracked
+  Python, JavaScript/TypeScript, YAML, shell and SQL files at a 15% target;
+  only files above it carry
   exact `[comment bytes, non-whitespace bytes]` records in
-  `.github/comment-share.json`. Tighten writes the checkout's records;
-  `.github/workflows/ratchet-push.yml` lands the tightened records on
-  `master`. Keep the action pinned and its records separate from
+  `.github/comment-share.json`. Pull requests carry tightened records
+  for changed files. Keep the action pinned and its records separate from
   `.github/ci-thresholds.json`.
 - Suite cost (`suite_cost`): per-phase instruction counts (millions of
   bytecode instructions, one decimal; phases `collection`, `run`,
@@ -187,12 +186,9 @@ numbers in a workflow. Module size is gated by the
   measures and the JS gate's `toFixed(1)` reads. The document is
   always the loader's canonical bytes; never hand-edit it.
 - The bot's raise/tighten commit on master touches only
-  `.github/ci-thresholds.json` or `.github/comment-share.json`.
-  `ci-gate.yml` and `version-guard.yml` ignore both paths so data-only
-  commits restart neither the suite nor the version guard. The `comment
-  share` workflow deliberately runs on every master push, including a
-  ratchet data push; unchanged records stage no artifact and start no
-  further push.
+  `.github/ci-thresholds.json`. `ci-gate.yml` and `version-guard.yml`
+  ignore that path so the data-only commit restarts neither the suite nor
+  the version guard.
 
 ## Tests never pin repository-managed data (SV-TEST-DATA)
 
