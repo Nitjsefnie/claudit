@@ -83,7 +83,8 @@ FONTS = r"""
   const extra = 'https://fonts.gstatic.com/s/fixture/v1/latin-ext.woff2';
   const faces = [...preloads, extra];
   const sheet = list => list.map(url => `@font-face{src:url(${url}) format('woff2')}`).join('\n');
-  const woff2Css = sheet([...faces, preloads[0]]);
+  // Omits one preload, which then reaches the cache only through index.html.
+  const woff2Css = sheet([preloads[1], extra, preloads[1]]);
   const ttfCss = sheet(['https://fonts.gstatic.com/s/fixture/v1/face.ttf']);
   const calls = new Map(), agents = [], waits = [], unmodelled = [];
   const bytes = url => Buffer.from(`face ${url} é`);
