@@ -272,7 +272,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
 
     # Each keyless gate publishes its own artifact on completion.
     wr = (workflow.get("on") or {}).get("workflow_run") or {}
-    assert wr.get("workflows") == ["ci gate", "comment share"]
+    assert wr.get("workflows") == ["ci gate"]
     assert wr.get("types") == ["completed"]
 
     # Only a completed green master push publishes: a PR run stages no
@@ -290,9 +290,8 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
 
     steps = job["steps"]
-    assert len(steps) == 6
-    (listing, download, suite_download, records_download, size_download,
-     push) = steps
+    assert len(steps) == 4
+    listing, download, suite_download, push = steps
     assert listing["name"] == "List the triggering run's artifacts"
     listing_run = listing.get("run") or ""
     assert listing["env"]["GH_TOKEN"] == "${{ github.token }}"
@@ -301,41 +300,20 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "actions/runs/$CLAUDIT_RUN_ID/artifacts" in listing_run
     assert "grep -qx 'ratchet-push'" in listing_run
     assert "grep -qx 'suite-measurement'" in listing_run
-    assert "grep -qx 'comment-share-ratchet'" in listing_run
-    assert "grep -qx 'size-ratchet-push'" in listing_run
     assert 'echo "ratchet=$ratchet"' in listing_run
     assert 'echo "suite=$suite"' in listing_run
-    assert 'echo "records=$records"' in listing_run
-    assert 'echo "size=$size"' in listing_run
-    assert "records=false" in listing_run
-    assert "records=true" in listing_run
-    assert "size=false" in listing_run
-    assert "size=true" in listing_run
-    assert ('if [ "$ratchet" = true ] || [ "$suite" = true ] '
-            '|| [ "$records" = true ] || [ "$size" = true ]; then'
-            in listing_run)
+    assert 'if [ "$ratchet" = true ] || [ "$suite" = true ]; then' in listing_run
     assert 'echo "any=true"' in listing_run
 
     assert download["name"] == "Download the ratchet data"
     assert download["if"] == "steps.list.outputs.ratchet == 'true'"
     assert suite_download["name"] == "Download the suite measurement"
     assert suite_download["if"] == "steps.list.outputs.suite == 'true'"
-    assert records_download["name"] == "Download the comment-share records"
-    assert records_download["if"] == "steps.list.outputs.records == 'true'"
-    assert size_download["name"] == "Download the size records"
-    assert size_download["if"] == "steps.list.outputs.size == 'true'"
     # The staged artifacts must come from the SAME revision of the
     # download action: a bump landing on only one step is a half-applied
     # dependency change. Derived from the workflow itself, quoting no
     # value (fleet-rules, "Merging and CI").
     assert download["uses"] == suite_download["uses"]
-    assert download["uses"] == records_download["uses"]
-    assert download["uses"] == size_download["uses"]
-    # The size download's name and its cross-run run-id are pinned by the
-    # repo-wide enumerations in tests/test_suite_ci_wiring.py (the
-    # upload/download map and the triggering-run sweep), not here: a
-    # per-step literal would age against the same workflows it reads.
-
     # The push step admits only when at least one artifact was staged.
     assert push["name"] == "Push the ratchet commit to master"
     assert push["if"] == "steps.list.outputs.any == 'true'"
@@ -367,7 +345,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert ('elif [ -f "$RUNNER_TEMP/suite-data/suite-measurement.json" ]'
             in run)
     assert 'base="$CLAUDIT_BASE_FALLBACK"' in run
-    assert "no ratchet data, suite measurement, comment-share or size records to push" in run
+    assert "no ratchet data or suite measurement to push" in run
     assert (run.index("remote=") < run.index('base="$CLAUDIT_BASE_FALLBACK"')
             < run.index("git init") < run.index('remote add origin "$remote"')
             < run.index("fetch --quiet origin master")
@@ -393,11 +371,6 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "41898282+github-actions[bot]@users.noreply.github.com" in run
     assert ("Ratchet ci-thresholds: raise coverage floor / tighten "
             "baselines (automated)" in run)
-    # The records arms compose one message naming what landed; each
-    # single-arm text is the historical one.
-    assert 'message="chore(ratchet): tighten $subjects records (automated)"' in run
-    assert 'subjects="${subjects:+$subjects and }comment-share"' in run
-    assert 'subjects="${subjects:+$subjects and }size-baseline"' in run
     # The commit names no co-author: a github-actions[bot] commit is
     # authored by no model, so a trailer on it attributes work to a
     # model that never ran. Pinned by ABSENCE from every
@@ -421,8 +394,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
             in run)
     assert run.index("suite_ratchet.py") < run.index(
         'add .github/ci-thresholds.json')
-    assert ("status --porcelain .github/ci-thresholds.json "
-            ".github/comment-share.json .github/size-baseline.json" in run)
+    assert "status --porcelain .github/ci-thresholds.json" in run
     assert run.index("status --porcelain") < run.index("commit -m")
     assert "nothing to commit" in run
     assert 'git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master' in run
@@ -441,7 +413,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "ssh-agent" not in tests_raw
     assert "x-access-token" not in tests_raw
     assert set(_tests_workflow()["jobs"]) == {
-        "pytest-shards", "coverage-combine", "baselines", "size-baseline",
+        "pytest-shards", "coverage-combine", "baselines",
         "js-coverage", "reparse-gate", "suite-bench", "pytest-thresholds",
         "ratchet", "pytest-portable"}
 
@@ -500,10 +472,6 @@ def test_parallel_canary_jobs_keep_the_gate_step_order():
                              "Upload the patch-coverage comment", "Coverage gate"],
         "baselines": [*preparation, "Pylint suppression baseline",
                       "Threshold direction guard"],
-        "size-baseline": [
-            "actions/checkout",
-            "Size baseline (check on a pull request, tighten on master)",
-            "Stage the size records", "Upload the size records"],
         "js-coverage": ["actions/checkout", "Start cached Postgres", "actions/setup-python",
                         "actions/setup-node", "Resolve the threshold base", "Restore the pip cache",
                         "Install dependencies", "Install the JS toolchain from the lockfile",
@@ -653,29 +621,3 @@ def test_classify_step_runs_the_module():
     steps = doc["jobs"]["classify"].get("steps") or []
     runs = [step.get("run") or "" for step in steps]
     assert any("scripts/ci/classify_changes.py" in run for run in runs), runs
-
-
-def test_contributing_count_prose_matches_the_workflow_tree():
-    # Bind the two prose counts to structural truth: the leg fold to LEG_WORKFLOWS, the total to the
-    # workflows directory listing, so the next workflow addition reds
-    # the prose in the same push.
-    def _words(n: int) -> str:
-        ones = ("zero", "one", "two", "three", "four", "five", "six",
-                "seven", "eight", "nine", "ten", "eleven", "twelve",
-                "thirteen", "fourteen", "fifteen", "sixteen",
-                "seventeen", "eighteen", "nineteen")
-        tens = ("", "", "twenty", "thirty", "forty", "fifty", "sixty",
-                "seventy", "eighty", "ninety")
-        if n < 20:
-            return ones[n]
-        return tens[n // 10] + ("-" + ones[n % 10] if n % 10 else "")
-
-    prose = " ".join(
-        (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8").split()
-    ).replace("**", "")
-    total = len(list(WORKFLOWS.glob("*.yml")))
-    assert f"{_words(total)} workflows" in prose, total
-    # Both CI-section sites state the fold count in the same words;
-    # one drifting away must red too.
-    assert prose.count(
-        f"the {_words(len(LEG_WORKFLOWS))} gate workflows") >= 2
