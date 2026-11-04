@@ -203,31 +203,42 @@ def test_the_picker_context_deadline_never_pays_for_the_font_prefetch():
     """The prefetch is bounded by its own per-fetch timeouts; the fixture
     context's 30 s deadline starts only once the faces are in the cache."""
     out = _node(FONTS + """
+      const {default: fsp} = await import('node:fs/promises');
+      const {syncBuiltinESMExports} = await import('node:module');
+      // The fixture read is the case's only threadpool I/O; reading it synchronously
+      // arms the context deadline at a known point instead of a host-timed one.
+      fsp.readFile = async (path, ...args) => readFileSync(path, ...args);
+      syncBuiltinESMExports();
       const cases = await import('./scripts/ci/picker_cases.mjs');
-      let release, now = 0, serial = 0, opened = 0;
+      let release, now = 0, serial = 0, opened = 0, fetches = 0;
       const gate = new Promise(resolve => { release = resolve; });
-      globalThis.fetch = async (url, init) => { await gate; return serve(url, init); };
+      globalThis.fetch = async (url, init) => { fetches++; await gate; return serve(url, init); };
       const timers = new Map();
       globalThis.setTimeout = (fn, ms) => { timers.set(++serial, {fn, at: now + ms}); return serial; };
       globalThis.clearTimeout = id => timers.delete(id);
-      const turns = async () => {
-        for (let i = 0; i < 50; i++) await new Promise(resolve => setImmediate(resolve));
+      const turn = () => new Promise(resolve => setImmediate(resolve));
+      const until = async (label, done) => {
+        for (const stop = Date.now() + 20_000; !done(); await turn()) {
+          if (Date.now() > stop) throw new Error(`gave up waiting for ${label}`);
+        }
       };
       const advance = async ms => {
+        await turn();
         now += ms;
         for (const [id, timer] of [...timers]) if (timer.at <= now && timers.delete(id)) timer.fn();
-        await turns();
+        await turn();
       };
       const result = {};
       cases.runPickerCases({newContext: async () => { opened++; return new Promise(() => {}); }},
         'http://test', [], {}).catch(error => Object.assign(result, {error: error.message}));
-      await turns();
+      await until('the first font fetch', () => fetches > 0);
       await advance(31_000);
       const stalled = {...result, opened};
       release();
-      await turns();
+      await until('the fixture context or its failure', () => opened || 'error' in result);
       const fetched = {...result, opened};
       await advance(31_000);
+      await until('the fixture context deadline', () => 'error' in result);
       console.log(JSON.stringify({stalled, fetched, final: result, unmodelled}));
     """, cdn_page=False)
     assert out["stalled"] == {"opened": 0}
