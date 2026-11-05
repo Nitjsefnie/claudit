@@ -123,6 +123,8 @@ jobs:
         # the step timeout's SIGINT.
         shell: bash
         timeout-minutes: 15
+        env:
+          CLAUDIT_DEBUG_NODE_STALL: "1"
         run: |
           exec python scripts/ci/perturbed_leg_bench.py \
             --seed "${{ matrix.seed }}" \

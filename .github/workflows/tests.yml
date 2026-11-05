@@ -54,7 +54,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}"}
       - name: Run tests
-        env: {"COVERAGE_FILE": "${{ github.workspace }}/shard-coverage/.coverage.${{ matrix.shard }}"}
+        env: {"COVERAGE_FILE": "${{ github.workspace }}/shard-coverage/.coverage.${{ matrix.shard }}", "CLAUDIT_DEBUG_NODE_STALL": "1"}
         run: |
           # shellcheck disable=SC2046
           python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra --cov=backend --cov-report=
@@ -438,7 +438,7 @@ jobs:
 
       - name: Run tests
         # Bash splits the file list into arguments; exec hands pytest a POSIX step timeout's SIGINT (Windows' Ctrl-C reaches it anyway) so it writes its report.
-        env: {PGHOST: "${{ runner.temp }}"} # No socket here: fail without Windows TCP connect timeouts.
+        env: {PGHOST: "${{ runner.temp }}", CLAUDIT_DEBUG_NODE_STALL: "1"} # No socket here: fail without Windows TCP connect timeouts.
         shell: bash
         timeout-minutes: 15
         run: |

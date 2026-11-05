@@ -22,7 +22,8 @@ ESLint 10 does not read eslintrc. The contracts checked here:
   consistent bump lands green BY DESIGN, and the reviewed diff is the
   guard — a bump that moves the set arrives as a manifest diff;
 - the JS coverage gate folds V8 captures with the AST converter and reads one decimal off
-  `total.lines.pct`, against the committed javascript floor.
+  `total.lines.pct`, against the committed javascript floor;
+- every ci-gate step running node-backed tests sets tests/node_run.py's stall flag.
 
 `npm ci` is not exercised here — this file must pass with no `node_modules`
 (the pytest leg runs before either workflow installs). What CI actually
@@ -508,3 +509,19 @@ def test_js_coverage_measured_set_matches_its_derivation() -> None:
         "coverage-gate/action.yml no longer feeds scripts/ci/node_test_files.txt to pytest "
         "via $(cat ...); the pinned list no longer drives the JavaScript "
         "coverage measurement")
+
+
+# The ci-gate steps besides the coverage gate whose pytest run reaches tests/node_run.py.
+NODE_STALL_STEPS = (("tests.yml", "pytest-shards", "Run tests"),
+                    ("tests.yml", "pytest-portable", "Run tests"),
+                    ("test-data.yml", "perturbed-suite", "Perturb and test"))
+
+
+def test_every_node_backed_ci_leg_records_where_node_stalled() -> None:
+    steps = {"coverage-gate/jscov": _javascript_coverage_gate()}
+    for name, job, step_name in NODE_STALL_STEPS:
+        steps[f"{name}/{job}"], = (step for step in _workflow(name)["jobs"][job]["steps"]
+                                   if step.get("name") == step_name)
+    unset = [label for label, step in steps.items()
+             if (step.get("env") or {}).get("CLAUDIT_DEBUG_NODE_STALL") != "1"]
+    assert not unset, f"CLAUDIT_DEBUG_NODE_STALL is not '1' on {unset}"
