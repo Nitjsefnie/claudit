@@ -1096,16 +1096,16 @@
     11055
   ],
   "tests/test_ci_gate_botdata.py": [
-    1601,
-    8553
+    1582,
+    8534
   ],
   "tests/test_ci_gate_modules.py": [
     3406,
     18074
   ],
   "tests/test_ci_gate_output_wiring.py": [
-    7884,
-    19562
+    7826,
+    19504
   ],
   "tests/test_ci_thresholds_guard.py": [
     3920,
@@ -1120,8 +1120,8 @@
     7638
   ],
   "tests/test_cost_buckets.py": [
-    4275,
-    16237
+    4172,
+    16134
   ],
   "tests/test_crash_recovery.py": [
     2860,
@@ -1248,8 +1248,8 @@
     11918
   ],
   "tests/test_ingest_more.py": [
-    3935,
-    17774
+    3864,
+    17703
   ],
   "tests/test_ingest_pipeline.py": [
     1150,
@@ -1296,8 +1296,8 @@
     1975
   ],
   "tests/test_long_context_fold.py": [
-    2351,
-    12783
+    2268,
+    12700
   ],
   "tests/test_long_context_meters.py": [
     1639,
@@ -1360,12 +1360,12 @@
     13161
   ],
   "tests/test_parse_codex_pricing.py": [
-    1529,
-    5928
+    1328,
+    5727
   ],
   "tests/test_parse_kimi.py": [
-    4541,
-    20208
+    3694,
+    19361
   ],
   "tests/test_parse_kimi_more.py": [
     1149,
@@ -1376,8 +1376,8 @@
     24279
   ],
   "tests/test_parse_more.py": [
-    3546,
-    21038
+    3469,
+    20961
   ],
   "tests/test_parse_user_prompt.py": [
     605,
@@ -1432,8 +1432,8 @@
     332
   ],
   "tests/test_pricing.py": [
-    4805,
-    19386
+    4291,
+    18872
   ],
   "tests/test_pricing_compact_shape.py": [
     692,
@@ -1448,12 +1448,8 @@
     1335
   ],
   "tests/test_pricing_more.py": [
-    1026,
-    3704
-  ],
-  "tests/test_pricing_vendor.py": [
-    3209,
-    20617
+    849,
+    3527
   ],
   "tests/test_pricing_vendor_equality.py": [
     1992,
@@ -1472,12 +1468,12 @@
     1733
   ],
   "tests/test_provider_pricing.py": [
-    3684,
-    20903
+    3567,
+    20786
   ],
   "tests/test_provider_rate_refresh.py": [
-    3472,
-    20456
+    3228,
+    20212
   ],
   "tests/test_provider_rate_refresh_alternation.py": [
     738,
@@ -1624,8 +1620,8 @@
     19047
   ],
   "tests/test_suite_cost_pricing_growth.py": [
-    2240,
-    5711
+    2121,
+    5663
   ],
   "tests/test_suite_ratchet.py": [
     3343,
@@ -1688,8 +1684,8 @@
     4954
   ],
   "tests/test_version_guard.py": [
-    663,
-    3953
+    581,
+    3871
   ],
   "tests/test_web_metrics.py": [
     8077,

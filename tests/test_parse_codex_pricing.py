@@ -134,10 +134,10 @@ def test_a_gpt_5_5_codex_record_prices_through_its_own_row():
 
     rec = out["records"][0]
     assert rec["long_context"] is False
-    resolved = pricing.resolve("gpt-5.5", ts, None)  # sv-test-data: allow (derived: the pinned claim is that the dotted id resolves exact, not the default — the value the row itself carries)
+    resolved = pricing.resolve("gpt-5.5", ts, None)
     assert resolved.kind == "exact"
     metered = pricing.compute_cost(
-        "gpt-5.5", fresh=100_000, output=1_000,  # sv-test-data: allow (derived: expected priced at the record's own ts from the same loaded tables)
+        "gpt-5.5", fresh=100_000, output=1_000,
         eph5=0, eph1h=0, unsplit_create=0, read=0, ts=ts,
     )
     assert float(rec["cost_usd"]) == pytest.approx(round(metered, 6), rel=1e-9)

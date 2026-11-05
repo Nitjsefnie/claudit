@@ -25,7 +25,7 @@ from tests.refresh_fixture_builders import (_discount, _endpoint,
 from tests.node_run import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
-PRICING_JSON = ROOT / "src" / "pricing.json"  # sv-test-data: allow (catalog structure checks only; refresh histories are synthetic)
+PRICING_JSON = ROOT / "src" / "pricing.json"  # catalog structure checks only; refresh histories are synthetic
 CONSTANTS_PY = ROOT / "backend" / "constants.py"
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
 VENDOR_TABLES_JS = ROOT / "src" / "vendor-tables.js"
@@ -48,7 +48,7 @@ needs_node = pytest.mark.skipif(
 
 def _openrouter_template() -> dict:
     """Read the committed catalog configuration for synthetic endpoint shapes."""
-    return json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8"))["openrouter"]  # sv-test-data: allow (catalog configuration only; endpoint prices are synthetic)
+    return json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8"))["openrouter"]
 
 
 V41 = "deepseek-v4-1-flash"
@@ -253,8 +253,8 @@ def test_a_moved_price_prices_by_time_in_the_backend(moved_run, monkeypatch):
         monkeypatch.setattr(pricing, name, value)
     cut = datetime.fromisoformat(STAMP)
     model = "z-ai/glm-5.3-flash"
-    assert pricing.rate_for(model, cut - timedelta(seconds=1), "OpenInference") == old  # sv-test-data: allow (derived: expected values read from the run's own seeded document)
-    assert pricing.rate_for(model, cut, "OpenInference") == moved  # sv-test-data: allow (derived: expected values read from the run's own seeded document)
+    assert pricing.rate_for(model, cut - timedelta(seconds=1), "OpenInference") == old
+    assert pricing.rate_for(model, cut, "OpenInference") == moved
 
 
 @needs_node

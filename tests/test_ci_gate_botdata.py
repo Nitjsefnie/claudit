@@ -105,7 +105,7 @@ BASE = "a" * 40
 HEAD = "b" * 40
 PUSH = {"name": "push", "repository": "o/r", "before": "c" * 40, "sha": HEAD}
 # Classifier paths only; the stub below supplies synthetic file contents.
-BOT_PATHS = ["src/pricing.json", "backend/constants.py"]  # sv-test-data: allow
+BOT_PATHS = ["src/pricing.json", "backend/constants.py"]
 
 
 def _pricing_run(paths, author: str | Exception | None = BOT_EMAIL, after='PRICING_VERSION = "8"\n'):

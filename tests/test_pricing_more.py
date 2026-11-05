@@ -76,9 +76,9 @@ def test_gpt_6_1_sol_resolves_exact_distinct_from_gpt_6_sol():
     """Dotted and dashed GPT-6.1 Sol ids resolve their own exact row.
     The shorter gpt-6-sol key cannot absorb them: literal-prefix matching diverges
     at the version digit. Test exact-key resolution independently of live prices."""
-    sol = pricing.resolve("gpt-6.1-sol")  # sv-test-data: allow (structure: exact table key survives appends)
-    dashed = pricing.resolve("gpt-6-1-sol")  # sv-test-data: allow (structure: exact table key survives appends)
-    shorter = pricing.resolve("gpt-6-sol")  # sv-test-data: allow (structure: exact table key survives appends)
+    sol = pricing.resolve("gpt-6.1-sol")
+    dashed = pricing.resolve("gpt-6-1-sol")
+    shorter = pricing.resolve("gpt-6-sol")
     assert sol.kind == dashed.kind == "exact"
     assert sol.key == dashed.key == "gpt-6-1-sol"
     assert shorter.key == "gpt-6-sol"

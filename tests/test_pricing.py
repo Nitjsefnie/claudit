@@ -96,9 +96,9 @@ def test_tier_fallback_follows_the_highest_table_version(monkeypatch):
 
 
 def test_compute_cost_prices_fresh_at_the_fresh_rate():
-    fresh = pricing.rate_for("claude-opus-4-7")["fresh"]  # sv-test-data: allow (same algorithm and order: the expected term uses the loaded row's fresh rate)
+    fresh = pricing.rate_for("claude-opus-4-7")["fresh"]
     cost = pricing.compute_cost(
-        "claude-opus-4-7",  # sv-test-data: allow (same algorithm and order: both sides multiply the same rate by one token then divide by one million)
+        "claude-opus-4-7",
         fresh=1, output=0, eph5=0, eph1h=0, unsplit_create=0, read=0,
     )
     assert cost == pytest.approx(fresh / 1_000_000, rel=1e-12)
@@ -504,7 +504,7 @@ def test_free_match_survives_spelling_variants():
     # _normalise strips everything before 'claude', so only the raw-id
     # check still sees this id's stealth/ prefix — and the free match
     # must win over the claude-opus-4-8 key the normalised form hits.
-    r = pricing.resolve("stealth/claude-opus-4-8")  # sv-test-data: allow (structural: the free match must outrank a live table key)
+    r = pricing.resolve("stealth/claude-opus-4-8")
     assert (r.kind, r.rates) == ("exact", pricing.FREE_RATES)
 
 
@@ -519,14 +519,14 @@ def test_nonfree_openrouter_id_folds_to_its_tracked_bare_form():
 
 
 def test_free_matching_does_not_touch_claude_ids():
-    r = pricing.resolve("claude-opus-4-8")  # sv-test-data: allow (load-time identity: result.rates is the object stored at this loaded exact key)
+    r = pricing.resolve("claude-opus-4-8")
     assert r.kind == "exact"
     assert r.rates is pricing._list_rates("claude-opus-4-8")  # pylint: disable=protected-access
 
 
 def test_bonsai_resolves_exact_and_prices_by_its_own_row():
     """The local model remains an exact match routed to its own table row."""
-    r = pricing.resolve("bonsai-2-27b")  # sv-test-data: allow (load-time identity: the result must reference the existing bonsai table entry)
+    r = pricing.resolve("bonsai-2-27b")
     assert (r.kind, r.key) == ("exact", "bonsai-2-27b")
-    own = pricing.rate_for("bonsai-2-27b")  # sv-test-data: allow (load-time identity: all three references point to one loaded row object)
+    own = pricing.rate_for("bonsai-2-27b")
     assert own is r.rates is pricing.MODEL_RATES["bonsai-2-27b"]
