@@ -109,7 +109,6 @@ def test_sanitization_always_runs_and_package_setup_is_optional():
     assert "pgdg.list" in install["run"]
     assert "ACCC4CF8.asc" in install["run"]
     assert "gpg --dearmor" in install["run"]
-    assert "DEBIAN_FRONTEND=noninteractive apt-get install" in install["run"]
 
 
 def _bound(tokens: list[str]) -> int:
@@ -153,6 +152,9 @@ def test_composite_bounds_download_and_every_apt_retry_loop():
         tokens = loop["tokens"]
         assert tokens[:2] == ["sudo", "timeout"]
         assert tokens[tokens.index("apt-get") + 1] == operation
+        if flag == "--no-download":  # the dpkg-running command
+            assert tokens[3:tokens.index("apt-get")] == [
+                "env", "DEBIAN_FRONTEND=noninteractive"]
         assert loop["timeout"] > 0
         assert loop["attempts"] == 3
         for bound in bounds:
