@@ -427,7 +427,7 @@ jobs:
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}", "restore-keys": "pip-${{ runner.os }}-${{ matrix.python-version }}-\n"}
 
       - name: Install dependencies
-        # One line: the default pwsh shell on windows-latest propagates only the last line's exit code.
+        shell: bash
         run: "scripts/ci/retry.sh pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh python -m pip install --upgrade pip -r backend/requirements.txt -r requirements-test.txt"
 
       # Saved here, not in a post-job step, so the cache is written only from a master push, by one shard per key.
