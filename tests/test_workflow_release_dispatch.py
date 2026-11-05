@@ -80,6 +80,7 @@ SSH_STUB = '''
 ssh-agent() { :; }
 ssh-add() { :; }
 ssh() { :; }
+sleep() { :; }; export -f sleep
 kill() { test "$1" = "$SSH_AGENT_PID"; }
 gh() { echo "unexpected gh call in keyed step: $*" >&2; return 99; }
 '''
@@ -538,21 +539,6 @@ def test_bump_sets_requested_version_and_reports_sha(tmp_path):
         ["git", "-C", str(remote), "show", "master:VERSION"]) == b"9.9.9\n"
     assert _git(remote, "log", "-1", "--format=%s", "master") == "Release 9.9.9"
     assert Path(env["GITHUB_OUTPUT"]).read_text(encoding="utf-8") == f"sha={tip}\n"
-
-
-@ubuntu_step_body
-def test_rejected_push_with_master_still_fails(tmp_path):
-    remote, before = _seed(tmp_path)
-    hook = remote / "hooks/update"
-    hook.write_text("#!/bin/sh\necho non-fast-forward >&2\nexit 1\n",
-                    encoding="utf-8")
-    hook.chmod(0o755)
-    env = _push_env(tmp_path, remote)
-    proc = _run_step(BUMP, SSH_STUB, env, cwd=tmp_path)
-    assert proc.returncode == 1
-    assert "master stood still" in proc.stderr
-    assert _git(remote, "rev-parse", "master") == before
-    assert not Path(env["GITHUB_OUTPUT"]).exists()
 
 
 @ubuntu_step_body

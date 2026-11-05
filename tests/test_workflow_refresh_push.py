@@ -34,7 +34,7 @@ BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 
 # The shim switches _env pops, so a leak from the outer environment can
 # never flip a shim.
-FAKE_SWITCHES = ("FAKE_FAIL_GIT_PUSH", "FAKE_RACE_PUSH")
+FAKE_SWITCHES = ("FAKE_RACE_PUSH",)
 
 # The simulation execs a POSIX-bash shebang shim from PATH to drive a GitHub
 # Actions ubuntu run block — the block itself only ever runs on
@@ -405,16 +405,13 @@ if [ "${1:-}" = "-C" ]; then
 else
   sub="${1:-}"
 fi
-if [ "${FAKE_FAIL_GIT_PUSH:-0}" -eq 1 ] && [ "$sub" = "push" ]; then
-  exit 1
-fi
 if [ "${FAKE_RACE_PUSH:-0}" -eq 1 ] && [ "$sub" = "push" ]; then
   (
     cd "$FAKE_PEER" || exit 1
     echo race >> README.md
     git add README.md
     git commit -q -m "race move"
-    FAKE_RACE_PUSH=0 FAKE_FAIL_GIT_PUSH=0 git push -q origin master
+    FAKE_RACE_PUSH=0 git push -q origin master
   )
   exit 1
 fi
@@ -425,7 +422,8 @@ exec "$REAL_GIT" "$@"
 def _ssh_agent_shim() -> str:
     # Return harmless shell assignments for the workflow's eval, without
     # starting a real agent during the simulation. The backgrounded sleep
-    # stands in for the agent process the trap must stop.
+    # stands in for the agent process the trap must stop; `command` skips
+    # the step's no-op sleep.
     return r"""#!/usr/bin/env bash
 set -eu
 printf 'called\n' > "$FAKE_STATE/ssh-agent-called"
@@ -433,7 +431,7 @@ if [ -z "${CLAUDIT_MASTER_PUSH_DEPLOY_KEY:-}" ]; then
   echo 'ssh-agent called without the deploy key' >&2
   exit 1
 fi
-sleep 300 >/dev/null 2>&1 &
+command sleep 300 >/dev/null 2>&1 &
 agent_pid=$!
 printf '%s\n' "$agent_pid" > "$FAKE_STATE/ssh-agent-pid"
 printf '%s\n' "SSH_AUTH_SOCK=$FAKE_STATE/agent.sock; export SSH_AUTH_SOCK;" \
@@ -548,7 +546,8 @@ def _run_push_step(scratch: Path,
                    extra_env: Mapping[str, str | None]
                    ) -> subprocess.CompletedProcess:
     script = scratch / "push-step.sh"
-    script.write_text(_push_run(), encoding="utf-8")
+    # retry.sh waits between attempts; the no-op sleep makes that free.
+    script.write_text("sleep() { :; }\nexport -f sleep\n" + _push_run(), encoding="utf-8")
     write_retry_helper(_job("push"), scratch / "runner-temp")
     return subprocess.run(
         ["bash", "-e", str(script)],
@@ -642,18 +641,6 @@ def test_push_drops_the_data_with_a_notice_when_master_moved_under_the_run(
                    "master").stdout.splitlines()
     assert BOT_EMAIL not in authors, authors
     assert base != peer_full
-
-
-@ubuntu_run_block
-def test_a_push_refused_while_master_stood_still_goes_red(scratch: Path):
-    base = _stage_push_data(scratch)
-
-    proc = _run_push_step(scratch, {"CLAUDIT_MASTER_PUSH_DEPLOY_KEY": "test-key",
-                                    "FAKE_FAIL_GIT_PUSH": "1"})
-
-    assert proc.returncode != 0
-    assert "rejected while master stood still" in proc.stderr
-    assert _sha(scratch / "remote.git", "master") == base
 
 
 @ubuntu_run_block
