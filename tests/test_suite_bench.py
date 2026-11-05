@@ -544,8 +544,7 @@ def test_measure_releases_the_monitoring_tool_id(mini_suite):
 def test_measurement_records_the_workload_identity(mini_suite):
     # The seed binds a budget to the workload it measured: the
     # measurement records the total line count of the scanned tree,
-    # tests/*.py, which the tree-scanning tests spend per-line over
-    # (SV-CI-RATCHETS).
+    # tests/*.py (SV-CI-RATCHETS).
     (mini_suite / "tests").mkdir()
     (mini_suite / "tests" / "sub").mkdir()
     (mini_suite / "tests" / "a.py").write_text("x = 1\n", encoding="utf-8")
