@@ -90,7 +90,7 @@ jobs:
         # that URL serves at run time.
         run: |
           tarball="actionlint_${CLAUDIT_ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          curl -fsSL --retry 3 -o "$tarball" \
+          curl -fsSL --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors -o "$tarball" \
             "https://github.com/${CLAUDIT_ACTIONLINT_REPO}/releases/download/v${CLAUDIT_ACTIONLINT_VERSION}/${tarball}"
           echo "${CLAUDIT_ACTIONLINT_SHA256}  ${tarball}" | sha256sum -c -
           tar -xzf "$tarball" actionlint
