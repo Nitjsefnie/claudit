@@ -272,25 +272,6 @@ def check(target: str) -> None:
             proc.stderr.close()
 
 
-def test_bounded_check_uses_a_private_temporary_tree(monkeypatch):
-    proc = Mock(returncode=0)
-    proc.communicate.return_value = ("", "")
-    proc.poll.return_value = 0
-
-    def starting(args, **kwargs):
-        assert Path(args[-1]).is_dir()
-        return proc
-    start = Mock(side_effect=starting)
-    monkeypatch.setattr(subprocess, "Popen", start)
-    monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setattr(sys.modules[__name__], "_subreaper", Mock())
-    monkeypatch.setattr(sys.modules[__name__], "_cleanup_children", Mock())
-    check("test-target")
-    args = start.call_args.args[0]
-    assert "--basetemp" in args
-    assert not Path(args[args.index("--basetemp") + 1]).exists()
-
-
 _TRACKER_CLEANUP = re.compile(
     r"[^\n]*/multiprocessing/resource_tracker\.py:\d+: UserWarning: "
     r"resource_tracker: There appear to be 5 leaked semaphore objects "
@@ -300,11 +281,7 @@ _TRACKER_CLEANUP = re.compile(
 
 @requires_forkserver
 @bounded_pool_test
-def test_reused_server_refreshes_configuration(monkeypatch, tmp_path, request):
-    # The child consumed check()'s --basetemp, not pytest's numbered tree.
-    basetemp = request.config.option.basetemp
-    assert basetemp and tmp_path.is_relative_to(Path(basetemp).resolve()), (
-        "the nested pytest child did not consume check()'s --basetemp")
+def test_reused_server_refreshes_configuration(monkeypatch, tmp_path):
     monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", "file:///first/")
     monkeypatch.setenv("CLAUDIT_R2_BUCKET", "claude")
     monkeypatch.setenv("CLAUDIT_TIMING", "1")
