@@ -40,7 +40,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install postgresql-client
-        timeout-minutes: 5
+        timeout-minutes: 10
         uses: $/.github/actions/apt-install
         with:
           packages: postgresql-client-16
@@ -314,7 +314,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install postgresql-client
-        timeout-minutes: 5
+        timeout-minutes: 10
         uses: $/.github/actions/apt-install
         with:
           packages: postgresql-client-16

@@ -97,7 +97,7 @@ jobs:
             pip-${{ runner.os }}-3.15-
 
       - name: Install postgresql-client
-        timeout-minutes: 5
+        timeout-minutes: 10
         uses: $/.github/actions/apt-install
         with:
           packages: postgresql-client-16
