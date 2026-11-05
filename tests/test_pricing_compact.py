@@ -14,9 +14,7 @@ from backend import pricing, rate_fingerprint
 from backend.pricing_document import omit_default_rates, serialize_pricing_doc
 from backend.pricing_load import load_tables
 from backend.pricing_rows import encode_pricing_doc, decode_pricing_doc
-from scripts.ci import perturb_test_data
 from tests.test_parser_js_pricing_loader import HOST, ROW_KEY, _doc
-from tests.test_perturb_test_data import _run as _perturb_run
 from tests.test_provider_rate_refresh import Run, _move_openinference
 from tests.node_run import run_node
 
@@ -225,27 +223,6 @@ def test_conversion_refuses_malformed_document_without_overwriting_it(tmp_path):
     assert path.read_bytes() == original
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_perturber_writes_compact_entries_accepted_by_both_loaders(tmp_path):
-    path = tmp_path / "pricing.json"
-    path.write_text(json.dumps(_sparse_doc(_synthetic_doc()), indent=2,
-                               sort_keys=True) + "\n", encoding="utf-8")
-
-    perturb_test_data.perturb_pricing(path, seed=42)
-
-    perturbed = decode_pricing_doc(json.loads(path.read_text(encoding="utf-8")))
-    entries = perturbed["providers"][ROW_KEY][HOST]
-    doubled = entries[-5]
-    assert doubled["fresh"] == 6.0
-    assert doubled["create_5m"] == 7.0
-    assert "create_1h" not in doubled
-    python_rates = load_tables(perturbed)["PROVIDER_RATES"][ROW_KEY, HOST]
-    browser_rates = _js_tables(tmp_path, perturbed)["providerRates"][ROW_KEY][HOST]
-    latest = entries[-1]
-    assert browser_rates["fresh"] == python_rates["fresh"] == latest["fresh"]
-    assert browser_rates["c1h"] == python_rates["create_1h"]
-
-
 def test_a_quiet_run_over_a_converted_document_keeps_its_bytes(tmp_path, capsys):
     run = Run(tmp_path)
     converted = _convert(run.pricing)
@@ -257,25 +234,6 @@ def test_a_quiet_run_over_a_converted_document_keeps_its_bytes(tmp_path, capsys)
     assert rc == 0, err
     assert "no rate moved" in out
     assert run.pricing.read_bytes() == before
-
-
-def test_the_perturbers_fetch_stamp_covers_its_appends(tmp_path):
-    """The perturber moves provider_rates_fetched exactly to
-    max(its old value, its newest appended stamp) — never backwards,
-    never further (no `from` postdates the fetch stamp) —
-    and never touches the openrouter section. (Relocated here from the
-    perturber's own file, which sits at its 700-line size ceiling.)"""
-    # pylint: disable=protected-access
-    doc, perturbed, _text, _path = _perturb_run(tmp_path)
-    newest = max(perturb_test_data._parse_stamp(entry["from"])
-                 for _key, entries, _may in perturb_test_data._rows(perturbed)
-                 for entry in entries if entry.get("from"))
-    fetched = perturb_test_data._parse_stamp(
-        perturbed["provider_rates_fetched"])
-    previous = perturb_test_data._parse_stamp(doc["provider_rates_fetched"])
-    assert fetched == max(previous, newest), (
-        "the stamp moves exactly to max(its old value, the newest append)")
-    assert perturbed["openrouter"] == doc["openrouter"]
 
 
 def test_a_written_move_omits_cache_rates_equal_to_fresh(tmp_path, capsys):

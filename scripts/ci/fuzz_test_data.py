@@ -41,17 +41,8 @@ from typing import cast
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-# pylint: disable=wrong-import-position,unused-import
-import fuzz_sharding  # noqa: E402  (sibling import, not a package)
-from fuzz_sharding import (  # noqa: E402  (re-exported for the tests)
-    _collect_shards,
-    _git,
-    _run_sharded,
-    _shard_refusal,
-    _shards,
-    _snapshot_tree,
-    install_interrupt_handlers,
-)
+# pylint: disable=wrong-import-position
+from fuzz_sharding import _git, _run_sharded, install_interrupt_handlers  # noqa: E402  (sibling, not a package)
 from backend import pricing  # noqa: E402
 from backend.pricing_rows import decode_pricing_doc, flatten_provider_history  # noqa: E402
 from backend.pricing_document import serialize_pricing_doc  # noqa: E402
@@ -330,11 +321,9 @@ def _print_summary(seed: int, results: list[dict]) -> None:
           f"rows touched per iteration: {counts}")
 
 
-def main(argv: list[str] | None = None,
-         repo_root: Path | None = None) -> int:
-    """The operator's entry point: fuzz, run the suite per iteration,
-    report. `repo_root` is the tests' seam — the operator's invocation
-    always fuzzes the tree this script lives in."""
+def main(argv: list[str] | None = None) -> int:
+    """The operator's entry point: fuzz the tree this script lives in,
+    run the suite per iteration, report."""
     parser = argparse.ArgumentParser(
         prog="fuzz_test_data",
         description="Fuzz SV-TEST-DATA: per iteration, restore "
@@ -382,7 +371,7 @@ def main(argv: list[str] | None = None,
     seed = (args.seed if args.seed is not None
             else int(datetime.now(timezone.utc).timestamp()))
     artifact_dir = args.artifact_dir.resolve()
-    root = repo_root if repo_root is not None else REPO_ROOT
+    root = REPO_ROOT
     _require_clean_pricing(root)
     baseline = (root / PRICING_REL).read_bytes()
     restore_handlers = install_interrupt_handlers()
