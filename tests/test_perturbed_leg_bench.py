@@ -348,9 +348,10 @@ def test_an_interrupt_reaches_pytest_and_the_measurement_is_still_written(
     assert junit.exists() == (child == "interrupted")
 
 
-def test_the_interrupt_grace_ends_before_the_runners_sigterm():
+def test_the_interrupt_grace_leaves_the_bench_time_to_write_before_sigterm():
     # The runner sends SIGTERM 7.5 s after the step-timeout SIGINT; Popen.wait first waits 0.25 s.
-    assert bench.INTERRUPT_GRACE_S + 0.25 < 7.5
+    write_s = 1.0
+    assert bench.INTERRUPT_GRACE_S + 0.25 + write_s <= 7.5
 
 
 @POSIX
