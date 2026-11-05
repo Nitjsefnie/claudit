@@ -18,10 +18,10 @@ Inherits CLAUDIT_THRESHOLDS_BASE_REV; absent means no removal exemptions.
   statistics, one collect-only warm-up pass BEFORE the counted window,
   ``PYTHONHASHSEED=0`` by re-exec: repeated runs in one state are
   identical.
-  WHAT THE COUNT IS NOT INDEPENDENT OF IS THE TREE CONTENT the pinned
-  tests scan: the fixture's tree-scanning tests spend per-line over
-  ``tests/``, so a tests/-tree change moves the counts with no fixture,
-  interpreter or machine change. A budget therefore describes ONE
+  WHAT THE COUNT IS NOT INDEPENDENT OF IS THE TREE CONTENT it runs:
+  the pinned files, the conftest and their helpers live under
+  ``tests/``, so a tests/-tree change can move the counts with no
+  fixture, interpreter or machine change. A budget therefore describes ONE
   workload, and every measurement and seed records the workload
   identity ``tests_tree_lines`` (the tests/*.py line total), which the
   gate names when a reading against it has drifted (SV-CI-RATCHETS).

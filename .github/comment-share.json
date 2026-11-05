@@ -732,8 +732,8 @@
     10386
   ],
   "scripts/ci/suite_bench.py": [
-    6474,
-    12294
+    6467,
+    12287
   ],
   "scripts/ci/suite_phases.py": [
     4539,
@@ -1692,8 +1692,8 @@
     10599
   ],
   "tests/test_suite_bench.py": [
-    5588,
-    19902
+    5543,
+    19803
   ],
   "tests/test_suite_cost_pricing_growth.py": [
     2240,

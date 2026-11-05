@@ -1,19 +1,14 @@
 # The suite bench's pinned fixture: the test files whose instruction
 # counts the speed gate budgets, one path per line, relative to the repo
-# root. Chosen so the counts measure the suite's SHARED machinery --
-# the conftest every module loads, the scratch-DB layer, the db/portable
-# split -- and the CI-infrastructure tests an ordinary product pull
-# request does not touch, plus one DB-exercising file so the
-# database path is counted too. Editing this list removes the suite_cost
-# member in the same change (declared with Thresholds-Removed:
-# suite_cost=definition); the ratchet bot re-seeds the family from the
-# first green master push (suite_ratchet.py takes its seed path on an
-# absent family): the counts are budgets for THIS workload, not for
-# whatever list follows.
-tests/test_scratch_db.py
-tests/test_db_marker.py
+# root. Chosen so the counts measure the suite's SHARED machinery -- the
+# conftest every module loads -- and the VERSION and CI-infrastructure
+# tests an ordinary product pull request does not touch. Editing this
+# list removes the suite_cost member in the same change (declared with
+# Thresholds-Removed: suite_cost=definition); the ratchet bot re-seeds the
+# family from the first green master push (suite_ratchet.py takes its seed
+# path on an absent family): the counts are budgets for THIS workload, not
+# for whatever list follows.
 tests/test_version.py
-tests/test_git_meta.py
 tests/test_ci_thresholds.py
 tests/test_ci_thresholds_guard.py
 tests/test_ci_ratchets.py
@@ -21,4 +16,3 @@ tests/test_ci_suppression_baseline.py
 tests/test_ci_gate_modules.py
 tests/test_ci_classify_verified_base.py
 tests/test_ci_gate_botdata.py
-tests/test_no_pinned_version_literals.py

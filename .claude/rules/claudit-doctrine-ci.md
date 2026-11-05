@@ -123,10 +123,10 @@ numbers in a workflow. Module size is gated by the
   environment-sensitive, so a non-runner seed would gate runners red.
   The interpreter micro is pinned in the
   workflows that run the bench. The budgets are BOUND TO THE WORKLOAD
-  THEY MEASURED: the fixture's tree-scanning tests (the db-marker
-  derivation, the version-literal guard, the scratch-DB scan) spend
-  per-line over ``tests/``, so a change to that tree's content moves
-  the counts with no fixture, interpreter or machine change. Every
+  THEY MEASURED: the fixture's files, the conftest and the helpers they
+  import all live under ``tests/``, so a change to that tree's content
+  can move the counts with no fixture-list, interpreter or machine
+  change. Every
   measurement records the workload identity `tests_tree_lines` (the
   tests/*.py line total) whenever its tree has one, and a seed writes
   it beside the budgets when its reading carries it; the gate names a

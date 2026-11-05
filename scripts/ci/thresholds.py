@@ -101,10 +101,10 @@ BASELINE_MEMBERS = ('pylint_suppression_baseline',)
 SUITE_COST_FAMILY = 'suite_cost'
 SUITE_COST_PHASES = ('collection', 'run', 'residual')
 # The workload identity the seed binds its budgets to: the total line
-# count of the scanned tree (tests/*.py), which the fixture's
-# tree-scanning tests spend per-line over. A change to that tree moves
-# the counts with no fixture or interpreter change, so a budget without
-# it describes a workload no run can confirm.
+# count of tests/*.py, the tree holding the fixture and the code it
+# loads. A change to that tree can move the counts with no fixture or
+# interpreter change, so a budget without it describes a workload no
+# run can confirm.
 SUITE_COST_IDENTITY = 'tests_tree_lines'
 SUITE_COST_UNIT = 'million_instructions'
 _SUITE_COST_FIELDS = ('measured', 'floor')
