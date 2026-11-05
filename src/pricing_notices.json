@@ -9,6 +9,10 @@
     "anthropic/claude-mythos-5-1",
     "anthropic/claude-opus-4",
     "anthropic/claude-sonnet-4",
+    "minimax/minimax-01",
+    "minimax/minimax-m2",
+    "minimax/minimax-m2-her",
+    "minimax/minimax-m2.1",
     "openai/gpt-3.5-turbo",
     "openai/gpt-3.5-turbo-instruct",
     "openai/gpt-4-turbo",
@@ -74,7 +78,7 @@
     "deepseek-v4-pro-0813 via Parasail: rule-resolved (unique quantization): took the fp8 endpoint 'parasail/fp8' over service tiers",
     "deepseek-v4-pro-0813 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
     "deepseek-v4-pro-0813 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
-    "delisted from OpenRouter's catalog; row kept, not fetched: claude-3-5-haiku- (anthropic/claude-3-5-haiku), claude-3-5-sonnet- (anthropic/claude-3-5-sonnet), claude-3-7-sonnet- (anthropic/claude-3-7-sonnet), claude-3-haiku- (anthropic/claude-3-haiku), claude-3-opus- (anthropic/claude-3-opus), claude-mythos-5 (anthropic/claude-mythos-5), claude-mythos-5-1 (anthropic/claude-mythos-5-1), claude-opus-4 (anthropic/claude-opus-4), claude-sonnet-4 (anthropic/claude-sonnet-4), gpt-3-5-turbo (openai/gpt-3.5-turbo), gpt-3-5-turbo-instruct (openai/gpt-3.5-turbo-instruct), gpt-4-turbo (openai/gpt-4-turbo), o1 (openai/o1), o1-pro (openai/o1-pro), o3-mini (openai/o3-mini), o3-mini-high (openai/o3-mini-high), o4-mini (openai/o4-mini), o4-mini-high (openai/o4-mini-high), solar-pro-3 (upstage/solar-pro-3), stealth/space-bunny-alpha (stealth/space-bunny-alpha)",
+    "delisted from OpenRouter's catalog; row kept, not fetched: claude-3-5-haiku- (anthropic/claude-3-5-haiku), claude-3-5-sonnet- (anthropic/claude-3-5-sonnet), claude-3-7-sonnet- (anthropic/claude-3-7-sonnet), claude-3-haiku- (anthropic/claude-3-haiku), claude-3-opus- (anthropic/claude-3-opus), claude-mythos-5 (anthropic/claude-mythos-5), claude-mythos-5-1 (anthropic/claude-mythos-5-1), claude-opus-4 (anthropic/claude-opus-4), claude-sonnet-4 (anthropic/claude-sonnet-4), gpt-3-5-turbo (openai/gpt-3.5-turbo), gpt-3-5-turbo-instruct (openai/gpt-3.5-turbo-instruct), gpt-4-turbo (openai/gpt-4-turbo), minimax-01 (minimax/minimax-01), minimax-m2 (minimax/minimax-m2), minimax-m2-1 (minimax/minimax-m2.1), minimax-m2-her (minimax/minimax-m2-her), o1 (openai/o1), o1-pro (openai/o1-pro), o3-mini (openai/o3-mini), o3-mini-high (openai/o3-mini-high), o4-mini (openai/o4-mini), o4-mini-high (openai/o4-mini-high), solar-pro-3 (upstage/solar-pro-3), stealth/space-bunny-alpha (stealth/space-bunny-alpha)",
     "glm-4-6 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
     "glm-4-7 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
     "glm-5 via Venice: rule-resolved (stored price continuity): kept the endpoint 'venice/fp8' at the row's price; assumes the tracked endpoint did not reprice this hour",
@@ -168,9 +172,6 @@
     "kimi-k3-1-pro via InferenceNet: rule-resolved (unique quantization): took the mxfp4 endpoint 'inference-net/mxfp4' over service tiers",
     "kimi-k3-1-pro via Moonshot AI: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
     "kimi-k3-1-pro via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
-    "minimax-m2-1 via Minimax: rule-resolved (bare namespace): took the bare namespace endpoint 'minimax' over service tiers 'minimax/highspeed'",
-    "minimax-m2-5 via Minimax: rule-resolved (bare namespace): took the bare namespace endpoint 'minimax' over service tiers 'minimax/highspeed'",
-    "minimax-m2-7 via Minimax: rule-resolved (bare namespace): took the bare namespace endpoint 'minimax' over service tiers 'minimax/highspeed'",
     "minimax-m3 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex'",
     "minimax-m3-1-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/fp4/us'",
     "moonshotai/kimi-k2.7-code: stale pin tag 'moonshotai/int4' is not listed; listed tags: 'moonshotai', 'moonshotai/highspeed'; selecting as unpinned; rule-resolved past a stale pin; selected 'moonshotai'; the bare-tag rule took the bare vendor endpoint 'moonshotai'",
@@ -250,7 +251,6 @@
     "tag 'fireworks/spot' names neither a known region nor a quantization: deepseek-v4-1-flash via Fireworks, deepseek-v4-1-flash-1017 via Fireworks, glm-5-3 via Fireworks, kimi-k3 via Fireworks",
     "tag 'inference-net/fast' names neither a known region nor a quantization: kimi-k3 via InferenceNet, kimi-k3-1-pro via InferenceNet",
     "tag 'inference-net/us/fast' names neither a known region nor a quantization: kimi-k3 via InferenceNet, kimi-k3-1-pro via InferenceNet",
-    "tag 'minimax/highspeed' names neither a known region nor a quantization: minimax-m2-1 via Minimax, minimax-m2-5 via Minimax, minimax-m2-7 via Minimax",
     "tag 'mistral/zdr' names neither a known region nor a quantization: glm-5-2 via Mistral, glm-5-3 via Mistral",
     "tag 'moonshotai/highspeed' names neither a known region nor a quantization: kimi-k2-7-code via Moonshot AI, kimi-k3-1-pro via Moonshot AI",
     "tag 'openai/default' names neither a known region nor a quantization: gpt-5 via OpenAI",
@@ -263,7 +263,7 @@
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, deepseek/deepseek-chat, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-chat-v3.1, deepseek/deepseek-r1-0528, deepseek/deepseek-v3.1-terminus, deepseek/deepseek-v3.2, deepseek/deepseek-v3.2-exp, deepseek/deepseek-v4-flash, deepseek/deepseek-v4-flash-0731, deepseek/deepseek-v4-flash-vision-exp, deepseek/deepseek-v4-pro, deepseek/deepseek-v4.1-flash, google/gemini-2.5-flash, google/gemini-2.5-flash-lite, google/gemini-2.5-pro, google/gemini-2.5-pro-preview, google/gemini-3-flash-preview, google/gemini-3.1-flash-lite, google/gemini-3.1-flash-lite-preview, google/gemini-3.1-pro-preview, google/gemini-3.1-pro-preview-customtools, google/gemini-3.5-flash, google/gemini-3.5-flash-lite, google/gemini-3.6-flash, google/gemini-3.7-flash, google/gemini-3.8-flash, google/gemini-4-argon, google/gemma-2-27b-it, google/gemma-3-12b-it, google/gemma-3-27b-it, google/gemma-3-4b-it, google/gemma-4-26b-a4b-it, google/gemma-4-31b-it, meta-llama/llama-3.1-70b-instruct, meta-llama/llama-3.1-8b-instruct, meta-llama/llama-3.2-1b-instruct, meta-llama/llama-3.2-3b-instruct, meta-llama/llama-3.3-70b-instruct, meta-llama/llama-4-maverick, meta-llama/llama-4-scout, meta-llama/llama-guard-4-12b, meta/muse-glimmer-30b, meta/muse-spark-open, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, nvidia/nemotron-3-nano-30b-a3b, nvidia/nemotron-3-super-120b-a12b, nvidia/nemotron-3-ultra-550b-a55b, nvidia/nemotron-3.5-content-safety, nvidia/nemotron-3.5-lightning, nvidia/nemotron-3.5-super-vl, openai/gpt-3.5-turbo-0613, openai/gpt-3.5-turbo-16k, openai/gpt-4, openai/gpt-4.1-nano, openai/gpt-4o-2024-05-13, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-chat, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, stepfun/step-3.5-flash, tencent/hunyuan-a13b-instruct, tencent/hy3-preview, xiaomi/mimo-v2.5, xiaomi/mimo-v2.5-pro, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
+    "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, deepseek/deepseek-chat, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-chat-v3.1, deepseek/deepseek-r1-0528, deepseek/deepseek-v3.1-terminus, deepseek/deepseek-v3.2, deepseek/deepseek-v3.2-exp, deepseek/deepseek-v4-flash, deepseek/deepseek-v4-flash-0731, deepseek/deepseek-v4-flash-vision-exp, deepseek/deepseek-v4-pro, deepseek/deepseek-v4.1-flash, google/gemini-2.5-flash, google/gemini-2.5-flash-lite, google/gemini-2.5-pro, google/gemini-2.5-pro-preview, google/gemini-3-flash-preview, google/gemini-3.1-flash-lite, google/gemini-3.1-flash-lite-preview, google/gemini-3.1-pro-preview, google/gemini-3.1-pro-preview-customtools, google/gemini-3.5-flash, google/gemini-3.5-flash-lite, google/gemini-3.6-flash, google/gemini-3.7-flash, google/gemini-3.8-flash, google/gemini-4-argon, google/gemma-2-27b-it, google/gemma-3-12b-it, google/gemma-3-27b-it, google/gemma-3-4b-it, google/gemma-4-26b-a4b-it, google/gemma-4-31b-it, meta-llama/llama-3.1-70b-instruct, meta-llama/llama-3.1-8b-instruct, meta-llama/llama-3.2-1b-instruct, meta-llama/llama-3.2-3b-instruct, meta-llama/llama-3.3-70b-instruct, meta-llama/llama-4-maverick, meta-llama/llama-4-scout, meta-llama/llama-guard-4-12b, meta/muse-glimmer-30b, meta/muse-spark-open, minimax/minimax-m1, minimax/minimax-m2.5, minimax/minimax-m2.7, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, nvidia/nemotron-3-nano-30b-a3b, nvidia/nemotron-3-super-120b-a12b, nvidia/nemotron-3-ultra-550b-a55b, nvidia/nemotron-3.5-content-safety, nvidia/nemotron-3.5-lightning, nvidia/nemotron-3.5-super-vl, openai/gpt-3.5-turbo-0613, openai/gpt-3.5-turbo-16k, openai/gpt-4, openai/gpt-4.1-nano, openai/gpt-4o-2024-05-13, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-chat, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, stepfun/step-3.5-flash, tencent/hunyuan-a13b-instruct, tencent/hy3-preview, xiaomi/mimo-v2.5, xiaomi/mimo-v2.5-pro, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -540,7 +540,6 @@
     "deepseek-v4-flash-0731": [
       "Fireworks",
       "Makora",
-      "Nebius",
       "NextBit",
       "OpenInference",
       "Together"
@@ -619,11 +618,15 @@
     "mimo-v2-6-pro": [
       "Novita"
     ],
-    "minimax-m2": [
-      "Google"
+    "minimax-m1": [
+      "Minimax"
     ],
     "minimax-m2-5": [
-      "Friendli"
+      "Friendli",
+      "Minimax"
+    ],
+    "minimax-m2-7": [
+      "Minimax"
     ],
     "minimax-m3": [
       "Ambient",
