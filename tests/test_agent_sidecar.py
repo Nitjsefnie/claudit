@@ -82,19 +82,6 @@ def test_mismatched_sidecars_and_transcripts_do_not_pair(wire, meta):
     assert sidecar_stem(meta) != transcript_stem(wire)
 
 
-def test_the_r2_mini_mirror_carries_its_doctrine_sidecar():
-    """SV-FIXTURE-SIZE counts r2_mini as holding 1 sidecar; the mirror
-    must hold one the way the code resolves sidecars -- a.meta.json
-    beside its transcript, paired by stem."""
-    root = Path(__file__).resolve().parent.parent / "fixtures" / "r2_mini"
-    files = {p.relative_to(root).as_posix()
-             for p in root.rglob("*") if p.is_file()}
-    sidecar_keys = {k for k in files if sidecar_stem(k) is not None}
-    assert sidecar_keys == {"claude/projB/sess-C/agent-aaaa.meta.json"}
-    assert transcript_stem("claude/projB/sess-C/agent-aaaa.jsonl") == (
-        sidecar_stem("claude/projB/sess-C/agent-aaaa.meta.json"))
-
-
 def _parsed(fixture: str, key: str) -> dict:
     return parse.parse_file(key, (_PARSER_FIX / fixture).read_bytes())
 

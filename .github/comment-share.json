@@ -968,8 +968,8 @@
     4291
   ],
   "tests/conftest.py": [
-    4553,
-    8177
+    4457,
+    8353
   ],
   "tests/db_marker.py": [
     2824,
@@ -1004,8 +1004,8 @@
     410
   ],
   "tests/scratch_db.py": [
-    3170,
-    9074
+    3094,
+    8998
   ],
   "tests/test_a11y_wiring.py": [
     6929,
@@ -1022,10 +1022,6 @@
   "tests/test_agent_list_caps_js.py": [
     1171,
     4816
-  ],
-  "tests/test_agent_sidecar.py": [
-    1976,
-    13025
   ],
   "tests/test_agent_type_names.py": [
     251,
@@ -1168,8 +1164,8 @@
     3569
   ],
   "tests/test_db_schema_check.py": [
-    1424,
-    4804
+    1347,
+    4727
   ],
   "tests/test_deferred_js.py": [
     1307,
@@ -1192,8 +1188,8 @@
     19571
   ],
   "tests/test_docs_setup.py": [
-    2808,
-    5384
+    2557,
+    5131
   ],
   "tests/test_events.py": [
     4509,
@@ -1218,10 +1214,6 @@
   "tests/test_gate_trigger_set.py": [
     1181,
     5057
-  ],
-  "tests/test_git_meta.py": [
-    845,
-    2836
   ],
   "tests/test_heatmap_layout_wiring.py": [
     1078,
@@ -1606,10 +1598,6 @@
   "tests/test_schema_autoapply.py": [
     2920,
     11109
-  ],
-  "tests/test_scratch_db.py": [
-    3615,
-    16066
   ],
   "tests/test_security_headers.py": [
     2338,

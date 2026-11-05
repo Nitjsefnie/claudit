@@ -14,8 +14,7 @@ from backend import db
 from tests import scratch_db
 
 # Roles are cluster-global, so the name must be run-unique to never
-# collide with a concurrent suite on the same server. (Prefix avoids the
-# scratch_db NAME_ROOT — the guard forbids test code naming test DBs.)
+# collide with a concurrent suite on the same server.
 _ROLE = f"claudit_chk_role_{scratch_db.RUN_TAG}"
 
 

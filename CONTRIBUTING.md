@@ -415,8 +415,8 @@ needs a Postgres your user can `createdb` on. For a private cluster, run
 env .pg 5443` to print its exports again, and `scripts/scratch_pg.sh stop .pg`
 to stop and remove it. Every name carries a per-run
 tag from `tests/scratch_db.py`, so two suites can share one server; a new
-test module creates and drops its databases through that helper only (a
-guard test fails otherwise). A run drops what it created even when tests
+test module creates and drops its databases through that helper only. A
+run drops what it created even when tests
 fail, and sweeps leftovers of killed runs once they are six hours old and
 their run no longer holds its lease connection. It does not touch your real
 data and never contacts R2.

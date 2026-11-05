@@ -56,9 +56,7 @@ os.environ.setdefault("CLAUDIT_COOKIE_SECURE", "0")
 # teardown that drops it — producing failures in unrelated tests.
 os.environ["CLAUDIT_WARM_CACHE"] = "0"
 
-# The seam's own env name, spelled once here. (Not CLAUDIT_TEST_NOW: the
-# scratch-DB guard forbids test sources naming claudit_test*, strings
-# included.)
+# The seam's own env name, spelled once here.
 TEST_NOW_ENV = "SEAM_NOW"
 
 

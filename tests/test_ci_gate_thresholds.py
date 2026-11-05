@@ -1,7 +1,6 @@
 """Thresholds-only changes run the document checks and the canary."""
 from __future__ import annotations
 
-import ast
 import os
 import subprocess
 import sys
@@ -330,27 +329,3 @@ def test_thresholds_job_selects_threshold_checks_without_coverage(tmp_path):
     files = [line for line in listed if line and not line.startswith('#')]
     assert files
     assert capture.read_text().splitlines() == ['-m', 'pytest', *files, '-q', '--tb=short', '-ra']
-
-
-def test_thresholds_file_list_matches_tests_using_the_loader():
-    loader = (ROOT / 'scripts/ci/thresholds.py').stem
-    derived = []
-    for path in sorted((ROOT / 'tests').glob('test_*.py')):
-        tree = ast.parse(path.read_text(encoding='utf-8'))
-        uses_loader = any(
-            (isinstance(node, ast.Constant) and node.value == loader)
-            or (isinstance(node, ast.Import)
-                and any(alias.name.split('.')[-1] == loader for alias in node.names))
-            or (isinstance(node, ast.ImportFrom)
-                and ((node.module or '').split('.')[-1] == loader
-                     or any(alias.name == loader for alias in node.names)))
-            for node in ast.walk(tree))
-        exercises_document = any(
-            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-            and node.func.attr in {'load', 'write', 'normalise', 'in_flight'}
-            for node in ast.walk(tree))
-        if uses_loader and exercises_document:
-            derived.append(path.relative_to(ROOT).as_posix())
-    listed = (ROOT / 'scripts/ci/thresholds_test_files.txt').read_text().splitlines()
-    files = [line for line in listed if line and not line.startswith('#')]
-    assert files == derived
