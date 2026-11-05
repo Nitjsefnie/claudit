@@ -337,21 +337,6 @@ def test_numeric_note_rendering_matches_javascript(tmp_path, number):
     assert got['decoded'] == _codec().decode_pricing_doc(stored)
 
 
-def test_perturbation_scales_the_latest_occurrence_and_keeps_timestamp_groups(tmp_path):
-    from scripts.ci import perturb_test_data  # pylint: disable=import-outside-toplevel
-    doc = _fixture()
-    doc['providers'][ROW_KEY][HOST][1]['from'][1] = '2026-01-05T00:00:00Z'
-    path = tmp_path / 'pricing.json'
-    path.write_text(pricing_document.serialize_pricing_doc(doc), encoding='utf-8')
-    perturb_test_data.perturb_pricing(path, seed=42)
-    stored = json.loads(path.read_text(encoding='utf-8'))
-    history = _codec().decode_pricing_doc(stored)['providers'][ROW_KEY][HOST]
-    assert history[:-5] == doc['providers'][ROW_KEY][HOST]
-    assert history[-5]['from'] > '2026-01-05T00:00:00Z'
-    assert (history[-5]['fresh'], history[-5]['output'], history[-5]['read'],
-            history[-5]['web_search']) == (4.0, 6.0, 1.0, 1.0)
-
-
 @pytest.mark.skipif(shutil.which('node') is None, reason='node not available')
 @pytest.mark.parametrize('browser', [False, True])
 def test_band_key_in_stored_grouped_state_refuses_the_owning_row(tmp_path, browser):

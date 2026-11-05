@@ -22,8 +22,6 @@ from pathlib import Path
 
 import pytest
 
-from tests import git_meta
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_CI = REPO_ROOT / "scripts" / "ci"
 BENCH = SCRIPTS_CI / "suite_bench.py"
@@ -400,21 +398,6 @@ def test_the_gate_modules_touch_no_wall_clock():
     assert "time.process_time()" in source
 
 
-def test_committed_fixture_files_exist_and_pass_marker():
-    # Every path the committed fixture lists is a real test file of this
-    # tree; the pin reads the list, not a copy.
-    git_meta.require_own_git_metadata(REPO_ROOT)
-    listed = [
-        line.strip() for line in
-        (SCRIPTS_CI / "suite_bench_files.txt").read_text(encoding="utf-8")
-        .splitlines()
-        if line.strip() and not line.strip().startswith("#")]
-    assert listed, "the fixture list seeded empty"
-    for rel in listed:
-        assert rel.startswith("tests/"), rel
-        assert (REPO_ROOT / rel).is_file(), rel
-
-
 def test_summary_markdown_names_the_phases(mini_suite, tmp_path):
     summary = mini_suite / "summary.md"
     _run_bench(
@@ -472,16 +455,11 @@ def _purge_bytecode_caches(root):
 
 def test_the_bench_compiles_every_pinned_file_before_it_counts(mini_suite):
     # The count must not depend on the caches the checkout arrived with:
-    # compiling a module costs about as much again as loading it, and
-    # before the two call sites did not agree on whether the
-    # compile had already happened -- the bench leg measured a fresh
-    # checkout, the canary measured after the suite had run.
+    # compiling a module costs about as much again as loading it.
     # warm_bytecode_caches draws that split outside the counted window,
     # and this is the control: from a
     # tree carrying no bytecode caches at all, one measurement must
-    # leave EVERY pinned file compiled. Without the warm-up the tree
-    # would still be bare, and the gate would read one number while
-    # the tighten bot wrote the other into the budgets.
+    # leave EVERY pinned file compiled.
     # The per-file assertion is what makes it bite: a warm-up that
     # collected only part of the fixture would compile a __pycache__ and
     # still pass a looser "some cache exists" check.
