@@ -13,7 +13,6 @@ import locale
 import os
 from pathlib import Path
 import time
-import tokenize
 from typing import Any, Literal, Never, cast
 
 
@@ -81,21 +80,8 @@ class SourceArtifacts:
     """Lazy preprocessing for an exact string; clients must not mutate ASTs."""
 
     source: str
-    _tokens: tuple[tokenize.TokenInfo, ...] | _Failure | None = field(
-        default=None, init=False, repr=False)
     _trees: dict[_TreeKey, ast.AST | _Failure] = field(
         default_factory=dict, init=False, repr=False)
-
-    def tokens(self) -> tuple[tokenize.TokenInfo, ...]:
-        if self._tokens is None:
-            try:
-                self._tokens = tuple(tokenize.generate_tokens(
-                    io.StringIO(self.source).readline))
-            except (tokenize.TokenError, SyntaxError) as error:
-                self._tokens = _Failure.capture(error)
-        if isinstance(self._tokens, _Failure):
-            self._tokens.raise_for()
-        return self._tokens
 
     def tree(self, *, filename: str = "<unknown>", mode: str = "exec",
              type_comments: bool = False,

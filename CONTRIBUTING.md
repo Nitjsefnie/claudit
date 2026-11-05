@@ -413,13 +413,12 @@ The suite creates and drops its own `claudit_test_run_*` databases, so it
 needs a Postgres your user can `createdb` on. For a private cluster, run
 `eval "$(scripts/scratch_pg.sh start .pg 5443)"`; use `scripts/scratch_pg.sh
 env .pg 5443` to print its exports again, and `scripts/scratch_pg.sh stop .pg`
-to stop and remove it. Every name carries a per-run
-tag from `tests/scratch_db.py`, so two suites can share one server; a new
-test module creates and drops its databases through that helper only. A
-run drops what it created even when tests
-fail, and sweeps leftovers of killed runs once they are six hours old and
-their run no longer holds its lease connection. It does not touch your real
-data and never contacts R2.
+to stop and remove it. Every name carries a per-run tag from
+`tests/scratch_db.py`, so two suites can share one server; a new test module
+creates and drops its databases through that helper only. A run drops what
+it created even when tests fail, and sweeps leftovers of killed runs once
+they are six hours old and their run no longer holds its lease connection.
+It does not touch your real data and never contacts R2.
 
 Two tests are worth knowing about before you touch pricing:
 
