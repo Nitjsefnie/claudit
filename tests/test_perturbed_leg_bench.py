@@ -241,7 +241,10 @@ def test_the_leg_runs_one_seed_and_shard_per_matrix_job():
     assert (strategy.get("matrix") or {}).get("seed") == [
         "42", "1234567890", "1720000000"], strategy
     assert strategy["matrix"].get("shard") == ["1", "2", "3", "4"]
-    assert job["timeout-minutes"] == "25"
+    assert job["timeout-minutes"] == "35"
+    # The job outlasts its bounded steps summed, with room for the unbounded ones.
+    assert sum(int(step["timeout-minutes"]) for step in job["steps"]
+               if "timeout-minutes" in step) < int(job["timeout-minutes"])
     assert job["name"] == (
         "perturbed suite (seed ${{ matrix.seed }}, shard ${{ matrix.shard }} of 4)")
     save, = [step for step in job["steps"] if step.get("name") == "Save the pip cache"]
