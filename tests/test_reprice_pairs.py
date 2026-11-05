@@ -51,10 +51,7 @@ UTC = timezone.utc
 _MOVED_RATES = {"fresh": 8.5, "create_5m": 10.625, "create_1h": 17.0,
                 "read": 0.85, "output": 42.5}
 
-# The second pair of the moved-pair test, bound like _SEED_MODEL: the
-# pinned-version guard flags a string constant naming a live rate row
-# inside a pricing call, but a module constant passed as a variable is
-# the sanctioned shape (SV-TEST-DATA).
+# The second pair of the moved-pair test, bound like _SEED_MODEL.
 _B_PAIR_MODEL = "claude-sonnet-4-5"
 
 

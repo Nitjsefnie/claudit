@@ -1440,8 +1440,8 @@
     1660
   ],
   "tests/test_perturb_test_data.py": [
-    4402,
-    24236
+    4301,
+    24135
   ],
   "tests/test_picker_fit_js.py": [
     4535,
@@ -1580,12 +1580,12 @@
     8358
   ],
   "tests/test_reprice_differential.py": [
-    6224,
-    18831
+    6069,
+    18676
   ],
   "tests/test_reprice_pairs.py": [
-    6574,
-    23593
+    6422,
+    23441
   ],
   "tests/test_reprice_parity.py": [
     5075,

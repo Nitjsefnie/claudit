@@ -507,10 +507,7 @@ def test_a_future_newest_stamp_still_bounds_its_row(tmp_path):
 
 
 def _real_pricing_text() -> str:
-    """The committed document's text, to perturb on a tmp copy.
-
-    A function-local bind: the SV-TEST-DATA guard's path-bind shape
-    flags only module-level binds of the committed path."""
+    """The committed document's text, to perturb on a tmp copy."""
     return (ROOT / "src" / "pricing.json").read_text(encoding="utf-8")
 
 
