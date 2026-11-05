@@ -211,10 +211,15 @@ def _threshold_commands(tmp_path):
         fake.write_text(
             '#!/bin/sh\n'
             'printf "%s %s\\n" "${0##*/}" "$*" >> "$CALLS"\n'
-            'if [ "$1" = fetch ]; then exit 0; fi\n'
+            'if [ "$1" = fetch ]; then\n'
+            '  [ "$(grep -c "^git fetch" "$CALLS")" -gt "${FETCH_FAILURES:-0}" ]; exit\n'
+            'fi\n'
             'printf "%s\\n" "$RESOLVED"\n'
             'if [ "$1" = scripts/ci/threshold_base.py ]; then exit "$RESOLVER_STATUS"; fi\n')
         fake.chmod(0o755)
+    sleep = tmp_path / 'sleep'
+    sleep.write_text('#!/bin/sh\nprintf "sleep %s\\n" "$*" >> "$CALLS"\n')
+    sleep.chmod(0o755)
 
 
 def _threshold_base_action():
@@ -311,6 +316,33 @@ def test_threshold_base_resolved_before_tests_and_shared(event, status, expected
         f'python3 scripts/ci/thresholds_guard.py --base {tmp_path}/base-thresholds.json '
         f'--head .github/ci-thresholds.json --base-rev {expected} --head-rev HEAD',
     ] if expected else [])
+
+
+BASE_FETCH = 'git fetch --no-tags https://github.com/o/r.git refs/heads/master'
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='the canary runs under POSIX Bash')
+@pytest.mark.parametrize('failures,expected_calls', [
+    (1, [BASE_FETCH, 'sleep 5', BASE_FETCH, 'git merge-base HEAD FETCH_HEAD']),
+    (3, [BASE_FETCH, 'sleep 5', BASE_FETCH, 'sleep 10', BASE_FETCH]),
+])
+def test_threshold_base_fetch_retries_transient_failures(failures, expected_calls, tmp_path):
+    resolver = _threshold_base_action()['runs']['steps'][0]
+    _threshold_commands(tmp_path)
+    exported, calls = tmp_path / 'env', tmp_path / 'calls'
+    env = dict(os.environ, PATH=f'{tmp_path}{os.pathsep}{os.environ["PATH"]}',
+               CLAUDIT_EVENT='pull_request', CLAUDIT_REPO='o/r', CLAUDIT_BASE_REF='master',
+               RESOLVED='a' * 40, FETCH_FAILURES=str(failures),
+               GITHUB_ENV=str(exported), CALLS=str(calls))
+    result = subprocess.run(['bash', '-e', '-c', resolver['run']], cwd=ROOT,
+                            env=env, check=False, capture_output=True, text=True)
+    assert calls.read_text().splitlines() == expected_calls
+    if failures < 3:
+        assert result.returncode == 0, result.stderr
+        assert exported.read_text() == f'CLAUDIT_THRESHOLDS_BASE_REV={"a" * 40}\n'
+    else:
+        assert result.returncode != 0
+        assert not exported.exists()
 
 
 @pytest.mark.skipif(os.name == 'nt', reason='the canary runs under POSIX Bash')
