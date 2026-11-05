@@ -549,11 +549,13 @@ class TestRefreshPricingShards:
         refresh_jobs = _workflow_jobs("refresh-pricing.yml")
         steps = refresh_jobs["push"]["steps"]
         assert [step["name"] for step in steps] == [
-            "Download the tested data", "Push the tested tree to master"
+            "Write a copy of scripts/ci/retry.sh", "Download the tested data",
+            "Push the tested tree to master"
         ]
-        run = steps[1]["run"]
+        run = steps[2]["run"]
         assert 'if [ -z "${CLAUDIT_MASTER_PUSH_DEPLOY_KEY:-}" ]; then' in run
-        assert 'fetched="$(git ls-remote "$remote" refs/heads/master | cut -f1)"' in run
+        assert ('fetched="$("$RUNNER_TEMP/retry.sh" git ls-remote "$remote" '
+                'refs/heads/master | cut -f1)"' in run)
         assert 'if [ "$fetched" != "$base" ]; then' in run
         assert 'push origin HEAD:master' in run
 

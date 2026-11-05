@@ -19,6 +19,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.workflow_checks import retry_helper_writers, write_retry_helper
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "refresh-pricing.yml"
 PUSH_STEP_NAME = "Push the tested tree to master"
@@ -279,7 +281,8 @@ def test_push_job_is_the_only_job_that_loads_the_key():
     assert job["timeout-minutes"] == 15
     assert job["permissions"] == {"contents": "read"}
     steps = job["steps"]
-    assert len(steps) == 2
+    assert len(steps) == 3
+    assert retry_helper_writers(job) == steps[:1]
     download, = [step for step in steps if "uses" in step]
     assert download["name"] == "Download the tested data"
     assert "run" not in download
@@ -546,6 +549,7 @@ def _run_push_step(scratch: Path,
                    ) -> subprocess.CompletedProcess:
     script = scratch / "push-step.sh"
     script.write_text(_push_run(), encoding="utf-8")
+    write_retry_helper(_job("push"), scratch / "runner-temp")
     return subprocess.run(
         ["bash", "-e", str(script)],
         cwd=str(scratch / "origin"),

@@ -8,6 +8,8 @@ import sys
 import pytest
 import yaml
 
+from tests.workflow_checks import retry_helper_writers, write_retry_helper
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/release-dispatch.yml"
 DECIDE = "Probe the tag and the release, then decide"
@@ -40,12 +42,16 @@ gh() {
 }
 export -f sleep reply gh
 '''
+# A retry of a failed call keeps that call's position number.
 POST_RELEASE_STUB = r'''
 gh() {
   local n
   n="$(cat "$STUB_CALLFILE")"
-  n=$((n + 1))
-  printf '%s' "$n" > "$STUB_CALLFILE"
+  if [ "$*" != "$(cat "$STUB_CALLFILE.last" 2>/dev/null)" ]; then
+    n=$((n + 1))
+    printf '%s' "$n" > "$STUB_CALLFILE"
+    printf '%s' "$*" > "$STUB_CALLFILE.last"
+  fi
   case "$n:$*" in
     "1:api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/VERSION?ref=$CLAUDIT_SHA")
       printf '%s\n' "$VERSION_REPLY"; return "${VERSION_RC:-0}" ;;
@@ -58,14 +64,17 @@ gh() {
     *":api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/VERSION?ref=newer-head")
       printf '%s\n' '9.9.8-dev'; return "${CANDIDATE_RC:-0}" ;;
     *":api repos/$CLAUDIT_REPO/git/ref/tags/v$PROBE_VERSION")
-      printf '%s\n' "$TAG_REPLY"; return "$TAG_RC" ;;
+      reply "$TAG_REPLY" "$TAG_RC" ;;
     *":api repos/$CLAUDIT_REPO/releases/tags/v$PROBE_VERSION")
-      printf '%s\n' "$RELEASE_REPLY"; return "$RELEASE_RC" ;;
+      reply "$RELEASE_REPLY" "$RELEASE_RC" ;;
     *":api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/scripts/ci/release_dispatch.py?ref=$CLAUDIT_SELECTOR_SHA")
       cat "$HELPER_PATH"; return "${HELPER_RC:-0}" ;;
     *) echo "unmodelled gh call: $*" >&2; return 99 ;;
   esac
 }
+reply() { if [ "$2" -eq 0 ]; then printf '%s\n' "$1"; else printf '%s\n' "$1" >&2; fi; return "$2"; }
+sleep() { :; }
+export -f gh reply sleep
 '''
 SSH_STUB = '''
 ssh-agent() { :; }
@@ -82,16 +91,21 @@ def _load():
                      Loader=yaml.BaseLoader)
 
 
+def _job_of(name: str) -> dict:
+    job, = [job for job in _load()["jobs"].values()
+            if any(step.get("name") == name for step in job["steps"])]
+    return job
+
+
 def _step(name: str) -> dict:
-    for job in _load()["jobs"].values():
-        for step in job["steps"]:
-            if step.get("name") == name:
-                return step
-    raise AssertionError(f"missing step {name!r}")
+    step, = [step for step in _job_of(name)["steps"] if step.get("name") == name]
+    return step
 
 
 def _run_step(name: str, stub: str, env: dict[str, str],
               cwd: Path = ROOT) -> subprocess.CompletedProcess:
+    if retry_helper_writers(_job_of(name)):
+        write_retry_helper(_job_of(name), env["RUNNER_TEMP"])
     return subprocess.run(
         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
          stub + "\n" + _step(name)["run"]],
@@ -185,8 +199,8 @@ def test_dispatch_shape():
     assert jobs["decide"]["if"] == "always() && github.event_name == 'workflow_run'"
     assert "needs" not in jobs["decide"]
     assert "environment" not in jobs["decide"]
-    assert len(jobs["decide"]["steps"]) == 1
-    assert jobs["decide"]["steps"][0] == _step(POST_RELEASE)
+    assert len(jobs["decide"]["steps"]) == 2
+    assert jobs["decide"]["steps"][1] == _step(POST_RELEASE)
     assert jobs["decide"]["outputs"] == {
         "version": "${{ steps.decide.outputs.version }}",
         "successor": "${{ steps.decide.outputs.successor }}",
@@ -216,7 +230,7 @@ def test_dispatch_shape():
         "CLAUDIT_VERSION": "${{ needs.decide.outputs.version }}",
         "CLAUDIT_SUCCESSOR": "${{ needs.decide.outputs.successor }}",
     }
-    assert jobs["bump"]["steps"][0]["id"] == "push"
+    assert jobs["bump"]["steps"][1]["id"] == "push"
     assert jobs["validate"]["steps"][0]["name"] == (
         "Refuse a dispatch that is not on master")
     assert jobs["validate"]["steps"][0]["if"] == (
@@ -228,8 +242,9 @@ def test_key_jobs_and_checkout_boundary():
     for name in ("bump", "successor"):
         job = jobs[name]
         assert job["environment"] == "master-push"
-        assert len(job["steps"]) == 1
-        step = job["steps"][0]
+        assert len(job["steps"]) == 2
+        assert retry_helper_writers(job) == job["steps"][:1]
+        step = job["steps"][1]
         assert "uses" not in step
         assert "python3" not in step["run"]
         assert "gh " not in step["run"]

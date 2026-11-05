@@ -1,8 +1,10 @@
 """Shared checks for workflow references and local apt sanitization."""
 from __future__ import annotations
 
+import os
 import re
 import shlex
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -52,6 +54,26 @@ def find_step(job: dict, needle: str) -> dict:
                if needle in (step.get("run") or "")]
     assert len(matches) == 1, (needle, [s.get("name") for s in matches])
     return matches[0]
+
+
+RETRY_HELPER_WRITE = re.compile(r'>\s*"?\$\{?RUNNER_TEMP\}?/retry\.sh"?\s*<<')
+
+
+def retry_helper_writers(job: dict) -> list[dict]:
+    return [step for step in steps_of(job)
+            if RETRY_HELPER_WRITE.search(step.get("run") or "")]
+
+
+def run_retry_helper_writer(step: dict, runner_temp: Path | str) -> None:
+    subprocess.run(["bash", "-e", "-c", step["run"]], check=True, timeout=30,
+                   env={"PATH": os.environ["PATH"], "RUNNER_TEMP": str(runner_temp)})
+
+
+def write_retry_helper(job: dict, runner_temp: Path | str) -> None:
+    writers = retry_helper_writers(job)
+    assert writers, "the job writes no retry helper"
+    for step in writers:
+        run_retry_helper_writer(step, runner_temp)
 
 
 def is_checkout(step: dict) -> bool:
