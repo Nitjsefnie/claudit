@@ -235,7 +235,7 @@ jobs:
           fi
           message='Ratchet ci-thresholds: raise coverage floor / tighten baselines (automated)'
           git -C "$RUNNER_TEMP/ratchet-repo" commit -m "$message"
-          if ! git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master; then
+          if ! "$RUNNER_TEMP/retry.sh" git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master; then
             "$RUNNER_TEMP/retry.sh" git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master
             if [ "$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse HEAD^)" = "$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse FETCH_HEAD)" ]; then
               echo "the ratchet push was rejected while master stood still" >&2
