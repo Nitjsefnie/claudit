@@ -21,7 +21,7 @@ POSIX_ONLY = pytest.mark.skipif(
     os.name == "nt", reason="the helper runs under POSIX Bash")
 
 
-def _run(tmp_path, fail_times, tmpdir=None):
+def _run(tmp_path, fail_times, mktemp_fails=False):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     probe = bin_dir / "probe"
@@ -30,7 +30,8 @@ def _run(tmp_path, fail_times, tmpdir=None):
         "#!/bin/sh\n"
         'printf "%s|" "$@" >> "$CALLS"\n'
         'echo >> "$CALLS"\n'
-        'n="$(wc -l < "$CALLS")"\n'
+        'n=$(($(wc -l < "$CALLS")))\n'
+        'ls "$TMPDIR" >> "$SEEN"\n'
         'echo "stdout of attempt $n"\n'
         'echo "stderr of attempt $n" >&2\n'
         f'if [ "$n" -le {fail_times} ]; then exit "$((10 + n))"; fi\n',
@@ -38,18 +39,24 @@ def _run(tmp_path, fail_times, tmpdir=None):
     sleep = bin_dir / "sleep"
     sleep.write_text('#!/bin/sh\necho "$*" >> "$SLEEPS"\n',
                      encoding="utf-8", newline="\n")
+    if mktemp_fails:
+        (bin_dir / "mktemp").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8", newline="\n")
+        (bin_dir / "mktemp").chmod(0o755)
     for stub in (probe, sleep):
         stub.chmod(0o755)
     calls, sleeps, scratch = tmp_path / "calls", tmp_path / "sleeps", tmp_path / "t"
+    seen = tmp_path / "seen"
     scratch.mkdir()
     env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-               CALLS=str(calls), SLEEPS=str(sleeps), TMPDIR=str(tmpdir or scratch))
+               CALLS=str(calls), SLEEPS=str(sleeps), SEEN=str(seen), TMPDIR=str(scratch))
     proc = subprocess.run([str(HELPER), "probe", "--flag", "two words"],
                           cwd=tmp_path, env=env, check=False,
                           capture_output=True, text=True)
     assert not list(scratch.iterdir()), "the helper left its temporary file"
     attempts = calls.read_text(encoding="utf-8").splitlines() \
         if calls.exists() else []
+    # While the command ran, its stdout buffer sat in $TMPDIR.
+    assert len(seen.read_text(encoding="utf-8").split() if seen.exists() else []) == len(attempts)
     assert set(attempts) <= {"--flag|two words|"}, attempts
     waits = sleeps.read_text(encoding="utf-8").split() \
         if sleeps.exists() else []
@@ -84,7 +91,7 @@ def test_exhaustion_exits_with_the_last_attempts_status(tmp_path):
 
 @POSIX_ONLY
 def test_an_uncreatable_temporary_file_stops_before_the_command(tmp_path):
-    proc, made, slept = _run(tmp_path, fail_times=0, tmpdir=tmp_path / "missing")
+    proc, made, slept = _run(tmp_path, fail_times=0, mktemp_fails=True)
     assert proc.returncode != 0
     assert made == 0
     assert slept == []
