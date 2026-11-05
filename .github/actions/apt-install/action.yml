@@ -48,13 +48,13 @@ runs:
             break
           fi
           if [ "$attempt" -eq 3 ]; then
-            echo "::error::apt-get download failed after 3 attempts" >&2
+            echo "::error::downloading $CLAUDIT_APT_PACKAGES failed after 3 attempts" >&2
             exit 1
           fi
           echo "==> waiting 5 seconds before retrying the download"
           sleep 5
         done
-        # dpkg unpacks slowly on a loaded runner, and a killed attempt can leave dpkg holding its lock.
+        # A killed attempt leaves its dpkg running, then its journal dirty: a retry waits out the lock (only apt can) and runs dpkg --configure -a.
         for attempt in 1 2 3; do
           echo "==> installing $CLAUDIT_APT_PACKAGES from the download cache (attempt $attempt/3)"
           if sudo timeout 90s env DEBIAN_FRONTEND=noninteractive apt-get install --no-download -y -qq -o DPkg::Lock::Timeout=60 "${packages[@]}"; then
@@ -66,4 +66,12 @@ runs:
           fi
           echo "==> waiting 5 seconds before retrying apt-get install"
           sleep 5
+          echo "==> waiting for a dpkg left running by the abandoned attempt"
+          if ! sudo timeout 70s apt-get check -qq -o DPkg::Lock::Timeout=60; then
+            echo "::warning::apt-get check reported a busy dpkg lock or an interrupted dpkg"
+          fi
+          echo "==> recovering an interrupted dpkg"
+          if ! sudo timeout 60s dpkg --configure -a; then
+            echo "::warning::dpkg --configure -a failed"
+          fi
         done
