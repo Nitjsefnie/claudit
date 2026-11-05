@@ -83,6 +83,34 @@ jobs:
     outputs:
       sha: ${{ steps.push.outputs.sha }}
     steps:
+      - name: Write a copy of scripts/ci/retry.sh
+        run: |
+          cat > "$RUNNER_TEMP/retry.sh" <<'EOF'
+          #!/usr/bin/env bash
+          # Contract: tests/test_ci_retry_helper.py
+          attempt=1
+          attempts=3
+          delays=(5 10)
+          out="$(mktemp)" || exit 1
+          trap 'rm -f "$out"' EXIT
+          while :; do
+            status=0
+            "$@" >"$out" || status=$?
+            if [ "$status" -eq 0 ]; then
+              cat "$out"
+              exit
+            fi
+            if [ "$attempt" -ge "$attempts" ]; then
+              echo "retry.sh: $* still failing after $attempts attempts" >&2
+              exit "$status"
+            fi
+            echo "retry.sh: $* failed (attempt $attempt of $attempts); retrying" >&2
+            sleep "${delays[$((attempt - 1))]}"
+            attempt=$((attempt + 1))
+          done
+          EOF
+          chmod +x "$RUNNER_TEMP/retry.sh"
+
       - name: Push the release VERSION commit to master
         id: push
         env:
@@ -110,8 +138,8 @@ jobs:
           git -C "$RUNNER_TEMP/push-repo" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for attempt in 1 2 3; do
             echo "Push attempt $attempt of 3"
-            git ls-remote --exit-code "$remote" refs/heads/master
-            git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
+            "$RUNNER_TEMP/retry.sh" git ls-remote --exit-code "$remote" refs/heads/master
+            "$RUNNER_TEMP/retry.sh" git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
             git -C "$RUNNER_TEMP/push-repo" checkout -B push FETCH_HEAD
             (cd "$RUNNER_TEMP/push-repo" && printf '%s\n' "$CLAUDIT_VERSION" > VERSION)
             git -C "$RUNNER_TEMP/push-repo" add VERSION
@@ -121,7 +149,7 @@ jobs:
               printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
+            "$RUNNER_TEMP/retry.sh" git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
             if [ "$(git -C "$RUNNER_TEMP/push-repo" rev-parse HEAD^)" = "$(git -C "$RUNNER_TEMP/push-repo" rev-parse FETCH_HEAD)" ]; then
               echo "the VERSION push was rejected while master stood still" >&2
               exit 1
@@ -140,6 +168,34 @@ jobs:
       version: ${{ steps.decide.outputs.version }}
       successor: ${{ steps.decide.outputs.successor }}
     steps:
+      - name: Write a copy of scripts/ci/retry.sh
+        run: |
+          cat > "$RUNNER_TEMP/retry.sh" <<'EOF'
+          #!/usr/bin/env bash
+          # Contract: tests/test_ci_retry_helper.py
+          attempt=1
+          attempts=3
+          delays=(5 10)
+          out="$(mktemp)" || exit 1
+          trap 'rm -f "$out"' EXIT
+          while :; do
+            status=0
+            "$@" >"$out" || status=$?
+            if [ "$status" -eq 0 ]; then
+              cat "$out"
+              exit
+            fi
+            if [ "$attempt" -ge "$attempts" ]; then
+              echo "retry.sh: $* still failing after $attempts attempts" >&2
+              exit "$status"
+            fi
+            echo "retry.sh: $* failed (attempt $attempt of $attempts); retrying" >&2
+            sleep "${delays[$((attempt - 1))]}"
+            attempt=$((attempt + 1))
+          done
+          EOF
+          chmod +x "$RUNNER_TEMP/retry.sh"
+
       - name: Verify the release and decide its successor
         id: decide
         env:
@@ -149,7 +205,7 @@ jobs:
           CLAUDIT_SELECTOR_SHA: ${{ github.workflow_sha }}
           CLAUDIT_RELEASE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
-          version="$(gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=$CLAUDIT_SHA")"
+          version="$("$RUNNER_TEMP/retry.sh" gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=$CLAUDIT_SHA")"
           version="$(echo "$version" | tr -d '[:space:]')"
           if echo "$version" | grep -Eq -- '-([0-9A-Za-z.-]+)$'; then
             echo "::notice::VERSION is $version — no release in flight; nothing to do"
@@ -159,7 +215,7 @@ jobs:
             echo "VERSION is not semver: '$version' (expected X.Y.Z)" >&2
             exit 1
           fi
-          if ! tip_version="$(gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=refs/heads/master")"; then
+          if ! tip_version="$("$RUNNER_TEMP/retry.sh" gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=refs/heads/master")"; then
             echo "could not verify master's VERSION — failing closed" >&2
             exit 1
           fi
@@ -168,14 +224,14 @@ jobs:
             echo "::notice::Master VERSION is $tip_version — no release in flight; nothing to do"
             exit 0
           fi
-          if ! candidates="$(gh api "repos/$CLAUDIT_REPO/commits?path=VERSION&per_page=30" --jq '.[].sha')"; then
+          if ! candidates="$("$RUNNER_TEMP/retry.sh" gh api "repos/$CLAUDIT_REPO/commits?path=VERSION&per_page=30" --jq '.[].sha')"; then
             echo "could not verify the VERSION commit list — failing closed" >&2
             exit 1
           fi
           introducer=""
           while IFS= read -r candidate; do
             [ -n "$candidate" ] || continue
-            if ! candidate_version="$(gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=$candidate")"; then
+            if ! candidate_version="$("$RUNNER_TEMP/retry.sh" gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=$candidate")"; then
               echo "could not verify VERSION at $candidate — failing closed" >&2
               exit 1
             fi
@@ -197,7 +253,7 @@ jobs:
             echo "the release run concluded $CLAUDIT_RELEASE_CONCLUSION while VERSION is $version" >&2
             exit 1
           fi
-          if tag_probe="$(gh api "repos/$CLAUDIT_REPO/git/ref/tags/v$version" 2>&1)"; then
+          if tag_probe="$("$RUNNER_TEMP/retry.sh" gh api "repos/$CLAUDIT_REPO/git/ref/tags/v$version" 2>&1)"; then
             :
           elif echo "$tag_probe" | grep -q 'HTTP 404'; then
             echo "refusing: the release for v$version did not happen" >&2
@@ -206,7 +262,7 @@ jobs:
             echo "could not verify the tag probe for v$version — failing closed" >&2
             exit 1
           fi
-          if release_probe="$(gh api "repos/$CLAUDIT_REPO/releases/tags/v$version" 2>&1)"; then
+          if release_probe="$("$RUNNER_TEMP/retry.sh" gh api "repos/$CLAUDIT_REPO/releases/tags/v$version" 2>&1)"; then
             :
           elif echo "$release_probe" | grep -q 'HTTP 404'; then
             echo "refusing: the release for v$version did not happen" >&2
@@ -215,7 +271,7 @@ jobs:
             echo "could not verify the release probe for v$version — failing closed" >&2
             exit 1
           fi
-          gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/scripts/ci/release_dispatch.py?ref=$CLAUDIT_SELECTOR_SHA" > "$RUNNER_TEMP/release_dispatch.py"
+          "$RUNNER_TEMP/retry.sh" gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/scripts/ci/release_dispatch.py?ref=$CLAUDIT_SELECTOR_SHA" > "$RUNNER_TEMP/release_dispatch.py"
           successor="$(python3 "$RUNNER_TEMP/release_dispatch.py" successor "$version")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "successor=$successor" >> "$GITHUB_OUTPUT"
@@ -230,6 +286,34 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Write a copy of scripts/ci/retry.sh
+        run: |
+          cat > "$RUNNER_TEMP/retry.sh" <<'EOF'
+          #!/usr/bin/env bash
+          # Contract: tests/test_ci_retry_helper.py
+          attempt=1
+          attempts=3
+          delays=(5 10)
+          out="$(mktemp)" || exit 1
+          trap 'rm -f "$out"' EXIT
+          while :; do
+            status=0
+            "$@" >"$out" || status=$?
+            if [ "$status" -eq 0 ]; then
+              cat "$out"
+              exit
+            fi
+            if [ "$attempt" -ge "$attempts" ]; then
+              echo "retry.sh: $* still failing after $attempts attempts" >&2
+              exit "$status"
+            fi
+            echo "retry.sh: $* failed (attempt $attempt of $attempts); retrying" >&2
+            sleep "${delays[$((attempt - 1))]}"
+            attempt=$((attempt + 1))
+          done
+          EOF
+          chmod +x "$RUNNER_TEMP/retry.sh"
+
       - name: Push the next -dev VERSION commit to master
         env:
           CLAUDIT_MASTER_PUSH_DEPLOY_KEY: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
@@ -261,8 +345,8 @@ jobs:
           git -C "$RUNNER_TEMP/push-repo" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for attempt in 1 2 3; do
             echo "Push attempt $attempt of 3"
-            git ls-remote --exit-code "$remote" refs/heads/master
-            git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
+            "$RUNNER_TEMP/retry.sh" git ls-remote --exit-code "$remote" refs/heads/master
+            "$RUNNER_TEMP/retry.sh" git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
             git -C "$RUNNER_TEMP/push-repo" checkout -B push FETCH_HEAD
             if printf '%s\n' "$CLAUDIT_SUCCESSOR" | cmp -s - "$RUNNER_TEMP/push-repo/VERSION"; then
               echo "VERSION already equals $CLAUDIT_SUCCESSOR"
@@ -279,7 +363,7 @@ jobs:
             if git -C "$RUNNER_TEMP/push-repo" push origin HEAD:master; then
               exit 0
             fi
-            git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
+            "$RUNNER_TEMP/retry.sh" git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master
             if [ "$(git -C "$RUNNER_TEMP/push-repo" rev-parse HEAD^)" = "$(git -C "$RUNNER_TEMP/push-repo" rev-parse FETCH_HEAD)" ]; then
               echo "the VERSION push was rejected while master stood still" >&2
               exit 1

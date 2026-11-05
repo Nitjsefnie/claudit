@@ -1712,8 +1712,8 @@
     18294
   ],
   "tests/test_workflow_release.py": [
-    4189,
-    23762
+    4146,
+    23946
   ],
   "tests/test_workflow_scorecard.py": [
     2796,

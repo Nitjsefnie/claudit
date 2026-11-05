@@ -37,6 +37,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.workflow_checks import retry_helper_writers
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 CI_GATE = WORKFLOWS / "ci-gate.yml"
@@ -290,8 +292,9 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
 
     steps = job["steps"]
-    assert len(steps) == 4
-    listing, download, suite_download, push = steps
+    assert len(steps) == 5
+    writer, listing, download, suite_download, push = steps
+    assert retry_helper_writers(job) == [writer]
     assert listing["name"] == "List the triggering run's artifacts"
     listing_run = listing.get("run") or ""
     assert listing["env"]["GH_TOKEN"] == "${{ github.token }}"

@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 import yaml
-from tests.workflow_checks import (ROOT, job_of as _job, workflow_by_name as _load, find_step as _find_step, run_lines as _run_lines, steps_of as _steps, TIGHTEN_CMD, WORKFLOWS)
+from tests.workflow_checks import (ROOT, job_of as _job, workflow_by_name as _load, find_step as _find_step, run_lines as _run_lines, steps_of as _steps, TIGHTEN_CMD, WORKFLOWS, write_retry_helper)
 
 MEASURE_CMD = (
     'python scripts/ci/suite_bench.py --write "$CLAUDIT_MEASUREMENT" '
@@ -336,7 +336,7 @@ def test_ratchet_push_rejected_push_handler_stays_guarded():
         'if ! git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master; then')
     assert lines[rejected:] == [
         'if ! git -C "$RUNNER_TEMP/ratchet-repo" push origin HEAD:master; then',
-        'git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master',
+        '"$RUNNER_TEMP/retry.sh" git -C "$RUNNER_TEMP/ratchet-repo" fetch --quiet origin master',
         'if [ "$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse HEAD^)" = '
         '"$(git -C "$RUNNER_TEMP/ratchet-repo" rev-parse FETCH_HEAD)" ]; then',
         'echo "the ratchet push was rejected while master stood still" >&2',
@@ -386,15 +386,20 @@ def test_ratchet_data_reads_are_guarded_on_artifact_presence():
 @pytest.mark.skipif(os.name == "nt", reason="the drive runs POSIX Bash")
 @pytest.mark.parametrize("artifact,fetched", [
     ("ratchet", "0" * 40), ("suite", "0" * 40), ("none", "0" * 40), ("suite", "1" * 40)])
-def test_ratchet_push_executes_surviving_artifact_paths(tmp_path, artifact, fetched):
-    step = _find_step(_job(_load("ratchet-push.yml"), "push"),
-                      'suite_ratchet.py" --tighten')
+@pytest.mark.parametrize("flaky", [False, True])
+def test_ratchet_push_executes_surviving_artifact_paths(tmp_path, artifact, fetched, flaky):
+    job = _job(_load("ratchet-push.yml"), "push")
+    step = _find_step(job, 'suite_ratchet.py" --tighten')
     fakes = tmp_path / "bin"
     fakes.mkdir()
     for name, body in {
         "ssh-agent": "#!/bin/sh\nexit 0\n",
         "ssh-add": "#!/bin/sh\nexit 0\n",
-        "git": f'#!/bin/sh\nif [ "$3" = rev-parse ]; then echo {fetched}; fi\n',
+        # A flaky fetch fails once (recording it), and the helper retries it.
+        "git": ('#!/bin/sh\nif [ "$3" = fetch ] && [ -n "$FLAKY" ] && [ ! -e "$RUNNER_TEMP/flaked" ]; then\n'
+                ': > "$RUNNER_TEMP/flaked"; exit 128; fi\n'
+                f'if [ "$3" = rev-parse ]; then echo {fetched}; fi\n'),
+        "sleep": "#!/bin/sh\nexit 0\n",
         "python3": '#!/bin/sh\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/python-calls"\n',
     }.items():
         fake = fakes / name
@@ -402,6 +407,7 @@ def test_ratchet_push_executes_surviving_artifact_paths(tmp_path, artifact, fetc
         fake.chmod(0o755)
     runner = tmp_path / "runner"
     (runner / "ratchet-repo" / ".github").mkdir(parents=True)
+    write_retry_helper(job, runner)
     (runner / "ratchet-repo" / ".github" / "ci-thresholds.json").write_text("{}\n", encoding="utf-8", newline="\n")
     if artifact == "ratchet":
         (runner / "ratchet-data").mkdir()
@@ -411,7 +417,8 @@ def test_ratchet_push_executes_surviving_artifact_paths(tmp_path, artifact, fetc
         (runner / "suite-data" / "suite-measurement.json").write_text("{}\n", encoding="utf-8", newline="\n")
     env = dict(os.environ, PATH=f"{fakes}{os.pathsep}{os.environ['PATH']}",
                HOME=str(tmp_path), RUNNER_TEMP=str(runner), CLAUDIT_MASTER_PUSH_DEPLOY_KEY="key",
-               CLAUDIT_REPO="o/r", CLAUDIT_BASE_FALLBACK="0" * 40, GITHUB_STEP_SUMMARY=str(tmp_path / "summary"))
+               CLAUDIT_REPO="o/r", CLAUDIT_BASE_FALLBACK="0" * 40, GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
+               FLAKY="1" if flaky else "")
     result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
                             capture_output=True, text=True, check=False, timeout=60)
     if artifact == "none":
@@ -420,6 +427,7 @@ def test_ratchet_push_executes_surviving_artifact_paths(tmp_path, artifact, fetc
     else:
         assert result.returncode == 0, result.stderr
         assert "nothing to commit" in result.stdout
+        assert (runner / "flaked").exists() is flaky
     if artifact == "suite":
         calls = (runner / "python-calls").read_text(encoding="utf-8")
         moved = fetched != "0" * 40

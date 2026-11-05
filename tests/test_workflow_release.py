@@ -11,10 +11,13 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 import yaml
+
+from tests.workflow_checks import write_retry_helper
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -141,27 +144,30 @@ DECLARED_VALUES = {
 
 def _run_step(body: str, stub: str, env: dict[str, str],
               timeout: float = 60) -> subprocess.CompletedProcess:
-    # Execute the real body with a shell function replacing gh.
-    full_env = {
-        "PATH": os.environ["PATH"],
-        "HOME": os.environ.get("HOME", ""),
-        "CLAUDIT_TAG": "v9.9.9",
-        "CLAUDIT_REPO": "Nitjsefnie/claudit",
-        "CLAUDIT_SHA": "0" * 40,
-        "GH_TOKEN": "stubbed",
-        "RUNNER_TEMP": os.environ.get("RUNNER_TEMP", ""),
-        "STUB_SELECTOR_SOURCE": str(ROOT / "scripts" / "ci" / "release_gate.py"),
-    }
-    for name in _step_env_keys(WAIT_STEP) & DECLARED_VALUES.keys():
-        full_env[name] = DECLARED_VALUES[name]
-    full_env.update(env)
-    return subprocess.run(
-        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
-         f"{stub}\n{body}"],
-        env=full_env, cwd=full_env["RUNNER_TEMP"] or ROOT,
-        capture_output=True, timeout=timeout, check=False,
-        encoding="utf-8", errors="replace",
-    )
+    # Execute the real body with an exported shell function replacing gh,
+    # after the job's first step wrote the retry helper the body calls.
+    with tempfile.TemporaryDirectory() as runner_temp:
+        full_env = {
+            "PATH": os.environ["PATH"],
+            "HOME": os.environ.get("HOME", ""),
+            "CLAUDIT_TAG": "v9.9.9",
+            "CLAUDIT_REPO": "Nitjsefnie/claudit",
+            "CLAUDIT_SHA": "0" * 40,
+            "GH_TOKEN": "stubbed",
+            "RUNNER_TEMP": runner_temp,
+            "STUB_SELECTOR_SOURCE": str(ROOT / "scripts" / "ci" / "release_gate.py"),
+        }
+        for name in _step_env_keys(WAIT_STEP) & DECLARED_VALUES.keys():
+            full_env[name] = DECLARED_VALUES[name]
+        full_env.update(env)
+        write_retry_helper(_release()["jobs"]["release"], full_env["RUNNER_TEMP"])
+        return subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
+             f"{stub}\n{body}"],
+            env=full_env, cwd=full_env["RUNNER_TEMP"],
+            capture_output=True, timeout=timeout, check=False,
+            encoding="utf-8", errors="replace",
+        )
 
 
 def _row(status: str, conclusion: str | None, name: str,
@@ -199,7 +205,7 @@ WAIT_STUB = (
     '*check-runs*) printf "%s" "$STUB_CHECKS" ;; '
     '*actions/runs*) printf "%s" "$STUB_RUNS" ;; '
     '*) echo "WAIT_STUB: unmodelled gh call: $*" >&2; return 1 ;; '
-    'esac; }'
+    'esac; }; export -f gh'
 )
 
 # Prints one set of check runs on the first check-runs read, another on
@@ -217,7 +223,7 @@ COUNTING_STUB = (
     'else printf "%s" "$STUB_CHECKS_LATER"; fi ;; '
     '*actions/runs*) printf "%s" "$STUB_RUNS" ;; '
     '*) echo "COUNTING_STUB: unmodelled gh call: $*" >&2; return 1 ;; '
-    'esac; }'
+    'esac; }; export -f gh'
 )
 
 
@@ -230,7 +236,8 @@ def _short_wait() -> dict[str, str]:
 @pytest.mark.parametrize("partial", ["", "partial response"])
 def test_fetch_failure_stops_the_step(tmp_path, step_name, partial):
     stub = ('gh() { case "$*" in *contents/*) printf "%s" "$STUB_PARTIAL"; '
-            'echo "HTTP 503" >&2; return 7 ;; *) return 99 ;; esac; }')
+            'echo "HTTP 503" >&2; return 7 ;; *) return 99 ;; esac; }; '
+            'sleep() { :; }; export -f gh sleep')
     output = tmp_path / "outputs"
     proc = _run_step(_step_run(step_name), stub,
                      {"RUNNER_TEMP": str(tmp_path), "STUB_PARTIAL": partial,
@@ -267,33 +274,28 @@ def test_wait_settings_prefer_prefix_and_keep_legacy_defaults(preferred, legacy,
     assert proc.stdout.splitlines() == [seconds, poll, poll, poll]
 
 
-# The refusal step calls gh twice — the tag probe, then the release
-# probe — so the stub answers by CALL ORDER: the first call speaks for
-# the tag probe (STUB_FIRST_*), every later call for the release probe
-# (STUB_LATER_*). The output is what `2>&1` would capture, the return
-# code what the probe would exit with.
+# The retry helper repeats a failed probe, so the stub answers by ENDPOINT
+# (STUB_TAG_*, STUB_RELEASE_*); like gh, a failure's text goes to stderr,
+# which the helper passes on to `2>&1`.
 REFUSAL_STUB = (
     'gh() { '
-    'local n out rc; '
-    'n="$(cat "$STUB_CALLFILE" 2>/dev/null || echo 0)"; '
-    'n=$((n + 1)); '
-    'printf "%s" "$n" > "$STUB_CALLFILE"; '
-    'if [ "$n" -eq 1 ]; then out="$STUB_FIRST_OUT"; rc="$STUB_FIRST_RC"; '
-    'else out="$STUB_LATER_OUT"; rc="$STUB_LATER_RC"; fi; '
-    'printf "%s\\n" "$out"; return "$rc"; }'
+    'local out rc; '
+    'case "$*" in '
+    '"api repos/$CLAUDIT_REPO/git/ref/tags/$CLAUDIT_TAG") '
+    'out="$STUB_TAG_OUT"; rc="$STUB_TAG_RC" ;; '
+    '"api repos/$CLAUDIT_REPO/releases/tags/$CLAUDIT_TAG") '
+    'out="$STUB_RELEASE_OUT"; rc="$STUB_RELEASE_RC" ;; '
+    '*) echo "REFUSAL_STUB: unmodelled gh call: $*" >&2; return 99 ;; '
+    'esac; '
+    'if [ "$rc" -eq 0 ]; then printf "%s\\n" "$out"; '
+    'else printf "%s\\n" "$out" >&2; fi; return "$rc"; }; '
+    'sleep() { :; }; export -f gh sleep'
 )
 
 
-def _refusal_env(first_rc: int, first_out: str,
-                 later_rc: int, later_out: str,
-                 tmp_path) -> dict[str, str]:
-    return {
-        "STUB_CALLFILE": str(Path(tmp_path) / "gh-calls"),
-        "STUB_FIRST_RC": str(first_rc),
-        "STUB_FIRST_OUT": first_out,
-        "STUB_LATER_RC": str(later_rc),
-        "STUB_LATER_OUT": later_out,
-    }
+def _refusal_env(tag_rc: int, tag_out: str, release_rc: int, release_out: str) -> dict[str, str]:
+    return {"STUB_TAG_RC": str(tag_rc), "STUB_TAG_OUT": tag_out,
+            "STUB_RELEASE_RC": str(release_rc), "STUB_RELEASE_OUT": release_out}
 
 
 TAG_404 = "gh: HTTP 404: Not Found (https://api.github.com/repos/Nitjsefnie/claudit/git/ref/tags/v9.9.9)"
@@ -619,26 +621,25 @@ def test_the_selector_projection_carries_the_app_slug():
 
 
 @ubuntu_step_body
-def test_refusal_proceeds_when_both_probes_answer_404(tmp_path):
+def test_refusal_proceeds_when_both_probes_answer_404():
     proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
-                     _refusal_env(1, TAG_404, 1, RELEASE_404, tmp_path))
+                     _refusal_env(1, TAG_404, 1, RELEASE_404))
     assert proc.returncode == 0, proc.stderr
     assert "v9.9.9 is free" in proc.stdout
 
 
 @ubuntu_step_body
-def test_refusal_refuses_when_the_tag_probe_succeeds(tmp_path):
+def test_refusal_refuses_when_the_tag_probe_succeeds():
     proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
-                     _refusal_env(0, '{"ref": "refs/tags/v9.9.9"}',
-                                  1, "", tmp_path))
+                     _refusal_env(0, '{"ref": "refs/tags/v9.9.9"}', 1, ""))
     assert proc.returncode == 1
     assert "Tag v9.9.9 already exists" in proc.stderr
 
 
 @ubuntu_step_body
-def test_refusal_refuses_when_the_release_probe_succeeds(tmp_path):
+def test_refusal_refuses_when_the_release_probe_succeeds():
     proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
-                     _refusal_env(1, TAG_404, 0, '{"id": 12345}', tmp_path))
+                     _refusal_env(1, TAG_404, 0, '{"id": 12345}'))
     assert proc.returncode == 1
     assert "Release v9.9.9 already exists" in proc.stderr
 
@@ -652,12 +653,11 @@ def test_refusal_refuses_when_the_release_probe_succeeds(tmp_path):
     (1, TAG_404, 1, "gh: HTTP 403: Forbidden", "release"),
 ], ids=["tag-403", "tag-503", "tag-network", "release-403"])
 def test_refusal_fails_closed_when_the_tag_probe_answers_403(
-        tmp_path, tag_rc, tag_output, release_rc, release_output, probe):
+        tag_rc, tag_output, release_rc, release_output, probe):
     # A 403 says nothing about the tag's existence; proceeding on it
     # would green-light a version collision the step exists to catch.
     proc = _run_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
-                     _refusal_env(tag_rc, tag_output, release_rc, release_output,
-                                  tmp_path))
+                     _refusal_env(tag_rc, tag_output, release_rc, release_output))
     assert proc.returncode == 1
     assert f"could not verify the {probe} probe for v9.9.9" in proc.stderr
 

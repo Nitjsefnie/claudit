@@ -17,6 +17,8 @@ gh() {
     *) echo "unmodelled gh call: $*" >&2; return 99 ;;
   esac
 }
+sleep() { :; }
+export -f gh sleep
 '''
 
 
