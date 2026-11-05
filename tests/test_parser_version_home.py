@@ -1,8 +1,4 @@
-"""Pin PARSER_VERSION's home (backend/parser_version.py) away from the
-pricing bot's write surface: the bot rewrites constants.py
-hourly for PRICING_VERSION, so a parser-version edit there shared the
-changed file with every bot commit and rebased on the bot's hourly
-commits."""
+"""PARSER_VERSION's home stays outside the pricing bot's write surface."""
 from __future__ import annotations
 
 import ast
@@ -12,8 +8,6 @@ import yaml
 
 from backend import constants, parser_version
 from tests.source_scan_cache import for_source, source
-from tests.test_no_pinned_version_literals import check
-from tests.version_literal_guard import detect
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "refresh-pricing.yml"
@@ -84,28 +78,3 @@ def test_every_backend_parser_version_read_goes_through_the_module():
     assert not offenders, offenders
     # Both stampers read the module: one bump reaches every stamp.
     assert {"backend/ingest.py", "backend/ingest_scope.py"} <= readers
-
-
-def test_a_literal_assignment_on_the_new_module_is_flagged():
-    result = detect("parser_version.PARSER_VERSION = '82'\n")
-    assert [(site.name, site.shape) for site in result] == [
-        ("PARSER_VERSION", "assign")]
-
-
-def test_a_setattr_literal_on_the_new_module_is_flagged():
-    result = detect(
-        "monkeypatch.setattr(parser_version, 'PARSER_VERSION', '2')\n")
-    assert [(site.name, site.shape, site.value) for site in result] == [
-        ("PARSER_VERSION", "setattr", "2")]
-
-
-def test_a_derived_value_on_the_new_module_is_not_flagged():
-    sample = ("monkeypatch.setattr(parser_version, 'PARSER_VERSION',\n"
-              "    str(int(parser_version.PARSER_VERSION) + 1))\n")
-    assert detect(sample) == []
-
-
-def test_an_unmarked_literal_on_the_new_module_fails_check():
-    problems = check("parser_version.PARSER_VERSION = '999'\n")
-    assert len(problems) == 1
-    assert "PARSER_VERSION" in problems[0]

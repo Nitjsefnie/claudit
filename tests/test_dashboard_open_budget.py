@@ -82,8 +82,7 @@ def _log_statements(monkeypatch):
     A plain helper, not a fixture: `db.viz_conn` is the single seam every
     panel query goes through, but the proxy only LOGS — it hands no test a
     database — so registering it in db_marker.DB_FIXTURES would over-mark
-    (every fixture there creates a database). tests/test_db_marker.py
-    roots fixtures by their source, so a plain helper roots nothing.
+    (every fixture there creates a database).
 
     The proxy logs the SQL text and delegates. Patching the `db` name as
     seen by api_dashboard and api_ctx_growth too is belt-and-braces (they

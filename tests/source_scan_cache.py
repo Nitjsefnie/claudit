@@ -5,7 +5,6 @@ the path afresh; exact source strings share preprocessing across paths.
 """
 from __future__ import annotations
 
-import __future__
 import ast
 from dataclasses import dataclass, field
 import hashlib
@@ -15,7 +14,6 @@ import os
 from pathlib import Path
 import time
 import tokenize
-import types
 from typing import Any, Literal, Never, cast
 
 
@@ -87,10 +85,6 @@ class SourceArtifacts:
         default=None, init=False, repr=False)
     _trees: dict[_TreeKey, ast.AST | _Failure] = field(
         default_factory=dict, init=False, repr=False)
-    _code: types.CodeType | _Failure | None = field(
-        default=None, init=False, repr=False)
-    _nodes: tuple[ast.AST, ...] | None = field(
-        default=None, init=False, repr=False)
 
     def tokens(self) -> tuple[tokenize.TokenInfo, ...]:
         if self._tokens is None:
@@ -120,29 +114,6 @@ class SourceArtifacts:
         if isinstance(result, _Failure):
             result.raise_for(filename)
         return result
-
-    def nodes(self) -> tuple[ast.AST, ...]:
-        """The default exec tree's nodes, in exactly ast.walk order."""
-        if self._nodes is None:
-            self._nodes = tuple(ast.walk(self.tree()))
-        return self._nodes
-
-    def scan_code(self) -> types.CodeType:
-        """Compile the shared AST with scan_gate's inherited future flags."""
-        if self._code is None:
-            try:
-                tree = self.tree(filename="<scan_gate>")
-                assert isinstance(tree, ast.Module)
-                self._code = compile(
-                    tree, "<scan_gate>", "exec",
-                    flags=__future__.annotations.compiler_flag,
-                    dont_inherit=True)
-            except (SyntaxError, ValueError) as error:
-                self._code = _Failure.capture(error)
-        if isinstance(self._code, _Failure):
-            self._code.raise_for()
-        assert isinstance(self._code, types.CodeType)
-        return self._code
 
 
 _Signature = tuple[int, int, int, int, int]
@@ -199,10 +170,6 @@ def snapshot(path: Path) -> SourceSnapshot:
 
 def source(path: Path, *, encoding: str | None = "utf-8") -> str:
     return snapshot(path).source(encoding=encoding)
-
-
-def raw(path: Path) -> bytes:
-    return snapshot(path).raw
 
 
 def for_source(source: str) -> SourceArtifacts:  # pylint: disable=redefined-outer-name

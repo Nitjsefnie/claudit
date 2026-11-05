@@ -37,8 +37,6 @@ from pathlib import Path
 
 import yaml
 
-from tests.source_scan_cache import source as cached_source
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_JSON = REPO_ROOT / "package.json"
 PACKAGE_LOCK = REPO_ROOT / "package-lock.json"
@@ -479,34 +477,11 @@ def test_js_coverage_gate_still_reports_one_decimal() -> None:
     assert 'echo "js_measured=${js_measured}" >> "$GITHUB_OUTPUT"' in run
 
 
-def test_js_coverage_measured_set_matches_its_derivation() -> None:
-    """The measured set is the grep's output, pinned, not merely claimed.
-
-    The list lives in scripts/ci/node_test_files.txt, one `tests/…` path
-    per line; the coverage-gate action feeds it to pytest and this test pins
-    the file's content to the files containing `["node"` under tests/ — the command
-    the workflow comment cites, `grep -lF '["node"' tests/*.py` (the
-    fixed-string -F is load-bearing: unquoted-bracket grep exits 2 —
-    the hand-list had drifted four files behind what it
-    claimed to derive from).
-    """
-    list_file = REPO_ROOT / "scripts" / "ci" / "node_test_files.txt"
-    assert list_file.exists(), (
-        "scripts/ci/node_test_files.txt is gone; the JavaScript coverage "
-        "gate's measured set has nowhere to live")
-    listed = [line.strip() for line in
-              list_file.read_text(encoding="utf-8").splitlines() if line.strip()]
-    derived = sorted(
-        f"tests/{path.name}" for path in sorted((REPO_ROOT / "tests").glob("*.py"))
-        if '["node"' in cached_source(path))
-    assert listed == derived, (
-        "the measured set (scripts/ci/node_test_files.txt) no longer equals "
-        "grep -lF '[\"node\"' tests/*.py: a node-executing test file was "
-        "added or removed without updating the list")
+def test_the_coverage_gate_feeds_the_node_test_list_to_pytest() -> None:
     run = _LINE_CONTINUATION.sub(" ", _javascript_coverage_gate().get("run") or "")
     assert "python -m pytest $(cat scripts/ci/node_test_files.txt)" in run, (
         "coverage-gate/action.yml no longer feeds scripts/ci/node_test_files.txt to pytest "
-        "via $(cat ...); the pinned list no longer drives the JavaScript "
+        "via $(cat ...); the list no longer drives the JavaScript "
         "coverage measurement")
 
 

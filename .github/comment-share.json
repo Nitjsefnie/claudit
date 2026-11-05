@@ -36,8 +36,8 @@
     6125
   ],
   ".github/workflows/ci-gate.yml": [
-    6287,
-    12190
+    6281,
+    12380
   ],
   ".github/workflows/claim.yml": [
     1847,
@@ -652,8 +652,8 @@
     4691
   ],
   "scripts/ci/perturb_test_data.py": [
-    6269,
-    15201
+    6200,
+    15132
   ],
   "scripts/ci/perturbed_leg_bench.py": [
     2866,
@@ -987,10 +987,6 @@
     1605,
     3170
   ],
-  "tests/node_skip_guard_impl.py": [
-    3372,
-    16302
-  ],
   "tests/pricing_data_loader_helpers.py": [
     2832,
     10691
@@ -1002,10 +998,6 @@
   "tests/reprice_fixture_builders.py": [
     490,
     2755
-  ],
-  "tests/scan_gate.py": [
-    2932,
-    3203
   ],
   "tests/schema_policy.py": [
     63,
@@ -1160,28 +1152,12 @@
     3231
   ],
   "tests/test_dashboard_open_budget.py": [
-    4392,
-    9850
+    4315,
+    9773
   ],
   "tests/test_database_url_viz_default.py": [
     758,
     1544
-  ],
-  "tests/test_db_marker.py": [
-    8204,
-    19003
-  ],
-  "tests/test_db_marker_gate.py": [
-    937,
-    2928
-  ],
-  "tests/test_db_marker_narrow.py": [
-    584,
-    1511
-  ],
-  "tests/test_db_marker_parity.py": [
-    2097,
-    3954
   ],
   "tests/test_db_pool_errors.py": [
     1062,
@@ -1304,8 +1280,8 @@
     21044
   ],
   "tests/test_js_toolchain.py": [
-    8512,
-    19875
+    8080,
+    19409
   ],
   "tests/test_key_layout.py": [
     951,
@@ -1366,14 +1342,6 @@
   "tests/test_multi_bucket.py": [
     2921,
     11309
-  ],
-  "tests/test_no_pinned_version_literals.py": [
-    6553,
-    21384
-  ],
-  "tests/test_node_skip_guard.py": [
-    3733,
-    18979
   ],
   "tests/test_overview_a11y_wiring.py": [
     6715,
@@ -1438,10 +1406,6 @@
   "tests/test_parser_js_dedup_merge.py": [
     2646,
     10271
-  ],
-  "tests/test_parser_js_lanes_load.py": [
-    1159,
-    2660
   ],
   "tests/test_parser_js_mirror.py": [
     4991,
@@ -1635,10 +1599,6 @@
     2316,
     4588
   ],
-  "tests/test_scan_gate.py": [
-    1635,
-    10183
-  ],
   "tests/test_schema_attnums.py": [
     544,
     2500
@@ -1763,10 +1723,6 @@
     663,
     3953
   ],
-  "tests/test_version_literal_splits.py": [
-    774,
-    2374
-  ],
   "tests/test_web_metrics.py": [
     8077,
     21991
@@ -1798,9 +1754,5 @@
   "tests/test_workflow_scorecard.py": [
     2796,
     11588
-  ],
-  "tests/version_literal_guard.py": [
-    5085,
-    10884
   ]
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Perturb the tree's test data (the second half of SV-TEST-DATA).
+"""Perturb the tree's test data (SV-TEST-DATA's enforcement).
 
 The perturbed-data CI leg runs the suite against a tree that simulates
 what the automated refresh does: every rate row in src/pricing.json
@@ -33,8 +33,7 @@ instant is the base instead. The three version constants —
 PARSER_VERSION in backend/parser_version.py, PRICING_VERSION and
 MARKER_READER_VERSION in backend/constants.py — move up one. A test that pins repository-managed
 data then fails as a test failure on this tree, never as a broken
-refresh. The CI leg calls this script before pytest; the guard test
-tests/test_no_pinned_version_literals.py is the other half.
+refresh. The CI leg calls this script before pytest.
 
 The pricing document is rewritten through the shared compact serializer
 (SV-RATE-DATA's canonical layout), and the serialized document is

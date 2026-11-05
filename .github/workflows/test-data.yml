@@ -1,7 +1,7 @@
 name: test data
 
-# The perturbed-data gate leg: the second half of
-# SV-TEST-DATA's enforcement. ci-gate calls this workflow as a leg; it
+# The perturbed-data gate leg: SV-TEST-DATA's enforcement.
+# ci-gate calls this workflow as a leg; it
 # perturbs the tree's test data (scripts/ci/perturb_test_data.py: every
 # rate row gains five appended entries — scaled whole by ×2.0, ×0.37,
 # and a per-row irregular factor in [0.61, 1.47), then by five
