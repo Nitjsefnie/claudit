@@ -1,4 +1,4 @@
-"""Every network read in a workflow or composite action retries transient failures.
+"""Every network read and git push in a workflow or composite action retries transient failures.
 
 Fails, listing each offending `run:` command, on a curl lacking `--retry N`
 (N 1-9), `--retry-all-errors` or `--max-time`/`-m`; any wget; a git
@@ -6,7 +6,9 @@ fetch/clone/ls-remote/pull, gh read, pip install/download/wheel or
 playwright install neither run by retry.sh/api_retry nor, inside a
 `for attempt in` loop, steering it (an `if`/`elif`/`while`/`until`
 condition, the left operand of `&&`, or of a `||` whose right side reaches
-`continue`, bare or in a `{ }` group); and an unclassified gh command.
+`continue`, bare or in a `{ }` group); a git push not run by
+retry.sh/api_retry, even one steering such a loop; and an unclassified gh
+command.
 
 The reading is lexical: commands split on operators, newlines, `$( )`,
 `<( )` and backticks. `bash`/`sh -c` strings (`-ec` too) are scripts, as are
@@ -39,7 +41,7 @@ PREFIXES = {"sudo": {"-u", "-g", "-C", "-D"}, "env": {"-u", "-C", "-S"},
             "command": set(), "exec": set(), "stdbuf": set(),
             "xargs": {"-n", "-I", "-P", "-L", "-d", "-a", "-s", "-E"}}
 GIT_VALUE_OPTIONS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
-GIT_FETCHES = {"fetch", "clone", "ls-remote", "pull"}
+GIT_FETCHES = {"fetch", "clone", "ls-remote", "pull", "push"}
 GH_READS = {"release": {"view", "download", "list"},
             "run": {"view", "list", "download"},
             "pr": {"view", "list", "diff", "checks", "status"},
@@ -377,6 +379,8 @@ def _judge(words: list[str], retried: bool) -> tuple[int, list[str]]:
     kind = _fetch_kind(words) if words else None
     if kind == "gh unclassified":
         return 0, ["gh command not classified as read or write"]
+    # A push's attempt loop repeats only after master moved.
+    retried = retried and kind != "git push"
     return (1 if kind else 0), [f"{kind} without the retry helper"] if kind and not (wrapped or retried) else []
 
 
