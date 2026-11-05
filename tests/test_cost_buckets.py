@@ -356,7 +356,7 @@ def _install_scheduled_row(monkeypatch, schedule):
     """Use a synthetic provider schedule through the real loader.
     Synthetic rates keep the verdict independent of live pricing refreshes;
     schedules live on provider rows, so the synthetic row must be one."""
-    doc = decoded_pricing_doc(json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8")))  # sv-test-data: allow (loads the live document only to inject the synthetic provider row; no live value reaches a verdict)
+    doc = decoded_pricing_doc(json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8")))
     doc["providers"][_SYNTHETIC_MODEL] = {_SYNTHETIC_HOST: [
         {"from": None, **LIST_RATES, "schedule": schedule},
     ]}

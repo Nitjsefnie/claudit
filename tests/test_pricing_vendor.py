@@ -406,8 +406,8 @@ def test_default_rates_read_the_tracked_claude_row(monkeypatch):
         HOST: [_entry(frozen), _entry(R_NEW, STAMP)]}
     _install(monkeypatch, doc)
     assert pricing.DEFAULT_RATES is pricing._list_rates("claude-opus-4-7")  # pylint: disable=protected-access
-    assert pricing.rate_for("claude-opus-4-7", datetime(2020, 1, 1, tzinfo=UTC)) == frozen  # sv-test-data: allow (test-seeded synthetic vendor history at the required default key)
-    assert pricing.rate_for("claude-opus-4-7", CUT) == R_NEW  # sv-test-data: allow (test-seeded synthetic vendor history at its exclusive cutover)
+    assert pricing.rate_for("claude-opus-4-7", datetime(2020, 1, 1, tzinfo=UTC)) == frozen
+    assert pricing.rate_for("claude-opus-4-7", CUT) == R_NEW
 
 
 @needs_node

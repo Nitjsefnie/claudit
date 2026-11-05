@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 V41 = "deepseek/deepseek-v4.1-flash"
 V41_KEY = next(key for key, entry in json.loads(
-    pricing.PRICING_JSON.read_text(encoding="utf-8"))["openrouter"]["models"].items()  # sv-test-data: allow (catalog configuration only; tracked key derived from id)
+    pricing.PRICING_JSON.read_text(encoding="utf-8"))["openrouter"]["models"].items()
                if entry["id"] == V41)
 # A fixed instant inside the synthetic provider's closed window.
 SEEDED = datetime(2026, 9, 24, 22, 3, 13, tzinfo=UTC)
@@ -206,7 +206,7 @@ def test_the_zai_subscription_glm_is_not_repriced():
         listed["fresh"] + listed["output"] + listed["read"], rel=1e-12)
     for cutover, _ in pricing.PROVIDER_DATED_RATES.get(("glm-5-3-flash", "Z.AI"), []):
         instant = cutover - timedelta(microseconds=1)
-        promo = pricing.rate_for("glm-5.3-flash", instant)  # sv-test-data: allow (same-row runtime cost identity)
+        promo = pricing.rate_for("glm-5.3-flash", instant)
         assert _cost("glm-5.3-flash", ts=instant, **tokens) == pytest.approx(
             promo["fresh"] + promo["output"] + promo["read"], rel=1e-12)
     # Unknown hosts use the model's Z.AI row; OpenRouter host rates do not reach it.

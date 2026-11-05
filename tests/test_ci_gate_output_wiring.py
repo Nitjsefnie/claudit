@@ -46,13 +46,13 @@ CI_GATE = REPO_ROOT / ".github" / "workflows" / "ci-gate.yml"
 
 # These name CHANGED PATHS, not a rate: the classifier's own
 # BOT_SIGNATURE is the refresh bot's push, and the file's rates are never
-# read, priced or asserted on here (sv-test-data: allow).
-BOT_PATHS = ["backend/constants.py", "src/pricing.json"]  # sv-test-data: allow
+# read, priced or asserted on here.
+BOT_PATHS = ["backend/constants.py", "src/pricing.json"]
 # Generic docs avoid the three pinned setup docs, whose `setup_only`
 # path has its own tests. Any docs-only change exercises which legs a
 # narrowing OUTPUT skips here.
 DOC_PATHS = ["docs/guide.md", "NOTICE"]
-CODE_PATHS = ["backend/app.py", "src/pricing.json"]  # sv-test-data: allow
+CODE_PATHS = ["backend/app.py", "src/pricing.json"]
 
 # The classifier checks these are 40 hex digits and nothing more
 # (`_hex40`), so they are synthetic: nothing repository-managed is

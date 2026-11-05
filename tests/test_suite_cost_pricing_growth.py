@@ -32,7 +32,7 @@ BENCH_MODULES = ("suite_bench.py", "suite_phases.py", "suite_report.py",
                  "suite_pricing_doc.json")
 # The committed document — the only tree file the check mutates in its
 # copies — and the test-tree modules the copy's conftest imports.
-DOC_RELATIVE = Path("src") / "pricing.json"  # sv-test-data: allow (the #840 check copies the deployed document and appends rows to the copy; the counts, never the rates, are asserted on)
+DOC_RELATIVE = Path("src") / "pricing.json"
 
 
 def _build_copy(target: Path) -> Path:

@@ -576,12 +576,12 @@ class TestNodeDrivenLaneParsers:
         # Use the browser's same dated window to isolate the meter.
         ts = datetime(2026, 6, 14, 12, 0, tzinfo=UTC)
         expected_lc = pricing.compute_cost(
-            "gpt-5-6-sol", fresh=lc_fresh, output=lc_out, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
+            "gpt-5-6-sol", fresh=lc_fresh, output=lc_out, eph5=0, eph1h=0,
             unsplit_create=0, read=0, ts=ts,
             adjustments=pricing.CostAdjustments(long_context=True),
         )
         expected_flat = pricing.compute_cost(
-            "gpt-5-6-sol", fresh=flat_fresh, output=flat_out, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
+            "gpt-5-6-sol", fresh=flat_fresh, output=flat_out, eph5=0, eph1h=0,
             unsplit_create=0, read=0, ts=ts,
         )
         script = f"""
@@ -619,11 +619,11 @@ class TestNodeDrivenLaneParsers:
         assert got["costTotal"] == pytest.approx(expected_lc + expected_flat)
         assert got["input"]["cost"] == pytest.approx(
             (lc_fresh * pricing.LONG_CONTEXT_INPUT_MULT + flat_fresh)
-            * pricing.rate_for("gpt-5-6-sol", ts)["fresh"] / 1_000_000  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
+            * pricing.rate_for("gpt-5-6-sol", ts)["fresh"] / 1_000_000
         )
         assert got["output"]["cost"] == pytest.approx(
             (lc_out * pricing.LONG_CONTEXT_OUTPUT_MULT + flat_out)
-            * pricing.rate_for("gpt-5-6-sol", ts)["output"] / 1_000_000  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
+            * pricing.rate_for("gpt-5-6-sol", ts)["output"] / 1_000_000
         )
 
     def test_browser_long_context_multipliers_equal_backend(self):
@@ -649,7 +649,7 @@ class TestNodeDrivenLaneParsers:
     def test_browser_inspector_turn_cost_applies_the_long_context_meter(self):
         """Inspector turn cost matches the record's metered dated price."""
         expected = pricing.compute_cost(
-            "gpt-5.6-sol", fresh=10_000, output=2_000, eph5=0, eph1h=0,  # sv-test-data: allow (derived: expected priced from the same loaded tables as the JS side)
+            "gpt-5.6-sol", fresh=10_000, output=2_000, eph5=0, eph1h=0,
             unsplit_create=0, read=290_000,
             adjustments=pricing.CostAdjustments(long_context=True),
             ts=datetime(2026, 6, 14, 12, 0, 3, tzinfo=UTC),
