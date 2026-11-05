@@ -303,10 +303,8 @@ def test_the_leg_step_execs_the_bench_under_a_step_timeout(tmp_path):
 
 
 @POSIX
-@pytest.mark.parametrize("child,suite_exit", [
-    ("interrupted", 2), ("ignores_sigint", -signal.SIGKILL)])
-def test_an_interrupt_reaches_pytest_and_the_measurement_is_still_written(
-        tmp_path, child, suite_exit):
+@pytest.mark.parametrize("child", ["interrupted", "ignores_sigint"])
+def test_an_interrupt_reaches_pytest_and_the_measurement_is_still_written(tmp_path, child):
     pricing_path, constants_path, parser_path = _seed_tree(tmp_path)
     ready = tmp_path / "ready"
     mini = tmp_path / "test_hang.py"
@@ -342,6 +340,7 @@ def test_an_interrupt_reaches_pytest_and_the_measurement_is_still_written(
                 pass
     measurement = json.loads(measurement_path.read_text(encoding="utf-8"))
     assert [run["seed"] for run in measurement["seeds"]] == [42]
+    suite_exit = {"interrupted": 2, "ignores_sigint": -signal.SIGKILL}[child]
     assert measurement["seeds"][0]["phases"]["suite"]["exit_code"] == suite_exit
     assert "| 42 | suite |" in summary_path.read_text(encoding="utf-8")
     # pytest writes its report only when the interrupt reached it, not a kill.
