@@ -118,11 +118,13 @@ jobs:
           key: pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}
 
       - name: Perturb and test
-        # Each seed tests an independent refresh-like tree. Parallel jobs
-        # retain each verdict. The bench restores pricing and versions before
-        # perturbing; stamps stay seed-independent. Attribution goes in the summary.
+        # Each seed tests an independent refresh-like tree. The bench restores pricing and
+        # versions before perturbing; stamps stay seed-independent. exec hands the bench
+        # the step timeout's SIGINT.
+        shell: bash
+        timeout-minutes: 15
         run: |
-          python scripts/ci/perturbed_leg_bench.py \
+          exec python scripts/ci/perturbed_leg_bench.py \
             --seed "${{ matrix.seed }}" \
             --shard "${{ matrix.shard }}" --of 4 \
             --measurement "perturbed-${{ matrix.seed }}-${{ matrix.shard }}.json" \

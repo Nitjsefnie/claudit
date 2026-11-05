@@ -12,8 +12,12 @@ from __future__ import annotations
 import fnmatch
 import importlib.util
 import json
+import os
 import re
+import signal
+import subprocess
 import sys
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -259,7 +263,7 @@ def test_the_leg_runs_one_seed_and_shard_per_matrix_job():
     # attribution lands in the step summary, and the bench's exit code
     # is the step's own.
     assert " ".join(lines[0].split()) == (
-        "python scripts/ci/perturbed_leg_bench.py "
+        "exec python scripts/ci/perturbed_leg_bench.py "
         '--seed "${{ matrix.seed }}" '
         '--shard "${{ matrix.shard }}" --of 4 '
         '--measurement "perturbed-${{ matrix.seed }}-${{ matrix.shard }}.json" '
@@ -271,6 +275,77 @@ def test_the_leg_step_no_longer_runs_pytest_directly():
     job = _workflow_doc()["jobs"]["perturbed-suite"]
     for step in job["steps"]:
         assert "python -m pytest" not in (step.get("run") or "")
+
+
+@POSIX
+def test_the_leg_step_execs_the_bench_under_a_step_timeout(tmp_path):
+    job = _workflow_doc()["jobs"]["perturbed-suite"]
+    step, = [step for step in job["steps"] if step.get("name") == "Perturb and test"]
+    assert step["shell"] == "bash"
+    assert int(step["timeout-minutes"]) < int(job["timeout-minutes"])
+    fake = tmp_path / "python"
+    fake.write_text('#!/bin/sh\necho "$$" > "$PID"\nprintf "%s\\n" "$@" > "$ARGV"\n',
+                    encoding="utf-8", newline="\n")
+    fake.chmod(0o755)
+    script = tmp_path / "step.sh"
+    script.write_text(step["run"].replace("${{ matrix.seed }}", "42").replace(
+        "${{ matrix.shard }}", "1"), encoding="utf-8", newline="\n")
+    env = dict(os.environ, PATH=f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+               PID=str(tmp_path / "pid"), ARGV=str(tmp_path / "argv"),
+               GITHUB_STEP_SUMMARY=str(tmp_path / "summary.md"))
+    # The runner's own bash invocation; its step-timeout SIGINT goes to this process.
+    with subprocess.Popen(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
+                          cwd=ROOT, env=env) as run:
+        assert run.wait() == 0
+    assert (tmp_path / "pid").read_text(encoding="utf-8").split() == [str(run.pid)]
+    argv = (tmp_path / "argv").read_text(encoding="utf-8").splitlines()
+    assert argv[0] == "scripts/ci/perturbed_leg_bench.py"
+
+
+@POSIX
+@pytest.mark.parametrize("child,suite_exit", [
+    ("interrupted", 2), ("ignores_sigint", -signal.SIGKILL)])
+def test_an_interrupt_reaches_pytest_and_the_measurement_is_still_written(
+        tmp_path, child, suite_exit):
+    pricing_path, constants_path, parser_path = _seed_tree(tmp_path)
+    ready = tmp_path / "ready"
+    mini = tmp_path / "test_hang.py"
+    mini.write_text(
+        "import pathlib, signal, time\n"
+        "def test_hang():\n"
+        + ("    signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+           if child == "ignores_sigint" else "")
+        + f"    pathlib.Path({str(ready)!r}).write_text('', encoding='utf-8')\n"
+        "    time.sleep(120)\n", encoding="utf-8", newline="\n")
+    junit = tmp_path / "junit.xml"
+    measurement_path = tmp_path / "measurement.json"
+    summary_path = tmp_path / "summary.md"
+    args = [sys.executable, str(SCRIPT), "--seed", "42", "--seed", "43",
+            "--pricing", str(pricing_path), "--constants", str(constants_path),
+            "--parser-version", str(parser_path),
+            "--pytest-args", f"{mini} -q -p no:cacheprovider --junitxml={junit}",
+            "--measurement", str(measurement_path), "--summary", str(summary_path)]
+    # Its own session, so teardown can reap a pytest child the bench left behind.
+    with subprocess.Popen(args, start_new_session=True) as bench_run:
+        try:
+            deadline = time.monotonic() + 120
+            while not ready.exists():
+                assert bench_run.poll() is None and time.monotonic() < deadline
+                time.sleep(0.05)
+            # The runner signals the step's entry process only, never its group.
+            os.kill(bench_run.pid, signal.SIGINT)
+            assert bench_run.wait(timeout=60) != 0
+        finally:
+            try:
+                os.killpg(bench_run.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    measurement = json.loads(measurement_path.read_text(encoding="utf-8"))
+    assert [run["seed"] for run in measurement["seeds"]] == [42]
+    assert measurement["seeds"][0]["phases"]["suite"]["exit_code"] == suite_exit
+    assert "| 42 | suite |" in summary_path.read_text(encoding="utf-8")
+    # pytest writes its report only when the interrupt reached it, not a kill.
+    assert junit.exists() == (child == "interrupted")
 
 
 @POSIX
