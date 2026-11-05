@@ -11,7 +11,16 @@ runs:
         base=
         case "$CLAUDIT_EVENT" in
           pull_request)
-            git fetch --no-tags "https://github.com/${CLAUDIT_REPO}.git" "refs/heads/${CLAUDIT_BASE_REF}"
+            for attempt in 1 2 3; do
+              if git fetch --no-tags "https://github.com/${CLAUDIT_REPO}.git" "refs/heads/${CLAUDIT_BASE_REF}"; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "::error::fetching the base branch failed after 3 attempts" >&2
+                exit 1
+              fi
+              sleep "$((attempt * 5))"
+            done
             base="$(git merge-base HEAD FETCH_HEAD)" ;;
           push)
             resolver_status=0
