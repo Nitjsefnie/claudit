@@ -422,8 +422,7 @@ exec "$REAL_GIT" "$@"
 def _ssh_agent_shim() -> str:
     # Return harmless shell assignments for the workflow's eval, without
     # starting a real agent during the simulation. The backgrounded sleep
-    # stands in for the agent process the trap must stop; `command` skips
-    # the step's no-op sleep.
+    # stands in for the agent process the trap must stop.
     return r"""#!/usr/bin/env bash
 set -eu
 printf 'called\n' > "$FAKE_STATE/ssh-agent-called"
@@ -431,7 +430,7 @@ if [ -z "${CLAUDIT_MASTER_PUSH_DEPLOY_KEY:-}" ]; then
   echo 'ssh-agent called without the deploy key' >&2
   exit 1
 fi
-command sleep 300 >/dev/null 2>&1 &
+sleep 300 >/dev/null 2>&1 &
 agent_pid=$!
 printf '%s\n' "$agent_pid" > "$FAKE_STATE/ssh-agent-pid"
 printf '%s\n' "SSH_AUTH_SOCK=$FAKE_STATE/agent.sock; export SSH_AUTH_SOCK;" \
@@ -489,9 +488,11 @@ def _scratch_fixture(tmp_path: Path) -> Path:
         repo = base / name
         _run(["git", "clone", "-q", str(bare), str(repo)])
         _configure_identity(repo)
+    # retry.sh's 5 s and 10 s backoff is skipped; any other sleep is real.
+    sleep = f'#!/bin/sh\ncase "$1" in 5|10) ;; *) exec {shutil.which("sleep")} "$@" ;; esac\n'
     for shim, body in (("git", _git_shim()),
                        ("ssh-agent", _ssh_agent_shim()),
-                       ("ssh-add", _ssh_add_shim())):
+                       ("ssh-add", _ssh_add_shim()), ("sleep", sleep)):
         path = base / "bin" / shim
         path.write_text(body, encoding="utf-8")
         path.chmod(0o755)
@@ -546,8 +547,7 @@ def _run_push_step(scratch: Path,
                    extra_env: Mapping[str, str | None]
                    ) -> subprocess.CompletedProcess:
     script = scratch / "push-step.sh"
-    # retry.sh waits between attempts; the no-op sleep makes that free.
-    script.write_text("sleep() { :; }\nexport -f sleep\n" + _push_run(), encoding="utf-8")
+    script.write_text(_push_run(), encoding="utf-8")
     write_retry_helper(_job("push"), scratch / "runner-temp")
     return subprocess.run(
         ["bash", "-e", str(script)],

@@ -128,4 +128,5 @@ def test_a_push_refused_on_every_attempt_while_master_stood_still_goes_red(
     assert f"{PUSH} still failing after 3 attempts" in proc.stderr
     assert (remote / "pushes").read_text(encoding="utf-8") == "3\n"
     assert _git(remote, "rev-parse", "master") == before
+    # Only the release VERSION step writes GITHUB_OUTPUT, and only once its push lands.
     assert not (tmp_path / "output").exists()

@@ -133,4 +133,5 @@ def test_pricing_push_reads_retry_a_transient_failure(scratch: Path, raced: bool
         _sha(scratch / "peer", "HEAD") if raced
         else _sha(scratch / "runner-temp" / "push-repo", "HEAD"))
     assert _state_lines(scratch, "git-reads") == ["6" if raced else "4"]
-    assert _state_lines(scratch, "sleeps") == ["5"] * (3 if raced else 2)
+    # A raced push fails all three retry.sh attempts (5 s, 10 s) before the re-fetch.
+    assert _state_lines(scratch, "sleeps") == (["5", "5", "5", "10", "5"] if raced else ["5", "5"])
