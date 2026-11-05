@@ -63,6 +63,7 @@
     "deepseek-v4-1-flash-1017 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-1-flash-1017 via Fireworks: rule-resolved (data region): took the global endpoint 'fireworks' over 'fireworks/spot'",
     "deepseek-v4-1-flash-1017 via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp8'; dropped 'inference-net/us'",
+    "deepseek-v4-1-flash-1017 via Relace: rule-resolved (unique quantization): took the fp4 endpoint 'relace/fp4' over service tiers",
     "deepseek-v4-1-flash-1017 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
     "deepseek-v4-1-flash-1017 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
     "deepseek-v4-flash-0731 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
@@ -257,7 +258,7 @@
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
     "tag 'parasail/fast' names neither a known region nor a quantization: deepseek-v4-1-flash via Parasail, deepseek-v4-pro-0813 via Parasail, glm-5-3 via Parasail, glm-5-3-flash via Parasail, kimi-k3 via Parasail",
     "tag 'particle-ai/us/flex' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Particle AI",
-    "tag 'relace/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Relace",
+    "tag 'relace/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Relace, deepseek-v4-flash-0731 via Relace",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
@@ -523,7 +524,8 @@
       "Sail Research"
     ],
     "deepseek-v4-1-flash-1017": [
-      "Particle AI"
+      "Particle AI",
+      "Tenstorrent"
     ],
     "deepseek-v4-flash": [
       "Alibaba",
