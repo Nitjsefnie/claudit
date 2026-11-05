@@ -192,7 +192,8 @@ def test_cache_retry_waits_out_then_recovers_an_abandoned_dpkg():
     assert wait[wait.index("apt-get") + 1] == "check"
     lock, = [token for token in wait if token.startswith("DPkg::Lock::Timeout=")]
     assert 0 < int(lock.partition("=")[2]) < _bound(wait)
-    assert fix[-3:] == ["dpkg", "--configure", "-a"] and _bound(fix) > 0
+    assert fix[-5:] == ["env", "DEBIAN_FRONTEND=noninteractive",
+                        "dpkg", "--configure", "-a"] and _bound(fix) > 0
     for at in (wait_at, fix_at):
         assert lines[at - 1].startswith("echo ")
 

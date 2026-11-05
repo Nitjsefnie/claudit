@@ -71,7 +71,7 @@ runs:
             echo "::warning::apt-get check reported a busy dpkg lock or an interrupted dpkg"
           fi
           echo "==> recovering an interrupted dpkg"
-          if ! sudo timeout 60s dpkg --configure -a; then
+          if ! sudo timeout 60s env DEBIAN_FRONTEND=noninteractive dpkg --configure -a; then
             echo "::warning::dpkg --configure -a failed"
           fi
         done
