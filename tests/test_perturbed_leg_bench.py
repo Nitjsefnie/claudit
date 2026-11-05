@@ -3,9 +3,9 @@
 These tests drive ``scripts/ci/perturbed_leg_bench.py`` over a MINIMAL
 synthetic pricing.json, constants module and parser-version module in
 tmp_path, over a one-test pytest subprocess, never the real tree: the
-tree's own pricing.json is never mutated. The end-to-end runs are
-POSIX-only -- the bench reads child CPU from ``getrusage`` -- and the
-report-shape and wiring tests run everywhere.
+tree's own pricing.json is never mutated. The end-to-end, interrupt
+and step-exec tests are POSIX-only; the report-shape and other wiring
+tests run everywhere.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ RATES = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
 
 POSIX = pytest.mark.skipif(
     sys.platform == "win32",
-    reason="the bench's child-CPU instrument is getrusage(2), POSIX-only")
+    reason="needs getrusage(2), POSIX signals or a real bash (bare bash on Windows is the WSL stub)")
 
 
 def _load():
