@@ -348,6 +348,11 @@ def test_an_interrupt_reaches_pytest_and_the_measurement_is_still_written(
     assert junit.exists() == (child == "interrupted")
 
 
+def test_the_interrupt_grace_ends_before_the_runners_sigterm():
+    # The runner sends SIGTERM 7.5 s after the step-timeout SIGINT; Popen.wait first waits 0.25 s.
+    assert bench.INTERRUPT_GRACE_S + 0.25 < 7.5
+
+
 @POSIX
 @pytest.mark.parametrize("shard,expected", [
     (None, ["a", "b", "c", "d"]), (1, ["a", "d"]), (2, ["b", "c"]),
