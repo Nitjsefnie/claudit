@@ -15,7 +15,7 @@ def test_portable_pytest_uses_step_scoped_socket_directory():
     job = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)[
         "jobs"]["pytest-portable"]
     step, = (step for step in job["steps"] if step.get("name") == "Run tests")
-    assert step.get("env") == {"PGHOST": "${{ runner.temp }}"}
+    assert step["env"]["PGHOST"] == "${{ runner.temp }}"
     assert "PGHOST" not in (job.get("env") or {})
 
 

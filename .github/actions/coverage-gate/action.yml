@@ -33,6 +33,7 @@ runs:
       # AST conversion measures executed src/**/*.js, excluding JSX.
       env:
         NODE_V8_COVERAGE: ${{ runner.temp }}/v8-coverage
+        CLAUDIT_DEBUG_NODE_STALL: "1"
       run: |
         rm -rf "$NODE_V8_COVERAGE" && mkdir -p "$NODE_V8_COVERAGE"
         # test_js_toolchain.py pins this list to node-using tests (#433).
