@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -22,41 +23,37 @@ POSIX_ONLY = pytest.mark.skipif(
 
 
 def _run(tmp_path, fail_times, mktemp_fails=False):
+    real_mktemp = shutil.which("mktemp")  # resolved before the stub shadows it
+    assert real_mktemp
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    probe = bin_dir / "probe"
-    # Attempt n exits 10 + n while n <= fail_times.
-    probe.write_text(
-        "#!/bin/sh\n"
-        'printf "%s|" "$@" >> "$CALLS"\n'
-        'echo >> "$CALLS"\n'
-        'n=$(($(wc -l < "$CALLS")))\n'
-        'ls "$TMPDIR" >> "$SEEN"\n'
-        'echo "stdout of attempt $n"\n'
-        'echo "stderr of attempt $n" >&2\n'
-        f'if [ "$n" -le {fail_times} ]; then exit "$((10 + n))"; fi\n',
-        encoding="utf-8", newline="\n")
-    sleep = bin_dir / "sleep"
-    sleep.write_text('#!/bin/sh\necho "$*" >> "$SLEEPS"\n',
-                     encoding="utf-8", newline="\n")
-    if mktemp_fails:
-        (bin_dir / "mktemp").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8", newline="\n")
-        (bin_dir / "mktemp").chmod(0o755)
-    for stub in (probe, sleep):
-        stub.chmod(0o755)
-    calls, sleeps, scratch = tmp_path / "calls", tmp_path / "sleeps", tmp_path / "t"
-    seen = tmp_path / "seen"
-    scratch.mkdir()
+    # Attempt n exits 10 + n while n <= fail_times. The mktemp stub logs each
+    # file the helper creates; the real one gets an explicit template.
+    for name, body in {
+        "probe": 'printf "%s|" "$@" >> "$CALLS"\necho >> "$CALLS"\n'
+                 'n=$(($(wc -l < "$CALLS")))\necho "stdout of attempt $n"\n'
+                 'echo "stderr of attempt $n" >&2\n'
+                 f'if [ "$n" -le {fail_times} ]; then exit "$((10 + n))"; fi\n',
+        "sleep": 'echo "$*" >> "$SLEEPS"\n',
+        "mktemp": "exit 1\n" if mktemp_fails else
+                  'f="$("$REAL_MKTEMP" "$MKTEMP_DIR/retry.XXXXXX")" || exit\n'
+                  'echo "$f" >> "$MKTEMPS"\necho "$f"\n',
+    }.items():
+        (bin_dir / name).write_text("#!/bin/sh\n" + body, encoding="utf-8", newline="\n")
+        (bin_dir / name).chmod(0o755)
+    calls, sleeps, mktemps = tmp_path / "calls", tmp_path / "sleeps", tmp_path / "mktemps"
     env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-               CALLS=str(calls), SLEEPS=str(sleeps), SEEN=str(seen), TMPDIR=str(scratch))
+               CALLS=str(calls), SLEEPS=str(sleeps), MKTEMPS=str(mktemps),
+               MKTEMP_DIR=str(tmp_path), REAL_MKTEMP=real_mktemp)
     proc = subprocess.run([str(HELPER), "probe", "--flag", "two words"],
                           cwd=tmp_path, env=env, check=False,
                           capture_output=True, text=True)
-    assert not list(scratch.iterdir()), "the helper left its temporary file"
+    made = mktemps.read_text(encoding="utf-8").split() if mktemps.exists() else []
+    assert len(made) == (0 if mktemp_fails else 1), made
+    assert not [path for path in made if Path(path).exists()], \
+        "the helper left its temporary file"
     attempts = calls.read_text(encoding="utf-8").splitlines() \
         if calls.exists() else []
-    # While the command ran, its stdout buffer sat in $TMPDIR.
-    assert len(seen.read_text(encoding="utf-8").split() if seen.exists() else []) == len(attempts)
     assert set(attempts) <= {"--flag|two words|"}, attempts
     waits = sleeps.read_text(encoding="utf-8").split() \
         if sleeps.exists() else []
