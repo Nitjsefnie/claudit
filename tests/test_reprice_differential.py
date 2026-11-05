@@ -243,10 +243,7 @@ _SCHED_A_RATES = {"fresh": 0.75, "create_5m": 0.9375, "create_1h": 1.5,
 _SCHED_B_RATES = {"fresh": 0.25, "create_5m": 0.3125, "create_1h": 0.5,
                   "read": 0.025, "output": 1.25}
 
-# The meter model, bound like _SEED_MODEL: a string constant naming a
-# live rate row inside a pricing call is what the pinned-version guard
-# flags; a module constant passed as a variable is the sanctioned shape
-# (SV-TEST-DATA).
+# The meter model, bound like _SEED_MODEL.
 _METER_MODEL = "gpt-5.6-sol"
 
 # One fixed tally for every seeded row: unsplit_create = 2000-250-500.
