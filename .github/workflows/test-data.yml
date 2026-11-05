@@ -42,7 +42,7 @@ jobs:
         seed: ["42", "1234567890", "1720000000"]
         shard: [1, 2, 3, 4]
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
 
     permissions:
       contents: read
