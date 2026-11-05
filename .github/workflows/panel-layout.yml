@@ -85,7 +85,7 @@ jobs:
       # needs on the runner image; without them the launch fails with a
       # loader error rather than a layout result.
       - name: Install the headless browser
-        run: npx --no-install playwright install --with-deps chromium
+        run: scripts/ci/retry.sh npx --no-install playwright install --with-deps chromium
 
       - name: Run the ${{ matrix.sweep.name }} sweep
         run: node ${{ matrix.sweep.script }}
