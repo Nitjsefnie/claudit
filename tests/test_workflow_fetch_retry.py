@@ -15,6 +15,7 @@ other heredoc bodies are data.
 It does not follow functions or aliases called by name, eval, a command in
 a variable or a script file, or a `case` pattern inside `$( )`. A run it
 cannot lex, or a non-bash shell, fails.
+A step with no `shell:` reads as bash, even on Windows (pwsh there).
 """
 from __future__ import annotations
 
@@ -33,7 +34,6 @@ CONDITIONS = {"if", "elif", "while", "until"}
 SHELLS = {"bash", "sh"}
 SCRIPT_FLAG = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
 SHELL_VALUE_OPTIONS = {"--rcfile", "--init-file"}  # and a short cluster ending in o/O
-# Prefix commands and their options that take a separate value.
 PREFIXES = {"sudo": {"-u", "-g", "-C", "-D"}, "env": {"-u", "-C", "-S"},
             "timeout": {"-k", "-s"}, "nice": {"-n"}, "nohup": set(),
             "command": set(), "exec": set(), "stdbuf": set(),
@@ -265,7 +265,7 @@ def _stdin_shell(words: list[str]) -> bool:
         short = words[index][1:2] != "-"
         index += 2 if words[index] in SHELL_VALUE_OPTIONS or (short and words[index][-1] in "oO") else 1
     index += words[index:index + 1] == ["--"]
-    return from_stdin or index >= len(words)  # an operand before `-s` is a script file
+    return from_stdin or index >= len(words)  # an operand before -s is a script
 
 
 def _strip(words: list[str]) -> list[str]:

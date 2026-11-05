@@ -468,13 +468,16 @@ def test_decide_skips_when_master_is_dev(decide_env):
 
 
 @ubuntu_step_body
-@pytest.mark.parametrize("failure", ["TIP_RC", "LIST_RC", "CANDIDATE_RC"])
-def test_decide_attribution_read_fails_closed(decide_env, failure):
+@pytest.mark.parametrize("failure,refusal", [
+    ("TIP_RC", "master's VERSION"), ("LIST_RC", "the VERSION commit list"),
+    ("CANDIDATE_RC", "VERSION at release-head")])
+def test_decide_attribution_read_fails_closed(decide_env, failure, refusal):
     env = decide_env | {failure: "1"}
     proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
     assert proc.returncode == 1
-    assert "could not verify" in proc.stderr
-    assert "failing closed" in proc.stderr
+    # The failed read's own refusal stops the step; no later check runs.
+    assert [line for line in proc.stderr.splitlines() if "failing closed" in line] == [
+        f"could not verify {refusal} — failing closed"]
     assert not Path(env["GITHUB_OUTPUT"]).exists()
 
 
@@ -516,6 +519,8 @@ def test_decide_stops_on_failed_contents_fetch(decide_env, failure):
     env = decide_env | {failure: "1"}
     proc = _run_step(POST_RELEASE, POST_RELEASE_STUB, env)
     assert proc.returncode == 1
+    assert "still failing after 3 attempts" in proc.stderr
+    assert "VERSION is not semver" not in proc.stderr
     assert not Path(env["GITHUB_OUTPUT"]).exists()
 
 
