@@ -10,12 +10,8 @@ test_api_token_types) marks through it without db_marker knowing that
 fixture exists.
 
 Tests that reach the server WITHOUT any DB fixture carry
-``@pytest.mark.db`` explicitly (test_scratch_db.py, test_smoke_cleanup.py,
-one epoch-SQL test in test_cost_buckets.py). tests/test_db_marker.py
-re-derives both from tests/*.py source and fails on drift in either
-direction: a forgotten registration leaves a DB test in the portable CI
-matrix, where it fails on the missing server — the fail-loud backstop is
-running the suite with ``-m "not db"`` against no reachable server.
+``@pytest.mark.db`` explicitly. A forgotten registration leaves a DB test
+in the portable CI matrix, where it fails on the missing server.
 """
 from __future__ import annotations
 
@@ -23,12 +19,8 @@ from typing import Any, Iterable
 
 import pytest
 
-# Fixture names whose invocation hands the test a database. Derived from
-# the repo, not hand-kept: tests/test_db_marker.py re-derives the set
-# from tests/*.py source (fixtures whose body — or the body of a helper
-# they call — mentions a scratch_db server call, closed transitively
-# over fixture parameters and helper calls) and fails when it no longer
-# equals this frozenset.
+# Fixture names whose invocation hands the test a database (fixtures whose
+# body, or a helper it calls, makes a scratch_db server call).
 # app_with_data test_api / test_tokens_by_project; the fixture
 # body calls a _build_api_client helper that
 # creates the scratch DB
@@ -93,33 +85,3 @@ def mark_db_items(items: Iterable[Any]) -> None:
     for item in items:
         if DB_FIXTURES.intersection(item.fixturenames):
             item.add_marker(pytest.mark.db)
-
-
-# Tests the marking guard flags whose bodies provably never reach a
-# server, each with the reason. Every entry names a test that EXISTS: an
-# entry for a name no test carries excuses nothing, and reads as cover
-# while the real offender is left to be found. Moved here from the guard
-# test module so the registry and its allowlist live in one place; the guard reads it as tests.db_marker.MARK_ALLOWLIST.
-MARK_ALLOWLIST: dict[str, str] = {
-    "test_workflow_portable_pghost.py:test_empty_pghost_is_not_a_timeout":
-        "sets PGHOST to an empty directory, so the call reaches no server "
-        "and the test must run in the portable cells",
-    "test_version.py:test_health_error_branch_answers_503":
-        "monkeypatches db.viz_conn with a function that raises, so the "
-        "health endpoint's error branch runs with no server at all",
-    "test_cache_outcomes.py:test_health_carries_the_cache_block":
-        "monkeypatches db.viz_conn with a fake connection (no rows), so "
-        "the health endpoint's ok branch runs with no server at all",
-    "test_version.py:test_health_ok_branch_reports_version":
-        "monkeypatches db.viz_conn with a fake connection, so the "
-        "health endpoint's ok branch runs with no server at all",
-    "test_version.py:test_health_last_ingest_carries_newer":
-        "monkeypatches db.viz_conn with a fake connection, so the "
-        "health endpoint's ok branch runs with no server at all",
-    "test_schema_autoapply.py:test_apply_schema_unlock_failure_does_not_mask_the_ddl_error":
-        "monkeypatches db.viz_conn with a fake connection, so "
-        "apply_schema's unlock guard runs with no server at all",
-    "test_schema_autoapply.py:test_apply_schema_swallows_unlock_failure_after_success":
-        "monkeypatches db.viz_conn with a fake connection, so "
-        "apply_schema's unlock guard runs with no server at all",
-}

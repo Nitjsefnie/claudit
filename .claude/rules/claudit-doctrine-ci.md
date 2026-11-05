@@ -214,18 +214,13 @@ assertions may compare a resolution or cost with the same row loaded in
 that run, so a rewrite moves both sides together. Reads of
 `openrouter.models` keys alone are catalog configuration, not rate pins.
 
-Enforcement has two halves. The perturbed-data CI leg
+Enforcement is the perturbed-data CI leg plus review. The leg
 (`scripts/ci/perturb_test_data.py`) runs the suite on a tree where each
 rate row gains five appended entries per run — ×2, ×0.37, a per-row
 irregular factor, five independent per-field factors, and a
 single-field move, in seeded-shuffled row order — and the version
 constants are bumped, so a hidden dependency fails as a test, not as a
-broken refresh. The guard, `tests/test_no_pinned_version_literals.py`,
-scans `tests/` for a literal assigned to any of the three constants
-and for live-row shapes: a read of the committed document
-(`pricing.PRICING_JSON`), a module-level bind of the `pricing.json`
-path, and a `rate_for` / `resolve` / `compute_cost` call naming a live
-model or host. An inline `# sv-test-data: allow` comment with an invariance
-reason excuses a site; a marker whose site is gone fails the guard as rot.
-The guard checks these shapes and marker placement; reading each allowed
-site verifies its stated invariance basis.
+broken refresh. Reviewers read each test for the shapes the leg may
+miss: a literal assigned to one of the three constants, a read of the
+committed document (`pricing.PRICING_JSON`), or a rate call naming a
+live model or host.
