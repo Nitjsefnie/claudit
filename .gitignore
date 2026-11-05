@@ -182,6 +182,7 @@
 !/scripts/ci/*.py
 !/scripts/ci/*.txt
 !/scripts/ci/*.json
+!/scripts/ci/retry.sh
 # panel_layout.mjs drives the rendered-layout guard (issue #631) in its
 # own CI job; it is node, not python, and nothing else under scripts/ci
 # is.
