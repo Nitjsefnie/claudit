@@ -609,7 +609,7 @@ def test_panel_workflow_runs_four_independent_sweeps():
     assert "run" not in sanitize
     assert not sanitize.get("with", {}).get("packages")
     assert sanitize["timeout-minutes"] > 0
-    assert browser["run"] == "npx --no-install playwright install --with-deps chromium"
+    assert browser["run"] == "scripts/ci/retry.sh npx --no-install playwright install --with-deps chromium"
     assert sweep["run"] == "node ${{ matrix.sweep.script }}"
     assert all("if" not in step and "continue-on-error" not in step
                for step in job["steps"])
