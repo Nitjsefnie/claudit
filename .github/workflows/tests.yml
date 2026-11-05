@@ -46,8 +46,8 @@ jobs:
           packages: postgresql-client-16
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && pip install -r backend/requirements.txt -r requirements-test.txt
+          scripts/ci/retry.sh python -m pip install --upgrade pip
+          scripts/ci/retry.sh pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh pip install -r backend/requirements.txt -r requirements-test.txt
       # One matrix writer per shared cache key, on master.
       - name: Save the pip cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.shard == 1
@@ -83,8 +83,8 @@ jobs:
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && pip install -r backend/requirements.txt -r requirements-test.txt
+          scripts/ci/retry.sh python -m pip install --upgrade pip
+          scripts/ci/retry.sh pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh pip install -r backend/requirements.txt -r requirements-test.txt
       - name: Download coverage shards
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: {pattern: coverage-shard-*, path: shard-data/}
@@ -179,8 +179,8 @@ jobs:
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && pip install -r backend/requirements.txt -r requirements-test.txt
+          scripts/ci/retry.sh python -m pip install --upgrade pip
+          scripts/ci/retry.sh pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh pip install -r backend/requirements.txt -r requirements-test.txt
       - name: Pylint suppression baseline
         if: ${{ !cancelled() && inputs.thresholds_only != 'true' }}
         run: python3 scripts/ci/suppression_baseline.py --base-rev "$CLAUDIT_THRESHOLDS_BASE_REV" --head-rev HEAD
@@ -223,8 +223,8 @@ jobs:
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && pip install -r backend/requirements.txt -r requirements-test.txt
+          scripts/ci/retry.sh python -m pip install --upgrade pip
+          scripts/ci/retry.sh pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh pip install -r backend/requirements.txt -r requirements-test.txt
       - name: Install the JS toolchain from the lockfile
         run: npm ci --no-audit --no-fund
       - name: JavaScript coverage gate
@@ -251,8 +251,8 @@ jobs:
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && pip install -r backend/requirements.txt -r requirements-test.txt
+          scripts/ci/retry.sh python -m pip install --upgrade pip
+          scripts/ci/retry.sh pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh pip install -r backend/requirements.txt -r requirements-test.txt
       - name: Reparse CPU gate
         id: reparse
         uses: $/.github/actions/reparse-bench
@@ -276,8 +276,8 @@ jobs:
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && pip install -r backend/requirements.txt -r requirements-test.txt
+          scripts/ci/retry.sh python -m pip install --upgrade pip
+          scripts/ci/retry.sh pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh pip install -r backend/requirements.txt -r requirements-test.txt
       - name: Save the pip cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -320,8 +320,8 @@ jobs:
           packages: postgresql-client-16
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && pip install -r backend/requirements.txt -r requirements-test.txt
+          scripts/ci/retry.sh python -m pip install --upgrade pip
+          scripts/ci/retry.sh pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh pip install -r backend/requirements.txt -r requirements-test.txt
       - name: Run tests
         run: |
           # shellcheck disable=SC2046
@@ -346,8 +346,8 @@ jobs:
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && pip install -r backend/requirements.txt -r requirements-test.txt
+          scripts/ci/retry.sh python -m pip install --upgrade pip
+          scripts/ci/retry.sh pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh pip install -r backend/requirements.txt -r requirements-test.txt
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: "24.17.0"}
       - name: Install the JS toolchain from the lockfile
@@ -428,7 +428,7 @@ jobs:
 
       - name: Install dependencies
         # One line: the default pwsh shell on windows-latest propagates only the last line's exit code.
-        run: "pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && python -m pip install --upgrade pip -r backend/requirements.txt -r requirements-test.txt"
+        run: "scripts/ci/retry.sh pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh python -m pip install --upgrade pip -r backend/requirements.txt -r requirements-test.txt"
 
       # Saved here, not in a post-job step, so the cache is written only from a master push, by one shard per key.
       - name: Save the pip cache

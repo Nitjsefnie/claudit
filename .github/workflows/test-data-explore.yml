@@ -104,8 +104,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && pip install -r backend/requirements.txt -r requirements-test.txt
+          scripts/ci/retry.sh python -m pip install --upgrade pip
+          scripts/ci/retry.sh pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh pip install -r backend/requirements.txt -r requirements-test.txt
 
       # Keep the common post-install save shape; its push gate excludes this workflow.
       - name: Save the pip cache

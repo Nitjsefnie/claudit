@@ -250,7 +250,7 @@ jobs:
           key: pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}
 
       - name: Install dependencies
-        run: "python3 -m pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && pip install -r backend/requirements.txt -r requirements-test.txt"
+        run: "scripts/ci/retry.sh python3 -m pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh pip install -r backend/requirements.txt -r requirements-test.txt"
 
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
