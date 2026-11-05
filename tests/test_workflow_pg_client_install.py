@@ -72,7 +72,7 @@ def test_client_sites_use_the_shared_mechanism():
         assert step.get("uses") == ACTION_REF, (name, job)
         assert "run" not in step, (name, job)
         assert step.get("name") == "Install postgresql-client"
-        assert step.get("timeout-minutes") == "10"
+        assert step.get("timeout-minutes") == "15"
 
 
 def test_workflows_delegate_every_apt_command():
@@ -112,6 +112,10 @@ def test_sanitization_always_runs_and_package_setup_is_optional():
     assert "DEBIAN_FRONTEND=noninteractive apt-get install" in install["run"]
 
 
+def _bound(tokens: list[str]) -> int:
+    return int(tokens[tokens.index("timeout") + 1].rstrip("s"))
+
+
 def _apt_loops(run: str) -> list[dict]:
     """Each retry loop: attempts, body, parsed apt-get command and sleep."""
     loops = []
@@ -122,10 +126,16 @@ def _apt_loops(run: str) -> list[dict]:
         assert len(apts) == 1
         tokens = shlex.split(apts[0].removeprefix("if ").removesuffix("; then"))
         sleeps, = re.findall(r"^\s*sleep (\d+)$", body, re.M)
+        lines = [line.strip() for line in body.splitlines()]
+        recovery = [(index, shlex.split(line.removeprefix("if ! ")
+                                        .removesuffix("; then")))
+                    for index, line in enumerate(lines)
+                    if line.startswith("if ! sudo ")]
         loops.append({
+            "lines": lines, "recovery": recovery,
             "attempts": len(words.split()), "last": words.split()[-1],
             "body": body, "tokens": tokens, "sleep": int(sleeps),
-            "timeout": int(tokens[tokens.index("timeout") + 1].rstrip("s")),
+            "timeout": _bound(tokens),
         })
     return loops
 
@@ -164,6 +174,29 @@ def test_cache_install_waits_on_a_lingering_dpkg_lock_inside_its_attempt():
     assert 0 < int(waits[0]) < cache["timeout"]
 
 
+def test_cache_install_outlasts_the_network_bound_that_failed():
+    *network, cache = _apt_loops(_action_steps()[1]["run"])
+    assert cache["timeout"] > max(loop["timeout"] for loop in network)
+
+
+def test_cache_retry_waits_out_then_recovers_an_abandoned_dpkg():
+    loops = _apt_loops(_action_steps()[1]["run"])
+    assert [bool(loop["recovery"]) for loop in loops] == [False, False, True]
+    cache = loops[-1]
+    lines = cache["lines"]
+    attempt = next(i for i, line in enumerate(lines)
+                   if line.startswith("if sudo "))
+    (wait_at, wait), (fix_at, fix) = cache["recovery"]
+    sleep_at = lines.index(f"sleep {cache['sleep']}")
+    assert attempt < sleep_at < wait_at < fix_at
+    assert wait[wait.index("apt-get") + 1] == "check"
+    lock, = [token for token in wait if token.startswith("DPkg::Lock::Timeout=")]
+    assert 0 < int(lock.partition("=")[2]) < _bound(wait)
+    assert fix[-3:] == ["dpkg", "--configure", "-a"] and _bound(fix) > 0
+    for at in (wait_at, fix_at):
+        assert lines[at - 1].startswith("echo ")
+
+
 def test_update_retries_any_index_fetch_failure():
     updates = [line for line in _action_steps()[1]["run"].splitlines()
                if line.strip().startswith("if sudo ") and "apt-get update " in line]
@@ -185,8 +218,9 @@ def test_composite_shell_timeouts_fit_calling_steps():
     loops = _apt_loops(run)
     assert len(loops) == len(APT_LOOPS) and all(value > 0 for value in bounds)
     budget = int(sanitize_bound) + setup_budget + sum(
-        loop["attempts"] * loop["timeout"]
-        + (loop["attempts"] - 1) * loop["sleep"] for loop in loops)
+        loop["attempts"] * loop["timeout"] + (loop["attempts"] - 1) * (
+            loop["sleep"] + sum(_bound(tokens) for _, tokens in loop["recovery"]))
+        for loop in loops)
     callers = _client_steps()
     assert callers
     assert all(budget < int(step["timeout-minutes"]) * 60 for _, _, step in callers)
