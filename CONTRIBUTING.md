@@ -675,6 +675,10 @@ scripts/plots/    — DB-backed usage plot (ccusage_plot_db.py, _render.py,
                     _timeline.py) over `records`; visual parity with
                     upstream nhz-io/ccusage-plot
 
+scripts/ci/retry.sh — the shared bounded retry for workflow network reads
+                    (3 attempts, 5 then 10 s apart); a job that calls it
+                    without a checkout first writes an identical copy
+
 tests/            — pytest suite (conftest.py forces file-mode R2 and
                     test-safe env defaults)
 
