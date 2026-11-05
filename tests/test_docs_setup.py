@@ -92,12 +92,7 @@ def test_each_doc_carries_the_auth_db_steps():
     for name, heading in SECTIONS:
         path = ROOT / name
         steps = _setup_steps(path, heading)
-        # Spelled split mid-word: test_scratch_db.py's whole-tree guard
-        # flags DDL-shaped literals in tests/ source, so the command is
-        # spelled "create" "db ..." -- adjacent-literal concatenation
-        # yields the same runtime string, while no token spells the
-        # command contiguously for the guard's scan.
-        assert "create" "db claudit_auth" in steps, (
+        assert "createdb claudit_auth" in steps, (
             f"{name}: the auth-DB creation step is gone from the "
             f"setup block")
         assert any("CREATE TABLE users" in s for s in steps), (
