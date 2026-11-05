@@ -4,3 +4,5 @@
 fixtures/** -text
 # Vendored SRI hashes and extracted notices depend on byte-exact checkouts.
 public/vendor/** -text
+# bash runs this on Windows cells, where a CRLF checkout breaks the shebang.
+scripts/ci/retry.sh text eol=lf
