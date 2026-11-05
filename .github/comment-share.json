@@ -612,8 +612,8 @@
     10185
   ],
   "scripts/ci/fuzz_sharding.py": [
-    3853,
-    8794
+    3812,
+    8753
   ],
   "scripts/ci/fuzz_test_data.py": [
     3786,
