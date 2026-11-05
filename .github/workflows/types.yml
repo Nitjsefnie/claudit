@@ -56,8 +56,8 @@ jobs:
         # Runtime deps too, so pyright resolves third-party imports
         # instead of reporting them all as missing.
         run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && pip install -r backend/requirements.txt -r requirements-dev.txt -r requirements-test.txt
+          scripts/ci/retry.sh python -m pip install --upgrade pip
+          scripts/ci/retry.sh pip install --require-hashes --only-binary=:all: --no-binary=PyYAML -r requirements-pyyaml.txt && scripts/ci/retry.sh pip install -r backend/requirements.txt -r requirements-dev.txt -r requirements-test.txt
 
       # Saved here, not in a post-job step: the install above populated the
       # cache, and the gate keeps every event but a push of master from

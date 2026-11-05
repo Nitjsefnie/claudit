@@ -24,7 +24,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND_REQUIREMENTS = "backend/requirements.txt"
 HASHED_FLAGS = ("--require-hashes", "--only-binary=:all:", "--no-binary=PyYAML")
-PIP_INSTALL = re.compile(r"(?:RUN )?(?:python3? -m )?pip (?:install|wheel) ")
+PIP_INSTALL = re.compile(r"(?:RUN )?(?:scripts/ci/retry\.sh )?(?:python3? -m )?pip (?:install|wheel) ")
 RUNNER_TEMP = re.compile(r"\$RUNNER_TEMP(?!\w)|\$\{RUNNER_TEMP\}")
 
 
