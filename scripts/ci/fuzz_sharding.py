@@ -30,8 +30,8 @@ FUZZER_NAME = "fuzz_test_data.py"
 # Grace between SIGTERM and SIGKILL for a shard's process group.
 KILL_GRACE_S = 5.0
 # The escalation signal: SIGKILL on POSIX. Windows has neither SIGKILL
-# nor killpg, where the group stage is moot; the constant exists so the
-# module imports and its unit tests pin the escalation shape everywhere.
+# nor killpg, where the group stage is moot; the fallback keeps the
+# module importable there.
 ESCALATION_SIGNAL = getattr(signal, "SIGKILL", signal.SIGTERM)
 INTERRUPT_SIGNAL_NAMES = ("SIGTERM", "SIGINT", "SIGHUP")
 # The only names pruned from the collection-root union: never tests.
