@@ -17,9 +17,8 @@ Per the v9 measurement doctrine this is TELEMETRY, never a gate: the
 leg's verdict is the perturbed suite's pass/fail, never its duration,
 and nothing here is compared against a committed budget. The wall
 numbers are diagnostic because the size decision concerns CI minutes. Container startup and dependency install
-live outside this bench's window: GitHub records those per step, and
-the bench names that in its report instead of pretending to measure
-what it does not run.
+live outside this bench's window: GitHub records those per step, as
+the report says.
 
 The measurement records the workload identity ``tests_tree_lines``
 (the tests/*.py line total, the same identity the suite-cost bench
@@ -40,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -71,6 +71,8 @@ DEFAULT_CONSTANTS = REPO_ROOT / "backend" / "constants.py"
 DEFAULT_PARSER_VERSION = REPO_ROOT / "backend" / "parser_version.py"
 DEFAULT_PYTEST_ARGS = ["tests/", "-q", "--tb=short", "-ra", "-o", "faulthandler_timeout=240",
                        "--durations=20", "--junitxml=pytest-junit.xml"]
+# Inside the runner's 7.5 s from step-timeout SIGINT to SIGTERM; SIGTERM stays fatal.
+INTERRUPT_GRACE_S = 5
 
 
 class SeedRun(NamedTuple):
@@ -106,24 +108,32 @@ def run_seed(pristine_pricing: bytes, pristine_constants: bytes,
 def _suite_phase(pytest_args: list[str]) -> dict:
     """Run the suite as the leg always has: a pytest subprocess, env
     inherited, cwd the repo root; wall and child-CPU seconds recorded,
-    the CPU '-' where the platform cannot measure it."""
+    the CPU '-' where the platform cannot measure it. An interrupt is
+    passed on to pytest, so it still writes its report."""
     child_start = _children_cpu()
     wall_start = time.perf_counter()
-    # The tree under test is deliberately not the deployed data: tests
-    # that pin the DEPLOYED document itself (a byte ceiling) would fire
-    # on the inflation that is the leg's point, so the child is told the
-    # data is perturbed and may scope its data pins to the deployed tree.
-    proc = subprocess.run(
-        [sys.executable, "-m", "pytest", *pytest_args],
-        cwd=str(REPO_ROOT), check=False,
-        # Inherit the caller's judged base; absent means no removal exemptions.
-        env=dict(os.environ, CLAUDIT_PERTURBED_DATA="1"))
+    # Tests pinning the DEPLOYED document (a byte ceiling) would fire on
+    # the leg's inflation, so the child is told the data is perturbed and
+    # may scope those pins to the deployed tree.
+    with subprocess.Popen(
+            [sys.executable, "-m", "pytest", *pytest_args], cwd=str(REPO_ROOT),
+            # Inherit the caller's judged base; absent means no removal exemptions.
+            env=dict(os.environ, CLAUDIT_PERTURBED_DATA="1")) as proc:
+        try:
+            returncode = proc.wait()
+        except KeyboardInterrupt:
+            proc.send_signal(signal.SIGINT)
+            try:
+                returncode = proc.wait(INTERRUPT_GRACE_S)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                returncode = proc.wait()
     child_cpu = _children_cpu()
     return {
         "wall_s": _fmt(time.perf_counter() - wall_start),
         "cpu_s": ("-" if child_start is None or child_cpu is None
                   else _fmt(child_cpu - child_start)),
-        "exit_code": int(proc.returncode),
+        "exit_code": returncode,
     }
 
 
