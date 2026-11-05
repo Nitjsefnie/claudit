@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 
 import yaml
@@ -24,6 +25,12 @@ APT_BOUNDS = (
     "Acquire::Retries=3",
     "Acquire::http::Timeout=30",
     "Acquire::https::Timeout=30",
+)
+# (apt-get subcommand and flag, flags its command must carry), in run order.
+APT_LOOPS = (
+    ("update", None, APT_BOUNDS),
+    ("install", "--download-only", APT_BOUNDS),
+    ("install", "--no-download", ()),
 )
 CURL_BOUNDS = (
     "--connect-timeout 10", "--max-time 30", "--retry 3",
@@ -65,7 +72,7 @@ def test_client_sites_use_the_shared_mechanism():
         assert step.get("uses") == ACTION_REF, (name, job)
         assert "run" not in step, (name, job)
         assert step.get("name") == "Install postgresql-client"
-        assert step.get("timeout-minutes") == "5"
+        assert step.get("timeout-minutes") == "10"
 
 
 def test_workflows_delegate_every_apt_command():
@@ -105,28 +112,56 @@ def test_sanitization_always_runs_and_package_setup_is_optional():
     assert "DEBIAN_FRONTEND=noninteractive apt-get install" in install["run"]
 
 
-def test_composite_bounds_download_and_both_apt_retry_loops():
+def _apt_loops(run: str) -> list[dict]:
+    """Each retry loop: attempts, body, parsed apt-get command and sleep."""
+    loops = []
+    for words, body in re.findall(
+            r"for attempt in ([\d ]+); do\n(.*?)\n *done", run, re.S):
+        apts = [line.strip() for line in body.splitlines()
+                if line.strip().startswith("if sudo ")]
+        assert len(apts) == 1
+        tokens = shlex.split(apts[0].removeprefix("if ").removesuffix("; then"))
+        sleeps, = re.findall(r"^\s*sleep (\d+)$", body, re.M)
+        loops.append({
+            "attempts": len(words.split()), "last": words.split()[-1],
+            "body": body, "tokens": tokens, "sleep": int(sleeps),
+            "timeout": int(tokens[tokens.index("timeout") + 1].rstrip("s")),
+        })
+    return loops
+
+
+def test_composite_bounds_download_and_every_apt_retry_loop():
     run = _action_steps()[1]["run"]
     curls = [line for line in run.splitlines()
              if re.match(r"timeout \d+s curl ", line.strip())]
     assert len(curls) == 1
     for bound in CURL_BOUNDS:
         assert bound in curls[0]
-    loops = re.findall(r"for attempt in 1 2 3; do\n(.*?)\n *done", run, re.S)
-    assert len(loops) == 2
-    for operation, loop in zip(("update", "install"), loops):
-        apts = [line for line in loop.splitlines()
-                if line.strip().startswith("if sudo ")]
-        assert len(apts) == 1
-        assert f"apt-get {operation} " in apts[0]
-        assert re.search(r"sudo timeout \d+s (?:env \S+ )?apt-get ", apts[0])
-        for bound in APT_BOUNDS:
-            assert bound in apts[0]
-        assert "break" in loop
-        assert re.search(r'if \[ "\$attempt" -eq 3 \]; then', loop)
-        assert "::error::" in loop
-        assert "exit 1" in loop
-        assert loop.index("exit 1") < loop.index("sleep 5")
+    loops = _apt_loops(run)
+    assert len(loops) == len(APT_LOOPS)
+    for (operation, flag, bounds), loop in zip(APT_LOOPS, loops):
+        tokens = loop["tokens"]
+        assert tokens[:2] == ["sudo", "timeout"]
+        assert tokens[tokens.index("apt-get") + 1] == operation
+        assert loop["timeout"] > 0
+        assert loop["attempts"] == 3
+        for bound in bounds:
+            assert bound in tokens
+        for other in ("--download-only", "--no-download"):
+            assert (other in tokens) == (other == flag), (operation, other)
+        assert "break" in loop["body"]
+        assert f'if [ "$attempt" -eq {loop["last"]} ]; then' in loop["body"]
+        assert "::error::" in loop["body"]
+        assert "exit 1" in loop["body"]
+        assert loop["body"].index("exit 1") < loop["body"].index("sleep ")
+
+
+def test_cache_install_waits_on_a_lingering_dpkg_lock_inside_its_attempt():
+    cache = _apt_loops(_action_steps()[1]["run"])[-1]
+    waits = [token.partition("=")[2] for token in cache["tokens"]
+             if token.startswith("DPkg::Lock::Timeout=")]
+    assert len(waits) == 1
+    assert 0 < int(waits[0]) < cache["timeout"]
 
 
 def test_update_retries_any_index_fetch_failure():
@@ -147,9 +182,11 @@ def test_composite_shell_timeouts_fit_calling_steps():
     bounds = [int(value) for value in re.findall(r"timeout (\d+)s ", setup)]
     setup_budget = sum(max(map(int, matches)) for line in setup.splitlines()
                        if (matches := re.findall(r"timeout (\d+)s ", line)))
-    attempts = [int(value) for value in re.findall(r"timeout (\d+)s (?:env \S+ )?apt-get ", run)]
-    assert len(attempts) == 2 and all(value > 0 for value in bounds + attempts)
-    budget = int(sanitize_bound) + setup_budget + 3 * sum(attempts) + 4 * 5
+    loops = _apt_loops(run)
+    assert len(loops) == len(APT_LOOPS) and all(value > 0 for value in bounds)
+    budget = int(sanitize_bound) + setup_budget + sum(
+        loop["attempts"] * loop["timeout"]
+        + (loop["attempts"] - 1) * loop["sleep"] for loop in loops)
     callers = _client_steps()
     assert callers
     assert all(budget < int(step["timeout-minutes"]) * 60 for _, _, step in callers)

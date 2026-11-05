@@ -43,8 +43,21 @@ runs:
           sleep 5
         done
         for attempt in 1 2 3; do
-          echo "==> installing $CLAUDIT_APT_PACKAGES (attempt $attempt/3)"
-          if sudo timeout 30s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "${packages[@]}"; then
+          echo "==> downloading $CLAUDIT_APT_PACKAGES (attempt $attempt/3)"
+          if sudo timeout 30s env DEBIAN_FRONTEND=noninteractive apt-get install --download-only -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "${packages[@]}"; then
+            break
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "::error::apt-get download failed after 3 attempts" >&2
+            exit 1
+          fi
+          echo "==> waiting 5 seconds before retrying the download"
+          sleep 5
+        done
+        # dpkg unpacks slowly on a loaded runner, and a killed attempt can leave dpkg holding its lock.
+        for attempt in 1 2 3; do
+          echo "==> installing $CLAUDIT_APT_PACKAGES from the download cache (attempt $attempt/3)"
+          if sudo timeout 90s env DEBIAN_FRONTEND=noninteractive apt-get install --no-download -y -qq -o DPkg::Lock::Timeout=60 "${packages[@]}"; then
             break
           fi
           if [ "$attempt" -eq 3 ]; then
