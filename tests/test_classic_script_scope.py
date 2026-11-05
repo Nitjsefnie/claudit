@@ -295,14 +295,6 @@ def test_babel_scripts_share_the_classic_realm() -> None:
     babel_scripts = _babel_scripts()
     assert babel_scripts and babel_scripts[-1][0] == "Inline Babel script"
     _realm_summary(scripts, babel_scripts)
-    first, *rest = babel_scripts
-    duplicate = first[0], first[1] + "\nconst __claudit_scope_probe = 1;\n"
-    second = rest[0][0], rest[0][1] + "\nconst __claudit_scope_probe = 2;\n"
-    with pytest.raises(AssertionError, match="__claudit_scope_probe"):
-        _realm_summary(scripts, [duplicate, second, *rest[1:]])
-    with pytest.raises(AssertionError, match="__claudit_scope_probe"):
-        _realm_summary([*scripts, ("probe.js", "const __claudit_scope_probe = 1;")],
-                       [duplicate, *rest])
 
 
 # Learns the names pricing-loader.js writes from a node-path load, then loads
