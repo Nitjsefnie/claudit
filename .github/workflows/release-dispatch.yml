@@ -50,7 +50,7 @@ jobs:
           CLAUDIT_VERSION: ${{ inputs.version }}
         run: |
           tag_exists=false
-          if tag_probe="$(gh api "repos/$CLAUDIT_REPO/git/ref/tags/v$CLAUDIT_VERSION" 2>&1)"; then
+          if tag_probe="$(scripts/ci/retry.sh gh api "repos/$CLAUDIT_REPO/git/ref/tags/v$CLAUDIT_VERSION" 2>&1)"; then
             tag_exists=true
           elif echo "$tag_probe" | grep -q 'HTTP 404'; then
             :
@@ -59,7 +59,7 @@ jobs:
             exit 1
           fi
           release_exists=false
-          if release_probe="$(gh api "repos/$CLAUDIT_REPO/releases/tags/v$CLAUDIT_VERSION" 2>&1)"; then
+          if release_probe="$(scripts/ci/retry.sh gh api "repos/$CLAUDIT_REPO/releases/tags/v$CLAUDIT_VERSION" 2>&1)"; then
             release_exists=true
           elif echo "$release_probe" | grep -q 'HTTP 404'; then
             :

@@ -19,19 +19,26 @@ ubuntu_step_body = pytest.mark.skipif(
     reason="these ubuntu-latest workflow bodies require POSIX bash",
 )
 PROBE_STUB = r'''
+sleep() { :; }
+reply() {
+  if [ "$2" -eq 0 ]; then printf '%s\n' "$1"; else printf '%s\n' "$1" >&2; fi
+  return "$2"
+}
 gh() {
   local n
   n="$(cat "$STUB_CALLFILE")"
   n=$((n + 1))
   printf '%s' "$n" > "$STUB_CALLFILE"
-  case "$n:$*" in
-    "1:api repos/$CLAUDIT_REPO/git/ref/tags/v${TAG_VERSION:-$CLAUDIT_VERSION}")
-      printf '%s\n' "$TAG_REPLY"; return "$TAG_RC" ;;
-    "2:api repos/$CLAUDIT_REPO/releases/tags/v$CLAUDIT_VERSION")
-      printf '%s\n' "$RELEASE_REPLY"; return "$RELEASE_RC" ;;
+  case "$*" in
+    "api repos/$CLAUDIT_REPO/git/ref/tags/v${TAG_VERSION:-$CLAUDIT_VERSION}")
+      if [ "$n" -eq 1 ] && [ -n "${TAG_FIRST_REPLY:-}" ]; then reply "$TAG_FIRST_REPLY" 1; return; fi
+      reply "$TAG_REPLY" "$TAG_RC" ;;
+    "api repos/$CLAUDIT_REPO/releases/tags/v$CLAUDIT_VERSION")
+      reply "$RELEASE_REPLY" "$RELEASE_RC" ;;
     *) echo "unmodelled gh call: $*" >&2; return 99 ;;
   esac
 }
+export -f sleep reply gh
 '''
 POST_RELEASE_STUB = r'''
 gh() {
@@ -261,6 +268,19 @@ def test_probes_decide_with_real_helper(
     })
     assert proc.returncode == code, proc.stdout + proc.stderr
     assert message in proc.stdout + proc.stderr
+
+
+@ubuntu_step_body
+def test_probe_retries_a_transient_failure(tmp_path):
+    calls = tmp_path / "calls"
+    calls.write_text("0", encoding="utf-8")
+    proc = _run_step(DECIDE, PROBE_STUB, {
+        "STUB_CALLFILE": str(calls), "TAG_FIRST_REPLY": "HTTP 503",
+        "TAG_RC": "1", "TAG_REPLY": "HTTP 404",
+        "RELEASE_RC": "1", "RELEASE_REPLY": "HTTP 404",
+    })
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "is free" in proc.stdout + proc.stderr
 
 
 @ubuntu_step_body
