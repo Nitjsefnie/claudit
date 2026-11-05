@@ -1180,8 +1180,8 @@
     1352
   ],
   "tests/test_dims_api_parity.py": [
-    4414,
-    10993
+    3088,
+    8022
   ],
   "tests/test_dims_migration.py": [
     3693,

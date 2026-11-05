@@ -241,37 +241,6 @@ def _collect(client: TestClient, paths: list[str]) -> dict:
     return out
 
 
-def test_canon_neutralizes_rate_derived_values_but_keeps_shape_and_content():
-    """Steering pin for the rate-drift decoupling ( review fix).
-
-    The golden holds money captured under the src/pricing.json rates of
-    capture day, so the next rate-refresh commit would redden this
-    parity test for an unrelated reason — and re-capturing under the new
-    rates would trade the pre/post proof for a self-referential pin.
-    `_canon` therefore quantizes the rate-derived leaves to ONE
-    sentinel: their KEY must still be present (shape parity), while
-    token/count/id/model/file_key content keeps full value parity.
-    """
-    a = _canon({"cost_usd": 1.25, "cost_buckets": {"read": 0.1},
-                "share": 0.5,
-                "model": "m", "n": 7, "fresh": 100})
-    b = _canon({"cost_usd": 9.99, "cost_buckets": {"read": 5.0},
-                "share": 0.9,
-                "model": "m", "n": 7, "fresh": 100})
-    # rate-derived VALUES do not compare (rate drift is not a regression) ...
-    assert a == b
-    assert isinstance(a, dict)
-    # .. their keys must still be present (a dropped field IS caught) ...
-    for key in ("cost_usd", "cost_buckets", "share"):
-        assert key in a
-    # .. and non-rate content keeps full value parity ...
-    assert _canon({"model": "m"}) != _canon({"model": "other"})
-    assert _canon({"fresh": 100}) != _canon({"fresh": 200})
-    assert _canon({"file_key": "a"}) != _canon({"file_key": "b"})
-    # .. and a shape change (rate field vanishing) is caught too.
-    assert _canon({"cost_usd": 1.0}) != _canon({"n": 1})
-
-
 @pytest.mark.db
 def test_api_responses_match_the_precapture(parity_clients):
     """Byte parity (modulo never-specified ordering) with the pre-

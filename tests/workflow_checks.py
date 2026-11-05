@@ -55,12 +55,12 @@ def find_step(job: dict, needle: str) -> dict:
 
 
 def is_checkout(step: dict) -> bool:
-    """Shared checkout identification for workflow controls."""
+    """Whether the step runs actions/checkout."""
     return step.get("uses", "").partition("@")[0] == "actions/checkout"
 
 
-def _expression_bodies(value: str) -> Iterator[tuple[int, str]]:
-    """Yield body offsets and text, respecting quoted expression delimiters."""
+def _expression_bodies(value: str) -> Iterator[str]:
+    """Yield expression bodies, honouring quoted delimiters."""
     offset = 0
     while offset < len(value):
         opening = value.find("${{", offset)
@@ -80,14 +80,14 @@ def _expression_bodies(value: str) -> Iterator[tuple[int, str]]:
             cursor += 1
         else:
             return
-        yield start, value[start:cursor]
+        yield value[start:cursor]
         offset = cursor + 2
 
 
 def references(value: str, context: str) -> set[tuple[str, ...]]:
     """Static dot/index references inside expressions, excluding string literals."""
     found = set()
-    for _, expression in _expression_bodies(value):
+    for expression in _expression_bodies(value):
         tokens = [(match.lastgroup, match[0][1:-1].replace("''", "'"))
                   if match.lastgroup == "string" else (match.lastgroup, match[0])
                   for match in _TOKEN.finditer(expression)]
@@ -156,7 +156,7 @@ def output_references(value: str, steps: list[dict]) -> set[tuple[str, str]]:
 
 
 def dockerfile_from_reference(path: Path) -> str:
-    """The one FROM reference of a Dockerfile; raises unless unique."""
+    """One Dockerfile FROM reference; raises unless exactly one FROM line names a reference."""
     lines = [line for line in path.read_text(encoding="utf-8").splitlines()
              if line.startswith("FROM")]
     assert len(lines) == 1, (path, lines)
