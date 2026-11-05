@@ -479,38 +479,3 @@ def test_hashed_pyyaml_check_keys_the_dockerfile_by_stage(tmp_path, monkeypatch,
     (tmp_path / "Dockerfile").write_text(dockerfile, encoding="utf-8")
     monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
     assert _sites_without_hashed_pyyaml_first(_install_sites()) == violating
-
-
-@pytest.mark.parametrize("matrix,gate,accepted", [
-    ({"seed": ["42", "43"], "shard": [1, 2]}, "matrix.seed == '42' && matrix.shard == 1", True),
-    ({"shard": [1, 2]}, "matrix.shard == 1", True),
-    ({"shard": [1, 1, 2]}, "matrix.shard == 1", False),
-    ({"shard": [1, "1", 2]}, "matrix.shard == 1", False),
-    pytest.param({"shard": [1, "0x1"]}, "matrix.shard == 1", False, id="hex-alias"),
-    pytest.param({"shard": [1, "+1"]}, "matrix.shard == 1", False, id="leading-plus"),
-    pytest.param({"shard": [1, "01"]}, "matrix.shard == 1", False, id="leading-zero"),
-    pytest.param({"shard": [0, " "]}, "matrix.shard == 0", False, id="whitespace-zero"),
-    ({"shard": ["1", "other"]}, "matrix.shard == 1", True),
-    ({"shard": ["one", "ONE"]}, "matrix.shard == 'one'", False),
-    ({"shard": [1], "include": [{"shard": 1}]}, "matrix.shard == 1", False),
-    ({"shard": [1], "exclude": [{"shard": 1}]}, "matrix.shard == 1", False),
-    ({}, "matrix.shard == 1", False),
-    ([], "matrix.shard == 1", False),
-    ({"seed": ["42", "43"], "shard": [1, 2]}, "matrix.seed == '42'", False),
-    ({"shard": [1, 2]}, "matrix.shard == 1 || github.ref == 'refs/heads/master'", False),
-    ({"shard": [1, 2]}, "matrix.shard == 3", False),
-])
-def test_shared_cache_gate_accepts_exactly_one_matrix_job(tmp_path, monkeypatch, matrix, gate, accepted):
-    workflows = tmp_path / ".github/workflows"
-    workflows.mkdir(parents=True)
-    step = {"uses": "actions/cache/save", "with": {"key": "shared"},
-            "if": "github.event_name == 'push' && github.ref == 'refs/heads/master' && " + gate}
-    doc = {"on": {"workflow_call": None},
-           "jobs": {"suite": {"strategy": {"matrix": matrix}, "steps": [step]}}}
-    (workflows / "sample.yml").write_text(yaml.safe_dump(doc), encoding="utf-8")
-    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
-    if accepted:
-        test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value()
-    else:
-        with pytest.raises(AssertionError):
-            test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value()

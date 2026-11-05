@@ -33,12 +33,10 @@ def workflow_by_name(name: str) -> dict:
 
 
 def job_of(doc: dict, job_id: str) -> dict:
-    """The named job of a workflow."""
     return doc["jobs"][job_id]
 
 
 def steps_of(job: dict) -> list:
-    """The job's step list."""
     return job["steps"]
 
 
@@ -115,32 +113,6 @@ def references(value: str, context: str) -> set[tuple[str, ...]]:
     return found
 
 
-def rename_references(value: str, context: str, names: dict[str, str]) -> str:
-    """Rename first lookup keys inside expressions, retaining all other text."""
-    changes = []
-    for offset, expression in _expression_bodies(value):
-        tokens = list(_TOKEN.finditer(expression))
-        for index, token in enumerate(tokens):
-            if (token.lastgroup != "name" or token[0] != context
-                    or (index and tokens[index - 1][0] == ".")
-                    or index + 2 >= len(tokens)):
-                continue
-            start, key = tokens[index + 1:index + 3]
-            if start[0] == "." and key.lastgroup == "name":
-                name, end = key[0], key.end()
-            elif (start[0] == "[" and key.lastgroup == "string"
-                  and index + 3 < len(tokens) and tokens[index + 3][0] == "]"):
-                name, end = key[0][1:-1].replace("''", "'"), tokens[index + 3].end()
-            else:
-                continue
-            if name in names:
-                replacement = "['" + names[name].replace("'", "''") + "']"
-                changes.append((offset + start.start(), offset + end, replacement))
-    for start, end, replacement in reversed(changes):
-        value = value[:start] + replacement + value[end:]
-    return value
-
-
 def _output_redirect(line: str) -> bool | None:
     lexer = shlex.shlex(line, posix=False, punctuation_chars=">")
     lexer.whitespace_split = True
@@ -184,10 +156,7 @@ def output_references(value: str, steps: list[dict]) -> set[tuple[str, str]]:
 
 
 def dockerfile_from_reference(path: Path) -> str:
-    """The one FROM reference of a Dockerfile.
-
-    Raises on zero or several FROM lines or a missing token.
-    """
+    """The one FROM reference of a Dockerfile; raises unless unique."""
     lines = [line for line in path.read_text(encoding="utf-8").splitlines()
              if line.startswith("FROM")]
     assert len(lines) == 1, (path, lines)

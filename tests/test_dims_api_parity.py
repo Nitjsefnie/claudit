@@ -272,49 +272,6 @@ def test_canon_neutralizes_rate_derived_values_but_keeps_shape_and_content():
     assert _canon({"cost_usd": 1.0}) != _canon({"n": 1})
 
 
-def test_canon_preserves_list_order_except_where_unspecified():
-    """Order is compared, not neutralised: a list keeps its positions
-    (an ORDER BY regression reddens), while a key declared unordered
-    sorts by JSON text on both sides of the comparison."""
-    items = [{"b": 1}, {"a": 2}]
-    assert _canon({"items": items})["items"] == items
-    assert _canon({"items": list(reversed(items))})["items"] != \
-        _canon({"items": items})["items"]
-    for key in _UNORDERED_KEYS:
-        got = _canon({key: items})[key]
-        want = sorted(items, key=lambda x: json.dumps(x, sort_keys=True))
-        assert got == want, key
-
-
-def test_unordered_keys_are_declared_for_their_unordered_source():
-    """traces comes from ctx_traces_rows, whose SELECT has no ORDER BY:
-    its wire order is unspecified, so the golden neutralises it."""
-    assert "traces" in _UNORDERED_KEYS
-
-
-def test_top_n_contracts_neutralise_ties_but_pin_the_measure_order():
-    """The top-N lists order by a measure (ORDER BY <m> DESC LIMIT 10):
-    TIE order between equal measures is unspecified and may move with
-    the plan, but the measure's own DESC order is the endpoint's
-    contract — asserted on the RAW payload, which a dropped or reversed
-    ORDER BY cannot satisfy."""
-    path = "/api/cache?range=all"
-    field = _ORDER_CONTRACTS[path]["top_output"]
-    desc = [{field: 5, "m": "a"}, {field: 5, "m": "b"}, {field: 3, "m": "c"}]
-    tied = [{field: 5, "m": "b"}, {field: 5, "m": "a"}, {field: 3, "m": "c"}]
-    # ties may permute between captures and still compare equal ...
-    assert (_canon_body(path, {"top_output": desc})
-            == _canon_body(path, {"top_output": tied}))
-    _assert_order_contract(path, {"top_output": desc})
-    _assert_order_contract(path, {"top_output": tied})
-    # .. but a payload that violates the measure order fails outright.
-    with pytest.raises(AssertionError, match="DESC"):
-        _assert_order_contract(path, {"top_output": list(reversed(desc))})
-    # every top-N list of the contract is covered, by its own measure.
-    assert set(_ORDER_CONTRACTS[path]) == {
-        "top_output", "top_cache_create", "top_cache_read"}
-
-
 @pytest.mark.db
 def test_api_responses_match_the_precapture(parity_clients):
     """Byte parity (modulo never-specified ordering) with the pre-

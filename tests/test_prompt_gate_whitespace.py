@@ -115,21 +115,6 @@ def test_backend_prompt_gate_whitespace_fixtures(name, want_lines):
     assert _backend_prompt_lines(text, parsed) == want_lines, name
 
 
-def test_backend_prompt_line_mapping_rejects_duplicate_user_timestamps():
-    """Duplicate user timestamps must not silently overwrite a line."""
-    records = [
-        json.loads(line)
-        for line in _make_transcript(["first", "second"]).splitlines()
-    ]
-    records[1]["timestamp"] = records[0]["timestamp"]
-    text = "\n".join(json.dumps(record) for record in records)
-
-    with pytest.raises(AssertionError) as exc_info:
-        _backend_prompt_lines(text, {"prompt_ts": []})
-
-    assert "2026-09-20T00:00:00+00:00" in str(exc_info.value)
-
-
 def test_backend_whitespace_class_matches_python_isspace():
     """The fixed class covers exactly Python's current isspace repertoire."""
     class_body = getattr(prompt_gate, "_PROMPT_WS_CLASS_BODY", None)

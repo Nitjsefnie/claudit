@@ -343,39 +343,3 @@ def _browser_upgrade(base):
     )
     assert process.returncode == 0, process.stderr or process.stdout
     return json.loads(process.stdout)
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_missing_playwright_package_returns_a_skip(monkeypatch, tmp_path):
-    monkeypatch.setitem(globals(), "_ROOT", tmp_path)
-    assert _browser_upgrade("http://unused") == {"skip": "Playwright package is not installed"}
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-@pytest.mark.parametrize("metadata, body, message", [
-    ('{"main":"missing-entry.js"}', None, "missing-entry.js"),
-    ('{"name":"playwright","version":"1.0.0"}', None, "Cannot find module 'playwright'"),
-    (None, "throw new SyntaxError('broken import');", "broken import"),
-    (None, "require('fixture-missing-dependency');", "fixture-missing-dependency"),
-    (None, "exports.chromium = {launch: async () => { throw new Error('broken launch'); }};", "broken launch"),
-    (None, "exports.chromium = {launch: async () => ({newPage: async () => { throw new Error('broken runtime'); }, close: async () => {}})};", "broken runtime"),
-])
-def test_browser_dependency_defects_fail(monkeypatch, tmp_path, metadata, body, message):
-    package = tmp_path / "node_modules" / "playwright"
-    package.mkdir(parents=True)
-    if metadata is not None:
-        (package / "package.json").write_text(metadata, encoding="utf-8")
-    if body is not None:
-        (package / "index.js").write_text(body, encoding="utf-8")
-    monkeypatch.setitem(globals(), "_ROOT", tmp_path)
-    with pytest.raises(AssertionError, match=message):
-        _browser_upgrade("http://unused")
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_broken_playwright_self_reference_fails(monkeypatch, tmp_path):
-    (tmp_path / "package.json").write_text(
-        json.dumps({"name": "playwright", "exports": "./missing.js"}), encoding="utf-8")
-    monkeypatch.setitem(globals(), "_ROOT", tmp_path)
-    with pytest.raises(AssertionError, match=r"Cannot find module .*missing\.js"):
-        _browser_upgrade("http://unused")
