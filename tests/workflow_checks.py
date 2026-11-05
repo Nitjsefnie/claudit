@@ -156,7 +156,7 @@ def output_references(value: str, steps: list[dict]) -> set[tuple[str, str]]:
 
 
 def dockerfile_from_reference(path: Path) -> str:
-    """One Dockerfile FROM reference; raises unless exactly one FROM line names a reference."""
+    """The FROM reference; raises unless exactly one line starts with FROM and it names a reference."""
     lines = [line for line in path.read_text(encoding="utf-8").splitlines()
              if line.startswith("FROM")]
     assert len(lines) == 1, (path, lines)
