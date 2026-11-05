@@ -41,7 +41,7 @@ PREFIXES = {"sudo": {"-u", "-g", "-C", "-D"}, "env": {"-u", "-C", "-S"},
             "command": set(), "exec": set(), "stdbuf": set(),
             "xargs": {"-n", "-I", "-P", "-L", "-d", "-a", "-s", "-E"}}
 GIT_VALUE_OPTIONS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
-GIT_FETCHES = {"fetch", "clone", "ls-remote", "pull", "push"}
+GIT_REMOTE_CALLS = {"fetch", "clone", "ls-remote", "pull", "push"}
 GH_READS = {"release": {"view", "download", "list"},
             "run": {"view", "list", "download"},
             "pr": {"view", "list", "diff", "checks", "status"},
@@ -328,7 +328,7 @@ def _fetch_kind(words: list[str]) -> str | None:
         index = 0
         while index < len(args) and args[index].startswith("-"):
             index += 2 if args[index] in GIT_VALUE_OPTIONS else 1
-        return "git " + args[index] if args[index:index + 1] and args[index] in GIT_FETCHES else None
+        return "git " + args[index] if args[index:index + 1] and args[index] in GIT_REMOTE_CALLS else None
     if name == "gh":
         kind = _gh(args)
         return "gh read" if kind == "read" else None if kind else "gh unclassified"
