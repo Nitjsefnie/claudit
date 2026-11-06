@@ -546,7 +546,6 @@
       "Makora",
       "NextBit",
       "OpenInference",
-      "Relace",
       "Together"
     ],
     "deepseek-v4-pro": [
@@ -573,8 +572,7 @@
     "glm-5-3": [
       "Io Net",
       "ModelRun",
-      "OpenInference",
-      "Tenstorrent"
+      "OpenInference"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
