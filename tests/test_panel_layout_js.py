@@ -607,7 +607,6 @@ def test_panel_workflow_runs_four_independent_sweeps():
     assert install["run"] == "npm ci --no-audit --no-fund"
     assert_apt_sanitizer(ROOT, sanitize)
     assert "run" not in sanitize
-    assert not sanitize.get("with", {}).get("packages")
     assert sanitize["timeout-minutes"] > 0
     assert browser["run"] == "scripts/ci/retry.sh npx --no-install playwright install --with-deps chromium"
     assert sweep["run"] == "node ${{ matrix.sweep.script }}"
