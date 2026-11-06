@@ -573,8 +573,7 @@
     "glm-5-3": [
       "Io Net",
       "ModelRun",
-      "OpenInference",
-      "Tenstorrent"
+      "OpenInference"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
@@ -592,6 +591,9 @@
     ],
     "gpt-4o-2024-05-13": [
       "OpenAI"
+    ],
+    "hy4": [
+      "AtlasCloud"
     ],
     "hy4-preview": [
       "Io Net"
