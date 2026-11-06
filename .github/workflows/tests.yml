@@ -39,11 +39,6 @@ jobs:
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
-      - name: Install postgresql-client
-        timeout-minutes: 15
-        uses: $/.github/actions/apt-install
-        with:
-          packages: postgresql-client-16
       - name: Install dependencies
         run: |
           scripts/ci/retry.sh python -m pip install --upgrade pip
@@ -313,11 +308,6 @@ jobs:
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: {"path": "~/.cache/pip\n~/Library/Caches/pip\n~\\AppData\\Local\\pip\\Cache\n", "key": "pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}", "restore-keys": "pip-${{ runner.os }}-3.15-\n"}
-      - name: Install postgresql-client
-        timeout-minutes: 15
-        uses: $/.github/actions/apt-install
-        with:
-          packages: postgresql-client-16
       - name: Install dependencies
         run: |
           scripts/ci/retry.sh python -m pip install --upgrade pip

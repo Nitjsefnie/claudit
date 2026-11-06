@@ -465,7 +465,7 @@ def test_parallel_canary_jobs_keep_the_gate_step_order():
                    "Resolve the threshold base", "Restore the pip cache", "Install dependencies"]
     database = ["actions/checkout", "Start cached Postgres", "actions/setup-python",
                 "actions/setup-node", "Resolve the threshold base", "Restore the pip cache",
-                "Install postgresql-client", "Install dependencies"]
+                "Install dependencies"]
     expected = {
         "pytest-shards": [*database, "Save the pip cache", "Run tests", "actions/upload-artifact"],
         "coverage-combine": [*preparation, "Download coverage shards",
