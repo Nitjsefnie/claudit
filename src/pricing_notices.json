@@ -558,6 +558,7 @@
     "deepseek-v4-pro-0813": [
       "DekaLLM",
       "Fireworks",
+      "Ionstream",
       "NextBit",
       "Reka"
     ],
@@ -572,7 +573,8 @@
     "glm-5-3": [
       "Io Net",
       "ModelRun",
-      "OpenInference"
+      "OpenInference",
+      "Tenstorrent"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
