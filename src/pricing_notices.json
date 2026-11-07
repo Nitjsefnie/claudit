@@ -169,7 +169,7 @@
     "kimi-k3 via InferenceNet: rule-resolved (unique quantization): took the fp4 endpoint 'inference-net/fp4' over service tiers",
     "kimi-k3 via Parasail: rule-resolved (unique quantization): took the fp4 endpoint 'parasail/fp4' over service tiers",
     "kimi-k3 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
-    "kimi-k3 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/fast'; dropped 'wafer/us'; equal-price tags 'wafer', 'wafer/fast' are interchangeable",
+    "kimi-k3 via Wafer: rule-resolved (bare namespace): took the bare namespace endpoint 'wafer' over service tiers 'wafer/fast'",
     "kimi-k3-1-pro via InferenceNet: rule-resolved (unique quantization): took the mxfp4 endpoint 'inference-net/mxfp4' over service tiers",
     "kimi-k3-1-pro via Moonshot AI: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
     "kimi-k3-1-pro via Phala: rule-resolved (data region): the global data region leaves 'phala'; dropped 'phala/us'",
@@ -493,8 +493,7 @@
     },
     "kimi-k3": {
       "Fireworks": "2 endpoints at one current price",
-      "InferenceNet": "2 endpoints at one current price",
-      "Wafer": "2 endpoints selected"
+      "InferenceNet": "2 endpoints at one current price"
     },
     "kimi-k3-1-pro": {
       "InferenceNet": "2 endpoints at one current price",
