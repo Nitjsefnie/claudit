@@ -208,8 +208,8 @@ def test_layout_readiness_waits_for_api_and_render_turns():
         waitForFunction: async () => {{}},
         evaluate: async () => {{ frames++; }}}};
       waits.trackLayoutRequests(page);
-      const request = {{url: () => 'http://fixture/api/projects'}};
-      const stream = {{url: () => 'http://fixture/api/events'}};
+      const request = {{url: () => 'http://fixture/api/projects', isNavigationRequest: () => false}};
+      const stream = {{url: () => 'http://fixture/api/events', isNavigationRequest: () => false}};
       handlers.request(request); handlers.request(stream);
       const settling = waits.settleDashboard(page).then(() => {{done = true;}});
       await Promise.resolve(); await Promise.resolve();
@@ -415,7 +415,7 @@ def test_readiness_deadline_covers_every_stage(blocked, stage):
         waitForFunction: () => blocked === 'panel' ? never : Promise.resolve(),
         evaluate: fn => blocked === 'evaluate' ? never : fn()};
       waits.trackLayoutRequests(page);
-      if (blocked === 'requests') handlers.request({url: () => 'http://test/api/projects'});
+      if (blocked === 'requests') handlers.request({url: () => 'http://test/api/projects', isNavigationRequest: () => false});
       const result = observe(waits.settleDashboard(page, {timeoutMs: 10}));
       await flush(); await advance(9);
       const before = result.status;

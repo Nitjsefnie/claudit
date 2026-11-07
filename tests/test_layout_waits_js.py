@@ -90,3 +90,57 @@ def test_a_readiness_timeout_names_width_call_and_every_pending_request(stalled,
       console.log(JSON.stringify(result));
     """)
     assert out == {"status": "rejected", "error": message}
+
+
+@pytest.mark.parametrize("when", ["before-settle", "during-settle"])
+def test_a_reload_releases_the_requests_its_old_document_left_in_flight(when):
+    if shutil.which("node") is None:
+        pytest.skip("node not available")
+    out = _node(f"const when = {json.dumps(when)};" + """
+      // Still held in its route when the reload commits: Playwright then
+      // emits neither requestfinished nor requestfailed for it.
+      emit('request', api('/api/dashboard?range=all'));
+      const settle = () => observe(waits.settleDashboard(page, {timeoutMs: 10}));
+      let result = when === 'during-settle' ? settle() : null;
+      await flush();
+      emit('request', documentRequest(main));
+      emit('framenavigated', main);
+      const fresh = api('/api/dashboard');
+      emit('request', fresh);
+      result ||= settle();
+      await flush();
+      const waiting = result.status;
+      emit('requestfinished', fresh);
+      await flush(); await advance(10);
+      console.log(JSON.stringify({waiting, result}));
+    """)
+    assert out == {"waiting": "pending", "result": {"status": "fulfilled"}}
+
+
+@pytest.mark.parametrize("steps", [
+    ["live", "commit main"],
+    ["live", "request child", "commit child"],
+    ["live", "request main", "commit child"],
+    ["live", "request child", "commit main"],
+    ["request main", "commit main", "live", "commit main"],
+], ids=["same-document", "child-document", "child-commit-during-reload",
+        "child-request-then-same-document", "same-document-after-a-reload"])
+def test_a_navigation_that_keeps_the_document_keeps_its_requests(steps):
+    if shutil.which("node") is None:
+        pytest.skip("node not available")
+    out = _node(f"const steps = {json.dumps(steps)};" + """
+      const live = api('/api/dashboard'), frames = {main, child};
+      for (const step of steps) {
+        const [kind, frame] = step.split(' ');
+        if (kind === 'live') emit('request', live);
+        else if (kind === 'request') emit('request', documentRequest(frames[frame]));
+        else emit('framenavigated', frames[frame]);
+      }
+      const result = observe(waits.settleDashboard(page, {timeoutMs: 10}));
+      await flush();
+      const waiting = result.status;
+      emit('requestfinished', live);
+      await flush(); await advance(10);
+      console.log(JSON.stringify({waiting, result}));
+    """)
+    assert out == {"waiting": "pending", "result": {"status": "fulfilled"}}
