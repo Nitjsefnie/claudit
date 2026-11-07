@@ -375,7 +375,7 @@ def _odd_spellings() -> list[tuple[str | None, bool]]:
         ("abc", True),
         (None, True),
         (f" {current} ", True),           # whitespace-padded current
-        (f"{int(current):04d}", True),    # plain digits <= V: the SQL set
+        (f"0{int(current)}", True),       # plain digits <= V: the SQL set
         (f"+{newer}", False),             # int()-GREATER behind a sign
         ("9" * 14, False),                # plain digits, int4-overflowing
     ]
