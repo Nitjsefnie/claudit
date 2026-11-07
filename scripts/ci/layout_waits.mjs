@@ -19,8 +19,9 @@ export function trackLayoutRequests(page) {
   page.on('requestfailed', finished);
 }
 
+// A function label is read at expiry, so it can report live state.
 export async function withDeadline(run, label, timeoutMs = 30_000) {
-  const expired = () => new Error(`timed out waiting for ${label}`);
+  const expired = () => new Error(`timed out waiting for ${typeof label === 'function' ? label() : label}`);
   if (!(timeoutMs > 0)) throw expired();
   let timer;
   try {
@@ -40,11 +41,14 @@ export function renderTurn(page, timeoutMs = 30_000) {
   return withDeadline(() => page.evaluate(renderFrames), 'render frames', timeoutMs);
 }
 
-export async function settleDashboard(page, timeoutMs = 30_000) {
+export async function settleDashboard(page, {timeoutMs = 30_000, call = ''} = {}) {
   // Every stage spends the same end-to-end budget, including panel startup.
   const expires = performance.now() + timeoutMs;
-  const wait = (label, run) => withDeadline(run, `dashboard readiness: ${label}`,
-    expires - performance.now());
+  const pending = pendingByPage.get(page);
+  const state = (label) => `dashboard readiness at ${[`width ${page.viewportSize()?.width}`, call]
+    .filter(Boolean).join(', ')}: ${label}; pending API requests: ${
+    [...pending.keys()].map((r) => r.url()).join(', ') || 'none'}`;
+  const wait = (label, run) => withDeadline(run, () => state(label), expires - performance.now());
   await wait('visible panel', () => page.waitForFunction(() => {
     const panel = document.querySelector('[data-panel]');
     if (!panel) return false;
@@ -52,7 +56,6 @@ export async function settleDashboard(page, timeoutMs = 30_000) {
     return box.width > 0 && box.height > 0
       && getComputedStyle(panel).visibility !== 'hidden';
   }, null, {timeout: timeoutMs}));
-  const pending = pendingByPage.get(page);
   do {
     await wait('API requests', () => Promise.all([...pending.values()].map((r) => r.promise)));
     // Effects can start child-panel requests after the parent renders.

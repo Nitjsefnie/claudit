@@ -79,7 +79,7 @@ export async function runPickerCases(browser, base, rules, checks) {
       trackLayoutRequests(page);
       await page.goto(base + '/', {waitUntil: 'load'});
       await page.waitForSelector('[data-projects-ready="true"]');
-      await settleDashboard(page);
+      await settleDashboard(page, {call: `picker fixture of ${count} projects`});
       for (const id of ['project-picker-pages-fit', 'project-picker-selected-fit']) {
         const rule = rules.find((r) => r.id === id);
         const findings = await layoutTiming(`fixture ${count}@${width} ${id}`,

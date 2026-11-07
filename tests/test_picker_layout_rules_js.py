@@ -411,12 +411,12 @@ def test_readiness_deadline_covers_every_stage(blocked, stage):
       };
       globalThis.document = {fonts: {
         ready: blocked === 'fonts' ? never : Promise.resolve()}};
-      const page = {on: (name, fn) => {handlers[name] = fn;},
+      const page = {on: (name, fn) => {handlers[name] = fn;}, viewportSize: () => ({width: 320}),
         waitForFunction: () => blocked === 'panel' ? never : Promise.resolve(),
         evaluate: fn => blocked === 'evaluate' ? never : fn()};
       waits.trackLayoutRequests(page);
       if (blocked === 'requests') handlers.request({url: () => 'http://test/api/projects'});
-      const result = observe(waits.settleDashboard(page, 10));
+      const result = observe(waits.settleDashboard(page, {timeoutMs: 10}));
       await flush(); await advance(9);
       const before = result.status;
       await advance(1);
@@ -433,14 +433,14 @@ def test_readiness_deadline_covers_every_stage(blocked, stage):
 def test_readiness_uses_one_budget_across_stages_and_stops_after_timeout():
     out = _wait_node("""
       let release, releaseEvaluation, evaluations = 0;
-      const page = {on: () => {},
+      const page = {on: () => {}, viewportSize: () => ({width: 320}),
         waitForFunction: () => new Promise(resolve => {release = resolve;}),
         evaluate: () => {
           evaluations++;
           return new Promise(resolve => {releaseEvaluation = resolve;});
         }};
       waits.trackLayoutRequests(page);
-      const result = observe(waits.settleDashboard(page, 10));
+      const result = observe(waits.settleDashboard(page, {timeoutMs: 10}));
       await flush(); await advance(6); release(); await flush();
       await advance(3);
       const before = result.status;
@@ -569,7 +569,7 @@ def test_healthy_readiness_and_width_frames_clear_all_deadline_timers():
       document.fonts = {ready: Promise.resolve()};
       const page = {on: () => {}, waitForFunction: async () => {}, evaluate: fn => fn()};
       waits.trackLayoutRequests(page);
-      await waits.settleDashboard(page, 10);
+      await waits.settleDashboard(page, {timeoutMs: 10});
       await waits.renderTurn(page, 10);
       const samples = await pickerProbe({selector: '.picker', widths: [320, 321], timeoutMs: 10});
       console.log(JSON.stringify({widths: samples.map(s => s.width), timers: timers.size}));
