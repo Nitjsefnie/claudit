@@ -4,7 +4,9 @@ const pendingByPage = new WeakMap();
 export function trackLayoutRequests(page) {
   const pending = new Map();
   pendingByPage.set(page, pending);
+  let documentRequested = false;
   page.on('request', (request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) documentRequested = true;
     const path = new URL(request.url()).pathname;
     if (!path.startsWith('/api/') || ['/api/events', '/api/metrics'].includes(path)) return;
     let resolve;
@@ -17,6 +19,14 @@ export function trackLayoutRequests(page) {
   };
   page.on('requestfinished', finished);
   page.on('requestfailed', finished);
+  // A new document orphans the old one's requests: Playwright emits neither
+  // event for them, so they would hold every later settle until its deadline.
+  // shortcut: a document request that never commits stays armed; disarm on its requestfailed if a caller aborts one.
+  page.on('framenavigated', (frame) => {
+    if (frame !== page.mainFrame() || !documentRequested) return;
+    documentRequested = false;
+    for (const request of [...pending.keys()]) finished(request);
+  });
 }
 
 // A function label is read at expiry, so it can report live state.
