@@ -1,8 +1,8 @@
 // Readiness barriers for the rendered rules; no fixed settling sleeps.
 const trackedByPage = new WeakMap();
 
-// CDP tags each request with its document's loader: a replaced document's
-// requests never finish, so a settle waits only on the current document's.
+// CDP tags requests with their document's loader; one in flight when its
+// document is replaced never ends, so a settle waits on the current one's.
 export function trackLayoutRequests(page) {
   return withDeadline(() => trackOverCdp(page), 'layout request tracking');
 }

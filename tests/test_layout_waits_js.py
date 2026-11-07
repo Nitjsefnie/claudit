@@ -44,10 +44,13 @@ HARNESS = r"""
   };
   const main = {name: 'main'}, handlers = {}, cdpHandlers = {};
   let panelVisible = true, loader = 'document-1', ids = 0;
+  const enabled = new Set();
   const cdp = {
     on: (name, fn) => { (cdpHandlers[name] ||= []).push(fn); },
     send: async method => {
-      if (method === 'Network.enable' || method === 'Page.enable') return {};
+      if (method === 'Network.enable' || method === 'Page.enable') {
+        enabled.add(method.split('.')[0]); return {};
+      }
       if (method === 'Page.getFrameTree') return {frameTree: {frame: {id: 'main', loaderId: loader}}};
       throw new Error(`unmodelled CDP method ${method}`);
     },
@@ -68,7 +71,10 @@ HARNESS = r"""
   };
   const page = makePage();
   const emit = (name, arg) => { for (const fn of handlers[name] || []) fn(arg); };
-  const cdpEmit = (name, arg) => { for (const fn of cdpHandlers[name] || []) fn(arg); };
+  // As in Chromium, a domain's events reach the session only once it is enabled.
+  const cdpEmit = (name, arg) => {
+    if (enabled.has(name.split('.')[0])) for (const fn of cdpHandlers[name] || []) fn(arg);
+  };
   const api = path => {
     const id = `request-${++ids}`, url = `http://test${path}`;
     return {id, url, loaderId: loader,
@@ -159,7 +165,7 @@ def test_a_reload_releases_the_requests_its_old_document_left_in_flight(when):
     assert out == {"waiting": "pending", "result": {"status": "fulfilled"}}
 
 
-@pytest.mark.parametrize("event", ["child-frame-commit", "redirect"])
+@pytest.mark.parametrize("event", ["child-frame-commit", "redirect", "failure"])
 def test_a_live_request_holds_the_settle_through(event):
     _require_node()
     out = _node(f"const event = {json.dumps(event)};" + """
@@ -168,10 +174,13 @@ def test_a_live_request_holds_the_settle_through(event):
       const result = observe(waits.settleDashboard(page, {timeoutMs: 10}));
       await flush();
       if (event === 'redirect') send(live);
-      else cdpEmit('Page.frameNavigated', {frame: {id: 'child', parentId: 'main', loaderId: 'child-1'}});
+      else if (event === 'child-frame-commit') {
+        cdpEmit('Page.frameNavigated', {frame: {id: 'child', parentId: 'main', loaderId: 'child-1'}});
+      }
       await flush();
       const waiting = result.status;
-      finish(live);
+      if (event === 'failure') cdpEmit('Network.loadingFailed', {requestId: live.id});
+      else finish(live);
       await flush(); await advance(10);
       console.log(JSON.stringify({waiting, result}));
     """)
