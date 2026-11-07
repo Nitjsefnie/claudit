@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: Nitjsefnie-Actions/pr-gate@3fa0727a2c56b031c5fa42100fd831134e440e87 # v3.0.1
+      - uses: Nitjsefnie-Actions/pr-gate@3f05c26ec2e9f561233d517b604106fb8c5fa5af # v3.0.2
         with:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
