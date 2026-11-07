@@ -72,8 +72,8 @@
     2682
   ],
   ".github/workflows/pr-gate.yml": [
-    1797,
-    2455
+    667,
+    1335
   ],
   ".github/workflows/ratchet-push.yml": [
     2227,
@@ -112,8 +112,8 @@
     2243
   ],
   ".github/workflows/version-guard.yml": [
-    2362,
-    3932
+    2339,
+    3995
   ],
   "backend/agent_sidecar.py": [
     1887,
@@ -696,8 +696,8 @@
     16996
   ],
   "scripts/ci/release_gate.py": [
-    4608,
-    8139
+    4603,
+    8134
   ],
   "scripts/ci/reparse_ast.py": [
     6559,
