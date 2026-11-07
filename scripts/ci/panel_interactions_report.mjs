@@ -45,7 +45,7 @@ export function fontsNotLoaded(faces, families) {
 
 export async function snapshotWorld(context, url, world) {
   const page = await context.newPage();
-  trackLayoutRequests(page);
+  await trackLayoutRequests(page);
   await page.goto(url, { waitUntil: 'load' });
   await settleDashboard(page, {timeoutMs: 60_000}).catch(error => {
     throw new Error(`${world}: ${error.message}`, { cause: error });

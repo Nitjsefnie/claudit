@@ -239,7 +239,8 @@ PAGE = """
   let faces = loaded, captured = full, visible = true;
   const turn = () => new Promise(resolve => setImmediate(resolve));
   const page = {
-    on: name => { events.push(`on ${name}`); },
+    context: () => ({newCDPSession: async () => ({on: name => { events.push(`on ${name}`); },
+      send: async () => ({frameTree: {frame: {loaderId: 'doc'}}})})}),
     goto: async (url, {waitUntil}) => { await turn(); events.push(`goto ${url} ${waitUntil}`); },
     waitForFunction: async () => {
       await turn();
@@ -261,7 +262,7 @@ PAGE = """
 def _settled_first(events: list[str]) -> list[str]:
     """Tracking precedes the load, and the barrier ends before anything else."""
     goto = events.index("goto http://fixture/ load")
-    assert {"on request", "on requestfinished"} <= set(events[:goto])
+    assert {"on Network.requestWillBeSent", "on Network.loadingFinished"} <= set(events[:goto])
     settle = [i for i, event in enumerate(events) if event == "settle"]
     assert settle and settle[0] > goto, events
     return events[settle[-1] + 1:]

@@ -12,6 +12,13 @@ from tests.node_run import run_node
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts" / "ci" / "panel_layout_rules.mjs"
 PROJECTS_FIXTURE = ROOT / "fixtures" / "layout" / "projects.json"
+# A page whose request tracking runs on a CDP session double, one document.
+CDP_PAGE = r"""
+  const cdpOn = {};
+  const cdpPage = fields => ({...fields, context: () => ({newCDPSession: async () => ({
+    on: (name, fn) => {cdpOn[name] = fn;}, send: async () => ({frameTree: {frame: {loaderId: 'doc'}}})})})});
+  const apiRequest = (requestId, url) => cdpOn['Network.requestWillBeSent']({requestId, loaderId: 'doc', request: {url}});
+"""
 
 
 def _node(body: str, setup: str = ""):
@@ -200,21 +207,18 @@ def test_layout_runner_never_accepts_zero_checks():
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_layout_readiness_waits_for_api_and_render_turns():
     helper = (MODULE.parent / 'layout_waits.mjs').as_uri()
-    out = _node(f"""
+    out = _node(CDP_PAGE + f"""
       const waits = await import({json.dumps(helper)});
-      const handlers = {{}};
       let frames = 0, done = false;
-      const page = {{on: (name, fn) => {{handlers[name] = fn;}},
-        waitForFunction: async () => {{}},
-        evaluate: async () => {{ frames++; }}}};
-      waits.trackLayoutRequests(page);
-      const request = {{url: () => 'http://fixture/api/projects', isNavigationRequest: () => false}};
-      const stream = {{url: () => 'http://fixture/api/events', isNavigationRequest: () => false}};
-      handlers.request(request); handlers.request(stream);
+      const page = cdpPage({{waitForFunction: async () => {{}},
+        evaluate: async () => {{ frames++; }}}});
+      await waits.trackLayoutRequests(page);
+      apiRequest('projects', 'http://fixture/api/projects');
+      apiRequest('stream', 'http://fixture/api/events');
       const settling = waits.settleDashboard(page).then(() => {{done = true;}});
       await Promise.resolve(); await Promise.resolve();
       const premature = done;
-      handlers.requestfinished(request);
+      cdpOn['Network.loadingFinished']({{requestId: 'projects'}});
       await settling;
       console.log(JSON.stringify({{premature, done, frames}}));
     """)
@@ -329,7 +333,7 @@ def test_width_sweep_resets_at_its_own_viewport_before_sampling():
 
 def _wait_node(body: str):
     """Run real waits with a controlled clock and the helper's legacy CDN page."""
-    return _node(r"""
+    return _node(CDP_PAGE + r"""
       const waits = await import('./scripts/ci/layout_waits.mjs');
       const {pickerProbe} = await import('./scripts/ci/picker_probe.mjs');
       const cases = await import('./scripts/ci/picker_cases.mjs');
@@ -401,7 +405,6 @@ def test_layout_timing_prefixed_switch_preserves_results_and_errors():
 ])
 def test_readiness_deadline_covers_every_stage(blocked, stage):
     out = _wait_node("const blocked = " + json.dumps(blocked) + ";" + """
-      const handlers = {};
       let frame = 0;
       globalThis.requestAnimationFrame = fn => {
         if (blocked !== `frame-${++frame}`) queueMicrotask(fn);
@@ -411,11 +414,11 @@ def test_readiness_deadline_covers_every_stage(blocked, stage):
       };
       globalThis.document = {fonts: {
         ready: blocked === 'fonts' ? never : Promise.resolve()}};
-      const page = {on: (name, fn) => {handlers[name] = fn;}, viewportSize: () => ({width: 320}),
+      const page = cdpPage({viewportSize: () => ({width: 320}),
         waitForFunction: () => blocked === 'panel' ? never : Promise.resolve(),
-        evaluate: fn => blocked === 'evaluate' ? never : fn()};
-      waits.trackLayoutRequests(page);
-      if (blocked === 'requests') handlers.request({url: () => 'http://test/api/projects', isNavigationRequest: () => false});
+        evaluate: fn => blocked === 'evaluate' ? never : fn()});
+      await waits.trackLayoutRequests(page);
+      if (blocked === 'requests') apiRequest('projects', 'http://test/api/projects');
       const result = observe(waits.settleDashboard(page, {timeoutMs: 10}));
       await flush(); await advance(9);
       const before = result.status;
@@ -433,13 +436,13 @@ def test_readiness_deadline_covers_every_stage(blocked, stage):
 def test_readiness_uses_one_budget_across_stages_and_stops_after_timeout():
     out = _wait_node("""
       let release, releaseEvaluation, evaluations = 0;
-      const page = {on: () => {}, viewportSize: () => ({width: 320}),
+      const page = cdpPage({viewportSize: () => ({width: 320}),
         waitForFunction: () => new Promise(resolve => {release = resolve;}),
         evaluate: () => {
           evaluations++;
           return new Promise(resolve => {releaseEvaluation = resolve;});
-        }};
-      waits.trackLayoutRequests(page);
+        }});
+      await waits.trackLayoutRequests(page);
       const result = observe(waits.settleDashboard(page, {timeoutMs: 10}));
       await flush(); await advance(6); release(); await flush();
       await advance(3);
@@ -567,8 +570,8 @@ def test_healthy_readiness_and_width_frames_clear_all_deadline_timers():
       globalThis.requestAnimationFrame = fn => {queueMicrotask(fn); return ++frames;};
       globalThis.requestIdleCallback = fn => queueMicrotask(fn);
       document.fonts = {ready: Promise.resolve()};
-      const page = {on: () => {}, waitForFunction: async () => {}, evaluate: fn => fn()};
-      waits.trackLayoutRequests(page);
+      const page = cdpPage({waitForFunction: async () => {}, evaluate: fn => fn()});
+      await waits.trackLayoutRequests(page);
       await waits.settleDashboard(page, {timeoutMs: 10});
       await waits.renderTurn(page, 10);
       const samples = await pickerProbe({selector: '.picker', widths: [320, 321], timeoutMs: 10});
@@ -603,7 +606,7 @@ def test_introduced_protocol_calls_reject_a_stalled_renderer(blocked, label):
         chipLeft: 40, chipRight: 100, pagerVisible: false, pagerWidth: null,
         height: 47, top: 0, seat: 0};
       const walk = {states: [state], completed: true, missing: false};
-      const page = {on() {}, waitForSelector: async () => {},
+      const page = cdpPage({waitForSelector: async () => {},
         waitForFunction: async () => {}, click: async () => {},
         evaluate: (fn, args) => blocked.startsWith('project-picker-')
           || (blocked === 'measurement' && typeof args === 'string') ? stall()
@@ -618,7 +621,7 @@ def test_introduced_protocol_calls_reject_a_stalled_renderer(blocked, label):
           if (blocked === 'fulfill') await routeHandler({
             request: () => ({url: () => 'http://test/api/projects'}),
             fulfill: stall});
-        }};
+        }});
       const context = {
         route: async (pattern, handler) => {
           if (cdnUrls.has(pattern)) return;
