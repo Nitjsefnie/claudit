@@ -47,7 +47,7 @@ export async function snapshotWorld(context, url, world) {
   const page = await context.newPage();
   trackLayoutRequests(page);
   await page.goto(url, { waitUntil: 'load' });
-  await settleDashboard(page, 60_000).catch(error => {
+  await settleDashboard(page, {timeoutMs: 60_000}).catch(error => {
     throw new Error(`${world}: ${error.message}`, { cause: error });
   });
   // A failed stylesheet leaves document.fonts empty and ready, so ask the faces.

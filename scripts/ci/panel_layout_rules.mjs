@@ -2161,7 +2161,7 @@ export async function runRules(ruleFilter, casesOnly = false) {
       const page = await ctx.newPage();
       trackLayoutRequests(page);
       await page.goto(`${base}/`, { waitUntil: 'load' });
-      await layoutTiming(`settle ${width}`, () => settleDashboard(page));
+      await layoutTiming(`settle ${width}`, () => settleDashboard(page, { call: 'initial load' }));
 
       const ruleCtx = {
         page,
@@ -2183,7 +2183,7 @@ export async function runRules(ruleFilter, casesOnly = false) {
       // fire, or the rule's red proof is dead and the guard lies.
       for (const rule of rules) {
         await page.reload({ waitUntil: 'load' });
-        await layoutTiming(`settle ${width}`, () => settleDashboard(page));
+        await layoutTiming(`settle ${width}`, () => settleDashboard(page, { call: `reload for rule ${rule.id}` }));
         const seeded = await rule.seed(page);
         await renderTurn(page);
         const seededCtx = { ...ruleCtx, seeded: true };
