@@ -1,24 +1,32 @@
 name: comment share
 on:
   pull_request:
+  push:
+    branches: [main, master]
+  workflow_call:
 permissions:
   contents: read
 concurrency:
-  group: comment-share-${{ github.ref }}
+  group: ${{ github.workflow == 'comment share' && format('comment-share-{0}', github.event_name == 'push' && format('{0}-{1}', github.ref, github.sha) || github.ref) || format('comment-share-called-{0}', github.run_id) }}
   cancel-in-progress: true
 jobs:
   comment-share:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch && format('{0}-push', github.event.repository.default_branch) || '' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: Nitjsefnie-Actions/comment-ratchet@fc6e1aec44a358f5e88420b3d3795a9b0bce7823 # v2.0.1
+      - if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)
+        uses: Nitjsefnie-Actions/comment-ratchet@30ef8468e4599e10bb76b3916f9c2817a407e910 # v3.0.1
         with:
           target: '15'
           records: '.github/comment-share.json'
           mode: 'auto'
           base-ref: ${{ github.event.pull_request.base.sha }}
+          require-tight: 'false'
+          push-key: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}

@@ -20,10 +20,10 @@ check still reports. The invariants pinned here:
 - every step-running job in every workflow declares `timeout-minutes`
   (GitHub's default is 360, so an undeclared bound lets a
   hung step occupy a runner for six hours);
-- the deploy key is loaded only by the two push jobs that take it from
-  the master-push environment — refresh-pricing.yml's and the top-level
-  ratchet-push.yml's — never by a forwarded secret, and tests.yml
-  pushes nothing (the secret resolved empty inside the
+- the deploy key is loaded only by top-level jobs that take it from
+  the master-push environment — refresh-pricing.yml's, ratchet-push.yml's
+  and the comment-share and size-baseline records pushes — never by a
+  forwarded secret, and tests.yml pushes nothing (the secret resolved empty inside the
   workflow_call callee, and a GITHUB_TOKEN push is rejected by the
   ruleset's required aggregate check, so the ratchet push moved out of
   the callee into ratchet-push.yml, keyed on the ci-gate run's
@@ -511,11 +511,11 @@ def test_tests_and_refresh_share_the_pinned_postgres_action():
             assert "scripts/ci/pytest_shards.py" in run
 
 
-def test_the_pytest_job_pushes_nothing_and_the_deploy_key_has_two_wirings():
+def test_the_pytest_job_pushes_nothing_and_holds_no_deploy_key():
     raw = TESTS_WORKFLOW.read_text(encoding="utf-8")
-    # The deploy key has ZERO wiring in tests.yml; its only load sites
-    # in the repo are the two environment-backed push jobs. The pytest
-    # job pushes nothing.
+    # The deploy key has ZERO wiring in tests.yml; refresh-pricing.yml and
+    # ratchet-push.yml load it from the environment. The pytest job
+    # pushes nothing.
     assert "MASTER_PUSH_DEPLOY_KEY" not in raw
     assert "ssh-agent" not in raw
     for name, path in (("refresh-pricing.yml", REFRESH_WORKFLOW),

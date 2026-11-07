@@ -96,8 +96,9 @@ numbers in a workflow. Module size is gated by the
   checking against the records at its base. The action measures tracked
   Python, JavaScript/TypeScript, YAML, shell and SQL files at a 15% target;
   only files above it carry exact `[comment bytes, non-whitespace bytes]`
-  records in `.github/comment-share.json`. Pull requests carry tightened
-  records for changed files. Keep the action pinned and its records
+  records in `.github/comment-share.json`. On a master push the action
+  tightens the records and commits them itself with the `master-push`
+  deploy key. Keep the action pinned and its records
   separate from `.github/ci-thresholds.json`.
 - Suite cost (`suite_cost`): per-phase instruction counts (millions of
   bytecode instructions, one decimal; phases `collection`, `run`,
@@ -184,9 +185,10 @@ numbers in a workflow. Module size is gated by the
   `92.00`) — what the ratchet writes, `coverage --precision=1`
   measures and the JS gate's `toFixed(1)` reads. The document is
   always the loader's canonical bytes; never hand-edit it.
-- The bot's raise/tighten commit on master touches only
-  `.github/ci-thresholds.json`. `ci-gate.yml` and `version-guard.yml`
-  ignore that path so the data-only commit restarts neither the suite nor
+- The bots' raise/tighten commits on master each touch only one records
+  file: `.github/ci-thresholds.json`, `.github/comment-share.json` or
+  `.github/size-baseline.json`. `ci-gate.yml` and `version-guard.yml`
+  ignore those paths so a data-only commit restarts neither the suite nor
   the version guard.
 
 ## Tests never pin repository-managed data (SV-TEST-DATA)

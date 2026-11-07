@@ -24,7 +24,7 @@ name: version-guard
 # NO PATHS FILTER beyond the shared bot-commit exemption below: the tag
 # set changes when a release lands, independently of any push, so even a
 # VERSION-less push matters. ci-gate.yml and version-guard.yml ignore
-# .github/ci-thresholds.json and .github/comment-share.json.
+# the three ratchet records files below.
 
 on:
   push:
@@ -32,6 +32,7 @@ on:
     paths-ignore:
       - '.github/ci-thresholds.json'
       - '.github/comment-share.json'
+      - '.github/size-baseline.json'
   pull_request:
   workflow_dispatch:
 

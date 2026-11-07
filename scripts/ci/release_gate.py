@@ -20,7 +20,7 @@ produced it was triggered for this commit by an event that creates CI for
 a commit's sake — a push or a pull request — plus a manual dispatch of a
 workflow that also gates this commit. Every other trigger answers a question no
 commit asked, and is skipped: `issue_comment`, `pull_request_target`
-— pr-gate.yml has no other trigger and a gate-closed PR concludes its run
+— pr-gate.yml has no other trigger and a failing PR's run concludes
 `failure` — `schedule`, `workflow_run`, and a dispatch of a workflow that
 never gates.
 

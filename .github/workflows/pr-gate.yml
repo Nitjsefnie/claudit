@@ -1,62 +1,35 @@
 name: pr gate
-
 # pull_request_target: a fork's pull_request token is read-only, so its
-# comment and close would silently do nothing. The pinned action reads the
-# template at the PR's base SHA and runs no pull-request code; the body
-# reaches it through the API, never through an expression.
+# comment would silently do nothing. The pinned action reads the template at
+# the PR's base SHA and runs no pull-request code. synchronize re-runs the
+# gate on every push, so its check attaches to each new head.
 #
-# Nitjsefnie-Actions/pr-gate v2.4.0 checks commit attribution below. It
-# closes PRs carrying commits whose author or committer is unrelated to
-# the PR author, web-flow, write-or-above accounts, or a co-author of
-# the PR author. With github.token, a 403 reading collaborator permissions
-# means no push access.
-#
-# Exit 2 means this run closed the PR; exit 0 leaves it open, merged,
-# reopened, or already closed by someone else; exit 1 means analysis/API
-# failure. Only aggregate is required, so a red pr gate blocks no merge.
-# Release waits on master checks; pull_request_target checks attach to
-# the PR head, which a rebase merge does not land on master.
-#
-# Closure follows `closable` in scripts/ci/pr_gate.py. A layout/content
-# failure closes. Among one to twenty checked references, a claim failure
-# also closes: a closing reference not assigned to the PR author, or no
-# checked issue assigned to the author. A mere mention of someone else's
-# issue beside a claimed one passes. A failing body naming no issue
-# reference closes unless Related still carries reference-shaped text,
-# such as a URL. That case and more than twenty references leave a
-# corrective comment; neither exempts an independent layout/content failure.
+# A failing PR gets one comment naming the defects and a red `gate` check;
+# the PR stays open. Exit 2 means defects were found, exit 1 an
+# analysis/API failure. Release waits on master checks; pull_request_target
+# checks attach to the PR head, which a rebase merge does not land on master.
 on:
   pull_request_target:  # zizmor: ignore[dangerous-triggers]
-    types: [opened, edited, reopened, ready_for_review]
-
+    types: [opened, edited, reopened, synchronize, ready_for_review]
 permissions:
   contents: read
-  pull-requests: write
   issues: read
-
+  pull-requests: write
 concurrency:
-  # Runs for one pull request queue and GitHub keeps only the newest pending
-  # one. Never cancel: a cancelled run may already have closed, and the
-  # queued run is what reads that and repairs it.
   group: pr-gate-${{ github.event.pull_request.number }}
   cancel-in-progress: false
-
 jobs:
   gate:
-    # A reopen is authored by github-actions[bot] with this workflow's own
-    # github.token, and GitHub's no-recursion exception holds such an event's
-    # pull_request runs for approval: a draft closed and reopened loses its CI.
+    # Bot-authored pull requests are not gated, and a draft is checked when
+    # it is marked ready for review. GitHub reports a skipped job's check as
+    # success, so neither blocks a merge.
     if: >-
       github.event.pull_request.user.type != 'Bot'
       && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      # A folded scalar, so no trailing version comment: a `#` after the
-      # content line is scalar text, not a comment, and lands in the `uses:`
-      # value. The version is named in the header instead.
-      - uses: >-
-          Nitjsefnie-Actions/pr-gate@88281cab989fa0951713be42f9ae4c26683f7719
+      - uses: Nitjsefnie-Actions/pr-gate@3fa0727a2c56b031c5fa42100fd831134e440e87 # v3.0.1
         with:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
