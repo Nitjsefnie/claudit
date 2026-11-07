@@ -76,7 +76,7 @@ export async function runPickerCases(browser, base, rules, checks) {
           'picker fixture response');
       }), 'picker fixture routes');
       const page = await withDeadline(() => context.newPage(), 'picker fixture page');
-      trackLayoutRequests(page);
+      await trackLayoutRequests(page);
       await page.goto(base + '/', {waitUntil: 'load'});
       await page.waitForSelector('[data-projects-ready="true"]');
       await settleDashboard(page, {call: `picker fixture of ${count} projects`});

@@ -2159,7 +2159,7 @@ export async function runRules(ruleFilter, casesOnly = false) {
         });
       });
       const page = await ctx.newPage();
-      trackLayoutRequests(page);
+      await trackLayoutRequests(page);
       await page.goto(`${base}/`, { waitUntil: 'load' });
       await layoutTiming(`settle ${width}`, () => settleDashboard(page, { call: 'initial load' }));
 
