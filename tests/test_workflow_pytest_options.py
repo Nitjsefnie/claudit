@@ -15,10 +15,12 @@ A command that only names pytest so is judged too and fails closed:
 Unseen: a pytest no word names so (`pytest.exe`, `-m pytest.__main__`,
 `PY=pytest`, a `${{ }}` expression, a script that imports or starts it),
 a quoted string's inner words, and the use of a value: options at a
-variable's, alias's or function's call do not count. Not read: the
-environment outside the command's own words (PYTEST_ADDOPTS exported, in
-an `env:` or `$GITHUB_ENV`), configuration files, `--durations-min`, the
-job's time limit.
+variable's, alias's or function's call do not count. The word holding a
+quoted string is still judged, by its text after its last `/` or first
+`m`: `bash -c 'exec .venv/bin/pytest'` fails. Not read: the environment
+outside the command's own words (PYTEST_ADDOPTS exported, in an `env:` or
+`$GITHUB_ENV`), configuration files, `--durations-min`, the job's time
+limit.
 """
 from __future__ import annotations
 
@@ -151,7 +153,10 @@ REFUSED = {
     "an array, options at its use": ("cmd=(" + RUN.strip() + ')\n"${cmd[@]}" ' + BOTH, [[NO_DUMP, NO_DURATIONS]]),
     "a pathed alias, options at its use": ("alias t=.venv/bin/pytest\nt tests -q " + BOTH, [[NO_DUMP, NO_DURATIONS]]),
     "a quoted string of one word": ("bash -c 'pytest'", [[NO_DUMP, NO_DURATIONS]]),
+    "a quoted string ending in a pytest path": ("bash -c 'cd repo && exec .venv/bin/pytest'", [[NO_DUMP, NO_DURATIONS]]),
+    "a quoted string ending in the joined module": ("bash -c 'python -mpytest'", [[NO_DUMP, NO_DURATIONS]]),
     "the module flag in an assignment": ("FLAGS=-mpytest\npython $FLAGS tests -q " + BOTH, [[NO_DUMP, NO_DURATIONS]]),
+    "the joined module in an assignment, its dash at the use": ("FLAGS=mpytest\npython -$FLAGS tests -q " + BOTH, [[NO_DUMP, NO_DURATIONS]]),
     "options on a function's call": ('run() { python -m pytest "$@"; }\nrun tests ' + BOTH, [[NO_DUMP, NO_DURATIONS]]),
     "the second of two commands": (RUN + BOTH + "\n" + RUN + "--durations=20", [[], [NO_DUMP]]),
     "options on the next command": (RUN.strip() + "\necho " + BOTH, [[NO_DUMP, NO_DURATIONS]]),
