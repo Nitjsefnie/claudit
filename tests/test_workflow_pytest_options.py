@@ -92,7 +92,6 @@ ACCEPTED = {
     "an unquoted eval": "eval " + RUN + BOTH,
     "across a continuation": "python -m pytest tests -q \\\n  " + BOTH,
     "inside a substitution": 'out="$(' + RUN + BOTH + ')"',
-    "the plugin off in an exported PYTEST_ADDOPTS, not read": 'export PYTEST_ADDOPTS="-p no:faulthandler"\n' + RUN + BOTH,
 }
 
 NOT_PYTEST = {
@@ -118,6 +117,10 @@ UNSEEN = {
     "a module under pytest": "python -m pytest.__main__ tests -q",
     "a program importing pytest": "python -c 'import sys, pytest; sys.exit(pytest.main())'",
     "a script that launches it": "python scripts/ci/perturbed_leg_bench.py --seed 1",
+}
+
+NOT_READ = {
+    "the plugin off in an exported PYTEST_ADDOPTS": 'export PYTEST_ADDOPTS="-p no:faulthandler"\n' + RUN + BOTH,
 }
 
 REFUSED = {
@@ -168,6 +171,11 @@ def test_a_command_that_only_names_pytest_is_not_judged(script):
 @pytest.mark.parametrize("script", UNSEEN.values(), ids=UNSEEN)
 def test_a_pytest_the_docstring_calls_unseen_is_not_judged(script):
     assert _lacking(script) == []
+
+
+@pytest.mark.parametrize("script", NOT_READ.values(), ids=NOT_READ)
+def test_a_setting_the_docstring_calls_not_read_does_not_fail_a_command(script):
+    assert _lacking(script) == [[]]
 
 
 @pytest.mark.parametrize("script,lacks", REFUSED.values(), ids=REFUSED)
