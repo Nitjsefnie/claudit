@@ -322,7 +322,7 @@ jobs:
             if [ "$status" -eq 0 ]; then
               break
             fi
-            echo "gh release create exited $status on attempt $attempt of $attempts (124 or 137: its bound ended it)" >&2
+            echo "gh release create exited $status on attempt $attempt of $attempts (124 is timeout's status for its time limit, 137 for a KILL signal)" >&2
             if target="$("$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api "repos/$CLAUDIT_REPO/releases/tags/$CLAUDIT_TAG" --jq .target_commitish 2>"$RUNNER_TEMP/read-back.err")"; then
               if [ "$target" = "$CLAUDIT_SHA" ]; then
                 echo "release $CLAUDIT_TAG exists at $CLAUDIT_SHA although its create exited $status"
