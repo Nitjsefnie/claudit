@@ -16,7 +16,7 @@ import pytest
 from tests.test_workflow_release import (
     PROCEEDING, PUSH_RUN, REFUSAL_STEP, REFUSAL_STUB, RELEASE_404, TAG_404, _checks,
     _refusal_env, _row, _run, _runs, _run_step as _run_release_step, _step_run)
-from tests.test_workflow_fetch_retry import _commands, _steps
+from tests.test_workflow_fetch_retry import _fetch_kind, _kinds, _steps
 from tests.test_workflow_release_dispatch import (  # pylint: disable=unused-import
     DECIDE, POST_RELEASE, POST_RELEASE_STUB, PROBE_STUB, _decide_env,
     _run_step as _run_dispatch_step, ubuntu_step_body)
@@ -40,7 +40,7 @@ export -f gh python3 sleep
 '''
 
 NPM_STUB = r'''
-npm() { printf '%s\n' "$*" >> "$NPM_CALLS"; }
+npm() { local IFS=$'\037'; printf '%s\n' "$*" >> "$NPM_CALLS"; }
 node() { case "$*" in "-p "*) echo 9.9.9 ;; *) echo "unmodelled node call: $*" >&2; return 99 ;; esac; }
 sleep() { :; }
 export -f npm node sleep
@@ -164,14 +164,19 @@ def test_version_guard_reaches_its_decider_when_every_read_answers(tmp_path):
     assert sorted(Counter(_bounded(env)).values()) == [1, 1, 3]
 
 
+def _npm_fetch(kind: str | None) -> bool:
+    return kind is not None and kind.startswith("npm ")
+
+
 @ubuntu_step_body
 def test_every_npm_install_retries_an_attempt_the_bound_ended(tmp_path):
     sites = [(path.name, job, step) for path, job, step, _ in _steps()
-             if any("npm" in words for words, _ in _commands(step.get("run") or ""))]
+             if any(map(_npm_fetch, _kinds(step.get("run") or "")))]
     for number, (name, job, step) in enumerate(sites):
         box = tmp_path / str(number)
         box.mkdir()
         env = _ending(box, 1)
+        (box / "npm-calls").touch()
         proc = subprocess.run(
             ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", TIMEOUT_STUB + NPM_STUB + step["run"]],
             env={"PATH": os.environ["PATH"], "RUNNER_TEMP": str(box), "NPM_CALLS": str(box / "npm-calls"), **env},
@@ -179,8 +184,13 @@ def test_every_npm_install_retries_an_attempt_the_bound_ended(tmp_path):
         assert proc.returncode == 0, (name, job, proc.stderr)
         state = Path(env["TIMEOUT_STATE"])
         bounded = bounded_calls(state) if (state / "calls").exists() else []
-        # The first attempt ran under the bound and was ended; the same command then answered.
-        assert len(bounded) == 2 and bounded[0] == bounded[1] and bounded[0][0] > 0, (name, job, bounded)
-        ran = (box / "npm-calls").read_text(encoding="utf-8").splitlines()
-        assert ["npm " + args for args in ran] == [bounded[0][1]], (name, job, ran)
-    assert sites, "no step with an npm command was found; the walk is broken"
+        assert all(seconds > 0 for seconds, _ in bounded), (name, job, bounded)
+        ran = [["npm", *line.split("\x1f")] for line in
+               (box / "npm-calls").read_text(encoding="utf-8").splitlines()]
+        fetches = [" ".join(argv) for argv in ran if _npm_fetch(_fetch_kind(argv))]
+        assert fetches, (name, job, "the guard reads an npm fetch here; none reached npm", ran)
+        for command in set(fetches):
+            # Its first attempt ran under the bound and was ended; every run of it was under the bound.
+            assert [text for _, text in bounded].count(command) == fetches.count(command) + 1, (
+                name, job, command, bounded)
+    assert sites, "no step with an npm fetch was found; the walk is broken"
