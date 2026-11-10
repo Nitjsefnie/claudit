@@ -219,8 +219,6 @@ jobs:
           CLAUDIT_SELECTOR_SHA: ${{ github.workflow_sha }}
         # Wait for the commit's gates; the selector's rule and fail-closed
         # behavior live in scripts/ci/release_gate.py's module docstring.
-        # Deadline/poll knobs: CLAUDIT_RELEASE_WAIT_SECONDS and
-        # CLAUDIT_RELEASE_WAIT_POLL_SECONDS.
         run: |
           "$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/scripts/ci/release_gate.py?ref=$CLAUDIT_SELECTOR_SHA" > "$RUNNER_TEMP/release_gate.py"
           # CLAUDIT_RELEASE_WAIT_SECONDS / CLAUDIT_RELEASE_WAIT_POLL_SECONDS override the 2700 s / 20 s defaults.
@@ -309,12 +307,40 @@ jobs:
         # --generate-notes builds the changelog from the commits since the
         # previous release, so the release body stays honest without anyone
         # maintaining a CHANGELOG by hand.
+        # A failed create may have made the release anyway: the release is
+        # read back after each one.
         run: |
-          gh release create "$CLAUDIT_TAG" \
-            --repo "$CLAUDIT_REPO" \
-            --target "$CLAUDIT_SHA" \
-            --title "$CLAUDIT_TAG" \
-            --generate-notes
+          attempts=3
+          attempt=1
+          while :; do
+            if timeout -k 5 60 gh release create "$CLAUDIT_TAG" \
+              --repo "$CLAUDIT_REPO" \
+              --target "$CLAUDIT_SHA" \
+              --title "$CLAUDIT_TAG" \
+              --generate-notes
+            then
+              break
+            fi
+            if target="$("$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api "repos/$CLAUDIT_REPO/releases/tags/$CLAUDIT_TAG" --jq .target_commitish 2>"$RUNNER_TEMP/read-back.err")"; then
+              if [ "$target" = "$CLAUDIT_SHA" ]; then
+                echo "the create reported a failure, but release $CLAUDIT_TAG exists at $CLAUDIT_SHA"
+                break
+              fi
+              echo "release $CLAUDIT_TAG exists at '$target', not at $CLAUDIT_SHA — failing closed" >&2
+              exit 1
+            elif ! grep -q 'HTTP 404' "$RUNNER_TEMP/read-back.err"; then
+              cat "$RUNNER_TEMP/read-back.err" >&2
+              echo "could not verify the release read-back for $CLAUDIT_TAG — failing closed" >&2
+              exit 1
+            fi
+            if [ "$attempt" -ge "$attempts" ]; then
+              echo "creating release $CLAUDIT_TAG failed after $attempts attempts, and no release exists for the tag" >&2
+              exit 1
+            fi
+            echo "creating release $CLAUDIT_TAG failed (attempt $attempt of $attempts) and no release exists for the tag; creating it again" >&2
+            sleep 5
+            attempt=$((attempt + 1))
+          done
           echo "Released $CLAUDIT_TAG at $CLAUDIT_SHA"
           {
             echo "### Released [\`$CLAUDIT_TAG\`](https://github.com/${{ github.repository }}/releases/tag/$CLAUDIT_TAG)"
