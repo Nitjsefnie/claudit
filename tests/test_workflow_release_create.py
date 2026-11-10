@@ -70,11 +70,19 @@ def _nothing_announced(proc, summary: str) -> None:
     assert "Released" not in proc.stdout + summary, proc.stdout + summary
 
 
+def _exits(proc, *statuses: str) -> None:
+    """The step logged each failed create's exit status, in attempt order, and nothing else of the kind."""
+    lines = [line for line in proc.stderr.splitlines() if line.startswith("gh release create exited ")]
+    assert lines == [f"gh release create exited {status} on attempt {number} of 3 (124 or 137: its bound ended it)"
+                     for number, status in enumerate(statuses, 1)], proc.stderr
+
+
 @ubuntu_step_body
 def test_a_create_that_answers_is_one_create_and_no_read(tmp_path):
     proc, kinds, reached, summary = _create(tmp_path, read="unanswerable")
     _announced_once(proc, summary)
     assert kinds == ["create"] and reached == ["create"]
+    _exits(proc)
 
 
 @ubuntu_step_body
@@ -83,6 +91,8 @@ def test_a_create_the_bound_ended_that_landed_is_not_repeated(tmp_path, status):
     proc, kinds, reached, summary = _create(tmp_path, read=SHA, ended=1, status=status)
     _announced_once(proc, summary)
     assert kinds == ["create", "read"] and reached == ["read"]
+    _exits(proc, status)
+    assert f"release v9.9.9 exists at {SHA} although its create exited {status}" in proc.stdout
 
 
 @ubuntu_step_body
@@ -90,6 +100,8 @@ def test_a_create_that_errored_but_landed_is_not_repeated(tmp_path):
     proc, kinds, reached, summary = _create(tmp_path, read=SHA, create="fails")
     _announced_once(proc, summary)
     assert kinds == ["create", "read"] and reached == ["create", "read"]
+    _exits(proc, "1")
+    assert f"release v9.9.9 exists at {SHA} although its create exited 1" in proc.stdout
 
 
 @ubuntu_step_body
@@ -99,14 +111,16 @@ def test_a_create_the_bound_ended_that_never_landed_is_created_again(tmp_path):
     # The helper asks the absent release's read three times before the second create.
     assert kinds == ["create", "read", "read", "read", "create"]
     assert reached == ["read", "sleep 5", "read", "sleep 10", "read", "sleep 5", "create"]
+    _exits(proc, "124")
 
 
 @ubuntu_step_body
-@pytest.mark.parametrize("create,ended", [("answers", 3), ("fails", 0)], ids=["ended", "errored"])
-def test_creates_that_never_land_stop_after_three_and_announce_nothing(tmp_path, create, ended):
-    proc, kinds, _, summary = _create(tmp_path, read="absent", create=create, ended=ended)
+@pytest.mark.parametrize("create,ended,status", [("answers", 3, "137"), ("fails", 0, "1")], ids=["ended", "errored"])
+def test_creates_that_never_land_stop_after_three_and_announce_nothing(tmp_path, create, ended, status):
+    proc, kinds, _, summary = _create(tmp_path, read="absent", create=create, ended=ended, status=status)
     _nothing_announced(proc, summary)
     assert kinds == ["create", "read", "read", "read"] * 3
+    _exits(proc, status, status, status)
     assert "failed after 3 attempts" in proc.stderr
 
 
@@ -120,6 +134,7 @@ def test_a_read_back_without_an_answer_fails_closed(tmp_path, read, only, said):
     _nothing_announced(proc, summary)
     assert kinds == ["create", "read", "read", "read"]
     assert said in proc.stderr, "what the read answered is missing from the log"
+    _exits(proc, "124")
     assert "could not verify the release read-back for v9.9.9 — failing closed" in proc.stderr
 
 
@@ -129,4 +144,5 @@ def test_a_release_at_another_target_fails_closed(tmp_path, target):
     proc, kinds, _, summary = _create(tmp_path, read=target, ended=1)
     _nothing_announced(proc, summary)
     assert kinds == ["create", "read"]
+    _exits(proc, "124")
     assert f"release v9.9.9 exists at '{target}', not at {SHA} — failing closed" in proc.stderr
