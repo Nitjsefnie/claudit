@@ -357,9 +357,7 @@ exit 1
         proc, calls = self._scenario(tmp_path, fake)
         assert proc.returncode == 0, proc.stderr
         assert "updated patch-coverage comment 123" in proc.stdout
-        # The listing and the PATCH each ran under the bound twice; gh
-        # answered only the second attempt of each.
-        assert len(calls) == 2, calls
+        assert len(calls) == 2, f"gh answered {calls}, not one listing and one PATCH"
         bounded = [command for _, command in bounded_calls(state)]
         assert [" -X PATCH " in command for command in bounded] == [
             False, False, True, True]
