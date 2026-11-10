@@ -596,6 +596,18 @@ class TestPerturbedSuiteExploreShards:
         job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
         assert job["timeout-minutes"] == 30
 
+    def test_step_bound_shell_and_env_are_read_from_the_parsed_step(self) -> None:
+        job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
+        step = next(step for step in job["steps"]
+                    if step.get("name") == "Perturb and test, per wall-clock seed")
+        bound = step.get("timeout-minutes")
+        # The job outlasts its test step, so a stalled suite ends at the step's bound.
+        assert isinstance(bound, (int, float)) and 0 < bound < job["timeout-minutes"], bound
+        assert step.get("shell") == "bash"
+        env = step.get("env") or {}
+        assert {"CLAUDIT_SEED_BASE", "CLAUDIT_DEBUG_NODE_STALL"} <= set(env), env
+        assert env["CLAUDIT_SEED_BASE"] == "${{ needs.seeds.outputs.seed-base }}"
+
     @staticmethod
     def _cell(tmp_path: Path, index: int, shard: int, status: int = 0):
         job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
