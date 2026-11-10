@@ -477,17 +477,17 @@ jobs:
               echo "updated patch-coverage comment $existing"
               exit 0
             fi
-            if ! timeout -k 5 60 gh api -X POST "repos/$CLAUDIT_REPO/issues/$CLAUDIT_PR_NUMBER/comments" \
-              -F body=@comment.md >/dev/null
-            then
-              echo "posting the patch-coverage comment failed" \
-                "(attempt $attempt of $attempts); re-listing before" \
-                "retrying, so a landed-but-errored POST is PATCHed," \
-                "never duplicated" >&2
-            else
+            status=0
+            timeout -k 5 60 gh api -X POST "repos/$CLAUDIT_REPO/issues/$CLAUDIT_PR_NUMBER/comments" \
+              -F body=@comment.md >/dev/null || status=$?
+            if [ "$status" -eq 0 ]; then
               echo 'posted a new patch-coverage comment'
               exit 0
             fi
+            echo "posting the patch-coverage comment exited $status" \
+              "(attempt $attempt of $attempts); re-listing before" \
+              "retrying, so a landed-but-errored POST is PATCHed," \
+              "never duplicated" >&2
             if [ "$attempt" -ge "$attempts" ]; then
               echo "posting the patch-coverage comment failed after" \
                 "$attempts attempts" >&2

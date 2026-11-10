@@ -153,6 +153,15 @@ def _call_log(log):
     return [" ".join(line.split()) for line in lines]
 
 
+def _post_exits(proc, *statuses):
+    lines = [line for line in proc.stderr.splitlines() if line.startswith("posting the patch-coverage comment")]
+    assert lines == [
+        f"posting the patch-coverage comment exited {status} (attempt {number} of 3); re-listing before "
+        "retrying, so a landed-but-errored POST is PATCHed, never duplicated"
+        for number, status in enumerate(statuses, 1)] + (
+            ["posting the patch-coverage comment failed after 3 attempts"] if len(statuses) == 3 else []), proc.stderr
+
+
 class TestSharedHelper:
     def test_the_helper_step_is_the_jobs_first_step(self):
         assert _steps()[0].get("name") == HELPER_STEP
@@ -182,7 +191,7 @@ class TestSharedHelper:
         assert len(unwrapped) == 1, unwrapped
         name, cmd = unwrapped[0]
         assert name == POST_STEP
-        assert cmd.startswith("if ! timeout ") and " gh api -X POST " in cmd, cmd
+        assert cmd.startswith("timeout ") and " gh api -X POST " in cmd, cmd
 
     def test_the_post_loop_re_lists_before_every_attempt(self):
         run = _run(POST_STEP)
@@ -316,6 +325,7 @@ exit 1
         proc, calls = self._scenario(tmp_path, fake)
         assert proc.returncode == 0, proc.stderr
         assert "posted a new patch-coverage comment" in proc.stdout
+        _post_exits(proc)
         posts = [c for c in calls if " -X POST " in c]
         patches = [c for c in calls if " -X PATCH " in c]
         assert len(posts) == 1
@@ -395,6 +405,7 @@ exit 1
         assert [c for c in calls if " -X POST " in c] == [], calls
         assert len([c for c in calls if " -X PATCH " in c]) == 1, calls
         assert posts == [False, True, False, False], "not: listing, ended POST, listing, PATCH"
+        _post_exits(proc, "124")
 
     def test_a_post_its_bound_ended_that_never_landed_is_posted_again(
             self, tmp_path, monkeypatch):
@@ -404,6 +415,7 @@ exit 1
         assert len([c for c in calls if " -X POST " in c]) == 1, calls
         assert [c for c in calls if " -X PATCH " in c] == [], calls
         assert posts == [False, True, False, True], "not: listing, ended POST, listing, POST"
+        _post_exits(proc, "124")
 
     def test_a_post_that_landed_despite_the_error_is_patched_not_duplicated(
             self, tmp_path):
@@ -428,6 +440,7 @@ exit 1
         patches = [c for c in calls if " -X PATCH " in c]
         assert len(posts) == 1, calls
         assert len(patches) == 1, calls
+        _post_exits(proc, "1")
 
     def test_a_permanently_failing_listing_fails_bounded(
             self, tmp_path):
@@ -457,6 +470,7 @@ exit 1
         # POST was preceded by its own re-list.
         assert len(calls) == 6, calls
         assert len([c for c in calls if " -X POST " in c]) == 3
+        _post_exits(proc, "1", "1", "1")
 
     def test_a_transient_patch_failure_is_retried(self, tmp_path):
         fake = f'''#!/bin/bash
