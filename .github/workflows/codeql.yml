@@ -83,6 +83,9 @@ jobs:
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        env:
+          # Makes init skip its toolcache delete (setup-codeql.ts tryDeleteToolcacheBundles); re-check on a pin bump.
+          CODEQL_ACTION_HAS_SET_UP_CODEQL: "true"
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
