@@ -735,13 +735,12 @@ Every commit message follows
 and the `!`, which marks a breaking change, are optional. The format binds
 the messages automation writes as well: the bot pushes to `master` and
 Dependabot's updates. One rule narrows it and is gated: a workflow's
-`name:` may be a scope only with the `ci` type —
-the type disambiguates shared names, `ci(tests)` changes the tests
-workflow, while `fix(tests)` fixes the suite. `tests` is the one scope
-that is both a workflow name and a subject of its own; a second shared
-name needs its own sentence here before the check exempts it.
-`scripts/ci/commit_scopes.py` refuses the violating shape in the
-aggregate job on every pull request.
+`name:` may be a scope only with the `ci` type — the type disambiguates
+shared names, `ci(tests)` changes the tests workflow, while `fix(tests)`
+fixes the suite. `tests` is the one scope that is both a workflow name
+and a subject of its own; a second shared name needs its own sentence
+here before the check exempts it. `scripts/ci/commit_scopes.py` refuses
+the violating shape in the aggregate job on every pull request.
 
 ## Pull requests
 
