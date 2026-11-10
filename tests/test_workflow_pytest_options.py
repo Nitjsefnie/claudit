@@ -4,7 +4,8 @@ A `run:` command, split by test_workflow_fetch_retry.py's lexer, runs
 pytest when a word is `pytest` or `py.test`, bare, by path or joined to an
 option cluster's `m` (`-mpytest`); `pip install pytest` counts too. It
 fails without `--durations` (`=N` or ` N`) or `-o faulthandler_timeout=N`,
-N whole seconds above 0. Every word naming faulthandler_timeout must be
+N whole seconds above 0, and with `no:faulthandler` in a word (that `-p`
+value turns the dump off). Every word naming faulthandler_timeout must be
 that pair: pytest takes a name's last override, so `-oNAME=N`,
 `--override-ini` or a 0 anywhere fails.
 
@@ -12,8 +13,8 @@ Not read: a pytest another program launches or a python program imports;
 one inside a longer word, a quoted string (`bash -c`, a quoted eval) or an
 assignment (a variable, an alias); a suffixed name (`pytest.exe`,
 `-m pytest.__main__`); a function call's arguments (its body is read);
-`-p no:faulthandler`, the step's `env:`, configuration files,
-`--durations-min`; whether the job outlasts the dump.
+the step's `env:`, configuration files, `--durations-min`; whether the
+job outlasts the dump.
 """
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ PYTEST = {"pytest", "py.test"}
 STALL = "faulthandler_timeout"
 NO_DUMP = "pytest without `-o faulthandler_timeout=N`, N whole seconds above 0"
 NO_DURATIONS = "pytest without `--durations`"
+NO_PLUGIN = "pytest with `no:faulthandler`, which turns the dump off"
 KNOWN = {(".github/workflows/tests.yml", "pytest-shards"),
          (".github/workflows/tests.yml", "pytest-thresholds"),
          (".github/workflows/tests.yml", "pytest-portable"),
@@ -43,7 +45,8 @@ def _lacks(words: list[str]) -> list[str]:
     named = [(before, word) for before, word in zip([""] + words, words) if STALL in word]
     dumps = bool(named) and all(before == "-o" and _armed(word) for before, word in named)
     timed = any(word == "--durations" or word.startswith("--durations=") for word in words)
-    return [NO_DUMP] * (not dumps) + [NO_DURATIONS] * (not timed)
+    blocked = any("no:faulthandler" in word for word in words)
+    return [NO_DUMP] * (not dumps) + [NO_PLUGIN] * blocked + [NO_DURATIONS] * (not timed)
 
 
 def _is_pytest(word: str) -> bool:
@@ -71,6 +74,8 @@ ACCEPTED = {
     "the durations of every test": RUN + "-o faulthandler_timeout=240 --durations=0",
     "a quoted override": RUN + '-o "faulthandler_timeout=240" --durations=20',
     "another override beside it": RUN + "-o cache_dir=cache " + BOTH,
+    "another plugin off": RUN + "-p no:cacheprovider " + BOTH,
+    "a plugin name that blocks nothing": RUN + "-p no:_pytest.faulthandler " + BOTH,
     "the timeout twice": RUN + "-o faulthandler_timeout=60 " + BOTH,
     "bare pytest": "pytest tests -q " + BOTH,
     "pytest by path": ".venv/bin/pytest tests -q " + BOTH,
@@ -121,6 +126,9 @@ REFUSED = {
     "the short option, joined": (RUN + "-ofaulthandler_timeout=240 --durations=20", [[NO_DUMP]]),
     "no -o before it": (RUN + "faulthandler_timeout=240 --durations=20", [[NO_DUMP]]),
     "another option's name": (RUN + "-o my_faulthandler_timeout=240 --durations=20", [[NO_DUMP]]),
+    "the faulthandler plugin off": (RUN + BOTH + " -p no:faulthandler", [[NO_PLUGIN]]),
+    "the faulthandler plugin off, joined": (RUN + BOTH + " -pno:faulthandler", [[NO_PLUGIN]]),
+    "the plugin off in an inline PYTEST_ADDOPTS": ('PYTEST_ADDOPTS="-p no:faulthandler" ' + RUN + BOTH, [[NO_PLUGIN]]),
     "only a minimum duration": (RUN + "-o faulthandler_timeout=240 --durations-min=1", [[NO_DURATIONS]]),
     "an install naming pytest": ("scripts/ci/retry.sh pip install pytest", [[NO_DUMP, NO_DURATIONS]]),
     "the module joined to -m, no durations": ("python -mpytest tests -q -o faulthandler_timeout=240", [[NO_DURATIONS]]),
