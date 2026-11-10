@@ -296,6 +296,7 @@ def _strip(words: list[str], prefixed: bool = False) -> list[str]:
             while index < len(words) and (words[index].startswith("-") or ASSIGNMENT.match(words[index])):
                 index += 2 if words[index] in PREFIXES[head] else 1
             words = words[index + (head == "timeout"):]
+            words = words[words[:1] == ["--"]:]  # the end-of-options marker, after timeout's duration too
         elif head in ("bash", "sh") and len(words) > 1 and words[1].endswith("retry.sh"):
             words = words[1:]
         else:
@@ -377,7 +378,8 @@ def _positive(value: str) -> bool:
 
 
 def _attempt_bounded(words: list[str]) -> bool:
-    grace, limit, command = (words[2:5] + [""] * 3)[:3]
+    marker = words.index("--") if "--" in words[:5] else len(words)
+    grace, limit, command = ((words[:marker] + words[marker + 1:])[2:5] + [""] * 3)[:3]
     return (words[:2] == ["timeout", "-k"] and _positive(grace) and _positive(limit)
             and command.rsplit("/", 1)[-1] == "gh")
 

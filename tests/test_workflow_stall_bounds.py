@@ -3,7 +3,9 @@
 A retried attempt must end when the network goes silent, or it is never
 retried. A gh command run by retry.sh/api_retry, or a gh read steering an
 attempt loop, fails unless it is `timeout -k N N gh ...` there: timeout
-directly before gh, inside the helper, each N whole seconds above 0.
+directly before gh, inside the helper, each N whole seconds above 0. The
+`--` that ends a prefix command's options is skipped, so the command after
+it is judged as without it.
 
 A git fetch/clone/ls-remote/pull/push is judged by its remote: the first
 word after the subcommand that is no option, read as git reads a URL
@@ -72,6 +74,8 @@ ACCEPTED = {
     "captured gh probe": f'if probe="$({COPY}timeout -k 5 60 {READ} 2>&1)"; then :; fi',
     "gh write by api_retry": 'api_retry "updating" -- timeout -k 5 60 ' + PATCH,
     "gh read steering a loop": LOOP.format("timeout -k 5 60 " + READ),
+    "-- before gh": COPY + "timeout -k 5 60 -- " + READ,
+    "-- before the duration": COPY + "timeout -k 5 -- 60 " + READ,
     "gh by its path": COPY + "timeout -k 5 60 /usr/bin/" + READ,
     "gh read in an inner shell": f"bash -c '{COPY}timeout -k 5 60 gh api repos/o/r'",
     "gh write steering a loop": LOOP.format(PATCH),
@@ -114,6 +118,12 @@ REFUSED = {
     "duration 0": (COPY + "timeout -k 5 0 " + READ, [UNBOUNDED_READ]),
     "kill-after 0": (COPY + "timeout -k 0 60 " + READ, [UNBOUNDED_READ]),
     "no kill-after": (COPY + "timeout 60 " + READ, [UNBOUNDED_READ]),
+    "duration 0 before --": (COPY + "timeout -k 5 0 -- " + READ, [UNBOUNDED_READ]),
+    "no kill-after before --": (COPY + "timeout 60 -- " + READ, [UNBOUNDED_READ]),
+    "timeout -- around something else": (COPY + "timeout -k 5 60 -- env " + READ, [UNBOUNDED_READ]),
+    "timeout -- and no retry": ("timeout -k 5 60 -- " + READ, ["gh read without the retry helper"]),
+    "env -- and no timeout": (COPY + "env -- " + READ, [UNBOUNDED_READ]),
+    "git behind timeout --, no retry": ("timeout 60 -- git fetch origin", ["git fetch without the retry helper", NAMED]),
     "duration with a unit": (COPY + "timeout -k 5 60s " + READ, [UNBOUNDED_READ]),
     "duration in a variable": (COPY + 'timeout -k 5 "$LIMIT" ' + READ, [UNBOUNDED_READ]),
     "duration in other digits": (COPY + "timeout -k 5 ６０ " + READ, [UNBOUNDED_READ]),
