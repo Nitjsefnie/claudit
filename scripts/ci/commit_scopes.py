@@ -27,11 +27,12 @@ Only the OUTGOING range origin/master..HEAD is examined.
 
 WHAT IT CANNOT SEE, and says so rather than guessing:
 
-  - A subject that does not parse — a merge commit, a non-conforming
-    subject, anything without a lowercase type, a scope in parens and a
-    colon. It is not a failure: it is counted and listed on stdout, so a
-    green is never silent about what it skipped. Parsing it anyway would
-    put a guessed scope under a gate it never agreed to.
+  - A subject with no scope to read — a conforming one written without
+    a scope, a merge commit, anything else without a lowercase type, a
+    scope in parens and a colon. It is not a failure: it is counted and
+    listed on stdout, so a green is never silent about what it skipped.
+    Parsing it anyway would put a guessed scope under a gate it never
+    agreed to.
   - A `name:` line this reader cannot read — quoted, anchored, a block
     scalar, a trailing comment, continued onto the next line, or missing
     entirely. Each is a refusal naming the file: an incomplete set is a
@@ -244,7 +245,7 @@ def fetch_base(root: Path) -> None:
     git(root, *arguments, what=f"fetch origin/{BASE_BRANCH}")
 
 
-# A Conventional-Commits-shaped subject: a lowercase type, an optional
+# A scoped Conventional Commits subject: a lowercase type, an optional
 # breaking marker after the type and/or after the scope's closing paren,
 # a scope of non-parenthesis non-whitespace inside parens, and the colon
 # the rule requires. A type outside the convention is not this regex's
@@ -280,11 +281,10 @@ def check(root: Path, out=print) -> int:
     for sha, subject in commits:
         match = SUBJECT.match(subject)
         if match is None:
-            # Not a failure — a merge commit or a non-conforming subject
-            # has no scope to read, and inventing one would gate a
-            # contributor on a parse they never wrote. Counted and
-            # listed, so a green never rides silently over what it
-            # skipped.
+            # Not a failure — without a match there is no scope to
+            # read, and inventing one would gate a contributor on a
+            # parse they never wrote. Counted and listed, so a green
+            # never rides silently over what it skipped.
             unexamined.append((sha, subject))
             continue
         examined += 1
@@ -320,9 +320,9 @@ def check(root: Path, out=print) -> int:
     # than failed. A green line that claimed more than this would be the
     # same over-claim as a report over its evidence.
     out("  Only the OUTGOING range is examined: history already merged")
-    out("  into master is never re-judged, and a subject that does not")
-    out("  parse (a merge commit, a non-conforming subject) is listed")
-    out("  below and is never a failure:")
+    out("  into master is never re-judged, and a subject with no scope")
+    out("  to read (one written without a scope, a merge commit, one")
+    out("  that does not parse) is listed below and is never a failure:")
     for sha, subject in unexamined:
         out(f"    {sha} {subject}")
     out("No commit pairs a workflow-name scope with a type other than `ci`.")
