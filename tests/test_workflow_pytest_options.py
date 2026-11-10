@@ -20,7 +20,9 @@ quoted string is still judged, by its text after its last `/` or first
 `m`: `bash -c 'exec .venv/bin/pytest'` fails. Not read: the environment
 outside the command's own words (PYTEST_ADDOPTS exported, in an `env:` or
 `$GITHUB_ENV`), configuration files, `--durations-min`, the job's time
-limit.
+limit, and which program of the command takes an option: with both written
+after that string, where bash takes them and pytest never sees them, it
+passes.
 """
 from __future__ import annotations
 
@@ -124,6 +126,7 @@ UNSEEN = {
 
 NOT_READ = {
     "the plugin off in an exported PYTEST_ADDOPTS": 'export PYTEST_ADDOPTS="-p no:faulthandler"\n' + RUN + BOTH,
+    "both options bash's, after a quoted script": "bash -c 'exec .venv/bin/pytest' " + BOTH,
 }
 
 REFUSED = {
