@@ -1,8 +1,8 @@
 """Every pytest command in a workflow or composite action reports durations and dumps a hung test's stacks.
 
 A `run:` command, split by test_workflow_fetch_retry.py's lexer, runs
-pytest when a word is `pytest` or `py.test`, bare, by path or joined to an
-option cluster's `m` (`-mpytest`); `pip install pytest` counts too. It
+pytest when a word is `pytest` or `py.test` after its last `/` or after
+its first `m` (`-mpytest`); `pip install pytest` counts too. It
 fails without `--durations` (`=N` or ` N`) or `-o faulthandler_timeout=N`,
 N in digits above 0, and with `no:faulthandler` in a word (that `-p`
 value turns the dump off). Every word naming faulthandler_timeout must be
@@ -50,7 +50,7 @@ def _lacks(words: list[str]) -> list[str]:
 
 
 def _is_pytest(word: str) -> bool:
-    return (word.partition("m")[2] if word.startswith("-") else word.rsplit("/", 1)[-1]) in PYTEST
+    return word.rsplit("/", 1)[-1] in PYTEST or word.partition("m")[2] in PYTEST
 
 
 def _pytest_commands(script: str) -> list[tuple[list[str], list[str]]]:
@@ -83,6 +83,7 @@ ACCEPTED = {
     "the module joined to -m": "python -mpytest tests -q " + BOTH,
     "the module joined to a cluster": "python -Impytest tests -q " + BOTH,
     "under another runner": "coverage run -m pytest tests -q " + BOTH,
+    "a pathed option value": "docker run --entrypoint=/usr/bin/pytest img tests -q " + BOTH,
     "in a function body": "run() { " + RUN + BOTH + "; }\nrun",
     "an unquoted eval": "eval " + RUN + BOTH,
     "across a continuation": "python -m pytest tests -q \\\n  " + BOTH,
@@ -95,6 +96,7 @@ NOT_PYTEST = {
     "a comment": "# python -m pytest tests -q",
     "a quoted message": 'echo "python -m pytest tests -q"',
     "a bare -m": "python -m coverage report -m",
+    "a module named mpytest": "python -mmpytest tests -q",
     "a longer name ending in pytest": "scripts/ci/retry.sh pip download flake8-pytest",
 }
 
@@ -133,6 +135,7 @@ REFUSED = {
     "only a minimum duration": (RUN + "-o faulthandler_timeout=240 --durations-min=1", [[NO_DURATIONS]]),
     "an install naming pytest": ("scripts/ci/retry.sh pip install pytest", [[NO_DUMP, NO_DURATIONS]]),
     "the module joined to -m, no durations": ("python -mpytest tests -q -o faulthandler_timeout=240", [[NO_DURATIONS]]),
+    "the module flag in an assignment": ("FLAGS=-mpytest\npython $FLAGS tests -q " + BOTH, [[NO_DUMP, NO_DURATIONS]]),
     "options on a function's call": ('run() { python -m pytest "$@"; }\nrun tests ' + BOTH, [[NO_DUMP, NO_DURATIONS]]),
     "the second of two commands": (RUN + BOTH + "\n" + RUN + "--durations=20", [[], [NO_DUMP]]),
     "options on the next command": (RUN.strip() + "\necho " + BOTH, [[NO_DUMP, NO_DURATIONS]]),
