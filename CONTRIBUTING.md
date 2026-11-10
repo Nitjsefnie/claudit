@@ -679,7 +679,14 @@ scripts/plots/    — DB-backed usage plot (ccusage_plot_db.py, _render.py,
 scripts/ci/retry.sh — the shared bounded retry for workflow network reads
                     and bot pushes to master (3 attempts, 5 then 10 s
                     apart); a job that calls it without a checkout first
-                    writes an identical copy
+                    writes an identical copy. It bounds how often a
+                    command runs, never how long one attempt takes: a
+                    `gh` call runs under `timeout` at its call site, git
+                    over ssh ends through the connect and keepalive
+                    options in `GIT_SSH_COMMAND`, git over HTTPS through
+                    `http.lowSpeedLimit`/`http.lowSpeedTime`, and pip
+                    and the browser download end a stalled read
+                    themselves (tests/test_workflow_stall_bounds.py)
 
 tests/            — pytest suite (conftest.py forces file-mode R2 and
                     test-safe env defaults)
