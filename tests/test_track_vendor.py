@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -122,7 +121,6 @@ def test_commit_message_survives_a_prefix_only_refresh(pricing_path, tmp_path):
     assert rc == 0
     subject, body, captured = message.read_text(encoding="utf-8").strip().split("\n\n")
     assert subject == "chore(data): Track OpenRouter vendor namespace acme"
-    assert not re.search(r"#\d+|issue", subject, re.IGNORECASE)
     assert "acme" in body
     assert captured == "Captured by .github/workflows/refresh-pricing.yml."
     constants = tmp_path / "constants.py"
