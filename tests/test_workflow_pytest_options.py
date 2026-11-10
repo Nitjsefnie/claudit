@@ -108,6 +108,7 @@ NOT_PYTEST = {
 
 UNSEEN = {
     "a bash -c string": "bash -c '" + RUN.strip() + "'",
+    "a quoted string ending in the bare name": "bash -c 'cd repo && pytest'",
     "a quoted eval": 'eval "' + RUN.strip() + '"',
     "a variable's value": "PY=pytest\n$PY tests -q",
     "a quoted variable's value": 'CMD="' + RUN.strip() + '"\n$CMD',
