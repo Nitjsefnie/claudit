@@ -10,9 +10,10 @@ condition, the left operand of `&&`, or of a `||` whose right side reaches
 retry.sh/api_retry, even one steering such a loop; and an unclassified gh
 command.
 
-It also fails a retried gh command and a git network command that nothing
-ends when the network goes silent: test_workflow_stall_bounds.py states
-those rules and what they do not read.
+It also fails a gh command, an npm command that may fetch and a git network
+command that nothing ends when the network goes silent, and such an npm
+command that nothing retries: test_workflow_stall_bounds.py states those
+rules and what they do not read.
 
 The reading is lexical: commands split on operators, newlines, `$( )`,
 `<( )` and backticks. `bash`/`sh -c` strings (`-ec` too) are scripts, as are
@@ -69,6 +70,7 @@ GH_API_VALUE_OPTIONS = {"-H", "--header", "-q", "--jq", "-t", "--template",
                         "-p", "--preview", "--hostname", "--cache"}
 GH_API_FIELDS = ("-f", "-F", "--field", "--raw-field", "--input")
 HTTP_METHODS = {"GET", "POST", "PATCH", "PUT", "DELETE", "HEAD"}
+NPM_LOCAL = {"run", "run-script", "test"}
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=")
 SEPARATORS = ";&|\n"
 
@@ -346,11 +348,12 @@ def _fetch_kind(words: list[str]) -> str | None:
     if name == "gh":
         kind = _gh(args)
         return "gh read" if kind == "read" else None if kind else "gh unclassified"
-    if name == "npm" and args[:1] in (["exec"], ["x"]):
-        name, args = "npx", args[1:]
     if name == "npm":
-        # npm ci/install pass: npm's fetch-retries retries connection errors, 408/429 and 5xx with backoff.
-        return None
+        at = next((i for i, arg in enumerate(args) if not arg.startswith("-")), len(args))
+        verb = args[at] if at < len(args) else ""
+        if verb not in ("exec", "x"):
+            return f"npm {verb}" if verb and verb not in NPM_LOCAL else None
+        name, args = "npx", args[at + 1:]
     lead = next((i for i, arg in enumerate(args) if arg.startswith("-m") or not arg.startswith("-")), len(args))
     option = args[lead] if lead < len(args) else ""
     module = (args[lead + 1] if option == "-m" and lead + 1 < len(args)
@@ -358,7 +361,7 @@ def _fetch_kind(words: list[str]) -> str | None:
     if name == "uv" and args[:1] == ["pip"]:
         module = "pip"
     if name == "npx":
-        # npx fetches its package through npm, with the same retries; the package it runs is judged.
+        # The package npx runs is judged; whether npx itself fetches it is not read.
         module = next((arg for arg in args if not arg.startswith("-")), "")
     if re.fullmatch(r"pip[0-9.]*", module):
         verb = next((arg for arg in args if arg in ("install", "download", "wheel")), None)
@@ -377,11 +380,11 @@ def _positive(value: str) -> bool:
     return value.isascii() and value.isdigit() and int(value) > 0
 
 
-def _attempt_bounded(words: list[str]) -> bool:
+def _attempt_bounded(words: list[str], name: str) -> bool:
     marker = words.index("--") if "--" in words[:5] else len(words)
     grace, limit, command = ((words[:marker] + words[marker + 1:])[2:5] + [""] * 3)[:3]
     return (words[:2] == ["timeout", "-k"] and _positive(grace) and _positive(limit)
-            and command.rsplit("/", 1)[-1] == "gh")
+            and command.rsplit("/", 1)[-1] == name)
 
 
 def _transport(word: str, nominal: bool) -> str:
@@ -461,8 +464,8 @@ def _judge(words: list[str], retried: bool, ssh: bool = False) -> tuple[int, lis
     # A push's attempt loop repeats only after master moved.
     retried = retried and kind != "git push"
     reasons = [f"{kind} without the retry helper"] if kind and not (wrapped or retried) else []
-    if name == "gh" and (wrapped or retried and kind) and not _attempt_bounded(attempt):
-        reasons.append(f"{kind or 'gh write'} retried without `timeout -k N N gh`, N above 0, per attempt")
+    if (name == "gh" or kind and kind.startswith("npm ")) and not _attempt_bounded(attempt, name):
+        reasons.append(f"{kind or 'gh write'} without `timeout -k N N {name}`, N above 0, per attempt")
     lacking = _git_unbounded(words[1:], ssh) if kind and kind.startswith("git ") else ""
     return (1 if kind else 0), reasons + [f"{kind} {lacking}"] * bool(lacking)
 

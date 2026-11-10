@@ -1,11 +1,15 @@
 """The stall-bound rules of the workflow fetch guard, one row per limb.
 
-A retried attempt must end when the network goes silent, or it is never
-retried. A gh command run by retry.sh/api_retry, or a gh read steering an
-attempt loop, fails unless it is `timeout -k N N gh ...` there: timeout
-directly before gh, inside the helper, each N whole seconds above 0. The
-`--` that ends a prefix command's options is skipped, so the command after
-it is judged as without it.
+An attempt must end when the network goes silent, or the step waits for
+its job's limit and no retry comes. Every gh command the guard classifies
+as a read or a write, retried or not, fails unless it is
+`timeout -k N N gh ...`: timeout directly before gh, inside any helper,
+each N whole seconds above 0. An npm command needs `timeout -k N N npm ...`
+the same way, under the retry helper or steering an attempt loop, unless it
+has no subcommand or its first word that is no option is exactly `run`,
+`run-script` or `test`; `exec` or `x` there makes it npx. The `--` that ends
+a prefix command's options is skipped, so the command after it is judged as
+without it.
 
 A git fetch/clone/ls-remote/pull/push is judged by every word after the
 subcommand that is shaped like a remote, read as git reads one (GIT URLS in
@@ -30,8 +34,10 @@ the transport behind a name or variable, a `host:path` with no user that
 follows an option's separate value or is joined to an option, and control
 flow: an export that is its own command (not directly after a shell
 keyword) counts for every command written after it in the run, whatever
-branch, function or subshell holds it. pip, playwright, curl and other
-uses of timeout keep their rules.
+branch, function or subshell holds it. Nor what an npm subcommand does (any
+other is taken to fetch; an option's separate value before the subcommand is
+read as the subcommand) or whether npx fetches the package it runs. pip,
+playwright, curl and other uses of timeout keep their rules.
 
 Each refused row differs from an accepted one in exactly one thing. The
 guard's own test runs the same rules over every real workflow."""
@@ -44,14 +50,17 @@ from tests.test_workflow_fetch_retry import GIT_REMOTE_CALLS, _judged
 COPY = '"$RUNNER_TEMP/retry.sh" '
 READ = 'gh api "repos/$CLAUDIT_REPO/commits/$CLAUDIT_SHA" --jq .sha'
 PATCH = 'gh api -X PATCH "repos/$CLAUDIT_REPO/issues/comments/$id" -F body=@comment.md'
+POST = 'gh api -X POST "repos/$CLAUDIT_REPO/issues/1/comments" -F body=@c.md'
+RELEASE = 'gh release create "$CLAUDIT_TAG" --generate-notes'
+NPM_CI = "npm ci --no-audit --no-fund"
 LOOP = "for attempt in 1 2 3; do if {}; then break; fi; sleep 5; done"
 URL = '"https://github.com/${CLAUDIT_REPO}.git" "refs/heads/${CLAUDIT_BASE_REF}"'
 PAIR = "-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 "
 BOUNDS = "-o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 FETCH = COPY + 'git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master'
 
-UNBOUNDED_READ = "gh read retried without `timeout -k N N gh`, N above 0, per attempt"
-UNBOUNDED_WRITE = "gh write retried without `timeout -k N N gh`, N above 0, per attempt"
+UNBOUNDED_READ = "gh read without `timeout -k N N gh`, N above 0, per attempt"
+UNBOUNDED_WRITE = "gh write without `timeout -k N N gh`, N above 0, per attempt"
 HTTPS = "https://github.com/${CLAUDIT_REPO}.git"
 OVER_HTTP = f"git fetch over http(s) (`{HTTPS}`) without `-c http.lowSpeedLimit=N -c http.lowSpeedTime=N`, N above 0"
 NAMED = ("git fetch to a remote that is a name, a variable or a path, with neither the http "
@@ -74,6 +83,10 @@ def _two(first: str, second: str) -> str:
     return f"git fetch with words of two transports, {first} and {second}; write an option's value as --option=value"
 
 
+def _npm(verb: str) -> str:
+    return f"npm {verb} without `timeout -k N N npm`, N above 0, per attempt"
+
+
 def _ssh(options: str = "-o StrictHostKeyChecking=yes " + BOUNDS, quote: str = "'") -> str:
     return f"export GIT_SSH_COMMAND={quote}ssh {options}{quote}\n"
 
@@ -93,9 +106,16 @@ ACCEPTED = {
     "-- before the duration": COPY + "timeout -k 5 -- 60 " + READ,
     "gh by its path": COPY + "timeout -k 5 60 /usr/bin/" + READ,
     "gh read in an inner shell": f"bash -c '{COPY}timeout -k 5 60 gh api repos/o/r'",
-    "gh write steering a loop": LOOP.format(PATCH),
-    "gh write nothing retries": 'gh api -X POST "repos/$CLAUDIT_REPO/issues/1/comments" -F body=@c.md',
-    "gh release nothing retries": 'gh release create "$CLAUDIT_TAG" --generate-notes',
+    "gh write steering a loop": LOOP.format("timeout -k 5 60 " + PATCH),
+    "gh write nothing retries": "timeout -k 5 60 " + POST,
+    "gh release nothing retries": "timeout -k 5 60 " + RELEASE,
+    "npm ci by the helper": "scripts/ci/retry.sh timeout -k 5 120 " + NPM_CI,
+    "npm ci steering a loop": LOOP.format("timeout -k 5 120 " + NPM_CI),
+    "npm package scripts": "npm run lint\nnpm run-script lint\nnpm test",
+    "npm with no subcommand": "npm --version",
+    "npx, whatever it fetches": "npx eslint src",
+    "npm x, whatever it fetches": "npm x eslint src",
+    "npm exec behind an option": "npm --yes exec eslint src",
     "https fetch with the pair": LOOP.format(f"git {PAIR}fetch --no-tags {URL}"),
     "pair after another global option": LOOP.format(f'git -C "$dir" {PAIR}fetch origin'),
     "pair names in another case": LOOP.format(
@@ -131,6 +151,16 @@ REFUSED = {
     "no timeout, api_retry": ('api_retry "reading the head" -- ' + READ, [UNBOUNDED_READ]),
     "no timeout on a write": ('api_retry "updating" -- ' + PATCH, [UNBOUNDED_WRITE]),
     "no timeout in a loop": (LOOP.format(READ), [UNBOUNDED_READ]),
+    "no timeout on a write in a loop": (LOOP.format(PATCH), [UNBOUNDED_WRITE]),
+    "gh write nothing bounds": (POST, [UNBOUNDED_WRITE]),
+    "gh release nothing bounds": (RELEASE, [UNBOUNDED_WRITE]),
+    "npm ci without the helper": ("timeout -k 5 120 " + NPM_CI, ["npm ci without the retry helper"]),
+    "npm ci without a timeout": ("scripts/ci/retry.sh " + NPM_CI, [_npm("ci")]),
+    "npm install without a timeout": ('scripts/ci/retry.sh npm install --no-save "espree@$v"', [_npm("install")]),
+    "npm subcommand cut short": ("scripts/ci/retry.sh npm inst", [_npm("inst")]),
+    "npm option value before a script": ("npm --prefix web run lint", ["npm web without the retry helper", _npm("web")]),
+    "playwright by npm exec behind an option": (
+        "npm --yes exec playwright install chromium", ["playwright install without the retry helper"]),
     "no timeout in an inner shell": (f"bash -c '{COPY}gh api repos/o/r'", [UNBOUNDED_READ]),
     "duration 0": (COPY + "timeout -k 5 0 " + READ, [UNBOUNDED_READ]),
     "kill-after 0": (COPY + "timeout -k 0 60 " + READ, [UNBOUNDED_READ]),
