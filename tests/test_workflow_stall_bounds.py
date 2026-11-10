@@ -7,24 +7,27 @@ directly before gh, inside the helper, each N whole seconds above 0. The
 `--` that ends a prefix command's options is skipped, so the command after
 it is judged as without it.
 
-A git fetch/clone/ls-remote/pull/push is judged by its remote: the first
-word after the subcommand that is no option, read as git reads a URL
-(giturls). `http://` and `https://` are http and need
-`-c http.lowSpeedLimit=N -c http.lowSpeedTime=N` (above 0; of a repeated
-name the last counts, as git reads it). `ssh://`, `git+ssh://`, `ssh+git://`
-and scp-like `[user@]host:path` (a colon with no slash before it) are ssh
-and need an earlier `export GIT_SSH_COMMAND='ssh -o Name=value ...'` in the
-run whose first ConnectTimeout and first ServerAliveInterval are above 0,
-as is its first ServerAliveCountMax when given (OpenSSH uses the first of a
-repeated option). A name, a variable or a path (no `://`, no `::`, no colon
-before the first slash) passes on either bound. Any other remote (`git://`,
-`file://`, `helper::address`) fails: nothing here bounds it. A word holding
-`://` or `::` anywhere after the subcommand is judged like the remote; two
-transports in one command fail. Any other mention of GIT_SSH_COMMAND fails.
+A git fetch/clone/ls-remote/pull/push is judged by every word after the
+subcommand that is shaped like a remote, read as git reads one (GIT URLS in
+git-fetch(1)). An option word is read by the value after its `=`; a word
+starting with `$` is a variable and has no shape. `http://` and `https://`
+are http and need `-c http.lowSpeedLimit=N -c http.lowSpeedTime=N` (above 0;
+of a repeated name the last counts, as git reads it). `ssh://`, `git+ssh://`,
+`ssh+git://` and the scp-like `user@host:path` (a colon and an `@` with no
+slash before them) are ssh, as is `host:path` when it is the first word that
+is no option. ssh needs an earlier
+`export GIT_SSH_COMMAND='ssh -o Name=value ...'` in the run whose first
+ConnectTimeout and first ServerAliveInterval are above 0, as is its first
+ServerAliveCountMax when given (OpenSSH uses the first of a repeated
+option), and never passes on the pair. Any other `scheme://` word or `::`
+address fails: nothing here bounds it. Words of two transports fail, both
+named: one is an option's value, to be written `--option=value`. With no
+shaped word (a name, a variable, a path) either bound passes. Any other
+mention of GIT_SSH_COMMAND fails.
 
 Not read: `env:`, GIT_HTTP_LOW_SPEED_*, `--config-env`, `url.*.insteadOf`,
-the transport behind a name or variable, an scp-like remote after an
-option's separate value (the value is read as the remote), and control
+the transport behind a name or variable, a `host:path` with no user that
+follows an option's separate value or is joined to an option, and control
 flow: an export that is its own command (not directly after a shell
 keyword) counts for every command written after it in the run, whatever
 branch, function or subshell holds it. pip, playwright, curl and other
@@ -49,14 +52,26 @@ FETCH = COPY + 'git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master'
 
 UNBOUNDED_READ = "gh read retried without `timeout -k N N gh`, N above 0, per attempt"
 UNBOUNDED_WRITE = "gh write retried without `timeout -k N N gh`, N above 0, per attempt"
-OVER_HTTP = "git fetch over http(s) without `-c http.lowSpeedLimit=N -c http.lowSpeedTime=N`, N above 0"
-OVER_SSH = "git fetch over ssh without an earlier `export GIT_SSH_COMMAND=` bounding connect and keepalive"
+HTTPS = "https://github.com/${CLAUDIT_REPO}.git"
+OVER_HTTP = f"git fetch over http(s) (`{HTTPS}`) without `-c http.lowSpeedLimit=N -c http.lowSpeedTime=N`, N above 0"
 NAMED = ("git fetch to a remote that is a name, a variable or a path, with neither the http "
          "low-speed pair nor a bounded GIT_SSH_COMMAND export")
-UNCOVERED = "git fetch to a remote neither http(s) nor ssh, which no stall bound covers"
-SSH_URL = "ssh://git@example.com/o/r.git"
 UNREAD_SSH = ("GIT_SSH_COMMAND not exported as `ssh -o Name=value ...` with "
               "ConnectTimeout and ServerAliveInterval above 0")
+SSH_URL = "ssh://git@example.com/o/r.git"
+DEPLOY = "deploy@example.com:o/r.git"
+
+
+def _over_ssh(word: str) -> str:
+    return f"git fetch over ssh (`{word}`) without an earlier `export GIT_SSH_COMMAND=` bounding connect and keepalive"
+
+
+def _uncovered(word: str) -> str:
+    return f"git fetch to `{word}`, neither http(s) nor ssh, which no stall bound covers"
+
+
+def _two(first: str, second: str) -> str:
+    return f"git fetch with words of two transports, {first} and {second}; write an option's value as --option=value"
 
 
 def _ssh(options: str = "-o StrictHostKeyChecking=yes " + BOUNDS, quote: str = "'") -> str:
@@ -97,6 +112,8 @@ ACCEPTED = {
     "variable remote after the export": _ssh() + COPY + 'git ls-remote --exit-code "$remote" refs/heads/master',
     "push with a refspec after the export": _ssh() + COPY + 'git -C "$dir" push origin HEAD:master',
     "pair on a named remote, by the helper": COPY + f"git {PAIR}fetch origin",
+    "option value joined with =, https remote": LOOP.format(f"git {PAIR}fetch --filter=blob:none {URL}"),
+    "variable with a default, the pair": COPY + f'git {PAIR}fetch "${{REMOTE:-origin}}"',
     "flag before a named remote": COPY + f"git {PAIR}fetch --no-tags origin",
     "refspec with a colon on a named remote": COPY + f"git {PAIR}fetch origin master:master",
     "named remote behind an option's value": COPY + f"git {PAIR}fetch --upload-pack /opt/upload-pack origin",
@@ -149,26 +166,40 @@ REFUSED = {
         LOOP.format(f"git -c http.lowSpeedLimit=1k -c http.lowSpeedTime=60 fetch {URL}"), [OVER_HTTP]),
     "https fetch under the export alone": (_ssh() + COPY + f"git fetch {URL}", [OVER_HTTP]),
     "http fetch under the export alone": (
-        _ssh() + COPY + "git fetch http://example.com/o/r.git master", [OVER_HTTP]),
-    "ssh URL with the pair alone": (COPY + f"git {PAIR}fetch {SSH_URL}", [OVER_SSH]),
-    "git+ssh URL with the pair alone": (COPY + f"git {PAIR}fetch git+{SSH_URL}", [OVER_SSH]),
-    "ssh+git URL with the pair alone": (COPY + f"git {PAIR}fetch ssh+git{SSH_URL[3:]}", [OVER_SSH]),
-    "git@ remote with the pair alone": (COPY + f"git {PAIR}fetch git@example.com:o/r.git", [OVER_SSH]),
+        _ssh() + COPY + "git fetch http://example.com/o/r.git master",
+        [OVER_HTTP.replace(HTTPS, "http://example.com/o/r.git")]),
+    "ssh URL with the pair alone": (COPY + f"git {PAIR}fetch {SSH_URL}", [_over_ssh(f"{SSH_URL}")]),
+    "git+ssh URL with the pair alone": (COPY + f"git {PAIR}fetch git+{SSH_URL}", [_over_ssh(f"git+{SSH_URL}")]),
+    "ssh+git URL with the pair alone": (COPY + f"git {PAIR}fetch ssh+git{SSH_URL[3:]}", [_over_ssh(f"ssh+git{SSH_URL[3:]}")]),
+    "git@ remote with the pair alone": (COPY + f"git {PAIR}fetch git@example.com:o/r.git", [_over_ssh("git@example.com:o/r.git")]),
     "scp-like remote with the pair alone": (
-        COPY + f"git {PAIR}fetch deploy@example.com:o/r.git", [OVER_SSH]),
+        COPY + f"git {PAIR}fetch deploy@example.com:o/r.git", [_over_ssh("deploy@example.com:o/r.git")]),
     "scp-like remote after a flag, the pair alone": (
-        COPY + f"git {PAIR}fetch --no-tags deploy@example.com:o/r.git", [OVER_SSH]),
+        COPY + f"git {PAIR}fetch --no-tags deploy@example.com:o/r.git", [_over_ssh("deploy@example.com:o/r.git")]),
     "scp-like remote without a user, the pair alone": (
-        COPY + f"git {PAIR}fetch example.com:o/r.git", [OVER_SSH]),
+        COPY + f"git {PAIR}fetch example.com:o/r.git", [_over_ssh("example.com:o/r.git")]),
     "ssh URL behind an option's value, the pair alone": (
-        COPY + f"git {PAIR}fetch --upload-pack /opt/upload-pack {SSH_URL}", [OVER_SSH]),
-    "git URL with the pair": (COPY + f"git {PAIR}fetch git://example.com/o/r.git", [UNCOVERED]),
-    "git URL after the export": (_ssh() + COPY + "git fetch git://example.com/o/r.git", [UNCOVERED]),
-    "file URL after the export": (_ssh() + COPY + "git fetch file:///srv/o/r.git", [UNCOVERED]),
+        COPY + f"git {PAIR}fetch --upload-pack /opt/upload-pack {SSH_URL}", [_over_ssh(f"{SSH_URL}")]),
+    "git URL with the pair": (COPY + f"git {PAIR}fetch git://example.com/o/r.git", [_uncovered("git://example.com/o/r.git")]),
+    "git URL after the export": (_ssh() + COPY + "git fetch git://example.com/o/r.git", [_uncovered("git://example.com/o/r.git")]),
+    "file URL after the export": (_ssh() + COPY + "git fetch file:///srv/o/r.git", [_uncovered("file:///srv/o/r.git")]),
     "helper address after the export": (_ssh() + COPY + "git fetch helper::example.com/o/r.git",
-                                        [UNCOVERED]),
+                                        [_uncovered("helper::example.com/o/r.git")]),
     "two transports, both bounds": (
-        _ssh() + COPY + f"git {PAIR}fetch {URL} --reference {SSH_URL}", [UNCOVERED]),
+        _ssh() + COPY + f"git {PAIR}fetch {URL} --reference {SSH_URL}",
+        [_two(f"`{HTTPS}` (http)", f"`{SSH_URL}` (ssh)")]),
+    "option value with a colon before an https remote": (
+        LOOP.format(f"git {PAIR}fetch --filter blob:none {URL}"), [_two("`blob:none` (ssh)", f"`{HTTPS}` (http)")]),
+    "option value with a colon before a named remote": (
+        LOOP.format(f"git {PAIR}fetch --filter blob:none origin"), [_over_ssh("blob:none")]),
+    "git@ remote behind an option's value, the pair alone": (
+        COPY + f"git {PAIR}fetch --depth 1 git@example.com:o/r.git", [_over_ssh("git@example.com:o/r.git")]),
+    "user@host remote behind an option's value, the pair alone": (
+        COPY + f"git {PAIR}fetch --depth 1 {DEPLOY}", [_over_ssh(DEPLOY)]),
+    "ssh URL joined to an option, the pair alone": (
+        COPY + f"git {PAIR}fetch --upload-pack={SSH_URL} origin", [_over_ssh(f"--upload-pack={SSH_URL}")]),
+    "scheme in capitals, the pair": (
+        COPY + f"git {PAIR}fetch HTTPS://example.com/o/r.git", [_uncovered("HTTPS://example.com/o/r.git")]),
     "ssh fetch without the export": (FETCH, [NAMED]),
     "export after the fetch": (FETCH + "\n" + _ssh(), [NAMED]),
     "fetch in an inner shell, no export": (f"bash -c '{COPY}git fetch origin master'", [NAMED]),
