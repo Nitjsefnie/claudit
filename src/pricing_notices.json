@@ -538,10 +538,12 @@
       "ModelRun",
       "Nebius",
       "NextBit",
+      "River",
       "Sail Research"
     ],
     "deepseek-v4-1-flash-1017": [
       "Particle AI",
+      "River",
       "Tenstorrent"
     ],
     "deepseek-v4-flash": [
@@ -595,13 +597,14 @@
       "Io Net",
       "ModelRun",
       "OpenInference",
-      "River",
-      "Tenstorrent"
+      "River"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
       "Decart",
-      "DekaLLM"
+      "DekaLLM",
+      "NextBit",
+      "River"
     ],
     "gpt-3-5-turbo-16k": [
       "OpenAI"
