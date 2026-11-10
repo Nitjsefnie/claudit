@@ -487,7 +487,9 @@ def test_the_coverage_gate_feeds_the_node_test_list_to_pytest() -> None:
 
 NODE_STALL_STEPS = (("tests.yml", "pytest-shards", "Run tests"),
                     ("tests.yml", "pytest-portable", "Run tests"),
-                    ("test-data.yml", "perturbed-suite", "Perturb and test"))
+                    ("test-data.yml", "perturbed-suite", "Perturb and test"),
+                    ("test-data-explore.yml", "perturbed-suite-explore",
+                     "Perturb and test, per wall-clock seed"))
 
 
 def test_the_listed_node_backed_ci_steps_record_where_node_stalled() -> None:
