@@ -226,6 +226,7 @@ BESIDE = {
     "a command after it": INSTALL + '\ntouch "$RUNNER_TEMP/planted"\nexit 3',
     "a pipeline into an expression": INSTALL + ' 2>&1 | tee "${{ runner.temp }}/npm.log"',
     "a substitution before it": 'v="$(node -p 1)"\ntouch "$RUNNER_TEMP/planted"; ' + INSTALL,
+    "a quoted separator in its arguments": INSTALL + ' --cache "$RUNNER_TEMP/c;touch planted"',
 }
 UNRETRIED = {
     "no helper": ("timeout -k 5 120 npm ci --no-audit --no-fund", "retry.sh does not run"),
