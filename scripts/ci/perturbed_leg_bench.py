@@ -366,7 +366,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     finally:
         if not summarised:
-            _note_unmeasured(args)
+            try:
+                _note_unmeasured(args)
+            except OSError as error:
+                print(f"no summary row appended to {args.summary}: {error}", file=sys.stderr)
 
 
 if __name__ == "__main__":

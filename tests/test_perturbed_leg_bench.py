@@ -259,6 +259,57 @@ def test_a_measured_run_writes_its_table_and_no_other_row(tmp_path, monkeypatch,
         f"| 42 | suite | 0.3 | 0.2 | {suite_exit} |"]
 
 
+def _blocked(tmp_path: Path, *argv: str) -> tuple[Path, Path, list[str]]:
+    """The early command line with its summary below a regular file, where no append can land."""
+    pricing_path, parent, args = _early(tmp_path, *argv)
+    return pricing_path, parent / "row.md", [*args[:-1], str(parent / "row.md")]
+
+
+def _append_reports(capsys, blocked: Path) -> list[str]:
+    """The stderr lines naming the summary the bench could not append to."""
+    return [line for line in capsys.readouterr().err.splitlines() if str(blocked) in line]
+
+
+def test_a_refused_pricing_document_exits_one_when_the_row_cannot_be_appended(tmp_path, capsys):
+    pricing_path, blocked, argv = _blocked(tmp_path, "--seed", "7")
+    pricing_path.write_text("not json", encoding="utf-8", newline="\n")
+    assert bench.main(argv) == 1
+    assert len(_append_reports(capsys, blocked)) == 1
+
+
+def test_a_bad_shard_argument_exits_one_when_the_row_cannot_be_appended(tmp_path, capsys):
+    _, blocked, argv = _blocked(tmp_path, "--seed", "7", "--shard", "5", "--of", "4")
+    assert bench.main(argv) == 1
+    assert len(_append_reports(capsys, blocked)) == 1
+
+
+def test_an_uncaught_error_stays_the_error_when_the_row_cannot_be_appended(
+        tmp_path, monkeypatch, capsys):
+    _, blocked, argv = _blocked(tmp_path, "--seed", "11")
+    monkeypatch.setattr(bench, "measure", lambda *args, **kwargs: {}["uncaught"])
+    with pytest.raises(KeyError):
+        bench.main(argv)
+    assert len(_append_reports(capsys, blocked)) == 1
+
+
+def test_a_usage_error_exits_two_when_the_row_cannot_be_appended(tmp_path, capsys):
+    _, blocked, argv = _blocked(tmp_path, "--seed", "9", "--shard", "3")
+    with pytest.raises(SystemExit) as left:
+        bench.main(argv)
+    assert left.value.code == 2
+    assert len(_append_reports(capsys, blocked)) == 1
+
+
+def test_an_unwritable_table_stays_the_error_and_the_row_is_still_tried(
+        tmp_path, monkeypatch, capsys):
+    _, blocked, argv = _blocked(tmp_path, "--seed", "42")
+    monkeypatch.setattr(bench, "_suite_phase", lambda _args: {
+        "wall_s": "0.3", "cpu_s": "0.2", "exit_code": 0})
+    with pytest.raises(OSError):
+        bench.main(argv)
+    assert len(_append_reports(capsys, blocked)) == 1
+
+
 def _synthetic_measurement() -> dict:
     return {
         "instrument": bench.INSTRUMENT,
