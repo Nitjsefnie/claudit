@@ -87,7 +87,7 @@ jobs:
           CLAUDIT_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -o pipefail
-          names="$("$RUNNER_TEMP/retry.sh" gh api -H 'Cache-Control: no-cache' --paginate \
+          names="$("$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api -H 'Cache-Control: no-cache' --paginate \
             "repos/$CLAUDIT_REPO/actions/runs/$CLAUDIT_RUN_ID/artifacts" \
             --jq '.artifacts[] | select(.expired != true) | .name' \
             | sort -u)"

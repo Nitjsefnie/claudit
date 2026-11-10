@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.workflow_checks import write_retry_helper
+from tests.workflow_checks import TIMEOUT_STUB, write_retry_helper
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -163,7 +163,7 @@ def _run_step(body: str, stub: str, env: dict[str, str],
         write_retry_helper(_release()["jobs"]["release"], full_env["RUNNER_TEMP"])
         return subprocess.run(
             ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
-             f"{stub}\n{body}"],
+             f"{TIMEOUT_STUB}\n{stub}\n{body}"],
             env=full_env, cwd=full_env["RUNNER_TEMP"],
             capture_output=True, timeout=timeout, check=False,
             encoding="utf-8", errors="replace",
