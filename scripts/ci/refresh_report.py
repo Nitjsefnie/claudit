@@ -271,7 +271,7 @@ def commit_message(result: Result, body: str, vendor=None) -> str:
     counts = [f"{changed} changed" if changed else "",
               f"{added} new" if added else "",
               f"{len(result.refusals)} refused" if result.refusals else ""]
-    subject = "Refresh OpenRouter provider rates: " + ", ".join(c for c in counts if c)
+    subject = "chore(data): Refresh OpenRouter provider rates: " + ", ".join(c for c in counts if c)
     if vendor is not None and vendor.renames:
         models = sorted({move.model for move in result.moves}
                         & set(vendor.renames.values()))

@@ -166,3 +166,15 @@ def test_a_push_refused_on_every_attempt_while_master_stood_still_goes_red(
     assert _git(remote, "rev-parse", "master") == before
     # Only the release VERSION step writes GITHUB_OUTPUT, and only once its push lands.
     assert not (tmp_path / "output").exists()
+
+
+@ubuntu_run_block
+def test_the_ratchet_commit_lands_under_its_conventional_subject(request, tmp_path):
+    remote, _, _, run = _ratchet(request, tmp_path)
+
+    proc = run()
+
+    assert proc.returncode == 0, proc.stderr
+    assert _git(remote, "log", "-1", "--format=%s", "master") == (
+        "chore(ratchet): Ratchet ci-thresholds: raise coverage floor / "
+        "tighten baselines (automated)")

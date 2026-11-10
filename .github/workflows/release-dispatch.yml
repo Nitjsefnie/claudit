@@ -143,7 +143,7 @@ jobs:
             git -C "$RUNNER_TEMP/push-repo" checkout -B push FETCH_HEAD
             (cd "$RUNNER_TEMP/push-repo" && printf '%s\n' "$CLAUDIT_VERSION" > VERSION)
             git -C "$RUNNER_TEMP/push-repo" add VERSION
-            git -C "$RUNNER_TEMP/push-repo" commit -m "Release $CLAUDIT_VERSION"
+            git -C "$RUNNER_TEMP/push-repo" commit -m "chore(version): Release $CLAUDIT_VERSION"
             if "$RUNNER_TEMP/retry.sh" git -C "$RUNNER_TEMP/push-repo" push origin HEAD:master; then
               sha="$(git -C "$RUNNER_TEMP/push-repo" rev-parse HEAD)"
               printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
@@ -359,7 +359,7 @@ jobs:
             fi
             (cd "$RUNNER_TEMP/push-repo" && printf '%s\n' "$CLAUDIT_SUCCESSOR" > VERSION)
             git -C "$RUNNER_TEMP/push-repo" add VERSION
-            git -C "$RUNNER_TEMP/push-repo" commit -m "Bump VERSION to $CLAUDIT_SUCCESSOR after the $CLAUDIT_VERSION release"
+            git -C "$RUNNER_TEMP/push-repo" commit -m "chore(version): Bump VERSION to $CLAUDIT_SUCCESSOR after the $CLAUDIT_VERSION release"
             if "$RUNNER_TEMP/retry.sh" git -C "$RUNNER_TEMP/push-repo" push origin HEAD:master; then
               exit 0
             fi

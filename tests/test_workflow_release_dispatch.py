@@ -537,7 +537,7 @@ def test_bump_sets_requested_version_and_reports_sha(tmp_path):
     assert _git(remote, "rev-parse", "master^") == before
     assert subprocess.check_output(
         ["git", "-C", str(remote), "show", "master:VERSION"]) == b"9.9.9\n"
-    assert _git(remote, "log", "-1", "--format=%s", "master") == "Release 9.9.9"
+    assert _git(remote, "log", "-1", "--format=%s", "master") == "chore(version): Release 9.9.9"
     assert Path(env["GITHUB_OUTPUT"]).read_text(encoding="utf-8") == f"sha={tip}\n"
 
 
@@ -551,7 +551,7 @@ def test_successor_bumps_patch_after_release(tmp_path):
     assert subprocess.check_output(
         ["git", "-C", str(remote), "show", "master:VERSION"]) == b"9.9.10-dev\n"
     assert _git(remote, "log", "-1", "--format=%s", "master") == (
-        "Bump VERSION to 9.9.10-dev after the 9.9.9 release")
+        "chore(version): Bump VERSION to 9.9.10-dev after the 9.9.9 release")
 
 
 @ubuntu_step_body
