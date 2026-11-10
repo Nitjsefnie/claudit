@@ -313,17 +313,19 @@ jobs:
           attempts=3
           attempt=1
           while :; do
-            if timeout -k 5 60 gh release create "$CLAUDIT_TAG" \
+            status=0
+            timeout -k 5 60 gh release create "$CLAUDIT_TAG" \
               --repo "$CLAUDIT_REPO" \
               --target "$CLAUDIT_SHA" \
               --title "$CLAUDIT_TAG" \
-              --generate-notes
-            then
+              --generate-notes || status=$?
+            if [ "$status" -eq 0 ]; then
               break
             fi
+            echo "gh release create exited $status on attempt $attempt of $attempts (124 or 137: its bound ended it)" >&2
             if target="$("$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api "repos/$CLAUDIT_REPO/releases/tags/$CLAUDIT_TAG" --jq .target_commitish 2>"$RUNNER_TEMP/read-back.err")"; then
               if [ "$target" = "$CLAUDIT_SHA" ]; then
-                echo "the create reported a failure, but release $CLAUDIT_TAG exists at $CLAUDIT_SHA"
+                echo "release $CLAUDIT_TAG exists at $CLAUDIT_SHA although its create exited $status"
                 break
               fi
               echo "release $CLAUDIT_TAG exists at '$target', not at $CLAUDIT_SHA — failing closed" >&2
@@ -337,7 +339,7 @@ jobs:
               echo "creating release $CLAUDIT_TAG failed after $attempts attempts, and no release exists for the tag" >&2
               exit 1
             fi
-            echo "creating release $CLAUDIT_TAG failed (attempt $attempt of $attempts) and no release exists for the tag; creating it again" >&2
+            echo "no release exists for $CLAUDIT_TAG; creating it again" >&2
             sleep 5
             attempt=$((attempt + 1))
           done
