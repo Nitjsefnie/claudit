@@ -459,7 +459,7 @@ def _inner(words: list[str]) -> str | None:
 
 
 def _kinds(script: str):
-    """The fetch kind `_judge` reads in each command of a script, inner shells included."""
+    """`_fetch_kind` of each command proper, inner shells included: what `_judge` reads, except for curl and wget."""
     for words, _ in _commands(script):
         words = _proper(words)[1]
         inner = _inner(words)
