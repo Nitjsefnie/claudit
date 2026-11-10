@@ -52,7 +52,7 @@ jobs:
         env: {"COVERAGE_FILE": "${{ github.workspace }}/shard-coverage/.coverage.${{ matrix.shard }}", "CLAUDIT_DEBUG_NODE_STALL": "1"}
         run: |
           # shellcheck disable=SC2046
-          python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra --cov=backend --cov-report=
+          python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra -o faulthandler_timeout=240 --durations=20 --cov=backend --cov-report=
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with: {name: "coverage-shard-${{ matrix.shard }}", path: "shard-coverage/.coverage.${{ matrix.shard }}", include-hidden-files: true, if-no-files-found: error, retention-days: 1}
@@ -315,7 +315,7 @@ jobs:
       - name: Run tests
         run: |
           # shellcheck disable=SC2046
-          python -m pytest $(sed '/^#/d;/^$/d' scripts/ci/thresholds_test_files.txt) -q --tb=short -ra
+          python -m pytest $(sed '/^#/d;/^$/d' scripts/ci/thresholds_test_files.txt) -q --tb=short -ra -o faulthandler_timeout=240 --durations=20
 
   ratchet:
     needs: [pytest-shards, coverage-combine, js-coverage, reparse-gate, suite-bench]

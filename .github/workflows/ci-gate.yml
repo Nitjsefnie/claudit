@@ -260,7 +260,7 @@ jobs:
           key: pip-${{ runner.os }}-3.15-${{ hashFiles('backend/requirements.txt', 'requirements-test.txt', 'requirements-pyyaml.txt') }}
 
       - name: Guard the pinned setup documentation
-        run: python3 -m pytest tests/test_docs_setup.py -q
+        run: python3 -m pytest tests/test_docs_setup.py -q -o faulthandler_timeout=240 --durations=20
 
   aggregate:
     needs: [classify, tests, test-data, lint, types, eslint, panel-layout,

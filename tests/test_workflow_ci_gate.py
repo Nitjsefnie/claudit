@@ -229,7 +229,7 @@ def test_setup_docs_runs_only_the_guard_with_the_tests_python_pin():
     assert python_step["uses"] == tests_python["uses"]
     assert python_step["with"]["python-version"] == tests_python["with"]["python-version"]
     assert [step["run"] for step in steps if "pytest " in step.get("run", "")] == [
-        "python3 -m pytest tests/test_docs_setup.py -q"]
+        "python3 -m pytest tests/test_docs_setup.py -q -o faulthandler_timeout=240 --durations=20"]
     assert not any("postgres" in step.get("uses", "")
                    or "setup-node" in step.get("uses", "") for step in steps)
 
