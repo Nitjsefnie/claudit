@@ -24,8 +24,8 @@ a queued middle run when a third arrives. All cancellations fail here,
 deliberate or otherwise, without querying for a newer run.
 
 The verdict and a per-leg table go to the step summary; a failed verdict
-also goes to stdout, as a log line and as an `::error` annotation; the
-exit code is the gate.
+also goes to stdout as one `::error` command, the log line and the
+annotation; the exit code is the gate.
 """
 from __future__ import annotations
 
@@ -245,9 +245,7 @@ def main_with(needs, summary_path=None):
                   render(needs, verdict, message))
     if verdict == PASSED:
         return 0
-    line = failure_line(needs, message)
-    print(line)
-    print(f'::error::{line}')
+    print(f'::error::{failure_line(needs, message)}')
     return 1
 
 
