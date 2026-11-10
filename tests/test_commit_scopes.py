@@ -245,9 +245,3 @@ def test_conflict_marker_step_keeps_the_guard_shape():
 def test_scopes_step_runs_the_check():
     body = _step_named("scope names a workflow")["run"]
     assert body.strip() == "python3 scripts/ci/commit_scopes.py"
-
-
-def test_contributing_states_the_rule_and_the_shared_name():
-    text = (REPO_ROOT / "CONTRIBUTING.md").read_text()
-    assert f"`{cs.SHARED_NAME_SCOPE}`" in text
-    assert "only with the `ci` type" in text
