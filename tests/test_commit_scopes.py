@@ -47,9 +47,8 @@ def test_subject_parses_type_scope_and_summary():
 
 
 def test_subject_requires_a_scope():
-    # The rule is about scopes: a subject with no scope carries nothing
-    # to compare against the workflow-name set, so it does not parse and
-    # is listed unexamined, never failed.
+    # The rule is about scopes: a subject written without one has no
+    # scope to read, so it is listed unexamined, never failed.
     assert cs.SUBJECT.match("ci: no scope") is None
 
 
@@ -174,7 +173,7 @@ def test_the_shared_tests_scope_is_exempt(tmp_path):
     assert done.returncode == 0
 
 
-def test_unparsed_subjects_are_listed_green(tmp_path):
+def test_subjects_with_no_scope_to_read_are_listed_green(tmp_path):
     done = _check(tmp_path, ["Dedup: re-point the limb", "Merge branch 'x'"])
     assert done.returncode == 0
     assert "2 not examined" in done.stdout
