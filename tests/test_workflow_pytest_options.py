@@ -1,20 +1,24 @@
 """Every pytest command in a workflow or composite action reports durations and dumps a hung test's stacks.
 
-A `run:` command, split by test_workflow_fetch_retry.py's lexer, runs
-pytest when a word is `pytest` or `py.test` after its last `/` or after
-its first `m` (`-mpytest`); `pip install pytest` counts too. It
+A `run:` command, as test_workflow_fetch_retry.py's lexer splits it, is a
+pytest command when any word of it, whatever the word's role, is `pytest`
+or `py.test` after its last `/` or after its first `m` (`-mpytest`). It
 fails without `--durations` (`=N` or ` N`) or `-o faulthandler_timeout=N`,
 N in digits above 0, and with `no:faulthandler` in a word (that `-p`
 value turns the dump off). Every word naming faulthandler_timeout must be
 that pair: pytest takes a name's last override, so `-oNAME=N`,
 `--override-ini` or a 0 anywhere fails.
 
-Not read: a pytest another program launches or a python program imports;
-one inside a longer word, a quoted string (`bash -c`, a quoted eval) or an
-assignment (a variable, an alias); a suffixed name (`pytest.exe`,
-`-m pytest.__main__`); a function call's arguments (its body is read);
-the step's `env:`, configuration files, `--durations-min`; whether the
-job outlasts the dump.
+A command that only names pytest so is judged too and fails closed:
+`pip install pytest`, an assignment, alias or option holding its path.
+
+Unseen: a pytest no word names so (`pytest.exe`, `-m pytest.__main__`,
+`PY=pytest`, a `${{ }}` expression, a script that imports or starts it),
+a quoted string's inner words, and the use of a value: options at a
+variable's, alias's or function's call do not count. Not read: the
+environment outside the command's own words (PYTEST_ADDOPTS exported, in
+an `env:` or `$GITHUB_ENV`), configuration files, `--durations-min`, the
+job's time limit.
 """
 from __future__ import annotations
 
@@ -88,6 +92,7 @@ ACCEPTED = {
     "an unquoted eval": "eval " + RUN + BOTH,
     "across a continuation": "python -m pytest tests -q \\\n  " + BOTH,
     "inside a substitution": 'out="$(' + RUN + BOTH + ')"',
+    "the plugin off in an exported PYTEST_ADDOPTS, not read": 'export PYTEST_ADDOPTS="-p no:faulthandler"\n' + RUN + BOTH,
 }
 
 NOT_PYTEST = {
@@ -106,6 +111,9 @@ UNSEEN = {
     "a variable's value": "PY=pytest\n$PY tests -q",
     "a quoted variable's value": 'CMD="' + RUN.strip() + '"\n$CMD',
     "an alias": "alias t=pytest\nt tests -q",
+    "a bare option value": "docker run --entrypoint=pytest img tests -q",
+    "an expression": "python -m ${{ inputs.module }} tests -q",
+    "a write to GITHUB_ENV": 'echo "PYTEST_ADDOPTS=-p no:faulthandler" >> "$GITHUB_ENV"',
     "a suffixed executable": "pytest.exe tests -q",
     "a module under pytest": "python -m pytest.__main__ tests -q",
     "a program importing pytest": "python -c 'import sys, pytest; sys.exit(pytest.main())'",
@@ -135,6 +143,11 @@ REFUSED = {
     "only a minimum duration": (RUN + "-o faulthandler_timeout=240 --durations-min=1", [[NO_DURATIONS]]),
     "an install naming pytest": ("scripts/ci/retry.sh pip install pytest", [[NO_DUMP, NO_DURATIONS]]),
     "the module joined to -m, no durations": ("python -mpytest tests -q -o faulthandler_timeout=240", [[NO_DURATIONS]]),
+    "a pathed assignment, options at its use": ("PY=.venv/bin/pytest\n$PY tests -q " + BOTH, [[NO_DUMP, NO_DURATIONS]]),
+    "a substituted assignment, options at its use": ("PY=$(command -v pytest)\n$PY tests -q " + BOTH, [[NO_DUMP, NO_DURATIONS]]),
+    "an array, options at its use": ("cmd=(" + RUN.strip() + ')\n"${cmd[@]}" ' + BOTH, [[NO_DUMP, NO_DURATIONS]]),
+    "a pathed alias, options at its use": ("alias t=.venv/bin/pytest\nt tests -q " + BOTH, [[NO_DUMP, NO_DURATIONS]]),
+    "a quoted string of one word": ("bash -c 'pytest'", [[NO_DUMP, NO_DURATIONS]]),
     "the module flag in an assignment": ("FLAGS=-mpytest\npython $FLAGS tests -q " + BOTH, [[NO_DUMP, NO_DURATIONS]]),
     "options on a function's call": ('run() { python -m pytest "$@"; }\nrun tests ' + BOTH, [[NO_DUMP, NO_DURATIONS]]),
     "the second of two commands": (RUN + BOTH + "\n" + RUN + "--durations=20", [[], [NO_DUMP]]),
@@ -153,7 +166,7 @@ def test_a_command_that_only_names_pytest_is_not_judged(script):
 
 
 @pytest.mark.parametrize("script", UNSEEN.values(), ids=UNSEEN)
-def test_a_pytest_the_docstring_calls_unread_is_not_judged(script):
+def test_a_pytest_the_docstring_calls_unseen_is_not_judged(script):
     assert _lacking(script) == []
 
 
