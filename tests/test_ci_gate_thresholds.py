@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -211,8 +212,9 @@ def _threshold_commands(tmp_path):
         fake.write_text(
             '#!/bin/sh\n'
             'printf "%s %s\\n" "${0##*/}" "$*" >> "$CALLS"\n'
+            'while [ "$1" = -c ]; do shift 2; done\n'
             'if [ "$1" = fetch ]; then\n'
-            '  [ "$(grep -c "^git fetch" "$CALLS")" -gt "${FETCH_FAILURES:-0}" ]; exit\n'
+            '  [ "$(grep -c "^git .*fetch " "$CALLS")" -gt "${FETCH_FAILURES:-0}" ]; exit\n'
             'fi\n'
             'printf "%s\\n" "$RESOLVED"\n'
             'if [ "$1" = scripts/ci/threshold_base.py ]; then exit "$RESOLVER_STATUS"; fi\n')
@@ -220,6 +222,28 @@ def _threshold_commands(tmp_path):
     sleep = tmp_path / 'sleep'
     sleep.write_text('#!/bin/sh\nprintf "sleep %s\\n" "$*" >> "$CALLS"\n')
     sleep.chmod(0o755)
+
+
+def _calls(calls, tmp_path):
+    """The recorded calls, a fetch reduced to its subcommand once git itself reads
+    a positive low-speed pair, and nothing else, from the options before it."""
+    found = []
+    for call in calls.read_text().splitlines():
+        words = call.split()
+        if "fetch" in words:
+            options = words[1:words.index("fetch")]
+            assert options[0::2] == ["-c", "-c"], call
+            assert {option.split("=")[0].lower() for option in options[1::2]} == {
+                "http.lowspeedlimit", "http.lowspeedtime"}, call
+            for name in ("http.lowSpeedLimit", "http.lowSpeedTime"):
+                read = subprocess.run(
+                    [shutil.which("git") or "git", *options, "config", "--type=int", "--get", name],
+                    cwd=tmp_path, capture_output=True, text=True, check=True,
+                    env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+                assert int(read.stdout) > 0, call
+            words = ["git"] + words[words.index("fetch"):]
+        found.append(" ".join(words))
+    return found
 
 
 def _threshold_base_action():
@@ -293,7 +317,7 @@ def test_threshold_base_resolved_before_tests_and_shared(event, status, expected
         return
     assert exported.read_text() == f'CLAUDIT_THRESHOLDS_BASE_REV={expected}\n'
     if event == 'pull_request':
-        assert calls.read_text().splitlines() == [
+        assert _calls(calls, tmp_path) == [
             'git fetch --no-tags https://github.com/o/r.git refs/heads/master',
             'git merge-base HEAD FETCH_HEAD']
     elif event == 'push':
@@ -336,7 +360,7 @@ def test_threshold_base_fetch_retries_transient_failures(failures, expected_call
                GITHUB_ENV=str(exported), CALLS=str(calls))
     result = subprocess.run(['bash', '-e', '-c', resolver['run']], cwd=ROOT,
                             env=env, check=False, capture_output=True, text=True)
-    assert calls.read_text().splitlines() == expected_calls
+    assert _calls(calls, tmp_path) == expected_calls
     if failures < 3:
         assert result.returncode == 0, result.stderr
         assert exported.read_text() == f'CLAUDIT_THRESHOLDS_BASE_REV={"a" * 40}\n'

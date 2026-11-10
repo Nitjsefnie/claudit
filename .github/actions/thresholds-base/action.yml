@@ -12,7 +12,7 @@ runs:
         case "$CLAUDIT_EVENT" in
           pull_request)
             for attempt in 1 2 3; do
-              if git fetch --no-tags "https://github.com/${CLAUDIT_REPO}.git" "refs/heads/${CLAUDIT_BASE_REF}"; then
+              if git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 fetch --no-tags "https://github.com/${CLAUDIT_REPO}.git" "refs/heads/${CLAUDIT_BASE_REF}"; then
                 break
               fi
               if [ "$attempt" -eq 3 ]; then
