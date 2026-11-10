@@ -23,8 +23,9 @@ number and pushes by SHA; test-data is per-SHA too. Per-ref legs can cancel
 a queued middle run when a third arrives. All cancellations fail here,
 deliberate or otherwise, without querying for a newer run.
 
-The verdict and a per-leg table go to the step summary; the exit code
-is the gate.
+The verdict and a per-leg table go to the step summary; a failed verdict
+also goes to stdout, as a log line and as an `::error` annotation; the
+exit code is the gate.
 """
 from __future__ import annotations
 
@@ -55,6 +56,9 @@ CHEAP_LEGS = frozenset({'lint', 'smoke'})
 # `comment_only` passthrough into tests.yml) is pinned by
 # tests/test_ci_classify_comment_only.py.
 COMMENT_ONLY_SKIPPED = frozenset({'test-data', 'panel-layout'})
+
+# The results that mean a leg's job did not complete; the cause is unknown here.
+INCOMPLETE = ('cancelled', 'abandoned')
 
 
 def _classify_output(needs, name):
@@ -226,11 +230,25 @@ def write_summary(path, text):
         handle.write(text)
 
 
+def failure_line(needs, message):
+    """A failed verdict as one line of workflow-command data."""
+    stopped = sorted(name for name, details in needs.items()
+                     if (details or {}).get('result') in INCOMPLETE)
+    if stopped:
+        message += '; job did not complete: ' + ', '.join(stopped)
+    return message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+
+
 def main_with(needs, summary_path=None):
     verdict, message = decide(needs)
     write_summary(summary_path or os.environ.get('GITHUB_STEP_SUMMARY'),
                   render(needs, verdict, message))
-    return 0 if verdict == PASSED else 1
+    if verdict == PASSED:
+        return 0
+    line = failure_line(needs, message)
+    print(line)
+    print(f'::error::{line}')
+    return 1
 
 
 def main():
