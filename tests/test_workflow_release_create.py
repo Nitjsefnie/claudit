@@ -111,12 +111,15 @@ def test_creates_that_never_land_stop_after_three_and_announce_nothing(tmp_path,
 
 
 @ubuntu_step_body
-@pytest.mark.parametrize("read,only,reads", [("unanswerable", "release create", 3), (SHA, "", 3)],
-                         ids=["a 503", "every read ended by the bound"])
-def test_a_read_back_without_an_answer_fails_closed(tmp_path, read, only, reads):
+@pytest.mark.parametrize("read,only,said", [
+    ("unanswerable", "release create", "gh: HTTP 503: Service Unavailable"),
+    (SHA, "", "still failing after 3 attempts"),
+], ids=["a 503", "every read ended by the bound"])
+def test_a_read_back_without_an_answer_fails_closed(tmp_path, read, only, said):
     proc, kinds, _, summary = _create(tmp_path, read=read, ended=3, only=only)
     _nothing_announced(proc, summary)
-    assert kinds == ["create"] + ["read"] * reads
+    assert kinds == ["create", "read", "read", "read"]
+    assert said in proc.stderr, "what the read answered is missing from the log"
     assert "could not verify the release read-back for v9.9.9 — failing closed" in proc.stderr
 
 
