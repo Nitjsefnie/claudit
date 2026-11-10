@@ -73,7 +73,7 @@ def _nothing_announced(proc, summary: str) -> None:
 def _exits(proc, *statuses: str) -> None:
     """The step logged each failed create's exit status, in attempt order, and nothing else of the kind."""
     lines = [line for line in proc.stderr.splitlines() if line.startswith("gh release create exited ")]
-    assert lines == [f"gh release create exited {status} on attempt {number} of 3 (124 or 137: its bound ended it)"
+    assert lines == [f"gh release create exited {status} on attempt {number} of 3 (124 is timeout's status for its time limit, 137 for a KILL signal)"
                      for number, status in enumerate(statuses, 1)], proc.stderr
 
 
