@@ -6,6 +6,7 @@ the first one and still reports it refused."""
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -90,6 +91,41 @@ def _release(step: str, version: str, pushed: str):
 SITES = {"refresh-pricing": _refresh, "ratchet-push": _ratchet,
          "release-version": _release(BUMP, "9.9.8-dev", "9.9.9\n"),
          "release-successor": _release(SUCCESSOR, "9.9.9", "9.9.10-dev\n")}
+
+
+def _ssh_reads(command: str) -> dict[str, str]:
+    """The options OpenSSH itself reads from an ssh command line, no config file consulted."""
+    proc = subprocess.run(["sh", "-c", command + " -F /dev/null -G example.invalid"],
+                          capture_output=True, text=True, check=True, timeout=30)
+    return dict(line.split(" ", 1) for line in proc.stdout.splitlines() if " " in line)
+
+
+@ubuntu_run_block
+@pytest.mark.skipif(shutil.which("ssh") is None, reason="asks the installed OpenSSH client how it reads the command")
+@pytest.mark.parametrize("site", SITES)
+def test_every_network_git_call_of_a_push_runs_under_a_bounded_ssh_command(
+        request, tmp_path, monkeypatch, site):
+    seen, shims = tmp_path / "ssh-seen", tmp_path / "ssh-shims"
+    shims.mkdir()
+    (shims / "git").write_text(
+        '#!/bin/sh\nif [ "$1" = -C ]; then sub="$3"; else sub="$1"; fi\n'
+        f'case "$sub" in fetch|ls-remote|push) printf "%s\\t%s\\n" "$sub" "${{GIT_SSH_COMMAND-}}" >> "{seen}" ;; esac\n'
+        f'exec "{shutil.which("git")}" "$@"\n', encoding="utf-8", newline="\n")
+    (shims / "git").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{shims}{os.pathsep}{os.environ['PATH']}")
+    _, _, _, run = SITES[site](request, tmp_path)
+    seen.write_text("", encoding="utf-8")  # the fixture's own pushes are not the step's
+
+    proc = run()
+
+    assert proc.returncode == 0, proc.stderr
+    calls = [line.split("\t") for line in seen.read_text(encoding="utf-8").splitlines()]
+    assert {"fetch", "push"} <= {subcommand for subcommand, _ in calls}
+    for command in {command for _, command in calls}:
+        read = _ssh_reads(command)
+        for bound in ("connecttimeout", "serveraliveinterval", "serveralivecountmax"):
+            assert read[bound].isdigit() and int(read[bound]) > 0, (bound, command)
+        assert read["stricthostkeychecking"] in ("yes", "true"), command
 
 
 @ubuntu_run_block
