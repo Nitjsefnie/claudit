@@ -1,4 +1,4 @@
-"""A failed aggregate names its legs on stdout: one log line, one annotation."""
+"""A failed aggregate names its legs on stdout in one `::error` command: its log line and annotation."""
 from __future__ import annotations
 
 import json
@@ -45,13 +45,16 @@ def _lines(out):
 
 
 def _commands(out):
-    """Each workflow command in `out` as the runner splits it: (name, raw data)."""
+    """Each line of `out` shaped as a runner command, `::name::` or legacy `##[name]`, any name: (name, raw data)."""
     found = []
     for line in _lines(out):
-        line = line.lstrip()
-        end = line.find('::', 2)
-        if line.startswith('::') and end >= 0:
-            found.append((line[2:end].split(' ')[0], line[end + 2:]))
+        text = line.lstrip()
+        end, legacy = text.find('::', 2), line.find('##[')
+        close = line.find(']', max(legacy, 0))
+        if text.startswith('::') and end >= 0:
+            found.append((text[2:end].split(' ')[0], text[end + 2:]))
+        elif 0 <= legacy < close:
+            found.append((line[legacy + 3:close].split(' ')[0], line[close + 1:]))
     return found
 
 
@@ -60,12 +63,11 @@ def _unescape(data):
 
 
 def _annotation(out):
-    """The one `::error` message, which stdout also carries once as a plain line."""
+    """The message of the one `::error` command: a failed verdict's only line after the legs line."""
     commands = _commands(out)
     assert [name for name, _ in commands] == ['error']
-    raw = commands[0][1]
-    assert _lines(out).count(raw) == 1
-    return _unescape(raw)
+    assert _lines(out)[1:] == [f'::error::{commands[0][1]}', '']
+    return _unescape(commands[0][1])
 
 
 def _sections(message):
@@ -102,7 +104,7 @@ def test_only_a_cancelled_or_abandoned_leg_is_said_not_to_complete(gate, result,
 
 @pytest.mark.parametrize('result', [
     '50%', 'a\rb', 'a\nb', 'a\r\nb', '%0A', '%250D', 'a::b', 'x\n::error::forged',
-    'x\r::notice::forged'])
+    'x\r::notice::forged', 'x##[error]forged'])
 def test_any_result_string_stays_one_single_line_annotation(gate, result):
     needs = _passing()
     needs['lint'] = {'result': result}
