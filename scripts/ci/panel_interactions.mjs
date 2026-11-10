@@ -208,19 +208,6 @@ export function variantsFrom(base) {
   return { two: rewriteDoc(base, 'two'), many: rewriteDoc(base, 'many') };
 }
 
-// The style channels a hover highlight moves. fill-opacity (0.3 -> 0.85
-// on a hovered time bar) and stroke (none -> white on a hovered hbar)
-// are the two treatments in the panels today; background-color is the
-// HTML-table rows' treatment. A new
-// panel that highlights by another channel must add it here — and to
-// the restated lists in MARK and READ below — or the guard fails it.
-// Residual for row marks: elementFromPoint at a hovered table row
-// returns the row's CELL (the mark lives on the row), so a row whose
-// highlight dies degrades to OVERLAPPED prints, never a hover-style
-// failure — the row's enforced response is its tooltip (hover-tooltip).
-const STYLE_PROPS = ['fill', 'fill-opacity', 'opacity', 'stroke',
-  'stroke-width', 'stroke-dasharray', 'background-color'];
-
 const MAX_TARGETS = Number(process.env.CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS || '0');
 
 // Each category has a seed that plants ONE
@@ -291,8 +278,18 @@ const INSTALL = () => {
 // Enumerates every rendered panel and marks its hover targets, capturing
 // each target's RESTING style before anything has been hovered.
 const MARK = () => {
-  // The same channels READ diffs; in-page functions are serialized
-  // without their closure, so the list is restated here on purpose.
+  // The style channels a hover highlight moves. fill-opacity (0.3 -> 0.85
+  // on a hovered time bar) and stroke (none -> white on a hovered hbar)
+  // are the two treatments in the panels today; background-color is the
+  // HTML-table rows' treatment. A new
+  // panel that highlights by another channel must add it here and to
+  // READ's list below, or the guard fails it.
+  // Residual for row marks: elementFromPoint at a hovered table row
+  // returns the row's CELL (the mark lives on the row), so a row whose
+  // highlight dies degrades to OVERLAPPED prints, never a hover-style
+  // failure — the row's enforced response is its tooltip (hover-tooltip).
+  // READ diffs the same channels; in-page functions are serialized
+  // without their closure, so it restates the list on purpose.
   const props = ['fill', 'fill-opacity', 'opacity', 'stroke',
     'stroke-width', 'stroke-dasharray', 'background-color'];
   window.__sw.rest = {};

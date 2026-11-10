@@ -623,14 +623,13 @@ def test_the_no_targets_seed_recounts_through_the_real_mark_pass():
         "after the strip")
 
 
-def test_the_three_style_channel_lists_agree():
-    """the channels live in STYLE_PROPS, restated inside MARK and
+def test_the_two_style_channel_lists_agree():
+    """the channels are stated inside MARK and restated inside
     READ (in-page functions carry no closure) — one-list edits fail."""
     src = MODULE.read_text(encoding="utf-8")
     lists = [re.findall(r"'([a-z-]+)'", src[i:src.index('];', i)])
-             for i in (src.index("const STYLE_PROPS"),
-                       src.index("const MARK"), src.index("const READ"))]
-    assert lists[0] == lists[1] == lists[2], lists
+             for i in (src.index("const MARK"), src.index("const READ"))]
+    assert lists[0] == lists[1], lists
     assert "background-color" in lists[0]
 
 

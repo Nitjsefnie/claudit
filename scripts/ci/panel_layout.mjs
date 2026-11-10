@@ -24,7 +24,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { featureSurfaces } from './feature_surfaces.mjs';
-import { API, FIXTURES, REPO, serve, WIDTHS } from './panel_server.mjs';
+import { API, FIXTURES, serve, WIDTHS } from './panel_server.mjs';
 
 // The one route that draws charts. Every panel on it lives here; the
 // Cache route renders tables and stat rows, not a plot, so there is
