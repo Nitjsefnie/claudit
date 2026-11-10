@@ -681,9 +681,13 @@ scripts/ci/retry.sh — the shared bounded retry for workflow network reads
                     apart); a job that calls it without a checkout first
                     writes an identical copy. It bounds how often a
                     command runs, never how long one attempt takes: a
-                    `gh` call runs under `timeout` at its call site, git
-                    over ssh ends through the connect and keepalive
-                    options in `GIT_SSH_COMMAND`, git over HTTPS through
+                    `gh` call or an npm install runs under `timeout -k`
+                    at its call site (npm's own 300 s limit is per
+                    request, not per install, and against a registry
+                    that never answered npm outlived the TERM, so the
+                    kill is what ends it), git over ssh ends through
+                    the connect and keepalive options in
+                    `GIT_SSH_COMMAND`, git over HTTPS through
                     `http.lowSpeedLimit`/`http.lowSpeedTime`, and pip
                     and the browser download end a stalled read
                     themselves (tests/test_workflow_stall_bounds.py)
