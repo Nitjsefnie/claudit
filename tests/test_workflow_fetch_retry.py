@@ -338,7 +338,7 @@ def _gh(args: list[str]) -> str | None:
 
 
 def _fetch_kind(words: list[str]) -> str | None:
-    """Which retried fetch the command is, if any; curl and wget excluded."""
+    """The retried fetch the words read as, if any; curl and wget read as any other name."""
     name, args = words[0].rsplit("/", 1)[-1], words[1:]
     if name == "git":
         index = 0
