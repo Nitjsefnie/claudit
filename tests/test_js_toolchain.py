@@ -283,7 +283,8 @@ def test_both_js_gates_install_from_the_lockfile() -> None:
         commands = []
         for run in _run_bodies(_workflow(name)):
             commands += [line.strip() for line in run.splitlines() if line.strip()]
-        assert any(re.match(r"^npm\s+ci\b", command) for command in commands), (
+        assert any(re.match(r"^(scripts/ci/retry\.sh\s+timeout\s+-k\s+\d+\s+\d+\s+)?npm\s+ci\b", command)
+                   for command in commands), (
             f"{name} has no `npm ci` command; the toolchain must be installed "
             "from package-lock.json, not resolved at run time")
 

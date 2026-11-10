@@ -604,7 +604,7 @@ def test_panel_workflow_runs_four_independent_sweeps():
         "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
     }
     _, _, install, sanitize, browser, sweep = job["steps"]
-    assert install["run"] == "npm ci --no-audit --no-fund"
+    assert install["run"] == "scripts/ci/retry.sh timeout -k 5 120 npm ci --no-audit --no-fund"
     assert_apt_sanitizer(ROOT, sanitize)
     assert "run" not in sanitize
     assert sanitize["timeout-minutes"] > 0

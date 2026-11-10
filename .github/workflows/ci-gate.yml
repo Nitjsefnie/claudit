@@ -123,7 +123,7 @@ jobs:
         # zizmor: ignore[adhoc-packages] espree is pinned to the lockfile's version read below, into an isolated prefix, never the repo's node_modules
         run: |
           v="$(node -p "require('./package-lock.json').packages['node_modules/espree'].version")"
-          npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/espree" "espree@$v"
+          scripts/ci/retry.sh timeout -k 5 120 npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/espree" "espree@$v"
 
       - name: Classify the changed paths
         id: classify

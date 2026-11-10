@@ -56,8 +56,8 @@
     8253
   ],
   ".github/workflows/eslint.yml": [
-    965,
-    1569
+    963,
+    1591
   ],
   ".github/workflows/gate-freshness.yml": [
     2256,
@@ -1265,7 +1265,7 @@
   ],
   "tests/test_js_toolchain.py": [
     8012,
-    19807
+    19860
   ],
   "tests/test_key_layout.py": [
     951,

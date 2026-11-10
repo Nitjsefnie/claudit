@@ -76,7 +76,7 @@ jobs:
         # npm ci, not npm install: it installs package-lock.json exactly
         # and refuses to resolve against the registry, so the pins in
         # package.json mean what they say.
-        run: npm ci --no-audit --no-fund
+        run: scripts/ci/retry.sh timeout -k 5 120 npm ci --no-audit --no-fund
 
       - uses: $/.github/actions/apt-install
         timeout-minutes: 1

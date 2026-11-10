@@ -115,7 +115,7 @@ def test_ratchet_reads_job_outputs_and_stages_the_tested_tip():
     assert "coverage report" not in ratchet["run"]
     steps = _steps(job)
     node, = [step for step in steps if step.get("uses", "").startswith("actions/setup-node@")]
-    npm, = [step for step in steps if step.get("run") == "npm ci --no-audit --no-fund"]
+    npm, = [step for step in steps if step.get("name") == "Install the JS toolchain from the lockfile"]
     pip = next(step for step in steps if step.get("name") == "Install dependencies")
     assert steps.index(pip) < steps.index(node) < steps.index(npm) < steps.index(ratchet)
     download, = [step for step in _steps(job)
