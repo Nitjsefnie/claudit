@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.test_workflow_fetch_retry import GIT_REMOTE_CALLS, _judged
+from tests.test_workflow_fetch_retry import GIT_REMOTE_CALLS, _judged, _kinds
 
 COPY = '"$RUNNER_TEMP/retry.sh" '
 READ = 'gh api "repos/$CLAUDIT_REPO/commits/$CLAUDIT_SHA" --jq .sha'
@@ -300,3 +300,13 @@ def test_every_git_network_command_needs_a_stall_bound(verb):
     command = f"{COPY}git {verb} origin master"
     assert _reasons(command) == [NAMED.replace("fetch", verb)]
     assert _reasons(_ssh() + command) == []
+
+
+@pytest.mark.parametrize("script,kinds", [
+    ("scripts/ci/retry.sh timeout -k 5 120 " + NPM_CI + " && npm run build", ["npm ci", None]),
+    ('api_retry "installing" -- timeout -k 5 120 npm install', ["npm install"]),
+    (f"bash -c '{COPY}timeout -k 5 120 {NPM_CI}'", ["npm ci"]),
+    ("command -v npm\nnpm exec playwright install chromium", [None, "playwright install"]),
+])
+def test_the_guard_names_the_fetch_kind_it_reads_in_each_command(script, kinds):
+    assert list(_kinds(script)) == kinds

@@ -441,18 +441,41 @@ def _ssh_export(words: list[str]) -> bool | None:
             and _positive(first.get("serveralivecountmax", "1")))
 
 
-def _judge(words: list[str], retried: bool, ssh: bool = False) -> tuple[int, list[str]]:
-    """(fetches recognised, reasons the command breaks the retry contract)."""
+def _proper(words: list[str]) -> tuple[list[str], list[str], bool]:
+    """(the attempt inside any helper, the command proper, whether a helper runs it)."""
     attempt, words, wrapped = _strip(words, prefixed=True), _strip(words), False
     while words and words[0].rsplit("/", 1)[-1] in HELPERS:
         rest = words[1:]
         if words[0] == "api_retry":  # api_retry LABEL -- COMMAND...
             rest = rest[rest.index("--") + 1:] if "--" in rest else rest[1:]
         attempt, words, wrapped = _strip(rest, prefixed=True), _strip(rest), True
-    name = words[0].rsplit("/", 1)[-1] if words else ""
+    return attempt, words, wrapped
+
+
+def _inner(words: list[str]) -> str | None:
+    """The script a `bash`/`sh -c` command runs, else None."""
     flag = next((i for i, word in enumerate(words[1:-1], 1) if SCRIPT_FLAG.fullmatch(word)), None)
-    if name in SHELLS and flag:
-        judged = list(_judged(words[flag + 1], retried, ssh))
+    return words[flag + 1] if flag and words[0].rsplit("/", 1)[-1] in SHELLS else None
+
+
+def _kinds(script: str):
+    """The fetch kind `_judge` reads in each command of a script, inner shells included."""
+    for words, _ in _commands(script):
+        words = _proper(words)[1]
+        inner = _inner(words)
+        if inner is None:
+            yield _fetch_kind(words) if words else None
+        else:
+            yield from _kinds(inner)
+
+
+def _judge(words: list[str], retried: bool, ssh: bool = False) -> tuple[int, list[str]]:
+    """(fetches recognised, reasons the command breaks the retry contract)."""
+    attempt, words, wrapped = _proper(words)
+    name = words[0].rsplit("/", 1)[-1] if words else ""
+    inner = _inner(words)
+    if inner is not None:
+        judged = list(_judged(inner, retried, ssh))
         return sum(count for _, count, _ in judged), [r for _, _, reasons in judged for r in reasons]
     if name == "wget":
         return 1, ["wget"]
