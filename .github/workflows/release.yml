@@ -107,7 +107,7 @@ jobs:
           CLAUDIT_REPO: ${{ github.repository }}
           CLAUDIT_SHA: ${{ inputs.sha || github.event.workflow_run.head_sha || github.sha }}
         run: |
-          version="$("$RUNNER_TEMP/retry.sh" gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=$CLAUDIT_SHA")"
+          version="$("$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=$CLAUDIT_SHA")"
           version="$(echo "$version" | tr -d '[:space:]')"
           if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
             echo "VERSION is not semver: '$version'" >&2
@@ -135,7 +135,7 @@ jobs:
           CLAUDIT_SHA: ${{ inputs.sha || github.event.workflow_run.head_sha || github.sha }}
           CLAUDIT_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if ! parent="$("$RUNNER_TEMP/retry.sh" gh api "repos/$CLAUDIT_REPO/commits/$CLAUDIT_SHA" --jq '.parents[0].sha')"; then
+          if ! parent="$("$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api "repos/$CLAUDIT_REPO/commits/$CLAUDIT_SHA" --jq '.parents[0].sha')"; then
             echo "could not verify this commit's parent — failing closed" >&2
             exit 1
           fi
@@ -143,7 +143,7 @@ jobs:
             echo "could not verify this commit's parent — failing closed" >&2
             exit 1
           fi
-          if ! parent_version="$("$RUNNER_TEMP/retry.sh" gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=$parent")"; then
+          if ! parent_version="$("$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/VERSION?ref=$parent")"; then
             echo "could not verify the parent's VERSION — failing closed" >&2
             exit 1
           fi
@@ -181,7 +181,7 @@ jobs:
         # `gh release view` for the uniform `HTTP 404` error text — it is
         # the same endpoint underneath.
         run: |
-          if tag_probe="$("$RUNNER_TEMP/retry.sh" gh api "repos/$CLAUDIT_REPO/git/ref/tags/$CLAUDIT_TAG" 2>&1)"; then
+          if tag_probe="$("$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api "repos/$CLAUDIT_REPO/git/ref/tags/$CLAUDIT_TAG" 2>&1)"; then
             echo "Tag $CLAUDIT_TAG already exists — VERSION was set to a" >&2
             echo "version that has already been tagged. Bump it" >&2
             echo "further; the tag itself cannot be deleted." >&2
@@ -193,7 +193,7 @@ jobs:
             exit 1
           fi
 
-          if release_probe="$("$RUNNER_TEMP/retry.sh" gh api "repos/$CLAUDIT_REPO/releases/tags/$CLAUDIT_TAG" 2>&1)"; then
+          if release_probe="$("$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api "repos/$CLAUDIT_REPO/releases/tags/$CLAUDIT_TAG" 2>&1)"; then
             echo "Release $CLAUDIT_TAG already exists — VERSION was set to a" >&2
             echo "version that has already shipped. Bump it further, or" >&2
             echo "delete that release if it was cut in error." >&2
@@ -222,7 +222,7 @@ jobs:
         # Deadline/poll knobs: CLAUDIT_RELEASE_WAIT_SECONDS and
         # CLAUDIT_RELEASE_WAIT_POLL_SECONDS.
         run: |
-          "$RUNNER_TEMP/retry.sh" gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/scripts/ci/release_gate.py?ref=$CLAUDIT_SELECTOR_SHA" > "$RUNNER_TEMP/release_gate.py"
+          "$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api -H 'Accept: application/vnd.github.raw' "repos/$CLAUDIT_REPO/contents/scripts/ci/release_gate.py?ref=$CLAUDIT_SELECTOR_SHA" > "$RUNNER_TEMP/release_gate.py"
           # CLAUDIT_RELEASE_WAIT_SECONDS / CLAUDIT_RELEASE_WAIT_POLL_SECONDS override the 2700 s / 20 s defaults.
           #
           # github.workflow_ref is `owner/repo/.github/workflows/release.yml@refs/heads/<branch>`
@@ -246,9 +246,9 @@ jobs:
           esac
           deadline=$(( SECONDS + ${CLAUDIT_RELEASE_WAIT_SECONDS:-${RELEASE_WAIT_SECONDS:-2700}} ))
           while [ "$SECONDS" -lt "$deadline" ]; do
-            "$RUNNER_TEMP/retry.sh" gh api --paginate -H "Cache-Control: no-cache" \
+            "$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api --paginate -H "Cache-Control: no-cache" \
               "repos/$CLAUDIT_REPO/commits/$CLAUDIT_SHA/check-runs?per_page=100" > "$RUNNER_TEMP/checks.json"
-            "$RUNNER_TEMP/retry.sh" gh api --paginate -H "Cache-Control: no-cache" \
+            "$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api --paginate -H "Cache-Control: no-cache" \
               "repos/$CLAUDIT_REPO/actions/runs?head_sha=$CLAUDIT_SHA&per_page=100" > "$RUNNER_TEMP/runs.json"
             runs="$(python3 "$RUNNER_TEMP/release_gate.py" \
               --sha "$CLAUDIT_SHA" --self-job "$CLAUDIT_SELF_JOB" --self-run-id "$CLAUDIT_SELF_RUN_ID" \

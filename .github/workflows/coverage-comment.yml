@@ -110,9 +110,9 @@ jobs:
             shift 2  # drop the label and the -- separator
             local attempt=1
             local attempts=3
-            # Spaced, bounded: a transient failure clears in seconds; a
-            # persistent one adds at most these sleeps before the step
-            # fails.
+            # Spaced: a persistent failure adds at most these sleeps before
+            # the step fails. The helper never ends an attempt: each caller
+            # runs its gh under `timeout`, which ends a stalled one.
             local -a delays=(5 10)
             local out
             out="$(mktemp "${TMPDIR:-/tmp}/api_retry.XXXXXX")" || return 1
@@ -154,7 +154,7 @@ jobs:
           # API call would print `false` and be reported as "no artifact"
           # — the comment silently never appears and nothing goes red.
           if ! api_retry "listing the artifacts of run $CLAUDIT_RUN_ID" -- \
-            gh api -H 'Cache-Control: no-cache' --paginate \
+            timeout -k 5 60 gh api -H 'Cache-Control: no-cache' --paginate \
             "repos/$CLAUDIT_REPO/actions/runs/$CLAUDIT_RUN_ID/artifacts" \
             --jq '.artifacts[]' > artifacts.json
           then
@@ -199,7 +199,7 @@ jobs:
             # repository even for a fork, so the base repository is the one
             # to ask.
             if ! api_retry "listing the pull requests for $CLAUDIT_HEAD_SHA" -- \
-              gh api -H 'Cache-Control: no-cache' --paginate \
+              timeout -k 5 60 gh api -H 'Cache-Control: no-cache' --paginate \
               "repos/$CLAUDIT_REPO/commits/$CLAUDIT_HEAD_SHA/pulls" --jq '.[].number' \
               > pulls.txt
             then
@@ -231,7 +231,7 @@ jobs:
           esac
           if ! current_sha="$(api_retry \
             "reading the current head of pull request $numbers" -- \
-            gh api -H 'Cache-Control: no-cache' \
+            timeout -k 5 60 gh api -H 'Cache-Control: no-cache' \
             "repos/$CLAUDIT_REPO/pulls/$numbers" --jq '.head.sha')"
           then
             echo "reading the current head of pull request $numbers" \
@@ -309,7 +309,7 @@ jobs:
             printf 'Patch coverage was not measured: %s.\n' "$reason"
           } > comment.md
           if ! api_retry "listing the comments on $CLAUDIT_PR_NUMBER" -- \
-            gh api -H 'Cache-Control: no-cache' --paginate \
+            timeout -k 5 60 gh api -H 'Cache-Control: no-cache' --paginate \
             "repos/$CLAUDIT_REPO/issues/$CLAUDIT_PR_NUMBER/comments" --jq '.[]' \
             > comments.json
           then
@@ -330,7 +330,7 @@ jobs:
               ;;
             *)
               if ! api_retry "marking the patch-coverage comment" -- \
-                gh api -X PATCH "repos/$CLAUDIT_REPO/issues/comments/$existing" \
+                timeout -k 5 60 gh api -X PATCH "repos/$CLAUDIT_REPO/issues/comments/$existing" \
                   -F body=@comment.md >/dev/null
               then
                 echo "marking the patch-coverage comment $existing" \
@@ -364,7 +364,7 @@ jobs:
             exit 1
           fi
           api_retry "downloading the diff-coverage-comment artifact" -- \
-            gh api -H 'Cache-Control: no-cache' \
+            timeout -k 5 60 gh api -H 'Cache-Control: no-cache' \
             "repos/$CLAUDIT_REPO/actions/artifacts/$id/zip" \
             > "$RUNNER_TEMP/diff-coverage-comment.zip"
           unzip -p "$RUNNER_TEMP/diff-coverage-comment.zip" body.md \
@@ -445,7 +445,7 @@ jobs:
           attempt=1
           while :; do
             if ! api_retry "listing the comments on $CLAUDIT_PR_NUMBER" -- \
-              gh api -H 'Cache-Control: no-cache' --paginate \
+              timeout -k 5 60 gh api -H 'Cache-Control: no-cache' --paginate \
               "repos/$CLAUDIT_REPO/issues/$CLAUDIT_PR_NUMBER/comments" --jq '.[]' \
               > comments.json
             then
@@ -468,7 +468,7 @@ jobs:
             esac
             if [ -n "$existing" ]; then
               if ! api_retry "updating patch-coverage comment $existing" -- \
-                gh api -X PATCH "repos/$CLAUDIT_REPO/issues/comments/$existing" \
+                timeout -k 5 60 gh api -X PATCH "repos/$CLAUDIT_REPO/issues/comments/$existing" \
                   -F body=@comment.md >/dev/null
               then
                 echo "updating patch-coverage comment $existing failed" >&2

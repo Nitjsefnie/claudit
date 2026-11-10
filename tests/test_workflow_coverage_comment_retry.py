@@ -47,6 +47,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.workflow_checks import TIMEOUT_STUB, bounded_calls
+
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32",
     reason="executes the workflow's bash against a fake gh; POSIX-bound "
@@ -269,7 +271,7 @@ class TestPostStep:
         (art_dir / "pr-number.txt").write_text("763\n", encoding="utf-8")
         # The driver shadows sleep so the bounded waits cost nothing.
         script = (
-            'sleep() { :; }\n'
+            TIMEOUT_STUB + 'sleep() { :; }\n'
             + _run(POST_STEP)
         )
         env = {
@@ -277,6 +279,7 @@ class TestPostStep:
             "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
             "FAKE_LOG": str(log),
             "FAKE_STATE": str(state_dir),
+            "TIMEOUT_DOUBLES": str(bin_dir),
             "CLAUDIT_REPO": "Nitjsefnie/claudit",
             "CLAUDIT_PR_NUMBER": "763",
             "CLAUDIT_HEAD_COMMIT": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f9e8d7c",
@@ -335,6 +338,32 @@ exit 1
         assert "updated patch-coverage comment 123" in proc.stdout
         assert len([c for c in calls if " -X POST " in c]) == 0
         assert len([c for c in calls if " -X PATCH " in c]) == 1
+
+    def test_an_attempt_its_bound_ended_is_retried(self, tmp_path, monkeypatch):
+        state = tmp_path / "timeout-state"
+        state.mkdir()
+        monkeypatch.setenv("TIMEOUT_STATE", str(state))
+        monkeypatch.setenv("TIMEOUT_EXPIRE", "1")
+        fake = f'''#!/bin/bash
+printf '%s\\n' "$*" >> "$FAKE_LOG"
+mkdir -p "$FAKE_STATE"
+touch "$FAKE_STATE/landed"
+{self.LISTING}
+case "$*" in
+  *" -X PATCH "*) exit 0 ;;
+esac
+exit 1
+'''
+        proc, calls = self._scenario(tmp_path, fake)
+        assert proc.returncode == 0, proc.stderr
+        assert "updated patch-coverage comment 123" in proc.stdout
+        # The listing and the PATCH each ran under the bound twice; gh
+        # answered only the second attempt of each.
+        assert len(calls) == 2, calls
+        bounded = [command for _, command in bounded_calls(state)]
+        assert [" -X PATCH " in command for command in bounded] == [
+            False, False, True, True]
+        assert all(command.startswith("gh api ") for command in bounded)
 
     def test_a_post_that_landed_despite_the_error_is_patched_not_duplicated(
             self, tmp_path):

@@ -43,19 +43,24 @@ esac
 '''
 
 
-@ubuntu_step_body
-def test_release_reads_retry_a_transient_failure(tmp_path):
+def release_reads() -> tuple[str, str]:
+    """(gh stub, script) for the release job's four reading steps: eight distinct reads."""
     raw = '"api -H Accept: application/vnd.github.raw repos/$CLAUDIT_REPO/contents/'
     stub = WAIT_STUB.replace(raw + 'scripts', (
         raw + 'VERSION?ref=$CLAUDIT_SHA") echo 9.9.9 ;; '
         '"api repos/$CLAUDIT_REPO/commits/$CLAUDIT_SHA --jq .parents[0].sha") echo parent ;; '
         + raw + 'VERSION?ref=parent") echo 9.9.8-dev ;; '
         '*/tags/$CLAUDIT_TAG) echo "HTTP 404" >&2; return 1 ;; ' + raw + 'scripts'))
-    flaky, output = tmp_path / "flaky", tmp_path / "output"
-    flaky.mkdir()
-    body = "\n".join(_step_run(name) for name in (
+    return stub, "\n".join(_step_run(name) for name in (
         "Read and validate VERSION", "Verify this commit changed VERSION",
         "Refuse to re-release an existing tag", WAIT_STEP))
+
+
+@ubuntu_step_body
+def test_release_reads_retry_a_transient_failure(tmp_path):
+    stub, body = release_reads()
+    flaky, output = tmp_path / "flaky", tmp_path / "output"
+    flaky.mkdir()
     proc = _run_release_step(
         body, stub + "\n" + FAIL_EACH_GH_READ_ONCE,
         {"STUB_CHECKS": _checks(_row("completed", "success", "aggregate")),

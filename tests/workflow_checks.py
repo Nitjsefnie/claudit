@@ -77,6 +77,46 @@ def write_retry_helper(job: dict, runner_temp: Path | str) -> None:
         run_retry_helper_writer(step, runner_temp)
 
 
+# timeout(1) cannot run a shell-function stub. This stand-in reads only
+# `timeout [-k N] N COMMAND`, whole seconds above 0, and runs only a stubbed COMMAND.
+TIMEOUT_STUB = r'''
+timeout() {
+  local grace=1 limit bound seen
+  if [ "${1:-}" = -k ]; then grace="${2:-}"; shift 2; fi
+  limit="${1:-}"
+  for bound in "$grace" "$limit"; do
+    case "$bound" in
+      ''|0*|*[!0-9]*) echo "timeout stand-in: unread bound: $*" >&2; return 125 ;;
+    esac
+  done
+  shift
+  if [ -n "${TIMEOUT_STATE:-}" ]; then
+    printf '%s %s\n' "$limit" "$*" >> "$TIMEOUT_STATE/calls"
+    bound="$TIMEOUT_STATE/$(printf '%s' "$*" | cksum | cut -d ' ' -f 1)"
+    seen="$(cat "$bound" 2>/dev/null || echo 0)"
+    case "$*" in *"${TIMEOUT_ONLY:-}"*)
+      if [ "$seen" -lt "${TIMEOUT_EXPIRE:-0}" ]; then
+        echo "$((seen + 1))" > "$bound"
+        return "${TIMEOUT_STATUS:-124}"
+      fi ;;
+    esac
+  fi
+  bound="${TIMEOUT_DOUBLES:-}/${1:-}"
+  if declare -F "${1:-}" >/dev/null; then "$@"
+  elif [ -f "$bound" ]; then shift; "$bound" "$@"
+  else echo "timeout stand-in: not a stubbed command: $*" >&2; return 125
+  fi
+}
+export -f timeout
+'''
+
+
+def bounded_calls(state: Path) -> list[tuple[int, str]]:
+    """(seconds, command) per recorded call."""
+    lines = (state / "calls").read_text(encoding="utf-8").splitlines()
+    return [(int(line.split(" ", 1)[0]), line.split(" ", 1)[1]) for line in lines]
+
+
 def exec_step(step: dict, tmp_path: Path, matrix: dict[str, str], env: dict[str, str],
               status: int = 0) -> tuple[int, bool, list[str], str]:
     """Run a step's script with `python` stubbed to exit `status`: the step's exit,

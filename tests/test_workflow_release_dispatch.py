@@ -8,7 +8,7 @@ import sys
 import pytest
 import yaml
 
-from tests.workflow_checks import retry_helper_writers, write_retry_helper
+from tests.workflow_checks import TIMEOUT_STUB, retry_helper_writers, write_retry_helper
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/release-dispatch.yml"
@@ -109,7 +109,7 @@ def _run_step(name: str, stub: str, env: dict[str, str],
         write_retry_helper(_job_of(name), env["RUNNER_TEMP"])
     return subprocess.run(
         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
-         stub + "\n" + _step(name)["run"]],
+         TIMEOUT_STUB + stub + "\n" + _step(name)["run"]],
         env={"PATH": os.environ["PATH"], "CLAUDIT_REPO": "example/claudit",
              "GITHUB_OUTPUT": os.devnull,
              "CLAUDIT_VERSION": "9.9.9", **env},
