@@ -477,7 +477,7 @@ jobs:
               echo "updated patch-coverage comment $existing"
               exit 0
             fi
-            if ! gh api -X POST "repos/$CLAUDIT_REPO/issues/$CLAUDIT_PR_NUMBER/comments" \
+            if ! timeout -k 5 60 gh api -X POST "repos/$CLAUDIT_REPO/issues/$CLAUDIT_PR_NUMBER/comments" \
               -F body=@comment.md >/dev/null
             then
               echo "posting the patch-coverage comment failed" \

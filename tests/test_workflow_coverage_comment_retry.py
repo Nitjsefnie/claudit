@@ -182,7 +182,7 @@ class TestSharedHelper:
         assert len(unwrapped) == 1, unwrapped
         name, cmd = unwrapped[0]
         assert name == POST_STEP
-        assert cmd.startswith("if ! gh api -X POST"), cmd
+        assert cmd.startswith("if ! timeout ") and " gh api -X POST " in cmd, cmd
 
     def test_the_post_loop_re_lists_before_every_attempt(self):
         run = _run(POST_STEP)
@@ -362,6 +362,48 @@ exit 1
         assert [" -X PATCH " in command for command in bounded] == [
             False, False, True, True]
         assert all(command.startswith("gh api ") for command in bounded)
+
+    def _post_ended_once(self, tmp_path, monkeypatch, post_arm, landed='[ -f "$FAKE_STATE/landed" ]'):
+        state = tmp_path / "timeout-state"
+        state.mkdir()
+        monkeypatch.setenv("TIMEOUT_STATE", str(state))
+        monkeypatch.setenv("TIMEOUT_EXPIRE", "1")
+        monkeypatch.setenv("TIMEOUT_ONLY", " -X POST ")
+        listing = self.LISTING.replace('[ -f "$FAKE_STATE/landed" ]', landed)
+        assert landed in listing
+        fake = f'''#!/bin/bash
+printf '%s\\n' "$*" >> "$FAKE_LOG"
+case "$*" in
+  *" -X POST "*) {post_arm} ;;
+  *" -X PATCH "*) exit 0 ;;
+esac
+{listing}
+exit 1
+'''
+        proc, calls = self._scenario(tmp_path, fake)
+        bounded = bounded_calls(state)
+        assert all(seconds > 0 for seconds, _ in bounded), bounded
+        return proc, calls, [" -X POST " in command for _, command in bounded]
+
+    def test_a_post_its_bound_ended_that_landed_is_patched_not_duplicated(
+            self, tmp_path, monkeypatch):
+        proc, calls, posts = self._post_ended_once(
+            tmp_path, monkeypatch, 'echo "a POST reached gh" >&2; exit 97',
+            landed='grep -q -- " -X POST " "$TIMEOUT_STATE/calls"')
+        assert proc.returncode == 0, proc.stderr
+        assert "updated patch-coverage comment 123" in proc.stdout
+        assert [c for c in calls if " -X POST " in c] == [], calls
+        assert len([c for c in calls if " -X PATCH " in c]) == 1, calls
+        assert posts == [False, True, False, False], "not: listing, ended POST, listing, PATCH"
+
+    def test_a_post_its_bound_ended_that_never_landed_is_posted_again(
+            self, tmp_path, monkeypatch):
+        proc, calls, posts = self._post_ended_once(tmp_path, monkeypatch, "exit 0")
+        assert proc.returncode == 0, proc.stderr
+        assert "posted a new patch-coverage comment" in proc.stdout
+        assert len([c for c in calls if " -X POST " in c]) == 1, calls
+        assert [c for c in calls if " -X PATCH " in c] == [], calls
+        assert posts == [False, True, False, True], "not: listing, ended POST, listing, POST"
 
     def test_a_post_that_landed_despite_the_error_is_patched_not_duplicated(
             self, tmp_path):
