@@ -93,6 +93,7 @@ ACCEPTED = {
     "variable remote after the export": _ssh() + COPY + 'git ls-remote --exit-code "$remote" refs/heads/master',
     "push with a refspec after the export": _ssh() + COPY + 'git -C "$dir" push origin HEAD:master',
     "pair on a named remote, by the helper": COPY + f"git {PAIR}fetch origin",
+    "flag before a named remote": COPY + f"git {PAIR}fetch --no-tags origin",
     "refspec with a colon on a named remote": COPY + f"git {PAIR}fetch origin master:master",
     "named remote behind an option's value": COPY + f"git {PAIR}fetch --upload-pack /opt/upload-pack origin",
     "path with a colon after a slash": COPY + f"git {PAIR}fetch ./mirror:1.git",
@@ -145,6 +146,8 @@ REFUSED = {
     "git@ remote with the pair alone": (COPY + f"git {PAIR}fetch git@example.com:o/r.git", [OVER_SSH]),
     "scp-like remote with the pair alone": (
         COPY + f"git {PAIR}fetch deploy@example.com:o/r.git", [OVER_SSH]),
+    "scp-like remote after a flag, the pair alone": (
+        COPY + f"git {PAIR}fetch --no-tags deploy@example.com:o/r.git", [OVER_SSH]),
     "scp-like remote without a user, the pair alone": (
         COPY + f"git {PAIR}fetch example.com:o/r.git", [OVER_SSH]),
     "ssh URL behind an option's value, the pair alone": (
