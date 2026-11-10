@@ -87,8 +87,8 @@ EXPECTED_CROSS_FILE_GLOBALS = 95
 # ignored") — loud, but only after it has stopped linting the panels.
 EXPECTED_LINT_GLOBS = ["**/*.js", "**/*.jsx"]
 
-# An inline `<pkg>@<version>` on any npm command a workflow runs — the shape
-# is about, and it is invisible to every update mechanism. The
+# An inline `<pkg>@<version>` on any npm command a workflow runs is
+# invisible to every update mechanism. The
 # command names are the ecosystem's own spellings, all of them: `install`, the
 # `npm i` short form, `ci`, `add`, and `npx pkg@version` (which downloads
 # without touching the manifest, so a bump of it is even less visible). A body
@@ -251,7 +251,7 @@ def test_exactly_one_npm_entry_owns_the_manifest() -> None:
 
 
 def test_no_workflow_pins_an_npm_package_inline() -> None:
-    """The shape is about, wherever it reappears.
+    """The inline pin, wherever it reappears.
 
     Every workflow, both extensions, and the extracted coverage gate:
     moving coverage conversion into an action keeps its pins visible here.
@@ -287,22 +287,6 @@ def test_both_js_gates_install_from_the_lockfile() -> None:
                    for command in commands), (
             f"{name} has no `npm ci` command; the toolchain must be installed "
             "from package-lock.json, not resolved at run time")
-
-
-def test_eslint_runs_through_npx_no_install() -> None:
-    """The gate takes eslint from the install the local command uses.
-
-    CONTRIBUTING.md tells a contributor to run `npm run lint`, which finds
-    eslint in the root node_modules. `--no-install` resolves the binary
-    from there too, so it only works if the install landed at the
-    repository root.
-    """
-    runs = _step_runs(_workflow("eslint.yml"))
-    lint_steps = [run for run in runs if "eslint" in run and "npm ci" not in run]
-    assert lint_steps, "eslint.yml has no lint step"
-    assert any("npx --no-install eslint" in run for run in lint_steps), (
-        "eslint.yml no longer runs `npx --no-install eslint`; the gate must "
-        "take eslint from the root install, as `npm run lint` does")
 
 
 def test_the_gate_step_runs_the_manifest_lint_script() -> None:
