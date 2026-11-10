@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 import yaml
@@ -245,40 +245,39 @@ def _split(root: Path, *extra: str) -> list[subprocess.CompletedProcess[str]]:
     return [_run(root, "--shard", shard, "--of", "2", *extra) for shard in ("1", "2")]
 
 
-def _inverse_table(root: Path, files: dict[str, int]) -> Path:
-    """A table whose one recorded OS orders the files opposite to their line counts."""
-    return _weights(root, {"recorded": {path: 1000 // lines for path, lines in files.items()}})
+@pytest.fixture(name="case", scope="module", params=UNRECORDED, ids=lambda case: case[1])
+def case_fixture(request, tmp_path_factory) -> SimpleNamespace:
+    """A tree split once each way: by line count, for the unrecorded OS, and for a recorded
+    OS whose weights order the files opposite to their line counts."""
+    files, system = request.param
+    root = tmp_path_factory.mktemp("unrecorded")
+    _tree(root, files)
+    table = _weights(root, {"recorded": {path: 1000 // lines for path, lines in files.items()}})
+    weights = ("--weights", str(table), "--os")
+    return SimpleNamespace(
+        root=root, files=files, system=system, weights=weights, plain=_split(root),
+        fallback=_split(root, *weights, system), recorded=_split(root, *weights, "recorded"))
 
 
-@pytest.mark.parametrize("files, system", UNRECORDED)
-def test_weighted_cli_splits_an_unrecorded_os_by_line_count(tmp_path: Path, files, system):
-    _tree(tmp_path, files)
-    table = _inverse_table(tmp_path, files)
-    plain = _split(tmp_path)
-    fallback = _split(tmp_path, "--weights", str(table), "--os", system)
-    assert [result.returncode for result in fallback] == [0, 0], fallback[0].stderr
-    assert [result.stdout for result in fallback] == [result.stdout for result in plain]
-    assert sorted(path for result in fallback for path in result.stdout.split()) == sorted(files)
-    recorded = _split(tmp_path, "--weights", str(table), "--os", "recorded")
-    assert [result.stdout for result in recorded] != [result.stdout for result in plain]
+def test_weighted_cli_splits_an_unrecorded_os_by_line_count(case):
+    plain = [result.stdout for result in case.plain]
+    assert [result.returncode for result in case.fallback] == [0, 0], case.fallback[0].stderr
+    assert [result.stdout for result in case.fallback] == plain
+    assert sorted(path for result in case.fallback
+                  for path in result.stdout.split()) == sorted(case.files)
+    assert [result.stdout for result in case.recorded] != plain
 
 
-@pytest.mark.parametrize("files, system", UNRECORDED)
-def test_weighted_cli_warns_once_on_stderr_for_an_unrecorded_os(tmp_path: Path, files, system):
-    _tree(tmp_path, files)
-    table = _inverse_table(tmp_path, files)
-    for result in _split(tmp_path, "--weights", str(table), "--os", system):
+def test_weighted_cli_warns_once_on_stderr_for_an_unrecorded_os(case):
+    for result in case.fallback:
         warning, = result.stderr.splitlines()
         assert warning.startswith("warning:") and "line count" in warning
-        assert system in warning
-        assert result.stdout.split() and set(result.stdout.split()) <= set(files)
+        assert case.system in warning and "regenerate" in warning
+        assert result.stdout.split() and set(result.stdout.split()) <= set(case.files)
 
 
-@pytest.mark.parametrize("files, _system", UNRECORDED)
-def test_weighted_cli_is_silent_for_a_recorded_os(tmp_path: Path, files, _system):
-    _tree(tmp_path, files)
-    table = _inverse_table(tmp_path, files)
-    for result in _split(tmp_path, "--weights", str(table), "--os", "recorded"):
+def test_weighted_cli_is_silent_for_a_recorded_os(case):
+    for result in case.recorded:
         assert result.returncode == 0 and result.stderr == ""
 
 
@@ -290,6 +289,15 @@ def test_weighted_cli_refuses_an_empty_os_table_but_not_an_absent_one(tmp_path: 
     assert "positive" in result.stderr.lower()
     absent = _run(tmp_path, "--shard", "1", "--weights", str(table), "--os", "absent")
     assert absent.returncode == 0, absent.stderr
+
+
+def test_weighted_cli_splits_any_os_of_an_emptied_table_by_line_count(tmp_path: Path):
+    _tree(tmp_path, {"tests/test_a.py": 1, "tests/test_b.py": 2})
+    table = _weights(tmp_path, {})
+    result = _run(tmp_path, "--shard", "1", "--of", "2", "--weights", str(table), "--os", "sunos")
+    assert result.returncode == 0 and result.stdout == "tests/test_b.py\n"
+    warning, = result.stderr.splitlines()
+    assert warning.startswith("warning:") and "sunos" in warning
 
 
 @pytest.mark.parametrize("weights", ['["other"]', '"other"'])
@@ -310,13 +318,10 @@ def test_weighted_cli_still_fails_on_a_malformed_table(tmp_path: Path, document:
     assert result.returncode != 0 and result.stdout == ""
 
 
-@pytest.mark.parametrize("files, system", UNRECORDED)
-def test_weighted_table_labels_an_unrecorded_os_split_as_lines(tmp_path: Path, files, system):
-    _tree(tmp_path, files)
-    table = _inverse_table(tmp_path, files)
-    plain = _run(tmp_path, "--table", "--of", "2")
-    fallback = _run(tmp_path, "--table", "--of", "2", "--weights", str(table), "--os", system)
-    recorded = _run(tmp_path, "--table", "--of", "2", "--weights", str(table), "--os", "recorded")
+def test_weighted_table_labels_an_unrecorded_os_split_as_lines(case):
+    plain = _run(case.root, "--table", "--of", "2")
+    fallback = _run(case.root, "--table", "--of", "2", *case.weights, case.system)
+    recorded = _run(case.root, "--table", "--of", "2", *case.weights, "recorded")
     assert fallback.returncode == 0 and fallback.stdout == plain.stdout
     assert [line.split()[-1] for line in fallback.stdout.splitlines()] == ["lines", "lines"]
     assert [line.split()[-1] for line in recorded.stdout.splitlines()] == ["weight", "weight"]
@@ -359,8 +364,8 @@ def _portable_table(root: Path, weight_maps: dict[str, dict[str, int]]) -> None:
                      encoding="utf-8", newline="\n")
 
 
-def _portable_step_files(root: Path, job: dict, system: str) -> list[str]:
-    """Run the job's test step for shard 1 on `system`; return the files pytest was handed."""
+def _portable_step(root: Path, job: dict, system: str) -> tuple[list[str], str]:
+    """Run the job's test step for shard 1 on `system`: the files pytest was handed, the step's stderr."""
     fake = root / "python"
     fake.write_text('#!/bin/sh\nif [ "$1" = scripts/ci/pytest_shards.py ]; then\n'
                     '  shift; exec "$REAL" "$SHARD_SCRIPT" "$@"\nfi\n'
@@ -374,7 +379,7 @@ def _portable_step_files(root: Path, job: dict, system: str) -> list[str]:
                             cwd=root, env=env, capture_output=True, text=True,
                             check=False, timeout=30)
     assert result.returncode == 0, result.stderr
-    return (root / "argv").read_text(encoding="utf-8").splitlines()[2:-9]
+    return (root / "argv").read_text(encoding="utf-8").splitlines()[2:-9], result.stderr
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the workflow step runs under POSIX Bash here")
@@ -390,7 +395,7 @@ def test_portable_step_uses_the_matrix_os_weights(tmp_path: Path):
     _portable_table(tmp_path, weight_maps)
     for index, system in enumerate(systems):
         expected = "a" if index % 2 == 0 else "c"
-        assert _portable_step_files(tmp_path, job, system) == [f"tests/test_{expected}.py"]
+        assert _portable_step(tmp_path, job, system)[0] == [f"tests/test_{expected}.py"]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the workflow step runs under POSIX Bash here")
@@ -401,9 +406,11 @@ def test_portable_step_runs_a_matrix_os_the_table_lacks(tmp_path: Path):
     systems = job["strategy"]["matrix"]["os"]
     _portable_table(tmp_path, {system: {path: 1000 // lines for path, lines in files.items()}
                                for system in systems})
-    assert _portable_step_files(tmp_path, job, systems[0]) == ["tests/test_a.py"]
+    assert _portable_step(tmp_path, job, systems[0])[0] == ["tests/test_a.py"]
     assert "added-os" not in systems
-    assert _portable_step_files(tmp_path, job, "added-os") == ["tests/test_c.py"]
+    files, stderr = _portable_step(tmp_path, job, "added-os")
+    assert files == ["tests/test_c.py"]
+    assert "warning:" in stderr and "added-os" in stderr
 
 
 def _report(root: Path, name: str, cases: str) -> None:
