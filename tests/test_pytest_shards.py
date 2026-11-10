@@ -225,17 +225,102 @@ def test_weighted_cli_selects_os_map(tmp_path: Path):
     assert _weighted_shards(tmp_path, table, "second")[0] == ["tests/test_c.py"]
 
 
-@pytest.mark.parametrize("args, message", [
-    (("--weights", "weights.json", "--os", "missing"), "regenerate"),
-    (("--weights", "weights.json"), "together"),
-    (("--os", "os"), "together"),
-])
-def test_weighted_cli_rejects_missing_or_unknown_os(tmp_path: Path, args, message):
+@pytest.mark.parametrize("args", [("--weights", "weights.json"), ("--os", "os")])
+def test_weighted_cli_rejects_unpaired_weight_options(tmp_path: Path, args):
     _tree(tmp_path, {"tests/test_a.py": 1})
     _weights(tmp_path, {"os": {"tests/test_a.py": 1}})
     result = _run(tmp_path, "--shard", "1", *args)
     assert result.returncode != 0
-    assert message in result.stderr.lower()
+    assert "together" in result.stderr.lower()
+
+
+UNRECORDED = [
+    ({"tests/test_a.py": 1, "tests/test_b.py": 3, "tests/test_c.py": 10}, "macos-26"),
+    ({"tests/nested/test_p.py": 7, "tests/test_q.py": 2, "tests/deep/er/test_r.py": 2,
+      "tests/test_s.py": 5, "tests/test_t.py": 1}, "freebsd-14"),
+]
+
+
+def _split(root: Path, *extra: str) -> list[subprocess.CompletedProcess[str]]:
+    return [_run(root, "--shard", shard, "--of", "2", *extra) for shard in ("1", "2")]
+
+
+def _inverse_table(root: Path, files: dict[str, int]) -> Path:
+    """A table whose one recorded OS orders the files opposite to their line counts."""
+    return _weights(root, {"recorded": {path: 1000 // lines for path, lines in files.items()}})
+
+
+@pytest.mark.parametrize("files, system", UNRECORDED)
+def test_weighted_cli_splits_an_unrecorded_os_by_line_count(tmp_path: Path, files, system):
+    _tree(tmp_path, files)
+    table = _inverse_table(tmp_path, files)
+    plain = _split(tmp_path)
+    fallback = _split(tmp_path, "--weights", str(table), "--os", system)
+    assert [result.returncode for result in fallback] == [0, 0], fallback[0].stderr
+    assert [result.stdout for result in fallback] == [result.stdout for result in plain]
+    assert sorted(path for result in fallback for path in result.stdout.split()) == sorted(files)
+    recorded = _split(tmp_path, "--weights", str(table), "--os", "recorded")
+    assert [result.stdout for result in recorded] != [result.stdout for result in plain]
+
+
+@pytest.mark.parametrize("files, system", UNRECORDED)
+def test_weighted_cli_warns_once_on_stderr_for_an_unrecorded_os(tmp_path: Path, files, system):
+    _tree(tmp_path, files)
+    table = _inverse_table(tmp_path, files)
+    for result in _split(tmp_path, "--weights", str(table), "--os", system):
+        warning, = result.stderr.splitlines()
+        assert warning.startswith("warning:") and "line count" in warning
+        assert system in warning
+        assert result.stdout.split() and set(result.stdout.split()) <= set(files)
+
+
+@pytest.mark.parametrize("files, _system", UNRECORDED)
+def test_weighted_cli_is_silent_for_a_recorded_os(tmp_path: Path, files, _system):
+    _tree(tmp_path, files)
+    table = _inverse_table(tmp_path, files)
+    for result in _split(tmp_path, "--weights", str(table), "--os", "recorded"):
+        assert result.returncode == 0 and result.stderr == ""
+
+
+def test_weighted_cli_refuses_an_empty_os_table_but_not_an_absent_one(tmp_path: Path):
+    _tree(tmp_path, {"tests/test_a.py": 1, "tests/test_b.py": 2})
+    table = _weights(tmp_path, {"empty": {}})
+    result = _run(tmp_path, "--shard", "1", "--weights", str(table), "--os", "empty")
+    assert result.returncode == 2 and result.stdout == ""
+    assert "positive" in result.stderr.lower()
+    absent = _run(tmp_path, "--shard", "1", "--weights", str(table), "--os", "absent")
+    assert absent.returncode == 0, absent.stderr
+
+
+@pytest.mark.parametrize("weights", ['["other"]', '"other"'])
+def test_weighted_cli_refuses_an_absent_os_in_a_non_mapping_table(tmp_path: Path, weights: str):
+    _tree(tmp_path, {"tests/test_a.py": 1})
+    (tmp_path / "weights.json").write_text(f'{{"weights": {weights}}}', encoding="utf-8",
+                                           newline="\n")
+    result = _run(tmp_path, "--shard", "1", "--weights", "weights.json", "--os", "missing")
+    assert result.returncode == 2 and result.stdout == ""
+    assert "regenerate" in result.stderr
+
+
+@pytest.mark.parametrize("document", ['{"weights": null}', '{"run_id": "123"}', "[]", "not json"])
+def test_weighted_cli_still_fails_on_a_malformed_table(tmp_path: Path, document: str):
+    _tree(tmp_path, {"tests/test_a.py": 1})
+    (tmp_path / "weights.json").write_text(document, encoding="utf-8", newline="\n")
+    result = _run(tmp_path, "--shard", "1", "--weights", "weights.json", "--os", "missing")
+    assert result.returncode != 0 and result.stdout == ""
+
+
+@pytest.mark.parametrize("files, system", UNRECORDED)
+def test_weighted_table_labels_an_unrecorded_os_split_as_lines(tmp_path: Path, files, system):
+    _tree(tmp_path, files)
+    table = _inverse_table(tmp_path, files)
+    plain = _run(tmp_path, "--table", "--of", "2")
+    fallback = _run(tmp_path, "--table", "--of", "2", "--weights", str(table), "--os", system)
+    recorded = _run(tmp_path, "--table", "--of", "2", "--weights", str(table), "--os", "recorded")
+    assert fallback.returncode == 0 and fallback.stdout == plain.stdout
+    assert [line.split()[-1] for line in fallback.stdout.splitlines()] == ["lines", "lines"]
+    assert [line.split()[-1] for line in recorded.stdout.splitlines()] == ["weight", "weight"]
+    assert len(fallback.stderr.splitlines()) == 1 and recorded.stderr == ""
 
 
 def test_weighted_shards_cover_discovery_and_ignore_stale_entries(tmp_path: Path):
@@ -261,40 +346,64 @@ def test_weighted_shards_ignore_table_key_order_across_processes(tmp_path: Path)
         ["tests/test_a.py", "tests/test_c.py"], ["tests/test_b.py", "tests/test_d.py"]]
 
 
+def _portable_job() -> dict:
+    workflow = yaml.load((SCRIPT.parents[2] / ".github/workflows/tests.yml").read_text(
+        encoding="utf-8"), Loader=yaml.BaseLoader)
+    return workflow["jobs"]["pytest-portable"]
+
+
+def _portable_table(root: Path, weight_maps: dict[str, dict[str, int]]) -> None:
+    table = root / "scripts/ci/pytest_shard_weights.json"
+    table.parent.mkdir(parents=True)
+    table.write_text(json.dumps({"run_id": "123", "weights": weight_maps}),
+                     encoding="utf-8", newline="\n")
+
+
+def _portable_step_files(root: Path, job: dict, system: str) -> list[str]:
+    """Run the job's test step for shard 1 on `system`; return the files pytest was handed."""
+    fake = root / "python"
+    fake.write_text('#!/bin/sh\nif [ "$1" = scripts/ci/pytest_shards.py ]; then\n'
+                    '  shift; exec "$REAL" "$SHARD_SCRIPT" "$@"\nfi\n'
+                    'printf "%s\\n" "$@" > "$ARGV"\n', encoding="utf-8", newline="\n")
+    fake.chmod(0o755)
+    step, = (item for item in job["steps"] if item.get("name") == "Run tests")
+    env = dict(os.environ, PATH=f'{root}{os.pathsep}{os.environ["PATH"]}',
+               REAL=sys.executable, SHARD_SCRIPT=str(SCRIPT), ARGV=str(root / "argv"))
+    command = step["run"].replace("${{ matrix.shard }}", "1").replace("${{ matrix.os }}", system)
+    result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command],
+                            cwd=root, env=env, capture_output=True, text=True,
+                            check=False, timeout=30)
+    assert result.returncode == 0, result.stderr
+    return (root / "argv").read_text(encoding="utf-8").splitlines()[2:-9]
+
+
 @pytest.mark.skipif(os.name == "nt", reason="the workflow step runs under POSIX Bash here")
 def test_portable_step_uses_the_matrix_os_weights(tmp_path: Path):
     _tree(tmp_path, {"tests/test_a.py": 1, "tests/test_b.py": 3, "tests/test_c.py": 10})
-    workflow = yaml.load((SCRIPT.parents[2] / ".github/workflows/tests.yml").read_text(
-        encoding="utf-8"), Loader=yaml.BaseLoader)
-    job = workflow["jobs"]["pytest-portable"]
+    job = _portable_job()
     systems = job["strategy"]["matrix"]["os"]
     assert len(systems) >= 2
     weight_maps = {}
     for index, system in enumerate(systems):
         weight_maps[system] = dict(zip((f"tests/test_{c}.py" for c in "abc"),
                                        (100, 90, 80) if index % 2 == 0 else (80, 90, 100)))
-    table = tmp_path / "scripts/ci/pytest_shard_weights.json"
-    table.parent.mkdir(parents=True)
-    table.write_text(json.dumps({"run_id": "123", "weights": weight_maps}),
-                     encoding="utf-8", newline="\n")
-    fake = tmp_path / "python"
-    fake.write_text('#!/bin/sh\nif [ "$1" = scripts/ci/pytest_shards.py ]; then\n'
-                    '  shift; exec "$REAL" "$SHARD_SCRIPT" "$@"\nfi\n'
-                    'printf "%s\\n" "$@" > "$ARGV"\n', encoding="utf-8", newline="\n")
-    fake.chmod(0o755)
-    step, = (item for item in job["steps"] if item.get("name") == "Run tests")
-    env = dict(os.environ, PATH=f'{tmp_path}{os.pathsep}{os.environ["PATH"]}',
-               REAL=sys.executable, SHARD_SCRIPT=str(SCRIPT), ARGV=str(tmp_path / "argv"))
+    _portable_table(tmp_path, weight_maps)
     for index, system in enumerate(systems):
-        command = step["run"].replace("${{ matrix.shard }}", "1").replace(
-            "${{ matrix.os }}", system)
-        result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command],
-                                cwd=tmp_path, env=env, capture_output=True, text=True,
-                                check=False, timeout=30)
-        assert result.returncode == 0, result.stderr
-        arguments = (tmp_path / "argv").read_text(encoding="utf-8").splitlines()
         expected = "a" if index % 2 == 0 else "c"
-        assert arguments[2:-9] == [f"tests/test_{expected}.py"]
+        assert _portable_step_files(tmp_path, job, system) == [f"tests/test_{expected}.py"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the workflow step runs under POSIX Bash here")
+def test_portable_step_runs_a_matrix_os_the_table_lacks(tmp_path: Path):
+    files = {"tests/test_a.py": 1, "tests/test_b.py": 3, "tests/test_c.py": 10}
+    _tree(tmp_path, files)
+    job = _portable_job()
+    systems = job["strategy"]["matrix"]["os"]
+    _portable_table(tmp_path, {system: {path: 1000 // lines for path, lines in files.items()}
+                               for system in systems})
+    assert _portable_step_files(tmp_path, job, systems[0]) == ["tests/test_a.py"]
+    assert "added-os" not in systems
+    assert _portable_step_files(tmp_path, job, "added-os") == ["tests/test_c.py"]
 
 
 def _report(root: Path, name: str, cases: str) -> None:
