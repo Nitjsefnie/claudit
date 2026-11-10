@@ -10,6 +10,10 @@ condition, the left operand of `&&`, or of a `||` whose right side reaches
 retry.sh/api_retry, even one steering such a loop; and an unclassified gh
 command.
 
+It also fails a retried gh command and a git network command that nothing
+ends when the network goes silent: test_workflow_stall_bounds.py states
+those rules and what they do not read.
+
 The reading is lexical: commands split on operators, newlines, `$( )`,
 `<( )` and backticks. `bash`/`sh -c` strings (`-ec` too) are scripts, as are
 heredocs on a line where bash/sh has no `-c` cluster or script operand;
@@ -42,6 +46,8 @@ PREFIXES = {"sudo": {"-u", "-g", "-C", "-D"}, "env": {"-u", "-C", "-S"},
             "xargs": {"-n", "-I", "-P", "-L", "-d", "-a", "-s", "-E"}}
 GIT_VALUE_OPTIONS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 GIT_REMOTE_CALLS = {"fetch", "clone", "ls-remote", "pull", "push"}
+LOW_SPEED = ("http.lowspeedlimit", "http.lowspeedtime")
+SSH_COMMAND = "GIT_SSH_COMMAND"
 GH_READS = {"release": {"view", "download", "list"},
             "run": {"view", "list", "download"},
             "pr": {"view", "list", "diff", "checks", "status"},
@@ -270,15 +276,15 @@ def _stdin_shell(words: list[str]) -> bool:
     return from_stdin or index >= len(words)  # an operand before -s is a script
 
 
-def _strip(words: list[str]) -> list[str]:
-    """The command proper: keywords, assignments and prefix commands removed."""
+def _strip(words: list[str], prefixed: bool = False) -> list[str]:
+    """The command proper: keywords, assignments and (not `prefixed`) prefix commands removed."""
     while words:
         head = words[0]
         if head == "command" and words[1:2] in (["-v"], ["-V"]):
             return []
         if head in KEYWORDS or ASSIGNMENT.match(head):
             words = words[1:]
-        elif head in PREFIXES:
+        elif head in PREFIXES and not prefixed:
             index = 1
             while index < len(words) and (words[index].startswith("-") or ASSIGNMENT.match(words[index])):
                 index += 2 if words[index] in PREFIXES[head] else 1
@@ -359,19 +365,63 @@ def _curl_unbounded(args: list[str]) -> bool:
                 and any(flag in ("--max-time", "-m") and value for flag, value in pairs))
 
 
-def _judge(words: list[str], retried: bool) -> tuple[int, list[str]]:
+def _positive(value: str) -> bool:
+    return value.isascii() and value.isdigit() and int(value) > 0
+
+
+def _attempt_bounded(words: list[str]) -> bool:
+    grace, limit, command = (words[2:5] + [""] * 3)[:3]
+    return (words[:2] == ["timeout", "-k"] and _positive(grace) and _positive(limit)
+            and command.rsplit("/", 1)[-1] == "gh")
+
+
+def _git_bounded(args: list[str], ssh: bool) -> bool:
+    config, index = {}, 0
+    while index < len(args) and args[index].startswith("-"):
+        if args[index] == "-c":
+            name, _, value = "".join(args[index + 1:index + 2]).partition("=")
+            config[name.lower()] = value
+        index += 2 if args[index] in GIT_VALUE_OPTIONS else 1
+    low = all(_positive(config.get(name, "")) for name in LOW_SPEED)
+    if any(arg.startswith(("http://", "https://")) for arg in args):
+        return low
+    return ssh or low and not any(arg.startswith(("ssh://", "git@")) for arg in args)
+
+
+def _ssh_export(words: list[str]) -> bool | None:
+    """None without a mention of the variable; else whether a bounded one is exported."""
+    if not any(SSH_COMMAND in word for word in words):
+        return None
+    if len(words) != 2 or words[0] != "export" or not words[1].startswith(SSH_COMMAND + "="):
+        return False
+    try:
+        commands = _commands(words[1].partition("=")[2])
+    except Unparseable:
+        return False
+    ssh = commands[0][0] if len(commands) == 1 else []
+    if ssh[:1] != ["ssh"] or set(ssh[1::2]) - {"-o"}:
+        return False
+    first: dict[str, str] = {}
+    for option in ssh[2::2]:
+        name, _, value = option.partition("=")
+        first.setdefault(name.lower(), value)
+    return (_positive(first.get("connecttimeout", "")) and _positive(first.get("serveraliveinterval", ""))
+            and _positive(first.get("serveralivecountmax", "1")))
+
+
+def _judge(words: list[str], retried: bool, ssh: bool = False) -> tuple[int, list[str]]:
     """(fetches recognised, reasons the command breaks the retry contract)."""
-    words, wrapped = _strip(words), False
+    attempt, words, wrapped = _strip(words, prefixed=True), _strip(words), False
     while words and words[0].rsplit("/", 1)[-1] in HELPERS:
         rest = words[1:]
         if words[0] == "api_retry":  # api_retry LABEL -- COMMAND...
             rest = rest[rest.index("--") + 1:] if "--" in rest else rest[1:]
-        words, wrapped = _strip(rest), True
+        attempt, words, wrapped = _strip(rest, prefixed=True), _strip(rest), True
     name = words[0].rsplit("/", 1)[-1] if words else ""
     flag = next((i for i, word in enumerate(words[1:-1], 1) if SCRIPT_FLAG.fullmatch(word)), None)
     if name in SHELLS and flag:
-        judged = [_judge(inner, loop or retried) for inner, loop in _commands(words[flag + 1])]
-        return sum(count for count, _ in judged), [r for _, reasons in judged for r in reasons]
+        judged = list(_judged(words[flag + 1], retried, ssh))
+        return sum(count for _, count, _ in judged), [r for _, _, reasons in judged for r in reasons]
     if name == "wget":
         return 1, ["wget"]
     if name == "curl":
@@ -381,7 +431,12 @@ def _judge(words: list[str], retried: bool) -> tuple[int, list[str]]:
         return 0, ["gh command not classified as read or write"]
     # A push's attempt loop repeats only after master moved.
     retried = retried and kind != "git push"
-    return (1 if kind else 0), [f"{kind} without the retry helper"] if kind and not (wrapped or retried) else []
+    reasons = [f"{kind} without the retry helper"] if kind and not (wrapped or retried) else []
+    if name == "gh" and (wrapped or retried and kind) and not _attempt_bounded(attempt):
+        reasons.append(f"{kind or 'gh write'} retried without `timeout -k N N gh`, N above 0, per attempt")
+    if kind and kind.startswith("git ") and not _git_bounded(words[1:], ssh):
+        reasons.append(f"{kind} without a stall bound in effect")
+    return (1 if kind else 0), reasons
 
 
 def _commands(script: str) -> list[tuple[list[str], bool]]:
@@ -389,6 +444,16 @@ def _commands(script: str) -> list[tuple[list[str], bool]]:
     lexer = _Lexer(text)
     lexer.run()
     return [(words, attempt and steers) for words, attempt, steers in lexer.commands]
+
+
+def _judged(script: str, retried: bool = False, ssh: bool = False):
+    """(words, fetches recognised, reasons) per command; `ssh`: a bounded export precedes."""
+    for words, loop in _commands(script):
+        export = _ssh_export(words)
+        ssh = ssh or bool(export)
+        count, reasons = _judge(words, loop or retried, ssh)
+        yield words, count, reasons + ([f"{SSH_COMMAND} not exported as `ssh -o Name=value ...` with "
+                                        "ConnectTimeout and ServerAliveInterval above 0"] * (export is False))
 
 
 def _steps() -> list[tuple[Path, str, dict, str | None]]:
@@ -418,8 +483,7 @@ def test_every_workflow_fetch_retries_transient_failures():
             violations.append(f"{where}: run under a non-bash shell")
             continue
         try:
-            for words, retried in _commands(step["run"]):
-                count, reasons = _judge(words, retried)
+            for words, count, reasons in _judged(step["run"]):
                 fetches += count
                 shown = " ".join(_after(words, KEYWORDS))
                 violations += [f"{where}: {reason}: {shown}" for reason in reasons]
