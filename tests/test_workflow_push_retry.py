@@ -1,8 +1,10 @@
-"""Every bot push to master retries a push GitHub refuses while master stands still.
+"""Every bot push to master, run as its real step against a bare remote.
 
-Each push step runs against a bare remote whose update hook refuses a set
-number of pushes, as GitHub's `fatal error in commit_refs` does, or applies
-the first one and still reports it refused."""
+A push GitHub refuses while master stands still is retried: the remote's
+update hook refuses a set number of pushes, as GitHub's `fatal error in
+commit_refs` does, or applies the first one and still reports it refused.
+Every network git call runs under a bounded ssh command, and the ratchet
+commit lands under its Conventional Commits subject."""
 from __future__ import annotations
 
 import os
