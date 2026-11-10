@@ -196,6 +196,69 @@ def test_a_perturb_failure_names_it_and_is_nonzero(tmp_path, capsys):
     assert str(pricing_path) in captured.err
 
 
+def _early(tmp_path: Path, *argv: str) -> tuple[Path, Path, list[str]]:
+    """A command line over the synthetic tree and a summary that already holds a line."""
+    paths = _seed_tree(tmp_path)
+    summary = tmp_path / "summary.md"
+    summary.write_text("earlier\n", encoding="utf-8", newline="\n")
+    return paths[0], summary, [
+        *argv, "--pricing", str(paths[0]), "--constants", str(paths[1]),
+        "--parser-version", str(paths[2]), "--summary", str(summary)]
+
+
+def _unmeasured_row(summary: Path) -> dict:
+    """The fields of the one row appended below the summary's earlier line."""
+    lines = summary.read_text(encoding="utf-8").splitlines()
+    assert lines[:1] == ["earlier"] and len(lines) == 2, lines
+    fields, _, outcome = lines[1].partition(" failed ")
+    assert outcome.startswith("before a measurement")
+    return dict(field.split("=") for field in fields.split())
+
+
+def test_a_refused_pricing_document_still_writes_a_summary_row(tmp_path):
+    pricing_path, summary, argv = _early(
+        tmp_path, "--seed", "1794300000", "--shard", "3", "--of", "4")
+    pricing_path.write_text("not json", encoding="utf-8", newline="\n")
+    assert bench.main(argv) == 1
+    assert _unmeasured_row(summary) == {"seed": "1794300000", "shard": "3", "of": "4"}
+
+
+def test_a_bad_shard_argument_still_writes_a_summary_row(tmp_path):
+    _, summary, argv = _early(tmp_path, "--seed", "7", "--shard", "5", "--of", "4")
+    assert bench.main(argv) == 1
+    assert _unmeasured_row(summary) == {"seed": "7", "shard": "5", "of": "4"}
+
+
+def test_an_uncaught_error_still_writes_a_summary_row(tmp_path, monkeypatch):
+    _, summary, argv = _early(tmp_path, "--seed", "11", "--seed", "12")
+    monkeypatch.setattr(bench, "measure", lambda *args, **kwargs: {}["uncaught"])
+    with pytest.raises(KeyError):
+        bench.main(argv)
+    assert _unmeasured_row(summary) == {"seed": "11,12"}
+
+
+def test_a_usage_error_past_the_parser_still_writes_a_summary_row(tmp_path):
+    _, summary, argv = _early(tmp_path, "--seed", "9", "--shard", "3")
+    with pytest.raises(SystemExit) as left:
+        bench.main(argv)
+    assert left.value.code == 2
+    assert _unmeasured_row(summary) == {"seed": "9", "shard": "3"}
+
+
+@pytest.mark.parametrize("suite_exit", [0, 1])
+def test_a_measured_run_writes_its_table_and_no_other_row(tmp_path, monkeypatch, suite_exit):
+    _, summary, argv = _early(tmp_path, "--seed", "42")
+    monkeypatch.setattr(bench, "_suite_phase", lambda _args: {
+        "wall_s": "0.3", "cpu_s": "0.2", "exit_code": suite_exit})
+    measurement_path = tmp_path / "measurement.json"
+    assert bench.main([*argv, "--measurement", str(measurement_path)]) == suite_exit
+    text = summary.read_text(encoding="utf-8")
+    assert text == bench.summary_markdown(
+        json.loads(measurement_path.read_text(encoding="utf-8")))
+    assert [line for line in text.splitlines() if "suite" in line and "42" in line] == [
+        f"| 42 | suite | 0.3 | 0.2 | {suite_exit} |"]
+
+
 def _synthetic_measurement() -> dict:
     return {
         "instrument": bench.INSTRUMENT,

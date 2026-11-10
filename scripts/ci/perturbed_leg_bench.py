@@ -298,7 +298,8 @@ def _parser() -> argparse.ArgumentParser:
                         help="the suite invocation after '-m pytest' "
                              "(default: the leg's own arguments)")
     parser.add_argument("--summary", type=Path, metavar="FILE",
-                        help="write the step-summary markdown here")
+                        help="write the step-summary markdown here; a run "
+                             "that ends before that appends one row instead")
     parser.add_argument("--measurement", type=Path, metavar="FILE",
                         help="write the measurement JSON here")
     parser.add_argument("--shard", type=int, help="one-based suite shard")
@@ -320,38 +321,52 @@ def _shard_args(pytest_args: list[str], shard: int, count: int) -> list[str]:
     return [*pytest_args[:index], *files, *pytest_args[index + 1:]]
 
 
+def _note_unmeasured(args: argparse.Namespace) -> None:
+    """Append the summary row of a run that ends before it wrote a measured one."""
+    asked = {"seed": ",".join(map(str, args.seed)), "shard": args.shard, "of": args.of}
+    named = " ".join(f"{key}={value}" for key, value in asked.items() if value is not None)
+    with args.summary.open("a", encoding="utf-8") as stream:
+        stream.write(f"{named} failed before a measurement was written\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     """The CI leg's entry point; the first failing suite exit is the run's."""
     parser = _parser()
     args = parser.parse_args(argv)
-    if (args.shard is None) != (args.of is None):
-        parser.error("--shard and --of must be supplied together")
-    pytest_args = (args.pytest_args.split()
-                   if args.pytest_args is not None
-                   else list(DEFAULT_PYTEST_ARGS))
+    summarised = args.summary is None
     try:
+        if (args.shard is None) != (args.of is None):
+            parser.error("--shard and --of must be supplied together")
+        pytest_args = (args.pytest_args.split()
+                       if args.pytest_args is not None
+                       else list(DEFAULT_PYTEST_ARGS))
+        try:
+            if args.shard is not None:
+                pytest_args = _shard_args(pytest_args, args.shard, args.of)
+            measurement = measure(args.seed, args.pricing, args.constants,
+                                  args.parser_version, pytest_args, repo_root=REPO_ROOT)
+        except (OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
         if args.shard is not None:
-            pytest_args = _shard_args(pytest_args, args.shard, args.of)
-        measurement = measure(args.seed, args.pricing, args.constants,
-                              args.parser_version, pytest_args, repo_root=REPO_ROOT)
-    except (OSError, ValueError) as error:
-        print(str(error), file=sys.stderr)
-        return 1
-    if args.shard is not None:
-        measurement.update(shard=args.shard, of=args.of)
-    print(report(measurement))
-    if args.summary is not None:
-        args.summary.write_text(summary_markdown(measurement),
-                                encoding="utf-8")
-    if args.measurement is not None:
-        args.measurement.write_text(
-            json.dumps(measurement, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8")
-    for run in measurement["seeds"]:
-        code = run["phases"]["suite"]["exit_code"]
-        if code:
-            return code
-    return 0
+            measurement.update(shard=args.shard, of=args.of)
+        print(report(measurement))
+        if args.summary is not None:
+            args.summary.write_text(summary_markdown(measurement),
+                                    encoding="utf-8")
+            summarised = True
+        if args.measurement is not None:
+            args.measurement.write_text(
+                json.dumps(measurement, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8")
+        for run in measurement["seeds"]:
+            code = run["phases"]["suite"]["exit_code"]
+            if code:
+                return code
+        return 0
+    finally:
+        if not summarised:
+            _note_unmeasured(args)
 
 
 if __name__ == "__main__":
