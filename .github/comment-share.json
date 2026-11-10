@@ -604,8 +604,8 @@
     15014
   ],
   "scripts/ci/commit_scopes.py": [
-    5752,
-    11598
+    5745,
+    11591
   ],
   "scripts/ci/diff_coverage.py": [
     2549,

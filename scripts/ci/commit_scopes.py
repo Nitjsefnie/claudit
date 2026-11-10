@@ -245,10 +245,10 @@ def fetch_base(root: Path) -> None:
     git(root, *arguments, what=f"fetch origin/{BASE_BRANCH}")
 
 
-# A scoped Conventional Commits subject: a lowercase type, an optional
-# breaking marker after the type and/or after the scope's closing paren,
-# a scope of non-parenthesis non-whitespace inside parens, and the colon
-# the rule requires. A type outside the convention is not this regex's
+# A scoped subject: a lowercase type, an optional breaking marker after
+# the scope's closing paren (Conventional Commits' place) and/or after
+# the type, a scope of non-parenthesis non-whitespace inside parens,
+# and the colon. A type outside the convention is not this regex's
 # problem — the rule below flags any non-ci type on a workflow-name
 # scope, and a bad type is a defect under any scope.
 
