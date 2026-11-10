@@ -49,11 +49,11 @@ GIT_REMOTE_CALLS = {"fetch", "clone", "ls-remote", "pull", "push"}
 LOW_SPEED = ("http.lowspeedlimit", "http.lowspeedtime")
 GIT_SCHEMES = {"http": "http", "https": "http", "ssh": "ssh", "git+ssh": "ssh", "ssh+git": "ssh"}
 GIT_BOUNDS = {
-    "http": "over http(s) without `-c http.lowSpeedLimit=N -c http.lowSpeedTime=N`, N above 0",
-    "ssh": "over ssh without an earlier `export GIT_SSH_COMMAND=` bounding connect and keepalive",
+    "http": "over http(s) (`{}`) without `-c http.lowSpeedLimit=N -c http.lowSpeedTime=N`, N above 0",
+    "ssh": "over ssh (`{}`) without an earlier `export GIT_SSH_COMMAND=` bounding connect and keepalive",
     "name": "to a remote that is a name, a variable or a path, with neither the http low-speed "
             "pair nor a bounded GIT_SSH_COMMAND export",
-    "other": "to a remote neither http(s) nor ssh, which no stall bound covers"}
+    "other": "to `{}`, neither http(s) nor ssh, which no stall bound covers"}
 SSH_COMMAND = "GIT_SSH_COMMAND"
 GH_READS = {"release": {"view", "download", "list"},
             "run": {"view", "list", "download"},
@@ -296,7 +296,7 @@ def _strip(words: list[str], prefixed: bool = False) -> list[str]:
             while index < len(words) and (words[index].startswith("-") or ASSIGNMENT.match(words[index])):
                 index += 2 if words[index] in PREFIXES[head] else 1
             words = words[index + (head == "timeout"):]
-            words = words[words[:1] == ["--"]:]  # the end-of-options marker, after timeout's duration too
+            words = words[words[:1] == ["--"]:]  # after timeout's duration too
         elif head in ("bash", "sh") and len(words) > 1 and words[1].endswith("retry.sh"):
             words = words[1:]
         else:
@@ -384,18 +384,21 @@ def _attempt_bounded(words: list[str]) -> bool:
             and command.rsplit("/", 1)[-1] == "gh")
 
 
-def _transport(word: str, remote: bool) -> str:
-    """How git reaches a URL word (giturls): http, ssh or other; "" when it is no URL."""
+def _transport(word: str, nominal: bool) -> str:
+    """How git reaches a word shaped like a remote (GIT URLS, git-fetch(1)): http, ssh, other or ""."""
+    word = word.partition("=")[2] if word.startswith("-") else word
     scheme, url, _ = word.partition("://")
+    if word.startswith("$"):
+        return ""
     if url:
         return GIT_SCHEMES.get(scheme, "other")
     if "::" in word:
         return "other"
-    return "ssh" if remote and ":" in word.split("/")[0] else ""
+    host = word.split("/")[0]
+    return "ssh" if ":" in host and (nominal or "@" in host) else ""
 
 
 def _git_unbounded(args: list[str], ssh: bool) -> str:
-    """The GIT_BOUNDS text for the stall bound a git network command lacks, or ""."""
     config, index = {}, 0
     while index < len(args) and args[index].startswith("-"):
         if args[index] == "-c":
@@ -404,10 +407,14 @@ def _git_unbounded(args: list[str], ssh: bool) -> str:
         index += 2 if args[index] in GIT_VALUE_OPTIONS else 1
     low = all(_positive(config.get(name, "")) for name in LOW_SPEED)
     rest = args[index + 1:]
-    remote = next((at for at, word in enumerate(rest) if not word.startswith("-")), -1)
-    found = {_transport(word, at == remote) for at, word in enumerate(rest)} - {""}
-    kind = "name" if not found else found.pop() if len(found) == 1 else "other"
-    return "" if {"http": low, "ssh": ssh, "name": ssh or low, "other": False}[kind] else GIT_BOUNDS[kind]
+    nominal = next((at for at, word in enumerate(rest) if not word.startswith("-")), -1)
+    read = [(kind, word) for at, word in enumerate(rest) if (kind := _transport(word, at == nominal))]
+    kind, word = read[0] if read else ("name", "")
+    for other, second in read:
+        if other != kind:
+            return (f"with words of two transports, `{word}` ({kind}) and `{second}` ({other}); "
+                    "write an option's value as --option=value")
+    return "" if {"http": low, "ssh": ssh, "name": ssh or low, "other": False}[kind] else GIT_BOUNDS[kind].format(word)
 
 
 def _ssh_export(words: list[str]) -> bool | None:
