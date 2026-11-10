@@ -594,8 +594,7 @@
       "DekaLLM",
       "Io Net",
       "ModelRun",
-      "OpenInference",
-      "River"
+      "OpenInference"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
