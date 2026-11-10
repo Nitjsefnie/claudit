@@ -183,6 +183,20 @@ def test_every_group_has_a_security_updates_twin() -> None:
     )
 
 
+_SUBJECT_TYPE = {"pip": "build", "npm": "build",
+                 "github-actions": "ci", "docker": "ci"}
+
+
+def test_dependabot_subjects_carry_a_conventional_type_and_scope() -> None:
+    doc = yaml.safe_load(DEPENDABOT.read_text(encoding="utf-8")) or {}
+    entries = doc["updates"]
+    assert {entry["package-ecosystem"] for entry in entries} == set(_SUBJECT_TYPE)
+    for entry in entries:
+        assert entry.get("commit-message") == {
+            "prefix": _SUBJECT_TYPE[entry["package-ecosystem"]],
+            "include": "scope"}, entry["package-ecosystem"]
+
+
 # A step that runs an image instead of an action: `uses: docker://image`.
 _DOCKER_REF = "docker://"
 
