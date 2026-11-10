@@ -106,8 +106,8 @@ def load_weighted(parser: argparse.ArgumentParser, files: list[tuple[str, int]],
     if os_name not in weights:
         if not isinstance(weights, dict):
             parser.error(f"no weights for OS {os_name}; regenerate the table")
-        print(f"warning: no weights for OS {os_name}; splitting by line count",
-              file=sys.stderr)
+        print(f"warning: no weights for OS {os_name}; splitting by line count; "
+              "regenerate the table to weight it", file=sys.stderr)
         return None
     try:
         result = weighted(files, weights[os_name])
