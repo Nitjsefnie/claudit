@@ -458,15 +458,19 @@ def _inner(words: list[str]) -> str | None:
     return words[flag + 1] if flag and words[0].rsplit("/", 1)[-1] in SHELLS else None
 
 
-def _kinds(script: str):
-    """`_fetch_kind` of each command proper, inner shells included: what `_judge` reads, except for curl and wget."""
+def _fetches(script: str):
+    """(words, `_fetch_kind` of the command proper) per command, inner shells included: what `_judge` reads, except for curl and wget."""
     for words, _ in _commands(script):
-        words = _proper(words)[1]
-        inner = _inner(words)
+        proper = _proper(words)[1]
+        inner = _inner(proper)
         if inner is None:
-            yield _fetch_kind(words) if words else None
+            yield words, _fetch_kind(proper) if proper else None
         else:
-            yield from _kinds(inner)
+            yield from _fetches(inner)
+
+
+def _kinds(script: str):
+    return (kind for _, kind in _fetches(script))
 
 
 def _judge(words: list[str], retried: bool, ssh: bool = False) -> tuple[int, list[str]]:

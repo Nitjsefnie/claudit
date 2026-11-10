@@ -3,10 +3,15 @@ attempt, and a read whose every attempt is ended fails closed.
 
 The step bodies run with `timeout` replaced by a stand-in that ends chosen
 attempts the way timeout(1) ends an expired one: status 124, or 137 once
-`-k` had to kill, and the command's answer never arrives."""
+`-k` had to kill, and the command's answer never arrives. Of an npm step,
+only the commands the fetch guard reads as npm fetches run: the words the
+guard reads retry.sh as running (lexed, nothing expanded), under a copy of
+retry.sh, from a temporary directory. A fetch no retry.sh runs fails."""
 from __future__ import annotations
 
 import os
+import shlex
+import shutil
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -16,7 +21,7 @@ import pytest
 from tests.test_workflow_release import (
     PROCEEDING, PUSH_RUN, REFUSAL_STEP, REFUSAL_STUB, RELEASE_404, TAG_404, _checks,
     _refusal_env, _row, _run, _runs, _run_step as _run_release_step, _step_run)
-from tests.test_workflow_fetch_retry import _fetch_kind, _kinds, _steps
+from tests.test_workflow_fetch_retry import _fetch_kind, _fetches, _kinds, _proper, _steps, _strip
 from tests.test_workflow_release_dispatch import (  # pylint: disable=unused-import
     DECIDE, POST_RELEASE, POST_RELEASE_STUB, PROBE_STUB, _decide_env,
     _run_step as _run_dispatch_step, ubuntu_step_body)
@@ -41,9 +46,8 @@ export -f gh python3 sleep
 
 NPM_STUB = r'''
 npm() { local IFS=$'\037'; printf '%s\n' "$*" >> "$NPM_CALLS"; }
-node() { case "$*" in "-p "*) echo 9.9.9 ;; *) echo "unmodelled node call: $*" >&2; return 99 ;; esac; }
 sleep() { :; }
-export -f npm node sleep
+export -f npm sleep
 '''
 
 
@@ -168,6 +172,43 @@ def _npm_fetch(kind: str | None) -> bool:
     return kind is not None and kind.startswith("npm ")
 
 
+def _npm_attempts(run: str, *where: str) -> list[list[str]]:
+    """The words retry.sh runs in each command the guard reads as an npm fetch."""
+    attempts = []
+    for words, kind in _fetches(run):
+        if _npm_fetch(kind):
+            assert _strip(words)[0].rsplit("/", 1)[-1] == "retry.sh", (
+                *where, "an npm fetch retry.sh does not run, which this control does not model", words)
+            attempts.append(_proper(words)[0])
+    return attempts
+
+
+def _retries_npm_fetches(run: str, box: Path, *where: str) -> None:
+    """Run only the step's npm fetches, each under a copy of retry.sh, from `box`."""
+    env = _ending(box, 1)
+    (box / "npm-calls").touch()
+    helper = box / "retry.sh"
+    shutil.copy2(ROOT / "scripts" / "ci" / "retry.sh", helper)
+    script = "".join(shlex.join([str(helper), *attempt]) + "\n" for attempt in _npm_attempts(run, *where))
+    proc = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", TIMEOUT_STUB + NPM_STUB + script],
+        env={"PATH": os.environ["PATH"], "RUNNER_TEMP": str(box), "NPM_CALLS": str(box / "npm-calls"),
+             "TIMEOUT_DOUBLES": str(box / "no-doubles"), **env},
+        cwd=box, capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
+    assert proc.returncode == 0, (*where, proc.stderr)
+    state = Path(env["TIMEOUT_STATE"])
+    bounded = bounded_calls(state) if (state / "calls").exists() else []
+    assert all(seconds > 0 for seconds, _ in bounded), (*where, bounded)
+    ran = [["npm", *line.split("\x1f")] for line in
+           (box / "npm-calls").read_text(encoding="utf-8").splitlines()]
+    fetches = [" ".join(argv) for argv in ran if _npm_fetch(_fetch_kind(argv))]
+    assert fetches, (*where, "the guard reads an npm fetch here; none reached npm", ran)
+    for command in set(fetches):
+        # Its first attempt ran under the bound and was ended; every run of it was under the bound.
+        assert [text for _, text in bounded].count(command) == fetches.count(command) + 1, (
+            *where, command, "not run under the bound with its first attempt ended and retried", bounded)
+
+
 @ubuntu_step_body
 def test_every_npm_install_retries_an_attempt_the_bound_ended(tmp_path):
     sites = [(path.name, job, step) for path, job, step, _ in _steps()
@@ -175,22 +216,33 @@ def test_every_npm_install_retries_an_attempt_the_bound_ended(tmp_path):
     for number, (name, job, step) in enumerate(sites):
         box = tmp_path / str(number)
         box.mkdir()
-        env = _ending(box, 1)
-        (box / "npm-calls").touch()
-        proc = subprocess.run(
-            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", TIMEOUT_STUB + NPM_STUB + step["run"]],
-            env={"PATH": os.environ["PATH"], "RUNNER_TEMP": str(box), "NPM_CALLS": str(box / "npm-calls"), **env},
-            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
-        assert proc.returncode == 0, (name, job, proc.stderr)
-        state = Path(env["TIMEOUT_STATE"])
-        bounded = bounded_calls(state) if (state / "calls").exists() else []
-        assert all(seconds > 0 for seconds, _ in bounded), (name, job, bounded)
-        ran = [["npm", *line.split("\x1f")] for line in
-               (box / "npm-calls").read_text(encoding="utf-8").splitlines()]
-        fetches = [" ".join(argv) for argv in ran if _npm_fetch(_fetch_kind(argv))]
-        assert fetches, (name, job, "the guard reads an npm fetch here; none reached npm", ran)
-        for command in set(fetches):
-            # Its first attempt ran under the bound and was ended; every run of it was under the bound.
-            assert [text for _, text in bounded].count(command) == fetches.count(command) + 1, (
-                name, job, command, bounded)
+        _retries_npm_fetches(step["run"], box, name, job)
     assert sites, "no step with an npm fetch was found; the walk is broken"
+
+
+INSTALL = "scripts/ci/retry.sh timeout -k 5 120 npm ci --no-audit --no-fund"
+BESIDE = {
+    "an expression in its arguments": INSTALL + ' --cache "${{ runner.temp }}/npm-cache"',
+    "a command after it": INSTALL + '\ntouch "$RUNNER_TEMP/planted"\nexit 3',
+    "a pipeline into an expression": INSTALL + ' 2>&1 | tee "${{ runner.temp }}/npm.log"',
+    "a substitution before it": 'v="$(node -p 1)"\ntouch "$RUNNER_TEMP/planted"; ' + INSTALL,
+}
+UNRETRIED = {
+    "no helper": ("timeout -k 5 120 npm ci --no-audit --no-fund", "retry.sh does not run"),
+    "the other helper": ('api_retry "installing" -- timeout -k 5 120 npm ci', "retry.sh does not run"),
+    "no bound": ("scripts/ci/retry.sh npm ci --no-audit --no-fund", "not run under the bound"),
+}
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("run", BESIDE.values(), ids=BESIDE)
+def test_only_the_npm_fetch_of_a_step_runs(tmp_path, run):
+    _retries_npm_fetches(run, tmp_path)
+    assert {path.name for path in tmp_path.iterdir()} <= {"timeout-state", "npm-calls", "retry.sh"}
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("run,said", UNRETRIED.values(), ids=UNRETRIED)
+def test_an_npm_fetch_without_the_helper_or_the_bound_fails_the_control(tmp_path, run, said):
+    with pytest.raises(AssertionError, match=said):
+        _retries_npm_fetches(run, tmp_path)
