@@ -72,6 +72,7 @@ ACCEPTED = {
     "captured gh probe": f'if probe="$({COPY}timeout -k 5 60 {READ} 2>&1)"; then :; fi',
     "gh write by api_retry": 'api_retry "updating" -- timeout -k 5 60 ' + PATCH,
     "gh read steering a loop": LOOP.format("timeout -k 5 60 " + READ),
+    "gh by its path": COPY + "timeout -k 5 60 /usr/bin/" + READ,
     "gh read in an inner shell": f"bash -c '{COPY}timeout -k 5 60 gh api repos/o/r'",
     "gh write steering a loop": LOOP.format(PATCH),
     "gh write nothing retries": 'gh api -X POST "repos/$CLAUDIT_REPO/issues/1/comments" -F body=@c.md',
