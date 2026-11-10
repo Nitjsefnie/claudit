@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None, *,
                 f"against OpenRouter's catalog at {stamp}.")
         if args.commit_msg:
             args.commit_msg.write_text(
-                f"Track OpenRouter vendor namespace {namespace}\n\n{body}\n\n"
+                f"chore(data): Track OpenRouter vendor namespace {namespace}\n\n{body}\n\n"
                 "Captured by .github/workflows/refresh-pricing.yml.\n",
                 encoding="utf-8", newline="\n")
     except (RefreshError, OSError, ValueError, KeyError, TypeError) as exc:

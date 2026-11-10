@@ -392,4 +392,4 @@ def test_the_subject_drops_the_vanished_count(tmp_path, capsys):
                              if e["provider_name"] != "Cloudflare"]
     assert run(capsys)[0] == 0
     subject = run.commit_msg.read_text(encoding="utf-8").partition("\n\n")[0]
-    assert subject == "Refresh OpenRouter provider rates: 1 changed"
+    assert subject == "chore(data): Refresh OpenRouter provider rates: 1 changed"

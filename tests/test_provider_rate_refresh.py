@@ -464,7 +464,7 @@ def test_a_refused_host_blocks_only_itself(tmp_path, capsys):
     assert not re.search(r"vanished\s+Novita", out), "refused is not vanished"
     assert f"{GLM} via Novita" in err
     message = run.commit_msg.read_text(encoding="utf-8")
-    assert message.startswith("Refresh OpenRouter provider rates: 1 changed")
+    assert message.startswith("chore(data): Refresh OpenRouter provider rates: 1 changed")
     assert f"{GLM} via Novita" in message
 
 

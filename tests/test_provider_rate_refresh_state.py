@@ -134,7 +134,7 @@ def test_the_commit_message_names_the_counts_and_carries_the_report(
     assert rc == 0
     message = run.commit_msg.read_text(encoding="utf-8")
     subject, _, body = message.partition("\n\n")
-    assert subject == "Refresh OpenRouter provider rates: 1 changed, 1 new"
+    assert subject == "chore(data): Refresh OpenRouter provider rates: 1 changed, 1 new"
     # The body is the run's report minus the standing vanished/sampled
     # blocks, which the stdout report keeps: the body is a
     # section of that report, never a superset of it.
