@@ -38,6 +38,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.test_workflow_fetch_retry import _kinds
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_JSON = REPO_ROOT / "package.json"
 PACKAGE_LOCK = REPO_ROOT / "package-lock.json"
@@ -271,27 +273,25 @@ def test_no_workflow_pins_an_npm_package_inline() -> None:
 
 
 def test_both_js_gates_install_from_the_lockfile() -> None:
-    """`npm ci` as the step's own command, not a word somewhere in it.
+    """`npm ci` as a command, whatever runs it, not a word somewhere in it.
 
     `npm install` resolves against the registry and can rewrite the tree
     under a pinned manifest; `npm ci` installs the lockfile exactly, which
-    is what makes the pin in package.json mean something. Matching the whole
-    body for the substring would be satisfied by a comment or an `echo` in an
-    unrelated step, so this reads the first command of the run.
+    is what makes the pin in package.json mean something. The fetch guard's
+    reader names each command's fetch, so a comment or an `echo` is none.
     """
     for name in ("eslint.yml", "tests.yml"):
-        commands = []
-        for run in _run_bodies(_workflow(name)):
-            commands += [line.strip() for line in run.splitlines() if line.strip()]
-        assert any(re.match(r"^(scripts/ci/retry\.sh\s+timeout\s+-k\s+\d+\s+\d+\s+)?npm\s+ci\b", command)
-                   for command in commands), (
+        assert "npm ci" in [kind for run in _run_bodies(_workflow(name)) for kind in _kinds(run)], (
             f"{name} has no `npm ci` command; the toolchain must be installed "
             "from package-lock.json, not resolved at run time")
 
 
 def test_the_gate_step_runs_the_manifest_lint_script() -> None:
-    step, = (run for run in _step_runs(_workflow("eslint.yml"))
-             if "npx --no-install eslint" in run)
+    steps = [run for run in _step_runs(_workflow("eslint.yml")) if "npx --no-install eslint" in run]
+    assert len(steps) == 1, (
+        f"eslint.yml has {len(steps)} steps running `npx --no-install eslint`, not one: the lint step "
+        "is missing, runs eslint without --no-install, or is written twice")
+    step, = steps
     script = _package()["scripts"]["lint"]
     assert shlex.split(step) == ["npx", "--no-install", *shlex.split(script)], (
         f"eslint.yml lints with {step.strip()!r} while `npm run lint` is "
