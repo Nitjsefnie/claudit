@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Partition tests/ by line count or recorded portable test durations.
 
+An --os the weight table lacks is split by line count, with a warning on stderr.
+
 Regenerate weights from a portable CI run:
   gh run download 41846196618 -p 'pytest-junit-*-shard-*' -D /tmp/pytest-junit-41846196618
   python scripts/ci/pytest_shards.py --record /tmp/pytest-junit-41846196618 --run-id 41846196618 --output scripts/ci/pytest_shard_weights.json
@@ -9,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
@@ -97,11 +100,15 @@ def write_record(parser: argparse.ArgumentParser, args: argparse.Namespace) -> N
 
 
 def load_weighted(parser: argparse.ArgumentParser, files: list[tuple[str, int]],
-                  table: Path, os_name: str | None) -> list[tuple[str, int]]:
-    """Load the selected OS weights and apply them to discovered files."""
+                  table: Path, os_name: str | None) -> list[tuple[str, int]] | None:
+    """Apply the selected OS weights; None when the table lacks that OS."""
     weights = json.loads(table.read_text(encoding="utf-8"))["weights"]
     if os_name not in weights:
-        parser.error(f"no weights for OS {os_name}; regenerate the table")
+        if not isinstance(weights, dict):
+            parser.error(f"no weights for OS {os_name}; regenerate the table")
+        print(f"warning: no weights for OS {os_name}; splitting by line count",
+              file=sys.stderr)
+        return None
     try:
         result = weighted(files, weights[os_name])
     except ValueError as exc:
@@ -116,7 +123,8 @@ def main() -> None:
     parser.add_argument("--of", type=int, default=4, help="total shards (default: 4)")
     parser.add_argument("--table", action="store_true", help="print all shard totals")
     parser.add_argument("--weights", type=Path, help="JSON file of recorded weights")
-    parser.add_argument("--os", help="OS key in the weight table")
+    parser.add_argument("--os", help="OS key in the weight table; an unrecorded OS "
+                        "is split by line count")
     parser.add_argument("--record", type=Path, help="directory of downloaded JUnit artifacts")
     parser.add_argument("--run-id", help="source run id for a recording")
     parser.add_argument("--output", type=Path, help="output JSON for a recording")
@@ -137,13 +145,14 @@ def main() -> None:
     files = discover()
     if not files:
         parser.error("tests/ contains no test_*.py files")
+    measured = None
     if args.weights is not None:
-        files = load_weighted(parser, files, args.weights, args.os)
-    groups = partition(files, args.of)
+        measured = load_weighted(parser, files, args.weights, args.os)
+    groups = partition(measured or files, args.of)
     if args.table:
         for index, group in enumerate(groups, start=1):
             lines = sum(lines for _, lines in group)
-            unit = "weight" if args.weights else "lines"
+            unit = "weight" if measured else "lines"
             print(f"shard {index}: {len(group)} files, {lines} {unit}")
     elif args.shard is not None:
         print(" ".join(path for path, _ in groups[args.shard - 1]))
