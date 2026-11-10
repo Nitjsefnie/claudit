@@ -176,6 +176,8 @@ REFUSED = {
         COPY + f"git {PAIR}fetch deploy@example.com:o/r.git", [_over_ssh("deploy@example.com:o/r.git")]),
     "scp-like remote after a flag, the pair alone": (
         COPY + f"git {PAIR}fetch --no-tags deploy@example.com:o/r.git", [_over_ssh("deploy@example.com:o/r.git")]),
+    "host:path after a flag, the pair alone": (
+        COPY + f"git {PAIR}fetch --no-tags example.com:o/r.git", [_over_ssh("example.com:o/r.git")]),
     "scp-like remote without a user, the pair alone": (
         COPY + f"git {PAIR}fetch example.com:o/r.git", [_over_ssh("example.com:o/r.git")]),
     "ssh URL behind an option's value, the pair alone": (
