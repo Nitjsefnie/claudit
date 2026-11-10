@@ -25,6 +25,7 @@ import pytest
 import yaml
 
 from tests.refresh_fixture_builders import seed_doc
+from tests.workflow_checks import exec_step, workflow_by_name
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "perturbed_leg_bench.py"
@@ -156,11 +157,16 @@ def test_a_failing_suite_stops_the_run_and_is_the_exit(tmp_path):
         "--parser-version", str(parser_path),
         "--pytest-args", " ".join(args),
         "--measurement", str(tmp_path / "leg-measurement.json"),
+        "--summary", str(tmp_path / "summary.md"),
     ])
     assert code == 1
     measurement = json.loads(
         (tmp_path / "leg-measurement.json").read_text(encoding="utf-8"))
     assert [run["seed"] for run in measurement["seeds"]] == [42]
+    # The step summary names the seed that failed and its exit.
+    rows = [line.strip("|").split("|") for line in (tmp_path / "summary.md").read_text(
+        encoding="utf-8").splitlines() if line.startswith("| 42 | suite |")]
+    assert [row[-1].strip() for row in rows] == ["1"]
 
 
 def test_the_default_pytest_args_are_the_legs_historical_invocation():
@@ -281,27 +287,21 @@ def test_the_leg_step_no_longer_runs_pytest_directly():
 
 
 @POSIX
-def test_the_leg_step_execs_the_bench_under_a_step_timeout(tmp_path):
-    job = _workflow_doc()["jobs"]["perturbed-suite"]
-    step, = [step for step in job["steps"] if step.get("name") == "Perturb and test"]
+@pytest.mark.parametrize("workflow,job_name,step_name,matrix", [
+    ("test-data.yml", "perturbed-suite", "Perturb and test", {"seed": "42", "shard": "1"}),
+    ("test-data-explore.yml", "perturbed-suite-explore",
+     "Perturb and test, per wall-clock seed", {"seed-index": "1", "shard": "1"}),
+])
+def test_the_perturbed_steps_exec_the_bench_under_a_step_timeout(
+        tmp_path, workflow, job_name, step_name, matrix):
+    job = workflow_by_name(workflow)["jobs"][job_name]
+    step, = [step for step in job["steps"] if step.get("name") == step_name]
     assert step["shell"] == "bash"
     assert int(step["timeout-minutes"]) < int(job["timeout-minutes"])
-    fake = tmp_path / "python"
-    fake.write_text('#!/bin/sh\necho "$$" > "$PID"\nprintf "%s\\n" "$@" > "$ARGV"\n',
-                    encoding="utf-8", newline="\n")
-    fake.chmod(0o755)
-    script = tmp_path / "step.sh"
-    script.write_text(step["run"].replace("${{ matrix.seed }}", "42").replace(
-        "${{ matrix.shard }}", "1"), encoding="utf-8", newline="\n")
-    env = dict(os.environ, PATH=f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
-               PID=str(tmp_path / "pid"), ARGV=str(tmp_path / "argv"),
-               GITHUB_STEP_SUMMARY=str(tmp_path / "summary.md"))
-    # The runner's own bash invocation; its step-timeout SIGINT goes to this process.
-    with subprocess.Popen(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
-                          cwd=ROOT, env=env) as run:
-        assert run.wait() == 0
-    assert (tmp_path / "pid").read_text(encoding="utf-8").split() == [str(run.pid)]
-    argv = (tmp_path / "argv").read_text(encoding="utf-8").splitlines()
+    code, execed, argv, _ = exec_step(step, tmp_path, matrix, {
+        "CLAUDIT_SEED_BASE": "1700000000",
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md")})
+    assert (code, execed) == (0, True)
     assert argv[0] == "scripts/ci/perturbed_leg_bench.py"
 
 

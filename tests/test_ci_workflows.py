@@ -4,11 +4,13 @@ Dependabot groups atomic action updates; manifests expose tool pins to audit."""
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
-from tests.workflow_checks import dockerfile_from_reference, references
+from tests.workflow_checks import dockerfile_from_reference, exec_step, references
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -488,13 +490,14 @@ class TestRefreshPricingShards:
 
     def test_postgres_lives_in_suite_only(self) -> None:
         refresh_jobs = _workflow_jobs("refresh-pricing.yml")
-        for workflow in ["refresh-pricing.yml", "test-data-explore.yml"]:
+        for workflow, suite in [
+                ("refresh-pricing.yml", "python -m pytest $(python3 scripts/ci/pytest_shards.py"),
+                ("test-data-explore.yml", "scripts/ci/perturbed_leg_bench.py")]:
             jobs = yaml.safe_load((WORKFLOWS_DIR / workflow).read_text(encoding="utf-8"))["jobs"]
             consumers = 0
             for job in jobs.values():
                 steps = job["steps"]
-                tests = [i for i, step in enumerate(steps) if
-                         "python -m pytest $(python3 scripts/ci/pytest_shards.py" in step.get("run", "")]
+                tests = [i for i, step in enumerate(steps) if suite in step.get("run", "")]
                 if tests:
                     consumers += 1
                     starts = [i for i, step in enumerate(steps) if step.get("name") == "Start cached Postgres"]
@@ -560,6 +563,10 @@ class TestRefreshPricingShards:
         assert 'push origin HEAD:master' in run
 
 
+POSIX = pytest.mark.skipif(sys.platform == "win32", reason="the step runs under POSIX Bash here")
+SEED_BASE = 1_700_000_000
+
+
 class TestPerturbedSuiteExploreShards:
     def test_seeds_job_exposes_one_wall_clock_draw_to_all_cells(self) -> None:
         jobs = _workflow_jobs("test-data-explore.yml")
@@ -589,42 +596,40 @@ class TestPerturbedSuiteExploreShards:
         job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
         assert job["timeout-minutes"] == 30
 
-    def test_cell_perturbs_one_wall_clock_seed_and_runs_its_shard(self) -> None:
+    @staticmethod
+    def _cell(tmp_path: Path, index: int, shard: int, status: int = 0):
         job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
         step = next(step for step in job["steps"]
                     if step.get("name") == "Perturb and test, per wall-clock seed")
-        run = step["run"]
         assert step["env"]["CLAUDIT_SEED_BASE"] == "${{ needs.seeds.outputs.seed-base }}"
-        assert [line for line in run.splitlines() if line.startswith("SEED=")] == [
-            'SEED="$((CLAUDIT_SEED_BASE + ${{ matrix.seed-index }}))"'
-        ]
-        assert "date +%s" not in run
-        assert 'for ' not in run
-        perturb = 'python scripts/ci/perturb_test_data.py --seed "$SEED"'
-        restore = ("git checkout -- src/pricing.json backend/constants.py "
-                   "backend/parser_version.py")
-        normalized = " ".join(run.replace("\\\n", " ").split())
-        assert normalized.index(restore) < normalized.index(perturb)
-        assert (
-            "# shellcheck disable=SC2046\n"
-            "  python -m pytest $(python3 scripts/ci/pytest_shards.py "
-            "--shard ${{ matrix.shard }} --of 4) -q --tb=short -ra\n}; then"
-        ) in run
-        assert step["env"]["CLAUDIT_PERTURBED_DATA"] == "1"
+        return exec_step(step, tmp_path, {"seed-index": str(index), "shard": str(shard)}, {
+            "CLAUDIT_SEED_BASE": str(SEED_BASE),
+            "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md")}, status)
 
-    def test_cell_reports_seed_and_shard_and_fails_nonzero(self) -> None:
+    @POSIX
+    def test_cell_perturbs_one_wall_clock_seed_and_runs_its_shard(self, tmp_path: Path) -> None:
         job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
+        matrix = job["strategy"]["matrix"]
         step = next(step for step in job["steps"]
                     if step.get("name") == "Perturb and test, per wall-clock seed")
-        run = step["run"]
-        assert 'echo "::notice::perturbed-suite seed=$SEED shard=${{ matrix.shard }}"' in run
-        assert (
-            'echo "seed=$SEED shard=${{ matrix.shard }} ok" >> "$GITHUB_STEP_SUMMARY"'
-        ) in run
-        assert (
-            'else\n  echo "seed=$SEED shard=${{ matrix.shard }} failed" '
-            '>> "$GITHUB_STEP_SUMMARY"\n  exit 1\nfi'
-        ) in run
+        assert step["timeout-minutes"] == 15
+        for index in matrix["seed-index"]:
+            for shard in matrix["shard"]:
+                code, execed, argv, _ = self._cell(tmp_path, index, shard)
+                assert (code, execed) == (0, True)
+                # The draw plus the seed-index: one seed per index, the same for each shard.
+                assert argv == [
+                    "scripts/ci/perturbed_leg_bench.py", "--seed", str(SEED_BASE + index),
+                    "--shard", str(shard), "--of", str(len(matrix["shard"])),
+                    "--summary", str(tmp_path / "summary.md")]
+
+    @POSIX
+    def test_cell_reports_seed_and_shard_and_fails_nonzero(self, tmp_path: Path) -> None:
+        code, execed, argv, stdout = self._cell(tmp_path, 2, 3, status=7)
+        # The bench's exit is the step's own.
+        assert (code, execed) == (7, True)
+        assert argv[-2:] == ["--summary", str(tmp_path / "summary.md")]
+        assert stdout == f"::notice::perturbed-suite seed={SEED_BASE + 2} shard=3\n"
 
     def test_pip_cache_save_requires_first_shard(self) -> None:
         job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]

@@ -5,6 +5,7 @@ import os
 import re
 import shlex
 import subprocess
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -74,6 +75,35 @@ def write_retry_helper(job: dict, runner_temp: Path | str) -> None:
     assert writers, "the job writes no retry helper"
     for step in writers:
         run_retry_helper_writer(step, runner_temp)
+
+
+def exec_step(step: dict, tmp_path: Path, matrix: dict[str, str], env: dict[str, str],
+              status: int = 0) -> tuple[int, bool, list[str], str]:
+    """Run a step's script with `python` stubbed to exit `status`: the step's exit,
+    whether the one stub call replaced the shell, the stub's arguments, stdout."""
+    box = Path(tempfile.mkdtemp(dir=tmp_path))
+    fake = box / "python"
+    fake.write_text('#!/bin/sh\necho "$$" >> "$PID"\nprintf "%s\\n" "$@" >> "$ARGV"\n'
+                    'exit "$STATUS"\n', encoding="utf-8", newline="\n")
+    fake.chmod(0o755)
+    body = step["run"]
+    for key, value in matrix.items():
+        body = body.replace("${{ matrix." + key + " }}", value)
+    assert "${{" not in body, body
+    script = box / "step.sh"
+    script.write_text(body, encoding="utf-8", newline="\n")
+    for name in ("pid", "argv"):
+        (box / name).write_text("", encoding="utf-8")
+    # The runner's own bash invocation; its step-timeout SIGINT goes to this process.
+    with subprocess.Popen(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)], cwd=box,
+            stdout=subprocess.PIPE, text=True,
+            env=dict(os.environ, **env, PATH=f"{box}{os.pathsep}{os.environ['PATH']}",
+                     PID=str(box / "pid"), ARGV=str(box / "argv"), STATUS=str(status))) as run:
+        stdout, _ = run.communicate(timeout=30)
+    execed = (box / "pid").read_text(encoding="utf-8").split() == [str(run.pid)]
+    return (run.returncode, execed,
+            (box / "argv").read_text(encoding="utf-8").splitlines(), stdout)
 
 
 def is_checkout(step: dict) -> bool:
