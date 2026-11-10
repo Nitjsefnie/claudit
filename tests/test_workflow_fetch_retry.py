@@ -47,6 +47,13 @@ PREFIXES = {"sudo": {"-u", "-g", "-C", "-D"}, "env": {"-u", "-C", "-S"},
 GIT_VALUE_OPTIONS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 GIT_REMOTE_CALLS = {"fetch", "clone", "ls-remote", "pull", "push"}
 LOW_SPEED = ("http.lowspeedlimit", "http.lowspeedtime")
+GIT_SCHEMES = {"http": "http", "https": "http", "ssh": "ssh", "git+ssh": "ssh", "ssh+git": "ssh"}
+GIT_BOUNDS = {
+    "http": "over http(s) without `-c http.lowSpeedLimit=N -c http.lowSpeedTime=N`, N above 0",
+    "ssh": "over ssh without an earlier `export GIT_SSH_COMMAND=` bounding connect and keepalive",
+    "name": "to a remote that is a name, a variable or a path, with neither the http low-speed "
+            "pair nor a bounded GIT_SSH_COMMAND export",
+    "other": "to a remote neither http(s) nor ssh, which no stall bound covers"}
 SSH_COMMAND = "GIT_SSH_COMMAND"
 GH_READS = {"release": {"view", "download", "list"},
             "run": {"view", "list", "download"},
@@ -375,7 +382,18 @@ def _attempt_bounded(words: list[str]) -> bool:
             and command.rsplit("/", 1)[-1] == "gh")
 
 
-def _git_bounded(args: list[str], ssh: bool) -> bool:
+def _transport(word: str, remote: bool) -> str:
+    """How git reaches a URL word (giturls): http, ssh or other; "" when it is no URL."""
+    scheme, url, _ = word.partition("://")
+    if url:
+        return GIT_SCHEMES.get(scheme, "other")
+    if "::" in word:
+        return "other"
+    return "ssh" if remote and ":" in word.split("/")[0] else ""
+
+
+def _git_unbounded(args: list[str], ssh: bool) -> str:
+    """The GIT_BOUNDS text for the stall bound a git network command lacks, or ""."""
     config, index = {}, 0
     while index < len(args) and args[index].startswith("-"):
         if args[index] == "-c":
@@ -383,9 +401,11 @@ def _git_bounded(args: list[str], ssh: bool) -> bool:
             config[name.lower()] = value
         index += 2 if args[index] in GIT_VALUE_OPTIONS else 1
     low = all(_positive(config.get(name, "")) for name in LOW_SPEED)
-    if any(arg.startswith(("http://", "https://")) for arg in args):
-        return low
-    return ssh or low and not any(arg.startswith(("ssh://", "git@")) for arg in args)
+    rest = args[index + 1:]
+    remote = next((at for at, word in enumerate(rest) if not word.startswith("-")), -1)
+    found = {_transport(word, at == remote) for at, word in enumerate(rest)} - {""}
+    kind = "name" if not found else found.pop() if len(found) == 1 else "other"
+    return "" if {"http": low, "ssh": ssh, "name": ssh or low, "other": False}[kind] else GIT_BOUNDS[kind]
 
 
 def _ssh_export(words: list[str]) -> bool | None:
@@ -434,9 +454,8 @@ def _judge(words: list[str], retried: bool, ssh: bool = False) -> tuple[int, lis
     reasons = [f"{kind} without the retry helper"] if kind and not (wrapped or retried) else []
     if name == "gh" and (wrapped or retried and kind) and not _attempt_bounded(attempt):
         reasons.append(f"{kind or 'gh write'} retried without `timeout -k N N gh`, N above 0, per attempt")
-    if kind and kind.startswith("git ") and not _git_bounded(words[1:], ssh):
-        reasons.append(f"{kind} without a stall bound in effect")
-    return (1 if kind else 0), reasons
+    lacking = _git_unbounded(words[1:], ssh) if kind and kind.startswith("git ") else ""
+    return (1 if kind else 0), reasons + [f"{kind} {lacking}"] * bool(lacking)
 
 
 def _commands(script: str) -> list[tuple[list[str], bool]]:
