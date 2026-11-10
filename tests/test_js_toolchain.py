@@ -26,13 +26,14 @@ ESLint 10 does not read eslintrc. The contracts checked here:
 
 `npm ci` is not exercised here — this file must pass with no `node_modules`
 (the pytest leg runs before either workflow installs). What CI actually
-installs and runs IS the check: eslint over `src/**` on every push, and the
+installs and runs IS the check: eslint on every push, and the
 AST conversion gating the javascript ratchet.
 """
 from __future__ import annotations
 
 import json
 import re
+import shlex
 from pathlib import Path
 
 import yaml
@@ -288,20 +289,28 @@ def test_both_js_gates_install_from_the_lockfile() -> None:
 
 
 def test_eslint_runs_through_npx_no_install() -> None:
-    """The documented local command must keep working unchanged.
+    """The gate takes eslint from the install the local command uses.
 
-    CONTRIBUTING.md and AGENTS.md both tell a contributor to run
-    `npx --no-install eslint 'src/**/*.js' 'src/**/*.jsx'`. `--no-install`
-    resolves the binary from node_modules, so it only works if the install
-    landed at the repository root — the one place the documented command
-    looks.
+    CONTRIBUTING.md tells a contributor to run `npm run lint`, which finds
+    eslint in the root node_modules. `--no-install` resolves the binary
+    from there too, so it only works if the install landed at the
+    repository root.
     """
     runs = _step_runs(_workflow("eslint.yml"))
     lint_steps = [run for run in runs if "eslint" in run and "npm ci" not in run]
     assert lint_steps, "eslint.yml has no lint step"
     assert any("npx --no-install eslint" in run for run in lint_steps), (
-        "eslint.yml no longer runs `npx --no-install eslint`; the local "
-        "command CONTRIBUTING.md documents must match the gate's")
+        "eslint.yml no longer runs `npx --no-install eslint`; the gate must "
+        "take eslint from the root install, as `npm run lint` does")
+
+
+def test_the_gate_step_runs_the_manifest_lint_script() -> None:
+    step, = (run for run in _step_runs(_workflow("eslint.yml"))
+             if "npx --no-install eslint" in run)
+    script = _package()["scripts"]["lint"]
+    assert shlex.split(step) == ["npx", "--no-install", *shlex.split(script)], (
+        f"eslint.yml lints with {step.strip()!r} while `npm run lint` is "
+        f"{script!r}; the gate and the local command must name the same files")
 
 
 def test_flat_config_keeps_the_eslintrc_rule_set() -> None:

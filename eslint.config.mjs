@@ -1,5 +1,5 @@
-// ESLint 10 requires flat config. Browser globals come from globals.browser;
-// cross-file names below reflect classic scripts loaded by public/index.html.
+// ESLint 10 requires flat config. src/ takes browser globals from
+// globals.browser.
 // package.json overrides the plugin's peer range (no --legacy-peer-deps),
 // forces minimatch 11: its minimatch rules can throw.
 import globals from 'globals';
@@ -111,6 +111,17 @@ const CROSS_FILE_GLOBALS = {
   wrapAxisLabel: 'readonly'
 };
 
+// Browser names each script reads in the functions it runs in the page.
+const PAGE_GLOBALS = {
+  feature_surfaces: ['document', 'window'],
+  layout_waits: ['document', 'getComputedStyle', 'requestAnimationFrame', 'requestIdleCallback'],
+  panel_interactions: ['React', 'ReactDOM', 'document', 'getComputedStyle', 'requestAnimationFrame', 'window'],
+  panel_interactions_report: ['HTMLElement', 'document'],
+  panel_layout: ['document', 'window'],
+  panel_layout_rules: ['MutationObserver', 'document', 'getComputedStyle', 'requestAnimationFrame', 'window'],
+  picker_probe: ['MutationObserver', 'cancelAnimationFrame', 'document', 'getComputedStyle', 'requestAnimationFrame'],
+};
+
 export default [
   {
     // `.jsx` is not a default lint target in flat config (only .js/.cjs/.mjs
@@ -137,7 +148,7 @@ export default [
     },
   },
   {
-    files: ['scripts/ci/js_coverage.mjs'],
+    files: ['scripts/ci/*.mjs'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'module',
@@ -148,4 +159,10 @@ export default [
       'no-unused-vars': ['error', { 'caughtErrors': 'none' }],
     },
   },
+  ...Object.entries(PAGE_GLOBALS).map(([script, names]) => ({
+    files: [`scripts/ci/${script}.mjs`],
+    languageOptions: {
+      globals: Object.fromEntries(names.map(name => [name, 'readonly'])),
+    },
+  })),
 ];

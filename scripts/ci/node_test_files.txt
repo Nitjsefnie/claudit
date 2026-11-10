@@ -14,6 +14,7 @@ tests/test_dashboard_latency_pins.py
 tests/test_deferred_js.py
 tests/test_empty_usage_parity.py
 tests/test_env_prefix_scripts.py
+tests/test_eslint_targets_js.py
 tests/test_feature_ui.py
 tests/test_flags.py
 tests/test_heatmap_layout_wiring.py

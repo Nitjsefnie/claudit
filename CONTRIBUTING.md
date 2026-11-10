@@ -244,7 +244,7 @@ python3 -m pytest tests/ -q --cov=backend            # tests (+ coverage)
 git ls-files -co --exclude-standard '*.py' | xargs pylint      # lint, gate 1
 git ls-files -co --exclude-standard '*.py' | xargs pycodestyle # lint, gate 2
 pyright                                                        # types
-npx --no-install eslint 'src/**/*.js' 'src/**/*.jsx'           # eslint
+npm run lint                                                   # eslint
 python3 scripts/ci/smoke.py                                    # smoke
 ```
 

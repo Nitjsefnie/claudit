@@ -592,8 +592,8 @@
     1261
   ],
   "eslint.config.mjs": [
-    813,
-    3844
+    810,
+    4564
   ],
   "scripts/ci/aggregate_gate.py": [
     2695,
@@ -1264,8 +1264,8 @@
     21044
   ],
   "tests/test_js_toolchain.py": [
-    8080,
-    19409
+    8012,
+    19807
   ],
   "tests/test_key_layout.py": [
     951,
