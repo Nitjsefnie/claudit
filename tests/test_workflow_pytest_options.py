@@ -4,7 +4,7 @@ A `run:` command, split by test_workflow_fetch_retry.py's lexer, runs
 pytest when a word is `pytest` or `py.test`, bare, by path or joined to an
 option cluster's `m` (`-mpytest`); `pip install pytest` counts too. It
 fails without `--durations` (`=N` or ` N`) or `-o faulthandler_timeout=N`,
-N whole seconds above 0, and with `no:faulthandler` in a word (that `-p`
+N in digits above 0, and with `no:faulthandler` in a word (that `-p`
 value turns the dump off). Every word naming faulthandler_timeout must be
 that pair: pytest takes a name's last override, so `-oNAME=N`,
 `--override-ini` or a 0 anywhere fails.
@@ -25,7 +25,7 @@ from tests.workflow_checks import ROOT
 
 PYTEST = {"pytest", "py.test"}
 STALL = "faulthandler_timeout"
-NO_DUMP = "pytest without `-o faulthandler_timeout=N`, N whole seconds above 0"
+NO_DUMP = "pytest without `-o faulthandler_timeout=N`, N in digits above 0"
 NO_DURATIONS = "pytest without `--durations`"
 NO_PLUGIN = "pytest with `no:faulthandler`, which turns the dump off"
 KNOWN = {(".github/workflows/tests.yml", "pytest-shards"),
@@ -115,6 +115,7 @@ REFUSED = {
     "no timeout": (RUN + "--durations=20", [[NO_DUMP]]),
     "no durations": (RUN + "-o faulthandler_timeout=240", [[NO_DURATIONS]]),
     "timeout 0": (RUN + "-o faulthandler_timeout=0 --durations=20", [[NO_DUMP]]),
+    "timeout with a sign": (RUN + "-o faulthandler_timeout=+240 --durations=20", [[NO_DUMP]]),
     "timeout with a unit": (RUN + "-o faulthandler_timeout=240s --durations=20", [[NO_DUMP]]),
     "timeout in a variable": (RUN + '-o "faulthandler_timeout=$LIMIT" --durations=20', [[NO_DUMP]]),
     "timeout without a value": (RUN + "-o faulthandler_timeout --durations=20", [[NO_DUMP]]),
