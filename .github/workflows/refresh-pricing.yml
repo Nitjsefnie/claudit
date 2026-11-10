@@ -221,7 +221,7 @@ jobs:
       - name: Run tests
         run: |
           # shellcheck disable=SC2046
-          python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra
+          python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra -o faulthandler_timeout=240 --durations=20
 
   stage:
     needs: [refresh, suite]

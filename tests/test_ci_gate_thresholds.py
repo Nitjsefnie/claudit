@@ -162,7 +162,8 @@ def test_shards_cover_four_partitions_and_publish_even_after_failure():
     commands = [line for line in run['run'].splitlines() if not line.startswith('#')]
     assert commands == [
         'python -m pytest $(python3 scripts/ci/pytest_shards.py '
-        '--shard ${{ matrix.shard }} --of 4) -q --tb=short -ra --cov=backend --cov-report=']
+        '--shard ${{ matrix.shard }} --of 4) -q --tb=short -ra -o faulthandler_timeout=240 '
+        '--durations=20 --cov=backend --cov-report=']
     assert run['env']['COVERAGE_FILE'] == (
         '${{ github.workspace }}/shard-coverage/.coverage.${{ matrix.shard }}')
     upload, = [step for step in job['steps']
@@ -384,4 +385,5 @@ def test_thresholds_job_selects_threshold_checks_without_coverage(tmp_path):
     listed = (ROOT / 'scripts/ci/thresholds_test_files.txt').read_text().splitlines()
     files = [line for line in listed if line and not line.startswith('#')]
     assert files
-    assert capture.read_text().splitlines() == ['-m', 'pytest', *files, '-q', '--tb=short', '-ra']
+    assert capture.read_text().splitlines() == [
+        '-m', 'pytest', *files, '-q', '--tb=short', '-ra', '-o', 'faulthandler_timeout=240', '--durations=20']

@@ -39,7 +39,7 @@ runs:
         # The list names the node-using tests (grep -lF '["node"' tests/*.py).
         # Split each listed path into a pytest argument.
         # shellcheck disable=SC2046
-        python -m pytest $(cat scripts/ci/node_test_files.txt) -q --no-header
+        python -m pytest $(cat scripts/ci/node_test_files.txt) -q --no-header -o faulthandler_timeout=240 --durations=20
         floor="$(python3 scripts/ci/thresholds.py --coverage-floor javascript)"
         if [ -z "$floor" ]; then
           echo "no coverage.javascript calibration recorded — seeded on master"
