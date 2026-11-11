@@ -15,8 +15,10 @@ npm-exec(1) installs what it runs when missing, unless it names nothing to
 run (no word that is no option, no `--package` or `-p` option) or the last
 option before its first word that is no option (for `npm exec`, options
 before `exec` too) is `--no`, `--no-yes`, `--yes=false`, `--offline` or,
-converted to `--no` by the npx binary alone, `--no-install`. A held npx
-still asks the registry about a package it lacks, then fails. The `--` that
+converted to `--no` by the npx binary alone, `--no-install`, and no option
+after that word and before a literal `--` is a `--yes` (but `--yes=false`)
+or a single-dash cluster holding `y`. A held npx still asks the registry
+about a package it lacks, then fails. The `--` that
 ends a prefix command's options is skipped, so the command after it is
 judged as without it.
 
@@ -140,6 +142,8 @@ ACCEPTED = {
     "npx held by --yes=false": "npx --yes=false eslint src",
     "npx held offline": "npx --offline eslint src",
     "npx held after a --yes": "npx --yes --no eslint src",
+    "npx held, --yes after --": "npx --no eslint src -- --yes",
+    "npm exec held, --yes=false after it": "npm exec --no eslint src --yes=false",
     "npx naming nothing to run": "npx --version",
     "npx by the helper, bounded": "scripts/ci/retry.sh timeout -k 5 120 npx eslint src",
     "npm exec held by --no": "npm exec --no eslint src",
@@ -211,6 +215,9 @@ REFUSED = {
     "npx by the helper, no timeout": ("scripts/ci/retry.sh npx eslint src", [NPX_UNBOUNDED]),
     "npx bounded, no helper": ("timeout -k 5 120 npx eslint src", [NPX_UNRETRIED]),
     "npx held, then --yes": ("npx --no --yes eslint src", [NPX_UNRETRIED, NPX_UNBOUNDED]),
+    "npx held, --yes after the package": ("npx --no eslint src --yes", [NPX_UNRETRIED, NPX_UNBOUNDED]),
+    "npm exec held, --yes=true after it": ("npm exec --no eslint src --yes=true", [NPX_UNRETRIED, _npm("exec")]),
+    "npm exec held, -qy after it": ("npm exec --no eslint src -qy", [NPX_UNRETRIED, _npm("exec")]),
     "npx naming a package by option": ("npx --package=eslint", [NPX_UNRETRIED, NPX_UNBOUNDED]),
     "npx naming a package by -p": ("npx -p=eslint", [NPX_UNRETRIED, NPX_UNBOUNDED]),
     "npm x nothing holds": ("npm x eslint src", [NPX_UNRETRIED, _npm("exec")]),
