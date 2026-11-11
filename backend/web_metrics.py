@@ -317,9 +317,9 @@ def fold_read_from(conn, now: datetime) -> datetime:
     """Oldest instant the fold may read: the retention cutoff or oldest beacon.
 
     After a stall, the nominal cutoff can fall inside a closed bucket and
-    freeze tail-only percentiles with ON CONFLICT DO NOTHING. Reach back
-    to the oldest surviving beacon; refuse any bucket still unreadable
-    in full. Missing beacons cannot be recovered by widening the window.
+    freeze tail-only percentiles. Reach back to the oldest surviving beacon;
+    refuse any bucket still unreadable in full. Missing beacons cannot be
+    recovered by widening the window.
 
     Prune at the retention cutoff, never this widened read bound, so the
     next pass returns to its nominal working set. A longer stall requires
@@ -337,8 +337,8 @@ def rollup_horizon(now: datetime) -> datetime:
 
     `now`, and the reason is the sink rather than a policy choice: it stamps
     every beacon's `ts` server-side, so a bucket whose span has passed can
-    never still gain a member. A bucket is stored once, whole, and never
-    revised -- the fold that closes it writes it, the next leaves it alone.
+    never still gain a member. A later fold that still reads it whole
+    rewrites it only when its beacons were removed or corrected.
     """
     return now
 

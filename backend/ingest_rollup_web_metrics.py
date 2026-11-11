@@ -4,8 +4,9 @@ Source rows are beacons, never records, so scope is the bounded raw retention
 window. Store one row per display width because percentiles do not compose;
 total does compose, for cumulative shift and long-task totals.
 
-Only closed buckets read in full may be stored or revised. Partial windows
-would permanently freeze tail-only percentiles. RAW_KEEP_S includes TWO widest
+Each fold recomputes the closed buckets it reads in full; a bucket starting
+below read_from (its beacons pruned) cannot be rebuilt and stays as stored, as
+partial windows would freeze tail-only percentiles. RAW_KEEP_S includes TWO widest
 bucket widths plus a fold interval so a newly closed bucket is fully readable.
 For stalled folds, read back to the oldest surviving beacon and still refuse
 incomplete spans. DELETE and INSERT must use the same span bound
@@ -49,14 +50,13 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> tuple[int, int]:
       rebuild it from rows the prune had already taken.
     * **Store only buckets the window READS WHOLE.** `read_from` is the
       oldest row on the table, and a bucket starting below it has beacons the
-      fold cannot see — so the row would be a tail, not a bucket. There is no
-      marker distinguishing the two and `DO NOTHING` never revises, so a tail
-      would sit in the history for ever looking like a fact. Refusing is the
+      fold cannot see — so the row would be a tail, not a bucket. Nothing
+      marks a tail and no later fold reads it whole, so it would sit in the
+      history for ever looking like a fact. Refusing is the
       honest half of the rule; `web_metrics.fold_read_from` is the half that
       keeps the refusal rare.
-    * **The DELETE bound is the same expression as the INSERT's filter.** A
-      bucket is either stored whole or not at all, and the two cannot
-      disagree about which.
+    * **The DELETEs and the INSERT share one filter**, so a bucket is
+      stored whole or not at all.
     * **`read_from` is a full bucket width plus a fold interval behind the
       horizon**, which is what makes a bucket closing on THIS fold readable
       in full rather than merely probably readable.
@@ -67,6 +67,8 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> tuple[int, int]:
         DELETE FROM web_metrics_rollup
          WHERE bucket_s = {bucket_width} AND bucket > %s
         """), (closed_through,))
+    covered = (f"bucket <= %(closed)s AND EXTRACT(EPOCH FROM bucket)"
+               f" - {bucket_width} / 2.0 >= EXTRACT(EPOCH FROM %(read_from)s)")
     cur = conn.execute(
         db.sql_text(f"""
         WITH bands AS (
@@ -79,33 +81,36 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> tuple[int, int]:
                  PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY w.value) AS p75,
                  SUM(w.value) AS total
             FROM web_metrics w
-           WHERE w.ts >= %s
+           WHERE w.ts >= %(read_from)s
            GROUP BY 1, 2, 3, 4, 5
+        ), emptied AS (
+          DELETE FROM web_metrics_rollup
+           WHERE bucket_s = {bucket_width} AND {covered}
+             AND (bucket, {_GRAIN}) NOT IN (SELECT bucket, {_GRAIN} FROM bands)
         )
         INSERT INTO web_metrics_rollup
           (bucket_s, bucket, metric, part, region, phase, n, p50, p75, total)
         SELECT {bucket_width}, bucket, metric, part, region, phase,
                n, p50, p75, total
           FROM bands
-         WHERE bucket <= %s
-           -- The span the window has to cover, in the midpoint the table
-           -- stores: `epoch(bucket) - W/2 >= epoch(read_from)` IS
+           -- Closed, and the span the window has to cover, in the midpoint
+           -- the table stores: `epoch(bucket) - W/2 >= epoch(read_from)` IS
            -- `s >= read_from`. A bucket below it cannot be read whole, and a
-           -- short row is indistinguishable from a whole one, so it is not
-           -- stored at all. A LATER pass -- whose window reaches further back
-           -- while the beacons are still there -- stores it whole; and if
-           -- they are gone by then it stays absent, which is a gap a reader
-           -- can see and a short row is not.
-           AND EXTRACT(EPOCH FROM bucket) - {bucket_width} / 2.0
-               >= EXTRACT(EPOCH FROM %s)
-        -- A closed bucket is written once and never revised, so a fold that
-        -- finds one already stored is a fold whose window reached back over
-        -- a boundary it has no business re-reading. The stored row is the
-        -- one that was complete when it was written; skipping is what makes
-        -- the "stored whole, or not at all" invariant hold.
+           -- short row is indistinguishable from a whole one, so it is
+           -- neither stored nor rebuilt. A LATER pass -- whose window reaches
+           -- further back while the beacons are still there -- stores it
+           -- whole; and if they are gone by then it stays absent, which is a
+           -- gap a reader can see and a short row is not.
+         WHERE {covered}
+        -- Rewrite only a row whose raw rows changed since it was stored.
         ON CONFLICT (bucket_s, bucket, metric, part, region, phase)
-        DO NOTHING
-        """), (read_from, closed_through, read_from))
+        DO UPDATE SET (n, p50, p75, total) = (EXCLUDED.n, EXCLUDED.p50,
+                                              EXCLUDED.p75, EXCLUDED.total)
+         WHERE (web_metrics_rollup.n, web_metrics_rollup.p50,
+                web_metrics_rollup.p75, web_metrics_rollup.total)
+               IS DISTINCT FROM (EXCLUDED.n, EXCLUDED.p50,
+                                 EXCLUDED.p75, EXCLUDED.total)
+        """), {"read_from": read_from, "closed": closed_through})
     return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0, \
         _refused(conn, bucket_width, horizon, read_from)
 

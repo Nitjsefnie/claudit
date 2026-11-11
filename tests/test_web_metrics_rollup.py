@@ -68,9 +68,8 @@ def test_rollup_folds_exact_percentiles_and_the_sum(viz, pinned):
 
 
 # --- closed-bucket semantics --------------------------------------------
-# Store a bucket once, whole, when its closing fold runs. Rewriting a closed
-# bucket from a narrower moving window would replace its percentile with a
-# partial population, so backfilled data must not revise the closed fact.
+# Store a closed bucket whole. A fold recomputes only buckets it reads whole;
+# one starting below read_from keeps its stored row.
 
 
 @pytest.fixture(name="short_horizon")
@@ -107,27 +106,62 @@ def _rollup_rows(viz, width):
                 (width,)).fetchall()}
 
 
-def test_a_stored_bucket_is_never_revised(viz, short_horizon):
-    """A closed bucket is written once. Later beacons must not move it.
+def _delete_beacons(column, value):
+    with db.viz_conn() as conn:
+        conn.execute(db.sql_text(
+            f"DELETE FROM web_metrics WHERE {column} = %s"), (value,))
+        conn.commit()
 
-    This is the exact shape of the defect: the old fold rewrote the bucket on
-    every pass with a narrower slice, so its median walked forward to whatever
-    the last slice happened to contain.
-    """
+
+def test_a_covered_bucket_follows_its_raw_rows(viz, short_horizon):
+    """Deleting a beacon still in the raw window corrects its closed bucket."""
     base = datetime(2026, 3, 2, 0, 0, 0, tzinfo=timezone.utc)
-    _seed([0.0], ts=base)                      # 00:00-00:59
+    _seed([1.0, 2.0, 9.0], ts=base)                   # 00:00-00:59
     _fold_at(base + timedelta(hours=3, minutes=30))   # closes the 00:00 hour
     closed = _rollup_rows(viz, 3600)
     assert len(closed) == 1
     bucket, before = next(iter(closed.items()))
-    assert before == (1, 0.0, 0.0, 0.0), before
+    assert before == (3, 2.0, 5.5, 12.0), before
 
-    # More beacons land in the same already-closed hour -- a late beacon, a
-    # backfill, a clock that moved. The stored row must not see them.
-    _seed([23.0, 23.0, 23.0], ts=base + timedelta(minutes=10))
+    _delete_beacons("value", 9.0)
     _fold_at(base + timedelta(hours=5))
-    assert _rollup_rows(viz, 3600)[bucket] == before, (
-        "a stored bucket was revised by beacons that arrived after it closed")
+    assert _rollup_rows(viz, 3600)[bucket] == (2, 1.5, 1.75, 3.0), (
+        "a closed bucket the fold reads whole kept a deleted beacon")
+
+
+def test_a_covered_grain_with_no_beacons_left_loses_its_row(
+        viz, short_horizon):
+    """Removing a grain's every beacon removes its row, not its neighbour's."""
+    base = datetime(2026, 3, 2, 0, 0, 0, tzinfo=timezone.utc)
+    _seed([4.0], ts=base)
+    with db.viz_conn() as conn:
+        conn.execute(
+            "INSERT INTO web_metrics (ts, user_id, metric, part, region, "
+            "phase, value) VALUES (%s, 7, 'longtask', 'block', '', "
+            "'sse_update', 250.0)", (base,))
+        conn.commit()
+    _fold_at(base + timedelta(hours=3, minutes=30))
+    _delete_beacons("metric", "dashboard_open")
+    _fold_at(base + timedelta(hours=5))
+    with db.viz_conn() as conn:
+        grains = conn.execute(
+            "SELECT metric, n FROM web_metrics_rollup "
+            "WHERE bucket_s = 3600").fetchall()
+    assert grains == [("longtask", 1)], grains
+
+
+def test_an_unchanged_covered_bucket_is_not_rewritten(viz, short_horizon):
+    """A refold that recomputes the same numbers leaves the row's tuple."""
+    base = datetime(2026, 3, 2, 0, 0, 0, tzinfo=timezone.utc)
+    _seed(_VALUES, ts=base)
+    _fold_at(base + timedelta(hours=3, minutes=30))
+    query = "SELECT xmin::text FROM web_metrics_rollup WHERE bucket_s = 3600"
+    with db.viz_conn() as conn:
+        before = conn.execute(query).fetchall()
+    _fold_at(base + timedelta(hours=5))
+    with db.viz_conn() as conn:
+        after = conn.execute(query).fetchall()
+    assert len(before) == 1 and after == before, (before, after)
 
 
 def test_no_open_bucket_is_ever_stored(viz, short_horizon):
@@ -380,11 +414,11 @@ def _closing_horizon_fixture(monkeypatch):
 
 def test_the_fold_that_closes_a_bucket_stores_all_of_it(
         viz, closing_horizon):
-    """A bucket must be whole at its closing fold and remain immutable.
+    """A bucket must be whole at its closing fold and stay so.
     The read window spans two widths so the initial closed row includes every
     beacon. A later fold cannot repair a partial row after the moving window
-    has cut off its missing portion. Fold at closure and again at later instants,
-    including a backfilled beacon in the closed bucket; the row must not change."""
+    has cut off its missing portion. Fold at closure and at later instants;
+    the row must not change."""
     # The shipped value, asserted before the behaviour: the fixture above
     # derives its window FROM `RAW_KEEP_S`, so narrowing the constant narrows
     # the fixture with it and this case would stay green. What was wrong was
@@ -415,9 +449,7 @@ def test_the_fold_that_closes_a_bucket_stores_all_of_it(
         f"read window reached back only one width and the oldest were cut off")
     assert total == sum(float(h) for h in range(24)), total
 
-    # And it stays whole: folds at the boundary, an hour later, and a day
-    # later, with a backfill beacon inside the closed bucket in between.
-    _seed([999.0], ts=base + timedelta(hours=2))
+    # And it stays whole: folds at the boundary, an hour later, and a day later.
     for later in (1, 2, 24, 400):
         _fold_at(now + timedelta(hours=later))
         after = _rollup_rows(viz, 86400)
@@ -472,6 +504,28 @@ def test_a_stalled_fold_stores_whole_buckets(viz, closing_horizon):
         _fold_at(stalled + timedelta(hours=later))
         assert _rollup_rows(viz, 86400) == rows, (
             f"a fold {later}h after the stall changed a stored day bucket")
+
+
+def test_a_bucket_starting_below_read_from_is_left_as_stored(
+        viz, closing_horizon):
+    """The stalled fold stores the day bucket whole and prunes its first six
+    hours, so the next fold reads from past its start and must leave it."""
+    base = datetime(2026, 6, 22, 0, 0, 0, tzinfo=timezone.utc)
+    for hour in range(24):
+        _seed([float(hour)], ts=base + timedelta(hours=hour))
+    _fold_at(base + timedelta(hours=60))
+    day = _rollup_rows(viz, 86400)
+    assert [n for n, _p50, _p75, _total in day.values()] == [24], day
+    assert len(_rollup_rows(viz, 3600)) == 24
+
+    _delete_beacons("value", 12.0)
+    _fold_at(base + timedelta(hours=61))
+    assert _rollup_rows(viz, 86400) == day, (
+        "a bucket starting below read_from was rebuilt from its tail")
+    # Witness: hour 12 lost its row; pruned hours 0-5 kept theirs.
+    hourly = {b - timedelta(minutes=30) for b in _rollup_rows(viz, 3600)}
+    assert hourly == {base + timedelta(hours=h)
+                      for h in range(24) if h != 12}, sorted(hourly)
 
 
 def test_a_bucket_the_fold_cannot_read_whole_is_not_stored(viz,
