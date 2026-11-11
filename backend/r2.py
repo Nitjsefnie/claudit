@@ -13,7 +13,7 @@ import re
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Iterable, Iterator, NamedTuple
+from typing import Callable, Iterable, Iterator, NamedTuple
 from urllib.parse import urlparse
 
 import boto3.session
@@ -292,20 +292,20 @@ def _list_keys_s3(bucket: str, prefix: str) -> Iterator[R2Object]:
             )
 
 
-def list_keys(prefix: str = "",
-              split_points: Iterable[str] = ()) -> Iterator[R2Object]:
+def list_keys(prefix: str = "", split_points: Callable[[], Iterable[str]] = tuple
+              ) -> Iterator[R2Object]:
     """List every configured bucket, keys qualified with their bucket.
 
     `prefix`, when given, applies to the QUALIFIED key and must name the
-    bucket segment (e.g. 'claude/projA/'): a bucket the prefix does not
-    name is not listed at all, so a shared-prefix listing stays exact
-    rather than over-listing that bucket.
+    bucket segment (e.g. 'claude/projA/'): a bucket it does not name is
+    not listed, so a shared-prefix listing stays exact. File mode and
+    prefix listings never call `split_points`.
     """
     file_mode, root = _is_file_mode()
     names = buckets()
     if not file_mode and not prefix:
         splits: dict[str, list[str]] = {}
-        for key in split_points:
+        for key in split_points():
             bucket, object_key = split_key(key)
             splits.setdefault(bucket, []).append(object_key)
         yield from (R2Object(*row) for row in r2_list.list_keys(names, _boto_client, splits))
@@ -356,7 +356,7 @@ def get_object(key: str, etag: str | None = None,
         blob_cache.store(key, etag, data)
     # Bucket objects may be stored per-object xz-compressed (`*.jsonl.xz`).
     # Inflate transparently so callers (ingest, transcript serving) always
-    # see the plain JSONL bytes. xz is stdlib (`lzma`) — no extra dependency.
+    # see the plain JSONL bytes.
     # The inflate wall is stamped onto this thread's accumulator when the
     # timing flag is on (the ingest pool children split the
     # fetch wall into GET and decompress via pop_decompress_seconds); the

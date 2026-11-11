@@ -124,7 +124,7 @@ def _scan_objects() -> tuple[list[_Wire], list[tuple[str, str, str]]]:
     marker_items: list[tuple[str, str, str]] = []
     sidecars: dict[tuple[str, str | None], r2.R2Object] = {}
     with _timed_step("list"):
-        for obj in r2.list_keys(split_points=_split_points()):
+        for obj in r2.list_keys(split_points=_split_points):
             bucket, object_key = r2.split_key(obj.key)
             marker_project = key_layout.project_marker(object_key)
             if marker_project is not None:

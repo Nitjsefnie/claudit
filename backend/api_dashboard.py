@@ -121,15 +121,12 @@ def _churn_source(project: str | None, model: str | None,
 def _response_size_source(project: str | None, model: str | None,
                           since: datetime, bucket_s: int,
                           use_rollup: bool) -> dict[str, Any]:
-    """The (bucket, model, n, p50, p90) source for response_sizes.
-
-    Percentiles do not compose, so the rollup is stored once per width in
-    LATENCY_BUCKETS, with its all-projects row at project_id ''; other
-    widths run the live pass over the text-bearing canonical records."""
+    """response_sizes' rows: the per-width rollup (percentiles do not
+    compose; all projects at project_id ''), else the live pass."""
     model_filter = "AND dmm.value LIKE %s" if model else ""
     model_args = [f"%{model}%"] if model else []
     if use_rollup:
-        # Serves the first in-range bucket whole, as latency_from_rollup does.
+        # The first in-range bucket is served whole, like latency_from_rollup.
         return {"size_src": f"""
             FROM (SELECT s.bucket, dmm.value AS model, s.n, s.p50, s.p90
                     FROM response_size_rollup s JOIN dim_model dmm ON dmm.id = s.model_id JOIN projects pj ON pj.proj_id = s.proj_id
@@ -140,9 +137,8 @@ def _response_size_source(project: str | None, model: str | None,
                      {model_filter}) s
         """, "size_args": [project or "", since, *model_args]}
     proj_filter = "AND f.project_id = %s" if project else ""
-    # Ingest resolves cross-file uuid dedup into records.is_canonical.
-    # Reads filter that flag through records_canonical_ts_idx, avoiding
-    # per-request sorting and a shared materialized temp table.
+    # Ingest-resolved is_canonical via records_canonical_ts_idx: no
+    # per-request sort or shared temp table.
     return {"size_src": f"""
         FROM (SELECT to_timestamp(
                        floor(EXTRACT(EPOCH FROM d.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
@@ -209,9 +205,8 @@ def dashboard_route(
     get the same payload MINUS those two keys: per-project names/costs/
     tokens are exactly what the guest gates on /api/projects and on
     project= exist to withhold (see session.auth_middleware), and
-    /api/dashboard is guest-accessible. The dict comprehension copies
-    rather than mutating so the cached object stays intact for later
-    non-guest hits."""
+    /api/dashboard is guest-accessible. Copy, never mutate: the cached
+    object serves later non-guest hits."""
     payload = dashboard(rng=rng, project=project, model=model, fresh=fresh)
     if bool(getattr(request.state, "is_guest", False)):
         payload = {k: v for k, v in payload.items()
@@ -228,9 +223,8 @@ def dashboard(
 ) -> dict:
     """Hourly aggregates + per-session burns + per-session ctx_at_end.
 
-    Cross-file uuid dedup is resolved at ingest into
-    records.is_canonical (ingest.recompute_canonical); the queries here
-    just filter that boolean. Legacy
+    Queries filter records.is_canonical (ingest.recompute_canonical).
+    Legacy
     NULL-uuid rows are kept verbatim and always canonical.
     `model=opus-4-7` filters the deduped body so every panel derived
     from it is constrained to records matching the model substring.
