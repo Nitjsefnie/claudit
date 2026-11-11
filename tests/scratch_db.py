@@ -201,7 +201,7 @@ def create_database(label: str, schema=SCHEMA) -> str:
             itertools.chain.from_iterable(("-f", str(f)) for f in files))
         proc = subprocess.run(
             ["psql", "-q", "-X", "-v", "ON_ERROR_STOP=1", "-d", name,
-             *file_args], input=ddl, capture_output=True, text=True, check=False)
+             *file_args], input=ddl, capture_output=True, text=True, encoding="utf-8", check=False)
         if proc.returncode:
             raise RuntimeError(f"applying schema to {name} failed:\n{proc.stderr}")
     return name
