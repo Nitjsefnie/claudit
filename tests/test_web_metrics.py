@@ -319,6 +319,15 @@ def test_a_guest_ceiling_is_lower_than_a_named_one_s(viz):
     assert web_metrics.MAX_ROWS_PER_GUEST < web_metrics.MAX_ROWS_PER_USER
 
 
+@pytest.mark.parametrize("ceiling, pre_split", [
+    ("MAX_ROWS_PER_USER", 20_000), ("MAX_ROWS_PER_GUEST", 2_000)])
+def test_a_ceiling_fits_as_many_dashboard_opens_as_before_the_split(
+        ceiling, pre_split):
+    rows_per_open = len(web_metrics.METRIC_PARTS["dashboard_open"])
+    opens_before = pre_split // len(web_metrics.TIMING_PARTS)
+    assert getattr(web_metrics, ceiling) // rows_per_open >= opens_before
+
+
 def test_the_readout_discloses_the_guest_share(viz, pinned, client):
     """Disclosure, not exclusion.
 
