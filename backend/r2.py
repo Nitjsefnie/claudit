@@ -20,7 +20,7 @@ import boto3.session
 from botocore.config import Config
 
 from backend.env_config import getenv, require_env
-from backend import blob_cache, r2_list, timing
+from backend import blob_cache, r2_list, r2_list_timing, timing
 
 # S3 bucket-name grammar: 3-63 chars of lowercase letters, digits and
 # hyphens, starting and ending letter/digit. R2 follows the same rules.
@@ -304,11 +304,14 @@ def list_keys(prefix: str = "", split_points: Callable[[], Iterable[str]] = tupl
     file_mode, root = _is_file_mode()
     names = buckets()
     if not file_mode and not prefix:
+        timer = r2_list_timing.ListTiming(names) if r2_list_timing.LIST_TIMING_ON else None
         splits: dict[str, list[str]] = {}
         for key in split_points():
             bucket, object_key = split_key(key)
             splits.setdefault(bucket, []).append(object_key)
-        yield from (R2Object(*row) for row in r2_list.list_keys(names, _boto_client, splits))
+        if timer is not None:
+            timer.splits_read()
+        yield from (R2Object(*row) for row in r2_list.list_keys(names, _boto_client, splits, timer))
         return
     multi = len(names) > 1
     for bucket in names:

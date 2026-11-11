@@ -367,7 +367,7 @@ def test_the_scan_splits_each_configured_bucket_at_every_nth_stored_key(
                           (f"{bucket}/{key}",))
     seen: list[dict[str, list[str]]] = []
     monkeypatch.setattr(ingest_scan, "LIST_SPLIT_EVERY", 2)
-    monkeypatch.setattr(r2_list, "list_keys", lambda names, factory, splits: seen.append(
+    monkeypatch.setattr(r2_list, "list_keys", lambda names, factory, splits, timer: seen.append(
         {b: sorted(keys) for b, keys in splits.items()}) or [])
     _scan_objects()
     assert seen == [{b: sorted(sorted(stored[b], key=str.encode)[1::2])
