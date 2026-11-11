@@ -605,8 +605,7 @@
       "ModelRun",
       "OpenInference",
       "Phala",
-      "River",
-      "Tenstorrent"
+      "River"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
@@ -671,8 +670,7 @@
     "mimo-v2-6-flash": [
       "Io Net",
       "Novita",
-      "Relace",
-      "Tenstorrent"
+      "Relace"
     ],
     "mimo-v2-6-pro": [
       "Novita"
