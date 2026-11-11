@@ -207,6 +207,7 @@ ACCEPTED = {
     "pip by the helper": "scripts/ci/retry.sh pip install -r backend/requirements.txt",
     "playwright by the helper, bounded": "scripts/ci/retry.sh timeout -k 5 60 npx --no-install playwright install chromium",
     "playwright's dependency dry run": "timeout -k 5 10 npx --no-install playwright install-deps --dry-run chromium",
+    "playwright neither installing": "npx --no-install playwright --version",
     "playwright's dependency install by the helper, bounded": (
         "scripts/ci/retry.sh timeout -k 5 300 npx --no-install playwright install-deps chromium"),
     "apt-get update steering a loop, bounded under sudo": LOOP.format(APT_UPDATE.format("timeout -k 5 15 ")),
