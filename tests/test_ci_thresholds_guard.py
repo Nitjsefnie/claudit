@@ -532,6 +532,7 @@ def test_feature_range_admits_budget_raise(judged_base_path, monkeypatch):
 def test_non_feature_range_refuses_raise_and_names_remedy(judged_base_path, monkeypatch, capsys):
     for subject in [
         "fix: trim work",
+        "fix(api): trim work",
         "chore: tidy",
         "perf: optimise",
         "feature: new path",
