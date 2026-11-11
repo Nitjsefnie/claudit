@@ -56,8 +56,8 @@
     8253
   ],
   ".github/workflows/eslint.yml": [
-    963,
-    1591
+    962,
+    1607
   ],
   ".github/workflows/gate-freshness.yml": [
     2256,
@@ -592,8 +592,8 @@
     1261
   ],
   "eslint.config.mjs": [
-    810,
-    4564
+    809,
+    4583
   ],
   "scripts/ci/aggregate_gate.py": [
     2695,
@@ -604,8 +604,8 @@
     15014
   ],
   "scripts/ci/commit_scopes.py": [
-    5745,
-    11591
+    5342,
+    11953
   ],
   "scripts/ci/diff_coverage.py": [
     2549,
@@ -624,8 +624,8 @@
     11129
   ],
   "scripts/ci/gate_trigger_set.py": [
-    3795,
-    7261
+    3751,
+    7247
   ],
   "scripts/ci/js_comment_tokens.mjs": [
     1251,
@@ -1108,16 +1108,12 @@
     19504
   ],
   "tests/test_ci_thresholds_guard.py": [
-    3920,
-    19507
+    3646,
+    18374
   ],
   "tests/test_cold_load_legs.py": [
     1696,
     4876
-  ],
-  "tests/test_commit_scopes.py": [
-    1424,
-    7431
   ],
   "tests/test_cost_buckets.py": [
     4172,
@@ -1204,8 +1200,8 @@
     12112
   ],
   "tests/test_gate_trigger_set.py": [
-    1181,
-    5057
+    1156,
+    5165
   ],
   "tests/test_heatmap_layout_wiring.py": [
     1078,
@@ -1264,8 +1260,8 @@
     21044
   ],
   "tests/test_js_toolchain.py": [
-    7696,
-    19252
+    7694,
+    19260
   ],
   "tests/test_key_layout.py": [
     951,
