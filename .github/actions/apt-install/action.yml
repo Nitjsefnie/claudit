@@ -24,15 +24,26 @@ runs:
         CLAUDIT_APT_PACKAGES: ${{ inputs.packages }}
       run: |
         set -euo pipefail
+        # How a bounded command ended: timeout(1) exits 124 when its bound expires, 137 when -k had to kill.
+        outcome() {
+          case "$1" in
+            124|137) echo "timed out after $2 s" ;;
+            *) echo "exited with status $1" ;;
+          esac
+        }
         echo "==> reading requested packages"
         read -r -a packages <<< "$CLAUDIT_APT_PACKAGES"
         for attempt in 1 2; do
           echo "==> apt-get update (attempt $attempt/2)"
-          if sudo timeout -k 5 15 apt-get update -qq -o APT::Update::Error-Mode=any -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10; then
+          if sudo timeout -k 5 15 apt-get update -q -o APT::Update::Error-Mode=any -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10; then
             break
+          else
+            status=$?
           fi
+          ended="$(outcome "$status" 15)"
+          echo "==> apt-get update attempt $attempt $ended"
           if [ "$attempt" -eq 2 ]; then
-            echo "::error::apt-get update failed after 2 attempts" >&2
+            echo "::error::apt-get update failed after 2 attempts; the last $ended" >&2
             exit 1
           fi
           echo "==> waiting 5 seconds before retrying apt-get update"
@@ -40,11 +51,15 @@ runs:
         done
         for attempt in 1 2; do
           echo "==> downloading $CLAUDIT_APT_PACKAGES (attempt $attempt/2)"
-          if sudo env DEBIAN_FRONTEND=noninteractive timeout -k 5 40 apt-get install --download-only --no-install-recommends -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 "${packages[@]}"; then
+          if sudo env DEBIAN_FRONTEND=noninteractive timeout -k 5 40 apt-get install --download-only --no-install-recommends -y -q -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 "${packages[@]}"; then
             break
+          else
+            status=$?
           fi
+          ended="$(outcome "$status" 40)"
+          echo "==> apt-get install --download-only attempt $attempt $ended"
           if [ "$attempt" -eq 2 ]; then
-            echo "::error::downloading $CLAUDIT_APT_PACKAGES failed after 2 attempts" >&2
+            echo "::error::downloading $CLAUDIT_APT_PACKAGES failed after 2 attempts; the last $ended" >&2
             exit 1
           fi
           echo "==> waiting 5 seconds before retrying the download"
@@ -55,19 +70,27 @@ runs:
           echo "==> installing $CLAUDIT_APT_PACKAGES from the download cache (attempt $attempt/2)"
           if sudo env DEBIAN_FRONTEND=noninteractive timeout -k 5 50 apt-get install --no-download --no-install-recommends -y -qq -o DPkg::Lock::Timeout=30 "${packages[@]}"; then
             break
+          else
+            status=$?
           fi
+          ended="$(outcome "$status" 50)"
+          echo "==> apt-get install --no-download attempt $attempt $ended"
           if [ "$attempt" -eq 2 ]; then
-            echo "::error::apt-get install failed after 2 attempts" >&2
+            echo "::error::apt-get install failed after 2 attempts; the last $ended" >&2
             exit 1
           fi
           echo "==> waiting 5 seconds before retrying apt-get install"
           sleep 5
           echo "==> waiting for a dpkg left running by the abandoned attempt"
-          if ! sudo timeout -k 5 15 apt-get check -qq -o DPkg::Lock::Timeout=10; then
-            echo "::warning::apt-get check reported a busy dpkg lock or an interrupted dpkg"
+          status=0
+          sudo timeout -k 5 15 apt-get check -qq -o DPkg::Lock::Timeout=10 || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::apt-get check $(outcome "$status" 15)"
           fi
           echo "==> recovering an interrupted dpkg"
-          if ! sudo env DEBIAN_FRONTEND=noninteractive timeout -k 5 45 dpkg --configure -a; then
-            echo "::warning::dpkg --configure -a failed"
+          status=0
+          sudo env DEBIAN_FRONTEND=noninteractive timeout -k 5 45 dpkg --configure -a || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::dpkg --configure -a $(outcome "$status" 45)"
           fi
         done

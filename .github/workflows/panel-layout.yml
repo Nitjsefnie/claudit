@@ -95,9 +95,22 @@ jobs:
       - name: Install the headless browser
         timeout-minutes: 4
         run: |
-          scripts/ci/retry.sh timeout -k 5 60 npx --no-install playwright install chromium
-          if ! report="$(timeout -k 5 10 npx --no-install playwright install-deps --dry-run chromium)" || [ "$report" != "All system dependencies are installed." ]; then
-            echo "::error::Playwright's dependency dry run did not report every package installed: $report" >&2
+          outcome() {
+            case "$1" in
+              124|137) echo "timed out after $2 s" ;;
+              *) echo "exited with status $1" ;;
+            esac
+          }
+          status=0
+          scripts/ci/retry.sh timeout -k 5 60 npx --no-install playwright install chromium || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::the browser download's last attempt $(outcome "$status" 60)" >&2
+            exit 1
+          fi
+          status=0
+          report="$(timeout -k 5 10 npx --no-install playwright install-deps --dry-run chromium)" || status=$?
+          if [ "$status" -ne 0 ] || [ "$report" != "All system dependencies are installed." ]; then
+            echo "::error::Playwright's dependency dry run $(outcome "$status" 10) and printed: $report" >&2
             exit 1
           fi
 
