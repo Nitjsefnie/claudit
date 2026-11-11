@@ -21,7 +21,7 @@ from boto3.session import Session
 from botocore.paginate import Paginator
 from botocore.session import get_session
 
-from backend import blob_cache, r2, timing
+from backend import blob_cache, r2, r2_list, timing
 
 
 class _ListingS3:
@@ -151,6 +151,13 @@ def test_s3_listing_equals_the_plain_walk(listing_s3: _ListingS3, splits: list[s
     assert len(listing_s3.calls) <= pages + _ranges(splits), (len(listing_s3.calls), pages)
     if not splits:
         assert len(listing_s3.calls) == pages
+
+
+def test_s3_listing_stops_at_the_first_page_past_its_range() -> None:
+    client = _ListingS3({"one": [f"k{n}" for n in range(1, 7)]}, page=3)
+    rows = r2_list.list_keys(["one"], lambda: client, {"one": ["k2"]})
+    assert [row[0] for row in rows] == [f"one/k{n}" for n in range(1, 7)]
+    assert len(client.calls) == 3, client.calls
 
 
 def test_s3_listing_runs_its_ranges_on_the_pool(listing_s3: _ListingS3) -> None:

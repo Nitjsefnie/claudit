@@ -1,9 +1,7 @@
 """Pair listed transcripts with sidecars and collect lane markers.
 
 One r2.list_keys pass builds _Wire items and a separate marker-fetch
-round. Keep scan machinery outside ingest's size-gate ceiling.
-Resolve ingest._fetch_with_retry at call time so ingest's test patch
-seam also governs marker GETs."""
+round. Keep scan machinery outside ingest's size-gate ceiling."""
 from __future__ import annotations
 
 import json
@@ -82,10 +80,8 @@ def _resolve_project_paths(marker_items: list[tuple[str, str, str]],
     A marker GET is as droppable as a transcript GET, so its failures
     land in the same `failed` summary; a failed or vanished marker gives
     no path this run and is not stored, so the next run fetches it again.
-    The fetched path is marker content: it is NUL-stripped HERE, before
-    any consumer sees it — the walk's project identity, the rekey's
-    display_name and the stored row all take the same stripped value
-   .
+    The fetched path is marker content, NUL-stripped HERE before any
+    consumer (walk identity, rekey display_name, stored row) sees it.
     """
     project_paths, stale = lane_markers.cached_paths(marker_items)
     read: dict[str, tuple[str, str | None]] = {}
@@ -106,7 +102,9 @@ def _resolve_project_paths(marker_items: list[tuple[str, str, str]],
 
 
 def _split_points() -> list[str]:
+    """Every LIST_SPLIT_EVERY-th stored key of each configured bucket."""
     with db.viz_conn() as c:
+        # COLLATE "C" spaces the picks evenly in listing order; r2_list re-sorts them.
         return [key for (key,) in c.execute(
             "SELECT file_key FROM (SELECT file_key, row_number() OVER ("
             "PARTITION BY split_part(file_key, '/', 1) ORDER BY file_key COLLATE \"C\") AS n "
