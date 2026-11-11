@@ -8,7 +8,7 @@
 # moves with time; nothing here records a snapshot of it.
 fastapi==0.162.2
 uvicorn[standard]==0.54.0
-psycopg[pool,binary]==3.3.6
+psycopg[pool,binary]==3.3.8
 boto3==1.43.126
 orjson==3.13.0
 apscheduler==3.11.3
