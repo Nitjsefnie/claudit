@@ -14,7 +14,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend import api, app as app_mod, db, ingest, ingest_scan, r2
+from backend import api, app as app_mod, db, ingest, ingest_scan, r2, r2_list
 from backend.ingest_scan import _scan_objects
 from tests import scratch_db
 
@@ -197,7 +197,7 @@ def test_listing_failure_aborts_the_run_before_the_orphan_sweep(
 
     real_list = r2.list_keys
 
-    def broken(prefix: str = "", split_points=()):
+    def broken(prefix: str = "", split_points=tuple):
         """Alpha lists fine; beta's listing dies mid-walk."""
         objs = list(real_list(prefix="alpha/"))
 
@@ -350,6 +350,7 @@ def test_lane_and_claude_projects_of_one_directory_merge_by_slug(
 
 def test_the_scan_splits_each_configured_bucket_at_every_nth_stored_key(
         fresh_db, monkeypatch):
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", "https://r2.invalid/s3")
     monkeypatch.setenv("CLAUDIT_R2_BUCKET", "alpha+beta")
     stored = {
         "alpha": ["B/1.jsonl", "a/1.jsonl", "é/1.jsonl", "z/1.jsonl", "Z/2.jsonl"],
@@ -364,10 +365,10 @@ def test_the_scan_splits_each_configured_bucket_at_every_nth_stored_key(
                           "r2_size_bytes, r2_last_modified, parsed_at, parser_version) "
                           "VALUES (%s, 'p', 's', TRUE, 'e', 1, now(), now(), '0')",
                           (f"{bucket}/{key}",))
-    seen: list[list[str]] = []
+    seen: list[dict[str, list[str]]] = []
     monkeypatch.setattr(ingest_scan, "LIST_SPLIT_EVERY", 2)
-    monkeypatch.setattr(r2, "list_keys", lambda prefix="", split_points=(): seen.append(
-        sorted(split_points)) or iter(()))
+    monkeypatch.setattr(r2_list, "list_keys", lambda names, factory, splits: seen.append(
+        {b: sorted(keys) for b, keys in splits.items()}) or [])
     _scan_objects()
-    assert seen == [sorted(f"{b}/{k}" for b in ("alpha", "beta")
-                           for k in sorted(stored[b], key=str.encode)[1::2])]
+    assert seen == [{b: sorted(sorted(stored[b], key=str.encode)[1::2])
+                     for b in ("alpha", "beta")}]

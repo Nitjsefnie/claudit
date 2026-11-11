@@ -55,11 +55,11 @@ SCHEMA = (
 # The schema every earlier file builds: everything except the
 # migration itself (the width guard, the shape file, the type
 # compaction that converges a database already in that shape, and the
-# records_price split those end at, plus the files after it that need the
-# converted shape) — the LAST SCHEMA_PATHS entries.
+# records_price split those end at, and the files after) — the LAST
+# SCHEMA_PATHS entries.
 # A test standing an old-shape database up before applying the current
-# chain starts from this one tuple; keeping it here is what stops three
-# files from restating the same filter (and drifting apart on it).
+# chain starts from this one tuple; keeping it here stops three files
+# restating the filter and drifting apart.
 OLD_SCHEMA = tuple(
     p for p in SCHEMA
     if p.name not in ("schema_widths.sql", "schema_dims.sql",

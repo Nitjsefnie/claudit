@@ -8,8 +8,7 @@ from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 
-# backend/schema.sql, resolved next to this module so the working directory
-# the service was started from does not matter.
+# Resolved next to this module, whatever the working directory.
 SCHEMA_PATH = _HERE / "schema.sql"
 
 # Apply ordered schema files as one script, lock set and content stamp.
@@ -20,7 +19,7 @@ SCHEMA_PATH = _HERE / "schema.sql"
 # shape being converted. schema_types then converges surrogate column
 # types; schema_records_price handles either in-row or split price storage.
 # schema_timelines follows identity conversions and converges file timelines
-# and latency outlier arrays; schema_response_sizes needs dims' proj_id keys.
+# and latency outlier arrays; schema_response_sizes needs proj_id.
 # Ordering does not weaken transaction atomicity.
 SCHEMA_PATHS = (SCHEMA_PATH, _HERE / "schema_web_metrics.sql",
                 _HERE / "schema_request_fee.sql",

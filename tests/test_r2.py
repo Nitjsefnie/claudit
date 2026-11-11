@@ -128,6 +128,10 @@ def _etag(key: str) -> str:
     return hashlib.sha1(key.encode()).hexdigest()
 
 
+def _unread() -> list[str]:
+    raise AssertionError("split points read")
+
+
 def _ranges(splits: list[str]) -> int:
     return len(_ListingS3.names) + len(set(splits))
 
@@ -144,7 +148,7 @@ def _listing_s3_fixture(monkeypatch) -> _ListingS3:
 @pytest.mark.parametrize("splits", _SPLITS.values(), ids=_SPLITS.keys())
 def test_s3_listing_equals_the_plain_walk(listing_s3: _ListingS3, splits: list[str]) -> None:
     expected, pages = listing_s3.plain_walk()
-    assert list(r2.list_keys(split_points=splits)) == expected
+    assert list(r2.list_keys(split_points=lambda: splits)) == expected
     starts = [call[1:4:2] for call in listing_s3.calls if call[4] is None]
     assert len(starts) == _ranges(splits) and set(starts) == {
         (b, None) for b in listing_s3.names} | {r2.split_key(s) for s in splits}
@@ -163,7 +167,7 @@ def test_s3_listing_stops_at_the_first_page_past_its_range() -> None:
 def test_s3_listing_runs_its_ranges_on_the_pool(listing_s3: _ListingS3) -> None:
     expected, _ = listing_s3.plain_walk()
     listing_s3.barrier = threading.Barrier(3, timeout=10)
-    assert list(r2.list_keys(split_points=_SPLITS["existing"])) == expected
+    assert list(r2.list_keys(split_points=lambda: _SPLITS["existing"])) == expected
     assert listing_s3.caller not in {call[0] for call in listing_s3.calls}
 
 
@@ -174,7 +178,7 @@ def test_s3_listing_runs_its_ranges_on_the_pool(listing_s3: _ListingS3) -> None:
 ])
 def test_s3_listing_failure_yields_nothing(listing_s3: _ListingS3, failure: tuple) -> None:
     listing_s3.failure = failure
-    listing = r2.list_keys(split_points=_SPLITS["existing"])
+    listing = r2.list_keys(split_points=lambda: _SPLITS["existing"])
     with pytest.raises(RuntimeError, match="listing failed"):
         next(listing)
     assert listing_s3.fired
@@ -182,7 +186,7 @@ def test_s3_listing_failure_yields_nothing(listing_s3: _ListingS3, failure: tupl
 
 def test_s3_listing_prefix_stays_serial(listing_s3: _ListingS3) -> None:
     expected, _ = listing_s3.plain_walk()
-    assert list(r2.list_keys(prefix="claude/p/", split_points=_SPLITS["existing"])) == [
+    assert list(r2.list_keys(prefix="claude/p/", split_points=_unread)) == [
         o for o in expected if o.key.startswith("claude/p/")]
     assert [call[1:4] for call in listing_s3.calls] == [("claude", "p/", None)] * 3
     assert [call[4] is None for call in listing_s3.calls] == [True, False, False]
@@ -211,7 +215,7 @@ def _mini_r2_fixture(monkeypatch):
 
 
 def test_list_keys_walks_recursively(mini_r2):
-    keys = sorted(o.key for o in r2.list_keys(split_points=["claude/proj-b"]))
+    keys = sorted(o.key for o in r2.list_keys(split_points=_unread))
     assert keys == [
         "claude/proj-a/sess-1/sess-1.jsonl",
         "claude/proj-b/sess-2/data/tool-results/x.txt",
