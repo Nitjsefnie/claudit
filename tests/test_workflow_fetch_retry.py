@@ -2,18 +2,18 @@
 
 Fails, listing each offending `run:` command, on a curl lacking `--retry N`
 (N 1-9), `--retry-all-errors` or `--max-time`/`-m`; any wget; a git
-fetch/clone/ls-remote/pull, gh read, pip install/download/wheel or
-playwright install neither run by retry.sh/api_retry nor, inside a
-`for attempt in` loop, steering it (an `if`/`elif`/`while`/`until`
+fetch/clone/ls-remote/pull, gh read, pip install/download/wheel,
+playwright install or apt fetch neither run by retry.sh/api_retry nor,
+inside a `for attempt in` loop, steering it (an `if`/`elif`/`while`/`until`
 condition, the left operand of `&&`, or of a `||` whose right side reaches
 `continue`, bare or in a `{ }` group); a git push not run by
 retry.sh/api_retry, even one steering such a loop; and an unclassified gh
 command.
 
-It also fails a gh API command, an npm command that may fetch and a git
-network command that nothing ends when the network goes silent, and such an
-npm command that nothing retries: test_workflow_stall_bounds.py states those
-rules and what they do not read.
+It also fails a gh API command, an npm command that may fetch, a playwright
+install, an apt fetch and a git network command that nothing ends when the
+network goes silent, and such an npm command that nothing retries:
+test_workflow_stall_bounds.py states those rules and what they do not read.
 
 The reading is lexical: commands split on operators, newlines, `$( )`,
 `<( )` and backticks. `bash`/`sh -c` strings (`-ec` too) are scripts, as are
@@ -75,6 +75,8 @@ HTTP_METHODS = {"GET", "POST", "PATCH", "PUT", "DELETE", "HEAD"}
 NPM_LOCAL = {"run", "run-script", "test"}
 NPX_HOLDS = {"--no", "--no-yes", "--yes=false", "--offline", "--no-install"}
 NPX_ENDS = {"--no-install", "--yes=false", "--offline"}  # npx then writes `--` before the package
+APT = {"apt-get", "apt"}
+APT_LOCAL = {"check", "clean", "autoclean", "remove", "purge", "autoremove"}
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=")
 SEPARATORS = ";&|\n"
 
@@ -273,6 +275,14 @@ def _after(words: list[str], skip: set[str]) -> list[str]:
     return words[index:]
 
 
+def _operands(words: list[str]) -> int:
+    """Index of the first word after a prefix command's options and assignments."""
+    index = 1
+    while index < len(words) and (words[index].startswith("-") or ASSIGNMENT.match(words[index])):
+        index += 2 if words[index] in PREFIXES[words[0]] else 1
+    return index
+
+
 def _stdin_shell(words: list[str]) -> bool:
     """Whether the command is bash/sh reading its script from stdin."""
     words = _strip(words)
@@ -298,10 +308,7 @@ def _strip(words: list[str], prefixed: bool = False) -> list[str]:
         if head in KEYWORDS or ASSIGNMENT.match(head):
             words = words[1:]
         elif head in PREFIXES and not prefixed:
-            index = 1
-            while index < len(words) and (words[index].startswith("-") or ASSIGNMENT.match(words[index])):
-                index += 2 if words[index] in PREFIXES[head] else 1
-            words = words[index + (head == "timeout"):]
+            words = words[_operands(words) + (head == "timeout"):]
             words = words[words[:1] == ["--"]:]  # after timeout's duration too
         elif head in ("bash", "sh") and len(words) > 1 and words[1].endswith("retry.sh"):
             words = words[1:]
@@ -378,7 +385,18 @@ def _fetch_kind(words: list[str]) -> str | None:
     if re.fullmatch(r"pip[0-9.]*", module):
         verb = next((arg for arg in args if arg in ("install", "download", "wheel")), None)
         return f"pip {verb}" if verb else None
-    return "playwright install" if module == "playwright" and "install" in args else None
+    return (_apt_fetch(name, args) if name in APT
+            else "playwright install" if module == "playwright" and "install" in args else None)
+
+
+def _apt_fetch(name: str, args: list[str]) -> str | None:
+    verb = next((arg for arg in args if not arg.startswith("-")), "")
+    return f"{name} {verb}" if verb == "update" or verb and verb not in APT_LOCAL and "--no-download" not in args else None
+
+
+def _times_out(name: str, kind: str | None, args: list[str]) -> bool:
+    """Whether each attempt must be `timeout -k N N <name>`."""
+    return name == "gh" and _gh(args) != "local" or bool(kind) and (kind.startswith(("npm ", "playwright ")) or name in APT)
 
 
 def _curl_unbounded(args: list[str]) -> bool:
@@ -393,6 +411,8 @@ def _positive(value: str) -> bool:
 
 
 def _attempt_bounded(words: list[str], name: str) -> bool:
+    while words[:1] in (["sudo"], ["env"]):  # each runs the timeout it is given
+        words = words[_operands(words):]
     marker = words.index("--") if "--" in words[:5] else len(words)
     grace, limit, command = ((words[:marker] + words[marker + 1:])[2:5] + [""] * 3)[:3]
     return (words[:2] == ["timeout", "-k"] and _positive(grace) and _positive(limit)
@@ -503,7 +523,7 @@ def _judge(words: list[str], retried: bool, ssh: bool = False) -> tuple[int, lis
     # A push's attempt loop repeats only after master moved.
     retried = retried and kind != "git push"
     reasons = [f"{kind} without the retry helper"] if kind and not (wrapped or retried) else []
-    if (name == "gh" and _gh(words[1:]) != "local" or kind and kind.startswith("npm ")) and not _attempt_bounded(attempt, name):
+    if _times_out(name, kind, words[1:]) and not _attempt_bounded(attempt, name):
         reasons.append(f"{kind or 'gh write'} without `timeout -k N N {name}`, N above 0, per attempt")
     lacking = _git_unbounded(words[1:], ssh) if kind and kind.startswith("git ") else ""
     return (1 if kind else 0), reasons + [f"{kind} {lacking}"] * bool(lacking)
