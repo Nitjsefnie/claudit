@@ -12,6 +12,7 @@ while :; do
     cat "$out"
     exit
   fi
+  cat "$out" >&2
   if [ "$attempt" -ge "$attempts" ]; then
     echo "retry.sh: $* still failing after $attempts attempts" >&2
     exit "$status"

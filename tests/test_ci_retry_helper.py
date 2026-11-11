@@ -1,8 +1,10 @@
 """scripts/ci/retry.sh against a stub command and a stub `sleep`: at most
-three attempts, 5 then 10 s apart; only the succeeding attempt's stdout,
-every attempt's stderr, and the last attempt's status on exhaustion. Its
-temporary file is removed, and one it cannot create stops it before the
-command runs. Every copy a workflow job writes is this file, before use."""
+three attempts, 5 then 10 s apart; stdout carries only the succeeding attempt's
+stdout; stderr carries every attempt's stderr and each failed attempt's stdout,
+just before the helper's own line for that attempt; the last attempt's status
+on exhaustion. Its temporary file is removed, and one it cannot create stops
+it before the command runs. Every copy a workflow job writes is this file,
+before use."""
 from __future__ import annotations
 
 import os
@@ -60,6 +62,18 @@ def _run(tmp_path, fail_times, mktemp_fails=False):
     return proc, len(attempts), waits
 
 
+def _stderr(attempts, failed):
+    """The exact stderr of `attempts` attempts, of which the first `failed` fail."""
+    command, text = "probe --flag two words", ""
+    for n in range(1, attempts + 1):
+        text += f"stderr of attempt {n}\n"
+        if n <= failed:
+            text += f"stdout of attempt {n}\n" + (
+                f"retry.sh: {command} failed (attempt {n} of 3); retrying\n" if n < 3
+                else f"retry.sh: {command} still failing after 3 attempts\n")
+    return text
+
+
 @POSIX_ONLY
 @pytest.mark.parametrize("fail_times, attempts, waits", [
     (0, 1, []), (1, 2, ["5"]), (2, 3, ["5", "10"]),
@@ -71,8 +85,7 @@ def test_success_emits_only_the_succeeding_attempts_stdout(
     assert proc.stdout == f"stdout of attempt {attempts}\n"
     assert made == attempts
     assert slept == waits
-    for n in range(1, attempts + 1):
-        assert f"stderr of attempt {n}" in proc.stderr
+    assert proc.stderr == _stderr(attempts, fail_times)
 
 
 @POSIX_ONLY
@@ -82,8 +95,7 @@ def test_exhaustion_exits_with_the_last_attempts_status(tmp_path):
     assert proc.stdout == ""
     assert made == 3
     assert slept == ["5", "10"]
-    for n in (1, 2, 3):
-        assert f"stderr of attempt {n}" in proc.stderr
+    assert proc.stderr == _stderr(3, 3)
 
 
 @POSIX_ONLY
