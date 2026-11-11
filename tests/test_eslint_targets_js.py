@@ -25,7 +25,7 @@ console.log(JSON.stringify(rules));
 """
 
 
-def test_every_tracked_ci_module_is_linted_under_the_error_rules() -> None:
+def test_every_tracked_mjs_module_is_linted_under_the_error_rules() -> None:
     if shutil.which("node") is None or not (ROOT / "node_modules" / "eslint").is_dir():
         pytest.skip("ESLint is installed only where `npm ci` has run")
     lint = shlex.split(json.loads(
@@ -37,9 +37,9 @@ def test_every_tracked_ci_module_is_linted_under_the_error_rules() -> None:
     assert resolved.returncode == 0, resolved.stderr
     rules = json.loads(resolved.stdout)
     tracked = subprocess.run(
-        ["git", "ls-files", "scripts/ci/*.mjs"], cwd=ROOT, capture_output=True,
+        ["git", "ls-files", "*.mjs"], cwd=ROOT, capture_output=True,
         text=True, check=True).stdout.split()
-    assert tracked, "git lists no scripts/ci/*.mjs, so nothing was checked"
+    assert tracked, "git lists no *.mjs, so nothing was checked"
     unlinted = [path for path in tracked if str(ROOT / path) not in rules]
     assert not unlinted, f"`npm run lint` does not lint {unlinted}"
     lenient = [(path, rule) for path in tracked for rule in ("no-undef", "no-unused-vars")

@@ -1,6 +1,6 @@
 name: eslint
 
-# JavaScript lint gate: browser sources and the scripts/ci modules.
+# JavaScript lint gate: src/, scripts/ci/ and eslint.config.mjs.
 #
 # Classic browser scripts share globals across tags; eslint.config.mjs
 # reflects the script environment and cross-file globals. Keep stylistic
@@ -50,4 +50,4 @@ jobs:
         run: scripts/ci/retry.sh timeout -k 5 120 npm ci --no-audit --no-fund
 
       - name: eslint
-        run: npx --no-install eslint 'src/**/*.js' 'src/**/*.jsx' 'scripts/ci/*.mjs'
+        run: npx --no-install eslint 'src/**/*.js' 'src/**/*.jsx' 'scripts/ci/*.mjs' eslint.config.mjs
