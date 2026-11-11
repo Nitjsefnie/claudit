@@ -19,9 +19,14 @@ or, for the npx binary alone, `--no-install`. Any option after that word
 and before a literal `--` voids the hold (npm reads it, maybe as `--yes`),
 but not after the npx binary's `--no-install`, `--yes=false` or
 `--offline`: npx writes a `--` before the word. A held npx still asks the
-registry about a package it lacks, then fails. The `--` that ends a prefix
-command's options is skipped, so the command after it is judged as without
-it.
+registry about a package it lacks, then fails. A playwright install and an
+apt fetch need `timeout -k N N <name>` too, `<name>` the command proper (npx,
+npm, apt-get or apt). An apt fetch is apt-get or apt whose first word that
+is no option is `update`, or, without `--no-download`, any but `check`,
+`clean`, `autoclean`, `remove`, `purge` and `autoremove`. A `sudo` or `env`
+before the timeout, with its options and assignments, is skipped. The `--`
+that ends a prefix command's options is skipped, so the command after it is
+judged as without it.
 
 A git fetch/clone/ls-remote/pull/push is judged by every word after the
 subcommand that is shaped like a remote, read as git reads one (GIT URLS in
@@ -46,11 +51,11 @@ the transport behind a name or variable, a `host:path` with no user that
 follows an option's separate value or is joined to an option, and control
 flow: an export that is its own command (not directly after a shell
 keyword) counts for every command written after it in the run, whatever
-branch, function or subshell holds it. Nor what an npm subcommand does (any
+branch, function or subshell holds it. Nor what an npm or apt subcommand does (any
 other is taken to fetch; an option's separate value before the subcommand is
 read as the subcommand), npm config set outside the command, or whether the
-project holds what npx runs. pip, playwright, curl and other uses of timeout
-keep their rules.
+project holds what npx runs. pip, curl and other uses of timeout keep their
+rules.
 
 Each refused row differs from an accepted one in exactly one thing: a word,
 an option, a prefix command, a stall bound or a line, added, removed,
@@ -74,6 +79,8 @@ URL = '"https://github.com/${CLAUDIT_REPO}.git" "refs/heads/${CLAUDIT_BASE_REF}"
 PAIR = "-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 "
 BOUNDS = "-o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 FETCH = COPY + 'git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master'
+APT_UPDATE = "sudo {}apt-get update -qq -o APT::Update::Error-Mode=any"
+APT_DOWNLOAD = "sudo env DEBIAN_FRONTEND=noninteractive {}apt-get install --download-only -y xvfb"
 
 UNBOUNDED_READ = "gh read without `timeout -k N N gh`, N above 0, per attempt"
 UNBOUNDED_WRITE = "gh write without `timeout -k N N gh`, N above 0, per attempt"
@@ -104,6 +111,14 @@ def _two(first: str, second: str) -> str:
 
 def _npm(verb: str) -> str:
     return f"npm {verb} without `timeout -k N N npm`, N above 0, per attempt"
+
+
+def _playwright(name: str) -> str:
+    return f"playwright install without `timeout -k N N {name}`, N above 0, per attempt"
+
+
+def _apt(verb: str, name: str = "apt-get") -> str:
+    return f"{name} {verb} without `timeout -k N N {name}`, N above 0, per attempt"
 
 
 def _ssh(options: str = "-o StrictHostKeyChecking=yes " + BOUNDS, quote: str = "'") -> str:
@@ -153,7 +168,8 @@ ACCEPTED = {
     "npm x held by --no": "npm x --no eslint src",
     "npm held by --no before exec": "npm --no exec eslint src",
     "npm exec by the helper, bounded": "scripts/ci/retry.sh timeout -k 5 120 npm exec eslint src",
-    "playwright by npm exec behind --no, by the helper": "scripts/ci/retry.sh npm --no exec playwright install chromium",
+    "playwright by npm exec behind --no, by the helper, bounded": (
+        "scripts/ci/retry.sh timeout -k 5 60 npm --no exec playwright install chromium"),
     "gh version": "gh version",
     "gh --version": "gh --version",
     "gh help": "gh help",
@@ -189,7 +205,14 @@ ACCEPTED = {
     "pair on a named remote": LOOP.format(f"git {PAIR}fetch origin master"),
     "local git commands": 'git init -q "$dir"\ngit -C "$dir" checkout -B push FETCH_HEAD',
     "pip by the helper": "scripts/ci/retry.sh pip install -r backend/requirements.txt",
-    "playwright by the helper": "scripts/ci/retry.sh npx --no-install playwright install chromium",
+    "playwright by the helper, bounded": "scripts/ci/retry.sh timeout -k 5 60 npx --no-install playwright install chromium",
+    "playwright's dependency dry run": "timeout -k 5 10 npx --no-install playwright install-deps --dry-run chromium",
+    "apt-get update steering a loop, bounded under sudo": LOOP.format(APT_UPDATE.format("timeout -k 5 15 ")),
+    "apt-get download under sudo and env, bounded": LOOP.format(APT_DOWNLOAD.format("timeout -k 5 40 ")),
+    "apt-get update by the helper, bounded": "scripts/ci/retry.sh sudo timeout -k 5 15 apt-get update",
+    "apt-get install from the download cache": "sudo env DEBIAN_FRONTEND=noninteractive apt-get install --no-download -y xvfb",
+    "apt-get check": "sudo apt-get check -qq",
+    "apt-get with no subcommand": "apt-get --version",
     "curl with its own bounds": "curl -fsSL --max-time 60 --retry 3 --retry-all-errors -o f https://example.com/f",
     "timeout around other commands": 'timeout 120 docker pull "$ref"\nsudo timeout 10s rm -f /etc/f',
 }
@@ -213,7 +236,25 @@ REFUSED = {
         "npm install-test", ["npm install-test without the retry helper", _npm("install-test")]),
     "npm subcommand in another case": ("npm Test", ["npm Test without the retry helper", _npm("Test")]),
     "playwright by npm exec behind --no": (
-        "npm --no exec playwright install chromium", ["playwright install without the retry helper"]),
+        "npm --no exec playwright install chromium", ["playwright install without the retry helper", _playwright("npm")]),
+    "playwright by npm exec behind --no, by the helper, no timeout": (
+        "scripts/ci/retry.sh npm --no exec playwright install chromium", [_playwright("npm")]),
+    "playwright by the helper, no timeout": (
+        "scripts/ci/retry.sh npx --no-install playwright install chromium", [_playwright("npx")]),
+    "playwright with its system dependencies by the helper, no timeout": (
+        "scripts/ci/retry.sh npx --no-install playwright install --with-deps chromium", [_playwright("npx")]),
+    "apt-get update in a loop, no timeout": (LOOP.format(APT_UPDATE.format("")), [_apt("update")]),
+    "apt-get download in a loop, no timeout": (LOOP.format(APT_DOWNLOAD.format("")), [_apt("install")]),
+    "apt-get update, timeout outside sudo": (
+        LOOP.format("timeout -k 5 15 " + APT_UPDATE.format("")), [_apt("update")]),
+    "apt-get download, env between timeout and apt-get": (
+        LOOP.format("sudo timeout -k 5 40 env DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb"),
+        [_apt("install")]),
+    "apt-get update bounded, nothing retries": (
+        APT_UPDATE.format("timeout -k 5 15 "), ["apt-get update without the retry helper"]),
+    "apt-get update behind --no-download": (
+        LOOP.format("sudo apt-get update --no-download"), [_apt("update")]),
+    "apt update in a loop, no timeout": (LOOP.format("sudo apt update"), [_apt("update", "apt")]),
     "npx nothing holds": ("npx eslint src", [NPX_UNRETRIED, NPX_UNBOUNDED]),
     "npx by the helper, no timeout": ("scripts/ci/retry.sh npx eslint src", [NPX_UNBOUNDED]),
     "npx bounded, no helper": ("timeout -k 5 120 npx eslint src", [NPX_UNRETRIED]),
