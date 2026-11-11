@@ -45,9 +45,11 @@ export -f gh python3 sleep
 '''
 
 NPM_STUB = r'''
-npm() { local IFS=$'\037'; printf '%s\n' "$*" >> "$NPM_CALLS"; }
+record() { local IFS=$'\037'; printf '%s\n' "$*" >> "$NPM_CALLS"; }
+npm() { record npm "$@"; }
+npx() { record npx "$@"; }
 sleep() { :; }
-export -f npm sleep
+export -f record npm npx sleep
 '''
 
 
@@ -199,8 +201,7 @@ def _retries_npm_fetches(run: str, box: Path, *where: str) -> None:
     state = Path(env["TIMEOUT_STATE"])
     bounded = bounded_calls(state) if (state / "calls").exists() else []
     assert all(seconds > 0 for seconds, _ in bounded), (*where, bounded)
-    ran = [["npm", *line.split("\x1f")] for line in
-           (box / "npm-calls").read_text(encoding="utf-8").splitlines()]
+    ran = [line.split("\x1f") for line in (box / "npm-calls").read_text(encoding="utf-8").splitlines()]
     fetches = [" ".join(argv) for argv in ran if _npm_fetch(_fetch_kind(argv))]
     assert fetches, (*where, "the guard reads an npm fetch here; none reached npm", ran)
     for command in set(fetches):
