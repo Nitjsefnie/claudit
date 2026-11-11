@@ -187,7 +187,7 @@ def test_manifest_is_private_and_carries_no_runtime_dependencies() -> None:
         "the manifest must say so")
     assert "dependencies" not in package, (
         "package.json grew runtime dependencies; the frontend's React is "
-        "loaded from a CDN and has no npm dependency by design")
+        "vendored in public/vendor/ and has no npm dependency by design")
 
 
 def test_peer_override_pins_the_react_plugin_to_our_eslint() -> None:
@@ -365,7 +365,7 @@ def _names_the_tree_defines() -> set[str]:
 
     `index.html` loads each `/src/*` file as a classic script, so a top-level
     `function`, `const`, `let` or `var` there is a global, and so is anything
-    a file assigns to `window`. React and ReactDOM come from the CDN tags.
+    a file assigns to `window`. React and ReactDOM load from /vendor/.
     """
     defined: set[str] = set()
     sources = list((REPO_ROOT / "src").rglob("*.js")) \
