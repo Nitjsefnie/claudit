@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Refuse a commit subject whose scope names a workflow but whose type is
-not `ci`.
+"""Refuse a commit subject outside CONTRIBUTING.md's format, or one whose
+scope names a workflow under a type other than `ci`.
 
-The rule the check
-reads lives in CONTRIBUTING.md (Commit subjects): a workflow's `name:`
-may be a scope only with type `ci` — `ci(tests)` changes the workflow,
-`fix(tests)` fixes the suite.
+Both rules live in CONTRIBUTING.md (Commit subjects). A subject reads
+`type(scope)!: subject`: a type from TYPES, an optional scope (no
+parenthesis, no whitespace), an optional `!` right before the colon, then
+`: ` and a description. A workflow's `name:` may be a scope only with
+type `ci` — `ci(tests)` changes the workflow, `fix(tests)` the suite.
 
 The workflow-name set is DERIVED at HEAD from the tracked files under
 .github/workflows, not kept in a list here. A remembered list is only as
@@ -23,24 +24,20 @@ git's C-quoted display form for the path, the quoted entry misses the
 workflow-file filter, and the workflow silently leaves the set — a false
 green this gate exists not to give.
 
-Only the OUTGOING range origin/master..HEAD is examined.
+Only the OUTGOING range origin/master..HEAD is examined. A subject git
+or GitHub writes, which nobody authors, is listed and never examined; the
+closed set (WRITTEN_BY_GIT): `Merge <40 hex> into <40 hex>` (GitHub's
+pull-request merge), `Merge branch '<b>'` (git's optional ` of <url>`
+and ` into <b>`), `Merge remote-tracking branch '<b>'` (optional
+` into <b>`), `Merge pull request #<n> from <head>`, `Revert "<s>"` and
+`Reapply "<s>"` (git reverting a revert).
 
 WHAT IT CANNOT SEE, and says so rather than guessing:
 
-  - A subject with no scope to read — a conforming one written without
-    a scope, a merge commit, anything else without a lowercase type, a
-    scope in parens and a colon. It is not a failure: it is counted and
-    listed on stdout, so a green is never silent about what it skipped.
-    Parsing it anyway would put a guessed scope under a gate it never
-    agreed to.
   - A `name:` line this reader cannot read — quoted, anchored, a block
     scalar, a trailing comment, continued onto the next line, or missing
     entirely. Each is a refusal naming the file: an incomplete set is a
     green over a gate that was never checked.
-  - The type table's other half. A type outside the convention is a
-    defect under any scope, so no type is enumerated here: every type
-    but `ci` violates when the scope names a workflow, and the scope
-    rule is what fires.
   - A workflow `name:` containing whitespace can never be matched by a
     scope: the subject grammar's scope excludes spaces, so `ci gate` and
     the other multi-word names are structurally unreachable.
@@ -245,15 +242,50 @@ def fetch_base(root: Path) -> None:
     git(root, *arguments, what=f"fetch origin/{BASE_BRANCH}")
 
 
-# A scoped subject: a lowercase type, an optional breaking marker after
-# the scope's closing paren (Conventional Commits' place) and/or after
-# the type, a scope of non-parenthesis non-whitespace inside parens,
-# and the colon. A type outside the convention is not this regex's
-# problem — the rule below flags any non-ci type on a workflow-name
-# scope, and a bad type is a defect under any scope.
+# CONTRIBUTING.md's eleven types; thresholds_guard.py reads them too.
+TYPES = frozenset(("build", "chore", "ci", "docs", "feat", "fix", "perf",
+                   "refactor", "revert", "style", "test"))
 
-SUBJECT = re.compile(
-    r"^(?P<type>[a-z]+)!?\((?P<scope>[^()\s]+)\)!?:\s?(?P<summary>\S.*)?$")
+# The type is any run of letters, so an unknown one is named; TYPES judges it.
+SUBJECT = re.compile(r"(?P<type>[A-Za-z]+)(?:\((?P<scope>[^()\s]+)\))?"
+                     r"!?: \S.*")
+
+WRITTEN_BY_GIT = tuple(re.compile(shape) for shape in (
+    r"Merge [0-9a-f]{40} into [0-9a-f]{40}",
+    r"Merge branch '[^']+'(?: of \S+)?(?: into \S+)?",
+    r"Merge remote-tracking branch '[^']+'(?: into \S+)?",
+    r"Merge pull request #[0-9]+ from \S+",
+    r'Revert ".+"',
+    r'Reapply ".+"',
+))
+
+
+def written_by_git(subject: str) -> bool:
+    return any(shape.fullmatch(subject) for shape in WRITTEN_BY_GIT)
+
+
+def conforming(subject: str) -> re.Match[str] | None:
+    """The subject's parts when it is in CONTRIBUTING's format, else None."""
+    match = SUBJECT.fullmatch(subject)
+    return match if match is not None and match["type"] in TYPES else None
+
+
+def refusal(subject: str, names: set[str]) -> str | None:
+    """What refuses an authored subject, or None when it passes."""
+    match = conforming(subject)
+    if match is None:
+        shaped = SUBJECT.fullmatch(subject)
+        if shaped is None:
+            return "does not read as `type(scope)!: subject`."
+        return (f"type `{shaped['type']}` is not one of "
+                f"{', '.join(sorted(TYPES))}.")
+    scope, commit_type = match["scope"], match["type"]
+    # `tests` is exempt: CONTRIBUTING gives `fix(tests)` to the suite.
+    if (scope in names and commit_type != "ci"
+            and scope != SHARED_NAME_SCOPE):
+        return (f"scope `{scope}` is the name of a workflow under "
+                f"{WORKFLOW_DIR}/; type `{commit_type}` is not `ci`.")
+    return None
 
 
 def outgoing_commits(root: Path) -> list[tuple[str, str]]:
@@ -266,7 +298,7 @@ def outgoing_commits(root: Path) -> list[tuple[str, str]]:
         if not line.strip():
             continue
         sha, _, subject = line.partition("\t")
-        commits.append((sha.strip(), subject.strip()))
+        commits.append((sha.strip(), subject))
     return commits
 
 
@@ -275,57 +307,38 @@ def check(root: Path, out=print) -> int:
     names = workflow_name_set(root)
     commits = outgoing_commits(root)
 
-    examined = 0
     unexamined: list[tuple[str, str]] = []
-    violations: list[tuple[str, str, str, str]] = []
+    refused: list[tuple[str, str, str]] = []
     for sha, subject in commits:
-        match = SUBJECT.match(subject)
-        if match is None:
-            # Not a failure — without a match there is no scope to
-            # read, and inventing one would gate a contributor on a
-            # parse they never wrote. Counted and listed, so a green
-            # never rides silently over what it skipped.
+        if written_by_git(subject):
             unexamined.append((sha, subject))
-            continue
-        examined += 1
-        scope, commit_type = match["scope"], match["type"]
-        # The shared-name exemption: `tests` is both a workflow name and
-        # the suite's own directory, and CONTRIBUTING gives its
-        # direction — `fix(tests)` fixes the suite, `ci(tests)` changes
-        # the workflow. No other scope is exempt.
-        if (scope in names and commit_type != "ci"
-                and scope != SHARED_NAME_SCOPE):
-            violations.append((sha, subject, scope, commit_type))
+        elif (reason := refusal(subject, names)) is not None:
+            refused.append((sha, subject, reason))
+    examined = len(commits) - len(unexamined)
 
-    if violations:
-        plural = "s" if len(violations) != 1 else ""
-        verb = "pair" if len(violations) != 1 else "pairs"
-        out(f"{len(violations)} commit{plural} in "
-            f"origin/{BASE_BRANCH}..HEAD {verb} a workflow-name scope "
-            f"with a type other than `ci`:")
-        for sha, subject, scope, commit_type in violations:
+    if refused:
+        plural = "s" if len(refused) != 1 else ""
+        out(f"{len(refused)} commit subject{plural} in "
+            f"origin/{BASE_BRANCH}..HEAD refused:")
+        for sha, subject, reason in refused:
             out(f"  {sha} {subject}")
-            out(f"    scope `{scope}` is the name of a workflow under "
-                f"{WORKFLOW_DIR}/; type `{commit_type}` is not `ci`.")
-        out("A workflow's name is a scope only with the `ci` type: use "
-            "the `ci` type on that scope, or take a scope that names "
-            "what the commit is actually about.")
+            out(f"    {reason}")
+        out("Write each as `type(scope)!: subject` (CONTRIBUTING.md, Commit "
+            f"subjects): the type one of {', '.join(sorted(TYPES))}; the "
+            "scope and `!` optional; a workflow's name as the scope only "
+            "with the `ci` type.")
         return 1
 
     plural = "s" if examined != 1 else ""
     out(f"Examined {examined} commit subject{plural} in "
-        f"origin/{BASE_BRANCH}..HEAD; {len(unexamined)} not examined.")
-    # The green line states its own reach: only the outgoing range is
-    # judged, and a subject without a readable scope is listed rather
-    # than failed. A green line that claimed more than this would be the
-    # same over-claim as a report over its evidence.
-    out("  Only the OUTGOING range is examined: history already merged")
-    out("  into master is never re-judged, and a subject with no scope")
-    out("  to read (one written without a scope, a merge commit, one")
-    out("  that does not parse) is listed below and is never a failure:")
+        f"origin/{BASE_BRANCH}..HEAD; {len(unexamined)} written by git or "
+        f"GitHub, not examined:")
     for sha, subject in unexamined:
         out(f"    {sha} {subject}")
-    out("No commit pairs a workflow-name scope with a type other than `ci`.")
+    out("  History already merged into master is never re-judged.")
+    out("Every examined subject reads as `type(scope)!: subject` with a "
+        "listed type, and none pairs a workflow-name scope with a type "
+        "other than `ci`.")
     return 0
 
 
@@ -345,8 +358,8 @@ def main(argv: list[str]) -> int:
             return 2
     try:
         return check(root)
-    except GateError as refusal:
-        print(f"commit scopes: {refusal}", file=sys.stderr)
+    except GateError as unanswered:
+        print(f"commit scopes: {unanswered}", file=sys.stderr)
         return 1
     except OSError as failure:
         # git could not be run at all — absent from the runner image, or

@@ -293,7 +293,7 @@ jobs:
             exit 1
           fi
 
-      - name: Refuse a commit whose scope names a workflow outside the ci type
+      - name: Refuse a commit subject outside the Conventional Commits format or pairing a workflow scope with a non-ci type
         # CONTRIBUTING's commit-subject rule allows a workflow's `name:` as
         # a scope only with type `ci`, and prose no gate reads is a
         # convention: two merged fix(tests) commits here predate the rule
