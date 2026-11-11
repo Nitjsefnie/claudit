@@ -160,23 +160,24 @@ def assert_shards_exec_pytest(job: dict, tmp_path: Path, options: list[str]) -> 
     steps = job["steps"]
     run, = [step for step in steps if step.get("name") == "Run tests"]
     after = (steps[steps.index(run) + 1:] or [{}])[0]
-    assert (str(run.get("timeout-minutes")), str(job["timeout-minutes"])) == ("12", "40")
-    assert after.get("if") == "always()"
+    assert (str(run.get("timeout-minutes")), str(job["timeout-minutes"])) == ("12", "40"), (
+        run.get("timeout-minutes"), job["timeout-minutes"])
+    assert after.get("if") == "always()", after
     shards = []
     for shard in "1234":
         code, execed, argv, stdout = exec_step(run, tmp_path, {"shard": shard}, {}, cwd=ROOT)
-        assert (code, execed) == (0, True)
+        assert (code, execed) == (0, True), (shard, code, execed)
         lines = stdout.splitlines()
         assert (len(lines) == 3 and lines[0].startswith("model name") and lines[1].isdecimal()
                 and _cpu_counters(lines[2])), lines
-        assert argv[:2] == ["-m", "pytest"] and argv[len(argv) - len(options):] == options
+        assert argv[:2] == ["-m", "pytest"] and argv[len(argv) - len(options):] == options, argv
         files = argv[2:len(argv) - len(options)]
         assert files, shard
         shards += files
-    assert sorted(shards) == sorted(path.relative_to(ROOT).as_posix()
-                                    for path in (ROOT / "tests").rglob("test_*.py"))
+    want = {path.relative_to(ROOT).as_posix() for path in (ROOT / "tests").rglob("test_*.py")}
+    assert sorted(shards) == sorted(want), sorted(set(shards) ^ want)
     code, _, _, stdout = exec_step(after, tmp_path, {}, {})
-    assert code == 0 and [_cpu_counters(line) for line in stdout.splitlines()] == [True]
+    assert code == 0 and [_cpu_counters(line) for line in stdout.splitlines()] == [True], (code, stdout)
 
 
 def is_checkout(step: dict) -> bool:
