@@ -10,12 +10,14 @@ import json
 from datetime import datetime
 from typing import NamedTuple
 
-from backend import key_layout, lane_markers, r2
+from backend import db, key_layout, lane_markers, r2
 from backend.ingest_persist import _strip_nul
 from backend.ingest_resolve import (
     VanishedObject, record_failure as _record_failure, resolve as _resolve,
 )
 from backend.ingest_timing import _timed_step
+
+LIST_SPLIT_EVERY = 400  # A bucket lists ~2x its files: a range is under one page.
 
 
 class _Wire(NamedTuple):
@@ -42,7 +44,6 @@ def _marker_fetch(key: str) -> bytes:
     reaching marker GETs.
     """
     from backend import ingest  # pylint: disable=import-outside-toplevel,cyclic-import
-    # The seam is ingest's own name; the tests patch it there.
     return ingest._fetch_with_retry(key)  # pylint: disable=protected-access
 
 
@@ -104,6 +105,15 @@ def _resolve_project_paths(marker_items: list[tuple[str, str, str]],
     return project_paths
 
 
+def _split_points() -> list[str]:
+    with db.viz_conn() as c:
+        return [key for (key,) in c.execute(
+            "SELECT file_key FROM (SELECT file_key, row_number() OVER ("
+            "PARTITION BY split_part(file_key, '/', 1) ORDER BY file_key COLLATE \"C\") AS n "
+            "FROM files WHERE split_part(file_key, '/', 1) = ANY(%s)) ranked "
+            "WHERE mod(n, %s) = 0", (r2.buckets(), LIST_SPLIT_EVERY)).fetchall()]
+
+
 def _scan_objects() -> tuple[list[_Wire], list[tuple[str, str, str]]]:
     """One listing pass: transcripts, each paired with the meta.json
     sidecar listed beside it (_Wire), and lane marker items.
@@ -116,7 +126,7 @@ def _scan_objects() -> tuple[list[_Wire], list[tuple[str, str, str]]]:
     marker_items: list[tuple[str, str, str]] = []
     sidecars: dict[tuple[str, str | None], r2.R2Object] = {}
     with _timed_step("list"):
-        for obj in r2.list_keys():
+        for obj in r2.list_keys(split_points=_split_points()):
             bucket, object_key = r2.split_key(obj.key)
             marker_project = key_layout.project_marker(object_key)
             if marker_project is not None:

@@ -597,7 +597,9 @@ backend/          — FastAPI application
   ingest_orphans.py — orphan sweeps: file rows whose R2 key is gone,
                     unreferenced projects
   ingest_scan.py  — the ingest's listing scan: transcripts paired with
-                    meta.json sidecars (_Wire), lane markers
+                    meta.json sidecars (_Wire), lane markers; every
+                    LIST_SPLIT_EVERY-th stored key per bucket is a split
+                    point of the listing
   ingest_runs.py  — ingest_runs row lifecycle: open at run start, close
                     at run end; failure summary for /health
   ingest_lockwatch.py — liveness guard for the db-wide ingest advisory
@@ -607,6 +609,9 @@ backend/          — FastAPI application
   r2.py           — S3 client with file:// mirror fallback; get_object
                     consults the deploy's disk blob cache when handed an
                     etag (#684)
+  r2_list.py      — the concurrent S3 listing: each bucket listed as key
+                    ranges between sorted split points (StartAfter, both
+                    bounds filtered client-side), one stream without any
   auth.py         — PBKDF2-SHA256 hashing/verification
   login.py        — /login, /logout, /login/guest, rate limiting
   login_page.py   — the sign-in page's HTML template and response
