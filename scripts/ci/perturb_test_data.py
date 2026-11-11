@@ -21,12 +21,13 @@ so the leg exercises the shape a refresh appends; a
 models-table row never carries it, the loader refusing the field
 there. The rows are processed in a seeded-shuffled
 order; the run seed is `int(now.timestamp())`, or the `--seed N`
-value. The seed drives the factors and the shuffle ONLY — never a
-`from` stamp: the appended entries take their stamps from
-a global counter one second apart, based at the document's newest real
-rate stamp, so every appended stamp is after every real one whatever
-the seed — any seed is valid: a window closed before the run answers
-as it did, under every seed the leg can name. When NO entry in the document
+value. The seed drives the factors and the shuffle, and so which stamps
+a row takes: the appended entries take theirs in that order from a global
+counter one second apart, based at the document's newest real rate stamp,
+so every appended stamp is after every real one, and neither the base nor
+the stamp set depends on the seed — any seed is valid: a window closed
+before the run answers as it did, under every seed the leg can name.
+When NO entry in the document
 carries a `from`, there is nothing older to protect and the run
 instant is the base instead. The three version constants —
 PARSER_VERSION in backend/parser_version.py, PRICING_VERSION and
@@ -88,11 +89,10 @@ def perturb_pricing(path: Path,
     any within-row ratio the data once had can flip. A zero rate
     becomes one on its first move; every append changes billing state.
 
-    The seed drives the factors and the row order ONLY — never a `from`
-    stamp. The appended stamps come from a global counter
-    one second apart, based at the document's newest real rate stamp:
-    it starts one second past that stamp and advances one second per
-    appended entry (five per row now), so every appended stamp is after
+    The seed drives the factors and the row order, and so which stamps
+    a row takes from one global counter: it starts one second past the
+    document's newest real rate stamp and adds one second per appended
+    entry, five per row, in that order, so every appended stamp is after
     every real one whatever the seed — per-row stamps stay strictly
     increasing, and a closed window keeps answering at every instant it
     answered before. When NO entry carries a
