@@ -18,8 +18,8 @@ def _rebuild_rollups(scope: ingest_scope.Scope | None = None) -> None:
     for name in (
         "rebuild_rollup", "rebuild_tool_rollup", "rebuild_tool_error_rollup",
         "rebuild_dispatch_rollup", "rebuild_dispatch_brief_rollup",
-        "rebuild_latency_rollup", "rebuild_ctx_cost_rollup",
-        "rebuild_agent_rollup",
+        "rebuild_latency_rollup", "rebuild_response_size_rollup",
+        "rebuild_ctx_cost_rollup", "rebuild_agent_rollup",
     ):
         getattr(ingest, name)(scope)
 
@@ -51,9 +51,9 @@ def _seed_rollups() -> None:
             fid = dims_seed.file_id(conn, file_key)
             conn.execute(
                 "INSERT INTO records (file_id, line_num, fallback, ts, model_id, "
-                "reply_latency_s) VALUES "
-                "(%s, 1, 'shared', %s, %s, 5), "
-                "(%s, 2, NULL, %s, %s, NULL)",
+                "reply_latency_s, text_chars) VALUES "
+                "(%s, 1, 'shared', %s, %s, 5, 40), "
+                "(%s, 2, NULL, %s, %s, NULL, 70)",
                 (fid, ts, model_id, fid, ts, model_id),
             )
             conn.execute(
@@ -94,8 +94,8 @@ def _apply_shape(scope: ingest_scope.Scope, shape: str) -> set[str]:
             read_tool = dims_seed.dim_id(conn, "dim_tool_name", "Read")
             conn.execute(
                 "INSERT INTO records (file_id, line_num, fallback, ts, model_id, "
-                "reply_latency_s) VALUES (%s, 1, 'shared', "
-                "'2026-01-03T15:00Z', %s, 9)",
+                "reply_latency_s, text_chars) VALUES (%s, 1, 'shared', "
+                "'2026-01-03T15:00Z', %s, 9, 90)",
                 (zero_fid, model_id),
             )
             conn.execute(
@@ -157,6 +157,7 @@ def test_differential_shapes(fresh_db, shape):
     ingest.resolve_teammate_agent_types(scope)
     _rebuild_rollups(scope)
     incremental = _derived_snapshot()
+    assert incremental["response_size_rollup"]
 
     ingest.purge_suppressed()
     ingest.recompute_canonical()

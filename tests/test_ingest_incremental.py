@@ -81,6 +81,12 @@ _ROLLUPS = {
         "JOIN projects p ON p.proj_id = l.proj_id "
         "JOIN dim_model dm ON dm.id = l.model_id "
         "ORDER BY l.bucket_s, l.bucket, p.project_id, dm.value"),
+    "response_size_rollup": (
+        "SELECT s.bucket_s, s.bucket, p.project_id, dm.value, s.n, s.p50, "
+        "s.p90 FROM response_size_rollup s "
+        "JOIN projects p ON p.proj_id = s.proj_id "
+        "JOIN dim_model dm ON dm.id = s.model_id "
+        "ORDER BY s.bucket_s, s.bucket, p.project_id, dm.value"),
     "ctx_cost_rollup": (
         "SELECT cr.hour, p.project_id, dm.value, cr.ctx_bucket, cr.requests, "
         "cr.total_tokens, cr.cost_usd "
@@ -259,7 +265,9 @@ def test_incremental_rebuild_matches_full_after_mixed_changes(
     assert incremental["reparsed"] == 1
     assert incremental["deleted"] == 1
     _assert_incremental_mixed_rows()
-    _force_full_and_compare(caplog, _derived_snapshot())
+    snapshot = _derived_snapshot()
+    assert snapshot["response_size_rollup"], "the mirror carries reply text"
+    _force_full_and_compare(caplog, snapshot)
 
 
 @pytest.mark.parametrize(

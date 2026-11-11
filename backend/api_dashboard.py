@@ -14,6 +14,7 @@ from starlette.requests import Request
 from backend import db
 from backend.api_common import Phases, _bucket_seconds, _parse_range
 from backend.cache import cache_response
+from backend.constants import LATENCY_BUCKETS
 from backend.dashboard_queries import _dashboard_queries
 from backend.dashboard_build import (
     _dashboard_build, _fold_tokens_by_project, TOKEN_TYPE_FIELDS,
@@ -117,10 +118,49 @@ def _churn_source(project: str | None, model: str | None,
     }
 
 
+def _response_size_source(project: str | None, model: str | None,
+                          since: datetime, bucket_s: int,
+                          use_rollup: bool) -> dict[str, Any]:
+    """The (bucket, model, n, p50, p90) source for response_sizes.
+
+    Percentiles do not compose, so the rollup is stored once per width in
+    LATENCY_BUCKETS, with its all-projects row at project_id ''; other
+    widths run the live pass over the text-bearing canonical records."""
+    model_filter = "AND dmm.value LIKE %s" if model else ""
+    model_args = [f"%{model}%"] if model else []
+    if use_rollup:
+        # Serves the first in-range bucket whole, as latency_from_rollup does.
+        return {"size_src": f"""
+            FROM (SELECT s.bucket, dmm.value AS model, s.n, s.p50, s.p90
+                    FROM response_size_rollup s JOIN dim_model dmm ON dmm.id = s.model_id JOIN projects pj ON pj.proj_id = s.proj_id
+                   WHERE s.bucket_s = {bucket_s} AND pj.project_id = %s
+                     AND s.bucket >= to_timestamp(
+                           floor(EXTRACT(EPOCH FROM %s::timestamptz) / {bucket_s})
+                           * {bucket_s} + {bucket_s} / 2.0)
+                     {model_filter}) s
+        """, "size_args": [project or "", since, *model_args]}
+    proj_filter = "AND f.project_id = %s" if project else ""
+    # Ingest resolves cross-file uuid dedup into records.is_canonical.
+    # Reads filter that flag through records_canonical_ts_idx, avoiding
+    # per-request sorting and a shared materialized temp table.
+    return {"size_src": f"""
+        FROM (SELECT to_timestamp(
+                       floor(EXTRACT(EPOCH FROM d.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
+                     ) AS bucket,
+                     dmm.value AS model,
+                     COUNT(*) AS n,
+                     PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY d.text_chars) AS p50,
+                     PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY d.text_chars) AS p90
+                FROM records d JOIN files f ON f.file_id = d.file_id JOIN dim_model dmm ON dmm.id = d.model_id
+               WHERE d.ts >= %s AND d.is_canonical {proj_filter} {model_filter}
+                 AND d.text_chars > 0
+               GROUP BY 1, 2) s
+    """, "size_args": [since, *([project] if project else []), *model_args]}
+
+
 def _dashboard_sources(project: str | None, model: str | None,
                        since: datetime, bucket_s: int) -> dict:
     proj_filter = ""
-    model_filter = ""
     # `file_args` feeds the later per-FILE queries, which filter on
     # f.r2_last_modified + project only — never on model. Keep it free of
     # the model argument or every one of them mis-binds its placeholders.
@@ -128,21 +168,6 @@ def _dashboard_sources(project: str | None, model: str | None,
     if project:
         proj_filter = "AND f.project_id = %s"
         file_args.append(project)
-    if model:
-        model_filter = "AND dmm.value LIKE %s"
-
-    # Ingest resolves cross-file uuid dedup into records.is_canonical.
-    # Reads filter that flag through records_canonical_ts_idx, avoiding
-    # per-request sorting and a shared materialized temp table.
-    canon_src = f"""
-        FROM records d JOIN files f ON f.file_id = d.file_id JOIN dim_model dmm ON dmm.id = d.model_id
-        WHERE d.ts >= %s AND d.is_canonical {proj_filter} {model_filter}
-    """
-    canon_args: list[Any] = [since]
-    if project:
-        canon_args.append(project)
-    if model:
-        canon_args.append(f"%{model}%")
 
     roll_proj = "AND u.project_id = %s" if project else ""
     roll_model = "AND u.model LIKE %s" if model else ""
@@ -156,8 +181,6 @@ def _dashboard_sources(project: str | None, model: str | None,
     churn = _churn_source(project, model, since, bucket_s >= 3600)
 
     return {
-        "canon_src": canon_src,
-        "canon_args": canon_args,
         "roll_src": roll_src,
         "roll_args": roll_args,
         "churn_src": churn["sql"],
@@ -165,6 +188,8 @@ def _dashboard_sources(project: str | None, model: str | None,
         "churn_ts": churn["ts"],
         "proj_filter": proj_filter,
         "file_args": file_args,
+        **_response_size_source(project, model, since, bucket_s,
+                                bucket_s in LATENCY_BUCKETS),
     }
 
 

@@ -585,7 +585,8 @@ backend/          — FastAPI application
   ingest_rollup_state.py — suppression, canonical flags,
                     replayed-model adoption, teammate resolution
   ingest_rollup_hourly.py — the seven hour-keyed rollup rebuilds
-  ingest_rollup_latency.py — latency_rollup rebuilds
+  ingest_rollup_latency.py — latency_rollup and response_size_rollup
+                    rebuilds
   ingest_rollup_web_metrics.py — web_metrics_rollup rebuilds, over the
                     beacon retention window
   ingest_rollups.py — compatibility re-exports of the derived rebuilds (their order

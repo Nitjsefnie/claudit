@@ -67,6 +67,7 @@ _PHASE_TABLES: dict[str, tuple[str, ...]] = {
     "dispatch_rollup": ("dispatch_rollup",),
     "dispatch_brief_rollup": ("dispatch_brief_rollup",),
     "latency_rollup": ("latency_rollup",),
+    "response_size_rollup": ("response_size_rollup",),
     "ctx_cost_rollup": ("ctx_cost_rollup",),
     # agent_rollup also writes its dim (NOT EXISTS + DO NOTHING: only a
     # value the build introduces becomes a row).

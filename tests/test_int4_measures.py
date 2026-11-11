@@ -35,6 +35,7 @@ ROLLUP_BIGINT = {
     "ctx_cost_rollup": ("requests", "total_tokens"),
     "agent_rollup": ("requests", "output_tokens", "total_tokens"),
     "latency_rollup": ("n",),
+    "response_size_rollup": ("n",),
 }
 
 

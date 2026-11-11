@@ -88,6 +88,7 @@ SMALLINT_COLUMNS = {
     "ctx_cost_rollup": ("model_id",),
     "agent_rollup": ("model_id", "agent_type_id"),
     "latency_rollup": ("model_id",),
+    "response_size_rollup": ("model_id",),
 }
 
 # The surrogate identity keys and their referencing grain columns store
@@ -108,6 +109,7 @@ INTEGER_COLUMNS = {
     "ctx_cost_rollup": ("proj_id",),
     "agent_rollup": ("proj_id",),
     "latency_rollup": ("proj_id",),
+    "response_size_rollup": ("proj_id",),
 }
 
 

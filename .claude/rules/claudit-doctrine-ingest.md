@@ -308,8 +308,10 @@ source query joins merged, disjoint, widened UTC intervals and requires
 each candidate's own `(project_id, date_trunc('hour', ts))` to match a
 dirty instant exactly (intervals cannot multiply a row).
 
-`latency_rollup` replaces whole affected display buckets for each dirty
-project and the all-projects row, because percentiles need the whole population. Buckets are epoch-aligned; each
+`latency_rollup` and `response_size_rollup` (the canonical rows' positive
+`text_chars` p50/p90, at the same grain) replace whole affected display
+buckets for each dirty project and the all-projects row, because
+percentiles need the whole population. Buckets are epoch-aligned; each
 dirty-hour instant replaces every bucket overlapping
 `[hour, hour + 2 hours)`. Tied outlier latencies order by
 `file_key, line_num`. A latency-bearing row with NULL `ts` forces a
@@ -359,8 +361,10 @@ The grain is load-bearing; do not "simplify" it:
   composes; a stored duration would not.
 
 Only pure sums/counts/min/max may be served from it. **PERCENTILE_CONT
-does not compose**, so `response_sizes` stays a live pass over
-`records`.
+does not compose**, so `response_sizes` reads `response_size_rollup` at a
+`constants.LATENCY_BUCKETS` width, serving the first in-range bucket whole
+as the latency panels do, and is a live pass over `records` at any other
+width.
 
 The rollup is valid only for display buckets ≥ 1 hour: `/api/dashboard`
 uses it when `bucket_s >= 3600`, otherwise a live subquery with the same

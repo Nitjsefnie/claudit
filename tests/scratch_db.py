@@ -48,12 +48,15 @@ SCHEMA = (
     Path(__file__).resolve().parents[1] / "backend"
     / "schema_records_price.sql",
     Path(__file__).resolve().parents[1] / "backend" / "schema_timelines.sql",
+    Path(__file__).resolve().parents[1] / "backend"
+    / "schema_response_sizes.sql",
 )
 
 # The schema every earlier file builds: everything except the
 # migration itself (the width guard, the shape file, the type
 # compaction that converges a database already in that shape, and the
-# records_price split those end at) — the LAST SCHEMA_PATHS entries.
+# records_price split those end at, plus the files after it that need the
+# converted shape) — the LAST SCHEMA_PATHS entries.
 # A test standing an old-shape database up before applying the current
 # chain starts from this one tuple; keeping it here is what stops three
 # files from restating the same filter (and drifting apart on it).
@@ -61,7 +64,7 @@ OLD_SCHEMA = tuple(
     p for p in SCHEMA
     if p.name not in ("schema_widths.sql", "schema_dims.sql",
                       "schema_types.sql", "schema_records_price.sql",
-                      "schema_timelines.sql"))
+                      "schema_timelines.sql", "schema_response_sizes.sql"))
 
 _RUN_NAME = re.compile(
     rf"^(?P<base>{RUN_PREFIX}(?P<epoch>\d+)_(?P<pid>\d+)_[0-9a-f]{{8}})"

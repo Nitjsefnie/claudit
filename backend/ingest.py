@@ -62,14 +62,13 @@ from backend.ingest_timing import (  # noqa: F401  (re-export)
 from backend.ingest_walk import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
     _stored_version_is_newer, _track_project, _track_walked_project,
 )
-# Re-export canonical helpers for ingest callers and test patch seams;
-# _rebuild_derived_state resolves them through this module.
+# Re-export canonical helpers for ingest callers and test patch seams.
 from backend.ingest_rollups import (  # noqa: F401  (re-export)
     purge_suppressed, rebuild_agent_rollup, rebuild_ctx_cost_rollup,
     rebuild_dispatch_brief_rollup, rebuild_dispatch_rollup,
-    rebuild_latency_rollup, rebuild_rollup, rebuild_tool_error_rollup,
-    rebuild_tool_rollup, rebuild_web_metrics_rollup, recompute_canonical,
-    resolve_teammate_agent_types,
+    rebuild_latency_rollup, rebuild_response_size_rollup, rebuild_rollup,
+    rebuild_tool_error_rollup, rebuild_tool_rollup, rebuild_web_metrics_rollup,
+    recompute_canonical, resolve_teammate_agent_types,
 )
 from backend.ingest_scope import (  # noqa: F401  (re-export)
     begin_scope, current_scope, finish_scope, mark_complete,
@@ -310,6 +309,7 @@ def _rebuild_derived_state() -> int:
         ("dispatch_rollup", rebuild_dispatch_rollup),
         ("dispatch_brief_rollup", rebuild_dispatch_brief_rollup),
         ("latency_rollup", rebuild_latency_rollup),
+        ("response_size_rollup", rebuild_response_size_rollup),
         ("ctx_cost_rollup", rebuild_ctx_cost_rollup),
         ("agent_rollup", rebuild_agent_rollup),
         # The only phase reading a table no other phase writes.

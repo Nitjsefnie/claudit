@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# Display bucket widths /api/reply-latency can ask for, from
+# Display bucket widths the percentile rollups store, from
 # api._bucket_seconds. 300 (the 24h view) is deliberately absent: a row
 # per 5 minutes of all history to serve one day is not worth it, and that
 # range stays on the live path.
@@ -82,7 +82,7 @@ PRICING_VERSION = "1096"
 
 # Stored rollup semantics version. Bump whenever any rollup SQL semantics
 # change; it forces one complete rebuild without reparsing files.
-DERIVED_STATE_VERSION = "6"
+DERIVED_STATE_VERSION = "7"
 
 #: How ingest._fetch_marker turns a project.json body into a path. Each
 #: lane_markers row records the version it was read under, and a row from
