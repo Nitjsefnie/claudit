@@ -365,9 +365,6 @@ def test_the_leg_runs_one_seed_and_shard_per_matrix_job():
     # The job outlasts its bounded steps summed, with room for the unbounded ones.
     assert sum(int(step["timeout-minutes"]) for step in job["steps"]
                if "timeout-minutes" in step) < int(job["timeout-minutes"])
-    # The step timeout must fire before the job limit, so the summary and uploads land.
-    test_step, = [step for step in job["steps"] if step.get("name") == "Perturb and test"]
-    assert int(job["timeout-minutes"]) - int(test_step["timeout-minutes"]) >= 5
     assert job["name"] == (
         "perturbed suite (seed ${{ matrix.seed }}, shard ${{ matrix.shard }} of 4)")
     save, = [step for step in job["steps"] if step.get("name") == "Save the pip cache"]
@@ -414,7 +411,8 @@ def test_the_perturbed_steps_exec_the_bench_under_a_step_timeout(
     job = workflow_by_name(workflow)["jobs"][job_name]
     step, = [step for step in job["steps"] if step.get("name") == step_name]
     assert step["shell"] == "bash"
-    assert int(step["timeout-minutes"]) < int(job["timeout-minutes"])
+    # The step timeout must fire before the job limit, so the summary and later steps land.
+    assert int(job["timeout-minutes"]) - int(step["timeout-minutes"]) >= 5
     code, execed, argv, _ = exec_step(step, tmp_path, matrix, {
         "CLAUDIT_SEED_BASE": "1700000000",
         "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md")})
