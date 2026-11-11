@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import bisect
 import errno
+import hashlib
 import lzma
-import math
 import multiprocessing
 import os
 import shutil
@@ -24,131 +25,161 @@ from backend import blob_cache, r2, timing
 
 
 class _ListingS3:
+    """R2's ListObjectsV2: UTF-8 key order, ContinuationToken pages,
+    StartAfter exclusive unless it extends the preceding key (returned too).
+    Unmodelled parameters raise."""
+
     names = ("zulu", "claude", "alpha")
 
-    def __init__(self) -> None:
+    def __init__(self, keys: dict[str, list[str]], page: int) -> None:
+        self.keys = {b: sorted(set(ks), key=str.encode) for b, ks in keys.items()}
+        self.page = page
         self.lock = threading.Lock()
         self.caller = threading.current_thread()
-        self.chains: dict[threading.Thread, int] = {}
         self.calls: list[tuple] = []
-        self.streams: dict[tuple, list[dict]] = {}
-        self.positions: dict[tuple, int] = {}
+        self.tokens: dict[str, tuple] = {}
         self.failure: tuple | None = None
-        self.synchronize = False
-        self.roots = threading.Barrier(3, timeout=10)
-        self.prefixes = {b: threading.Barrier(3, timeout=10) for b in self.names[:2]}
-        stamp = datetime(2026, 1, 2, tzinfo=timezone.utc)
-        self.expected: list[r2.R2Object] = []
-        for bucket in self.names:
-            keys = ["root.jsonl"]
-            if bucket != "alpha":
-                keys += [f"proj-{p}/{n}.jsonl" for p in "abc" for n in range(5)]
-            objects = [r2.R2Object(f"{bucket}/{key}", f"etag-{i}", i + 1, stamp)
-                       for i, key in enumerate(sorted(keys))]
-            self.expected.extend(objects)
-            contents = [{"Key": o.key.split("/", 1)[1], "ETag": f'"{o.etag}"',
-                         "Size": o.size, "LastModified": o.last_modified} for o in objects]
-            self.streams[bucket, "", None] = self._pages(contents)
-            if bucket == "alpha":
-                self.streams[bucket, "", "/"] = [{"Contents": contents}]
-                continue
-            prefixes = [{"Prefix": f"proj-{p}/"} for p in "abc"]
-            root = {"Contents": contents[-1:], "CommonPrefixes": prefixes}
-            if bucket == "zulu":
-                root["CommonPrefixes"] = prefixes[:2]
-                self.streams[bucket, "", "/"] = [root, {
-                    "CommonPrefixes": prefixes[2:] + [{"Prefix": "vacant/"}]}]
-                self.streams[bucket, "vacant/", None] = [{}]
-            else:
-                self.streams[bucket, "", "/"] = [root]
-            for p in "abc":
-                subtree = [o for o in contents if o["Key"].startswith(f"proj-{p}/")]
-                self.streams[bucket, f"proj-{p}/", None] = self._pages(subtree)
-                self.streams[bucket, f"proj-{p}", None] = self._pages(subtree)
-        self.expected_pages = 23
+        self.fired = False
+        self.rendezvous = 0
+        self.barrier: threading.Barrier | None = None
         session = get_session()
         self.config = session.get_paginator_model("s3").get_paginator("ListObjectsV2")
         self.model = session.get_service_model("s3").operation_model("ListObjectsV2")
-
-    @staticmethod
-    def _pages(contents: list[dict]) -> list[dict]:
-        return [{"Contents": contents[i:i + 2]} for i in range(0, len(contents), 2)]
 
     def get_paginator(self, operation: str) -> Paginator:
         assert operation == "list_objects_v2", operation
         return Paginator(self.list_objects_v2, self.config, self.model)
 
-    def list_objects_v2(self, *, Bucket: str, Prefix: str,
-                        Delimiter: str | None = None,
-                        ContinuationToken: str | None = None) -> dict:
-        stream = (Bucket, Prefix, Delimiter)
-        thread = threading.current_thread()
+    def list_objects_v2(self, *, Bucket: str, Prefix: str = "", StartAfter: str | None = None,
+                        ContinuationToken: str | None = None, MaxKeys: int = 1000) -> dict:
+        keys = self.keys[Bucket]
         with self.lock:
-            assert stream in self.streams, f"unmodeled listing: {stream}"
-            index = self.positions.get(stream, 0)
-            token = f"page-{index}" if index else None
-            assert ContinuationToken == token, (ContinuationToken, token)
-            assert index < len(self.streams[stream]), f"repeated listing: {stream}"
-            self.positions[stream] = index + 1
-            self.chains[thread] = self.chains.get(thread, 0) + 1
-            self.calls.append((*stream, ContinuationToken))
-        if self.synchronize and thread is not self.caller and index == 0:
-            if Delimiter == "/":
-                self.roots.wait()
-            elif Prefix in ("proj-a/", "proj-b/", "proj-c/"):
-                self.prefixes[Bucket].wait()
-        if self.failure == (*stream, index):
+            self.calls.append((threading.current_thread(), Bucket, Prefix, StartAfter,
+                               ContinuationToken))
+            if ContinuationToken is not None:
+                start, origin, number = self.tokens[ContinuationToken]
+            else:
+                start, origin, number = self._first(keys, StartAfter), StartAfter, 0
+            barrier = self.barrier if number == 0 and self.rendezvous < 3 else None
+            self.rendezvous += barrier is not None
+        if barrier is not None:
+            barrier.wait()
+        if self.failure == (Bucket, origin, number):
+            self.fired = True
             raise RuntimeError("listing failed")
-        page = dict(self.streams[stream][index])
-        page["IsTruncated"] = index + 1 < len(self.streams[stream])
+        window = [i for i in range(start, len(keys)) if keys[i].startswith(Prefix)]
+        shown = window[:min(MaxKeys, self.page)]
+        page = {"IsTruncated": len(window) > len(shown), "KeyCount": len(shown)}
+        if shown:
+            page["Contents"] = [{"Key": keys[i], "ETag": f'"{_etag(keys[i])}"',
+                                 "Size": len(keys[i].encode()), "LastModified": _STAMP}
+                                for i in shown]
         if page["IsTruncated"]:
-            page["NextContinuationToken"] = f"page-{index + 1}"
+            with self.lock:
+                token = f"token-{len(self.tokens)}"
+                self.tokens[token] = (shown[-1] + 1, origin, number + 1)
+            page["NextContinuationToken"] = token
         return page
+
+    @staticmethod
+    def _first(keys: list[str], start_after: str | None) -> int:
+        if start_after is None:
+            return 0
+        start = bisect.bisect_right([k.encode() for k in keys], start_after.encode())
+        if start and keys[start - 1] != start_after and start_after.startswith(keys[start - 1]):
+            start -= 1
+        return start
+
+    def plain_walk(self) -> tuple[list[r2.R2Object], int]:
+        objects, pages = [], 0
+        for bucket in self.names:
+            for page in self.get_paginator("list_objects_v2").paginate(Bucket=bucket):
+                pages += 1
+                objects += [r2.R2Object(f"{bucket}/{o['Key']}", o["ETag"].strip('"'),
+                                        o["Size"], o["LastModified"])
+                            for o in page.get("Contents", [])]
+        assert [o.key for o in objects] == [
+            f"{b}/{k}" for b in self.names for k in self.keys[b]]
+        self.calls.clear()
+        return objects, pages
+
+
+_STAMP = datetime(2026, 1, 2, tzinfo=timezone.utc)
+_BUCKET_KEYS = {
+    "zulu": ["A/s1.jsonl", "B/s2.jsonl", "_x/s3.jsonl", "a/s4.jsonl", "a/s4.meta.json",
+             "a/s5.jsonl", "b/s6.jsonl", "b/s7.jsonl", "c/Z.jsonl", "c/z.jsonl", "c/é.jsonl",
+             "c/ž.jsonl", "d/s8.jsonl", "d/s9.jsonl"],
+    "claude": [f"p/{n}.jsonl" for n in range(1, 10)] + ["q/1.jsonl", "q/2.jsonl"],
+    "alpha": [],
+}
+_SPLITS = {
+    "cold start": [],
+    "existing": ["zulu/d/s8.jsonl", "zulu/a/s4.jsonl", "zulu/a/s4.jsonl", "zulu/A/s1.jsonl",
+                 "zulu/c/z.jsonl", "claude/p/7.jsonl", "claude/p/2.jsonl"],
+    "deleted": ["zulu/0/gone.jsonl", "zulu/a/s4.5.jsonl", "zulu/zz/gone.jsonl",
+                "claude/p/0.jsonl", "alpha/x/gone.jsonl", "alpha/y/gone.jsonl"],
+    "extends a key": ["zulu/b/s6.jsonl0", "zulu/b/s6.jsonl.bak", "claude/p/3.jsonl0"],
+    "collation order": ["zulu/a/s5.jsonl", "zulu/B/s2.jsonl", "zulu/c/é.jsonl",
+                        "zulu/c/Z.jsonl", "claude/q/1.jsonl", "claude/P/1.jsonl"],
+}
+
+
+def _etag(key: str) -> str:
+    return hashlib.sha1(key.encode()).hexdigest()
+
+
+def _ranges(splits: list[str]) -> int:
+    return len(_ListingS3.names) + len(set(splits))
 
 
 @pytest.fixture(name="listing_s3")
 def _listing_s3_fixture(monkeypatch) -> _ListingS3:
-    client = _ListingS3()
+    client = _ListingS3(_BUCKET_KEYS, page=3)
     monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", "https://r2.invalid/s3")
     monkeypatch.setenv("CLAUDIT_R2_BUCKET", "+".join(client.names))
     monkeypatch.setattr(r2, "_boto_client", lambda: client)
     return client
 
 
-def test_s3_listing_critical_path(listing_s3: _ListingS3) -> None:
-    listing_s3.synchronize = True
-    objects = list(r2.list_keys())
-    total = len(listing_s3.calls)
-    longest = max(listing_s3.chains.values())
-    print(f"listing chains: max={longest}, total={total}, bound={math.ceil(total / 2) + 1}")
-    assert longest <= math.ceil(total / 2) + 1, (longest, total)
-    assert total == listing_s3.expected_pages
-    assert objects == listing_s3.expected
+@pytest.mark.parametrize("splits", _SPLITS.values(), ids=_SPLITS.keys())
+def test_s3_listing_equals_the_plain_walk(listing_s3: _ListingS3, splits: list[str]) -> None:
+    expected, pages = listing_s3.plain_walk()
+    assert list(r2.list_keys(split_points=splits)) == expected
+    starts = [call[1:4:2] for call in listing_s3.calls if call[4] is None]
+    assert len(starts) == _ranges(splits) and set(starts) == {
+        (b, None) for b in listing_s3.names} | {r2.split_key(s) for s in splits}
+    assert len(listing_s3.calls) <= pages + _ranges(splits), (len(listing_s3.calls), pages)
+    if not splits:
+        assert len(listing_s3.calls) == pages
 
 
-def test_s3_listing_matches_serial_order_and_metadata(listing_s3: _ListingS3) -> None:
-    assert list(r2.list_keys()) == listing_s3.expected
-    assert len(listing_s3.calls) == listing_s3.expected_pages
+def test_s3_listing_runs_its_ranges_on_the_pool(listing_s3: _ListingS3) -> None:
+    expected, _ = listing_s3.plain_walk()
+    listing_s3.barrier = threading.Barrier(3, timeout=10)
+    assert list(r2.list_keys(split_points=_SPLITS["existing"])) == expected
+    assert listing_s3.caller not in {call[0] for call in listing_s3.calls}
 
 
 @pytest.mark.parametrize("failure", [
-    ("claude", "proj-b/", None, 1),
-    ("zulu", "", "/", 0),
-    ("zulu", "", "/", 1),
+    ("zulu", None, 0),
+    ("zulu", "a/s4.jsonl", 0),
+    ("claude", "p/2.jsonl", 1),
 ])
 def test_s3_listing_failure_yields_nothing(listing_s3: _ListingS3, failure: tuple) -> None:
     listing_s3.failure = failure
-    listing = r2.list_keys()
+    listing = r2.list_keys(split_points=_SPLITS["existing"])
     with pytest.raises(RuntimeError, match="listing failed"):
         next(listing)
+    assert listing_s3.fired
 
 
 def test_s3_listing_prefix_stays_serial(listing_s3: _ListingS3) -> None:
-    assert list(r2.list_keys(prefix="claude/proj-a")) == [
-        o for o in listing_s3.expected if o.key.startswith("claude/proj-a")]
-    assert listing_s3.calls == [
-        ("claude", "proj-a", None, token) for token in (None, "page-1", "page-2")]
-    assert set(listing_s3.chains) == {listing_s3.caller}
+    expected, _ = listing_s3.plain_walk()
+    assert list(r2.list_keys(prefix="claude/p/", split_points=_SPLITS["existing"])) == [
+        o for o in expected if o.key.startswith("claude/p/")]
+    assert [call[1:4] for call in listing_s3.calls] == [("claude", "p/", None)] * 3
+    assert [call[4] is None for call in listing_s3.calls] == [True, False, False]
+    assert {call[0] for call in listing_s3.calls} == {listing_s3.caller}
 
 
 @pytest.fixture(name="mini_r2")
@@ -173,7 +204,7 @@ def _mini_r2_fixture(monkeypatch):
 
 
 def test_list_keys_walks_recursively(mini_r2):
-    keys = sorted(o.key for o in r2.list_keys())
+    keys = sorted(o.key for o in r2.list_keys(split_points=["claude/proj-b"]))
     assert keys == [
         "claude/proj-a/sess-1/sess-1.jsonl",
         "claude/proj-b/sess-2/data/tool-results/x.txt",
@@ -381,7 +412,6 @@ def test_scan_root_refuses_a_bucket_not_in_r2_bucket(monkeypatch, tmp_path):
 # M1/M2: a listing the walk cannot prove complete must raise, never be
 # silently partial — the ingest orphan sweep deletes every row for keys
 # the listing did not show.
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("root_kind", ["missing", "file"],
@@ -441,7 +471,6 @@ def test_list_keys_skips_a_file_that_vanished_mid_walk(mini_r2):
 # still protects any fork-started child. No network: the probe compares
 # object identity and the creator stamp inside a fork-context child, over
 # a fixture mirror env.
-# ---------------------------------------------------------------------------
 
 
 _FORK_REF: dict = {}

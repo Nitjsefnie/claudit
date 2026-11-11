@@ -13,7 +13,7 @@ import re
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Iterator, NamedTuple
+from typing import Iterable, Iterator, NamedTuple
 from urllib.parse import urlparse
 
 import boto3.session
@@ -292,7 +292,8 @@ def _list_keys_s3(bucket: str, prefix: str) -> Iterator[R2Object]:
             )
 
 
-def list_keys(prefix: str = "") -> Iterator[R2Object]:
+def list_keys(prefix: str = "",
+              split_points: Iterable[str] = ()) -> Iterator[R2Object]:
     """List every configured bucket, keys qualified with their bucket.
 
     `prefix`, when given, applies to the QUALIFIED key and must name the
@@ -303,7 +304,11 @@ def list_keys(prefix: str = "") -> Iterator[R2Object]:
     file_mode, root = _is_file_mode()
     names = buckets()
     if not file_mode and not prefix:
-        yield from (R2Object(*row) for row in r2_list.list_keys(names, _boto_client))
+        splits: dict[str, list[str]] = {}
+        for key in split_points:
+            bucket, object_key = split_key(key)
+            splits.setdefault(bucket, []).append(object_key)
+        yield from (R2Object(*row) for row in r2_list.list_keys(names, _boto_client, splits))
         return
     multi = len(names) > 1
     for bucket in names:

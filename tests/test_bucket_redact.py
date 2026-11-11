@@ -265,7 +265,7 @@ def test_health_fatal_never_names_a_bucket(redact_app, monkeypatch):
     """A whole-run fatal (mirror FileNotFoundError, S3 error) names the
     bucket in its message. Stored text keeps only its type, while the full
     exception stays in the logs."""
-    def broken(prefix: str = ""):
+    def broken(prefix: str = "", split_points=()):
         raise FileNotFoundError(
             "no mirror directory for bucket 'beta'; listing refused")
 
