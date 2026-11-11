@@ -219,6 +219,7 @@ jobs:
       # Rate/version mutations on master have no judged removal range.
       # No base means no exemptions, including a snapshot awaiting re-seeding.
       - name: Run tests
+        # exec: pytest gets the timeout's SIGINT and writes its report.
         timeout-minutes: 12
         run: |
           grep -m1 'model name' /proc/cpuinfo
