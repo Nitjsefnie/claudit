@@ -44,7 +44,7 @@ jobs:
     name: perturbed suite (explorer) seed ${{ matrix.seed-index }} shard ${{ matrix.shard }}
     strategy: {fail-fast: false, matrix: {seed-index: [1, 2, 3], shard: [1, 2, 3, 4]}}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     permissions:
       contents: read

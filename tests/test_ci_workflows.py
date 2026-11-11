@@ -606,9 +606,9 @@ class TestPerturbedSuiteExploreShards:
             "shard ${{ matrix.shard }}"
         )
 
-    def test_cell_timeout_is_thirty_minutes(self) -> None:
+    def test_cell_timeout_is_twenty_minutes(self) -> None:
         job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
-        assert job["timeout-minutes"] == 30
+        assert job["timeout-minutes"] == 20
 
     def test_step_bound_shell_and_env_are_read_from_the_parsed_step(self) -> None:
         job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
