@@ -151,13 +151,21 @@ def test_a_covered_grain_with_no_beacons_left_loses_its_row(
 
 
 def test_an_unchanged_covered_bucket_is_not_rewritten(viz, short_horizon):
-    """A refold that recomputes the same numbers leaves the row's tuple."""
+    """A refold that recomputes the same numbers leaves the row's tuple,
+    even when the beacons' scan order changed: (0.1+0.2)+0.3 != (0.2+0.3)+0.1
+    in floating point, so the sum must not depend on that order."""
     base = datetime(2026, 3, 2, 0, 0, 0, tzinfo=timezone.utc)
-    _seed(_VALUES, ts=base)
+    _seed([0.1, 0.2, 0.3], ts=base)
     _fold_at(base + timedelta(hours=3, minutes=30))
     query = "SELECT xmin::text FROM web_metrics_rollup WHERE bucket_s = 3600"
     with db.viz_conn() as conn:
         before = conn.execute(query).fetchall()
+    _delete_beacons("value", 0.1)
+    _seed([0.1], ts=base)
+    with db.viz_conn() as conn:
+        heap = conn.execute(
+            "SELECT value FROM web_metrics ORDER BY ctid").fetchall()
+    assert heap == [(0.2,), (0.3,), (0.1,)], heap
     _fold_at(base + timedelta(hours=5))
     with db.viz_conn() as conn:
         after = conn.execute(query).fetchall()
