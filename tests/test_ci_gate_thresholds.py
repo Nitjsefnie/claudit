@@ -172,6 +172,19 @@ def test_shards_cover_four_partitions_and_publish_even_after_failure():
     assert upload['if'] == '${{ !cancelled() }}'
 
 
+def _values(options, names):
+    """Each value the option `names` spell is given, as `NAME V`, `--long=V` or `-sV`."""
+    found = []
+    for at, word in enumerate(options):
+        for name in names:
+            attached = name + '=' if name.startswith('--') else name
+            if word == name:
+                found.append(' '.join(options[at + 1:at + 2]))
+            elif word.startswith(attached):
+                found.append(word[len(attached):])
+    return found
+
+
 @pytest.mark.skipif(os.name == 'nt', reason='the step runs under POSIX Bash here')
 def test_portable_cells_run_half_the_suite_each_as_the_steps_own_process(tmp_path):
     job = _workflow('tests.yml')['jobs']['pytest-portable']
@@ -201,9 +214,12 @@ def test_portable_cells_run_half_the_suite_each_as_the_steps_own_process(tmp_pat
         argv = (tmp_path / 'argv').read_text().splitlines()
         files, options = split_pytest_argv(run, argv)
         assert argv[:2] == ['-m', 'pytest']
-        for flag in (['-q'], ['--tb=short'], ['-ra'], ['-m', 'not db'], ['-o', 'faulthandler_timeout=240'],
-                     ['--durations=20'], ['--junitxml=pytest-junit.xml']):
-            assert any(options[at:at + len(flag)] == flag for at in range(len(options))), flag
+        assert sum(word in ('-q', '--quiet') for word in options) == 1
+        for names, value in ((('--tb',), 'short'), (('-r',), 'a'), (('-m',), 'not db'),
+                             (('--durations',), '20'), (('--junitxml', '--junit-xml'), 'pytest-junit.xml')):
+            assert _values(options, names) == [value], names
+        assert [value for value in _values(options, ('-o', '--override-ini'))
+                if value.startswith('faulthandler_timeout=')] == ['faulthandler_timeout=240']
         shards.append(files)
     assert all(shards)
     assert sorted(shards[0] + shards[1]) == sorted(
