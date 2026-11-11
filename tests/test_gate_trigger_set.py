@@ -61,8 +61,8 @@ def test_explicit_names_the_ratchet_data_and_the_scanner_config():
 
 def test_explicit_names_every_convention_read_config():
     # Tool-discovery configs: bare pylint/pycodestyle/pyright/eslint
-    # read these without any workflow naming them, so the extraction
-    # cannot see them; they are held by hand, and each must exist.
+    # read these whether or not a workflow names them, so they are
+    # held by hand, and each must exist.
     assert set(gts.EXPLICIT) == {
         ".github/ci-thresholds.json",
         ".github/comment-share.json",
