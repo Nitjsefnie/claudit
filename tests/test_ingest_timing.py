@@ -21,7 +21,7 @@ _DERIVED_PHASES = (
     "suppressed", "reprice", "aliases", "canonical", "teammates",
     "usage_rollup", "tool_rollup", "tool_error_rollup",
     "dispatch_rollup", "dispatch_brief_rollup", "latency_rollup",
-    "ctx_cost_rollup", "agent_rollup",
+    "response_size_rollup", "ctx_cost_rollup", "agent_rollup",
 )
 _INGEST_PHASES = (
     "open_run", "scope", "list", "markers", "lane_ids", "plan", "existing",

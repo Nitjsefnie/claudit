@@ -235,12 +235,12 @@ Version bumps ship with their cause (SV-PARSER-VERSION, SV-REPRICE).
   project × agent_type × agent_model), `dispatch_brief_rollup` (hour ×
   project × agent_type × brief_ref, with summed prompt length),
   `ctx_cost_rollup` and `agent_rollup` (both carry `total_tokens` beside
-  `cost_usd`), and `latency_rollup`.
-- **`latency_rollup` is stored once per display bucket width**
-  (`constants.LATENCY_BUCKETS`, epoch-aligned and few: percentiles do not
-  compose), plus an all-projects row (`project_id = ''`): a project filter
-  changes each group's population, so an all-projects p50 is not derivable
-  from per-project ones.
+  `cost_usd`), `latency_rollup` and `response_size_rollup`.
+- **`latency_rollup` and `response_size_rollup` are stored once per display
+  bucket width** (`constants.LATENCY_BUCKETS`, epoch-aligned and few:
+  percentiles do not compose), plus an all-projects row (`project_id = ''`):
+  a project filter changes each group's population, so an all-projects p50
+  is not derivable from per-project ones.
 - **A record above ITS model's long-context threshold bills the whole record
   on the meter**: the threshold is per-model data (pricing.json's
   `long_context_meters`, defaulting to the Codex meter's 272k), a

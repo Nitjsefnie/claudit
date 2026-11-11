@@ -38,7 +38,7 @@ _PATH = "/home/me/alpha"
 # Every rollup keyed by proj_id (the FK list, plus sessions' own).
 _ROLLUPS = ("usage_rollup", "tool_rollup", "tool_error_rollup",
             "dispatch_rollup", "dispatch_brief_rollup", "ctx_cost_rollup",
-            "agent_rollup", "latency_rollup")
+            "agent_rollup", "latency_rollup", "response_size_rollup")
 
 
 def _lane(bucket, proj: str, marker: str | None = None) -> None:

@@ -20,7 +20,8 @@ SCHEMA_PATH = _HERE / "schema.sql"
 # shape being converted. schema_types then converges surrogate column
 # types; schema_records_price handles either in-row or split price storage.
 # schema_timelines follows identity conversions and converges file timelines
-# and latency outlier arrays. Ordering does not weaken transaction atomicity.
+# and latency outlier arrays; schema_response_sizes needs dims' proj_id keys.
+# Ordering does not weaken transaction atomicity.
 SCHEMA_PATHS = (SCHEMA_PATH, _HERE / "schema_web_metrics.sql",
                 _HERE / "schema_request_fee.sql",
                 _HERE / "schema_replay.sql",
@@ -35,7 +36,8 @@ SCHEMA_PATHS = (SCHEMA_PATH, _HERE / "schema_web_metrics.sql",
                 _HERE / "schema_dims.sql",
                 _HERE / "schema_types.sql",
                 _HERE / "schema_records_price.sql",
-                _HERE / "schema_timelines.sql")
+                _HERE / "schema_timelines.sql",
+                _HERE / "schema_response_sizes.sql")
 
 
 def read_schema() -> str:

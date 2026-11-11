@@ -35,26 +35,15 @@ def _dashboard_queries(c, ph: Phases, bucket_s: int, src: dict) -> dict:
             src["roll_args"],
         ).fetchall()
 
-    # Percentiles are the one thing that cannot be rolled up — p50/p90
-    # of a union of hours is not derivable from per-hour p50/p90 — so
-    # this stays a live pass, narrowed to the text-bearing rows.
     response_sizes_rows = []
     if flags.CONFIG.features["response_sizes"]:
         response_sizes_rows = ph.execute(
             "response_sizes", c, f"""
-            SELECT to_timestamp(
-                     floor(EXTRACT(EPOCH FROM d.ts) / {bucket_s}) * {bucket_s} + {bucket_s} / 2
-                   ) AS bucket,
-                   dmm.value AS model,
-                   COUNT(*) AS n,
-                   PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY d.text_chars) AS p50,
-                   PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY d.text_chars) AS p90
-            {src["canon_src"]}
-              AND d.text_chars > 0
-            GROUP BY 1, 2
+            SELECT s.bucket, s.model, s.n, s.p50, s.p90
+            {src["size_src"]}
             ORDER BY 1, 2
             """,
-            src["canon_args"],
+            src["size_args"],
         ).fetchall()
 
     # Line churn per bucket, folded onto the hourly panel entries below.

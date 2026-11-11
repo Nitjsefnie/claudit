@@ -123,7 +123,8 @@ def test_the_rebuild_records_every_phase_row_count(
         "suppressed", "reprice", "aliases", "canonical", "teammates",
         "usage_rollup", "tool_rollup", "tool_error_rollup",
         "dispatch_rollup", "dispatch_brief_rollup", "latency_rollup",
-        "ctx_cost_rollup", "agent_rollup", "web_metrics_rollup",
+        "response_size_rollup", "ctx_cost_rollup", "agent_rollup",
+        "web_metrics_rollup",
     }
     assert rows["usage_rollup"] > 0, (
         "a populated corpus must produce usage_rollup rows")
