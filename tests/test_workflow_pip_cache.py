@@ -217,9 +217,19 @@ def _commands(script: str, links: object = None) -> list[list[str]]:
     return commands if links is None else [[f"PIP_FIND_LINKS={links}", *words] for words in commands]
 
 
+def _expressions_spaced(text: str) -> str:
+    # Trims each `${{ }}` body as the runner does, with no regex (CodeQL py/redos).
+    head, _, rest = text.partition("${{")
+    body, closed, tail = rest.partition("}}")
+    if not closed:
+        return text
+    return f"{head}${{{{ {body.strip()} }}}}{_expressions_spaced(tail)}"
+
+
 def _step_links(step: dict) -> object:
     env = step.get("env")
-    return env.get("PIP_FIND_LINKS") if isinstance(env, dict) else None
+    links = env.get("PIP_FIND_LINKS") if isinstance(env, dict) else None
+    return _expressions_spaced(links) if isinstance(links, str) else links
 
 
 def _install_sites() -> dict[str, list[tuple[bool, list[list[str]]]]]:
@@ -246,12 +256,14 @@ def _is_hashed_pyyaml(words: list[str], verb: str = "install") -> bool:
 def _wheel_dir(words: list[str]) -> str | None:
     found = []
     for word, following in zip(words, [*words[1:], None]):
-        if word in ("-w", "--wheel-dir"):
-            found.append(following)
-        elif word.startswith("--wheel-dir="):
-            found.append(word.removeprefix("--wheel-dir="))
-        elif word.startswith("-w"):
-            found.append(word.removeprefix("-w"))
+        name, equals, value = word.partition("=")
+        if name.startswith("--w") and "--wheel-dir".startswith(name):
+            found.append(value if equals else following)
+        elif word.startswith("-") and not word.startswith("--"):
+            # `-q`, `-v`, `-V` take no value and still build.
+            cluster = word[1:].lstrip("qvV")
+            if cluster.startswith("w"):
+                found.append(cluster[1:] or following)
     return found[0] if len(found) == 1 else None
 
 
