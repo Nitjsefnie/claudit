@@ -224,6 +224,7 @@ REFUSED = {
     "npm exec held by --yes=false, --yes after it": (
         "npm exec --yes=false eslint src --yes", [NPX_UNRETRIED, _npm("exec")]),
     "npx held, --yes after the package": ("npx --no eslint src --yes", [NPX_UNRETRIED, NPX_UNBOUNDED]),
+    "npx held by --no-yes, -y after the package": ("npx --no-yes eslint src -y", [NPX_UNRETRIED, NPX_UNBOUNDED]),
     "npm exec held, --ye after it": ("npm exec --no eslint src --ye", [NPX_UNRETRIED, _npm("exec")]),
     "npm exec held, -q after it": ("npm exec --no eslint src -q", [NPX_UNRETRIED, _npm("exec")]),
     "npx naming a package by option": ("npx --package=eslint", [NPX_UNRETRIED, NPX_UNBOUNDED]),
