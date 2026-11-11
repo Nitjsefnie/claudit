@@ -12,6 +12,8 @@ from types import ModuleType, SimpleNamespace
 import pytest
 import yaml
 
+from tests.test_workflow_pytest_options import split_pytest_argv
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "ci" / "pytest_shards.py"
 FILES = [
     ("tests/test_z.py", 8),
@@ -379,7 +381,8 @@ def _portable_step(root: Path, job: dict, system: str) -> tuple[list[str], str]:
                             cwd=root, env=env, capture_output=True, text=True,
                             check=False, timeout=30)
     assert result.returncode == 0, result.stderr
-    return (root / "argv").read_text(encoding="utf-8").splitlines()[2:-9], result.stderr
+    files, _ = split_pytest_argv(step, (root / "argv").read_text(encoding="utf-8").splitlines())
+    return files, result.stderr
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the workflow step runs under POSIX Bash here")
