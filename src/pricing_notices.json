@@ -9,6 +9,7 @@
     "anthropic/claude-mythos-5-1",
     "anthropic/claude-opus-4",
     "anthropic/claude-sonnet-4",
+    "baidu/ernie-5.5-flash-preview",
     "minimax/minimax-01",
     "minimax/minimax-m1",
     "minimax/minimax-m2",
@@ -81,7 +82,7 @@
     "deepseek-v4-pro-0813 via Parasail: rule-resolved (unique quantization): took the fp8 endpoint 'parasail/fp8' over service tiers",
     "deepseek-v4-pro-0813 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
     "deepseek-v4-pro-0813 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
-    "delisted from OpenRouter's catalog; row kept, not fetched: claude-3-5-haiku- (anthropic/claude-3-5-haiku), claude-3-5-sonnet- (anthropic/claude-3-5-sonnet), claude-3-7-sonnet- (anthropic/claude-3-7-sonnet), claude-3-haiku- (anthropic/claude-3-haiku), claude-3-opus- (anthropic/claude-3-opus), claude-mythos-5 (anthropic/claude-mythos-5), claude-mythos-5-1 (anthropic/claude-mythos-5-1), claude-opus-4 (anthropic/claude-opus-4), claude-sonnet-4 (anthropic/claude-sonnet-4), gpt-3-5-turbo (openai/gpt-3.5-turbo), gpt-3-5-turbo-instruct (openai/gpt-3.5-turbo-instruct), gpt-4-turbo (openai/gpt-4-turbo), minimax-01 (minimax/minimax-01), minimax-m1 (minimax/minimax-m1), minimax-m2 (minimax/minimax-m2), minimax-m2-1 (minimax/minimax-m2.1), minimax-m2-her (minimax/minimax-m2-her), o1 (openai/o1), o1-pro (openai/o1-pro), o3-mini (openai/o3-mini), o3-mini-high (openai/o3-mini-high), o4-mini (openai/o4-mini), o4-mini-high (openai/o4-mini-high), solar-pro-3 (upstage/solar-pro-3), stealth/space-bunny-alpha (stealth/space-bunny-alpha)",
+    "delisted from OpenRouter's catalog; row kept, not fetched: claude-3-5-haiku- (anthropic/claude-3-5-haiku), claude-3-5-sonnet- (anthropic/claude-3-5-sonnet), claude-3-7-sonnet- (anthropic/claude-3-7-sonnet), claude-3-haiku- (anthropic/claude-3-haiku), claude-3-opus- (anthropic/claude-3-opus), claude-mythos-5 (anthropic/claude-mythos-5), claude-mythos-5-1 (anthropic/claude-mythos-5-1), claude-opus-4 (anthropic/claude-opus-4), claude-sonnet-4 (anthropic/claude-sonnet-4), ernie-5-5-flash-preview (baidu/ernie-5.5-flash-preview), gpt-3-5-turbo (openai/gpt-3.5-turbo), gpt-3-5-turbo-instruct (openai/gpt-3.5-turbo-instruct), gpt-4-turbo (openai/gpt-4-turbo), minimax-01 (minimax/minimax-01), minimax-m1 (minimax/minimax-m1), minimax-m2 (minimax/minimax-m2), minimax-m2-1 (minimax/minimax-m2.1), minimax-m2-her (minimax/minimax-m2-her), o1 (openai/o1), o1-pro (openai/o1-pro), o3-mini (openai/o3-mini), o3-mini-high (openai/o3-mini-high), o4-mini (openai/o4-mini), o4-mini-high (openai/o4-mini-high), solar-pro-3 (upstage/solar-pro-3), stealth/space-bunny-alpha (stealth/space-bunny-alpha)",
     "glm-4-6 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
     "glm-4-7 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
     "glm-5 via Venice: rule-resolved (stored price continuity): kept the endpoint 'venice/fp8' at the row's price; assumes the tracked endpoint did not reprice this hour",
@@ -540,6 +541,7 @@
       "Sail Research"
     ],
     "deepseek-v4-1-flash-1017": [
+      "Decart",
       "ModelRun",
       "Particle AI",
       "Phala",
