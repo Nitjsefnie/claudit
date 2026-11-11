@@ -4,7 +4,8 @@ For the ratchet data in.github/ci-thresholds.json, a coverage floor or
 measured value never decreases, a baseline entry is never raised,
 and an addition to an established member is refused under the frozen
 core families. Cost budget raises
-require a feat: or feat(scope): subject in the judged range.
+require a feat subject (feat:, feat(scope):, either with ! before the
+colon) in the judged range.
 The cases cover forbidden moves and the bots' and features' allowed moves.
 """
 from __future__ import annotations
@@ -515,6 +516,8 @@ def test_feature_range_admits_budget_raise(judged_base_path, monkeypatch):
         ("reparse", "bytecodes", ["fix: prepare", "feat: parse new events"]),
         ("reparse", "share", ["feat: parse new events"]),
         ("suite_cost", "bytecodes", ["feat(ci): measure a new path"]),
+        ("suite_cost", "bytecodes", ["feat!: drop the old path"]),
+        ("reparse", "bytecodes", ["feat(api)!: change the wire"]),
     ]:
         assert _judged_guard(
             judged_base_path, monkeypatch, _document(), _raised_document(family, metric),
@@ -538,6 +541,11 @@ def test_non_feature_range_refuses_raise_and_names_remedy(judged_base_path, monk
         " feat: new path",
         "fix: keep one subject\u2028feat: embedded feature",
         "fix: keep one subject\x0bfeat: embedded feature",
+        "fix!: break the wire",
+        "feat(api)! change the wire",
+        "feat!(api): change the wire",
+        "feat:new path",
+        "feat(): new path",
     ]:
         assert _judged_guard(
             judged_base_path, monkeypatch, _document(), _raised_document(), [subject]) == 1

@@ -9,8 +9,8 @@ rule no longer depends on review:
 
 - a coverage ``floor`` or ``measured`` value never decreases;
 - a suite_cost or reparse ``floor`` or ``measured`` value increases only
-  when the judged base..head range includes a subject starting with
-  ``feat:`` or ``feat(scope):``; missing or unreadable history fails closed;
+  when the judged base..head range includes a ``feat(scope)!:`` subject,
+  scope and ``!`` optional; missing or unreadable history fails closed;
 - suite_cost's workload identity remains seed-only, even for features;
 - a baseline entry is never raised;
 - an entry is added only when it seeds a brand-new member; on a member
@@ -38,7 +38,6 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
-import re
 import subprocess
 import sys
 from decimal import Decimal
@@ -46,8 +45,9 @@ from pathlib import Path
 
 if __package__:
     # pylint: disable-next=relative-beyond-top-level,no-name-in-module
-    from . import thresholds, thresholds_removed
+    from . import commit_scopes, thresholds, thresholds_removed
 else:
+    commit_scopes = importlib.import_module('commit_scopes')
     thresholds = importlib.import_module('thresholds')
     thresholds_removed = importlib.import_module('thresholds_removed')
 
@@ -66,8 +66,9 @@ NON_FEATURE_REMEDY = (
     'dropping redundant cases, merging parametrisations, deleting tests that '
     'repeat another test\'s assertions.')
 REPARSE_REMEDY = (
-    'A reparse phase budget is never raised by hand without a feat: or '
-    'feat(scope): commit in the judged range. ' + NON_FEATURE_REMEDY +
+    'A reparse phase budget is never raised by hand without a feat:, '
+    'feat(scope):, feat!: or feat(scope)!: commit in the judged range. '
+    + NON_FEATURE_REMEDY +
     ' The seed path cannot bypass a breach for test growth, '
     'refactors or fixes.')
 BASELINE_REMEDY = (
@@ -75,8 +76,9 @@ BASELINE_REMEDY = (
     'module, reduce the complexity, or seed a new family through the '
     'loader\'s writer in a reviewed gate-definer change.')
 SUITE_COST_REMEDY = (
-    'A suite cost budget is never raised by hand without a feat: or '
-    'feat(scope): commit in the judged range. ' + NON_FEATURE_REMEDY)
+    'A suite cost budget is never raised by hand without a feat:, '
+    'feat(scope):, feat!: or feat(scope)!: commit in the judged range. '
+    + NON_FEATURE_REMEDY)
 REMOVAL_REMEDY = (
     'Declare removals in the judged range with Thresholds-Removed: '
     '<entry>=<kind>[, <entry>=<kind>], where kind is bug or definition. '
@@ -320,8 +322,9 @@ def _has_feature_commits(base_rev: str | None, head_rev: str) -> bool:
     if proc.returncode != 0:
         return False
     # Git separates subjects with LF; other separators can be subject content.
-    return any(re.match(r'^feat:|^feat\([^)]*\):', subject)
-               for subject in proc.stdout.decode('utf-8', 'replace').split('\n'))
+    subjects = proc.stdout.decode('utf-8', 'replace').split('\n')
+    return any((parts := commit_scopes.conforming(subject)) is not None
+               and parts['type'] == 'feat' for subject in subjects)
 
 
 def _parser():
