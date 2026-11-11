@@ -348,8 +348,8 @@
     9576
   ],
   "backend/ingest_rollup_web_metrics.py": [
-    3499,
-    6469
+    3471,
+    7498
   ],
   "backend/ingest_runs.py": [
     2128,
@@ -580,8 +580,8 @@
     4534
   ],
   "backend/web_metrics.py": [
-    6813,
-    11692
+    6674,
+    11484
   ],
   "compose.yaml": [
     1732,
@@ -1688,8 +1688,8 @@
     21991
   ],
   "tests/test_web_metrics_rollup.py": [
-    8045,
-    21422
+    7568,
+    23682
   ],
   "tests/test_workflow_ci_gate.py": [
     7652,
