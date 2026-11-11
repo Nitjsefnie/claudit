@@ -611,7 +611,8 @@ backend/          — FastAPI application
                     etag (#684)
   r2_list.py      — the concurrent S3 listing: each bucket listed as key
                     ranges between sorted split points (StartAfter, both
-                    bounds filtered client-side), one stream without any
+                    bounds filtered client-side); a bucket without split
+                    points lists as one stream
   auth.py         — PBKDF2-SHA256 hashing/verification
   login.py        — /login, /logout, /login/guest, rate limiting
   login_page.py   — the sign-in page's HTML template and response
