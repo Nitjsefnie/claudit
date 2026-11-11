@@ -4,12 +4,21 @@ An attempt must end when the network goes silent, or the step waits for
 its job's limit and no retry comes. Every gh command the guard classifies
 as a read or a write, retried or not, fails unless it is
 `timeout -k N N gh ...`: timeout directly before gh, inside any helper,
-each N whole seconds above 0. An npm command needs `timeout -k N N npm ...`
-the same way, under the retry helper or steering an attempt loop, unless it
-has no subcommand or its first word that is no option is exactly `run`,
-`run-script` or `test`; `exec` or `x` there makes it npx. The `--` that ends
-a prefix command's options is skipped, so the command after it is judged as
-without it.
+each N whole seconds above 0. `gh auth status` is a read (it asks the API
+whether the token works); `version`, `--version`, `help` or `--help` as gh's
+first word is local and needs no timeout. An npm command needs
+`timeout -k N N npm ...` the same way, under the retry helper or steering an
+attempt loop, unless it has no subcommand or its first word that is no
+option is exactly `run`, `run-script` or `test`; `exec` or `x` there makes
+it npx. An npx is the npm command `npm exec` (`timeout -k N N npx ...`), as
+npm-exec(1) installs what it runs when missing, unless it names nothing to
+run (no word that is no option, no `--package` or `-p` option) or the last
+option before its first word that is no option (for `npm exec`, options
+before `exec` too) is `--no`, `--no-yes`, `--yes=false`, `--offline` or,
+converted to `--no` by the npx binary alone, `--no-install`. A held npx
+still asks the registry about a package it lacks, then fails. The `--` that
+ends a prefix command's options is skipped, so the command after it is
+judged as without it.
 
 A git fetch/clone/ls-remote/pull/push is judged by every word after the
 subcommand that is shaped like a remote, read as git reads one (GIT URLS in
@@ -36,8 +45,9 @@ flow: an export that is its own command (not directly after a shell
 keyword) counts for every command written after it in the run, whatever
 branch, function or subshell holds it. Nor what an npm subcommand does (any
 other is taken to fetch; an option's separate value before the subcommand is
-read as the subcommand) or whether npx fetches the package it runs. pip,
-playwright, curl and other uses of timeout keep their rules.
+read as the subcommand), npm config set outside the command, or whether the
+project holds what npx runs. pip, playwright, curl and other uses of timeout
+keep their rules.
 
 Each refused row differs from an accepted one in exactly one thing. The
 guard's own test runs the same rules over every real workflow."""
@@ -61,6 +71,9 @@ FETCH = COPY + 'git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master'
 
 UNBOUNDED_READ = "gh read without `timeout -k N N gh`, N above 0, per attempt"
 UNBOUNDED_WRITE = "gh write without `timeout -k N N gh`, N above 0, per attempt"
+UNCLASSIFIED = "gh command not classified as read or write"
+NPX_UNRETRIED = "npm exec without the retry helper"
+NPX_UNBOUNDED = "npm exec without `timeout -k N N npx`, N above 0, per attempt"
 HTTPS = "https://github.com/${CLAUDIT_REPO}.git"
 OVER_HTTP = f"git fetch over http(s) (`{HTTPS}`) without `-c http.lowSpeedLimit=N -c http.lowSpeedTime=N`, N above 0"
 NAMED = ("git fetch to a remote that is a name, a variable or a path, with neither the http "
@@ -118,10 +131,24 @@ ACCEPTED = {
     "npm test": "npm test",
     "npm option joined to its value before a script": "npm --prefix=web run lint",
     "npm with no subcommand": "npm --version",
-    "npx, whatever it fetches": "npx eslint src",
-    "npm x, whatever it fetches": "npm x eslint src",
-    "npm exec behind an option": "npm --yes exec eslint src",
-    "playwright by npm exec behind an option, by the helper": "scripts/ci/retry.sh npm --yes exec playwright install chromium",
+    "npx held by --no-install": "npx --no-install eslint src",
+    "npx held by --no": "npx --no eslint src",
+    "npx held by --no-yes": "npx --no-yes eslint src",
+    "npx held by --yes=false": "npx --yes=false eslint src",
+    "npx held offline": "npx --offline eslint src",
+    "npx held after a --yes": "npx --yes --no eslint src",
+    "npx naming nothing to run": "npx --version",
+    "npx by the helper, bounded": "scripts/ci/retry.sh timeout -k 5 120 npx eslint src",
+    "npm exec held by --no": "npm exec --no eslint src",
+    "npm x held by --no": "npm x --no eslint src",
+    "npm held by --no before exec": "npm --no exec eslint src",
+    "npm exec by the helper, bounded": "scripts/ci/retry.sh timeout -k 5 120 npm exec eslint src",
+    "playwright by npm exec behind --no, by the helper": "scripts/ci/retry.sh npm --no exec playwright install chromium",
+    "gh version": "gh version",
+    "gh --version": "gh --version",
+    "gh help": "gh help",
+    "gh --help": "gh --help",
+    "gh auth status by the helper": COPY + "timeout -k 5 60 gh auth status",
     "https fetch with the pair": LOOP.format(f"git {PAIR}fetch --no-tags {URL}"),
     "pair after another global option": LOOP.format(f'git -C "$dir" {PAIR}fetch origin'),
     "pair names in another case": LOOP.format(
@@ -170,8 +197,20 @@ REFUSED = {
     "npm subcommand that holds a script's": (
         "npm install-test", ["npm install-test without the retry helper", _npm("install-test")]),
     "npm subcommand in another case": ("npm Test", ["npm Test without the retry helper", _npm("Test")]),
-    "playwright by npm exec behind an option": (
-        "npm --yes exec playwright install chromium", ["playwright install without the retry helper"]),
+    "playwright by npm exec behind --no": (
+        "npm --no exec playwright install chromium", ["playwright install without the retry helper"]),
+    "npx nothing holds": ("npx eslint src", [NPX_UNRETRIED, NPX_UNBOUNDED]),
+    "npx by the helper, no timeout": ("scripts/ci/retry.sh npx eslint src", [NPX_UNBOUNDED]),
+    "npx bounded, no helper": ("timeout -k 5 120 npx eslint src", [NPX_UNRETRIED]),
+    "npx held, then --yes": ("npx --no --yes eslint src", [NPX_UNRETRIED, NPX_UNBOUNDED]),
+    "npx naming a package by option": ("npx --package=eslint", [NPX_UNRETRIED, NPX_UNBOUNDED]),
+    "npx naming a package by -p": ("npx -p=eslint", [NPX_UNRETRIED, NPX_UNBOUNDED]),
+    "npm x nothing holds": ("npm x eslint src", [NPX_UNRETRIED, _npm("exec")]),
+    "npm exec with npx's --no-install": ("npm exec --no-install eslint src", [NPX_UNRETRIED, _npm("exec")]),
+    "npm --yes before exec": ("npm --yes exec eslint src", [NPX_UNRETRIED, _npm("exec")]),
+    "gh auth status nothing bounds": (COPY + "gh auth status", [UNBOUNDED_READ]),
+    "gh auth status nothing retries": ("timeout -k 5 60 gh auth status", ["gh read without the retry helper"]),
+    "gh --version after a command": ("gh auth --version", [UNCLASSIFIED]),
     "no timeout in an inner shell": (f"bash -c '{COPY}gh api repos/o/r'", [UNBOUNDED_READ]),
     "duration 0": (COPY + "timeout -k 5 0 " + READ, [UNBOUNDED_READ]),
     "kill-after 0": (COPY + "timeout -k 0 60 " + READ, [UNBOUNDED_READ]),
@@ -317,7 +356,7 @@ def test_every_git_network_command_needs_a_stall_bound(verb):
     ("scripts/ci/retry.sh timeout -k 5 120 " + NPM_CI + " && npm run build", ["npm ci", None]),
     ('api_retry "installing" -- timeout -k 5 120 npm install', ["npm install"]),
     (f"bash -c '{COPY}timeout -k 5 120 {NPM_CI}'", ["npm ci"]),
-    ("command -v npm\nnpm exec playwright install chromium", [None, "playwright install"]),
+    ("command -v npm\nnpm exec --no playwright install chromium", [None, "playwright install"]),
 ])
 def test_the_guard_names_the_fetch_kind_it_reads_in_each_command(script, kinds):
     assert list(_kinds(script)) == kinds
