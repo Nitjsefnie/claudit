@@ -243,9 +243,10 @@ def test_a_workflow_scope_outside_ci_fails_the_head(tmp_path):
 
 
 def test_the_ci_type_on_a_workflow_scope_passes(tmp_path):
-    done = _check(tmp_path, ["ci(tests): restructure the leg"])
+    done = _check(tmp_path, ["ci(tests): restructure the leg",
+                             "ci(codeql): tweak the analysis"])
     assert done.returncode == 0
-    assert "Examined 1 commit subject in origin/master..HEAD" in done.stdout
+    assert "Examined 2 commit subjects in origin/master..HEAD" in done.stdout
 
 
 def test_the_shared_tests_scope_is_exempt(tmp_path):
