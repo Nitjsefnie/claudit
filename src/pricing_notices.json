@@ -171,7 +171,7 @@
     "kimi-k3 via Parasail: rule-resolved (unique quantization): took the fp4 endpoint 'parasail/fp4' over service tiers",
     "kimi-k3 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
     "kimi-k3 via Wafer: rule-resolved (bare namespace): took the bare namespace endpoint 'wafer' over service tiers 'wafer/fast'",
-    "kimi-k3-1-pro via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/mxfp4'; dropped 'inference-net/mxfp4/us', 'inference-net/us/fast'",
+    "kimi-k3-1-pro via InferenceNet: rule-resolved (unique quantization): took the mxfp4 endpoint 'inference-net/mxfp4' over service tiers",
     "kimi-k3-1-pro via Moonshot AI: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
     "kimi-k3-1-pro via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
     "kimi-k3-1-pro via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
@@ -257,6 +257,7 @@
     "tag 'deepinfra/fp8/priority' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra",
     "tag 'fireworks/fast' names neither a known region nor a quantization: glm-5-3 via Fireworks, kimi-k3 via Fireworks",
     "tag 'fireworks/spot' names neither a known region nor a quantization: deepseek-v4-1-flash via Fireworks, deepseek-v4-1-flash-1017 via Fireworks, glm-5-3 via Fireworks",
+    "tag 'inference-net/fast' names neither a known region nor a quantization: kimi-k3-1-pro via InferenceNet",
     "tag 'inference-net/us/fast' names neither a known region nor a quantization: kimi-k3 via InferenceNet, kimi-k3-1-pro via InferenceNet",
     "tag 'ionstream/flex' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Ionstream",
     "tag 'mistral/zdr' names neither a known region nor a quantization: glm-5-2 via Mistral, glm-5-3 via Mistral",
@@ -601,7 +602,8 @@
       "ModelRun",
       "OpenInference",
       "Phala",
-      "River"
+      "River",
+      "Tenstorrent"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
