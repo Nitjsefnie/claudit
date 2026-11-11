@@ -366,10 +366,13 @@ def _fetch_kind(words: list[str]) -> str | None:
     if name == "uv" and args[:1] == ["pip"]:
         module = "pip"
     if name == "npx":
-        # npm-exec(1) installs what it runs if missing, unless the last option before it holds.
+        # npm-exec(1) installs what it runs if missing, unless held and no later --yes undoes it.
         at = next((i for i, arg in enumerate(args) if not arg.startswith("-")), len(args))
         runs = at < len(args) or any(arg.startswith(("--package", "-p")) for arg in args)
-        if runs and "".join(args[at - 1:at]) not in holds:
+        rest = args[at:args.index("--", at)] if "--" in args[at:] else args[at:]
+        yes = any(arg.startswith("--yes") and arg != "--yes=false" or arg[1:2] not in ("", "-") and "y" in arg
+                  for arg in rest if arg.startswith("-"))
+        if runs and ("".join(args[at - 1:at]) not in holds or yes):
             return "npm exec"
         module = args[at] if at < len(args) else ""
     if re.fullmatch(r"pip[0-9.]*", module):
