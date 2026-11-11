@@ -102,9 +102,8 @@ REGIONS = FIXED_REGIONS + (
 #: `sse_update`.
 PHASES = ("pre_paint", "post_usable", "sse_update")
 
-#: One request's worth of beacons. The frontend sends one to three; the cap
-#: bounds a single call's insert without a rate limiter in front of a route
-#: whose caller is our own page.
+#: One request's worth of beacons, src/perf.js's MAX_BATCH. The cap bounds
+#: one call's insert without a rate limiter on a route our own page calls.
 MAX_BEACONS = 50
 
 #: Ceiling on rows one user may hold inside the retention window. The sink is

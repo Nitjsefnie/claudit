@@ -4,10 +4,10 @@ Source rows are beacons, never records, so scope is the bounded raw retention
 window. Store one row per display width because percentiles do not compose;
 total does compose, for cumulative shift and long-task totals.
 
-A fold revises closed buckets it reads whole from the oldest beacon on; an
-earlier one (pruned, or holding that beacon) stays as stored, as partial
-windows would freeze tail-only percentiles. RAW_KEEP_S includes TWO widest
-bucket widths plus a fold interval so a newly closed bucket is fully readable.
+A bucket starting before the oldest surviving beacon is never revised, so
+removing the oldest beacons leaves their buckets as stored; partial windows
+would freeze tail-only percentiles. RAW_KEEP_S includes TWO widest bucket
+widths plus a fold interval so a newly closed bucket is fully readable.
 For stalled folds, read back to the oldest surviving beacon and still refuse
 incomplete spans. DELETE and INSERT must use the same span bound
 so deletion cannot discard a bucket the INSERT cannot rebuild.
@@ -92,8 +92,9 @@ def _fold(conn, bucket_width: int, horizon, read_from,
         ), emptied AS (
           -- A revision (this DELETE, the DO UPDATE) also needs the bucket to
           -- start at or after the oldest beacon: every prune took all rows
-          -- below its cutoff, so such a bucket lost none even if the clock
-          -- stepped back below an earlier cutoff. No beacon: NULL, no revision.
+          -- below its cutoff, so such a bucket lost none, even across a clock
+          -- step back of at most RAW_KEEP_S (a beacon stamped then is still at
+          -- or after every earlier cutoff). No beacon: NULL, no revision.
           DELETE FROM web_metrics_rollup r
            WHERE bucket_s = {bucket_width} AND {covered}
              AND bucket >= %(revisable)s
