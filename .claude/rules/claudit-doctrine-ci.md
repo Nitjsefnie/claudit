@@ -176,8 +176,8 @@ numbers in a workflow. Module size is gated by the
 - The direction guard also refuses lowered coverage, raised baseline
   entries, hand-added entries under the frozen core families, and moved
   workload identity. Suite-cost and reparse
-  budget raises require a subject starting with `feat:` or `feat(scope):`
-  in the judged range. Missing, unreadable or empty ranges prove no
+  budget raises require a `feat` subject (`feat:` or `feat(scope):`,
+  either with `!` before the colon) in the judged range. Missing, unreadable or empty ranges prove no
   feature and refuse raises. The feature exception admits numeric cost
   budget raises only; every other refusal stands. The bots' coverage
   raises, cost and baseline tightens, and measured seeds remain legal.
