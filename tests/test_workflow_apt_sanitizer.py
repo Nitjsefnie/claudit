@@ -149,9 +149,17 @@ def test_every_apt_phase_retries_an_ended_attempt_and_fits_its_backstop(tmp_path
     update, download, install = [call for call in calls if call[0] == "apt-get"]
     assert "APT::Update::Error-Mode=any" in update[update.index("-o") + 1::2]
     assert "--download-only" in download and "--no-download" in install
+    assert all("-q" in call and "-qq" not in call for call in (update, download))  # apt's Err/W/E lines reach the log
     for call in (download, install):
         assert call[-2:] == PACKAGES.split()
     assert install[1] == "noninteractive"
+    said = re.findall(r"^(?:==> |::warning::)(.+?)(?: attempt 1)? timed out after (\d+) s$", proc.stdout, re.M)
+    assert [label for label, _ in said] == [
+        "apt-get update", "apt-get install --download-only", "apt-get install --no-download",
+        "apt-get check", "dpkg --configure -a"]
+    for label, seconds in said:  # each names the bound that ended it
+        assert int(seconds) == next(limit for limit, command in bounded_calls(tmp_path / "timeout-state")
+                                    if command.startswith(label))
     sanitize, = re.findall(r"timeout (\d+)s rm ", _action_steps()[0]["run"])
     worst = int(sanitize) + _worst_case(tmp_path, calls)
     callers = [step for _, _, step in _workflow_steps() if step.get("uses") == ACTION_REF]
@@ -167,7 +175,8 @@ def test_every_apt_phase_retries_an_ended_attempt_and_fits_its_backstop(tmp_path
 def test_an_apt_phase_whose_every_attempt_fails_stops_the_step(tmp_path, phase, failure, later):
     proc, calls = _install(tmp_path, APT_FAIL=phase)
     assert proc.returncode == 1
-    assert f"::error::{failure}" in proc.stderr
+    assert f"::error::{failure}; the last exited with status 100" in proc.stderr
+    assert "attempt 1 exited with status 100" in proc.stdout
     failed = [call for call in calls if call[0] == "apt-get" and phase in call]
     assert len(failed) == 2
     if later:
@@ -177,6 +186,15 @@ def test_an_apt_phase_whose_every_attempt_fails_stops_the_step(tmp_path, phase, 
         assert [call[2] if call[0] == "apt-get" else call[0] for call in ran] == [
             "install", "sleep", "check", "dpkg", "install"]
         assert ran[0][1] == ran[3][1] == "noninteractive" and ran[3][2:] == ["--configure", "-a"]
+
+
+@ubuntu_step_body
+def test_an_update_the_bound_kills_says_it_timed_out(tmp_path):
+    proc, calls = _install(tmp_path, TIMEOUT_EXPIRE="2", TIMEOUT_ONLY="apt-get update", TIMEOUT_STATUS="137")
+    assert proc.returncode == 1
+    (limit, _), = set(bounded_calls(tmp_path / "timeout-state"))
+    assert f"::error::apt-get update failed after 2 attempts; the last timed out after {limit} s" in proc.stderr
+    assert not [call for call in calls if call[0] == "apt-get"]
 
 
 def _browser_run(tmp_path: Path, **env: str) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
@@ -198,12 +216,25 @@ def test_the_browser_install_retries_an_ended_attempt_and_both_steps_fit_their_b
 
 
 @ubuntu_step_body
-@pytest.mark.parametrize("report,status", [
-    ("Missing system dependencies (1):\n  fonts-unifont\n", "1"),
-    ("", "0"),  # a platform Playwright has no package list for: a warning on stderr, exit 0
-    ("All system dependencies are installed.\n", "124"),  # the bound ended it after its report
+@pytest.mark.parametrize("status,said", [("137", "timed out after {} s"), ("1", "exited with status 1")])
+def test_a_browser_download_whose_every_attempt_fails_says_how(tmp_path, status, said):
+    proc, calls = _browser_run(tmp_path, TIMEOUT_EXPIRE="3", TIMEOUT_ONLY="playwright install chromium",
+                               TIMEOUT_STATUS=status)
+    assert proc.returncode == 1
+    (limit, _), = set(bounded_calls(tmp_path / "timeout-state"))
+    assert "::error::the browser download's last attempt " + said.format(limit) in proc.stderr
+    assert not [call for call in calls if "install-deps" in call]
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("report,status,said", [
+    ("Missing system dependencies (1):\n  fonts-unifont\n", "1", "exited with status 1"),
+    ("", "0", "exited with status 0"),  # a platform Playwright has no package list for: a warning on stderr, exit 0
+    ("All system dependencies are installed.\n", "124", "timed out after {} s"),  # the bound ended it after its report
 ])
-def test_a_dependency_the_apt_step_lacks_fails_the_browser_step(tmp_path, report, status):
+def test_a_dependency_the_apt_step_lacks_fails_the_browser_step(tmp_path, report, status, said):
     proc, _ = _browser_run(tmp_path, REPORT=report, REPORT_STATUS=status)
     assert proc.returncode == 1
-    assert "::error::Playwright's dependency dry run did not report every package installed: " + report.rstrip("\n") in proc.stderr
+    limit, _ = bounded_calls(tmp_path / "timeout-state")[-1]
+    assert (f"::error::Playwright's dependency dry run {said.format(limit)} and printed: "
+            + report.rstrip("\n")) in proc.stderr
