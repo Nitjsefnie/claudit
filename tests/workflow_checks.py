@@ -170,7 +170,9 @@ def assert_shards_exec_pytest(job: dict, tmp_path: Path, options: list[str]) -> 
         assert (len(lines) == 3 and lines[0].startswith("model name") and lines[1].isdecimal()
                 and _cpu_counters(lines[2])), lines
         assert argv[:2] == ["-m", "pytest"] and argv[len(argv) - len(options):] == options
-        shards += argv[2:len(argv) - len(options)]
+        files = argv[2:len(argv) - len(options)]
+        assert files, shard
+        shards += files
     assert sorted(shards) == sorted(path.relative_to(ROOT).as_posix()
                                     for path in (ROOT / "tests").rglob("test_*.py"))
     code, _, _, stdout = exec_step(after, tmp_path, {}, {})
