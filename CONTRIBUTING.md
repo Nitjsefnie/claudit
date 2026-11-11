@@ -747,8 +747,9 @@ here before the check exempts it. `scripts/ci/commit_scopes.py`, in the
 aggregate job on every pull request, refuses an outgoing subject outside
 the format (an unknown type, a `!` anywhere but right before the colon, no
 `: ` and description) or breaking the scope rule. The subjects git and
-GitHub write themselves (merge commits, `Revert "…"`, `Reapply "…"`) are
-listed and admitted unexamined.
+GitHub write themselves that the script's docstring lists (the common merge
+shapes, `Revert "…"`, `Reapply "…"`) are listed and admitted unexamined; any
+other merge subject is refused.
 
 ## Pull requests
 
