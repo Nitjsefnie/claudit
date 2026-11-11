@@ -20,10 +20,10 @@ EXPLICIT. Files named by hand. Two kinds:
   lint legs install from or audit, the JS lockfile the eslint and
   JS-tokenizer steps pin their tool versions from, and the container
   leg's CI-only Compose override, which decides the image its db service runs.
-- Gate parameters read by tool DISCOVERY, invisible to the extraction:
-  bare `pylint` / `pycodestyle` / `pyright` / `eslint` load
+- Gate parameters read by tool DISCOVERY, so no workflow need name
+  them: bare `pylint` / `pycodestyle` / `pyright` / `eslint` load
   `.pylintrc` / `setup.cfg` / `pyrightconfig.json` /
-  `eslint.config.mjs` without any workflow naming them.
+  `eslint.config.mjs`.
 
 EXEMPT. Command references that are NOT gate parameters, so over-broad
 extraction cannot turn them into false triggers. Each carries its
