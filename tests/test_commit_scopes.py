@@ -1,26 +1,29 @@
 """Unit tests for scripts/ci/commit_scopes.py and the aggregate-job wiring.
 
-commit_scopes.py refuses a pull-request head whose commit subjects pair a
-workflow-name scope with a type other than `ci` (ported from
+commit_scopes.py refuses a pull-request head whose commit subjects break
+CONTRIBUTING's format or pair a workflow-name scope with a type other
+than `ci` (the scope rule ported from
 the Python source in Nitjsefnie-Actions/claim (tests/commit_scopes.py)
 and Nitjsefnie-Actions/pr-gate (scripts/ci/commit_scopes.py)). These tests
-pin the subject grammar, the workflow-name derivation from HEAD (a plain
-top-level `name:` and nothing else — every other shape is refused rather
-than guessed), the classification rule end to end over fixture repos, the
-shared-name exemption for the `tests` scope, the outgoing-range-only
-reach, the fail-closed refusal on an unreadable answer, and the
-aggregate-job wiring: the check runs beside the merge-conflict-marker
-step in the aggregate job on every run (docs-only changes included).
+pin the subject grammar, the closed set of git- and GitHub-written
+subjects, the workflow-name derivation from HEAD, the rules end to end
+over fixture repos, the `tests` exemption, the outgoing-range-only reach,
+the fail-closed refusal on an unreadable answer, and the aggregate-job
+wiring beside the merge-conflict-marker step.
 """
 from __future__ import annotations
 
 import importlib.util
+import re
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
+
+from tests.test_provider_rate_refresh import refresh
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -37,34 +40,110 @@ def _load(name: str):
 
 cs = _load("commit_scopes")
 
+TYPES = {"build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor",
+         "revert", "style", "test"}
+GITHUB_MERGE = ("Merge a4cd43dcb7a424193d6b10ae3ef0653336157c62 into "
+                "b17b31ef7777796f12ababe1d0280c86a81d750e")
+WRITTEN_BY_GIT = [
+    GITHUB_MERGE,
+    "Merge branch 'master'",
+    "Merge branch 'master' into ci-guards",
+    "Merge branch 'topic' of https://github.com/o/r into master",
+    "Merge remote-tracking branch 'origin/master'",
+    "Merge remote-tracking branch 'origin/master' into topic",
+    "Merge pull request #1316 from owner/topic",
+    'Revert "feat: add a panel"',
+    'Reapply "feat: add a panel"',
+]
+NOT_WRITTEN_BY_GIT = [
+    GITHUB_MERGE.replace("a4cd", "a4c", 1),
+    GITHUB_MERGE.replace("a4cd", "A4CD", 1),
+    GITHUB_MERGE + " again",
+    "Merge the topic",
+    "Merge branch master",
+    "Merge pull request from owner/topic",
+    "Revert the panel",
+    'Reverts "feat: add a panel"',
+    "Reapply feat: add a panel",
+]
+REFUSED = {
+    "Fix a thing": "does not read as",
+    "feat!(api): x": "does not read as",
+    "feat(api)! x": "does not read as",
+    "feat x": "does not read as",
+    "feat:x": "does not read as",
+    "feat:": "does not read as",
+    "feat:  x": "does not read as",
+    " feat: x": "does not read as",
+    "feat(): x": "does not read as",
+    "feat(a b): x": "does not read as",
+    "Fix: x": "type `Fix` is not one of",
+    "feature: x": "type `feature` is not one of",
+    "Dedup: re-point the limb": "type `Dedup` is not one of",
+}
 
-def test_subject_parses_type_scope_and_summary():
-    m = cs.SUBJECT.match("ci(tests): seed the fixture")
-    assert m is not None
-    assert m["type"] == "ci"
-    assert m["scope"] == "tests"
-    assert m["summary"] == "seed the fixture"
+
+def test_the_type_table_is_contributings_eleven():
+    assert cs.TYPES == TYPES
 
 
-def test_subject_requires_a_scope():
-    # The rule is about scopes: a subject written without one has no
-    # scope to read, so it is listed unexamined, never failed.
-    assert cs.SUBJECT.match("ci: no scope") is None
+@pytest.mark.parametrize("subject,commit_type,scope", [
+    ("ci(tests): seed the fixture", "ci", "tests"),
+    ("ci: no scope", "ci", None),
+    ("feat!: change the wire", "feat", None),
+    ("feat(api)!: change the wire", "feat", "api"),
+    *((f"{t}: x", t, None) for t in sorted(TYPES)),
+])
+def test_conforming_subjects_parse(subject, commit_type, scope):
+    match = cs.conforming(subject)
+    assert match is not None
+    assert (match["type"], match["scope"]) == (commit_type, scope)
+    assert cs.refusal(subject, set()) is None
 
 
-def test_subject_admits_a_breaking_marker_on_either_side():
-    for subject in ("feat(api)!: change the wire", "feat!(api): change the wire"):
-        m = cs.SUBJECT.match(subject)
-        assert m is not None
-        em = "feat"
-        sc = "api"
-        assert m["type"] == em
-        assert m["scope"] == sc
+@pytest.mark.parametrize("subject,observed", REFUSED.items())
+def test_a_subject_outside_the_format_is_refused(subject, observed):
+    assert cs.conforming(subject) is None
+    assert observed in cs.refusal(subject, set())
 
 
-def test_subject_refuses_uppercase_and_punctuated_types():
-    assert cs.SUBJECT.match("Dedup: re-point the limb") is None
-    assert cs.SUBJECT.match("Fix(api): x") is None
+@pytest.mark.parametrize("subject", WRITTEN_BY_GIT)
+def test_git_and_github_subjects_are_admitted(subject):
+    assert cs.written_by_git(subject)
+
+
+@pytest.mark.parametrize("subject", NOT_WRITTEN_BY_GIT)
+def test_near_misses_of_git_subjects_are_refused(subject):
+    assert not cs.written_by_git(subject)
+    assert cs.refusal(subject, set()) is not None
+
+
+def _automation_subjects() -> list[str]:
+    """Subjects the automation writes, built from its own templates."""
+    workflows = REPO_ROOT / ".github" / "workflows"
+    templates = re.findall(r"message='([^']*)'",
+                           (workflows / "ratchet-push.yml").read_text())
+    templates += re.findall(r'commit -m "([^"]*)"',
+                            (workflows / "release-dispatch.yml").read_text())
+    assert len(templates) == 3
+    subjects = [re.sub(r"\$\w+", "1.2.3", t) for t in templates]
+    result = SimpleNamespace(moves=[], refusals=["a refusal"])
+    subjects.append(refresh.commit_message(result, "").splitlines()[0])
+    updates = yaml.safe_load(
+        (REPO_ROOT / ".github" / "dependabot.yml").read_text())["updates"]
+    for update in updates:
+        message = update["commit-message"]
+        assert message["include"] == "scope"
+        subjects += [f"{message['prefix']}({scope}): Bump x from 1.0 to 1.1"
+                     for scope in ("deps", "deps-dev")]
+    return subjects
+
+
+def test_the_automation_subjects_pass_against_the_real_workflows():
+    names = cs.workflow_name_set(REPO_ROOT)
+    subjects = _automation_subjects()
+    assert {s.partition("(")[0] for s in subjects} == {"build", "chore", "ci"}
+    assert [s for s in subjects if cs.refusal(s, names) is not None] == []
 
 
 def test_workflow_name_reads_a_plain_top_level_name():
@@ -143,7 +222,8 @@ def _fixture(tmp_path: Path, head_subjects: list[str]) -> Path:
     _run(["git", "-C", str(repo), "commit", "-m", "chore(seed): fixture base"])
     _run(["git", "-C", str(repo), "push", "-q", str(origin), "master"])
     for subject in head_subjects:
-        _run(["git", "-C", str(repo), "commit", "--allow-empty", "-m", subject])
+        _run(["git", "-C", str(repo), "commit", "--allow-empty",
+              "--cleanup=verbatim", "-m", subject])
     return repo
 
 
@@ -173,11 +253,31 @@ def test_the_shared_tests_scope_is_exempt(tmp_path):
     assert done.returncode == 0
 
 
-def test_subjects_with_no_scope_to_read_are_listed_green(tmp_path):
-    done = _check(tmp_path, ["Dedup: re-point the limb", "Merge branch 'x'"])
+def _listed(stdout: str) -> list[str]:
+    return [m[1] for line in stdout.splitlines()
+            if (m := re.fullmatch(r" +[0-9a-f]{40} (.*)", line))]
+
+
+def test_a_scopeless_conforming_subject_is_examined_and_passes(tmp_path):
+    done = _check(tmp_path, ["ci: x"])
     assert done.returncode == 0
-    assert "2 not examined" in done.stdout
-    assert "Dedup: re-point the limb" in done.stdout
+    assert "Examined 1 commit subject in origin/master..HEAD" in done.stdout
+
+
+def test_subjects_outside_the_format_fail_the_head(tmp_path):
+    done = _check(tmp_path, list(REFUSED) + NOT_WRITTEN_BY_GIT)
+    assert done.returncode == 1
+    assert sorted(_listed(done.stdout)) == sorted(list(REFUSED)
+                                                  + NOT_WRITTEN_BY_GIT)
+    assert "does not read as `type(scope)!: subject`" in done.stdout
+
+
+def test_git_written_subjects_are_listed_green(tmp_path):
+    done = _check(tmp_path, WRITTEN_BY_GIT + ["fix: x"])
+    assert done.returncode == 0
+    assert (f"Examined 1 commit subject in origin/master..HEAD; "
+            f"{len(WRITTEN_BY_GIT)} written by git or GitHub") in done.stdout
+    assert sorted(_listed(done.stdout)) == sorted(WRITTEN_BY_GIT)
 
 
 def test_only_the_outgoing_range_is_examined(tmp_path):
@@ -222,7 +322,7 @@ def test_both_integrity_steps_precede_the_fold():
     conflict = next(i for i, n in enumerate(names)
                     if "merge-conflict marker" in n)
     scopes = next(i for i, n in enumerate(names)
-                  if "scope names a workflow" in n)
+                  if "Refuse a commit subject" in n)
     fold = next(i for i, n in enumerate(names) if "Fold the leg results" in n)
     assert conflict < scopes < fold
 
@@ -242,5 +342,5 @@ def test_conflict_marker_step_keeps_the_guard_shape():
 
 
 def test_scopes_step_runs_the_check():
-    body = _step_named("scope names a workflow")["run"]
+    body = _step_named("Refuse a commit subject")["run"]
     assert body.strip() == "python3 scripts/ci/commit_scopes.py"
