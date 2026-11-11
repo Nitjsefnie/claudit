@@ -112,7 +112,7 @@ MAX_BEACONS = 50
 #: without this the table grows until the hourly prune, and a guest session
 #: costs the operator the same as a real one. Counted, not estimated, so the
 #: cap is what it says it is.
-MAX_ROWS_PER_USER = 20_000
+MAX_ROWS_PER_USER = 40_000
 
 #: The same ceiling for an ANONYMOUS session, and a good deal lower.
 #: Asymmetry here is about trust, not worth: a guest is anonymous by
@@ -121,7 +121,7 @@ MAX_ROWS_PER_USER = 20_000
 #: by the fact that they will notice a runaway. Guests also share `user_id =
 #: 0` with every other guest, so one caller can otherwise spend the whole
 #: anonymous budget and crowd out everyone else's.
-MAX_ROWS_PER_GUEST = 2_000
+MAX_ROWS_PER_GUEST = 4_000
 
 #: rollup_horizon is now: the sink stamps timestamps server-side, so a
 #: closed bucket cannot gain beacons. Closing a retention window early
