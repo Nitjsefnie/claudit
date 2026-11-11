@@ -4,8 +4,7 @@ For the ratchet data in.github/ci-thresholds.json, a coverage floor or
 measured value never decreases, a baseline entry is never raised,
 and an addition to an established member is refused under the frozen
 core families. Cost budget raises
-require a feat subject (feat:, feat(scope):, either with ! before the
-colon) in the judged range.
+require a feat subject, breaking or not, in the judged range.
 The cases cover forbidden moves and the bots' and features' allowed moves.
 """
 from __future__ import annotations
