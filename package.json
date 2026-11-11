@@ -12,9 +12,9 @@
     "ast-v8-to-istanbul": "1.0.7",
     "eslint": "10.14.0",
     "eslint-plugin-react": "7.37.5",
-    "globals": "17.13.0",
+    "globals": "17.14.0",
     "istanbul-lib-coverage": "3.2.2",
-    "playwright": "1.64.1",
+    "playwright": "1.65.0",
     "test-exclude": "8.0.0"
   },
   "overrides": {
