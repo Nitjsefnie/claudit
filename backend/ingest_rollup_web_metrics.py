@@ -79,7 +79,7 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> tuple[int, int]:
                  COUNT(*) AS n,
                  PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY w.value) AS p50,
                  PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY w.value) AS p75,
-                 SUM(w.value) AS total
+                 SUM(w.value ORDER BY w.value) AS total
             FROM web_metrics w
            WHERE w.ts >= %(read_from)s
            GROUP BY 1, 2, 3, 4, 5
@@ -102,7 +102,9 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> tuple[int, int]:
            -- whole; and if they are gone by then it stays absent, which is a
            -- gap a reader can see and a short row is not.
          WHERE {covered}
-        -- Rewrite only a row whose raw rows changed since it was stored.
+        -- Rewrite only a row whose raw rows changed. total sums in value
+        -- order: float addition depends on order, and the scan's does not
+        -- stay fixed, so an unchanged bucket must re-sum bit-identically.
         ON CONFLICT (bucket_s, bucket, metric, part, region, phase)
         DO UPDATE SET (n, p50, p75, total) = (EXCLUDED.n, EXCLUDED.p50,
                                               EXCLUDED.p75, EXCLUDED.total)
