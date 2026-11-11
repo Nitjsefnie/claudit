@@ -10,9 +10,9 @@ condition, the left operand of `&&`, or of a `||` whose right side reaches
 retry.sh/api_retry, even one steering such a loop; and an unclassified gh
 command.
 
-It also fails a gh command, an npm command that may fetch and a git network
-command that nothing ends when the network goes silent, and such an npm
-command that nothing retries: test_workflow_stall_bounds.py states those
+It also fails a gh API command, an npm command that may fetch and a git
+network command that nothing ends when the network goes silent, and such an
+npm command that nothing retries: test_workflow_stall_bounds.py states those
 rules and what they do not read.
 
 The reading is lexical: commands split on operators, newlines, `$( )`,
@@ -56,7 +56,9 @@ GIT_BOUNDS = {
             "pair nor a bounded GIT_SSH_COMMAND export",
     "other": "to `{}`, neither http(s) nor ssh, which no stall bound covers"}
 SSH_COMMAND = "GIT_SSH_COMMAND"
-GH_READS = {"release": {"view", "download", "list"},
+GH_LOCAL = {"version", "--version", "help", "--help"}
+GH_READS = {"auth": {"status"},
+            "release": {"view", "download", "list"},
             "run": {"view", "list", "download"},
             "pr": {"view", "list", "diff", "checks", "status"},
             "issue": {"view", "list", "status"}}
@@ -71,6 +73,7 @@ GH_API_VALUE_OPTIONS = {"-H", "--header", "-q", "--jq", "-t", "--template",
 GH_API_FIELDS = ("-f", "-F", "--field", "--raw-field", "--input")
 HTTP_METHODS = {"GET", "POST", "PATCH", "PUT", "DELETE", "HEAD"}
 NPM_LOCAL = {"run", "run-script", "test"}
+NPX_HOLDS = {"--no", "--no-yes", "--yes=false", "--offline", "--no-install"}
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=")
 SEPARATORS = ";&|\n"
 
@@ -307,8 +310,10 @@ def _strip(words: list[str], prefixed: bool = False) -> list[str]:
 
 
 def _gh(args: list[str]) -> str | None:
-    """'read', 'write', or None when the gh command is unclassified."""
+    """'read', 'write', 'local' (no API call), or None when the gh command is unclassified."""
     verb, action = (args + ["", ""])[:2]
+    if verb in GH_LOCAL:
+        return "local"
     if verb == "search":
         return "read"
     if verb != "api":
@@ -339,7 +344,7 @@ def _gh(args: list[str]) -> str | None:
 
 def _fetch_kind(words: list[str]) -> str | None:
     """The retried fetch the words read as, if any; curl and wget read as any other name."""
-    name, args = words[0].rsplit("/", 1)[-1], words[1:]
+    name, args, holds = words[0].rsplit("/", 1)[-1], words[1:], NPX_HOLDS
     if name == "git":
         index = 0
         while index < len(args) and args[index].startswith("-"):
@@ -353,7 +358,7 @@ def _fetch_kind(words: list[str]) -> str | None:
         verb = args[at] if at < len(args) else ""
         if verb not in ("exec", "x"):
             return f"npm {verb}" if verb and verb not in NPM_LOCAL else None
-        name, args = "npx", args[at + 1:]
+        name, args, holds = "npx", args[:at] + args[at + 1:], NPX_HOLDS - {"--no-install"}
     lead = next((i for i, arg in enumerate(args) if arg.startswith("-m") or not arg.startswith("-")), len(args))
     option = args[lead] if lead < len(args) else ""
     module = (args[lead + 1] if option == "-m" and lead + 1 < len(args)
@@ -361,8 +366,12 @@ def _fetch_kind(words: list[str]) -> str | None:
     if name == "uv" and args[:1] == ["pip"]:
         module = "pip"
     if name == "npx":
-        # The package npx runs is judged; whether npx itself fetches it is not read.
-        module = next((arg for arg in args if not arg.startswith("-")), "")
+        # npm-exec(1) installs what it runs if missing, unless the last option before it holds.
+        at = next((i for i, arg in enumerate(args) if not arg.startswith("-")), len(args))
+        runs = at < len(args) or any(arg.startswith(("--package", "-p")) for arg in args)
+        if runs and "".join(args[at - 1:at]) not in holds:
+            return "npm exec"
+        module = args[at] if at < len(args) else ""
     if re.fullmatch(r"pip[0-9.]*", module):
         verb = next((arg for arg in args if arg in ("install", "download", "wheel")), None)
         return f"pip {verb}" if verb else None
@@ -491,7 +500,7 @@ def _judge(words: list[str], retried: bool, ssh: bool = False) -> tuple[int, lis
     # A push's attempt loop repeats only after master moved.
     retried = retried and kind != "git push"
     reasons = [f"{kind} without the retry helper"] if kind and not (wrapped or retried) else []
-    if (name == "gh" or kind and kind.startswith("npm ")) and not _attempt_bounded(attempt, name):
+    if (name == "gh" and _gh(words[1:]) != "local" or kind and kind.startswith("npm ")) and not _attempt_bounded(attempt, name):
         reasons.append(f"{kind or 'gh write'} without `timeout -k N N {name}`, N above 0, per attempt")
     lacking = _git_unbounded(words[1:], ssh) if kind and kind.startswith("git ") else ""
     return (1 if kind else 0), reasons + [f"{kind} {lacking}"] * bool(lacking)
