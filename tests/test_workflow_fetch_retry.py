@@ -74,6 +74,7 @@ GH_API_FIELDS = ("-f", "-F", "--field", "--raw-field", "--input")
 HTTP_METHODS = {"GET", "POST", "PATCH", "PUT", "DELETE", "HEAD"}
 NPM_LOCAL = {"run", "run-script", "test"}
 NPX_HOLDS = {"--no", "--no-yes", "--yes=false", "--offline", "--no-install"}
+NPX_ENDS = {"--no-install", "--yes=false", "--offline"}  # npx then writes `--` before the package
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=")
 SEPARATORS = ";&|\n"
 
@@ -344,7 +345,7 @@ def _gh(args: list[str]) -> str | None:
 
 def _fetch_kind(words: list[str]) -> str | None:
     """The retried fetch the words read as, if any; curl and wget read as any other name."""
-    name, args, holds = words[0].rsplit("/", 1)[-1], words[1:], NPX_HOLDS
+    name, args, holds, ends = words[0].rsplit("/", 1)[-1], words[1:], NPX_HOLDS, NPX_ENDS
     if name == "git":
         index = 0
         while index < len(args) and args[index].startswith("-"):
@@ -358,7 +359,7 @@ def _fetch_kind(words: list[str]) -> str | None:
         verb = args[at] if at < len(args) else ""
         if verb not in ("exec", "x"):
             return f"npm {verb}" if verb and verb not in NPM_LOCAL else None
-        name, args, holds = "npx", args[:at] + args[at + 1:], NPX_HOLDS - {"--no-install"}
+        name, args, holds, ends = "npx", args[:at] + args[at + 1:], NPX_HOLDS - {"--no-install"}, set()
     lead = next((i for i, arg in enumerate(args) if arg.startswith("-m") or not arg.startswith("-")), len(args))
     option = args[lead] if lead < len(args) else ""
     module = (args[lead + 1] if option == "-m" and lead + 1 < len(args)
@@ -366,13 +367,12 @@ def _fetch_kind(words: list[str]) -> str | None:
     if name == "uv" and args[:1] == ["pip"]:
         module = "pip"
     if name == "npx":
-        # npm-exec(1) installs what it runs if missing, unless held and no later --yes undoes it.
+        # npm-exec(1) installs what it runs if missing, unless held; npm reads options up to `--`.
         at = next((i for i, arg in enumerate(args) if not arg.startswith("-")), len(args))
+        hold = args[0] if at == 1 else ""
         runs = at < len(args) or any(arg.startswith(("--package", "-p")) for arg in args)
-        rest = args[at:args.index("--", at)] if "--" in args[at:] else args[at:]
-        yes = any(arg.startswith("--yes") and arg != "--yes=false" or arg[1:2] not in ("", "-") and "y" in arg
-                  for arg in rest if arg.startswith("-"))
-        if runs and ("".join(args[at - 1:at]) not in holds or yes):
+        later = "--" if hold in ends else next((arg for arg in args[at:] if arg.startswith("-")), "--")
+        if runs and (hold not in holds or later != "--"):
             return "npm exec"
         module = args[at] if at < len(args) else ""
     if re.fullmatch(r"pip[0-9.]*", module):

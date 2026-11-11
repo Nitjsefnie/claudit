@@ -12,15 +12,16 @@ attempt loop, unless it has no subcommand or its first word that is no
 option is exactly `run`, `run-script` or `test`; `exec` or `x` there makes
 it npx. An npx is the npm command `npm exec` (`timeout -k N N npx ...`), as
 npm-exec(1) installs what it runs when missing, unless it names nothing to
-run (no word that is no option, no `--package` or `-p` option) or the last
+run (no word that is no option, no `--package` or `-p` option) or its only
 option before its first word that is no option (for `npm exec`, options
-before `exec` too) is `--no`, `--no-yes`, `--yes=false`, `--offline` or,
-converted to `--no` by the npx binary alone, `--no-install`, and no option
-after that word and before a literal `--` is a `--yes` (but `--yes=false`)
-or a single-dash cluster holding `y`. A held npx still asks the registry
-about a package it lacks, then fails. The `--` that
-ends a prefix command's options is skipped, so the command after it is
-judged as without it.
+before `exec` count) holds: `--no`, `--no-yes`, `--yes=false`, `--offline`
+or, for the npx binary alone, `--no-install`. Any option after that word
+and before a literal `--` voids the hold (npm reads it, maybe as `--yes`),
+but not after the npx binary's `--no-install`, `--yes=false` or
+`--offline`: npx writes a `--` before the word. A held npx still asks the
+registry about a package it lacks, then fails. The `--` that ends a prefix
+command's options is skipped, so the command after it is judged as without
+it.
 
 A git fetch/clone/ls-remote/pull/push is judged by every word after the
 subcommand that is shaped like a remote, read as git reads one (GIT URLS in
@@ -141,9 +142,11 @@ ACCEPTED = {
     "npx held by --no-yes": "npx --no-yes eslint src",
     "npx held by --yes=false": "npx --yes=false eslint src",
     "npx held offline": "npx --offline eslint src",
-    "npx held after a --yes": "npx --yes --no eslint src",
     "npx held, --yes after --": "npx --no eslint src -- --yes",
-    "npm exec held, --yes=false after it": "npm exec --no eslint src --yes=false",
+    "npx held by --no-install, an option after the package": "npx --no-install eslint src --fix",
+    "npx held by --yes=false, an option after the package": "npx --yes=false eslint src --fix",
+    "npx held offline, an option after the package": "npx --offline eslint src --fix",
+    "npm exec held by --yes=false": "npm exec --yes=false eslint src",
     "npx naming nothing to run": "npx --version",
     "npx by the helper, bounded": "scripts/ci/retry.sh timeout -k 5 120 npx eslint src",
     "npm exec held by --no": "npm exec --no eslint src",
@@ -215,9 +218,14 @@ REFUSED = {
     "npx by the helper, no timeout": ("scripts/ci/retry.sh npx eslint src", [NPX_UNBOUNDED]),
     "npx bounded, no helper": ("timeout -k 5 120 npx eslint src", [NPX_UNRETRIED]),
     "npx held, then --yes": ("npx --no --yes eslint src", [NPX_UNRETRIED, NPX_UNBOUNDED]),
+    "npx held after a --yes": ("npx --yes --no eslint src", [NPX_UNRETRIED, NPX_UNBOUNDED]),
+    "a hold as the value of the option before it": (
+        "npx --cache --no-install eslint src", [NPX_UNRETRIED, NPX_UNBOUNDED]),
+    "npm exec held by --yes=false, --yes after it": (
+        "npm exec --yes=false eslint src --yes", [NPX_UNRETRIED, _npm("exec")]),
     "npx held, --yes after the package": ("npx --no eslint src --yes", [NPX_UNRETRIED, NPX_UNBOUNDED]),
-    "npm exec held, --yes=true after it": ("npm exec --no eslint src --yes=true", [NPX_UNRETRIED, _npm("exec")]),
-    "npm exec held, -qy after it": ("npm exec --no eslint src -qy", [NPX_UNRETRIED, _npm("exec")]),
+    "npm exec held, --ye after it": ("npm exec --no eslint src --ye", [NPX_UNRETRIED, _npm("exec")]),
+    "npm exec held, -q after it": ("npm exec --no eslint src -q", [NPX_UNRETRIED, _npm("exec")]),
     "npx naming a package by option": ("npx --package=eslint", [NPX_UNRETRIED, NPX_UNBOUNDED]),
     "npx naming a package by -p": ("npx -p=eslint", [NPX_UNRETRIED, NPX_UNBOUNDED]),
     "npm x nothing holds": ("npm x eslint src", [NPX_UNRETRIED, _npm("exec")]),
