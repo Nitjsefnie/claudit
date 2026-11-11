@@ -49,8 +49,11 @@ read as the subcommand), npm config set outside the command, or whether the
 project holds what npx runs. pip, playwright, curl and other uses of timeout
 keep their rules.
 
-Each refused row differs from an accepted one in exactly one thing. The
-guard's own test runs the same rules over every real workflow."""
+Each refused row differs from an accepted one in exactly one thing: a word,
+an option, a prefix command, a stall bound or a line, added, removed,
+changed or moved ("set on the command" moves the export onto the fetch as
+its prefix). The guard's own test runs the same rules over every real
+workflow."""
 from __future__ import annotations
 
 import pytest
@@ -156,6 +159,8 @@ ACCEPTED = {
     "ssh fetch after the export": _ssh() + FETCH,
     "ssh option names in another case": _ssh(BOUNDS.replace("ServerAlive", "SERVERALIVE")) + FETCH,
     "ssh without a count": _ssh("-o ConnectTimeout=30 -o ServerAliveInterval=15") + FETCH,
+    "ssh bounds alone": _ssh(BOUNDS) + FETCH,
+    "ssh bounds in double quotes": _ssh(BOUNDS, '"') + FETCH,
     "ssh fetch in an inner shell": _ssh() + f"bash -c '{COPY}git fetch origin master'",
     "https fetch with the pair after the export": _ssh() + COPY + f"git {PAIR}fetch {URL}",
     "ssh URL after the export": _ssh() + COPY + "git fetch " + SSH_URL,
@@ -165,6 +170,9 @@ ACCEPTED = {
     "variable remote after the export": _ssh() + COPY + 'git ls-remote --exit-code "$remote" refs/heads/master',
     "push with a refspec after the export": _ssh() + COPY + 'git -C "$dir" push origin HEAD:master',
     "pair on a named remote, by the helper": COPY + f"git {PAIR}fetch origin",
+    "git behind timeout --, the pair, by the helper": COPY + f"timeout 60 -- git {PAIR}fetch origin",
+    "http fetch with the pair after the export": _ssh() + COPY + f"git {PAIR}fetch http://example.com/o/r.git master",
+    "named remote behind --depth's value": COPY + f"git {PAIR}fetch --depth 1 origin",
     "option value joined with =, https remote": LOOP.format(f"git {PAIR}fetch --filter=blob:none {URL}"),
     "variable with a default, the pair": COPY + f'git {PAIR}fetch "${{REMOTE:-origin}}"',
     "flag before a named remote": COPY + f"git {PAIR}fetch --no-tags origin",
@@ -220,7 +228,7 @@ REFUSED = {
     "timeout -- around something else": (COPY + "timeout -k 5 60 -- env " + READ, [UNBOUNDED_READ]),
     "timeout -- and no retry": ("timeout -k 5 60 -- " + READ, ["gh read without the retry helper"]),
     "env -- and no timeout": (COPY + "env -- " + READ, [UNBOUNDED_READ]),
-    "git behind timeout --, no retry": ("timeout 60 -- git fetch origin", ["git fetch without the retry helper", NAMED]),
+    "git behind timeout --, by the helper": (COPY + "timeout 60 -- git fetch origin", [NAMED]),
     "duration with a unit": (COPY + "timeout -k 5 60s " + READ, [UNBOUNDED_READ]),
     "duration in a variable": (COPY + 'timeout -k 5 "$LIMIT" ' + READ, [UNBOUNDED_READ]),
     "duration in other digits": (COPY + "timeout -k 5 ６０ " + READ, [UNBOUNDED_READ]),
@@ -233,17 +241,17 @@ REFUSED = {
                        [OVER_HTTP]),
     "only the time": (LOOP.format(f"git -c http.lowSpeedTime=60 fetch --no-tags {URL}"),
                       [OVER_HTTP]),
-    "limit 0": (LOOP.format(f"git -c http.lowSpeedLimit=0 -c http.lowSpeedTime=60 fetch {URL}"),
+    "limit 0": (LOOP.format(f"git -c http.lowSpeedLimit=0 -c http.lowSpeedTime=60 fetch --no-tags {URL}"),
                 [OVER_HTTP]),
-    "time 0": (LOOP.format(f"git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=0 fetch {URL}"),
+    "time 0": (LOOP.format(f"git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=0 fetch --no-tags {URL}"),
                [OVER_HTTP]),
     "time overridden by a later 0": (
         LOOP.format(f"git {PAIR}-c http.lowSpeedTime=0 fetch --no-tags {URL}"), [OVER_HTTP]),
     "time in a variable": (
-        LOOP.format(f'git -c http.lowSpeedLimit=1000 -c "http.lowSpeedTime=$WINDOW" fetch {URL}'),
+        LOOP.format(f'git -c http.lowSpeedLimit=1000 -c "http.lowSpeedTime=$WINDOW" fetch --no-tags {URL}'),
         [OVER_HTTP]),
     "time with a unit": (
-        LOOP.format(f"git -c http.lowSpeedLimit=1k -c http.lowSpeedTime=60 fetch {URL}"), [OVER_HTTP]),
+        LOOP.format(f"git -c http.lowSpeedLimit=1k -c http.lowSpeedTime=60 fetch --no-tags {URL}"), [OVER_HTTP]),
     "https fetch under the export alone": (_ssh() + COPY + f"git fetch {URL}", [OVER_HTTP]),
     "http fetch under the export alone": (
         _ssh() + COPY + "git fetch http://example.com/o/r.git master",
@@ -273,7 +281,7 @@ REFUSED = {
     "option value with a colon before an https remote": (
         LOOP.format(f"git {PAIR}fetch --filter blob:none {URL}"), [_two("`blob:none` (ssh)", f"`{HTTPS}` (http)")]),
     "option value with a colon before a named remote": (
-        LOOP.format(f"git {PAIR}fetch --filter blob:none origin"), [_over_ssh("blob:none")]),
+        LOOP.format(f"git {PAIR}fetch --filter blob:none origin master"), [_over_ssh("blob:none")]),
     "git@ remote behind an option's value, the pair alone": (
         COPY + f"git {PAIR}fetch --depth 1 git@example.com:o/r.git", [_over_ssh("git@example.com:o/r.git")]),
     "user@host remote behind an option's value, the pair alone": (
@@ -285,7 +293,7 @@ REFUSED = {
     "ssh fetch without the export": (FETCH, [NAMED]),
     "export after the fetch": (FETCH + "\n" + _ssh(), [NAMED]),
     "fetch in an inner shell, no export": (f"bash -c '{COPY}git fetch origin master'", [NAMED]),
-    "connect bound only": (_ssh("-o StrictHostKeyChecking=yes -o ConnectTimeout=30") + FETCH,
+    "connect bound only": (_ssh("-o ConnectTimeout=30") + FETCH,
                            [UNREAD_SSH, NAMED]),
     "liveness bound only": (_ssh("-o ServerAliveInterval=15 -o ServerAliveCountMax=4") + FETCH,
                             [UNREAD_SSH, NAMED]),
@@ -299,9 +307,9 @@ REFUSED = {
     "bound inside another option's value": (
         _ssh('-o ProxyCommand="nc -o ConnectTimeout=30 %h" -o ServerAliveInterval=15') + FETCH,
         [UNREAD_SSH, NAMED]),
-    "bounds as the values of other flags": (
-        _ssh("-i ConnectTimeout=30 -l ServerAliveInterval=15") + FETCH, [UNREAD_SSH, NAMED]),
-    "option glued to its flag": (_ssh("-oConnectTimeout=30 -oServerAliveInterval=15") + FETCH,
+    "a bound as the value of another flag": (
+        _ssh("-i ConnectTimeout=30 -o ServerAliveInterval=15") + FETCH, [UNREAD_SSH, NAMED]),
+    "option glued to its flag": (_ssh("-oConnectTimeout=30 -o ServerAliveInterval=15") + FETCH,
                                  [UNREAD_SSH, NAMED]),
     "option without a value": (_ssh("-o ConnectTimeout -o ServerAliveInterval=15") + FETCH,
                                [UNREAD_SSH, NAMED]),
