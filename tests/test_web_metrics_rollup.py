@@ -30,11 +30,8 @@ from backend.api_common import _bucket_seconds
 from backend.constants import LATENCY_BUCKETS
 from backend.ingest_rollup_web_metrics import rebuild_web_metrics_rollup
 
-# The three shared fixtures, re-declared as thin delegates. A pytest fixture
-# is not an importable name -- `name=` binds the fixture, not the symbol --
-# so what crosses the seam is the generator, and each is re-wrapped here
-# rather than restated. The alternative, dropping the decorator upstream, makes
-# the other module's fixtures invisible to a reader looking for them.
+# The shared fixtures, re-wrapped: `name=` binds a fixture, not an importable
+# symbol, so the generator is what crosses the seam.
 
 
 @pytest.fixture(name="viz")
@@ -74,19 +71,10 @@ def test_rollup_folds_exact_percentiles_and_the_sum(viz, pinned):
 
 @pytest.fixture(name="short_horizon")
 def _short_horizon_fixture(monkeypatch):
-    """Collapse the retention window so a test can reach a closed bucket.
-
-    The real horizon is two days, which needs two days of hourly folds to
-    close a bucket. The RULE is what is under test, not the yardstick, so
-    both ends move together: the horizon two hours back and the raw table
-    five, which still leaves the full-bucket slack RAW_KEEP_S exists for.
-    """
+    """Close buckets two hours back; keep 30 days of raw rows, so no prune
+    takes a beacon a test seeded."""
     monkeypatch.setattr(web_metrics, "rollup_horizon",
                         lambda now: now - timedelta(hours=2))
-    # The read window stays WIDE on purpose: it is a separate knob from the
-    # horizon, and narrowing it is what would prune the very beacons a test
-    # seeded. Only the horizon is collapsed, because that is what decides
-    # which buckets close and therefore how many folds a test needs.
     monkeypatch.setattr(web_metrics, "retention_cutoff",
                         lambda now: now - timedelta(days=30))
 
@@ -128,6 +116,12 @@ def test_a_covered_bucket_follows_its_raw_rows(viz, short_horizon):
     assert _rollup_rows(viz, 3600)[bucket] == (2, 1.5, 1.75, 3.0), (
         "a closed bucket the fold reads whole kept a deleted beacon")
 
+    with db.viz_conn() as conn:  # corrected, count unchanged
+        conn.execute("UPDATE web_metrics SET value = 4.0 WHERE value = 2.0")
+        conn.commit()
+    _fold_at(base + timedelta(hours=6))
+    assert _rollup_rows(viz, 3600)[bucket] == (2, 2.5, 3.25, 5.0)
+
 
 def test_a_covered_grain_with_no_beacons_left_loses_its_row(
         viz, short_horizon):
@@ -142,12 +136,16 @@ def test_a_covered_grain_with_no_beacons_left_loses_its_row(
         conn.commit()
     _fold_at(base + timedelta(hours=3, minutes=30))
     _delete_beacons("metric", "dashboard_open")
-    _fold_at(base + timedelta(hours=5))
+    assert _fold_at(base + timedelta(hours=5)) == 1, "deletion not counted"
+    query = "SELECT metric, n FROM web_metrics_rollup WHERE bucket_s = 3600"
     with db.viz_conn() as conn:
-        grains = conn.execute(
-            "SELECT metric, n FROM web_metrics_rollup "
-            "WHERE bucket_s = 3600").fetchall()
+        grains = conn.execute(query).fetchall()
     assert grains == [("longtask", 1)], grains
+    # With no raw row left nothing is provably whole, so nothing is revised.
+    _delete_beacons("metric", "longtask")
+    _fold_at(base + timedelta(hours=6))
+    with db.viz_conn() as conn:
+        assert conn.execute(query).fetchall() == grains
 
 
 def test_an_unchanged_covered_bucket_is_not_rewritten(viz, short_horizon):
@@ -471,8 +469,8 @@ def test_the_fold_that_closes_a_bucket_stores_all_of_it(
 # so. It cannot make it impossible on a fold that does not happen: a pass
 # stalled longer than the window resumes with a read window that has moved
 # INTO the bucket it is about to close, stores the newest hours of it, and
-# `ON CONFLICT DO NOTHING` freezes that for good, indistinguishable from a
-# whole row. The rule the stall must not break is the one the window was
+# no later fold reads it whole to repair it, though it looks like a whole
+# row. The rule the stall must not break is the one the window was
 # sized for: stored whole, or not at all.
 
 
@@ -536,6 +534,19 @@ def test_a_bucket_starting_below_read_from_is_left_as_stored(
                       for h in range(24) if h != 12}, sorted(hourly)
 
 
+def test_a_fold_with_an_earlier_clock_revises_no_pruned_bucket(
+        viz, closing_horizon):
+    """A clock stepped back puts read_from below the last prune; a bucket
+    whose beacons that prune took must keep its stored row."""
+    base = datetime(2026, 6, 23, 0, 0, 0, tzinfo=timezone.utc)
+    for hour in range(24):
+        _seed([float(hour)], ts=base + timedelta(hours=hour))
+    _fold_at(base + timedelta(hours=60, minutes=40))  # prunes below 06:40
+    stored = {w: _rollup_rows(viz, w) for w in LATENCY_BUCKETS}
+    _fold_at(base + timedelta(hours=59, minutes=50))
+    assert {w: _rollup_rows(viz, w) for w in LATENCY_BUCKETS} == stored
+
+
 def test_a_bucket_the_fold_cannot_read_whole_is_not_stored(viz,
                                                            closing_horizon,
                                                            caplog):
@@ -545,7 +556,7 @@ def test_a_bucket_the_fold_cannot_read_whole_is_not_stored(viz,
     holds the bucket's oldest beacons, which is what a fold that read a
     narrower window than it stores would look like from the outside. A stored
     `n = 18` row is the failure, because nothing can ever tell it from a whole
-    one: `DO NOTHING` will not revise it and no marker distinguishes it.
+    one: no later fold reads it whole and no marker distinguishes it.
     """
     base = datetime(2026, 6, 21, 0, 0, 0, tzinfo=timezone.utc)
     for hour in range(24):
