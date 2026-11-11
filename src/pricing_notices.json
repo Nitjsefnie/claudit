@@ -28,7 +28,8 @@
     "upstage/solar-pro-3"
   ],
   "notices": [
-    "claude-fable-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe'",
+    "claude-fable-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
+    "claude-fable-5-1 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/us'",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-haiku-4-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us'",
     "claude-haiku-4-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us-east5'",
@@ -670,7 +671,8 @@
     "mimo-v2-6-flash": [
       "Io Net",
       "Novita",
-      "Relace"
+      "Relace",
+      "Tenstorrent"
     ],
     "mimo-v2-6-pro": [
       "Novita"
