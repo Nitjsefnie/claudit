@@ -313,20 +313,17 @@ def retention_cutoff(now: datetime) -> datetime:
     return now - timedelta(seconds=RAW_KEEP_S)
 
 
-def fold_read_from(conn, now: datetime) -> datetime:
+def fold_read_from(oldest: datetime | None, now: datetime) -> datetime:
     """Oldest instant the fold may read: the retention cutoff or oldest beacon.
 
     After a stall, the nominal cutoff can fall inside a closed bucket and
     freeze tail-only percentiles. Reach back to the oldest surviving beacon;
-    refuse any bucket still unreadable in full. Missing beacons cannot be
-    recovered by widening the window.
+    refuse any bucket still unreadable in full. Widening cannot recover
+    missing beacons.
 
     Prune at the retention cutoff, never this widened read bound, so the
-    next pass returns to its nominal working set. A longer stall requires
-    a wider read; no fixed performance ceiling is implied."""
+    next pass returns to its nominal working set."""
     cutoff = retention_cutoff(now)
-    row = conn.execute("SELECT MIN(ts) FROM web_metrics").fetchone()
-    oldest = row[0] if row else None
     if oldest is None or oldest > cutoff:
         return cutoff
     return oldest

@@ -4,9 +4,9 @@ Source rows are beacons, never records, so scope is the bounded raw retention
 window. Store one row per display width because percentiles do not compose;
 total does compose, for cumulative shift and long-task totals.
 
-Each fold recomputes the closed buckets it reads in full; a bucket starting
-below read_from (its beacons pruned) cannot be rebuilt and stays as stored, as
-partial windows would freeze tail-only percentiles. RAW_KEEP_S includes TWO widest
+A fold revises closed buckets it reads whole from the oldest beacon on; an
+earlier one (pruned, or holding that beacon) stays as stored, as partial
+windows would freeze tail-only percentiles. RAW_KEEP_S includes TWO widest
 bucket widths plus a fold interval so a newly closed bucket is fully readable.
 For stalled folds, read back to the oldest surviving beacon and still refuse
 incomplete spans. DELETE and INSERT must use the same span bound
@@ -30,10 +30,11 @@ log = logging.getLogger("claudit.ingest")
 _GRAIN = "metric, part, region, phase"
 
 
-def _fold(conn, bucket_width: int, horizon, read_from) -> tuple[int, int]:
+def _fold(conn, bucket_width: int, horizon, read_from,
+          oldest) -> tuple[int, int, int]:
     """Store every bucket of this width that has CLOSED, and drop the rest.
 
-    Returns `(rows written, buckets refused)` — see `_refused` for the second.
+    Returns `(rows written, rows removed, buckets refused)`.
 
     A bucket is `[s, s + W)` with `s = floor(epoch / W) * W`, stored at its
     midpoint. It is complete when its whole span is behind `horizon`, i.e.
@@ -61,15 +62,20 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> tuple[int, int]:
       horizon**, which is what makes a bucket closing on THIS fold readable
       in full rather than merely probably readable.
     """
-    closed_through = horizon - timedelta(seconds=bucket_width / 2)
+    half = timedelta(seconds=bucket_width / 2)
+    closed_through = horizon - half
     conn.execute(
         db.sql_text(f"""
         DELETE FROM web_metrics_rollup
          WHERE bucket_s = {bucket_width} AND bucket > %s
         """), (closed_through,))
-    covered = (f"bucket <= %(closed)s AND EXTRACT(EPOCH FROM bucket)"
-               f" - {bucket_width} / 2.0 >= EXTRACT(EPOCH FROM %(read_from)s)")
-    cur = conn.execute(
+    params = {"read_from": read_from, "closed": closed_through,
+              "covered": read_from + half,
+              "revisable": oldest + half if oldest else None}
+    covered = "bucket <= %(closed)s AND bucket >= %(covered)s"
+    match = " AND ".join(f"b.{c} = r.{c}" for c in ("bucket",
+                                                    *_GRAIN.split(", ")))
+    row = conn.execute(
         db.sql_text(f"""
         WITH bands AS (
           SELECT to_timestamp(
@@ -84,18 +90,24 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> tuple[int, int]:
            WHERE w.ts >= %(read_from)s
            GROUP BY 1, 2, 3, 4, 5
         ), emptied AS (
-          DELETE FROM web_metrics_rollup
+          -- A revision (this DELETE, the DO UPDATE) also needs the bucket to
+          -- start at or after the oldest beacon: every prune took all rows
+          -- below its cutoff, so such a bucket lost none even if the clock
+          -- stepped back below an earlier cutoff. No beacon: NULL, no revision.
+          DELETE FROM web_metrics_rollup r
            WHERE bucket_s = {bucket_width} AND {covered}
-             AND (bucket, {_GRAIN}) NOT IN (SELECT bucket, {_GRAIN} FROM bands)
-        )
+             AND bucket >= %(revisable)s
+             AND NOT EXISTS (SELECT 1 FROM bands b WHERE {match})
+          RETURNING 1
+        ), written AS (
         INSERT INTO web_metrics_rollup
           (bucket_s, bucket, metric, part, region, phase, n, p50, p75, total)
         SELECT {bucket_width}, bucket, metric, part, region, phase,
                n, p50, p75, total
           FROM bands
            -- Closed, and the span the window has to cover, in the midpoint
-           -- the table stores: `epoch(bucket) - W/2 >= epoch(read_from)` IS
-           -- `s >= read_from`. A bucket below it cannot be read whole, and a
+           -- the table stores (an index bound): `bucket >= read_from + W/2`
+           -- IS `s >= read_from`. A bucket below it cannot be read whole, and a
            -- short row is indistinguishable from a whole one, so it is
            -- neither stored nor rebuilt. A LATER pass -- whose window reaches
            -- further back while the beacons are still there -- stores it
@@ -108,12 +120,16 @@ def _fold(conn, bucket_width: int, horizon, read_from) -> tuple[int, int]:
         ON CONFLICT (bucket_s, bucket, metric, part, region, phase)
         DO UPDATE SET (n, p50, p75, total) = (EXCLUDED.n, EXCLUDED.p50,
                                               EXCLUDED.p75, EXCLUDED.total)
-         WHERE (web_metrics_rollup.n, web_metrics_rollup.p50,
+         WHERE web_metrics_rollup.bucket >= %(revisable)s
+           AND (web_metrics_rollup.n, web_metrics_rollup.p50,
                 web_metrics_rollup.p75, web_metrics_rollup.total)
                IS DISTINCT FROM (EXCLUDED.n, EXCLUDED.p50,
                                  EXCLUDED.p75, EXCLUDED.total)
-        """), {"read_from": read_from, "closed": closed_through})
-    return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0, \
+        RETURNING 1
+        )
+        SELECT (SELECT COUNT(*) FROM written), (SELECT COUNT(*) FROM emptied)
+        """), params).fetchone()
+    return int(row[0]) if row else 0, int(row[1]) if row else 0, \
         _refused(conn, bucket_width, horizon, read_from)
 
 
@@ -147,25 +163,28 @@ def _refused(conn, bucket_width: int, horizon, read_from) -> int:
 def rebuild_web_metrics_rollup() -> int:
     """Fold the retained beacons into every stored bucket, then prune.
 
-    Returns rows written. Runs in its own transaction on the viz pool: it
+    Returns rows written or removed. Runs in its own transaction on the viz pool: it
     touches neither `records` nor the run's derived-state fingerprint, so a
     failure here costs the panel a cycle of freshness, not the ingest.
     """
     now = web_metrics.utcnow()
     horizon = web_metrics.rollup_horizon(now)
     cutoff = web_metrics.retention_cutoff(now)
-    written = refused = 0
+    written = removed = refused = 0
     with db.viz_conn() as conn:
         # The window may reach further back than the cutoff when a stalled
         # pass left the working set wider than its nominal width, and it is
         # deliberately NOT what the prune below deletes at: pruning at the
         # fold's own read window would pin the working set at its widest and
         # the next pass would read just as far again, for ever.
-        read_from = web_metrics.fold_read_from(conn, now)
+        row = conn.execute("SELECT MIN(ts) FROM web_metrics").fetchone()
+        oldest = row[0] if row else None
+        read_from = web_metrics.fold_read_from(oldest, now)
         for bucket_width in LATENCY_BUCKETS:
-            stored, turned_away = _fold(conn, bucket_width, horizon,
-                                        read_from)
+            stored, dropped, turned_away = _fold(
+                conn, bucket_width, horizon, read_from, oldest)
             written += stored
+            removed += dropped
             refused += turned_away
         # Pruned after the fold, in the same transaction, at the retention
         # cutoff. The two instants differ by design and the difference is the
@@ -176,6 +195,6 @@ def rebuild_web_metrics_rollup() -> int:
     # The refused count is the half a reader would otherwise have to guess
     # at: a bucket absent from the stored history is indistinguishable from
     # one that never had a beacon, and this is where that becomes visible.
-    log.info("rebuild_web_metrics_rollup: %d rows, %d buckets refused",
-             written, refused)
-    return written
+    log.info("rebuild_web_metrics_rollup: %d rows, %d removed, "
+             "%d buckets refused", written, removed, refused)
+    return written + removed
