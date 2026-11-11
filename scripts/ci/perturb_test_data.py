@@ -92,7 +92,7 @@ def perturb_pricing(path: Path,
     The seed drives the factors and the row order, and so which stamps
     a row takes from one global counter: it starts one second past the
     document's newest real rate stamp and adds one second per appended
-    entry, five per row, in that order, so every appended stamp is after
+    entry, five per row, in row order, so every appended stamp is after
     every real one whatever the seed — per-row stamps stay strictly
     increasing, and a closed window keeps answering at every instant it
     answered before. When NO entry carries a
@@ -386,9 +386,10 @@ def main(argv: list[str] | None = None) -> int:
                     "optional web_search rate on every provider row — and "
                     "bump the three version constants, so the suite runs "
                     "against data the repository changed by design. The "
-                    "seed drives the row order and the factors only; the "
-                    "appended `from` stamps derive from the document's own "
-                    "newest real stamp, so any seed is valid (issue #227).")
+                    "seed drives the row order and the factors, and so "
+                    "which appended `from` stamps a row takes; their base is "
+                    "the document's own newest real stamp, so any seed is "
+                    "valid (issue #227).")
     parser.add_argument("--seed", type=int, default=None,
                         help="the run seed, an absolute epoch-seconds int: "
                              "drives the row shuffle, the per-row irregular "
