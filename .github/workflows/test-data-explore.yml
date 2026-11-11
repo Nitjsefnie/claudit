@@ -5,9 +5,9 @@ name: test data explore
 # fixed three sample one corner of the seed domain; this run draws
 # three wall-clock seeds a day and runs the same full suite per seed.
 # It is NOT a gate leg — ci-gate.yml is untouched — so a red explorer
-# means "look at this seed", never "block the push". The stamps ignore
-# the seed, so a window closed before the run answers as it did under
-# any seed.
+# means "look at this seed", never "block the push". New stamps follow
+# all real ones, so a window closed before the run answers as it did
+# under any seed.
 
 on:
   schedule:
