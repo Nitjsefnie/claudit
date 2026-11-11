@@ -185,6 +185,15 @@ def _values(options, names):
     return found
 
 
+def _assert_pinned_once(options):
+    assert sum(word in ('-q', '--quiet') for word in options) == 1
+    for names, value in ((('--tb',), 'short'), (('-r',), 'a'), (('-m',), 'not db'),
+                         (('--durations',), '20'), (('--junitxml', '--junit-xml'), 'pytest-junit.xml')):
+        assert _values(options, names) == [value], names
+    assert [value for value in _values(options, ('-o', '--override-ini'))
+            if value.startswith('faulthandler_timeout=')] == ['faulthandler_timeout=240']
+
+
 @pytest.mark.skipif(os.name == 'nt', reason='the step runs under POSIX Bash here')
 def test_portable_cells_run_half_the_suite_each_as_the_steps_own_process(tmp_path):
     job = _workflow('tests.yml')['jobs']['pytest-portable']
@@ -214,12 +223,7 @@ def test_portable_cells_run_half_the_suite_each_as_the_steps_own_process(tmp_pat
         argv = (tmp_path / 'argv').read_text().splitlines()
         files, options = split_pytest_argv(run, argv)
         assert argv[:2] == ['-m', 'pytest']
-        assert sum(word in ('-q', '--quiet') for word in options) == 1
-        for names, value in ((('--tb',), 'short'), (('-r',), 'a'), (('-m',), 'not db'),
-                             (('--durations',), '20'), (('--junitxml', '--junit-xml'), 'pytest-junit.xml')):
-            assert _values(options, names) == [value], names
-        assert [value for value in _values(options, ('-o', '--override-ini'))
-                if value.startswith('faulthandler_timeout=')] == ['faulthandler_timeout=240']
+        _assert_pinned_once(options)
         shards.append(files)
     assert all(shards)
     assert sorted(shards[0] + shards[1]) == sorted(
