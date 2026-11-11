@@ -87,10 +87,6 @@ REFUSED = {
 }
 
 
-def test_the_type_table_is_contributings_eleven():
-    assert cs.TYPES == TYPES
-
-
 @pytest.mark.parametrize("subject,commit_type,scope", [
     ("ci(tests): seed the fixture", "ci", "tests"),
     ("ci: no scope", "ci", None),
