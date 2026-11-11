@@ -5,8 +5,8 @@
 import globals from 'globals';
 import reactPlugin from 'eslint-plugin-react';
 
-// Cross-file globals: names from public/index.html (React/ReactDOM CDN
-// scripts, BACKEND_URL), every name the src files attach to window, and
+// Cross-file globals: names from public/index.html (React/ReactDOM from
+// /vendor/, BACKEND_URL), every name src files attach to window, and
 // top-level names one src file uses from another — index.html loads each
 // /src/* as a classic script, so those are globals.
 //

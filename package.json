@@ -2,7 +2,7 @@
   "name": "claudit-ci-tools",
   "version": "0.0.0",
   "private": true,
-  "description": "Lint and coverage TOOLS for CI. The frontend has no npm dependency and no build step: React is loaded from a CDN and every src file is transpiled in the browser (see CONTRIBUTING.md). Nothing here is shipped, served or bundled - the running app never reads this file.",
+  "description": "Lint and coverage TOOLS for CI. The frontend has no npm dependency and no build step: React and ReactDOM load from the vendored builds under public/vendor/ and every src file is transpiled in the browser (see CONTRIBUTING.md). Nothing here is shipped, served or bundled - the running app never reads this file.",
   "scripts": {
     "lint": "eslint 'src/**/*.js' 'src/**/*.jsx' 'scripts/ci/*.mjs'"
   },
