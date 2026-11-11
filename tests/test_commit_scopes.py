@@ -59,17 +59,20 @@ NOT_WRITTEN_BY_GIT = [
     GITHUB_MERGE.replace("a4cd", "a4c", 1),
     GITHUB_MERGE.replace("a4cd", "A4CD", 1),
     GITHUB_MERGE + " again",
+    GITHUB_MERGE.rpartition(" ")[0] + " master",
     "Merge the topic",
     "Merge branch master",
     "Merge pull request from owner/topic",
     "Revert the panel",
     'Reverts "feat: add a panel"',
+    'Revert "feat: add a panel',
     "Reapply feat: add a panel",
 ]
 REFUSED = {
     "Fix a thing": "does not read as",
     "feat!(api): x": "does not read as",
     "feat(api)! x": "does not read as",
+    "feat!!: x": "does not read as",
     "feat x": "does not read as",
     "feat:x": "does not read as",
     "feat:": "does not read as",
@@ -269,6 +272,12 @@ def test_a_scopeless_conforming_subject_is_examined_and_passes(tmp_path):
     assert _header(done.stdout) == ("Examined 1 commit subject in origin/master..HEAD; "
                                     "0 written by git or GitHub, not examined.")
     assert _listed(done.stdout) == []
+
+
+def test_only_the_refused_subject_of_a_mixed_head_is_listed(tmp_path):
+    done = _check(tmp_path, ["fix: before", "Fix a thing", "fix: after"])
+    assert done.returncode == 1
+    assert _listed(done.stdout) == ["Fix a thing"]
 
 
 def test_subjects_outside_the_format_fail_the_head(tmp_path):
