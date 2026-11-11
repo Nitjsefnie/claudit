@@ -185,12 +185,14 @@ def test_the_canary_never_compares_two_checkouts():
     # it are gone with it: no baseline-release lookup, no merge-base,
     # no dual checkout, no interleaved rounds, no comparator, no JUnit.
     junit = ("junitxml", "junit-xml")
-    for name in (WORKFLOWS / "tests.yml",
-                 ROOT / ".github" / "actions" / "suite-bench" / "action.yml"):
-        text = (ROOT / name).read_text(encoding="utf-8")
+    action = ROOT / ".github" / "actions" / "suite-bench" / "action.yml"
+    for name in (WORKFLOWS / "tests.yml", action):
+        text = name.read_text(encoding="utf-8")
         for gone in ("compare_durations", "merge_base", "MAX_REGRESSION",
-                     "ROUNDS", "venv-base", "venv-head", "releases/latest") + junit:
-            assert gone not in text or (name.name == "tests.yml" and gone in junit), (name, gone)
+                     "ROUNDS", "venv-base", "venv-head", "releases/latest"):
+            assert gone not in text, (name, gone)
+    for flag in junit:
+        assert flag not in action.read_text(encoding="utf-8"), (action, flag)
     # The portable cells' junit report is stall evidence, not a comparator input.
     doc = _load("tests.yml")
     parts = [("", "outside jobs", {key: value for key, value in doc.items() if key != "jobs"})]
