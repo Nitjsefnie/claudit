@@ -66,6 +66,16 @@ def _pytest_commands(script: str) -> list[tuple[list[str], list[str]]]:
     return [(words, _lacks(words)) for words, _ in _commands(script) if any(map(_is_pytest, words))]
 
 
+def split_pytest_argv(step: dict, argv: list[str]) -> tuple[list[str], list[str]]:
+    """(files, options) of a stub `python`'s argv, framed by what the step writes around `$files`."""
+    (words, _), = _pytest_commands(step["run"])
+    args = words[words.index("python") + 1:]
+    head, tail = args[:args.index("$files")], args[args.index("$files") + 1:]
+    end = len(argv) - len(tail)
+    assert len(head) <= end and argv[:len(head)] == head and argv[end:] == tail, (argv, args)
+    return argv[len(head):end], tail
+
+
 def _lacking(script: str) -> list[list[str]]:
     return [lacks for _, lacks in _pytest_commands(script)]
 

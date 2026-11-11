@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from scripts.ci import aggregate_gate, classify_changes
+from tests.test_workflow_pytest_options import split_pytest_argv
 
 ROOT = Path(__file__).resolve().parents[1]
 THRESHOLDS = '.github/ci-thresholds.json'
@@ -198,10 +199,12 @@ def test_portable_cells_run_half_the_suite_each_as_the_steps_own_process(tmp_pat
             assert step.wait() == 0
         assert (tmp_path / 'pid').read_text().split() == [str(step.pid)]
         argv = (tmp_path / 'argv').read_text().splitlines()
-        assert argv[:2] == ['-m', 'pytest'] and argv[-9:] == [
-            '-q', '--tb=short', '-ra', '-m', 'not db', '-o', 'faulthandler_timeout=240',
-            '--durations=20', '--junitxml=pytest-junit.xml']
-        shards.append(argv[2:-9])
+        files, options = split_pytest_argv(run, argv)
+        assert argv[:2] == ['-m', 'pytest']
+        for flag in (['-q'], ['--tb=short'], ['-ra'], ['-m', 'not db'], ['-o', 'faulthandler_timeout=240'],
+                     ['--durations=20'], ['--junitxml=pytest-junit.xml']):
+            assert any(options[at:at + len(flag)] == flag for at in range(len(options))), flag
+        shards.append(files)
     assert all(shards)
     assert sorted(shards[0] + shards[1]) == sorted(
         path.relative_to(ROOT).as_posix() for path in (ROOT / 'tests').rglob('test_*.py'))

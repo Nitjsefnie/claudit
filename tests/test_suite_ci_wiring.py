@@ -1,6 +1,7 @@
 """Suite bench and ratchet workflow wiring."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 
@@ -183,17 +184,24 @@ def test_the_canary_never_compares_two_checkouts():
     # The A/B design is GONE, and the things that existed only to serve
     # it are gone with it: no baseline-release lookup, no merge-base,
     # no dual checkout, no interleaved rounds, no comparator, no JUnit.
+    junit = ("junitxml", "junit-xml")
     for name in (WORKFLOWS / "tests.yml",
                  ROOT / ".github" / "actions" / "suite-bench" / "action.yml"):
         text = (ROOT / name).read_text(encoding="utf-8")
-        if name.name == "tests.yml":
-            # The portable cells' junit report is stall evidence, not a comparator input.
-            portable = text.index("\n  pytest-portable:\n")
-            text = text[:portable] + text[portable:].replace(" --junitxml=pytest-junit.xml", "", 1)
         for gone in ("compare_durations", "merge_base", "MAX_REGRESSION",
-                     "ROUNDS", "junitxml", "venv-base", "venv-head",
-                     "releases/latest"):
-            assert gone not in text, (name, gone)
+                     "ROUNDS", "venv-base", "venv-head", "releases/latest") + junit:
+            assert gone not in text or (name.name == "tests.yml" and gone in junit), (name, gone)
+    # The portable cells' junit report is stall evidence, not a comparator input.
+    doc = _load("tests.yml")
+    parts = [("", "outside jobs", {key: value for key, value in doc.items() if key != "jobs"})]
+    for job_id, job in doc["jobs"].items():
+        parts.append((job_id, "outside steps", {key: value for key, value in job.items() if key != "steps"}))
+        parts += [(job_id, step.get("name"), step) for step in job.get("steps") or []]
+    allowed = ("pytest-portable", "Run tests")
+    assert [part[:2] for part in parts].count(allowed) == 1
+    for job_id, where, node in parts:
+        text = json.dumps(node)
+        assert (job_id, where) == allowed or not any(flag in text for flag in junit), (job_id, where)
 
 
 def test_ratchet_push_job_tightens_from_the_artifact():
