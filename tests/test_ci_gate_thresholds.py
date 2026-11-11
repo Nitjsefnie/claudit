@@ -12,6 +12,7 @@ import yaml
 
 from scripts.ci import aggregate_gate, classify_changes
 from tests.test_workflow_pytest_options import split_pytest_argv
+from tests.workflow_checks import assert_shards_exec_pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 THRESHOLDS = '.github/ci-thresholds.json'
@@ -162,7 +163,8 @@ def test_shards_cover_four_partitions_and_publish_even_after_failure():
     run, = [step for step in job['steps'] if step.get('name') == 'Run tests']
     commands = [line for line in run['run'].splitlines() if not line.startswith('#')]
     assert commands == [
-        'python -m pytest $(python3 scripts/ci/pytest_shards.py '
+        "grep -m1 'model name' /proc/cpuinfo", 'nproc', "grep '^cpu ' /proc/stat",
+        'exec python -m pytest $(python3 scripts/ci/pytest_shards.py '
         '--shard ${{ matrix.shard }} --of 4) -q --tb=short -ra -o faulthandler_timeout=240 '
         '--durations=20 --cov=backend --cov-report=']
     assert run['env']['COVERAGE_FILE'] == (
@@ -170,6 +172,13 @@ def test_shards_cover_four_partitions_and_publish_even_after_failure():
     upload, = [step for step in job['steps']
                if step.get('with', {}).get('name') == 'coverage-shard-${{ matrix.shard }}']
     assert upload['if'] == '${{ !cancelled() }}'
+
+
+@pytest.mark.skipif(not sys.platform.startswith('linux'), reason='the step reads /proc as its ubuntu runner has it')
+def test_canary_shards_exec_pytest_under_a_step_bound_between_cpu_counters(tmp_path):
+    assert_shards_exec_pytest(_workflow('tests.yml')['jobs']['pytest-shards'], tmp_path, [
+        '-q', '--tb=short', '-ra', '-o', 'faulthandler_timeout=240', '--durations=20',
+        '--cov=backend', '--cov-report='])
 
 
 def _values(options, names):

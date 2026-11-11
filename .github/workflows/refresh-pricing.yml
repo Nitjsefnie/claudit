@@ -219,9 +219,17 @@ jobs:
       # Rate/version mutations on master have no judged removal range.
       # No base means no exemptions, including a snapshot awaiting re-seeding.
       - name: Run tests
+        timeout-minutes: 12
         run: |
+          grep -m1 'model name' /proc/cpuinfo
+          nproc
+          grep '^cpu ' /proc/stat
           # shellcheck disable=SC2046
-          python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra -o faulthandler_timeout=240 --durations=20
+          exec python -m pytest $(python3 scripts/ci/pytest_shards.py --shard ${{ matrix.shard }} --of 4) -q --tb=short -ra -o faulthandler_timeout=240 --durations=20
+
+      - name: CPU counters after the tests
+        if: always()
+        run: grep '^cpu ' /proc/stat
 
   stage:
     needs: [refresh, suite]

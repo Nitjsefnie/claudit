@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.workflow_checks import retry_helper_writers, write_retry_helper
+from tests.workflow_checks import assert_shards_exec_pytest, retry_helper_writers, write_retry_helper
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "refresh-pricing.yml"
@@ -101,6 +101,12 @@ def test_refresh_fetches_and_suite_runs_tests_without_the_key():
     assert (suite["env"]["PGHOST"], suite["env"]["PGPORT"],
             suite["env"]["PGUSER"], suite["env"]["PGPASSWORD"]) == (
         "localhost", "5432", "postgres", "postgres")
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the step reads /proc as its ubuntu runner has it")
+def test_suite_shards_exec_pytest_under_a_step_bound_between_cpu_counters(tmp_path: Path):
+    assert_shards_exec_pytest(_job("suite"), tmp_path, [
+        "-q", "--tb=short", "-ra", "-o", "faulthandler_timeout=240", "--durations=20"])
 
 
 def test_refresh_job_outputs_feed_the_push_gate():
