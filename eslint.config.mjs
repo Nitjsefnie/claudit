@@ -148,7 +148,7 @@ export default [
     },
   },
   {
-    files: ['scripts/ci/*.mjs'],
+    files: ['scripts/ci/*.mjs', 'eslint.config.mjs'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'module',
