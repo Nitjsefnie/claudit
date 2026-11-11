@@ -544,6 +544,7 @@ def test_non_feature_range_refuses_raise_and_names_remedy(judged_base_path, monk
         "fix!: break the wire",
         "feat(api)! change the wire",
         "feat!(api): change the wire",
+        "feat(api!): change the wire",
         "feat:new path",
         "feat(): new path",
     ]:

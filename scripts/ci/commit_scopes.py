@@ -3,8 +3,8 @@
 scope names a workflow under a type other than `ci`.
 
 Both rules live in CONTRIBUTING.md (Commit subjects). A subject reads
-`type(scope)!: subject`: a type from TYPES, an optional scope (no
-parenthesis, no whitespace), an optional `!` right before the colon, then
+`type(scope)!: subject`: a type from TYPES, an optional scope (none of
+`()!` or whitespace), an optional `!` right before the colon, then
 `: ` and a description. A workflow's `name:` may be a scope only with
 type `ci` — `ci(tests)` changes the workflow, `fix(tests)` the suite.
 
@@ -249,7 +249,7 @@ TYPES = frozenset(("build", "chore", "ci", "docs", "feat", "fix", "perf",
                    "refactor", "revert", "style", "test"))
 
 # The type is any run of letters, so an unknown one is named; TYPES judges it.
-SUBJECT = re.compile(r"(?P<type>[A-Za-z]+)(?:\((?P<scope>[^()\s]+)\))?"
+SUBJECT = re.compile(r"(?P<type>[A-Za-z]+)(?:\((?P<scope>[^()\s!]+)\))?"
                      r"!?: \S.*")
 
 WRITTEN_BY_GIT = tuple(re.compile(shape) for shape in (

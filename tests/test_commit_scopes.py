@@ -80,6 +80,7 @@ REFUSED = {
     " feat: x": "does not read as",
     "feat(): x": "does not read as",
     "feat(a b): x": "does not read as",
+    "feat(api!): x": "does not read as",
     "Fix: x": "type `Fix` is not one of",
     "feature: x": "type `feature` is not one of",
     "Dedup: re-point the limb": "type `Dedup` is not one of",
