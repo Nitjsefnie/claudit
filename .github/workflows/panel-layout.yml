@@ -78,14 +78,28 @@ jobs:
         # package.json mean what they say.
         run: scripts/ci/retry.sh timeout -k 5 120 npm ci --no-audit --no-fund
 
+      # The fonts and shared libraries the pinned Playwright installs for
+      # Chromium on this image; the next step fails if it needs another.
       - uses: $/.github/actions/apt-install
-        timeout-minutes: 1
+        timeout-minutes: 6
+        with:
+          packages: >-
+            xvfb fonts-noto-color-emoji fonts-unifont libfontconfig1 libfreetype6
+            xfonts-cyrillic xfonts-scalable fonts-liberation fonts-ipafont-gothic
+            fonts-wqy-zenhei fonts-tlwg-loma-otf fonts-freefont-ttf libasound2t64
+            libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64
+            libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0
+            libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3
+            libxkbcommon0 libxrandr2
 
-      # --with-deps installs the shared libraries a headless Chromium
-      # needs on the runner image; without them the launch fails with a
-      # loader error rather than a layout result.
       - name: Install the headless browser
-        run: scripts/ci/retry.sh npx --no-install playwright install --with-deps chromium
+        timeout-minutes: 4
+        run: |
+          scripts/ci/retry.sh timeout -k 5 60 npx --no-install playwright install chromium
+          if ! report="$(timeout -k 5 10 npx --no-install playwright install-deps --dry-run chromium)" || [ "$report" != "All system dependencies are installed." ]; then
+            echo "::error::Playwright's dependency dry run did not report every package installed: $report" >&2
+            exit 1
+          fi
 
       - name: Run the ${{ matrix.sweep.name }} sweep
         run: node ${{ matrix.sweep.script }}

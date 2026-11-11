@@ -1,5 +1,11 @@
-name: Sanitize apt sources
-description: Remove the runner's unused Microsoft apt source ahead of a later apt use.
+name: Bounded apt install
+description: Remove the runner's unused Microsoft apt source and optionally install packages, each apt attempt bounded.
+
+inputs:
+  packages:
+    description: Space-separated packages to install; empty sanitizes sources only.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -10,3 +16,58 @@ runs:
         set -euo pipefail
         echo "==> removing the unused Microsoft apt source"
         sudo timeout 10s rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.sources
+
+    - name: Install packages with bounded retries
+      if: inputs.packages != ''
+      shell: bash
+      env:
+        CLAUDIT_APT_PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        echo "==> reading requested packages"
+        read -r -a packages <<< "$CLAUDIT_APT_PACKAGES"
+        for attempt in 1 2; do
+          echo "==> apt-get update (attempt $attempt/2)"
+          if sudo timeout -k 5 15 apt-get update -qq -o APT::Update::Error-Mode=any -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10; then
+            break
+          fi
+          if [ "$attempt" -eq 2 ]; then
+            echo "::error::apt-get update failed after 2 attempts" >&2
+            exit 1
+          fi
+          echo "==> waiting 5 seconds before retrying apt-get update"
+          sleep 5
+        done
+        for attempt in 1 2; do
+          echo "==> downloading $CLAUDIT_APT_PACKAGES (attempt $attempt/2)"
+          if sudo env DEBIAN_FRONTEND=noninteractive timeout -k 5 40 apt-get install --download-only --no-install-recommends -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 "${packages[@]}"; then
+            break
+          fi
+          if [ "$attempt" -eq 2 ]; then
+            echo "::error::downloading $CLAUDIT_APT_PACKAGES failed after 2 attempts" >&2
+            exit 1
+          fi
+          echo "==> waiting 5 seconds before retrying the download"
+          sleep 5
+        done
+        # A killed attempt can leave dpkg running, then a dirty journal: a retry waits out the lock (dpkg refuses, apt waits), then configures.
+        for attempt in 1 2; do
+          echo "==> installing $CLAUDIT_APT_PACKAGES from the download cache (attempt $attempt/2)"
+          if sudo env DEBIAN_FRONTEND=noninteractive timeout -k 5 50 apt-get install --no-download --no-install-recommends -y -qq -o DPkg::Lock::Timeout=30 "${packages[@]}"; then
+            break
+          fi
+          if [ "$attempt" -eq 2 ]; then
+            echo "::error::apt-get install failed after 2 attempts" >&2
+            exit 1
+          fi
+          echo "==> waiting 5 seconds before retrying apt-get install"
+          sleep 5
+          echo "==> waiting for a dpkg left running by the abandoned attempt"
+          if ! sudo timeout -k 5 15 apt-get check -qq -o DPkg::Lock::Timeout=10; then
+            echo "::warning::apt-get check reported a busy dpkg lock or an interrupted dpkg"
+          fi
+          echo "==> recovering an interrupted dpkg"
+          if ! sudo env DEBIAN_FRONTEND=noninteractive timeout -k 5 45 dpkg --configure -a; then
+            echo "::warning::dpkg --configure -a failed"
+          fi
+        done
