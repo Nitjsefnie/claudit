@@ -165,7 +165,7 @@ def run_suite(repo_root: Path) -> tuple[int, str]:
     means no removal exemptions. Returns (exit code, combined output)."""
     proc = subprocess.run(
         [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=short",
-         "-ra"],
+         "-ra", "-o", "faulthandler_timeout=240", "--durations=20"],
         cwd=str(repo_root), capture_output=True, text=True, check=False)
     return proc.returncode, proc.stdout + proc.stderr
 
