@@ -393,7 +393,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="the run seed, an absolute epoch-seconds int: "
                              "drives the row shuffle, the per-row irregular "
                              "factor, the per-field factors and the "
-                             "single-field choice, never a `from` stamp "
+                             "single-field choice, and so which `from` "
+                             "stamps a row takes, never the stamp base "
                              "(default: the wall clock)")
     parser.add_argument("--pricing", type=Path, default=PRICING_JSON,
                         help="path to the pricing document "
