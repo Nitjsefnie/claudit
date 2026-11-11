@@ -19,8 +19,8 @@ or, for the npx binary alone, `--no-install`. Any option after that word
 and before a literal `--` voids the hold (npm reads it, maybe as `--yes`),
 but not after the npx binary's `--no-install`, `--yes=false` or
 `--offline`: npx writes a `--` before the word. A held npx still asks the
-registry about a package it lacks, then fails. A playwright install and an
-apt fetch need `timeout -k N N <name>` too, `<name>` the command proper (npx,
+registry about a package it lacks, then fails. A playwright install, an
+install-deps without `--dry-run` and an apt fetch need `timeout -k N N <name>` too, `<name>` the command proper (npx,
 npm, apt-get or apt). An apt fetch is apt-get or apt whose first word that
 is no option is `update`, or, without `--no-download`, any but `check`,
 `clean`, `autoclean`, `remove`, `purge` and `autoremove`. A `sudo` or `env`
@@ -207,6 +207,8 @@ ACCEPTED = {
     "pip by the helper": "scripts/ci/retry.sh pip install -r backend/requirements.txt",
     "playwright by the helper, bounded": "scripts/ci/retry.sh timeout -k 5 60 npx --no-install playwright install chromium",
     "playwright's dependency dry run": "timeout -k 5 10 npx --no-install playwright install-deps --dry-run chromium",
+    "playwright's dependency install by the helper, bounded": (
+        "scripts/ci/retry.sh timeout -k 5 300 npx --no-install playwright install-deps chromium"),
     "apt-get update steering a loop, bounded under sudo": LOOP.format(APT_UPDATE.format("timeout -k 5 15 ")),
     "apt-get download under sudo and env, bounded": LOOP.format(APT_DOWNLOAD.format("timeout -k 5 40 ")),
     "apt-get update by the helper, bounded": "scripts/ci/retry.sh sudo timeout -k 5 15 apt-get update",
@@ -241,6 +243,9 @@ REFUSED = {
         "scripts/ci/retry.sh npm --no exec playwright install chromium", [_playwright("npm")]),
     "playwright by the helper, no timeout": (
         "scripts/ci/retry.sh npx --no-install playwright install chromium", [_playwright("npx")]),
+    "playwright's dependency install by the helper, no timeout": (
+        "scripts/ci/retry.sh npx --no-install playwright install-deps chromium",
+        ["playwright install-deps without `timeout -k N N npx`, N above 0, per attempt"]),
     "playwright with its system dependencies by the helper, no timeout": (
         "scripts/ci/retry.sh npx --no-install playwright install --with-deps chromium", [_playwright("npx")]),
     "apt-get update in a loop, no timeout": (LOOP.format(APT_UPDATE.format("")), [_apt("update")]),
