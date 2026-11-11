@@ -259,10 +259,16 @@ def _listed(stdout: str) -> list[str]:
             if (m := re.fullmatch(r" +[0-9a-f]{40} (.*)", line))]
 
 
+def _header(stdout: str) -> str:
+    return next(line for line in stdout.splitlines() if line.startswith("Examined "))
+
+
 def test_a_scopeless_conforming_subject_is_examined_and_passes(tmp_path):
     done = _check(tmp_path, ["ci: x"])
     assert done.returncode == 0
-    assert "Examined 1 commit subject in origin/master..HEAD" in done.stdout
+    assert _header(done.stdout) == ("Examined 1 commit subject in origin/master..HEAD; "
+                                    "0 written by git or GitHub, not examined.")
+    assert _listed(done.stdout) == []
 
 
 def test_subjects_outside_the_format_fail_the_head(tmp_path):
@@ -276,8 +282,8 @@ def test_subjects_outside_the_format_fail_the_head(tmp_path):
 def test_git_written_subjects_are_listed_green(tmp_path):
     done = _check(tmp_path, WRITTEN_BY_GIT + ["fix: x"])
     assert done.returncode == 0
-    assert (f"Examined 1 commit subject in origin/master..HEAD; "
-            f"{len(WRITTEN_BY_GIT)} written by git or GitHub") in done.stdout
+    assert _header(done.stdout) == (f"Examined 1 commit subject in origin/master..HEAD; "
+                                    f"{len(WRITTEN_BY_GIT)} written by git or GitHub, not examined:")
     assert sorted(_listed(done.stdout)) == sorted(WRITTEN_BY_GIT)
 
 

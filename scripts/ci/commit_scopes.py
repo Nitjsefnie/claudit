@@ -30,7 +30,9 @@ closed set (WRITTEN_BY_GIT): `Merge <40 hex> into <40 hex>` (GitHub's
 pull-request merge), `Merge branch '<b>'` (git's optional ` of <url>`
 and ` into <b>`), `Merge remote-tracking branch '<b>'` (optional
 ` into <b>`), `Merge pull request #<n> from <head>`, `Revert "<s>"` and
-`Reapply "<s>"` (git reverting a revert).
+`Reapply "<s>"` (git reverting a revert). `fixup!`/`squash!`/`amend!`
+and GitHub's editable defaults (`Apply suggestions from code review`)
+are refused by choice: a rebase merge would land them on master.
 
 WHAT IT CANNOT SEE, and says so rather than guessing:
 
@@ -332,7 +334,7 @@ def check(root: Path, out=print) -> int:
     plural = "s" if examined != 1 else ""
     out(f"Examined {examined} commit subject{plural} in "
         f"origin/{BASE_BRANCH}..HEAD; {len(unexamined)} written by git or "
-        f"GitHub, not examined:")
+        f"GitHub, not examined{':' if unexamined else '.'}")
     for sha, subject in unexamined:
         out(f"    {sha} {subject}")
     out("  History already merged into master is never re-judged.")
