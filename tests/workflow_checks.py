@@ -81,8 +81,8 @@ def write_retry_helper(job: dict, runner_temp: Path | str) -> None:
 # `timeout [-k N] N COMMAND`, whole seconds above 0, and runs only a stubbed COMMAND.
 TIMEOUT_STUB = r'''
 timeout() {
-  local grace=1 limit bound seen
-  if [ "${1:-}" = -k ]; then grace="${2:-}"; shift 2; fi
+  local grace=1 limit bound seen kill=none
+  if [ "${1:-}" = -k ]; then grace="${2:-}"; kill="$grace"; shift 2; fi
   limit="${1:-}"
   for bound in "$grace" "$limit"; do
     case "$bound" in
@@ -92,6 +92,7 @@ timeout() {
   shift
   if [ -n "${TIMEOUT_STATE:-}" ]; then
     printf '%s %s\n' "$limit" "$*" >> "$TIMEOUT_STATE/calls"
+    echo "$kill" >> "$TIMEOUT_STATE/kills"
     bound="$TIMEOUT_STATE/$(printf '%s' "$*" | cksum | cut -d ' ' -f 1)"
     seen="$(cat "$bound" 2>/dev/null || echo 0)"
     case "$*" in *"${TIMEOUT_ONLY:-}"*)
