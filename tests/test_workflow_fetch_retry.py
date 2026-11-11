@@ -3,10 +3,10 @@
 Fails, listing each offending `run:` command, on a curl lacking `--retry N`
 (N 1-9), `--retry-all-errors` or `--max-time`/`-m`; any wget; a git
 fetch/clone/ls-remote/pull, gh read, pip install/download/wheel,
-playwright install or apt fetch neither run by retry.sh/api_retry nor,
-inside a `for attempt in` loop, steering it (an `if`/`elif`/`while`/`until`
-condition, the left operand of `&&`, or of a `||` whose right side reaches
-`continue`, bare or in a `{ }` group); a git push not run by
+playwright install or install-deps or apt fetch neither run by
+retry.sh/api_retry nor, inside a `for attempt in` loop, steering it (an
+`if`/`elif`/`while`/`until` condition, the left operand of `&&`, or of a
+`||` whose right side reaches `continue`, bare or in a `{ }` group); a git push not run by
 retry.sh/api_retry, even one steering such a loop; and an unclassified gh
 command.
 
@@ -385,8 +385,13 @@ def _fetch_kind(words: list[str]) -> str | None:
     if re.fullmatch(r"pip[0-9.]*", module):
         verb = next((arg for arg in args if arg in ("install", "download", "wheel")), None)
         return f"pip {verb}" if verb else None
-    return (_apt_fetch(name, args) if name in APT
-            else "playwright install" if module == "playwright" and "install" in args else None)
+    return _apt_fetch(name, args) if name in APT else _playwright_fetch(args) if module == "playwright" else None
+
+
+def _playwright_fetch(args: list[str]) -> str | None:
+    if "install" in args:
+        return "playwright install"
+    return "playwright install-deps" if "install-deps" in args and "--dry-run" not in args else None
 
 
 def _apt_fetch(name: str, args: list[str]) -> str | None:
