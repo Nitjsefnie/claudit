@@ -253,17 +253,55 @@ def _is_hashed_pyyaml(words: list[str], verb: str = "install") -> bool:
             and "requirements-pyyaml.txt" in words and "||" not in words)
 
 
+# `pip wheel`'s options by takes_value(), from pip 26.2.2's create_command("wheel").parser (audit.yml's stock pip).
+PIP_WHEEL_VALUED = frozenset("""
+    -C -c -e -f -i -r -w --all-releases --build-constraint --cache-dir --cert --client-cert --config-settings
+    --constraint --default-timeout --editable --exists-action --extra-index-url --find-links --group --index-url
+    --keyring-provider --local-log --log --log-file --no-binary --only-binary --only-final --progress-bar --proxy
+    --pypi-url --python --refresh-package --requirement --requirements-from-script --resume-retries --retries
+    --source --source-dir --source-directory --src --timeout --trusted-host --uploaded-prior-to --use-deprecated
+    --use-feature --wheel-dir""".split())
+PIP_WHEEL_OPTIONS = PIP_WHEEL_VALUED | frozenset("""
+    -V -h -q -v --check-build-dependencies --debug --disable-pip-version-check --help --ignore-requires-python
+    --isolated --no-build-isolation --no-cache-dir --no-clean --no-color --no-dependencies --no-deps --no-index
+    --no-input --no-proxy-env --no-python-version-warning --no-require-hashes --no-verify --only-dependencies
+    --only-deps --pre --prefer-binary --quiet --require-hashes --require-venv --require-virtualenv --use-pep517
+    --verbose --version""".split())
+
+
+def _option_words(word: str) -> list[tuple[str, str | None]]:
+    """Split one option word into (option, attached value) pairs as optparse does; "" is a usage error."""
+    if word.startswith("--"):
+        name, equals, attached = word.partition("=")
+        names = {name} & PIP_WHEEL_OPTIONS or {option for option in PIP_WHEEL_OPTIONS if option.startswith(name)}
+        option = names.pop() if len(names) == 1 else ""
+        return [(option if option in PIP_WHEEL_VALUED or not equals else "", attached if equals else None)]
+    pairs: list[tuple[str, str | None]] = []
+    for end, letter in enumerate(word[1:], 2):
+        pairs.append(("-" + letter, word[end:] or None))
+        if "-" + letter in PIP_WHEEL_VALUED:
+            break
+    return pairs
+
+
 def _wheel_dir(words: list[str]) -> str | None:
-    found = []
-    for word, following in zip(words, [*words[1:], None]):
-        name, equals, value = word.partition("=")
-        if name.startswith("--w") and "--wheel-dir".startswith(name):
-            found.append(value if equals else following)
-        elif word.startswith("-") and not word.startswith("--"):
-            # `-q`, `-v`, `-V` take no value and still build.
-            cluster = word[1:].lstrip("qvV")
-            if cluster.startswith("w"):
-                found.append(cluster[1:] or following)
+    """Return the one wheel directory a `pip wheel` command names in flag position, or None."""
+    start = words.index("pip") + 1 if "pip" in words else len(words)
+    if words[start:start + 1] != ["wheel"]:
+        return None
+    rest, found = iter(words[start + 1:]), []
+    for word in rest:
+        if word == "--":
+            break
+        for option, attached in _option_words(word) if word.startswith("-") and word != "-" else []:
+            if option not in PIP_WHEEL_OPTIONS or option in ("-h", "--help"):
+                return None  # pip refuses the command or only prints help: nothing is built
+            if option in PIP_WHEEL_VALUED:
+                value = attached if attached is not None else next(rest, None)
+                if value is None:
+                    return None
+                if option in ("-w", "--wheel-dir"):
+                    found.append(value)
     return found[0] if len(found) == 1 else None
 
 
