@@ -23,6 +23,8 @@ def run_node(
     node_argv: Sequence[str], *, input: str | bytes | None = None,  # pylint: disable=W0622
     timeout: float = 60.0, **run_kwargs: Any,
 ) -> subprocess.CompletedProcess[Any]:
+    if run_kwargs.get("text") or run_kwargs.get("universal_newlines"):
+        run_kwargs.setdefault("encoding", "utf-8")  # node speaks UTF-8; the default is the locale's code page
     if PROC_STAT_READABLE:
         return _run_on_cpu_budget(node_argv, input, timeout, run_kwargs)
     retried = False
