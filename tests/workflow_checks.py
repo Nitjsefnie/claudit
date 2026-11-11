@@ -119,9 +119,10 @@ def bounded_calls(state: Path) -> list[tuple[int, str]]:
 
 
 def exec_step(step: dict, tmp_path: Path, matrix: dict[str, str], env: dict[str, str],
-              status: int = 0) -> tuple[int, bool, list[str], str]:
-    """Run a step's script with `python` stubbed to exit `status`: the step's exit,
-    whether the one stub call replaced the shell, the stub's arguments, stdout."""
+              status: int = 0, cwd: Path | None = None) -> tuple[int, bool, list[str], str]:
+    """Run a step's script, from `cwd` or a scratch directory, with `python` stubbed to
+    exit `status`: the step's exit, whether the one stub call replaced the shell, the
+    stub's arguments, stdout."""
     box = Path(tempfile.mkdtemp(dir=tmp_path))
     fake = box / "python"
     fake.write_text('#!/bin/sh\necho "$$" >> "$PID"\nprintf "%s\\n" "$@" >> "$ARGV"\n'
@@ -137,14 +138,43 @@ def exec_step(step: dict, tmp_path: Path, matrix: dict[str, str], env: dict[str,
         (box / name).write_text("", encoding="utf-8")
     # The runner's own bash invocation; its step-timeout SIGINT goes to this process.
     with subprocess.Popen(
-            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)], cwd=box,
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)], cwd=cwd or box,
             stdout=subprocess.PIPE, text=True,
             env=dict(os.environ, **env, PATH=f"{box}{os.pathsep}{os.environ['PATH']}",
                      PID=str(box / "pid"), ARGV=str(box / "argv"), STATUS=str(status))) as run:
         stdout, _ = run.communicate(timeout=30)
-    execed = (box / "pid").read_text(encoding="utf-8").split() == [str(run.pid)]
-    return (run.returncode, execed,
+    return (run.returncode, (box / "pid").read_text(encoding="utf-8").split() == [str(run.pid)],
             (box / "argv").read_text(encoding="utf-8").splitlines(), stdout)
+
+
+def _cpu_counters(line: str) -> bool:
+    """A /proc/stat aggregate line, through its eighth field, steal."""
+    words = line.split()
+    return words[:1] == ["cpu"] and len(words) > 8 and all(map(str.isdecimal, words[1:]))
+
+
+def assert_shards_exec_pytest(job: dict, tmp_path: Path, options: list[str]) -> None:
+    """`Run tests`, bounded at 12 of the job's 40 minutes, prints the CPU model, count and
+    counters, then execs pytest on each shard's files with `options`; the always()
+    step after it prints the counters again."""
+    steps = job["steps"]
+    run, = [step for step in steps if step.get("name") == "Run tests"]
+    after = (steps[steps.index(run) + 1:] or [{}])[0]
+    assert (str(run.get("timeout-minutes")), str(job["timeout-minutes"])) == ("12", "40")
+    assert after.get("if") == "always()"
+    shards = []
+    for shard in "1234":
+        code, execed, argv, stdout = exec_step(run, tmp_path, {"shard": shard}, {}, cwd=ROOT)
+        assert (code, execed) == (0, True)
+        lines = stdout.splitlines()
+        assert (len(lines) == 3 and lines[0].startswith("model name") and lines[1].isdecimal()
+                and _cpu_counters(lines[2])), lines
+        assert argv[:2] == ["-m", "pytest"] and argv[len(argv) - len(options):] == options
+        shards += argv[2:len(argv) - len(options)]
+    assert sorted(shards) == sorted(path.relative_to(ROOT).as_posix()
+                                    for path in (ROOT / "tests").rglob("test_*.py"))
+    code, _, _, stdout = exec_step(after, tmp_path, {}, {})
+    assert code == 0 and [_cpu_counters(line) for line in stdout.splitlines()] == [True]
 
 
 def is_checkout(step: dict) -> bool:

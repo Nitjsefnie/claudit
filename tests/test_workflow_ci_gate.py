@@ -467,7 +467,8 @@ def test_parallel_canary_jobs_keep_the_gate_step_order():
                 "actions/setup-node", "Resolve the threshold base", "Restore the pip cache",
                 "Install dependencies"]
     expected = {
-        "pytest-shards": [*database, "Save the pip cache", "Run tests", "actions/upload-artifact"],
+        "pytest-shards": [*database, "Save the pip cache", "Run tests", "CPU counters after the tests",
+                          "actions/upload-artifact"],
         "coverage-combine": [*preparation, "Download coverage shards",
                              "Combine shard coverage",
                              "measured", "Coverage summary", "Upload coverage.xml",
