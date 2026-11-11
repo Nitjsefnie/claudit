@@ -140,8 +140,8 @@
     5669
   ],
   "backend/api_dashboard.py": [
-    2492,
-    7413
+    2486,
+    8310
   ],
   "backend/api_export.py": [
     3657,
@@ -248,8 +248,8 @@
     906
   ],
   "backend/constants.py": [
-    3921,
-    4838
+    3919,
+    4837
   ],
   "backend/ctx_input.py": [
     498,
@@ -264,8 +264,8 @@
     8587
   ],
   "backend/dashboard_queries.py": [
-    1356,
-    8196
+    1196,
+    7806
   ],
   "backend/db.py": [
     6550,
@@ -300,8 +300,8 @@
     725
   ],
   "backend/ingest.py": [
-    8583,
-    20526
+    8530,
+    20556
   ],
   "backend/ingest_abort.py": [
     387,
@@ -324,8 +324,8 @@
     3290
   ],
   "backend/ingest_orphans.py": [
-    914,
-    2348
+    904,
+    2338
   ],
   "backend/ingest_persist.py": [
     3584,
@@ -356,8 +356,8 @@
     4138
   ],
   "backend/ingest_scan.py": [
-    2244,
-    4397
+    2230,
+    4757
   ],
   "backend/ingest_timing.py": [
     795,
@@ -476,8 +476,8 @@
     1236
   ],
   "backend/r2.py": [
-    7389,
-    13755
+    7355,
+    13923
   ],
   "backend/rate_boundaries.py": [
     709,
@@ -516,8 +516,8 @@
     18984
   ],
   "backend/schema_files.py": [
-    1252,
-    1805
+    1237,
+    1824
   ],
   "backend/schema_indexes.py": [
     613,
@@ -1004,8 +1004,8 @@
     410
   ],
   "tests/scratch_db.py": [
-    3069,
-    8973
+    3067,
+    9090
   ],
   "tests/test_a11y_wiring.py": [
     6929,
@@ -1496,8 +1496,8 @@
     1469
   ],
   "tests/test_r2.py": [
-    5677,
-    19766
+    5675,
+    21129
   ],
   "tests/test_rate_fingerprint.py": [
     4308,
