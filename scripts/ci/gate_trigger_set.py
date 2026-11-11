@@ -73,7 +73,7 @@ FAMILIES = (
 
 # Files held by hand: gate parameters whose presence in the set must
 # not depend on a spelling surviving in a workflow text, plus the four
-# tool-discovery configs the extraction cannot see. The JS lockfile is
+# configs tools read by discovery. The JS lockfile is
 # here because ci-gate's JS-tokenizer step pins espree from
 # it, so a lockfile move can change what the JS gates install.
 EXPLICIT = (
