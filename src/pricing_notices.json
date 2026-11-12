@@ -102,6 +102,7 @@
     "glm-5-3 via Parasail: rule-resolved (unique quantization): took the fp8 endpoint 'parasail/fp8' over service tiers",
     "glm-5-3 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp8'; dropped 'sail-research/us'",
     "glm-5-3 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/fp4'; dropped 'wafer/us'",
+    "glm-5-3-flash via Fireworks: rule-resolved (data region): the global data region leaves 'fireworks'; dropped 'fireworks/us'",
     "glm-5-3-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/us'",
     "glm-5-3-flash via Parasail: rule-resolved (unique quantization): took the fp4 endpoint 'parasail/fp4' over service tiers",
     "glm-5-3-flash via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
