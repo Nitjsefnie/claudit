@@ -40,19 +40,21 @@ def list_keys(names: list[str], client_factory: Callable[[], Any],
               split_points: dict[str, list[str]],
               timer: ListTiming | None = None) -> list[ListedObject]:
     objects: list[tuple[int, ListedObject]] = []
-    with ThreadPoolExecutor(max_workers=LIST_WORKERS) as pool:
-        futures = {}
-        for i, bucket in enumerate(names):
-            # str order is UTF-8 byte order.
-            bounds: list[str | None] = [None, *sorted(set(split_points.get(bucket, ())))]
-            for lower, upper in zip(bounds, [*bounds[1:], None]):
-                futures[pool.submit(_list_range, client_factory, bucket, lower, upper, timer)] = i
-        for i, rows, exc in resolve_futures(futures):
-            if exc is not None:
-                raise exc
-            objects.extend((i, row) for row in rows)
-    # Deliver only after every range succeeded.
-    objects.sort(key=lambda item: (item[0], item[1][0]))
-    if timer is not None:
-        timer.done()
+    try:
+        with ThreadPoolExecutor(max_workers=LIST_WORKERS) as pool:
+            futures = {}
+            for i, bucket in enumerate(names):
+                # str order is UTF-8 byte order.
+                bounds: list[str | None] = [None, *sorted(set(split_points.get(bucket, ())))]
+                for lower, upper in zip(bounds, [*bounds[1:], None]):
+                    futures[pool.submit(_list_range, client_factory, bucket, lower, upper, timer)] = i
+            for i, rows, exc in resolve_futures(futures):
+                if exc is not None:
+                    raise exc
+                objects.extend((i, row) for row in rows)
+        # Deliver only after every range succeeded.
+        objects.sort(key=lambda item: (item[0], item[1][0]))
+    finally:
+        if timer is not None:
+            timer.done()
     return [row for _, row in objects]

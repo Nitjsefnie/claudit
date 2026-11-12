@@ -138,6 +138,29 @@ def test_flag_on_counts_the_requests_in_flight_together(monkeypatch, caplog) -> 
     assert 3 <= int(line["max_in_flight"]) <= r2_list.LIST_WORKERS
 
 
+def test_flag_on_peaks_each_bucket_apart_from_the_pass(monkeypatch, caplog) -> None:
+    client = _ListingS3(_BUCKET_KEYS, page=3)
+    expected, _ = client.plain_walk()
+    _patch_on(monkeypatch, client)
+    client.barrier = threading.Barrier(3, timeout=10)
+    caplog.set_level(logging.INFO, logger="claudit.r2")
+    assert list(r2.list_keys(split_points=lambda: _SPLITS["cold start"])) == expected
+    assert [line["max_in_flight"] for line in _lines(caplog, "list_bucket")] == ["1"] * 3
+    assert [line["max_in_flight"] for line in _lines(caplog, "list_pass")] == ["3"]
+
+
+def test_failed_listing_still_logs_its_pass(monkeypatch, caplog) -> None:
+    client = _ListingS3(_BUCKET_KEYS, page=3)
+    _patch_on(monkeypatch, client)
+    client.failure = ("zulu", None, 1)
+    caplog.set_level(logging.INFO, logger="claudit.r2")
+    with pytest.raises(RuntimeError, match="listing failed"):
+        list(r2.list_keys(split_points=lambda: _SPLITS["cold start"]))
+    assert client.fired
+    assert sorted(line["bucket"] for line in _lines(caplog, "list_range")) == ["alpha", "claude"]
+    assert [line["ranges"] for line in _lines(caplog, "list_pass")] == ["2"]
+
+
 def _refuse(*_args, **_kwargs):
     raise AssertionError("list timing ran with the flag off")
 
