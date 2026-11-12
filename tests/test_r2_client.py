@@ -20,13 +20,13 @@ _FAST = [
     "2026-11-11T19:22:00.000Z", "2026-01-02T00:00:00.000Z", "2026-11-11T23:59:59.999Z",
     "0001-01-01T00:00:00.000Z", "9999-12-31T23:59:59.999Z",
 ]
-# fromisoformat accepts each, and reads the first two differently from botocore.
+# fromisoformat reads the first two differently from botocore; the rest it refuses or reads alike.
 _FALLBACK = [
     "2026-11-11T24:00:00.000Z", "2026-W46-3T19:22:00.000Z", "1731352920", "1731352920.5",
     "2026-11-11", "20261111T192200Z", "2026-11-11T19:22:00.000+01:00",
     "2026-11-11T19:22:00.000+00:00", "2026-11-11T19:22:00.000", "2026-11-11T19:22:00Z",
     "2026-11-11T19:22:00.123456Z", "2026-11-11 19:22:00.000Z", "2026-11-11T19:22:00,000Z",
-    "2026-11-11t19:22:00.000z", "2026-11-11T19:22:00.000Z\n", "٢٠٢٦-11-11T19:22:00.000Z",
+    "2026-11-11t19:22:00.000z", "2026-11-11T19:22:00.000Z\n", "2026-11-11T19:22:00.000Z\x00", "٢٠٢٦-11-11T19:22:00.000Z",
     "Wed, 11 Nov 2026 19:22:00 GMT", "2026-02-30T00:00:00.000Z", "2026-11-11T23:59:60.000Z",
     1731352920, 1731352920.5,
 ]
@@ -57,7 +57,8 @@ def test_parser_agrees_with_botocore_and_reads_only_s3s_shape_itself(monkeypatch
 
 
 def test_fast_path_costs_under_half_of_botocores_cpu() -> None:
-    stamps = [f"2026-11-{day:02d}T{hour:02d}:22:00.000Z" for day in range(1, 29) for hour in range(24)]
+    # Ten copies: botocore's side spans many ticks of Windows' 15.6 ms CPU clock.
+    stamps = [f"2026-11-{day:02d}T{hour:02d}:22:00.000Z" for day in range(1, 29) for hour in range(24)] * 10
 
     def cpu(parse) -> float:
         started = thread_time()
