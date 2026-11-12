@@ -16,11 +16,8 @@ from datetime import datetime, timezone
 from typing import Callable, Iterable, Iterator, NamedTuple
 from urllib.parse import urlparse
 
-import boto3.session
-from botocore.config import Config
-
-from backend.env_config import getenv, require_env
-from backend import blob_cache, r2_list, r2_list_timing, timing
+from backend.env_config import getenv
+from backend import blob_cache, r2_client, r2_list, r2_list_timing, timing
 
 # S3 bucket-name grammar: 3-63 chars of lowercase letters, digits and
 # hyphens, starting and ending letter/digit. R2 follows the same rules.
@@ -443,15 +440,7 @@ def _boto_client():
     if client is not None and getattr(_tls, "pid", None) == os.getpid():
         return client
 
-    endpoint = require_env("CLAUDIT_R2_ENDPOINT")
-    client = boto3.session.Session().client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=require_env("CLAUDIT_R2_ACCESS_KEY_ID"),
-        aws_secret_access_key=require_env("CLAUDIT_R2_SECRET_ACCESS_KEY"),
-        region_name="auto",
-        config=Config(max_pool_connections=32, retries={"max_attempts": 3}),
-    )
+    client = r2_client.build()
     _tls.client = client
     _tls.pid = os.getpid()
     return client
