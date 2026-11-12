@@ -389,7 +389,8 @@
     "deepseek-v4-1-flash-1017": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule",
-      "InferenceNet": "2 endpoints at one current price"
+      "InferenceNet": "2 endpoints at one current price",
+      "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-flash-0731": {
       "Alibaba": "endpoint schedule",
