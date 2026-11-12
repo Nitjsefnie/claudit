@@ -547,7 +547,6 @@
       "ModelRun",
       "Particle AI",
       "Phala",
-      "River",
       "Tenstorrent"
     ],
     "deepseek-v4-flash": [
@@ -604,8 +603,7 @@
       "Io Net",
       "ModelRun",
       "OpenInference",
-      "Phala",
-      "River"
+      "Phala"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
