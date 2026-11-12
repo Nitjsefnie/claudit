@@ -426,9 +426,9 @@ _tls = threading.local()
 def _boto_client():
     """Cache an S3 client per thread, stamped with its creating process.
 
-    Reuse connection pools and TLS sessions. Per-thread clients avoid
-    sharing undocumented setup state and give each worker its own pool;
-    only client method calls are documented thread-safe.
+    Reuse connection pools and TLS sessions, one pool per worker.
+    r2_client.build makes each client under its lock: only client method
+    calls are documented thread-safe.
 
     Forks inherit thread-local clients and open SSL streams. Never reuse
     one stamped with another pid: sharing streams corrupts parent and

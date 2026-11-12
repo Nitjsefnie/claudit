@@ -609,7 +609,8 @@ backend/          — FastAPI application
   r2.py           — S3 client with file:// mirror fallback; get_object
                     consults the deploy's disk blob cache when handed an
                     etag (#684)
-  r2_client.py    — builds r2.py's S3 clients; their parser reads S3's
+  r2_client.py    — builds r2.py's S3 clients from one session per
+                    process (one lock); their parser reads S3's
                     XML LastModified shape with fromisoformat, every other
                     timestamp with botocore's own parser
   r2_list.py      — the concurrent S3 listing: each bucket listed as key
