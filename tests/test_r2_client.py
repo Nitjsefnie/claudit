@@ -1,10 +1,13 @@
 """The S3 client built for backend.r2: S3's XML UTC timestamps read directly, the rest by botocore."""
 from __future__ import annotations
 
+import os
 import threading
 from datetime import datetime, timezone
 from time import thread_time
+from types import SimpleNamespace
 
+import boto3.session
 import pytest
 from botocore import utils as botocore_utils
 from botocore.awsrequest import AWSResponse
@@ -92,9 +95,7 @@ _LISTING = (b'<?xml version="1.0" encoding="UTF-8"?><ListBucketResult '
 
 def test_built_client_parses_listings_with_the_fast_parser(monkeypatch) -> None:
     monkeypatch.setattr(r2, "_tls", threading.local())
-    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", "https://r2.invalid/s3")
-    monkeypatch.setenv("CLAUDIT_R2_ACCESS_KEY_ID", "fixture-id")
-    monkeypatch.setenv("CLAUDIT_R2_SECRET_ACCESS_KEY", "fixture-secret")
+    _client_env(monkeypatch)
     client = r2._boto_client()  # pylint: disable=protected-access
     answers = {"ListObjectsV2": (_LISTING, {}),
                "HeadObject": (b"", {"Last-Modified": "Wed, 11 Nov 2026 19:22:00 GMT",
@@ -112,3 +113,27 @@ def test_built_client_parses_listings_with_the_fast_parser(monkeypatch) -> None:
     when = datetime(2026, 11, 11, 19, 22, tzinfo=timezone.utc)
     assert listed == when and listed.tzinfo is timezone.utc
     assert header == when and isinstance(header.tzinfo, tzutc)
+
+
+def _client_env(monkeypatch) -> None:
+    monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", "https://r2.invalid/s3")
+    monkeypatch.setenv("CLAUDIT_R2_ACCESS_KEY_ID", "fixture-id")
+    monkeypatch.setenv("CLAUDIT_R2_SECRET_ACCESS_KEY", "fixture-secret")
+
+
+def test_one_session_per_process_builds_every_client(monkeypatch) -> None:
+    _client_env(monkeypatch)
+    shared = SimpleNamespace(lock=threading.Lock(), pid=None, session=None)
+    monkeypatch.setattr(r2_client, "_shared", shared)
+    held: list[bool] = []
+    real_client = boto3.session.Session.client
+    monkeypatch.setattr(boto3.session.Session, "client",
+                        lambda *args, **kwargs: (held.append(shared.lock.locked()), real_client(*args, **kwargs))[1])
+    r2_client.build().close()
+    first = shared.session
+    r2_client.build().close()
+    assert first is not None and shared.session is first
+    monkeypatch.setattr(r2_client, "os", SimpleNamespace(getpid=lambda: os.getpid() + 1))
+    r2_client.build().close()
+    assert shared.session is not None and shared.session is not first
+    assert held == [True] * 3

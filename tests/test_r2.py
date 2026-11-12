@@ -21,7 +21,7 @@ from boto3.session import Session
 from botocore.paginate import Paginator
 from botocore.session import get_session
 
-from backend import blob_cache, r2, r2_list, timing
+from backend import blob_cache, r2, r2_client, r2_list, timing
 
 
 class _ListingS3:
@@ -497,6 +497,7 @@ def _fork_client_probe(conn) -> None:
     client = r2._boto_client()  # pylint: disable=protected-access
     conn.send({
         "same_object": client is _FORK_REF.get("client"),
+        "same_session": getattr(r2_client, "_shared").session is _FORK_REF.get("session"),
         # The creator stamp lives in the thread-local beside the client.
         "creator_pid": getattr(r2._tls, "pid", None),  # pylint: disable=protected-access
         "child_pid": os.getpid(),
@@ -530,7 +531,7 @@ class TestBotoClientFork:
                     pass
 
     @pytest.mark.usefixtures("tls_state")
-    def test_threads_build_clients_with_private_sessions(self, monkeypatch):
+    def test_threads_build_their_clients_from_one_session(self, monkeypatch):
         monkeypatch.setenv("CLAUDIT_R2_ACCESS_KEY_ID", f"test-{os.getpid()}")
         monkeypatch.setenv("CLAUDIT_R2_SECRET_ACCESS_KEY", f"test-{os.getpid()}")
         factory = getattr(r2, "_boto_client")
@@ -561,8 +562,8 @@ class TestBotoClientFork:
         with ThreadPoolExecutor(max_workers=3) as pool:
             futures = [pool.submit(build) for _ in range(3)]
             sessions = [future.result() for future in futures]
-        assert len({id(session) for session in sessions}) == 3
-        assert all(session is not boto3.DEFAULT_SESSION for session in sessions)
+        assert len({id(session) for session in sessions}) == 1
+        assert sessions[0] is not boto3.DEFAULT_SESSION
 
     @pytest.mark.skipif(
         sys.platform != "linux",
@@ -578,12 +579,13 @@ class TestBotoClientFork:
         # The shape the guard defends: this thread builds a client, then
         # forks a child from it (the parse pool no longer does).
         parent_client = r2._boto_client()  # pylint: disable=protected-access
-        _FORK_REF["client"] = parent_client
+        _FORK_REF.update(client=parent_client, session=getattr(r2_client, "_shared").session)
         ctx = multiprocessing.get_context("fork")
         recv, send = ctx.Pipe(duplex=False)
         child = ctx.Process(target=_fork_client_probe, args=(send,))
         try:
-            child.start()
+            with getattr(r2_client, "_shared").lock:
+                child.start()
             child.join(timeout=60)
             if not recv.poll():
                 pytest.fail(
@@ -601,7 +603,7 @@ class TestBotoClientFork:
             recv.close()
         assert child.exitcode == 0, child.exitcode
         assert report["child_pid"] != os.getpid()
-        assert report["same_object"] is False, report
+        assert report["same_object"] is False and report["same_session"] is False, report
         assert report["creator_pid"] == report["child_pid"], report
         # The parent's cache keeps its own client: the keep-alive pool
         # survives for the listing and any parent-side fetch.
