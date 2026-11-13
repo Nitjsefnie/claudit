@@ -413,7 +413,6 @@
     },
     "glm-5-3-flash": {
       "InferenceNet": "2 endpoints at one current price",
-      "PrimeIntellect": "log series count mismatch",
       "Sail Research": "2 endpoints at one current price"
     },
     "gpt-5-4": {
@@ -541,6 +540,7 @@
       "Nebius",
       "NextBit",
       "Phala",
+      "PrimeIntellect",
       "Sail Research"
     ],
     "deepseek-v4-1-flash-1017": [
@@ -605,12 +605,17 @@
       "ModelRun",
       "OpenInference",
       "Phala",
+      "PrimeIntellect",
       "River"
     ],
     "glm-5-3-flash": [
       "Cloudflare",
       "Decart",
-      "Phala"
+      "Phala",
+      "PrimeIntellect"
+    ],
+    "glm-5-3-flashx": [
+      "Novita"
     ],
     "gpt-3-5-turbo-16k": [
       "OpenAI"
