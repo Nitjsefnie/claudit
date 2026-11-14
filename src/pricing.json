@@ -777,7 +777,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-11-14T20:53:54Z",
+  "provider_rates_fetched": "2026-11-14T21:54:10Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -15058,6 +15058,10 @@
       "Tencent": [
         [1792164207,0.834,2.501,0.042,{"schedule":[{"end":1600,"rates":{"fresh":0.834,"output":2.501,"read":0.042},"start":0},{"end":0,"rates":{"fresh":0.7506,"output":2.2509,"read":0.0378},"start":1600}]}],
         [222759,0.834,2.501,0.042,{"context_length":1048576,"schedule":[{"end":1600,"rates":{"fresh":0.834,"output":2.501,"read":0.042},"start":0},{"end":0,"rates":{"fresh":0.7506,"output":2.2509,"read":0.0378},"start":1600}]}]
+      ],
+      "Venice": [
+        [1794691628,1.0425,3.12625,0.0525],
+        [1622,1.0425,3.12625,0.0525,{"context_length":1048576}]
       ]
     },
     "inclusionai/ling-3-1-flash": {
