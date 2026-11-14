@@ -28,7 +28,6 @@
     "upstage/solar-pro-3"
   ],
   "notices": [
-    "alternating price: deepseek-v4-1-flash-1017 via Morph: the listed rates equal the entry from 2026-11-13T13:36:22Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: glm-5-3-flash via InferenceNet: the listed rates equal the entry from 2026-11-10T15:54:08Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
     "claude-fable-5-1 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/us'",
@@ -76,9 +75,11 @@
     "deepseek-v4-1-flash-1017 via Fireworks: rule-resolved (data region): took the global endpoint 'fireworks' over 'fireworks/spot'",
     "deepseek-v4-1-flash-1017 via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp8'; dropped 'inference-net/us'",
     "deepseek-v4-1-flash-1017 via Ionstream: rule-resolved (bare namespace): took the bare namespace endpoint 'ionstream' over service tiers 'ionstream/flex'",
+    "deepseek-v4-1-flash-1017 via Morph: rule-resolved (unique quantization): took the fp8 endpoint 'morph/fp8' over service tiers",
     "deepseek-v4-1-flash-1017 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
     "deepseek-v4-1-flash-1017 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
     "deepseek-v4-flash-0731 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
+    "deepseek-v4-flash-0731 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-flash-0731 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
     "deepseek-v4-flash-0731 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/fast'; dropped 'wafer/us'",
     "deepseek-v4-pro via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba/fp8'; dropped 'alibaba/fp8/us-east-1'",
@@ -101,7 +102,7 @@
     "glm-5-3 via Fireworks: rule-resolved (tier variant base): took the base endpoint 'fireworks' over tier variants 'fireworks/fast', 'fireworks/spot'",
     "glm-5-3 via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/us'",
     "glm-5-3 via Mistral: rule-resolved (data region): the global data region leaves 'mistral/zdr'; dropped 'mistral/nvfp4/eu'",
-    "glm-5-3 via Parasail: rule-resolved (unique quantization): took the fp8 endpoint 'parasail/fp8' over service tiers",
+    "glm-5-3 via Parasail: rule-resolved (unique quantization): took the fp4 endpoint 'parasail/fp4' over service tiers",
     "glm-5-3 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp8'; dropped 'sail-research/us'",
     "glm-5-3 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/fp4'; dropped 'wafer/us'",
     "glm-5-3-flash via Fireworks: rule-resolved (data region): the global data region leaves 'fireworks'; dropped 'fireworks/us'",
@@ -257,8 +258,8 @@
     "tag 'baseten/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via BaseTen, glm-5-2 via BaseTen, glm-5-3 via BaseTen",
     "tag 'baseten/us/fast' names neither a known region nor a quantization: glm-5-2 via BaseTen, glm-5-3 via BaseTen",
     "tag 'deepinfra/fp4/flex' names neither a known region nor a quantization: glm-4-6 via DeepInfra, glm-4-7 via DeepInfra, glm-5-2 via DeepInfra",
-    "tag 'deepinfra/fp8/flex' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra, minimax-m3 via DeepInfra",
-    "tag 'deepinfra/fp8/priority' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra",
+    "tag 'deepinfra/fp8/flex' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra, deepseek-v4-flash-0731 via DeepInfra, minimax-m3 via DeepInfra",
+    "tag 'deepinfra/fp8/priority' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra, deepseek-v4-flash-0731 via DeepInfra",
     "tag 'fireworks/fast' names neither a known region nor a quantization: glm-5-3 via Fireworks, kimi-k3 via Fireworks",
     "tag 'fireworks/spot' names neither a known region nor a quantization: deepseek-v4-1-flash via Fireworks, deepseek-v4-1-flash-1017 via Fireworks, glm-5-3 via Fireworks",
     "tag 'inference-net/fast' names neither a known region nor a quantization: kimi-k3 via InferenceNet, kimi-k3-1-pro via InferenceNet",
@@ -277,6 +278,7 @@
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
+    "the listing lags the listed-pricing log for glm-5-3 via Decart; the host was sampled",
     "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, deepseek/deepseek-chat, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-chat-v3.1, deepseek/deepseek-r1-0528, deepseek/deepseek-v3.1-terminus, deepseek/deepseek-v3.2, deepseek/deepseek-v3.2-exp, deepseek/deepseek-v4-flash, deepseek/deepseek-v4-flash-0731, deepseek/deepseek-v4-flash-vision-exp, deepseek/deepseek-v4-pro, deepseek/deepseek-v4.1-flash, google/gemini-2.5-flash, google/gemini-2.5-flash-lite, google/gemini-2.5-pro, google/gemini-2.5-pro-preview, google/gemini-3-flash-preview, google/gemini-3.1-flash-lite, google/gemini-3.1-flash-lite-preview, google/gemini-3.1-pro-preview, google/gemini-3.1-pro-preview-customtools, google/gemini-3.5-flash, google/gemini-3.5-flash-lite, google/gemini-3.6-flash, google/gemini-3.7-flash, google/gemini-3.8-flash, google/gemini-4-argon, google/gemini-4-carbon, google/gemini-4-hydrogen, google/gemma-2-27b-it, google/gemma-3-12b-it, google/gemma-3-27b-it, google/gemma-3-4b-it, google/gemma-4-26b-a4b-it, google/gemma-4-31b-it, meta-llama/llama-3.1-70b-instruct, meta-llama/llama-3.1-8b-instruct, meta-llama/llama-3.2-1b-instruct, meta-llama/llama-3.2-3b-instruct, meta-llama/llama-3.3-70b-instruct, meta-llama/llama-4-maverick, meta-llama/llama-4-scout, meta-llama/llama-guard-4-12b, meta/muse-glimmer-30b, meta/muse-spark-open, minimax/minimax-m2.5, minimax/minimax-m2.7, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, nvidia/nemotron-3-nano-30b-a3b, nvidia/nemotron-3-super-120b-a12b, nvidia/nemotron-3-ultra-550b-a55b, nvidia/nemotron-3.5-content-safety, nvidia/nemotron-3.5-lightning, nvidia/nemotron-3.5-super-vl, openai/gpt-3.5-turbo-0613, openai/gpt-3.5-turbo-16k, openai/gpt-4, openai/gpt-4.1-nano, openai/gpt-4o-2024-05-13, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-chat, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, stepfun/step-3.5-flash, tencent/hunyuan-a13b-instruct, tencent/hy3-preview, xiaomi/mimo-v2.5, xiaomi/mimo-v2.5-pro, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
   ],
   "sampled": {
@@ -394,7 +396,6 @@
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule",
       "InferenceNet": "2 endpoints at one current price",
-      "Morph": "2 endpoints selected",
       "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-flash-0731": {
@@ -408,10 +409,12 @@
       "Sail Research": "2 endpoints at one current price"
     },
     "glm-5-2": {
-      "BaseTen": "2 endpoints at one current price"
+      "BaseTen": "2 endpoints at one current price",
+      "DeepInfra": "log series count mismatch"
     },
     "glm-5-3": {
       "BaseTen": "2 endpoints at one current price",
+      "Decart": "listing lags log",
       "InferenceNet": "2 endpoints at one current price"
     },
     "glm-5-3-flash": {
