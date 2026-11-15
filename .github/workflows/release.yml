@@ -247,7 +247,7 @@ jobs:
           poll_seconds="${CLAUDIT_RELEASE_WAIT_POLL_SECONDS-${RELEASE_WAIT_POLL_SECONDS-}}"
           case "$wait_seconds" in *[!0-9]*) echo "Refusing to release: ${CLAUDIT_RELEASE_WAIT_SECONDS+CLAUDIT_}RELEASE_WAIT_SECONDS='$wait_seconds' is not a whole number of seconds" >&2; exit 1 ;; esac
           case "$poll_seconds" in *[!0-9]*) echo "Refusing to release: ${CLAUDIT_RELEASE_WAIT_POLL_SECONDS+CLAUDIT_}RELEASE_WAIT_POLL_SECONDS='$poll_seconds' is not a whole number of seconds" >&2; exit 1 ;; esac
-          deadline=$(( SECONDS + ${wait_seconds:-2700} ))
+          deadline=$(( SECONDS + 10#${wait_seconds:-2700} ))
           while [ "$SECONDS" -lt "$deadline" ]; do
             "$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api --paginate -H "Cache-Control: no-cache" \
               "repos/$CLAUDIT_REPO/commits/$CLAUDIT_SHA/check-runs?per_page=100" > "$RUNNER_TEMP/checks.json"
