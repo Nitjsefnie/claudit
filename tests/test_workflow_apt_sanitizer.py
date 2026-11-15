@@ -49,8 +49,7 @@ export -f record npx sleep
 
 
 def _load(path: Path) -> dict:
-    return yaml.load(path.read_text(encoding="utf-8"),
-                     Loader=yaml.BaseLoader) or {}
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
 
 
 def _workflow_steps() -> list[tuple[str, str, dict]]:
@@ -76,8 +75,7 @@ def _panel_steps() -> list[dict]:
 def _browser() -> tuple[dict, dict]:
     """(the apt composite step, the browser step after it)."""
     steps = _panel_steps()
-    browsers = [index for index, step in enumerate(steps)
-                if "playwright install" in step.get("run", "")]
+    browsers = [index for index, step in enumerate(steps) if "playwright install" in step.get("run", "")]
     assert len(browsers) == 1 and browsers[0] > 0
     return steps[browsers[0] - 1], steps[browsers[0]]
 
@@ -183,8 +181,7 @@ def test_an_apt_phase_whose_every_attempt_fails_stops_the_step(tmp_path, phase, 
         assert not [call for call in calls if later in call]
     else:  # the wait for an abandoned dpkg and its recovery run between the two installs
         ran = calls[calls.index(failed[0]):]
-        assert [call[2] if call[0] == "apt-get" else call[0] for call in ran] == [
-            "install", "sleep", "check", "dpkg", "install"]
+        assert [call[2] if call[0] == "apt-get" else call[0] for call in ran] == ["install", "sleep", "check", "dpkg", "install"]
         assert ran[0][1] == ran[3][1] == "noninteractive" and ran[3][2:] == ["--configure", "-a"]
         assert "::warning::" not in proc.stdout  # both recovery commands succeeded
 
@@ -246,5 +243,4 @@ def test_a_dependency_the_apt_step_lacks_fails_the_browser_step(tmp_path, report
     proc, _ = _browser_run(tmp_path, REPORT=report, REPORT_STATUS=status)
     assert proc.returncode == 1
     limit, _ = bounded_calls(tmp_path / "timeout-state")[-1]
-    assert (f"::error::Playwright's dependency dry run {said.format(limit)} and printed: "
-            + report.rstrip("\n")) in proc.stderr
+    assert (f"::error::Playwright's dependency dry run {said.format(limit)} and printed: " + report.rstrip("\n")) in proc.stderr

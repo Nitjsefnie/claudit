@@ -21,8 +21,7 @@ TIGHTEN_CMD = (
     '"$RUNNER_TEMP/ratchet-repo/.github/ci-thresholds.json"')
 
 _PROPERTY = r"[A-Za-z_][A-Za-z0-9_-]*"
-_TOKEN = re.compile(r"(?P<string>'(?:[^']|'')*')|(?P<name>" + _PROPERTY
-                    + r")|(?P<operator>[^\s])")
+_TOKEN = re.compile(r"(?P<string>'(?:[^']|'')*')|(?P<name>" + _PROPERTY + r")|(?P<operator>[^\s])")
 
 
 def load_workflow(path: Path) -> dict:
@@ -45,14 +44,12 @@ def steps_of(job: dict) -> list:
 
 def run_lines(step: dict) -> list[str]:
     """The step's run block as stripped non-empty lines."""
-    return [line.strip() for line in (step.get("run") or "").splitlines()
-            if line.strip()]
+    return [line.strip() for line in (step.get("run") or "").splitlines() if line.strip()]
 
 
 def find_step(job: dict, needle: str) -> dict:
     """The one step whose run names needle; fails otherwise."""
-    matches = [step for step in steps_of(job)
-               if needle in (step.get("run") or "")]
+    matches = [step for step in steps_of(job) if needle in (step.get("run") or "")]
     assert len(matches) == 1, (needle, [s.get("name") for s in matches])
     return matches[0]
 
@@ -61,8 +58,7 @@ RETRY_HELPER_WRITE = re.compile(r'>\s*"?\$\{?RUNNER_TEMP\}?/retry\.sh"?\s*<<')
 
 
 def retry_helper_writers(job: dict) -> list[dict]:
-    return [step for step in steps_of(job)
-            if RETRY_HELPER_WRITE.search(step.get("run") or "")]
+    return [step for step in steps_of(job) if RETRY_HELPER_WRITE.search(step.get("run") or "")]
 
 
 def run_retry_helper_writer(step: dict, runner_temp: Path | str) -> None:
@@ -170,8 +166,7 @@ def assert_shards_exec_pytest(job: dict, tmp_path: Path, options: list[str]) -> 
         code, execed, argv, stdout = exec_step(run, tmp_path, {"shard": shard}, {}, cwd=ROOT)
         assert (code, execed) == (0, True), (shard, code, execed)
         lines = stdout.splitlines()
-        assert (len(lines) == 3 and lines[0].startswith("model name") and lines[1].isdecimal()
-                and _cpu_counters(lines[2])), lines
+        assert (len(lines) == 3 and lines[0].startswith("model name") and lines[1].isdecimal() and _cpu_counters(lines[2])), lines
         assert argv[:2] == ["-m", "pytest"] and argv[len(argv) - len(options):] == options, argv
         files = argv[2:len(argv) - len(options)]
         assert files, shard
@@ -225,8 +220,7 @@ def references(value: str, context: str) -> set[tuple[str, ...]]:
             parts = []
             index += 1
             while index < len(tokens):
-                if (tokens[index] == ("operator", ".") and index + 1 < len(tokens)
-                        and tokens[index + 1][0] == "name"):
+                if (tokens[index] == ("operator", ".") and index + 1 < len(tokens) and tokens[index + 1][0] == "name"):
                     parts.append(tokens[index + 1][1])
                     index += 2
                 elif (tokens[index] == ("operator", "[") and index + 2 < len(tokens)
@@ -249,15 +243,13 @@ def _output_redirect(line: str) -> bool | None:
                if word in (">", ">>") and (index == 0 or not words[index - 1].isdigit() or words[index - 1] == "1")]
     if not targets:
         return None
-    return targets[-1] in {"$GITHUB_OUTPUT", "${GITHUB_OUTPUT}",
-                           '"$GITHUB_OUTPUT"', '"${GITHUB_OUTPUT}"'}
+    return targets[-1] in {"$GITHUB_OUTPUT", "${GITHUB_OUTPUT}", '"$GITHUB_OUTPUT"', '"${GITHUB_OUTPUT}"'}
 
 
 def written_outputs(run: str) -> set[str]:
     """Literal echo assignments, honoring command redirects over group redirects."""
     blocks = [(run, False)]
-    blocks += [(body, _output_redirect(tail) is True)
-               for body, tail in re.findall(r"(?ms)^ *\{\n(.*?)^ *\}([^\n]*)", run)]
+    blocks += [(body, _output_redirect(tail) is True) for body, tail in re.findall(r"(?ms)^ *\{\n(.*?)^ *\}([^\n]*)", run)]
     found = set()
     for block, inherited in blocks:
         for line in block.splitlines():
@@ -285,8 +277,7 @@ def output_references(value: str, steps: list[dict]) -> set[tuple[str, str]]:
 
 def dockerfile_from_reference(path: Path) -> str:
     """The FROM reference; raises unless exactly one line starts with FROM and it names a reference."""
-    lines = [line for line in path.read_text(encoding="utf-8").splitlines()
-             if line.startswith("FROM")]
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("FROM")]
     assert len(lines) == 1, (path, lines)
     match = re.match(r"FROM\s+([^\s#]+)", lines[0])
     assert match, lines[0]
@@ -297,8 +288,7 @@ def assert_apt_sanitizer(root: Path, step: dict) -> None:
     """Resolve the called local composite and check its Microsoft source removal."""
     ref = step.get("uses", "")
     assert ref.startswith("$/"), ref
-    action = yaml.load((root / ref[2:] / "action.yml").read_text(encoding="utf-8"),
-                       Loader=yaml.BaseLoader)
+    action = yaml.load((root / ref[2:] / "action.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert action["runs"]["using"] == "composite"
     assert any(re.search(
         r"\brm\s+-f\s+/etc/apt/sources.list.d/microsoft-prod.list"
