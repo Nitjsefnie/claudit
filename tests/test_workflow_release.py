@@ -262,8 +262,8 @@ def test_wait_settings_prefer_prefix_and_keep_legacy_defaults(preferred, legacy,
         if values is not None:
             env.update(zip([prefix + "RELEASE_WAIT_SECONDS", prefix + "RELEASE_WAIT_POLL_SECONDS"], values))
     lines = [line.strip() for line in _step_run(WAIT_STEP).splitlines()]
-    reads = [line for line in lines if line.startswith(("wait_seconds=", "poll_seconds="))]
     deadline, = [line for line in lines if line.startswith("deadline=")]
+    reads = lines[next(i for i, line in enumerate(lines) if line.startswith("wait_seconds=")):lines.index(deadline)]
     sleeps = [line for line in lines if line.startswith("sleep ")]
     assert len(sleeps) == 3
     body = '\n'.join([*reads, deadline.replace("SECONDS", "0", 1),
@@ -272,6 +272,19 @@ def test_wait_settings_prefer_prefix_and_keep_legacy_defaults(preferred, legacy,
     proc = _run_step(body, "", env)
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.splitlines() == [seconds, poll, poll, poll]
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("prefix", ["CLAUDIT_", ""])
+@pytest.mark.parametrize("setting,value", [*[("RELEASE_WAIT_SECONDS", value) for value in ("abc", " ", "1.5", "inf")],
+                                           *[("RELEASE_WAIT_POLL_SECONDS", value) for value in ("-3", "10s", "nan", "\t")]])
+def test_wait_refuses_a_non_numeric_setting_by_name(tmp_path, prefix, setting, value):
+    # Only the selector fetch is modelled, so a check-runs read or a sleep before the refusal shows on stderr.
+    stub = ('gh() { case "$*" in *contents/*) cat "$STUB_SELECTOR_SOURCE" ;; *) echo "unmodelled gh call: $*" >&2; '
+            'return 1 ;; esac; }; sleep() { echo "slept $*" >&2; }; export -f gh sleep')
+    proc = _run_step(_step_run(WAIT_STEP), stub, {prefix + setting: value, "RUNNER_TEMP": str(tmp_path)})
+    assert proc.returncode == 1 and "Timed out" not in proc.stderr, proc.stderr
+    assert proc.stderr.splitlines() == [f"Refusing to release: {prefix}{setting}='{value}' is not a whole number of seconds"]
 
 
 # The retry helper repeats a failed probe, so the stub answers by ENDPOINT
