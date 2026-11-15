@@ -388,8 +388,7 @@ def test_wait_proceeds_once_the_aggregate_reports(tmp_path):
 
 
 @ubuntu_step_body
-@pytest.mark.parametrize("conclusion", ["failure", "cancelled"],
-                         ids=["failure", "cancelled"])
+@pytest.mark.parametrize("conclusion", ["failure", "cancelled"], ids=["failure", "cancelled"])
 def test_wait_refuses_promptly_when_a_check_failed(tmp_path, conclusion):
     checks = _checks(_row("completed", conclusion, "tests"),
                      _row("completed", "success", "aggregate"))
