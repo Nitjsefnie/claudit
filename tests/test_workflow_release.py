@@ -321,9 +321,7 @@ def test_wait_proceeds_when_aggregate_success_among_all_success(tmp_path):
                      _row("completed", "success", "lint"),
                      _row("completed", "success", "aggregate"))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
-                     _short_wait() | {"STUB_CHECKS": checks,
-                                      "STUB_RUNS": _runs(_run(PUSH_RUN)),
-                                      "RUNNER_TEMP": str(tmp_path)})
+                     _short_wait() | {"STUB_CHECKS": checks, "STUB_RUNS": _runs(_run(PUSH_RUN)), "RUNNER_TEMP": str(tmp_path)})
     assert proc.returncode == 0, proc.stderr
     assert PROCEEDING in proc.stdout
     assert (tmp_path / "release_gate.py").read_bytes() == (ROOT / "scripts" / "ci" / "release_gate.py").read_bytes()
@@ -333,12 +331,9 @@ def test_wait_proceeds_when_aggregate_success_among_all_success(tmp_path):
 def test_wait_times_out_without_an_aggregate_verdict(tmp_path):
     # A master push whose gate never reported a verdict — the exact hole
     # of everything green, no aggregate row at all.
-    checks = _checks(_row("completed", "success", "version-guard",
-                          run_id="37138486016"))
+    checks = _checks(_row("completed", "success", "version-guard", run_id="37138486016"))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
-                     _short_wait() | {"STUB_CHECKS": checks,
-                                      "STUB_RUNS": _runs(_run(PUSH_RUN)),
-                                      "RUNNER_TEMP": str(tmp_path)})
+                     _short_wait() | {"STUB_CHECKS": checks, "STUB_RUNS": _runs(_run(PUSH_RUN)), "RUNNER_TEMP": str(tmp_path)})
     assert proc.returncode == 1
     assert PROCEEDING not in proc.stdout
     assert "Timed out" in proc.stderr
@@ -348,13 +343,10 @@ def test_wait_times_out_without_an_aggregate_verdict(tmp_path):
 def test_wait_times_out_when_the_aggregate_conclusion_is_skipped(tmp_path):
     # `skipped` sits inside the wait's allowed set — without the verdict
     # rule the wait proceeds over an aggregate that skipped.
-    checks = _checks(_row("completed", "success", "version-guard",
-                          run_id="37138486016"),
+    checks = _checks(_row("completed", "success", "version-guard", run_id="37138486016"),
                      _row("completed", "skipped", "aggregate"))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
-                     _short_wait() | {"STUB_CHECKS": checks,
-                                      "STUB_RUNS": _runs(_run(PUSH_RUN)),
-                                      "RUNNER_TEMP": str(tmp_path)})
+                     _short_wait() | {"STUB_CHECKS": checks, "STUB_RUNS": _runs(_run(PUSH_RUN)), "RUNNER_TEMP": str(tmp_path)})
     assert proc.returncode == 1
     assert PROCEEDING not in proc.stdout
     assert "Timed out" in proc.stderr
@@ -364,15 +356,12 @@ def test_wait_times_out_when_the_aggregate_conclusion_is_skipped(tmp_path):
 def test_wait_times_out_when_the_aggregate_is_a_foreign_app(tmp_path):
     # A check merely NAMED aggregate from another app proves nothing
     # about our gate; only the Actions app's own verdict counts.
-    checks = _checks(_row("completed", "success", "version-guard",
-                          run_id="37138486016"),
+    checks = _checks(_row("completed", "success", "version-guard", run_id="37138486016"),
                      _row("completed", "success", "aggregate",
                           app="acme-ci"),
                      _row("completed", "success", "lint"))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
-                     _short_wait() | {"STUB_CHECKS": checks,
-                                      "STUB_RUNS": _runs(_run(PUSH_RUN)),
-                                      "RUNNER_TEMP": str(tmp_path)})
+                     _short_wait() | {"STUB_CHECKS": checks, "STUB_RUNS": _runs(_run(PUSH_RUN)), "RUNNER_TEMP": str(tmp_path)})
     assert proc.returncode == 1
     assert PROCEEDING not in proc.stdout
 
@@ -595,9 +584,7 @@ def test_wait_times_out_when_only_its_own_job_exists(tmp_path):
     runs = _runs(_run(PUSH_RUN), _run(SELF_RUN,
                                       path=".github/workflows/release.yml"))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
-                     _short_wait() | {"STUB_CHECKS": checks,
-                                      "STUB_RUNS": runs,
-                                      "RUNNER_TEMP": str(tmp_path)})
+                     _short_wait() | {"STUB_CHECKS": checks, "STUB_RUNS": runs, "RUNNER_TEMP": str(tmp_path)})
     assert proc.returncode == 1
     assert PROCEEDING not in proc.stdout
     assert "Timed out" in proc.stderr
