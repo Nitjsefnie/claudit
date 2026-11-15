@@ -72,8 +72,8 @@ STAND_IN_RUN = ('mkdir state decoy doubles && printf "#!/bin/sh\\necho ran g\\n"
 @ubuntu_step_body
 @pytest.mark.parametrize("prefixed,bare,printed", [
     ({}, SET, F_ENDED), (SET, DECOYS, F_ENDED), (SET | {"EXPIRE": ""}, SET, NONE_ENDED + ["state/calls"]),
-    (SET | {"ONLY": "", "STATUS": "", "DOUBLES": ""}, DECOYS | {"DOUBLES": "doubles"}, ["f 124", "g 124", "g 125", "state/calls"]),
-    (SET | {"STATE": ""}, DECOYS, NONE_ENDED),
+    (SET | {"ONLY": "", "STATUS": "", "DOUBLES": ""}, DECOYS | {"DOUBLES": "doubles"},
+     ["f 124", "g 124", "g 125", "state/calls"]), (SET | {"STATE": ""}, DECOYS, NONE_ENDED),
 ], ids=["bare names alone", "both set", "empty expire", "empty only, status and doubles", "empty state"])
 def test_the_stand_in_reads_each_prefixed_setting_and_falls_back_to_the_bare_name(tmp_path, prefixed, bare, printed):
     env = {f"TIMEOUT_{k}": v for k, v in bare.items()} | {f"CLAUDIT_TIMEOUT_{k}": v for k, v in prefixed.items()}
