@@ -191,14 +191,16 @@ def test_an_apt_phase_whose_every_attempt_fails_stops_the_step(tmp_path, phase, 
 
 @ubuntu_step_body
 def test_only_the_recovery_command_that_failed_is_reported(tmp_path):
-    proc, _ = _install(tmp_path, CLAUDIT_TIMEOUT_EXPIRE="1", CLAUDIT_TIMEOUT_ONLY="apt-get install --no-download", APT_FAIL="check")
+    proc, _ = _install(tmp_path, CLAUDIT_TIMEOUT_EXPIRE="1", CLAUDIT_TIMEOUT_ONLY="apt-get install --no-download",
+                       APT_FAIL="check")
     assert proc.returncode == 0, proc.stderr
     assert re.findall(r"^::warning::.*$", proc.stdout, re.M) == ["::warning::apt-get check exited with status 100"]
 
 
 @ubuntu_step_body
 def test_an_update_the_bound_kills_says_it_timed_out(tmp_path):
-    proc, calls = _install(tmp_path, CLAUDIT_TIMEOUT_EXPIRE="2", CLAUDIT_TIMEOUT_ONLY="apt-get update", CLAUDIT_TIMEOUT_STATUS="137")
+    proc, calls = _install(tmp_path, CLAUDIT_TIMEOUT_EXPIRE="2", CLAUDIT_TIMEOUT_ONLY="apt-get update",
+                           CLAUDIT_TIMEOUT_STATUS="137")
     assert proc.returncode == 1
     (limit, _), = set(bounded_calls(tmp_path / "timeout-state"))
     assert f"::error::apt-get update failed after 2 attempts; the last timed out after {limit} s" in proc.stderr
