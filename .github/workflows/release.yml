@@ -243,7 +243,9 @@ jobs:
             .github/workflows/*) ;;
             *) self_path="" ;;
           esac
-          deadline=$(( SECONDS + ${CLAUDIT_RELEASE_WAIT_SECONDS:-${RELEASE_WAIT_SECONDS:-2700}} ))
+          wait_seconds="${CLAUDIT_RELEASE_WAIT_SECONDS-${RELEASE_WAIT_SECONDS-}}"
+          poll_seconds="${CLAUDIT_RELEASE_WAIT_POLL_SECONDS-${RELEASE_WAIT_POLL_SECONDS-}}"
+          deadline=$(( SECONDS + ${wait_seconds:-2700} ))
           while [ "$SECONDS" -lt "$deadline" ]; do
             "$RUNNER_TEMP/retry.sh" timeout -k 5 60 gh api --paginate -H "Cache-Control: no-cache" \
               "repos/$CLAUDIT_REPO/commits/$CLAUDIT_SHA/check-runs?per_page=100" > "$RUNNER_TEMP/checks.json"
@@ -256,7 +258,7 @@ jobs:
 
             if [ -z "$runs" ]; then
               echo "no other check runs reported yet, waiting..."
-              sleep "${CLAUDIT_RELEASE_WAIT_POLL_SECONDS:-${RELEASE_WAIT_POLL_SECONDS:-20}}"
+              sleep "${poll_seconds:-20}"
               continue
             fi
 
@@ -264,7 +266,7 @@ jobs:
             if [ "$pending" -gt 0 ]; then
               echo "$pending check(s) still running:"
               echo "$runs" | grep -v '^completed' | awk '{print "    " $0}'
-              sleep "${CLAUDIT_RELEASE_WAIT_POLL_SECONDS:-${RELEASE_WAIT_POLL_SECONDS:-20}}"
+              sleep "${poll_seconds:-20}"
               continue
             fi
 
@@ -288,7 +290,7 @@ jobs:
                   $3 == "aggregate" && $4 == "github-actions" { found = 1; exit }
                   END { exit !found }'; then
               echo "no ci gate / aggregate verdict yet, waiting..."
-              sleep "${CLAUDIT_RELEASE_WAIT_POLL_SECONDS:-${RELEASE_WAIT_POLL_SECONDS:-20}}"
+              sleep "${poll_seconds:-20}"
               continue
             fi
 

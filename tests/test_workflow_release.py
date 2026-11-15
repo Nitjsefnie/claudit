@@ -253,7 +253,9 @@ def test_fetch_failure_stops_the_step(tmp_path, step_name, partial):
     (None, ("11", "2"), "11", "2"),
     (("13", "3"), None, "13", "3"),
     (("13", "3"), ("11", "2"), "13", "3"),
-    (("", ""), ("11", "2"), "11", "2"),
+    (("", ""), ("11", "2"), "2700", "20"),
+    (("", "3"), ("11", "2"), "2700", "3"),
+    (("13", ""), ("11", "2"), "13", "20"),
     (None, ("", ""), "2700", "20"),
     (("", ""), ("", ""), "2700", "20"),
 ])
@@ -263,10 +265,11 @@ def test_wait_settings_prefer_prefix_and_keep_legacy_defaults(preferred, legacy,
         if values is not None:
             env.update(zip([prefix + "RELEASE_WAIT_SECONDS", prefix + "RELEASE_WAIT_POLL_SECONDS"], values))
     lines = [line.strip() for line in _step_run(WAIT_STEP).splitlines()]
+    reads = [line for line in lines if line.startswith(("wait_seconds=", "poll_seconds="))]
     deadline, = [line for line in lines if line.startswith("deadline=")]
     sleeps = [line for line in lines if line.startswith("sleep ")]
     assert len(sleeps) == 3
-    body = '\n'.join([deadline.replace("SECONDS", "0", 1),
+    body = '\n'.join([*reads, deadline.replace("SECONDS", "0", 1),
                       'printf "%s\\n" "$deadline"',
                       'sleep() { printf "%s\\n" "$1"; }', *sleeps])
     proc = _run_step(body, "", env)
