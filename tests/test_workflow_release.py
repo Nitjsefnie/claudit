@@ -64,9 +64,7 @@ def test_release_starts_after_ci_gate_and_pins_the_triggering_commit():
     workflow = _release()
     triggers = workflow["on"]
     assert set(triggers) == {"workflow_run", "workflow_dispatch"}
-    assert triggers["workflow_run"] == {
-        "workflows": ["ci gate"], "types": ["completed"],
-    }
+    assert triggers["workflow_run"] == {"workflows": ["ci gate"], "types": ["completed"]}
     assert set(triggers["workflow_dispatch"]["inputs"]) == {"sha"}
     job = workflow["jobs"]["release"]
     assert job["if"] == (
@@ -142,8 +140,7 @@ DECLARED_VALUES = {
 }
 
 
-def _run_step(body: str, stub: str, env: dict[str, str],
-              timeout: float = 60) -> subprocess.CompletedProcess:
+def _run_step(body: str, stub: str, env: dict[str, str], timeout: float = 60) -> subprocess.CompletedProcess:
     # Execute the real body with an exported shell function replacing gh,
     # after the job's first step wrote the retry helper the body calls.
     with tempfile.TemporaryDirectory() as runner_temp:
