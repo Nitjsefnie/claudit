@@ -249,7 +249,7 @@ def test_fetch_failure_stops_the_step(tmp_path, step_name, partial):
     (None, None, "2700", "20"),
     (None, ("11", "2"), "11", "2"),
     (("13", "3"), None, "13", "3"),
-    (("13", "3"), ("11", "2"), "13", "3"),
+    (("13", "3"), ("abc", "x"), "13", "3"),
     (("", ""), ("11", "2"), "2700", "20"),
     (("", "3"), ("11", "2"), "2700", "3"),
     (("13", ""), ("11", "2"), "13", "20"),
@@ -277,14 +277,15 @@ def test_wait_settings_prefer_prefix_and_keep_legacy_defaults(preferred, legacy,
 
 
 @ubuntu_step_body
-@pytest.mark.parametrize("prefix", ["CLAUDIT_", ""])
+@pytest.mark.parametrize("prefix,shadow", [("CLAUDIT_", None), ("CLAUDIT_", "11"), ("", None)])
 @pytest.mark.parametrize("setting,value", [*[("RELEASE_WAIT_SECONDS", value) for value in ("abc", " ", "1.5", "inf")],
                                            *[("RELEASE_WAIT_POLL_SECONDS", value) for value in ("-3", "10s", "nan", "\t")]])
-def test_wait_refuses_a_non_numeric_setting_by_name(tmp_path, prefix, setting, value):
+def test_wait_refuses_a_non_numeric_setting_by_name(tmp_path, prefix, shadow, setting, value):
     # Only the selector fetch is modelled, so a check-runs read or a sleep before the refusal shows on stderr.
     stub = ('gh() { case "$*" in *contents/*) cat "$STUB_SELECTOR_SOURCE" ;; *) echo "unmodelled gh call: $*" >&2; '
             'return 1 ;; esac; }; sleep() { echo "slept $*" >&2; }; export -f gh sleep')
-    proc = _run_step(_step_run(WAIT_STEP), stub, {prefix + setting: value, "RUNNER_TEMP": str(tmp_path)})
+    env = {} if shadow is None else {setting: shadow}
+    proc = _run_step(_step_run(WAIT_STEP), stub, env | {prefix + setting: value, "RUNNER_TEMP": str(tmp_path)})
     assert proc.returncode == 1 and "Timed out" not in proc.stderr, proc.stderr
     assert proc.stderr.splitlines() == [f"Refusing to release: {prefix}{setting}='{value}' is not a whole number of seconds"]
 
