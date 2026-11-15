@@ -370,11 +370,9 @@ def test_wait_times_out_when_the_aggregate_is_a_foreign_app(tmp_path):
 
 @ubuntu_step_body
 def test_wait_proceeds_once_the_aggregate_reports(tmp_path):
-    first = _checks(_row("completed", "success", "version-guard",
-                         run_id="37138486016"),
+    first = _checks(_row("completed", "success", "version-guard", run_id="37138486016"),
                     _row("queued", "-", "aggregate"))
-    later = _checks(_row("completed", "success", "version-guard",
-                         run_id="37138486016"),
+    later = _checks(_row("completed", "success", "version-guard", run_id="37138486016"),
                     _row("completed", "success", "aggregate"))
     env = _short_wait() | {
         "STUB_CALLFILE": str(tmp_path / "gh-calls"),
