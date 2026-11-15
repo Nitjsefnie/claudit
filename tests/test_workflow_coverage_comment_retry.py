@@ -288,7 +288,7 @@ class TestPostStep:
             "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
             "FAKE_LOG": str(log),
             "FAKE_STATE": str(state_dir),
-            "TIMEOUT_DOUBLES": str(bin_dir),
+            "CLAUDIT_TIMEOUT_DOUBLES": str(bin_dir),
             "CLAUDIT_REPO": "Nitjsefnie/claudit",
             "CLAUDIT_PR_NUMBER": "763",
             "CLAUDIT_HEAD_COMMIT": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f9e8d7c",
@@ -352,8 +352,8 @@ exit 1
     def test_an_attempt_its_bound_ended_is_retried(self, tmp_path, monkeypatch):
         state = tmp_path / "timeout-state"
         state.mkdir()
-        monkeypatch.setenv("TIMEOUT_STATE", str(state))
-        monkeypatch.setenv("TIMEOUT_EXPIRE", "1")
+        monkeypatch.setenv("CLAUDIT_TIMEOUT_STATE", str(state))
+        monkeypatch.setenv("CLAUDIT_TIMEOUT_EXPIRE", "1")
         fake = f'''#!/bin/bash
 printf '%s\\n' "$*" >> "$FAKE_LOG"
 mkdir -p "$FAKE_STATE"
@@ -376,9 +376,9 @@ exit 1
     def _post_ended_once(self, tmp_path, monkeypatch, post_arm, landed='[ -f "$FAKE_STATE/landed" ]'):
         state = tmp_path / "timeout-state"
         state.mkdir()
-        monkeypatch.setenv("TIMEOUT_STATE", str(state))
-        monkeypatch.setenv("TIMEOUT_EXPIRE", "1")
-        monkeypatch.setenv("TIMEOUT_ONLY", " -X POST ")
+        monkeypatch.setenv("CLAUDIT_TIMEOUT_STATE", str(state))
+        monkeypatch.setenv("CLAUDIT_TIMEOUT_EXPIRE", "1")
+        monkeypatch.setenv("CLAUDIT_TIMEOUT_ONLY", " -X POST ")
         listing = self.LISTING.replace('[ -f "$FAKE_STATE/landed" ]', landed)
         assert landed in listing
         fake = f'''#!/bin/bash
@@ -399,7 +399,7 @@ exit 1
             self, tmp_path, monkeypatch):
         proc, calls, posts = self._post_ended_once(
             tmp_path, monkeypatch, 'echo "a POST reached gh" >&2; exit 97',
-            landed='grep -q -- " -X POST " "$TIMEOUT_STATE/calls"')
+            landed='grep -q -- " -X POST " "$CLAUDIT_TIMEOUT_STATE/calls"')
         assert proc.returncode == 0, proc.stderr
         assert "updated patch-coverage comment 123" in proc.stdout
         assert [c for c in calls if " -X POST " in c] == [], calls

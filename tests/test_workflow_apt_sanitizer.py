@@ -95,7 +95,7 @@ def _run(script: str, tmp_path: Path, flags: list[str], **env: str) -> tuple[sub
     proc = subprocess.run(
         ["bash", "--noprofile", "--norc", *flags, "-c", TIMEOUT_STUB + DOUBLES + script],
         env={"PATH": f"{trip}{os.pathsep}{os.environ['PATH']}", "CALLS": str(calls),
-             "TIMEOUT_STATE": str(tmp_path / "timeout-state"), "TIMEOUT_DOUBLES": str(tmp_path / "none"),
+             "CLAUDIT_TIMEOUT_STATE": str(tmp_path / "timeout-state"), "CLAUDIT_TIMEOUT_DOUBLES": str(tmp_path / "none"),
              "CLAUDIT_APT_PACKAGES": PACKAGES, "APT_FAIL": "@nothing@", "REPORT": "", "REPORT_STATUS": "0", **env},
         cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
     return proc, [line.split("\x1f") for line in calls.read_text(encoding="utf-8").splitlines()]
@@ -141,7 +141,7 @@ def test_sanitization_always_runs_and_package_setup_is_optional():
 
 @ubuntu_step_body
 def test_every_apt_phase_retries_an_ended_attempt_and_fits_its_backstop(tmp_path):
-    proc, calls = _install(tmp_path, TIMEOUT_EXPIRE="1")
+    proc, calls = _install(tmp_path, CLAUDIT_TIMEOUT_EXPIRE="1")
     assert proc.returncode == 0, proc.stderr
     # Each first attempt was ended; the waits for an abandoned dpkg run once, between the installs.
     assert _commands(tmp_path) == ["apt-get update"] * 2 + ["apt-get install"] * 3 + [
@@ -191,14 +191,14 @@ def test_an_apt_phase_whose_every_attempt_fails_stops_the_step(tmp_path, phase, 
 
 @ubuntu_step_body
 def test_only_the_recovery_command_that_failed_is_reported(tmp_path):
-    proc, _ = _install(tmp_path, TIMEOUT_EXPIRE="1", TIMEOUT_ONLY="apt-get install --no-download", APT_FAIL="check")
+    proc, _ = _install(tmp_path, CLAUDIT_TIMEOUT_EXPIRE="1", CLAUDIT_TIMEOUT_ONLY="apt-get install --no-download", APT_FAIL="check")
     assert proc.returncode == 0, proc.stderr
     assert re.findall(r"^::warning::.*$", proc.stdout, re.M) == ["::warning::apt-get check exited with status 100"]
 
 
 @ubuntu_step_body
 def test_an_update_the_bound_kills_says_it_timed_out(tmp_path):
-    proc, calls = _install(tmp_path, TIMEOUT_EXPIRE="2", TIMEOUT_ONLY="apt-get update", TIMEOUT_STATUS="137")
+    proc, calls = _install(tmp_path, CLAUDIT_TIMEOUT_EXPIRE="2", CLAUDIT_TIMEOUT_ONLY="apt-get update", CLAUDIT_TIMEOUT_STATUS="137")
     assert proc.returncode == 1
     (limit, _), = set(bounded_calls(tmp_path / "timeout-state"))
     assert f"::error::apt-get update failed after 2 attempts; the last timed out after {limit} s" in proc.stderr
@@ -211,7 +211,7 @@ def _browser_run(tmp_path: Path, **env: str) -> tuple[subprocess.CompletedProces
 
 @ubuntu_step_body
 def test_the_browser_install_retries_an_ended_attempt_and_both_steps_fit_their_backstops(tmp_path):
-    proc, calls = _browser_run(tmp_path, TIMEOUT_EXPIRE="2", TIMEOUT_ONLY="playwright install chromium",
+    proc, calls = _browser_run(tmp_path, CLAUDIT_TIMEOUT_EXPIRE="2", CLAUDIT_TIMEOUT_ONLY="playwright install chromium",
                                REPORT="All system dependencies are installed.\n")
     assert proc.returncode == 0, proc.stderr
     assert [command for _, command in bounded_calls(tmp_path / "timeout-state")] == [
@@ -226,8 +226,8 @@ def test_the_browser_install_retries_an_ended_attempt_and_both_steps_fit_their_b
 @ubuntu_step_body
 @pytest.mark.parametrize("status,said", [("137", "timed out after {} s"), ("1", "exited with status 1")])
 def test_a_browser_download_whose_every_attempt_fails_says_how(tmp_path, status, said):
-    proc, calls = _browser_run(tmp_path, TIMEOUT_EXPIRE="3", TIMEOUT_ONLY="playwright install chromium",
-                               TIMEOUT_STATUS=status)
+    proc, calls = _browser_run(tmp_path, CLAUDIT_TIMEOUT_EXPIRE="3", CLAUDIT_TIMEOUT_ONLY="playwright install chromium",
+                               CLAUDIT_TIMEOUT_STATUS=status)
     assert proc.returncode == 1
     (limit, _), = set(bounded_calls(tmp_path / "timeout-state"))
     assert "::error::the browser download's last attempt " + said.format(limit) in proc.stderr

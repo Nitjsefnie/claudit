@@ -81,7 +81,9 @@ def write_retry_helper(job: dict, runner_temp: Path | str) -> None:
 # `timeout [-k N] N COMMAND`, whole seconds above 0, and runs only a stubbed COMMAND.
 TIMEOUT_STUB = r'''
 timeout() {
-  local grace=1 limit bound seen kill=none
+  local grace=1 limit bound seen kill=none state="${CLAUDIT_TIMEOUT_STATE-${TIMEOUT_STATE-}}"
+  local only="${CLAUDIT_TIMEOUT_ONLY-${TIMEOUT_ONLY-}}" expire="${CLAUDIT_TIMEOUT_EXPIRE-${TIMEOUT_EXPIRE-}}"
+  local status="${CLAUDIT_TIMEOUT_STATUS-${TIMEOUT_STATUS-}}" doubles="${CLAUDIT_TIMEOUT_DOUBLES-${TIMEOUT_DOUBLES-}}"
   if [ "${1:-}" = -k ]; then grace="${2:-}"; kill="$grace"; shift 2; fi
   limit="${1:-}"
   for bound in "$grace" "$limit"; do
@@ -90,19 +92,19 @@ timeout() {
     esac
   done
   shift
-  if [ -n "${TIMEOUT_STATE:-}" ]; then
-    printf '%s %s\n' "$limit" "$*" >> "$TIMEOUT_STATE/calls"
-    echo "$kill" >> "$TIMEOUT_STATE/kills"
-    bound="$TIMEOUT_STATE/$(printf '%s' "$*" | cksum | cut -d ' ' -f 1)"
+  if [ -n "$state" ]; then
+    printf '%s %s\n' "$limit" "$*" >> "$state/calls"
+    echo "$kill" >> "$state/kills"
+    bound="$state/$(printf '%s' "$*" | cksum | cut -d ' ' -f 1)"
     seen="$(cat "$bound" 2>/dev/null || echo 0)"
-    case "$*" in *"${TIMEOUT_ONLY:-}"*)
-      if [ "$seen" -lt "${TIMEOUT_EXPIRE:-0}" ]; then
+    case "$*" in *"$only"*)
+      if [ "$seen" -lt "${expire:-0}" ]; then
         echo "$((seen + 1))" > "$bound"
-        return "${TIMEOUT_STATUS:-124}"
+        return "${status:-124}"
       fi ;;
     esac
   fi
-  bound="${TIMEOUT_DOUBLES:-}/${1:-}"
+  bound="$doubles/${1:-}"
   if declare -F "${1:-}" >/dev/null; then "$@"
   elif [ -f "$bound" ]; then shift; "$bound" "$@"
   else echo "timeout stand-in: not a stubbed command: $*" >&2; return 125

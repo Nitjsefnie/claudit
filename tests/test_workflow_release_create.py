@@ -50,8 +50,8 @@ def _create(tmp_path: Path, read: str, create: str = "answers", ended: int = 0,
     assert "${{" not in body
     proc = _run_step(body, STUB, {
         "RUNNER_TEMP": str(tmp_path), "GITHUB_STEP_SUMMARY": str(summary), "GH_CALLS": str(calls),
-        "CREATE": create, "READ": read, "TIMEOUT_STATE": str(state), "TIMEOUT_EXPIRE": str(ended),
-        "TIMEOUT_ONLY": only, "TIMEOUT_STATUS": status})
+        "CREATE": create, "READ": read, "CLAUDIT_TIMEOUT_STATE": str(state), "CLAUDIT_TIMEOUT_EXPIRE": str(ended),
+        "CLAUDIT_TIMEOUT_ONLY": only, "CLAUDIT_TIMEOUT_STATUS": status})
     bounded = bounded_calls(state) if (state / "calls").exists() else []
     assert all(seconds > 0 for seconds, _ in bounded), bounded
     kinds = ["create" if command.startswith("gh release create ") else "read" for _, command in bounded]
