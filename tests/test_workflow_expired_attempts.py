@@ -57,12 +57,33 @@ def _ending(tmp_path: Path, attempts: int, only: str = "", status: str = "124") 
     """Stand-in settings: end the first `attempts` attempts of each command holding `only`."""
     state = tmp_path / "timeout-state"
     state.mkdir()
-    return {"TIMEOUT_STATE": str(state), "TIMEOUT_EXPIRE": str(attempts),
-            "TIMEOUT_ONLY": only, "TIMEOUT_STATUS": status}
+    return {"CLAUDIT_TIMEOUT_STATE": str(state), "CLAUDIT_TIMEOUT_EXPIRE": str(attempts),
+            "CLAUDIT_TIMEOUT_ONLY": only, "CLAUDIT_TIMEOUT_STATUS": status}
+
+
+# Each row: the stand-in's settings under CLAUDIT_TIMEOUT_<key> and under the bare name, and what `f g g` printed.
+SET, DECOYS = ({"STATE": "state", "ONLY": "f", "EXPIRE": "1", "STATUS": "7", "DOUBLES": "doubles"},
+               {"STATE": "decoy", "ONLY": "g", "EXPIRE": "0", "STATUS": "9", "DOUBLES": "decoy"})
+F_ENDED, NONE_ENDED = ["f 7", "ran g", "g 0", "ran g", "g 0", "state/calls"], ["ran f", "f 0", "ran g", "g 0", "ran g", "g 0"]
+STAND_IN_RUN = ('mkdir state decoy doubles && printf "#!/bin/sh\\necho ran g\\n" > doubles/g && chmod +x doubles/g\n'
+                'f() { echo ran f; }\nfor c in f g g; do timeout 5 "$c"; echo "$c $?"; done\nls */calls')
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("prefixed,bare,printed", [
+    ({}, SET, F_ENDED), (SET, DECOYS, F_ENDED), (SET | {"EXPIRE": ""}, SET, NONE_ENDED + ["state/calls"]),
+    (SET | {"ONLY": "", "STATUS": "", "DOUBLES": ""}, DECOYS | {"DOUBLES": "doubles"}, ["f 124", "g 124", "g 125", "state/calls"]),
+    (SET | {"STATE": ""}, DECOYS, NONE_ENDED),
+], ids=["bare names alone", "both set", "empty expire", "empty only, status and doubles", "empty state"])
+def test_the_stand_in_reads_each_prefixed_setting_and_falls_back_to_the_bare_name(tmp_path, prefixed, bare, printed):
+    env = {f"TIMEOUT_{k}": v for k, v in bare.items()} | {f"CLAUDIT_TIMEOUT_{k}": v for k, v in prefixed.items()}
+    proc = subprocess.run(["bash", "--noprofile", "--norc", "-c", TIMEOUT_STUB + STAND_IN_RUN], cwd=tmp_path, timeout=30,
+                          env={"PATH": os.environ["PATH"], **env}, capture_output=True, text=True, check=False)
+    assert proc.stdout.splitlines() == printed, proc.stderr
 
 
 def _bounded(env: dict[str, str]) -> list[str]:
-    calls = bounded_calls(Path(env["TIMEOUT_STATE"]))
+    calls = bounded_calls(Path(env["CLAUDIT_TIMEOUT_STATE"]))
     assert all(seconds > 0 and command.startswith("gh api ") for seconds, command in calls), calls
     return [command for _, command in calls]
 
@@ -195,10 +216,10 @@ def _retries_npm_fetches(run: str, box: Path, *where: str) -> None:
     proc = subprocess.run(
         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", TIMEOUT_STUB + NPM_STUB + script],
         env={"PATH": os.environ["PATH"], "RUNNER_TEMP": str(box), "NPM_CALLS": str(box / "npm-calls"),
-             "TIMEOUT_DOUBLES": str(box / "no-doubles"), **env},
+             "CLAUDIT_TIMEOUT_DOUBLES": str(box / "no-doubles"), **env},
         cwd=box, capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
     assert proc.returncode == 0, (*where, proc.stderr)
-    state = Path(env["TIMEOUT_STATE"])
+    state = Path(env["CLAUDIT_TIMEOUT_STATE"])
     bounded = bounded_calls(state) if (state / "calls").exists() else []
     assert all(seconds > 0 for seconds, _ in bounded), (*where, bounded)
     ran = [line.split("\x1f") for line in (box / "npm-calls").read_text(encoding="utf-8").splitlines()]
