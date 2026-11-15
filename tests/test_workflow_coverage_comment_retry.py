@@ -74,8 +74,7 @@ WRAPPED_PREFIXES = (
 def _load():
     # BaseLoader, as in test_workflow_patch_coverage.py: YAML 1.1 reads
     # the bare key `on` as boolean True.
-    return yaml.load(COVERAGE_WF.read_text(encoding="utf-8"),
-                     Loader=yaml.BaseLoader) or {}
+    return yaml.load(COVERAGE_WF.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
 
 
 def _steps():
@@ -142,9 +141,7 @@ def _bash(tmp_path, bin_dir, script, log):
         "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
         "FAKE_LOG": str(log),
     }
-    return subprocess.run(
-        ["bash", "-c", script], cwd=tmp_path, env=env,
-        capture_output=True, text=True, check=False)
+    return subprocess.run(["bash", "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True, check=False)
 
 
 def _call_log(log):
@@ -295,9 +292,7 @@ class TestPostStep:
             "GH_TOKEN": "unused-by-the-fake",
             "RUNNER_TEMP": str(helper_path.parent),
         }
-        proc = subprocess.run(
-            ["bash", "-c", script], cwd=tmp_path, env=env,
-            capture_output=True, text=True, check=False)
+        proc = subprocess.run(["bash", "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True, check=False)
         return proc, _call_log(log)
 
     # The fake gh's listing answer: with $FAKE_STATE/landed present, the

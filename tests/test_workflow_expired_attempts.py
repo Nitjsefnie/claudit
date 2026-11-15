@@ -26,8 +26,7 @@ from tests.test_workflow_release_dispatch import (  # pylint: disable=unused-imp
     DECIDE, POST_RELEASE, POST_RELEASE_STUB, PROBE_STUB, _decide_env,
     _run_step as _run_dispatch_step, ubuntu_step_body)
 from tests.test_workflow_retried_reads import release_reads
-from tests.workflow_checks import (
-    ROOT, TIMEOUT_STUB, bounded_calls, find_step, job_of, workflow_by_name)
+from tests.workflow_checks import (ROOT, TIMEOUT_STUB, bounded_calls, find_step, job_of, workflow_by_name)
 
 # version-guard's reads: no published tag, then the pushed commit's facts.
 GUARD_STUB = r'''
@@ -89,8 +88,7 @@ def _bounded(env: dict[str, str]) -> list[str]:
 
 
 def _guard(env: dict[str, str]) -> subprocess.CompletedProcess:
-    step = find_step(job_of(workflow_by_name("version-guard.yml"), "version-guard"),
-                     "version_guard.py decide")
+    step = find_step(job_of(workflow_by_name("version-guard.yml"), "version-guard"), "version_guard.py decide")
     return subprocess.run(
         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
          TIMEOUT_STUB + GUARD_STUB + step["run"]],
@@ -122,8 +120,7 @@ def test_decide_reads_retry_an_attempt_the_bound_ended(decide_env, tmp_path):
     env = decide_env | _ending(tmp_path, 1)
     proc = _run_dispatch_step(POST_RELEASE, POST_RELEASE_STUB, env)
     assert proc.returncode == 0, proc.stderr
-    assert Path(env["GITHUB_OUTPUT"]).read_text(encoding="utf-8") == (
-        "version=9.9.9\nsuccessor=9.9.10-dev\n")
+    assert Path(env["GITHUB_OUTPUT"]).read_text(encoding="utf-8") == ("version=9.9.9\nsuccessor=9.9.10-dev\n")
     assert Path(env["STUB_CALLFILE"]).read_text(encoding="utf-8") == "7"
     # Seven reads, two of them one command: six first attempts ended, seven answered.
     commands = _bounded(env)
@@ -131,8 +128,7 @@ def test_decide_reads_retry_an_attempt_the_bound_ended(decide_env, tmp_path):
 
 
 def _release_refusal(_tmp_path, env):
-    proc = _run_release_step(_step_run(REFUSAL_STEP), REFUSAL_STUB,
-                             _refusal_env(1, TAG_404, 1, RELEASE_404) | env)
+    proc = _run_release_step(_step_run(REFUSAL_STEP), REFUSAL_STUB, _refusal_env(1, TAG_404, 1, RELEASE_404) | env)
     return proc, "is free" in proc.stdout
 
 
@@ -168,8 +164,7 @@ def _version_guard(_tmp_path, env):
     (_version_guard, ".commit.author.email", "the commit author probe for "),
     (_version_guard, ".files[].filename", "the changed-files probe for "),
 ])
-def test_a_probe_whose_every_attempt_the_bound_ended_fails_closed(
-        request, tmp_path, site, only, refusal, status):
+def test_a_probe_whose_every_attempt_the_bound_ended_fails_closed(request, tmp_path, site, only, refusal, status):
     env = _ending(tmp_path, 3, only, status)
     extra = (request.getfixturevalue("decide_env"),) if site is _decide else ()
     proc, decided = site(tmp_path, env, *extra)
@@ -233,8 +228,7 @@ def _retries_npm_fetches(run: str, box: Path, *where: str) -> None:
 
 @ubuntu_step_body
 def test_every_npm_install_retries_an_attempt_the_bound_ended(tmp_path):
-    sites = [(path.name, job, step) for path, job, step, _ in _steps()
-             if any(map(_npm_fetch, _kinds(step.get("run") or "")))]
+    sites = [(path.name, job, step) for path, job, step, _ in _steps() if any(map(_npm_fetch, _kinds(step.get("run") or "")))]
     for number, (name, job, step) in enumerate(sites):
         box = tmp_path / str(number)
         box.mkdir()
