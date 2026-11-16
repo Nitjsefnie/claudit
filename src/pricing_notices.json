@@ -253,6 +253,8 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Google; the host was sampled",
+    "non-uniform schedule: Token Breakdown split is approximate for deepseek-v4-1-flash via Alibaba",
+    "non-uniform schedule: Token Breakdown split is approximate for deepseek-v4-1-flash-1017 via Alibaba",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba",
     "tag 'alibaba/prime' names neither a known region nor a quantization: glm-5-3 via Alibaba",
