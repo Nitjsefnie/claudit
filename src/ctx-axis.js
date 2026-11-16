@@ -1,5 +1,5 @@
 // The context-size axis rule, shared by every panel that draws context.
-// The panels now scale from the OBSERVED data, through ONE rule:
+// The panels scale from the OBSERVED data, through ONE rule:
 //   axis top = peak of what is drawn, times HEADROOM
 // `peak of what is drawn` is the largest context value among the turns
 // on the chart, so the tallest point is HEADROOM-1 of the way up the

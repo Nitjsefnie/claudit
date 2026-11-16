@@ -11,14 +11,14 @@ ESLint 10 does not read eslintrc. The contracts checked here:
   here would be exactly the bundler-adjacent creep that rule forbids;
 - exactly ONE npm entry owns the manifest, the way exactly one pip entry owns
   each requirements file (tests/test_dependabot_coverage.py);
-- no workflow pins an npm package inline again — the shape that hid the
+- no workflow pins an npm package inline — that shape hides the
   pins from the updater;
-- the flat config carries the five rules `.eslintrc.json` carried, with the
-  one option ESLint 9 changed spelled out;
-- the flat config still reads its environment, parser options and cross-file
-  globals from where `.eslintrc.json` left them. The ONE deliberate
-  behavioural difference in the migration is the browser environment, and
-  the `globals` entry is what ties that set to the manifest: a
+- the flat config carries the gate's five rules, with the one option
+  whose ESLint 9 default the gate overrides spelled out;
+- the flat config reads its environment, parser options and cross-file
+  globals as the gate requires. The browser environment comes from the
+  `globals` package, and the `globals` entry is what ties that set to
+  the manifest: a
   consistent bump lands green BY DESIGN, and the reviewed diff is the
   guard — a bump that moves the set arrives as a manifest diff;
 - the JS coverage gate folds V8 captures with the AST converter and reads one decimal off
@@ -68,11 +68,10 @@ EXPECTED_DEV_TOOLS = (
     "globals",
 )
 
-# The rule set `.eslintrc.json` carried, rule for rule. The one change is
-# `no-unused-vars`'s `caughtErrors`, whose DEFAULT ESLint 9 flipped from
-# "none" to "all"; without spelling the old default out the gate reports
-# every `catch (e)` the tree writes on purpose (four in src/app.jsx) and
-# nothing that file did not report before.
+# The gate's rule set, rule for rule. `no-unused-vars`'s `caughtErrors` is
+# spelled out as "none" because ESLint 9's DEFAULT is "all"; without it the
+# gate reports every `catch (e)` the tree writes on purpose (four in
+# src/app.jsx).
 EXPECTED_RULES = {
     "no-undef": "error",
     "no-unused-vars": ["error", {"caughtErrors": "none"}],

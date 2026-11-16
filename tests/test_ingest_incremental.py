@@ -28,7 +28,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 _PARSER_FIXTURES = _ROOT / "fixtures" / "parser"
 # The shape stores dim FK ids; every snapshot projects the TEXT
 # back through its dim so incremental and full rebuilds still compare
-# as the old text grain did (one row per logical grain either way).
+# on one row per logical grain.
 _ROLLUPS = {
     "usage_rollup": (
         "SELECT s.session_id, p.project_id, u.hour, dm.value, dp.value, "

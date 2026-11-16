@@ -173,9 +173,8 @@ def _stale_row(model: str, window: int, flag: bool | None) -> RateRow:
 
 def test_reprice_derives_the_flag_from_the_model_threshold(monkeypatch):
     _install_tables(monkeypatch)
-    # THE LEARNING TRANSITION (the review's C1): a pre-fold NULL row of a
-    # newly learned member reprices to the band decision — what a reparse
-    # would store — not kept flat.
+    # THE LEARNING TRANSITION: a pre-fold NULL row of a newly learned member
+    # reprices to the band decision — what a reparse would store — not kept flat.
     learned = record_updates(_stale_row(MEMBER, THRESHOLD + 5_000, None))
     assert learned["long_context"] is True
     assert learned["cost_usd"] == pytest.approx(

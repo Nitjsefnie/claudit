@@ -203,9 +203,8 @@ def test_missing_timestamp_still_labels_k2_7_code():
 def test_kimi_code_post_k3_cutoff_kimi_for_coding_stays_k2_7_code():
     """A wire that says kimi-for-coding is NOT k3, whatever the date.
 
-    This test previously asserted the opposite — that the date promoted it to
-    k3 — which was the bug: k2.7-code remains selectable after the K3 cutoff,
-    so a date cannot override a wire string that names a different model.
+    k2.7-code remains selectable after the K3 cutoff, so a date cannot
+    override a wire string that names a different model.
     """
     ms = int((parse_kimi.K3_CUTOFF_EPOCH + 10) * 1000)
     blob = (
@@ -338,11 +337,10 @@ def test_turn_begin_drives_turn_boundaries():
 
 
 # --- wire-first model attribution, end to end -----------------------------
-# The ladder in _model_for was already correct and unit-tested; what was not
-# tested was that parse_file actually PASSES the wire model into it. It did
-# not — both call sites passed None — so the wire-first rung was dead code and
-# every kimi-code record was labelled by date alone. These cover the call
-# sites, not the ladder.
+# The ladder in _model_for is unit-tested on its own. These cover the call
+# sites, not the ladder: parse_file must pass the wire model into it, or the
+# wire-first rung is dead code and every kimi-code record is labelled by date
+# alone.
 
 def _kc_blob(rows):
     """kimi-code wire from (epoch_seconds, model_or_None) pairs."""

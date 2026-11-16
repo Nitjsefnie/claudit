@@ -32,14 +32,12 @@ def test_region_walks_up_to_the_nearest_ancestor_that_names_one():
 
 def test_region_falls_back_to_the_nearest_data_panel():
     """only the grid and the Inspector carry `data-perf-region`,
-    so a live node inside one panel — under no named region — landed in
-    `other`, and `other` is what most production shifts carried. The
-    nearest `[data-panel]` ancestor is the attribution the page already
-    names. the name is no longer folded into the grid term — it is
-    the attribution, as its own `panel_` term — so a shift names the
-    panel that moved. The region walk keeps precedence, and the fallback
-    widens nothing it cannot see: a node outside every panel keeps
-    `other`."""
+    so a live node inside one panel — under no named region — would
+    land in `other` without a fallback. The nearest `[data-panel]`
+    ancestor is the attribution the page already names, as its own
+    `panel_` term, so a shift names the panel that moved. The region walk
+    keeps precedence, and the fallback widens nothing it cannot see: a
+    node outside every panel keeps `other`."""
     out = _run("""
       const mk = (attrs, parent) => ({
         getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
@@ -103,7 +101,7 @@ def test_the_topbar_and_the_picker_strip_name_their_own_terms():
 def test_a_shift_sourced_in_the_topbar_or_picker_strip_beacons_the_term():
     """End to end through the observer: a shift whose source sits in the
     top bar or the picker strip names that strip in the beacon the sink
-    receives, where it read `other` before."""
+    receives."""
     out = _run("""
       const mk = (attrs, parent) => ({
         getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
@@ -124,12 +122,13 @@ def test_a_shift_sourced_in_the_topbar_or_picker_strip_beacons_the_term():
 
 
 def test_the_range_strip_and_the_summary_strip_name_their_own_terms():
-    """the range preset strip carried the project strip's
-    `project_picker`, so a beacon naming it could not say which strip
-    shifted; and a node inside the summary strip — in the grid but under
-    no panel — reported the whole-grid `panel_grid`, the same term a gap
-    between panels carries. Each names its own term now, and the walk
-    returns it like any named region."""
+    """the range preset strip and the summary strip each name their own
+    term, and the walk returns it like any named region: a range strip
+    carrying the project strip's `project_picker` would leave a beacon
+    naming it unable to say which strip shifted, and a node inside the
+    summary strip — in the grid but under no panel — would otherwise
+    report the whole-grid `panel_grid`, the same term a gap between
+    panels carries."""
     out = _run("""
       const mk = (attrs, parent) => ({
         getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
@@ -150,8 +149,7 @@ def test_the_range_strip_and_the_summary_strip_name_their_own_terms():
 def test_a_shift_sourced_in_the_range_or_summary_strip_beacons_the_term():
     """End to end through the observer: a shift whose source sits in the
     range strip or the summary strip names that strip in the beacon the
-    sink receives, where it read the project strip's term and `panel_grid`
-    respectively before."""
+    sink receives."""
     out = _run("""
       const mk = (attrs, parent) => ({
         getAttribute: n => (n in attrs ? attrs[n] : null), parentElement: parent });
@@ -195,7 +193,7 @@ def test_an_unrecognised_panel_name_falls_back():
     """The panel terms are a closed set: a `data-panel` name the sink
     does not admit is not echoed — it would be a 400 that takes every
     beacon in the batch with it. The walk moves PAST the unknown name, so
-    a known panel further up still names the shift; with none, the old
+    a known panel further up still names the shift; with none, the
     fallback stands."""
     out = _run("""
       const mk = (attrs, parent) => ({
@@ -254,11 +252,11 @@ def test_a_shift_with_no_sources_falls_back_to_other():
 
 def test_attribution_walks_every_source_before_other():
     """one Layout Instability entry names SEVERAL moved nodes, and
-    the FIRST one does not always resolve — the production 0.697 shifts
-    reported `other` because sources[0] was a bare section wrapper while
-    the panel it pushed around moved as a later source. The attribution
-    must walk every source and take the first that names a region, so a
-    shift lands `other` only when no source sits inside one."""
+    the FIRST one does not always resolve: sources[0] can be a bare
+    section wrapper while the panel it pushed around moved as a later
+    source. The attribution must walk every source and take the first
+    that names a region, so a shift lands `other` only when no source
+    sits inside one."""
     out = _run("""
       const bare = { getAttribute: () => null, parentElement: null };
       const panelled = {

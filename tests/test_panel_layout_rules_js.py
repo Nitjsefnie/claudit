@@ -382,7 +382,7 @@ class TestGapConsistencyViolations:
         # A, B, C stacked: A->B at the expected 14, B->C drifted to 86.
         # Exactly ONE finding (B->C): the A->C distance is not a flex
         # gap, it is whatever the stack adds up to between neighbours —
-        # the all-pairs reading fired on sections pages apart.
+        # an all-pairs reading fires on sections pages apart.
         out = self._violations(
             self._boxes(("A", 0, 0, 800, 300, 0, 0),
                         ("B", 0, 314, 800, 200, 0, 0),
@@ -417,7 +417,7 @@ class TestGapConsistencyViolations:
         assert out == []
 
     def test_margins_extend_the_expected_distance(self):
-        # Overview now starts with dash-summary above dash-grid. Give the
+        # Overview starts with dash-summary above dash-grid. Give the
         # summary a synthetic 18px bottom margin to exercise margin
         # accounting: the expected distance is 14 + 18 = 32.
         out = self._violations(
@@ -516,8 +516,8 @@ def test_multichart_rule_id_and_tagged_rule_id_registered():
 
 def test_picker_rule_family_registered():
     """The picker shift rules are one rule per limb, each with its own
-    seed, the pinched-page rules cover, and the two
-    two-limb rules they replace are gone."""
+    seed, the pinched-page rules cover, and no two-limb rule is
+    registered."""
     out = _node("console.log(JSON.stringify(mod.RULES"
                 ".map((r) => r.id)));")
     for rid in (
@@ -596,8 +596,8 @@ class TestPairSectionLegendsTop:
     refactor fails: a SECTION group's legends pair against the
     section's TOPMOST plot only. The discriminating case is the strip
     UNDER chart 1 of a stacked grid — topmost pairing passes it, a
-    union-of-plots box fires it against chart 2 (the union mutant the
-    review's M4 plant proved every leg survives)."""
+    union-of-plots box fires it against chart 2 (a union mutant passes
+    every other leg)."""
 
     @staticmethod
     def _group(panel, plots, legends, section=False):
@@ -658,10 +658,10 @@ class TestMultichartRuleRunWiring:
     """The rule's own run() applies the topmost substitution.
 
     Node drives run() through a fake page serving the between-charts
-    groups. The review's mutation (the shared run skipping the
-    pairSectionLegendsTop substitution) passed every pure test AND the
-    browser harness — the seed sits above every chart, so both wirings
-    fire it — and this test exists to die on exactly that mutant.
+    groups. A shared run that skips the pairSectionLegendsTop substitution
+    would pass every pure test and the browser harness — the seed sits
+    above every chart, so both wirings fire it — and this test exists to
+    kill exactly that mutant.
     """
 
     def _run_multichart(self):

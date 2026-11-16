@@ -179,7 +179,7 @@ def test_cross_origin_login_post_is_403(app, fake_user, fake_session_store, path
 
 
 def test_login_post_without_origin_is_403(app, fake_user):
-    """Scripted clients must now declare an Origin; browsers always do."""
+    """Scripted clients must declare an Origin; browsers always do."""
     r = TestClient(app).post(
         "/login",
         data={"user_id": "12345", "password": "hunter2"},
@@ -407,8 +407,8 @@ def test_successful_login_does_not_write_the_auth_db(
     app, fake_user, fake_session_store
 ):
     """ regression: a successful login must leave the shared users
-    table unchanged — the session secret went to claudit's own store,
-    and no write path to the auth DB exists at all any more."""
+    table unchanged — the session secret is kept in claudit's own store,
+    and no write path to the auth DB exists at all."""
     before = copy.deepcopy(fake_user[12345])
     client = TestClient(app)
     r = _post_login(client, 12345, "hunter2")

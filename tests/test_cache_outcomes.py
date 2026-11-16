@@ -102,9 +102,9 @@ def test_expired_entry_schedules_exactly_one_refresh(monkeypatch):
 
 # ---------------------------------------------------------------------------
 # The instrument: outcome counters on the response cache. Load cannot move
-# a count, so the production journal gives the slow-open split the issue
-# asks for: outcomes logged at every invalidate (one line per changed
-# ingest), cumulative in /health.
+# a count, so the production journal carries the slow-open split: outcomes
+# logged at every invalidate (one line per changed ingest), cumulative in
+# /health.
 
 def test_outcomes_discriminate_request_paths(monkeypatch):
     c, pool = _make_cache(monkeypatch)
@@ -299,8 +299,8 @@ def test_viz_pool_statistics_degrades_to_empty(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# F1 follow-ups from review: the remaining count sites get their own
-# controls. F2 rides along: a failed cold compute counts miss_error.
+# The remaining count sites get their own controls, and a failed cold
+# compute counts miss_error.
 
 def test_warm_skips_a_key_already_claimed_by_a_refresh(monkeypatch):
     """warm() must not compute a key a scheduled refresh already claimed:
@@ -357,8 +357,8 @@ def test_failed_refresh_counts_refresh_error(monkeypatch):
 
 
 def test_failed_cold_compute_counts_miss_error(monkeypatch):
-    """A cold compute that raises counts miss_error ( review
-    F2): a burst of failing cold opens must not read as nothing."""
+    """A cold compute that raises counts miss_error: a burst of failing
+    cold opens must not read as nothing."""
     c, _pool = _make_cache(monkeypatch)
 
     @cache_response

@@ -137,9 +137,8 @@ def _claude_line(uuid, model, text, output_tokens, tool=None, request_id="req-1"
 def _node_dedup_survivor(*files):
     """The winner view of several files parsed in order through ONE shared
     seenUuids map (the cross-file dedup mode), followed by the caller's
-    post-load drop through recordDedup.dropMasked -- the drop the old
-    contract left to prose no production caller implemented,
-    now module code the test drives the way a caller would.
+    post-load drop through recordDedup.dropMasked, module code the test
+    drives the way a caller would.
 
     Events are pinned beside meta: computeSessionStats counts tool calls
     from `events`, so a superseded copy's tool_call entries must leave the
@@ -525,11 +524,10 @@ class TestNodeDrivenBrowserProviderParsing:
         fixture the user_message lines are exactly the backend's prompt lines
         (so no injection line emits a user_message event and the real prompts
         still emit), and computeSessionStats' userMsgs equals the backend
-        prompt_count. Also pins the interrupt-marker exclusion the backend
-        already had (R3) on interrupt_list_content.jsonl, whose marker rides
-        a list-content text block — the browser never pushed it as a prompt
-        before this gate existed, so parity needed it too. One node run over
-        every fixture, batched for speed."""
+        prompt_count. Also pins the backend's interrupt-marker exclusion (R3)
+        on interrupt_list_content.jsonl, whose marker rides a list-content
+        text block: the browser must exclude it too, for parity. One node run
+        over every fixture, batched for speed."""
         for prompt_lines, injection_lines in PROMPT_GATE_FIXTURES.values():
             assert not set(prompt_lines) & set(injection_lines)
         names = [*PROMPT_GATE_FIXTURES, "interrupt_list_content.jsonl"]

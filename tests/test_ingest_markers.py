@@ -281,7 +281,7 @@ def test_a_failed_or_vanished_marker_is_not_cached(
 def test_a_failed_refetch_keeps_no_stale_path_for_that_run(
         fresh_db, lane_tree, monkeypatch):
     """A marker whose etag changed and whose re-fetch then fails supplies
-    no path to that run, as before the cache, and is retried next run."""
+    no path to that run and is retried next run."""
     ingest.run_ingest(trigger="manual")
     _rewrite_marker(lane_tree, "aaaa1111", _path_marker("/home/me/gamma"))
     failing = f"claude/sessions/aaaa1111/{_MARKER}"

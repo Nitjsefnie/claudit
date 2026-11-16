@@ -143,8 +143,8 @@ def test_an_empty_family_is_present_and_refuses_the_seed(tmp_path):
     # The decoy a falsy test admits: `"suite_cost": {}` is the family
     # PRESENT and malformed (the loader refuses its shape), and a seed
     # that reads emptiness as an absent family would replace it
-    # (issue #705; PR #704 fixed the reparse writer's twin,
-    # tests/test_reparse_seed.py's empty-family test).
+    # (tests/test_reparse_seed.py's empty-family test covers the reparse
+    # writer's twin).
     ratchet = _ratchet()
     data = _seeded_document()
     data["suite_cost"] = {}
@@ -406,10 +406,10 @@ def test_seed_carries_the_workload_identity(tmp_path, monkeypatch):
 ], ids=["below-current-tree", "above-current-tree"])
 def test_seed_refuses_a_measurement_from_another_tree(
         tmp_path, capsys, monkeypatch, measured_lines, current_lines):
-    # The identity check is the seed half of SV-CI-RATCHETS' binding
-    # (issue #598): the seed measures the FINAL tree, so an artifact
-    # whose tests_tree_lines names another tree is refused,
-    # naming both counts, and the committed document is untouched.
+    # The identity check is the seed half of SV-CI-RATCHETS' binding: the
+    # seed measures the FINAL tree, so an artifact whose tests_tree_lines
+    # names another tree is refused, naming both counts, and the committed
+    # document is untouched.
     ratchet = _ratchet()
     target = _written(tmp_path, _seeded_document())
     before = target.read_text(encoding="utf-8")
@@ -427,7 +427,7 @@ def test_seed_refuses_a_measurement_from_another_tree(
 
 def test_seed_from_an_identity_less_measurement_omits_the_field(tmp_path):
     # A measurement that predates the identity seeds a family without
-    # one: the gate then behaves exactly as before this field existed.
+    # one: the gate then behaves exactly as it does without this field.
     thresholds = _thresholds()
     ratchet = _ratchet()
     target = _written(tmp_path, _seeded_document())

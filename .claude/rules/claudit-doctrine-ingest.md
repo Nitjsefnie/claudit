@@ -115,7 +115,7 @@ planned `codex+kimi` pairing needs no handling; the same session id in
 two buckets with a uuid-less format (kimi-code, legacy Kimi)
 double-counts at session level.
 
-One lane session shape is not data (issue #650): a lane session named
+One lane session shape is not data: a lane session named
 exactly `test` — `sessions/<project>/test/…`, subagents included — is
 the kimi-code test suite's scratch archive (its runs write under a
 session named `test` inside a hash-named project), carries no usage,
@@ -164,21 +164,19 @@ code change.
 r.file_key` would select. A REPLAYED copy loses to an original of the same
 uuid whatever the key order: a forked Codex rollout re-journals its
 parent's requests in its replayed prefix, its `subagents/…` key sorts
-before the parent's `wire.jsonl`, and once #653 attributed the prefix
-(the fork's first declared model) a bare attribution-then-key rank let
-the fork's copy win and counted the parent's history as the fork's —
+before the parent's `wire.jsonl`, and the prefix is attributed (the fork's
+first declared model), so a bare attribution-then-key rank would let the
+fork's copy win and count the parent's history as the fork's —
 `records.is_replay`/`tool_uses.is_replay`, set by
 `codex_fork.mark_replay` on the rows before the fork's own first model
-declaration, rank those copies last (issue #687). Then the copy whose
+declaration, rank those copies last. Then the copy whose
 model is attributed beats an unattributed one — the lane fallback
 `unknown`, the Claude fallback `(unknown)`, the empty string and NULL
 all count unattributed, as does `<synthetic>` (Claude's
-harness-fabricated stub model: it names no model at all, issue #563)
-(issue #529: the original attribution rank; the #529 outcome is
-restored under #653's attribution) — then `r.file_key`; `line_num`
-breaks ties within a `file_key`. NULL (every non-Codex row and row
-parsed before #687) ranks as an original. NULL-`uuid`
-rows (legacy) are always canonical.
+harness-fabricated stub model: it names no model at all) — then
+`r.file_key`; `line_num` breaks ties within a `file_key`. NULL (every
+non-Codex row and every row parsed before the replay flag existed) ranks
+as an original. NULL-`uuid` rows (legacy) are always canonical.
 
 Reads MUST filter `WHERE is_canonical` and MUST NOT reintroduce
 `DISTINCT ON (uuid)`: that re-sorts the whole table per read.
@@ -205,12 +203,12 @@ Every rollup and live read over `tool_uses` MUST filter
 
 A replayed copy that loses also ADOPTS the winner's model when the
 winner is an original — `adopt_original_models()`, the canonical pass's
-tail (issue #713). The fork's first declaration is the
-model at the fork point, and only the parent's own copy carries the
-model the parent had in force for the record; the adoption rewrites
-`records.model` by uuid and `tool_uses.model` by `tool_use_id`, and
-extends `files.models` with the adopted models. With no original of the
-identity present, the #653 fallback stands; a NULL winner model is never
+tail. The fork's first declaration is the model at the fork point, and
+only the parent's own copy carries the model the parent had in force for
+the record; the adoption rewrites `records.model` by uuid and
+`tool_uses.model` by `tool_use_id`, and extends `files.models` with the
+adopted models. With no original of the identity present, the fallback
+(the fork's first declared model) stands; a NULL winner model is never
 adopted; a replay promoted after the original's deletion keeps the model
 it adopted while the original was there. The pass rewrites only
 non-canonical rows, so no rollup re-scope follows. The browser half is
@@ -319,12 +317,11 @@ full rebuild. Outlier dots store five parallel arrays: `out_ts TIMESTAMPTZ[]`,
 `out_latency_s DOUBLE PRECISION[]`, `out_file_id INTEGER[]`,
 `out_line_num INTEGER[]`, and `out_high BOOLEAN[]` (`kind = 'high'`).
 They are all NULL for a group without outliers; otherwise all are non-NULL
-with equal cardinality. Startup converts the JSONB dots in place, preserving
+with equal cardinality. Startup converts any stored JSONB dots in place, preserving
 element order and resolving `files.file_id`; a missing file keeps a NULL id.
-Outlier timestamps use PostgreSQL `to_json` in the reading session's TimeZone
-instead of the rebuilding session's spelling served by the JSONB reader;
-the spellings agree when rebuilds and reads share one TimeZone, as production's
-single pool does.
+Outlier timestamps use PostgreSQL `to_json` in the reading session's TimeZone,
+not the rebuilding session's; the two spellings agree when rebuilds and reads
+share one TimeZone, as production's single pool does.
 The reader resolves public file keys through `files` (NULL if missing).
 Teammate resolution runs its full query every time;
 changed files add their record hours to the scope because

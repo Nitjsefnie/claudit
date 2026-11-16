@@ -428,8 +428,8 @@ def test_suite_cost_identity_moved_fails(tmp_path):
         (40000, None),
     ]:
         # The workload identity is the seed's binding to the workload it
-        # measured (issue #524). On an established family, a moved
-        # identity is a hand-edit and fails.
+        # measured. On an established family, a moved identity is a
+        # hand-edit and fails.
         base = (_document() if base_identity is None else
                 _document(suite=_with_identity(SUITE_COST, base_identity)))
         head = (_document() if head_identity is None else

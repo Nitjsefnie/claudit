@@ -67,7 +67,7 @@ def test_short_model_name_falls_back_to_unknown():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_no_claude_key_loses_its_prefix():
-    """The regression itself, stated over every Claude id in the corpus's
+    """The prefix rule, stated over every Claude id in the corpus's
     shape: a dated snapshot, a bracketed variant, a plain id. Each keeps
     `claude-`; only the suffix after it is folded."""
     got = _node("""

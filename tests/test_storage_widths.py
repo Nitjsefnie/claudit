@@ -162,7 +162,7 @@ def _assert_canonical(conn) -> None:
     ).fetchall() == [("YES", None)] * 5
     # The uuid split's own column types: the native
     # uuid part, the INT4 counter, the verbatim TEXT fallback — and no
-    # `uuid` column left to hold the old TEXT identity.
+    # `uuid` column holding a TEXT identity.
     split_types = _types(conn, "records")
     assert split_types.get("uuid_col") == "uuid", split_types
     assert split_types.get("seq") == "integer", split_types

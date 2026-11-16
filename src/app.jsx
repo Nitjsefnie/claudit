@@ -178,11 +178,10 @@ function App() {
   // Fetch dashboard whenever the active project / range / nonce change.
   // `dashNonce` is a counter bumped by the SSE listener below to trigger
   // a re-fetch without changing project/range. Each run owns its request
-  // through mintRunSignal, so a slow stale response can no
-  // longer land after a fresher one and overwrite it. An aborted run is
-  // not a failure — it applies nothing and leaves the pending
-  // announcement line for the run that replaced it; a real failure
-  // still drops that line.
+  // through mintRunSignal, so a slow stale response cannot land after a
+  // fresher one and overwrite it. An aborted run is not a failure — it
+  // applies nothing and leaves the pending announcement line for the run
+  // that replaced it; a real failure still drops that line.
   // A superseded run writes nothing: neither its data nor its state.
   useEffect(() => {
     if (!backendOn) return;

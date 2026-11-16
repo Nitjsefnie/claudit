@@ -73,12 +73,11 @@ def sniff_format(blob: bytes) -> Literal["claude", "codex", "kimi-code", "legacy
             "turn.steer",
         }:
             return "kimi-code"
-        # A legacy wire line carries message.type; claudit's rung does not
-        # require the timestamp codexmeter's did, because a legacy
-        # StatusUpdate may carry none and no other format puts a
-        # message.type in this set (a Claude line has message.role); and
-        # the isinstance guard matters, because kimi-code's llm.error
-        # carries a STRING message.
+        # A legacy wire line carries message.type; this rung does not
+        # require a timestamp, because a legacy StatusUpdate may carry
+        # none and no other format puts a message.type in this set (a
+        # Claude line has message.role); and the isinstance guard matters,
+        # because kimi-code's llm.error carries a STRING message.
         msg = obj.get("message")
         if isinstance(msg, dict) and msg.get("type") in {
             "StatusUpdate", "TurnBegin", "ToolCall", "ContentPart"

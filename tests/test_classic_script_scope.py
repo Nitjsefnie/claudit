@@ -5,10 +5,7 @@ instantiates its top level into the page's one shared global scope. A
 top-level const/let/class there is a one-way door: the next classic
 script that declares the same name - or declares it over the
 non-configurable global property another file's top-level function
-declaration created - dies with a SyntaxError before its first statement
-(parser-codex.js's top-level ``const {... } = window``
-against parser-lanes.js's same-named function declarations silenced the
-entire Codex lane parser; window.parseLaneCodex was never defined).
+declaration created - dies with a SyntaxError before its first statement.
 
 Node's require()-based tests cannot see this - each required file gets
 its own module scope - so this drives the REAL scripts through node's

@@ -94,9 +94,9 @@ def test_schema_retypes_a_surrogate_shape_database(monkeypatch):
     """A database already carrying the surrogate shape converges.
 
     schema_dims.sql's drop guard keys on the legacy text shape
-    (records.file_key); a database migrated by Task 1 keeps its rows, so
-    the type compaction runs as guarded in-place ALTERs instead — a
-    no-op once the columns already carry the narrow types.
+    (records.file_key); a database already on the surrogate shape keeps its
+    rows, so the type compaction runs as guarded in-place ALTERs instead —
+    a no-op once the columns already carry the narrow types.
     """
     name = scratch_db.create_database("type_converge")
     monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")

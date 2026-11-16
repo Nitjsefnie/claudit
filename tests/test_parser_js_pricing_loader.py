@@ -112,8 +112,8 @@ def _run(tmp_path: Path, text: str, browser: bool = False) -> dict:
     shutil.copy(ROOT / "src" / "parser-usage.js", where / "parser-usage.js")
     shutil.copy(ROOT / "src" / "parser.js", where / "parser.js")
     # The loader's own JSON.parse call is captured and compared against a
-    # plain parse: a reviver that rewrote values (the old _hhmmSpelling)
-    # shows up as untouched=false even when nothing else observes the doc.
+    # plain parse: a reviver that rewrote values shows up as untouched=false
+    # even when nothing else observes the doc.
     browser_setup = ""
     if browser:
         # A real browser's currentScript.src is always an absolute URL; build

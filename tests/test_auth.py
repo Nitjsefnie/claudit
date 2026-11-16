@@ -5,8 +5,8 @@ from backend import auth
 
 
 def test_legacy_bare_hex_hash_verifies_at_legacy_count():
-    """A bare-hex stored hash is read at PBKDF2_ITERATIONS (200k),
-    exactly as before versioning — and at no other count."""
+    """A bare-hex stored hash is read at PBKDF2_ITERATIONS (200k) and
+    at no other count."""
     salt_hex = "00112233445566778899aabbccddeeff"
     legacy = {
         auth.WEB_PASSWORD_HASH_KEY: auth.pbkdf2(

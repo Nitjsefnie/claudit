@@ -72,7 +72,7 @@ def seed_record(c, file_key: str, line_num: int,
     through dims_seed (NULL stays NULL — the FK columns are nullable),
     file_key resolves to the files row's file_id. The reprice-written
     columns (cost, fee, staleness markers) live on the records_price
-    sidecar (ruling R4) and are inserted beside the records row.
+    sidecar and are inserted beside the records row.
     """
     record = record or SeedRecord()
     seed_parents(c, file_key)

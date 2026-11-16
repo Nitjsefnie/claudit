@@ -99,9 +99,9 @@ def test_a_lane_transcript_persists_through_ingest(
     NOT NULL DEFAULT '' and files.agent_type is NOT NULL -- which None
     values from the adapter must not violate.
 
-    The key is the real lane shape (wire.jsonl under sessions/): since
-    key_layout owns the mapping, a non-wire basename inside sessions/ is
-    no longer a transcript at all."""
+    The key is the real lane shape (wire.jsonl under sessions/): key_layout
+    owns the mapping, so a non-wire basename inside sessions/ is not a
+    transcript."""
     key = "sessions/p/s/wire.jsonl"
     out = parse.parse_file(key, (FIX / name).read_bytes())
     assert out["records"] and out["tool_uses"]

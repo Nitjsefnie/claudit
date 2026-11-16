@@ -1,7 +1,5 @@
-"""A row without a dated window prices flat across time, split from
-test_pricing.py to keep that module under its size ceiling — relocation
-only, no assertion changed. The property is the ROW's shape, so it is
-driven through a synthetic row (SV-TEST-DATA)."""
+"""A row without a dated window prices flat across time. The property is the
+ROW's shape, so it is driven through a synthetic row (SV-TEST-DATA)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone

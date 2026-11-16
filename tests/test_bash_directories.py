@@ -167,6 +167,6 @@ def test_directory_targets_join_file_writes_in_order():
     ("declare -r x=1 cat f.py", (None, [], [])),
 ])
 def test_declaration_builtin_args_are_not_commands(command, expected):
-    """ review: the builtin's non-assignment words are identifier
+    """The builtin's non-assignment words are identifier
     arguments bash rejects, never a command that runs."""
     assert scan(command, "/work") == expected

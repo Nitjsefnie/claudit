@@ -3,7 +3,7 @@
 // integer: Python reads 1400.0 as a float and refuses it (pricing._hhmm),
 // while JSON.parse reads it as 1400 and would silently price what Python
 // refuses to load. No reviver can catch this — it only ever has
-// source-text access under node, so the browser silently accepted 1400.0
+// source-text access under node, so the browser would accept 1400.0
 // — so both load paths run this check on the RAW text, before parsing.
 // The check is scoped by structure, not the key name: only a start/end
 // that is a member of an object which is a direct ELEMENT of the array

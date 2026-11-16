@@ -75,5 +75,5 @@ def test_tee_arm_filters_an_fd_prefixed_heredoc_marker(context, expected):
     """A `<<`-led token is a heredoc marker, never a path, and the
     fd-prefixed form (`2<<EOF`) filters with it — a redirect shape, never
     a real file — so a later widening of the operator class cannot
-    silently book it ( review N1)."""
+    silently book it."""
     assert _verbatim_targets(context) == expected

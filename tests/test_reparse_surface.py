@@ -1,18 +1,17 @@
 """The parse-surface gate: the corpus must walk every path the pass can reach.
 
-the reparse bench measures one pass over `fixtures/r2_mini`,
-and that mirror held only Claude-layout transcripts, so a regression in any
-Codex or Kimi parse path, the lane key layout or the lane role mapping
-moved no number in either direction. The mirror now carries one wire per
-lane format plus a lane sidecar, and `scripts/ci/reparse_surface.py` names
+The reparse bench measures one pass over `fixtures/r2_mini`, and that
+mirror carries one wire per lane format plus a lane sidecar, so a
+regression in any Codex or Kimi parse path, the lane key layout or the
+lane role mapping can move a number. `scripts/ci/reparse_surface.py` names
 the reachable surface by AST and fails when the corpus leaves any of it
 unexercised.
 
 Nothing here pins a measured number — the counts are machine- and
 corpus-dependent by nature. What is pinned is the gate's SHAPE: the walk's
 roots and its module boundary, the deny-by-default allowlist, the
-fail-closed refusals, and the maintainer's own claim, asserted directly —
-the committed corpus exercises all four formats `sniff_format` recognizes.
+fail-closed refusals, and the claim, asserted directly, that the
+committed corpus exercises all four formats `sniff_format` recognizes.
 """
 from __future__ import annotations
 
@@ -66,8 +65,8 @@ def test_the_walk_starts_at_the_three_callables_the_pass_is_made_of():
 
 
 def test_the_walk_reaches_every_lane_parser_and_the_lane_adapter():
-    # The gap this issue is about: the Claude-only corpus could not have
-    # exercised any of these, and the walk is what now insists it does.
+    # A Claude-only corpus could exercise none of these; the walk insists
+    # that the corpus does.
     reached = walk.reachable_surface()
     for name in ("parse_codex.parse",
                  "parse_kimi.parse_kimi_code",
@@ -361,8 +360,8 @@ def _sniff(blob: bytes) -> str:
 
 
 def test_the_committed_corpus_exercises_every_format_the_sniff_names():
-    # The maintainer's words, asserted directly: the fixtures exercise all
-    # reparse paths, and sniff_format recognizes these four.
+    # Asserted directly: the fixtures exercise all reparse paths, and
+    # sniff_format recognizes these four.
     formats = {_sniff(entry.blob) for entry in bench.corpus()}
     assert formats == {"claude", "codex", "kimi-code", "legacy"}
 

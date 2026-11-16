@@ -1,7 +1,7 @@
 // Browser parser for both Kimi wire formats (backend/parse_kimi.py):
-// the legacy kimi-cli wire and kimi-code. Split out of
-// src/parser-lanes.js, which keeps sniffing, the shared helpers and
-// the lane entry that dispatches each blob here by sniffed format.
+// the legacy kimi-cli wire and kimi-code. src/parser-lanes.js keeps
+// sniffing, the shared helpers and the lane entry that dispatches each
+// blob here by sniffed format.
 // The same lockstep SV-PARSER-SPEC binds this file as it binds
 // parser-lanes.js: the emitted shapes are the lane shapes —
 //   events: user_message / assistant_text / thinking / tool_call / tool_result

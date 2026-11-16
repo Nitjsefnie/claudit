@@ -99,12 +99,12 @@ def test_cost_by_context_replicates_the_reference_mark_treatment():
 
     The mechanism matters, not just the look. A cumulative line in a
     CONTRASTING hue has to out-lighten the bars and stay visible on the
-    dark surface at the same time, and nothing does both: the first
-    attempt scored 1.07:1 against the bars and was invisible. The
+    dark surface at the same time, and nothing does both: a contrasting
+    hue measured 1.07:1 against the bars and was invisible. The
     reference solves it without a second colour -- a dim field (bars at
     0.3, lifted to 0.85 on hover) under a same-hue line ringed in white
     at 0.15 opacity. Pin all three; dropping the halo or brightening the
-    bars quietly reintroduces the original bug.
+    bars makes the line invisible.
     """
     ref = _strip_line_comments(CHARTS.read_text(encoding="utf-8"))
     src = _panel_src("CostByContextPanel")
@@ -372,10 +372,9 @@ def test_browser_prices_an_undeclared_ttl_at_the_1h_rate():
 
 def test_panel_totals_render_in_the_top_left_corner():
     """Every panel that shows a Total badge anchors it at the plot's
-    TOP-LEFT corner (`padL + 6`, the mirror of the old right-corner
-    `w - padR - boxW - 6`). Both render sites are pinned, located through
-    the badge's data-total-badge marker so a variable rename fails loudly
-    instead of silently unguarding: TimeSeriesPanel (one shared block
+    TOP-LEFT corner (`padL + 6`). Both render sites are pinned, located
+    through the badge's data-total-badge marker so a variable rename fails
+    loudly instead of silently unguarding: TimeSeriesPanel (one shared block
     behind every per-bin time series) and CostByContextPanel (Cost/Tokens
     by Context Size).
     """
@@ -445,9 +444,9 @@ def test_vbar_fmt_is_value_only():
     """
     charts = _strip_line_comments(CHARTS.read_text(encoding="utf-8"))
     start = charts.index("function VBar(")
-    # The Burn Rate panel moved to src/burn-rate-panel.jsx, so
-    # the region's old end marker went with it; the export tail follows
-    # VBar wherever the panel after it lives.
+    # The Burn Rate panel lives in src/burn-rate-panel.jsx, so the region
+    # has no end marker here; the export tail follows VBar wherever the
+    # panel after it lives.
     end = charts.index("window.TimeSeriesPanel = TimeSeriesPanel;", start)
     assert re.search(r"\(\{pct\}%\)", charts[start:end]), (
         "VBar no longer renders its own ({pct}%) share line -- percent-"
@@ -508,9 +507,8 @@ def test_dashboard_fetch_state_is_written_at_every_outcome():
     that produced it.
 
     A count of the module's call sites satisfies any four of them: a
-    discarded `failed(...)` (the legacy symptom back through a new
-    door), a `loaded()` where the run opens, or no reset at all each
-    leave every other assertion in this file green.
+    discarded `failed(...)`, a `loaded()` where the run opens, or no
+    reset at all each leave every other assertion in this file green.
     """
     body = _dashboard_effect(_app())
     opening = body.index("window.dashboardFetch.load(url")

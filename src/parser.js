@@ -49,7 +49,7 @@ function shouldPushUserText(text) {
 window.parseTranscript = function parseTranscript(text, opts) {
   // A lane format is parsed by parser-lanes.js (loaded before this file).
   // Without parser-lanes.js — a bare require of parser.js in tests — the
-  // Claude path below is the whole parser, as before.
+  // Claude path below is the whole parser.
   if (window.sniffTranscriptFormat) {
     const fmt = window.sniffTranscriptFormat(text);
     if (fmt !== 'claude') return window.parseTranscriptLanes(text, opts);

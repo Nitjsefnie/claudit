@@ -247,8 +247,8 @@ def test_layout_shift_and_longtask_totals_are_summed_not_averaged():
 
 
 def test_the_observed_metrics_are_broken_down_by_region_and_phase():
-    """Item (2) of the issue is the breakdown: which part of the page
-    shifted, and whether it was before first paint or after usable."""
+    """The breakdown is which part of the page shifted, and whether it
+    was before first paint or after usable."""
     src = _panel_src("WebMetricsPanel")
     for key in ("region", "phase"):
         assert f"'{key}'" in src or f".{key}" in src, (
@@ -267,7 +267,7 @@ def test_the_panel_calls_the_a11y_helper():
 
 
 def test_the_panel_adds_no_css():
-    """public/app.css is frozen for this issue; a panel that needed a new
+    """The panel uses only classes public/app.css already defines; a panel that needed a new
     class would silently not be styled in the served page."""
     src = PANEL.read_text(encoding="utf-8")
     assert "app.css" not in src, "the panel references a stylesheet"
@@ -462,10 +462,10 @@ def test_the_regions_the_panel_groups_by_are_actually_marked_up():
     assert 'data-perf-region="topbar"' in src, (
         "the top bar carries no region, so its shifts are attributed "
         "to `other` (#733)")
-    # the range strip and the project strip no longer SHARE
+    # the range strip and the project strip do not share
     # `project_picker` -- a beacon naming it could not say which strip
-    # shifted. Each names its own term, so the range strip's shifts stop
-    # reading as the project strip's.
+    # shifted. Each names its own term, so the range strip's shifts do not
+    # read as the project strip's.
     assert picker_src.count('data-perf-region="project_picker"') == 1, (
         "the project strip carries no `project_picker` region, or carries "
         "it more than once (#733/#755)")
@@ -511,9 +511,9 @@ def test_the_client_and_the_panel_are_loaded_before_the_app():
 
 
 def test_the_relocated_helpers_are_still_the_ones_the_tree_uses():
-    """app.jsx read these two as bare top-level functions; they now live
-    in a plain-JS module and every call site must go through the global,
-    or `no-undef` fires in CI and the page throws at runtime."""
+    """These two live in a plain-JS module, so every call site must go
+    through the global, or `no-undef` fires in CI and the page throws at
+    runtime."""
     app = _strip_line_comments("\n".join(p.read_text(encoding="utf-8") for p in (
         APP, APP.parent / "dashboard-view.jsx", APP.parent / "app-navigation.jsx")))
     gating = (ROOT / "src" / "panel-gating.js").read_text(encoding="utf-8")

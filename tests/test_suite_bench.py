@@ -365,9 +365,8 @@ def test_partition_rejects_a_negative_residual():
 def test_the_gate_modules_touch_no_wall_clock():
     # The only time-module member any bench module may name is
     # process_time — the portable fallback, telemetry only. A wall read
-    # in the gate's path would make the verdict machine-speed-dependent
-    # again, which is the regression this family exists to close. The
-    # net is wider than the imports: ANY `<name>.<wall-member>` shape
+    # in the gate's path would make the verdict machine-speed-dependent.
+    # The net is wider than the imports: ANY `<name>.<wall-member>` shape
     # and ANY bare wall-member call is flagged, imported or not — a
     # planted `time.perf_counter()` that forgot its own import must
     # still be caught (mutation M9).

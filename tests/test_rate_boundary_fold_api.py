@@ -278,7 +278,7 @@ def test_cache_missing_rollup_pair_uses_global_epoch_fallback(
 
 
 # --- a tracked vendor pair: the bare id's fold gets the vendor boundaries --
-# The migrated vendor rows are provider rows keyed (bare key, vendor host),
+# The vendor rows are provider rows keyed (bare key, vendor host),
 # and the bare first-party id prices through them with no provider at all
 # A pair the rollup lists must get the vendor boundaries, or
 # its re-derived Token Breakdown split drifts from the stored cost.

@@ -357,9 +357,9 @@ def test_mixed_dated_and_undated_records_sort_undated_first():
 def test_naive_timestamp_is_stored_and_priced_as_utc():
     """An offset-less timestamp is UTC: the same instant is
     priced and stored, so a reprice of the stored row prices what a
-    reparse of the raw text prices. Before the normalisation the parser
-    handed a naive datetime to pricing (UTC) AND to the driver (the
-    session zone), so the two could disagree across a rate cutover."""
+    reparse of the raw text prices. A naive datetime handed on as-is
+    reaches pricing as UTC AND the driver in the session zone, so the
+    two could disagree across a rate cutover."""
     out = parse.parse_file(
         "k/sess-naive/sess-naive.jsonl", _read("naive_timestamp.jsonl")
     )
@@ -370,7 +370,7 @@ def test_naive_timestamp_is_stored_and_priced_as_utc():
 
 def test_reply_latency_terminated_by_list_form_interrupt():
     """List-form interrupt content must terminate the reply-latency window,
-    not be ignored. Regression: bogus ~1h latency outlier after interrupts."""
+    not be ignored, or the window runs on into a bogus latency outlier."""
     out = parse.parse_file(
         "k/sess-interrupt/sess-interrupt.jsonl",
         _read("interrupt_list_content.jsonl"),
@@ -394,8 +394,8 @@ def test_reply_latency_anchored_by_list_form_user_text():
 
 def test_reply_latency_ignores_replayed_prompt():
     """A verbatim re-dispatched user record (same uuid, different line)
-    must not anchor reply-latency windows. Regression: bogus ~25m outliers
-    on re-dispatched subagent transcripts."""
+    must not anchor reply-latency windows, or re-dispatched subagent
+    transcripts show bogus latency outliers."""
     out = parse.parse_file(
         "k/sess-rp/sess-rp.jsonl", _read("replayed_prompt.jsonl")
     )
@@ -409,8 +409,8 @@ def test_reply_latency_terminated_by_synthetic_error_reply():
     """A `<synthetic>` API-error assistant record (e.g. "Login expired")
     is an assistant-side response: it TERMINATES the latency window even
     though it carries no billable usage and so gets no `records` row.
-    Regression: the anchor survived until the session resumed hours later,
-    producing a bogus 2.5h reply-latency outlier."""
+    Otherwise the anchor survives until the session resumes, possibly hours
+    later, producing a bogus reply-latency outlier."""
     out = parse.parse_file(
         "k/sess-synth/sess-synth.jsonl",
         _read("synthetic_error_terminator.jsonl"),
@@ -477,9 +477,8 @@ def test_tool_call_churn(fixture, file_key, expected):
 def test_dated_rate_prices_each_record_at_its_own_timestamp(synthetic_dated_rate):
     # A record on either side of a dated cutover must be priced by when it
     # was spent, not by when the file is parsed. Driven through conftest's
-    # synthetic window: the live DATED_RATES table is empty (Sonnet 5's
-    # launch price became its standard price), so nothing real straddles a
-    # cutover, but ingest must still honour per-record timestamps.
+    # synthetic window: the live DATED_RATES table is empty, so nothing real
+    # straddles a cutover, but ingest must still honour per-record timestamps.
     w = synthetic_dated_rate
     out = parse.parse_file("k/sess-d/sess-d.jsonl", _read("dated_rate_sonnet5.jsonl"))
     before, after = out["records"][0], out["records"][1]

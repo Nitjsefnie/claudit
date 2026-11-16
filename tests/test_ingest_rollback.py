@@ -37,9 +37,8 @@ def test_newer_stored_parser_version_is_never_reparsed(
     records verbatim across a rollback — even when the object's etag
     changed, because the older binary's rewrite would NULL the columns
     the old binary does not know. A sentinel planted in records.provider
-    — the exact column demonstrated being wiped — must
-    survive the run. The skip is surfaced in the run summary and logged
-    at warning level."""
+    (a column an older binary would wipe) must survive the run. The skip
+    is surfaced in the run summary and logged at warning level."""
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
         c.execute(
@@ -131,7 +130,7 @@ def test_older_stored_parser_version_still_reparses(
         fresh_db, mini_r2_env, monkeypatch):
     """The guard only blocks NEWER stored versions: a file stored by an
     older parser_version still reparses when the binary moves forward —
-    the existing etag/parser_version contract, unchanged."""
+    the etag/parser_version contract."""
     ingest.run_ingest(trigger="manual")
     monkeypatch.setattr(
         parser_version, "PARSER_VERSION",

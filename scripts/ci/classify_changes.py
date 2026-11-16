@@ -64,8 +64,8 @@ bot = importlib.import_module('classify_bot' if __name__ == '__main__' else 'scr
 setup_docs = importlib.import_module('setup_docs' if __name__ == '__main__' else 'scripts.ci.setup_docs')
 thresholds = importlib.import_module('classify_thresholds' if __name__ == '__main__' else 'scripts.ci.classify_thresholds')
 
-# The paths-ignore deny-lists the gate workflows carried on master, now
-# re-homed as classifier patterns. `.github/ci-thresholds.json` is
+# The paths-ignore deny-lists for the gate workflows, kept here as
+# classifier patterns. `.github/ci-thresholds.json` is
 # deliberately NOT here: the ratchet bot's commit is kept off ci-gate by
 # the push trigger's own paths-ignore, and a change to the thresholds
 # data must run the gates rather than read as documentation.
@@ -294,10 +294,9 @@ def _push_paths(repository, event, run):
     if base is None:
         return None
     # A rename reports ONE row — filename is the new path, and the old
-    # path arrives as previous_filename; projecting only .filename read
-    # backend/auth.py -> backend/auth.md as a docs-only change. Both
-    # paths count, so a rename into or out of documentation runs the
-    # legs.
+    # path arrives as previous_filename. Both paths count, so a rename into
+    # or out of documentation runs the legs; reading only .filename would
+    # classify backend/auth.py -> backend/auth.md as docs-only.
     return _read(run, [
         'gh', 'api', '-H', 'Cache-Control: no-cache',
         f'repos/{repository}/compare/{base}...{sha}', '--jq',

@@ -403,7 +403,7 @@ def test_wait_refuses_promptly_when_a_check_failed(tmp_path, conclusion):
 @ubuntu_step_body
 def test_wait_refuses_on_a_red_gate_the_selector_keeps(tmp_path):
     # end to end: a PUSH-run gate whose check name begins
-    # `release`. The old prefix filter dropped this row and released over
+    # `release`. A prefix filter would drop this row and release over
     # it; the selector keeps it, so the wait refuses.
     checks = _checks(_row("completed", "failure", "release-notes"),
                      _row("completed", "success", "aggregate"))
@@ -556,7 +556,7 @@ def test_wait_derives_its_own_path_from_the_workflow_ref(tmp_path):
 @ubuntu_step_body
 def test_wait_ignores_a_release_row_whose_own_run_is_stamped_with_the_tip(
         tmp_path):
-    # Round 2's blocker, through the real step body. SHA is a NON-tip
+    # A re-cut through the real step body. SHA is a NON-tip
     # commit, so the runs listing filtered by that SHA carries no row for
     # this dispatch — its own run is recorded against the tip — while the
     # earlier failed release PUSH run on that same commit is present. With
@@ -613,7 +613,7 @@ def test_the_wait_step_delegates_selection_to_the_selector():
 def test_the_selector_projection_carries_the_app_slug():
     # The aggregate rule reads the app column; without it in the
     # projection it would read a column that is not there. The projection
-    # lives in the selector now, so it is pinned there.
+    # lives in the selector, so it is pinned there.
     selector = (ROOT / "scripts" / "ci" / "release_gate.py").read_text(
         encoding="utf-8")
     assert 'check_run.get("app") or {}' in selector

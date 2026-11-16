@@ -33,13 +33,8 @@ EVENT_HELPERS = ROOT / "src" / "event-helpers.jsx"
 def _svg_bearing_jsx():
     """Every src/**/*.jsx module that draws an <svg>.
 
-    DERIVED, not a hand-maintained list, because the hand-maintained list
-    failed exactly once already: moved ComparisonRow's svg out
-    of dashboard-charts-extra.jsx into its own module, and the hard-coded
-    tuple it replaced went on counting 14 svgs where it asserted 15 — the
-    assertion's own "the guard would pass vacuously" message firing for
-    real. A chart svg that moves files must not be able to fall out of the
-    audit silently.
+    DERIVED, not a hand-maintained list: a hard-coded tuple falls silently
+    out of date when a chart svg moves to another file.
 
     Every file that carries an <svg> today is a chart panel: the two
     chart modules, the context-growth view, and the context-growth
@@ -156,8 +151,8 @@ def test_fg2_meets_aa_where_it_paints_text():
 
 def test_muted2_has_no_non_decorative_text_use():
     """--muted-2 stays below AA on every surface (2.45:1 over --bg,
-    2.20:1 over --panel-2 at a4f6a) and that is the documented,
-    deliberate shape: its only text renderings are decorative
+    2.20:1 over --panel-2) and that is the documented, deliberate
+    shape: its only text renderings are decorative
     separators (the "/" prefix of.logo-sub and the slash between the
     +/- line-churn figures in app.jsx), which WCAG 1.4.3's
     incidental-text exception covers; everywhere else it is the
@@ -547,9 +542,8 @@ def test_inspector_keys_drive_the_click_selection_path():
 def test_every_select_has_an_accessible_name():
     """Every <select> in src/*.jsx carries an accessible name: an
     aria-label, an aria-labelledby, or an id a <label htmlFor> in the
-    same file names. The six model filters sit beside visible
-    'model:' text that no label element associated, so their accessible
-    name was empty.
+    same file names. The six model filters sit beside visible 'model:'
+    text, which names nothing unless a label element associates it.
     """
     total = 0
     for path in sorted((ROOT / "src").glob("*.jsx")):

@@ -214,9 +214,9 @@ def test_dated_window_does_not_leak_to_other_models(synthetic_dated_rate):
 def test_tier_fallback_never_inherits_a_dated_promotion(monkeypatch):
     # An unrecognised sonnet falls back to the current-generation row's
     # LIST rates, not its promotional ones, even inside the window. The
-    # family rows are tracked vendor rows since the migration, so the
-    # promo hangs on the vendor row the fallback prices through — found
-    # here by identity, so a new Sonnet release moves the test with it.
+    # family rows are tracked vendor rows, so the promo hangs on the
+    # vendor row the fallback prices through — found here by identity,
+    # so a new Sonnet release moves the test with it.
     fallback = pricing._latest("sonnet")  # pylint: disable=protected-access
     row = next(row for row, v in pricing.PROVIDER_RATES.items()
                if v is fallback)
@@ -238,7 +238,7 @@ def test_rate_epochs_are_exposed_sorted_for_read_time_grouping(synthetic_dated_r
 # --- provider rows (exercised via a synthetic row) --------------------------
 # SV-PROVIDER-RATES and SV-DATED-RATES on the provider half of the table.
 # The live provider rows are single-entry today (no moves, no first-seen
-# hosts since the table was seeded), so these drive the machinery through
+# hosts), so these drive the machinery through
 # conftest's synthetic_provider_dated_rate rather than a live entry — the
 # same reason the model side uses synthetic_dated_rate above.
 

@@ -299,8 +299,8 @@ def test_health_db_failure_is_generic(redact_app, monkeypatch):
     resp = TestClient(a).get("/health")
     body = resp.text
     monkeypatch.undo()
-    # 503, not 200: a status-code monitor reads only the status line
-    # Same generic body as before.
+    # 503, not 200: a status-code monitor reads only the status line.
+    # The body stays generic.
     assert resp.status_code == 503
     assert "alpha-db" not in body and "beta-rows" not in body
     assert "database unavailable" in body

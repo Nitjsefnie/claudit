@@ -71,7 +71,7 @@ fails on drift; the lane browser test fails when
 `LONG_CONTEXT_OUTPUT_MULT` stop matching `pricing.LONG_CONTEXT_*`, or
 when the loader's `window.longContextModels` / `window.longContextMeters`
 stop matching the grouped `long_context_meters` field after folding
-(membership is its key set, issue #883), or
+(membership is its key set), or
 when `window.longContextFactorsFor(model)` stops matching
 `pricing.long_context_factors(model)`.
 
@@ -92,15 +92,14 @@ implementations, and add a pinning fixture, all in one commit.
 The replayed-model adoption is INGEST-level, not parser semantics, and
 is deliberately NOT a parser change on either side: a parse sees one
 file, and the parent's model in force lives in a different one. A
-browser parse of a lone fork file keeps the #653 fallback (the fork's
-first declaration) — that is the record the Inspector shows for a
-session whose parent never loads with it. What the browser DOES mirror
-is the cross-file record dedup: `parseLaneCodex` feeds the lane's
-derived record identities through `recordDedup.decide` + `retract` when
-a shared `seenUuids` map is passed (issue #713), so with a parent and
-its fork both loaded the parent's originals survive and the fork's
-replayed records leave — the same winner the DB's canonical rows hold.
-The tool_use_id pass is mirrored the same way (issue #766):
+browser parse of a lone fork file keeps the fallback (the fork's first
+declaration) — that is the record the Inspector shows for a session whose
+parent never loads with it. What the browser DOES mirror is the cross-file
+record dedup: `parseLaneCodex` feeds the lane's derived record identities
+through `recordDedup.decide` + `retract` when a shared `seenUuids` map is
+passed, so with a parent and its fork both loaded the parent's originals
+survive and the fork's replayed records leave — the same winner the DB's
+canonical rows hold. The tool_use_id pass is mirrored the same way:
 `parseLaneCodex` decides each `tool_call` into a shared `seenToolIds` map
 through `recordDedup.decideTool` and drops the copies the standing winner
 outranks with `recordDedup.dropMaskedTools`, tool_call and tool_result

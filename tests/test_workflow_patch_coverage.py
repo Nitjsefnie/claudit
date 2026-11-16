@@ -283,9 +283,9 @@ class TestPostingSide:
 
     def test_the_zip_is_fetched_through_the_api_not_a_download_action(
             self):
-        # CodeQL alert 13 (actions/artifact-poisoning): a
-        # workflow_run consumer no longer pulls what a pull request
-        # produced with actions/download-artifact. The zip is fetched
+        # CodeQL's actions/artifact-poisoning query: a workflow_run
+        # consumer does not pull what a pull request produced with
+        # actions/download-artifact. The zip is fetched
         # through the shared retry into $RUNNER_TEMP instead — by the id
         # selected off the EVENT run's own artifact listing — and
         # extracted into a fresh directory outside the workspace.

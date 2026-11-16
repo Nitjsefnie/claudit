@@ -1,8 +1,8 @@
 """The startup migration: old text shape -> surrogate ids.
 
 Every assertion here is about what `db.apply_schema()` leaves behind on
-a database that carried the legacy shape with data in it — the deploy
-path R1 sanctions: fact and rollup tables drop-and-recreate (refilled by
+a database that carried the legacy shape with data in it — on the deploy
+path, fact and rollup tables drop-and-recreate (refilled by
 the PARSER_VERSION bump's full reparse), `projects`/`files` migrate in
 place keeping their rows, and re-running the whole schema is a no-op.
 """
@@ -118,7 +118,7 @@ def test_migration_rebuilds_facts_and_migrates_identity_in_place(
         db.apply_schema()
 
         with psycopg.connect(f"postgresql:///{name}") as conn:
-            # Identity migrated IN PLACE (R1): rows kept, surrogate PK,
+            # Identity migrated IN PLACE: rows kept, surrogate PK,
             # file_key still the UNIQUE stored identity (SV-FILES-RECORDS).
             row = conn.execute(
                 "SELECT file_id, file_key, project_id, session_id "
@@ -240,7 +240,7 @@ def test_reserved_rows_stand_for_the_empty_grain_keys(monkeypatch):
 def test_dim_fk_columns_stay_nullable_for_switched_off_writers(
         monkeypatch,
 ):
-    """#951 tolerance: a NULL dim FK inserts and reads as NULL."""
+    """NULL dim FK tolerance: a NULL dim FK inserts and reads as NULL."""
     name = scratch_db.create_database("dims_null", schema=scratch_db.OLD_SCHEMA)
     monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")
     db.reset_viz_pool()
@@ -360,7 +360,7 @@ def test_reapplying_the_schema_preserves_rows_and_leaves_no_strays(
             assert "model" not in _columns(conn, "tool_uses")
             assert "error_kind" not in _columns(conn, "tool_uses")
             assert "provider" not in _columns(conn, "usage_rollup")
-            # index policy now owns the analysis indexes: the
+            # index policy owns the analysis indexes: the
             # obsolete two and turn_flags' GIN (no integer opclass)
             # stay absent; read_targets/reread exist
             # while their collection group is on (default).
@@ -382,14 +382,14 @@ def test_reapplying_the_schema_preserves_rows_and_leaves_no_strays(
 
 
 # ---------------------------------------------------------------------------
-# The THIRD deployment state: a dev database stamped by this branch at the
-# EARLIER widths — BIGINT surrogate ids everywhere, a TEXT cli_version, and
+# The THIRD deployment state: a dev database stamped at the EARLIER
+# widths — BIGINT surrogate ids everywhere, a TEXT cli_version, and
 # the narrow-last declaration order. Rebuilt below by the same guarded path
 # as the legacy shape, because a stamped database must not keep the old
 # column order forever.
 # ---------------------------------------------------------------------------
 
-# records / tool_uses as the branch declared them before task 7: same live
+# records / tool_uses as the earlier stamped shape declared them: same live
 # columns, different order, BIGINT ids, cli_version as TEXT. The reprice
 # columns are absent — schema_records_price.sql had already moved them to
 # the sidecar — so this is the stamped REST state, not a mid-chain one.
@@ -522,7 +522,7 @@ _STAMPED_WIDEN = (
 
 
 def _stamp_earlier_shape(conn, project: str, file_key: str) -> None:
-    """Rewind a canonical database to the branch's earlier stamped shape."""
+    """Rewind a canonical database to an earlier stamped shape."""
     now = datetime.now(timezone.utc)
     conn.execute(
         "INSERT INTO projects (project_id, display_name, "

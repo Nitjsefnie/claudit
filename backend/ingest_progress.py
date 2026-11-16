@@ -32,9 +32,9 @@ def _set_progress(**kw) -> None:
     """Update live progress.
 
     Single-writer by construction: _RUN_LOCK admits one run at a time, so
-    nothing else can interleave into this dict. That guarantee is the fix for
-    the readout that showed `total` changing mid-run, `done` reaching 106% and
-    then going backwards — two overlapping runs sharing one slot.
+    nothing else can interleave into this dict. Overlapping runs sharing one
+    slot would let `total` change mid-run and `done` pass 100% and then go
+    backwards.
     """
     with _PROGRESS_LOCK:
         _PROGRESS.update(kw)

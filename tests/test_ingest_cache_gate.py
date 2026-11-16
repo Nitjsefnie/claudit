@@ -5,9 +5,8 @@ PRICING_VERSION bump, the suppression purge, or the project_aliases
 fold — must gate exactly like a run that inserted, reparsed or deleted
 a file.
 
-Split from test_ingest.py's planned additions: the size gate holds
-every tests/ module to its ceiling, so new tests live here and borrow
-its fixtures, the way test_ingest_fetch.py already does.
+The size gate holds every tests/ module to its ceiling, so new tests live
+here and borrow test_ingest's fixtures, the way test_ingest_fetch.py does.
 """
 from __future__ import annotations
 
@@ -60,11 +59,10 @@ def test_a_reprice_only_ingest_invalidates_and_broadcasts(
     # a restamp-only bump changes no data and must stay
     # quiet; the simulated bump moves real rates so the reprice pass has
     # something to reprice.
-    # claude-opus-4-7 is a tracked vendor key since the migration: the
-    # pair its bare path reads is (key, vendor_host), and replacing the
-    # WHOLE row in the provider tables is what makes the move
-    # perturbation-proof (the perturbed tree appends dated entries to
-    # every row).
+    # claude-opus-4-7 is a tracked vendor key: the pair its bare path reads
+    # is (key, vendor_host), and replacing the WHOLE row in the provider
+    # tables is what makes the move perturbation-proof (the perturbed tree
+    # appends dated entries to every row).
     opus_row = ("claude-opus-4-7", pricing.VENDOR_HOSTS["claude-opus-4-7"])
     monkeypatch.setattr(pricing, "PROVIDER_RATES", {
         **pricing.PROVIDER_RATES,

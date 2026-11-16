@@ -76,9 +76,9 @@ def test_the_grid_fits_the_measured_width_at_every_panel_width():
 
 
 def test_the_legend_gradient_is_drawn_in_units_that_scale():
-    """the legend svg carried no viewBox, so the flex row could
-    shrink the svg element while the gradient rect inside kept its fixed
-    120px width -- the bar overflowed the shrunk element by 59px. A
+    """The legend svg needs a viewBox: without one, the flex row can
+    shrink the svg element while the gradient rect inside keeps its fixed
+    120px width, so the bar overflows the shrunk element. A
     viewBox with preserveAspectRatio="none" draws the rect in user units
     the browser maps onto whatever width the flex row leaves the svg, so
     the bar scales instead of overflowing."""

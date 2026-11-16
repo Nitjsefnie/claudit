@@ -1,9 +1,9 @@
 """Startup applies the schema files, so a deploy cannot outrun its DB.
 
-schema_check() only asserted that `files` existed, so a
-checkout that pulled code writing a new column started clean and then
-failed every ingest with UndefinedColumn. Applying the idempotent
-schema at boot removes the divergence rather than reporting it.
+Applying the idempotent schema at boot removes the divergence between
+the code and the database rather than reporting it: a checkout whose
+code writes a new column would otherwise start and then fail every
+ingest with UndefinedColumn.
 """
 from __future__ import annotations
 
@@ -339,10 +339,10 @@ def _fake_viz_conn(monkeypatch, conn):
 
 def test_apply_schema_unlock_failure_does_not_mask_the_ddl_error(monkeypatch):
     """A failed DDL leaves an aborted transaction behind, so the unlock in
-    the finally fails on it — and that failure replaced the migration's
-    own error at the caller. The migration's error is the diagnosable one
-    and must survive; the cleanup failure is swallowed and logged, with
-    the unlock still attempted."""
+    the finally fails on it and would replace the migration's own error
+    at the caller. The migration's error is the diagnosable one and must
+    survive; the cleanup failure is swallowed and logged, with the unlock
+    still attempted."""
     conn = _SchemaConn(
         fail_ddl_with=RuntimeError("the migration itself failed"),
         fail_unlock_with=RuntimeError("connection lost"))

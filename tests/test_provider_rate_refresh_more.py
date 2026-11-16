@@ -244,10 +244,10 @@ def test_a_fast_pair_selects_the_same_log_history_with_or_without_a_pin() -> Non
 
 
 def test_a_new_fast_pair_host_gets_a_row_for_its_base(tmp_path, capsys) -> None:
-    """End to end, the shape that redded master before a host with a
-    stored row at the base price is suddenly listed as {p, p/fast}. The
-    rule takes the base endpoint, the stored row still matches it, and the
-    run is green with the rule-resolved line in its report."""
+    """End to end, a host with a stored row at the base price is
+    suddenly listed as {p, p/fast}. The rule takes the base endpoint, the
+    stored row still matches it, and the run is green with the
+    rule-resolved line in its report."""
     run = Run(tmp_path)
     seeded = run.endpoint(GLM, "Fireworks")
     seeded["tag"] = "fireworks"

@@ -1,11 +1,10 @@
 """No parser stores a placeholder model, and a model-less file refuses.
 
 `unknown` and `(unknown)` are placeholders for a model that was never
-actually unknown. Under the ruling no parser may emit one: the
-Claude path leaves a model-less usage-bearing line model-less (None),
-and parse_file's refusal — shared with the lanes — fails the
-file loudly, storing no rows. The browser mirror keeps null the same
-way.
+actually unknown. No parser may emit one: the Claude path leaves a
+model-less usage-bearing line model-less (None), and parse_file's refusal
+— shared with the lanes — fails the file loudly, storing no rows. The
+browser mirror keeps null the same way.
 """
 from __future__ import annotations
 
@@ -56,7 +55,7 @@ def test_no_parser_fixture_carries_a_placeholder_model():
 def test_a_browser_claude_parse_keeps_a_modelless_record_null():
     """The browser mirror: a model-less assistant usage line
     parses to a null model — never the `(unknown)` placeholder, which
-    the backend now refuses."""
+    the backend refuses."""
     text = (
         '{"type":"assistant","timestamp":"2026-05-07T10:00:01Z",'
         '"uuid":"u-nm","requestId":"req-nm",'

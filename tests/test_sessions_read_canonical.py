@@ -1,11 +1,10 @@
 """/api/sessions* must filter is_canonical, not re-sort at read time.
 
-SV-CANONICAL-FLAG resolved cross-file uuid dedup at INGEST into
-records.is_canonical so read endpoints could filter a boolean instead of
-sorting the table per request. /api/sessions never got that memo: it
-still deduplicates with a per-request read-time sort, and
-/api/sessions/{id} has no dedup at all, so a session whose main file
-carries a loser row counts it anyway.
+SV-CANONICAL-FLAG resolves cross-file uuid dedup at INGEST into
+records.is_canonical so read endpoints filter a boolean instead of
+sorting the table per request. /api/sessions must filter it too, and
+/api/sessions/{id} must drop the loser rows: a session whose main file
+carries a loser row would otherwise count it.
 
 Two guards, one per failure mode (source-level guards are repo
 precedent -- tests/test_panel_wiring.py -- for wrongness a green suite

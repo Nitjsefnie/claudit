@@ -355,7 +355,7 @@ def test_the_leg_runs_one_seed_and_shard_per_matrix_job():
     # seeds are independent trees, so fail-fast's cancellation would
     # discard a seed still to run.
     assert strategy.get("fail-fast") == "false", strategy
-    # The fixed seeds live in the matrix now, so this is
+    # The fixed seeds live in the matrix, so this is
     # where the leg's seed policy is pinned: a dropped or added seed
     # fails here.
     assert (strategy.get("matrix") or {}).get("seed") == [

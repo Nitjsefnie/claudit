@@ -2,8 +2,8 @@
 
 A heredoc body inside `for x in a b c; do … done` is written once per
 iteration, and when the word list is LITERAL the iteration count is in
-the command text — no execution needed. Counting the body once was an
-undercount by exactly that factor (measured on a real session: a
+the command text — no execution needed. Counting the body once
+undercounts by exactly that factor (measured on a real session: a
 two-iteration loop writing a 26-line brief recorded 26 lines, not 52).
 
 The count is taken only when it is certain. A word list containing a

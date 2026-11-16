@@ -4,7 +4,7 @@
 ``uuid_col`` (native uuid), ``seq`` (the INT4 counter beside it) or
 ``fallback`` (everything else) — and every read rebuilds the original
 text with ``uuid_split.uuid_text_sql``, so canonical grouping, winner
-parity and API output stay byte-identical to the old TEXT column.
+parity and API output stay byte-identical to a plain TEXT column.
 
 The coexistence test is the pin for the partition scheme: a pure ``U``
 row and a ``U:5`` split row share ``uuid_col`` but are DIFFERENT
@@ -54,7 +54,7 @@ UPPERCASE_PREFIX_SPLIT = (f"{CANON.upper()}:5", "fallback")
 # reconstruct without its newline (byte identity broken, and it merges
 # with a genuine `U:5` in the winner rule), and `U\n` would reach
 # ingest_persist as a "uuid" whose uuid.UUID() parse then crashes the
-# file's persist — the old TEXT column stored both fine.
+# file's persist.
 TRAILING_NEWLINE_SPLIT = (f"{CANON}:5\n", "fallback")
 TRAILING_NEWLINE_PURE = (f"{CANON}\n", "fallback")
 EMPTY = ("", "fallback")
@@ -280,9 +280,9 @@ def test_the_fallback_never_holds_a_form_another_slot_owns():
 @pytest.mark.db
 def test_pure_and_split_rows_of_one_uuid_keep_separate_winners(monkeypatch):
     """Coexistence pin: ``U`` and ``U:5`` share uuid_col but are DIFFERENT
-    identities — the old TEXT rule gave each its own winner, and so must
-    the split. A partition keyed on uuid_col alone would merge them and
-    flip one row's flag; this test fails on that scheme."""
+    identities — each gets its own winner, and the split must keep it so.
+    A partition keyed on uuid_col alone would merge them and flip one row's
+    flag; this test fails on that scheme."""
     name = scratch_db.create_database("uksplit_coex")
     monkeypatch.setenv("CLAUDIT_DATABASE_URL_VIZ", f"postgresql:///{name}")
     db.reset_viz_pool()
@@ -320,13 +320,14 @@ def test_pure_and_split_rows_of_one_uuid_keep_separate_winners(monkeypatch):
 
 @pytest.mark.db
 def test_the_uuid_index_is_gone_with_its_readers_named():
-    """records_uuid_idx is dropped (-class: measured 140 MB on the
-    full corpus). Its only readers were the two hourly equality probes in
-    ingest_rollup_state's incremental branches (recompute_canonical's
-    ``uuid = ANY`` winners scan and adopt_original_models' join) — 4 ms
-    CPU with the index vs ~86 ms without, while adopt's winners CTE
-    already seq-scans the whole table every incremental run anyway, and a
-    window PARTITION BY never consults a b-tree index at all."""
+    """records_uuid_idx is absent (-class: measured 140 MB on the
+    full corpus). The only queries it would serve are the two hourly
+    equality probes in ingest_rollup_state's incremental branches
+    (recompute_canonical's ``uuid = ANY`` winners scan and
+    adopt_original_models' join) — 4 ms CPU with the index vs ~86 ms
+    without, while adopt's winners CTE already seq-scans the whole table
+    every incremental run anyway, and a window PARTITION BY never consults
+    a b-tree index at all."""
     name = scratch_db.create_database("uksplit_idx")
     try:
         with psycopg.connect(f"postgresql:///{name}") as conn:
@@ -342,17 +343,16 @@ def test_the_uuid_index_is_gone_with_its_readers_named():
 @pytest.mark.db
 def test_a_text_uuid_database_drops_to_the_split_and_forces_a_refill(
         monkeypatch):
-    """Migration: old TEXT-uuid rows converge to the split columns.
+    """Migration: TEXT-uuid rows converge to the split columns.
 
     The shape guard in schema_widths.sql keys on the live column
     signature; a `uuid:text` records matches neither canonical split
-    signature, so it is dropped (facts are derived — R1) and rebuilt by
+    signature, so it is dropped (facts are derived) and rebuilt by
     schema_dims.sql. Dropping alone cannot refill it:
     files.parser_version would still match ingest's stored version, so
-    task 8 carries PARSER_VERSION 110 — the seeded '109' below is the
-    branch's pre-split stamp, and the assertion is that it no longer
-    matches: the bump is what forces the reparse that restores the
-    dropped facts.
+    PARSER_VERSION sits past the pre-split stamp — the seeded '109'
+    below — and the assertion is that the stamp does not match: the bump
+    is what forces the reparse that restores the dropped facts.
     """
     name = scratch_db.create_database("uksplit_mig",
                                       schema=scratch_db.OLD_SCHEMA)

@@ -1,13 +1,11 @@
 """The single-chart model panels: selection rule, shape, and module pins.
 
-the Per-Session Context Growth panel drew one
-sub-chart per model (a 17-row grid at 33 models) and so did Tool Error
-Rate. Both are now ONE chart per panel with model checkboxes, on shared
-axes, so a panel's height no longer grows with the model count. The
-height pin lives here as a SELECTION rule (the cheapest thing that would
-fail on regression): the default checked set is the top 2 by the sort
-order given, whatever the model count — a reintroduced per-model grid or
-an all-models default blows both.
+The Per-Session Context Growth and Tool Error Rate panels each draw ONE
+chart with model checkboxes, on shared axes, so a panel's height does not
+grow with the model count. The height pin lives here as a SELECTION rule
+(the cheapest thing that would fail on regression): the default checked
+set is the top 2 by the sort order given, whatever the model count — a
+reintroduced per-model grid or an all-models default blows both.
 """
 from __future__ import annotations
 
@@ -203,9 +201,9 @@ def test_the_tool_panel_never_returns_to_a_per_model_grid():
 
 
 def test_the_638_sub_panel_legend_exemption_is_gone():
-    """the sub-panels and their overflowing legends are deleted, so
-    the rendered-layout guard's ledger no longer carries the exemption —
-    any legend overflow the replacement panel shows fails the leg."""
+    """the sub-panels and their overflowing legends are gone, so the
+    rendered-layout guard's ledger carries no exemption for them — any
+    legend overflow the panel shows fails the leg."""
     src = GUARD.read_text(encoding="utf-8")
     assert "issue: 638" not in src, (
         "the #638 exemption survives a panel that no longer renders the "

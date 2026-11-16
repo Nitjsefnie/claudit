@@ -472,11 +472,11 @@ def test_the_schema_carries_both_tables(viz):
 def test_a_user_id_wider_than_int4_round_trips(viz):
     # The session layer reports the auth DB's `user_id`, and there that
     # column is a BIGINT: a named user's id exceeds int4 on this host, and
-    # the sink's executemany raised
+    # an int4 column makes the sink's executemany raise
     # `psycopg.errors.NumericValueOutOfRange: integer out of range` on a
-    # real beacon from a logged-in user browsing the dashboard. Guests
-    # (`user_id` 0) are what the sink was exercised with, so the column's
-    # width was never held to a value the old schema could not store.
+    # beacon from a logged-in user. Guests (`user_id` 0) alone never
+    # exercise the column's width, so the test holds it to a value int4
+    # cannot store.
     wide = 2**31 + 7                       # past the int4 ceiling
     beacon = web_metrics.normalise(_beacon(value=12.0))
     with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:

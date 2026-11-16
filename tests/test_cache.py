@@ -378,13 +378,13 @@ def _key_for(fn, kwargs):
 def test_warm_recomputes_a_stale_entry_in_one_hop(monkeypatch):
     """`warm()` must itself populate the entry, in one pool task.
 
-    Regression: `warm()` called the DECORATED endpoint, so a stale entry
-    was returned immediately and the recompute deferred to
-    `_schedule_refresh` -- the entry stayed stale, and warming a stale key
-    spent two slots on the two-worker refresh pool instead of one, with
-    the real work pushed one hop further back in a queue that user
-    refreshes share. Every ingest ends in `warm_common()`, so this ran
-    every hour for every warmed view.
+    A call through the DECORATED endpoint would return a stale entry
+    immediately and defer the recompute to `_schedule_refresh` -- the
+    entry would stay stale, and warming a stale key would spend two slots
+    on the two-worker refresh pool instead of one, with the real work
+    pushed one hop further back in a queue that user refreshes share.
+    Every ingest ends in `warm_common()`, so this path runs every hour for
+    every warmed view.
 
     Each assertion below catches its own direction, and the placement is
     load-bearing. The freshness checks run after exactly ONE task, because
@@ -512,21 +512,19 @@ def test_warm_claims_the_key_while_it_computes(monkeypatch):
     While the warm runs, the entry is still stale, so a request arriving
     in that window is served the old value and calls `_schedule_refresh`
     on the same key. `_refreshing` is the only thing that makes those two
-    exclude each other; without the claim the key computes twice, which is
-    the one way this fix is worse than the code it replaces.
+    exclude each other; without the claim the key computes twice.
 
     Pinned on the claim the endpoint body observes rather than on a racy
     thread interleaving: the body runs exactly once per compute, so what it
     saw is the state a concurrent `_schedule_refresh` would have read.
 
-    Scope, stated honestly: this is red on 829265c (the commit that added
-    the inline compute with no claim) and on any tree where the claim is
-    deleted. It is GREEN on `origin/master`, because there the compute runs
-    inside the deferred `_schedule_refresh`, which claims the key itself on
-    the way in — the same observable, a different caller. It pins the
-    property that matters, that the compute is deduped, not which caller
-    holds the claim; `test_warm_recomputes_a_stale_entry_in_one_hop` is what
-    catches the revert to the decorated call.
+    Scope, stated honestly: this is red on any tree where the claim is
+    deleted. It is GREEN on a tree where the compute runs inside the
+    deferred `_schedule_refresh`, which claims the key itself on the way
+    in — the same observable, a different caller. It pins the property
+    that matters, that the compute is deduped, not which caller holds the
+    claim; `test_warm_recomputes_a_stale_entry_in_one_hop` is what catches
+    the revert to the decorated call.
     """
     pool = _CountingPool()
     monkeypatch.setattr(cache_mod, "_refresh_pool", pool)

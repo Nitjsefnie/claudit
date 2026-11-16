@@ -5,14 +5,14 @@ The backend folds an agent role to its canonical name at parse time
 columns store it, and the Inspector's agent_spawn events show it.
 
 The fold TABLE stays backend-owned (SV-WHY-COLUMNS' canonical-name
-paragraph; the brief's constraint: no second literal table in the
-browser). The page injects it as window.AGENT_TYPE_FOLD at serve time
-(backend/agent_types.fold_js, riding app.py's existing injection script),
-and the browser lookup (src/agent-types.js) holds the split+lookup logic
-only. Pinned three ways: browser output == backend canonical_agent_type
-over the fold's whole case set (node), the served page carries the table
-(TestClient over the real app), and index.html loads the helper before
-the parser that calls it.
+paragraph); the browser holds no second literal table. The page injects
+it as window.AGENT_TYPE_FOLD at serve time (backend/agent_types.fold_js,
+riding app.py's existing injection script), and the browser lookup
+(src/agent-types.js) holds the split+lookup logic only. Pinned three
+ways: browser output == backend canonical_agent_type over the fold's
+whole case set (node), the served page carries the table (TestClient
+over the real app), and index.html loads the helper before the parser
+that calls it.
 """
 from __future__ import annotations
 

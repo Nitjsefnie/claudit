@@ -234,8 +234,8 @@ def test_main_unreadable_thresholds_fails(tmp_path, capsys):
 # ratchet mirrors every rule with the direction inverted — it only ever
 # moves DOWN, one phase at a time, and a slower or within-hysteresis
 # reading tightens nothing. The yardsticks are the same two constants,
-# in the bench's own unit. The per-phase share is NOT tightened: it stopped
-# being a budget with and is telemetry the measurement carries.
+# in the bench's own unit. The per-phase share is NOT tightened: it is
+# telemetry the measurement carries, not a budget.
 
 def _reparse_ratchet():
     return _load("reparse_ratchet")

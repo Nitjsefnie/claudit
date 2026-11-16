@@ -293,8 +293,8 @@ def test_residual_is_the_divergence_not_a_rounding():
         "is left unmeasured")
 
     # And the currency is one that CAN read zero, or the two assertions
-    # above would hold for any wiring at all. The full mirror now carries
-    # a meta.json sidecar, so the demonstration uses a corpus
+    # above would hold for any wiring at all. The full mirror carries a
+    # meta.json sidecar, so the demonstration uses a corpus
     # that genuinely has none -- one transcript, no sidecar beside it: the
     # same shape as a residual that is not really measured, and the
     # instrument reports the unreached phase as exactly zero.
@@ -448,9 +448,8 @@ def test_the_corpus_endpoint_is_built_with_as_uri_not_an_f_string():
 
     `as_uri()` and f'file://{path}' produce the IDENTICAL string on POSIX, so
     the assertion above — which checks what r2 makes of the URL — passes with
-    either construction here and only bites on the Windows legs. Since the
-    defect was invisible everywhere except the platform that failed, the
-    construction itself has to be pinned, and that is a source-text
+    either construction here and only bites on the Windows legs. The
+    construction itself is therefore pinned, and that is a source-text
     assertion: it is the only form that can distinguish two expressions that
     agree on the platform running the test.
     """

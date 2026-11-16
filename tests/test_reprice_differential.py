@@ -17,7 +17,7 @@ SV-CI-RATCHETS test ceiling once the differential landed.
 """
 from __future__ import annotations
 
-# duplicate-code at module scope: the frozen pre-#351 pass
+# duplicate-code at module scope: the frozen pass
 # resembles the live one on purpose - the similarity IS the
 # freeze the differential rests on (R0801 is only suppressible
 # at module level).
