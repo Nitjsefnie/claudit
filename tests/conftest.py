@@ -91,7 +91,7 @@ def synthetic_dated_rate(monkeypatch):
 
     SV-DATED-RATES requires the models-table window machinery to keep
     working for the next promotion, but the claude rows are tracked vendor
-    rows since the vendor migration, so the models table
+    rows, so the models table
     holds no claude row a live window could hang on. The fixture installs
     its OWN models-table row and window — synthetic rates, unlike any real
     price, so a test asserting against them can never be mistaken for a

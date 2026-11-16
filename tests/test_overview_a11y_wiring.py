@@ -1,28 +1,26 @@
-"""Source-level guards for the Overview accessibility findings.
+"""Source-level guards for the Overview accessibility requirements.
 
 Same boundary as test_a11y_wiring.py and test_panel_wiring.py: node cannot
 parse JSX and nothing here renders React, so a legend can dim its own text
-below AA (finding 4), a checkbox can stay a 13x13 target (finding 5), a nav
-button can carry its current state only as a CSS class (finding 6) and a
-panel toolbar can refuse to wrap at 320 px (finding 7) while the whole
-suite stays green. These guards read the sources directly and pin:
+below AA, a checkbox can stay a 13x13 target, a nav button can carry its
+current state only as a CSS class and a panel toolbar can refuse to wrap
+at 320 px while the whole suite stays green. These guards read the sources
+directly and pin:
 
-4. the Overview legend checkbox rows never dim their TEXT (the counts and
+1. the Overview legend checkbox rows never dim their TEXT (the counts and
    names) through an opacity binding on the row's <label> — muted computes
-   4.84:1 over --bg-card at full opacity, 2.51:1 at the old 0.6 (axe
+   4.84:1 over --bg-card at full opacity, 2.51:1 at 0.6 (axe
    color-contrast);
-5. the legend checkbox: its visible box stays in proportion with the 11px
-   legend text and no larger than the 14px panel title (which
-   found the 24x24 target this finding installed rendering as the largest
-   element in its row), and the 24x24 target SC 2.5.8 asks for is met by
-   the SPACING exception instead — consecutive rows' centres at least 24px
-   apart, from the shared box constant plus the containers' row gap, on
-   every one of the five containers (axe target-size; the default control
-   renders 13x13);
-6. each TopBar nav button carries `aria-current` bound to its own route
+2. the legend checkbox: its visible box stays in proportion with the 11px
+   legend text and no larger than the 14px panel title, and the 24x24
+   target SC 2.5.8 asks for is met by the SPACING exception instead —
+   consecutive rows' centres at least 24px apart, from the shared box
+   constant plus the containers' row gap, on every one of the five
+   containers (axe target-size; the default control renders 13x13);
+3. each TopBar nav button carries `aria-current` bound to its own route
    equality, so the active page is exposed beyond the.on class (axe
    aria-current-valid... its absence left state class-only);
-7. the CSS mechanisms that keep the Overview inside 320 px: wrapping panel
+4. the CSS mechanisms that keep the Overview inside 320 px: wrapping panel
    toolbars, a wrapping sub-panel row, a cell floor that fits the 320 px
    card, and a topbar that stacks instead of overflowing its 3-column
    grid.
@@ -123,16 +121,15 @@ def _legend_call_sites() -> int:
                for src in _legend_srcs())
 
 
-# -- Finding 4: legend text is never dimmed below AA -------------------
+# -- Legend text is never dimmed below AA ------------------------------
 
 def test_legend_rows_never_dim_their_text():
-    """The checkbox rows' counts ('(70)') computed 2.51:1 over --bg-card:
-    the label carried `opacity: checked ? 1 : 0.6`, compositing --muted
-    (4.84:1 at full strength) below the AA floor whenever a series was
-    unchecked. The dimming must not touch the row's text: any `opacity`
-    on the row <label> is banned outright, because no opacity over
-    --bg-card keeps --muted at 4.5:1 (full opacity computes 4.84:1; even
-    0.95 drops to 4.51:1 and 0.9 to 4.15:1)."""
+    """The checkbox rows' counts ('(70)') must keep --muted above AA over
+    --bg-card. A row <label> with a low opacity composites --muted under
+    the AA floor (2.51:1 at 0.6), so the dimming must not touch the
+    row's text: any `opacity` on the row <label> is banned outright,
+    because no opacity over --bg-card keeps --muted at 4.5:1 (full opacity
+    computes 4.84:1; even 0.95 drops to 4.51:1 and 0.9 to 4.15:1)."""
     rows = _checkbox_rows()
     assert len(rows) == 1, (
         f"expected the 1 shared LegendCheckboxRow shape across "
@@ -185,9 +182,8 @@ def test_legend_rows_keep_a_nontext_state_affordance():
         f"the legend checkbox does not carry the series colour: "
         f"{input_tag.strip()!r} -- the tint belongs on the input, which is "
         f"now the row's only colour key")
-    # The checked state is the affordance the old label opacity gave, so
-    # the row must still bind `checked` onto the control and must not
-    # reintroduce an opacity anywhere (finding 4).
+    # The checked state is the affordance, so the row must bind
+    # `checked` onto the control and must not use an opacity anywhere.
     assert "checked={checked}" in input_tag, (
         f"the legend checkbox no longer binds `checked`: {input_tag.strip()!r} "
         f"-- the on/off affordance is gone with the swatch's dimming")
@@ -197,7 +193,7 @@ def test_legend_rows_keep_a_nontext_state_affordance():
         "--muted at the 4.5:1 AA floor")
 
 
-# -- Finding 5: checkbox targets are at least 24x24 --------------------
+# -- Checkbox targets are at least 24x24 -------------------------------
 
 # SC 2.5.8's spacing exception requires the 24px circles around undersized
 # targets not to touch; 25px centre separation leaves a margin over tangency.
@@ -234,10 +230,7 @@ def _legend_container_gaps(src: str) -> list[tuple[int, int]]:
     gap is read from THAT style object's own braces -- `{` back to the
     nearest one before the anchor, `}` to the first after -- so the
     properties may appear in any order and no sibling container's `gap`
-    can leak in. Anchoring on the property ORDER instead was a false
-    green: a legend container written `display, gap, flexWrap` with a
-    genuine 6px row gap left the spacing pin green, because the regex
-    never matched it at all and the count of five was met by four.
+    can leak in.
     """
     pairs = []
     for m in re.finditer(re.escape("flexWrap: 'wrap'"), src):
@@ -256,9 +249,9 @@ def _legend_container_gaps(src: str) -> list[tuple[int, int]]:
 
 
 def test_legend_checkboxes_are_proportionate_to_the_legend_text():
-    """The visible box was 24x24 while the legend text beside it is 11px
-    and the panel title above it 14px (measured, deployed Overview, DPR
-    1), so the checkbox was the largest element in its row. The box must
+    """The legend text beside the checkbox is 11px and the panel title
+    above it 14px (measured, deployed Overview, DPR 1), so a box larger
+    than the title would be the largest element in its row. The box must
     not exceed the title, and both edges must come from one literal."""
     assert len(_checkbox_rows()) == 1, (
         "expected the 1 shared LegendCheckboxRow shape -- a hand-rolled "
@@ -306,7 +299,7 @@ def test_legend_rows_keep_the_sc_2_5_8_spacing_exception():
             f"the {_LEGEND_MIN_CENTRE_SEP_PX}px SC 2.5.8 spacing exception")
 
 
-# -- Finding 6: the nav exposes its current page -----------------------
+# -- The nav exposes its current page ----------------------------------
 
 def test_topbar_nav_buttons_carry_aria_current():
     """Each TopBar nav button binds aria-current to its OWN route
@@ -334,7 +327,7 @@ def test_topbar_nav_buttons_carry_aria_current():
         "aria-current leaked onto a non-nav element of TopBar")
 
 
-# -- Finding 7: the Overview fits 320 px -------------------------------
+# -- The Overview fits 320 px ------------------------------------------
 
 
 def _has_flexwrap(body: str) -> bool:
@@ -405,8 +398,8 @@ def test_context_growth_panel_is_one_chart_on_a_measured_width():
 def test_topbar_stacks_instead_of_overflowing():
     """The topbar's 3-column grid (1fr auto 1fr) has a ~760px min-content
     (logo + 4 nav buttons + Export PNG/Logout); below that width the grid
-    overflows and was the widest 320 px offender (right=539). Below 800px
-    it must stack: one column, every row wrapping."""
+    overflows (right=539 at 320 px). Below 800px it must stack: one column,
+    every row wrapping."""
     css = CSS.read_text(encoding="utf-8")
     m = re.search(r"@media \(max-width: 800px\)\s*\{(.*?)\n\}", css, re.S)
     assert m, (

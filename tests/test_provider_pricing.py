@@ -409,7 +409,7 @@ def test_fold_reconciles_across_provider_entries(
                             list(zip(boundaries, spans[:-1], strict=True)))
         monkeypatch.setattr(pricing, "RATE_EPOCHS", boundaries)
         pricing_ts = (boundaries[0] - timedelta(microseconds=1), *boundaries)
-        # Keep the original rounding regression: 0.01485 folds to 0.0149.
+        # Rounding check: 0.01485 folds to 0.0149.
         fresh_tokens = 990
 
     stored = [_cost(model, host, ts, fresh=fresh_tokens) for ts in pricing_ts]
@@ -452,7 +452,7 @@ def test_a_non_uniform_schedule_still_sums_to_the_stored_total(monkeypatch):
     noon = datetime(2026, 9, 21, 12, tzinfo=UTC)    # inside 09:00-17:00
     evening = datetime(2026, 9, 21, 20, tzinfo=UTC)  # outside it
     # At 990 tokens/span the raw schedule sum 0.09860994 folds to 0.0986,
-    # which the old default approx tolerance rejected.
+    # which a default approx tolerance rejects.
     tokens_per_span = 990
     stored = (_cost(SYNTH_MODEL, "HostCo", noon, fresh=tokens_per_span,
                     read=tokens_per_span, output=tokens_per_span)

@@ -177,7 +177,7 @@ def test_check_fails_on_a_phase_over_its_bytecode_floor(tmp_path, capsys, phase)
 
 @pytest.mark.parametrize("committed", [False, True], ids=["synthetic-budgets", "committed-budgets"])
 def test_check_ignores_a_share_over_its_floor(tmp_path, capsys, committed):
-    """A share no longer gates — it is telemetry.
+    """A share is telemetry, not a gate.
 
     A phase share is a proportion of a timed run: its runner-to-runner
     spread measures wider than the 1.5-point gap it is compared against

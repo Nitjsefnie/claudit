@@ -331,10 +331,10 @@ def _match_series_to_endpoints(
 def _endpoint_overrides_kind(endpoint: dict) -> str | None:
     """What one endpoint's pricing.overrides classify as, independent of
     the overrides' order: "schedule" when a utc window is present (the
-    stronger blocker, and the historical wording for anything else),
-    "band" when only min_prompt_tokens overrides are. The log's five
-    fields carry neither, so either samples the host; the sampled reason
-    names which classified it."""
+    stronger blocker, and the label for anything else), "band" when only
+    min_prompt_tokens overrides are. The log's five fields carry neither,
+    so either samples the host; the sampled reason names which classified
+    it."""
     pricing = endpoint.get("pricing")
     if not isinstance(pricing, dict):
         return None

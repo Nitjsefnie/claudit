@@ -104,7 +104,7 @@ models-table key or tracked key, and is either a bare string (global
 multipliers) or a one-key object mapping the key to an object with optional
 `input_mult` / `output_mult`. Unknown fields, malformed entries, invalid
 thresholds or multipliers, duplicate thresholds, empty groups, repeated
-keys, and keys naming neither table are refused. The removed
+keys, and keys naming neither table are refused. A
 `long_context_models` field is refused if present. The loaders fold groups
 to the in-memory `key -> {threshold, input_mult?, output_mult?}` map;
 membership is exactly its key set, so every member has a threshold.
@@ -129,7 +129,7 @@ global multipliers, or a one-key object mapping that key to an object with
 optional `input_mult` / `output_mult`. The key must name a models-table or
 tracked key, and it may appear only once across all groups. Unknown fields,
 bad group/model shapes, duplicate thresholds, empty groups, repeated keys,
-and invalid thresholds or multipliers are refused; the old
+and invalid thresholds or multipliers are refused; a
 `long_context_models` field is refused if present. Optional multipliers must
 be finite positive numbers and override `pricing.LONG_CONTEXT_INPUT_MULT`
 and `LONG_CONTEXT_OUTPUT_MULT` independently; each member's explicit
@@ -459,7 +459,7 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
   only to its own row's grouping (SV-DATED-RATES).
 - The commit message omits a notice line the last committing run already
   carried, so a model still delisted — or a tag still unrecognised — is
-  not reprinted every hour (issue #888). The baseline is
+  not reprinted every hour. The baseline is
   `src/pricing_notices.json`, committed beside the pricing document: that
   run's FULL rendered notice set, the lines it showed AND the lines it
   suppressed. It must hold the suppressed lines — a baseline read from the
@@ -469,8 +469,8 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
   nothing, so the baseline can only under-suppress. A run with no data
   move publishes no commit, so it does not move the baseline.
 - The commit body also drops the standing blocks — the vanished-host set
-  (rows kept) and the sampled host classifications — which reprinted
-  byte-identically every run (issue #933). The run's own stdout report
+  (rows kept) and the sampled host classifications — so an unchanged set
+  is not repeated in every run's commit. The run's own stdout report
   keeps both blocks, and a committing run records them in the same state
   file as `vanished` (model → hosts) and `sampled` (model → host → the
   display classification), so a changed set or classification shows as a
@@ -635,8 +635,8 @@ pass moved.
 - **Auto-add joins the tracked set.** A catalog id under a listed prefix
   (with no `:<suffix>` variant suffix) whose derived key is not yet tracked
   is ADDED to `openrouter.models` as `{"id": <catalog id>, "vendor_host":
-  <providerName of the selected endpoint>}` — the entry shape the issue-851
-  migration gave every tracked vendor row. The pass writes NO RATES: the
+  <providerName of the selected endpoint>}` — the shape every tracked vendor
+  row carries. The pass writes NO RATES: the
   provider pass carries the `(key, vendor_host)` row from the NEXT hourly
   run, so a newly added model prices nothing for one run (the one-run
   pickup delay is the design; the loaders admit a tracked entry ahead of
@@ -682,7 +682,7 @@ pass moved.
   writes nothing.
 - **The long-context band folds to the meter at the band's own threshold
   and multipliers.** A `min_prompt_tokens` override yields its input/output
-  factors from the band's fresh input and output prices (issue #878). Every
+  factors from the band's fresh input and output prices. Every
   cache read or cache write price explicitly listed in that band must also
   equal its base component multiplied by the inferred input factor, rounded
   to ten decimal places; an inconsistent component refuses the listing with
@@ -749,12 +749,12 @@ repricing can move rollups outside the dirty files. No endpoint, panel
 or rollup reads `pricing_version`. The recomputed state is `cost_usd`
 (token cost plus `web_search_requests * web_search`, SV-RATE-DATA), the
 legacy `request_fee_usd` column set to NULL, and the long-context flag
-(`records.long_context` — membership-keyed since issue #765: a MEMBER
+(`records.long_context` — membership-keyed: a MEMBER
 row re-derives whatever its stored flag, so a refresh fold move
 converting the pre-fold NULL rows lands exactly what a reparse stores;
 a NON-MEMBER row keeps its stored flag — except a stored TRUE, which
 only the Codex path's threshold test can have written, re-derived so a
-lapsed member's TRUE unbills (issue #833)). The search count is reused
+lapsed member's TRUE unbills). The search count is reused
 from the stored record column. The completion marker follows
 SV-SCHEMA-AUTOAPPLY.
 

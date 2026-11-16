@@ -57,12 +57,11 @@ def resolve(items: list, call, workers: int) -> list[tuple]:
     """Run `call(item)` over `items`, pairing each with its result OR its
     exception instead of letting the first failure escape.
 
-    Sequential when workers == 1, on a pool otherwise. Collecting with
-    `[f.result() for f in as_completed(...)]` re-raised the worker's
-    exception out of the collection step, which aborted the whole ingest
-    AND discarded every already-fetched result alongside it. The two shapes
-    have to behave identically, which is easiest to guarantee with one
-    implementation.
+    Sequential when workers == 1, on a pool otherwise. Both shapes run
+    through one implementation so they behave identically: a worker's
+    exception is paired with its item, never re-raised during collection,
+    which would abort the whole ingest and discard every already-fetched
+    result alongside it.
 
     FatalFetchError is the one exception that still escapes: it means the
     fetch is broken rather than one object being unlucky, so it belongs to

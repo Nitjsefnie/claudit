@@ -134,11 +134,11 @@ Cost/Tokens by Context Size and Cost/Tokens by Agent Type — originate here.
   rollouts are differenced out of their cumulative token counters, dedup
   by request identity across resumed/forked rollouts, and billed on the
   long-context meter when a request's prompt exceeds the model's own
-  threshold — a per-model datum (issue #765), defaulting to the Codex
-  meter's 272k (2× input side, 1.5× output — persisted per record so
-  every cost breakdown reconciles). Kimi's kimi-code and legacy wire
-  formats land in the same tables with their own rate rows. The
-  browser's Inspector parses every format too (`src/parser-lanes.js`).
+  threshold — a per-model datum, defaulting to the Codex meter's 272k
+  (2× input side, 1.5× output — persisted per record so every cost
+  breakdown reconciles). Kimi's kimi-code and legacy wire formats land
+  in the same tables with their own rate rows. The browser's Inspector
+  parses every format too (`src/parser-lanes.js`).
 - **Configurable branding** — `CLAUDIT_APP_NAME` / `CLAUDIT_APP_TITLE` /
   `CLAUDIT_APP_DESCRIPTION` set the browser title, meta description, logo,
   sign-in page and export-PNG filename, so this codebase can serve as
@@ -391,9 +391,9 @@ about both:
   shape `scripts/ci/smoke.py` builds for its own fixture. A wrong type
   aborts with `auth DB users.user_id must be an integer type (smallint,
   integer or bigint), got 'text'`.
-- A table keyed by `id` rather than `user_id` used to pass the check and
-  500 every login with `UndefinedColumn` — issue #368 tightened it to the
-  two columns above.
+- A table keyed by `id` rather than `user_id` fails the startup check,
+  which requires the two columns above; without it every login would 500
+  with `UndefinedColumn`.
 - The connecting role needs `SELECT` on the table. It is the database,
   not the application, that is the real boundary: claudit issues no write
   against the auth DB, but a `GRANT`-less role cannot read it either, and
@@ -405,7 +405,7 @@ A `users` table outside the `public` schema aborts with the same
 `no 'users' table visible` message a wrong database produces, so check
 the schema as well as the DSN. A database that cannot be reached at all
 never gets that far — the connection times out instead, with no mention
-of which variable was wrong (issue #463).
+of which variable was wrong.
 
 The table starts empty, so there is no credentialed account yet —
 **Continue as guest** on the sign-in page gets you in without one, and

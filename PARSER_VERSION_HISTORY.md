@@ -5,12 +5,10 @@ pricing bot's write surface, and the history of every bump is kept here.
 That module is kept dependency-free, like `constants.py`: any module may import it,
 and it imports nothing. It lives apart from every other version
 constant on purpose: the hourly pricing bot rewrites
-`backend/constants.py` to bump `PRICING_VERSION`. Both constants shared
-that file, so every parser-version bump shared the bot's changed file
-and rebased on the bot's hourly commits. The review's experiment found
-that two isolated bumps merged without conflict markers. The bot's
-write surface and that module are disjoint now, pinned by
-`tests/test_parser_version_home.py`.
+`backend/constants.py` to bump `PRICING_VERSION`, and a shared file
+would put every parser-version bump in the bot's changed file and
+rebase it on the bot's hourly commits. The bot's write surface and
+that module are disjoint, pinned by `tests/test_parser_version_home.py`.
 
 ## What the constant is
 
@@ -20,11 +18,11 @@ parse output; `files.collection_flags` separately records the explicit
 collection policy.
 
 It lives in code, and not in the environment: a parser change and the
-reparse it requires must travel in the same commit. When this was read
-from `.env`, shipping a parser change without an operator also editing
-that file left every stored row at the old semantics with nothing to
-detect it, and a deploy that never set the variable at all sat forever
-on the `"1"` default.
+reparse it requires must travel in the same commit. Read from `.env`, a
+parser change shipped without an operator also editing that file would
+leave every stored row at the old semantics with nothing to detect it,
+and a deploy that never set the variable would sit forever on the `"1"`
+default.
 
 ## Bump rule
 

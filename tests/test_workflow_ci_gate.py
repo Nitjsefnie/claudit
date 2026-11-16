@@ -9,9 +9,9 @@ check still reports. The invariants pinned here:
   `workflow_call`;
 - the aggregate job runs with `if: always()` and needs every leg, so it
   reports even when legs fail, skip or never start;
-- trigger ownership really moved: the nine callees no longer carry
-  `push`/`pull_request`, and ci-gate's push trigger keeps the ratchet
-  bot's paths-ignore so its commit never starts the suite;
+- the nine callees carry no `push`/`pull_request` trigger, and ci-gate's
+  push trigger keeps the ratchet bot's paths-ignore so its commit never
+  starts the suite;
 - the aggregate's expected-leg list and the workflow's needs list cannot
   drift apart;
 - no `cache:` on any setup-python step (mirrored here so this file's
@@ -23,10 +23,10 @@ check still reports. The invariants pinned here:
 - the deploy key is loaded only by top-level jobs that take it from
   the master-push environment — refresh-pricing.yml's, ratchet-push.yml's
   and the comment-share and size-baseline records pushes — never by a
-  forwarded secret, and tests.yml pushes nothing (the secret resolved empty inside the
-  workflow_call callee, and a GITHUB_TOKEN push is rejected by the
-  ruleset's required aggregate check, so the ratchet push moved out of
-  the callee into ratchet-push.yml, keyed on the ci-gate run's
+  forwarded secret, and tests.yml pushes nothing (a forwarded secret
+  resolves empty inside the workflow_call callee, and a GITHUB_TOKEN push
+  is rejected by the ruleset's required aggregate check, so the ratchet
+  push lives in ratchet-push.yml, keyed on the ci-gate run's
   completion — the run that actually carries the ratchet artifacts).
 """
 from __future__ import annotations
@@ -186,11 +186,11 @@ def test_aggregate_module_names_the_same_cheap_legs_the_workflow_runs():
 def test_master_push_runs_get_a_per_sha_concurrency_group():
     # on a per-ref group with cancel-in-progress, a bot push
     # (the hourly pricing refresh, a dependabot merge) landing while a
-    # master run was in flight cancelled it whole — but the aggregate
-    # carries `if: always()`, so the cancelled run's aggregate still ran,
-    # folded the cancelled legs, and recorded a red `aggregate` on the
-    # superseded commit, which release.yml's waiter then refuses (a
-    # VERSION commit raced by a bot push could not release). Scoping the
+    # master run is in flight cancels it whole — but the aggregate
+    # carries `if: always()`, so the cancelled run's aggregate still runs,
+    # folds the cancelled legs, and records a red `aggregate` on the
+    # superseded commit, which release.yml's waiter refuses (a VERSION
+    # commit raced by a bot push could not release). Scoping the
     # push side of the group to the commit SHA gives every master push
     # its own run the gate's group never cancels, and release.yml waits
     # on a run that completes. The two long legs are per-SHA on a push
@@ -247,7 +247,7 @@ def test_classify_job_reads_actions_for_the_verified_base_walk():
 def test_ci_gate_push_trigger_keeps_the_ratchet_paths_ignore():
     # The ratchet bot's master commit (only the ratchet data files)
     # must not start the suite — the guarantee the gate workflows
-    # carry individually, hosted by ci-gate now.
+    # carry individually, hosted by ci-gate.
     push = (_ci_gate().get("on") or {}).get("push") or {}
     ignored = push.get("paths-ignore") or []
     assert ".github/ci-thresholds.json" in ignored, ignored
@@ -408,7 +408,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "--force" not in run
 
     # The key's shapes are gone from tests.yml ENTIRELY, and the callee
-    # no longer carries the push job at all: a coordinated edit that
+    # carries no push job at all: a coordinated edit that
     # re-adds an env mapping, a key read, an agent, or the job fails
     # here, not just at the workflow pin.
     tests_raw = TESTS_WORKFLOW.read_text(encoding="utf-8")

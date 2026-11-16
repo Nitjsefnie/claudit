@@ -348,11 +348,10 @@ def _seed_project_ordering_rollups(cur) -> None:
     now = datetime.now(timezone.utc)
     rollup_rows = [
             # No tokens ever — "no usage at all". Must be excluded
-            # outright, even though it has a usage_rollup row (and even
-            # though cost would have been 0 under the old rule too).
+            # outright, even though it has a usage_rollup row.
             ("sess-zero", "projNeverToken", timedelta(days=1), 1, 0, 0),
-            # A FREE lane: tokens but zero cost. Must be LISTED — this is
-            # the empty-picker bug the tokens rule fixes.
+            # A FREE lane: tokens but zero cost. Must be LISTED — the
+            # tokens rule keeps a free lane in the picker.
             ("sess-free", "projFree", timedelta(hours=1), 4, 4000, 0),
             # Real historical cost (bigger than projRecentCost's), but 60
             # days old — outside a 7d range. Must still be LISTED
@@ -408,9 +407,9 @@ def test_cache_session_total_estimated_rate_true_when_any_model_estimated(
     """
     patched = {k: v for k, v in pricing.MODEL_RATES.items() if k != "claude-sonnet-4-5"}
     monkeypatch.setattr(pricing, "MODEL_RATES", patched)
-    # The claude families are tracked vendor rows since the migration:
-    # un-pricing the model means dropping it from the merged view's other
-    # table too, and clearing the memoized match scans.
+    # The claude families are tracked vendor rows: un-pricing the model
+    # means dropping it from the merged view's other table too, and clearing
+    # the memoized match scans.
     monkeypatch.setattr(pricing, "VENDOR_BARE",
                         {k: v for k, v in pricing.VENDOR_BARE.items()
                          if k != "claude-sonnet-4-5"})
@@ -580,7 +579,7 @@ def _insert_tz_probe_rows():
             "(%s, 2, 'uuid-tz-summer', '2026-07-15T10:30:00Z', %s, 20)",
             (fid, mid, fid, mid),
         )
-        # cost_usd moved to the records_price sidecar; the pair
+        # cost_usd is stored in the records_price sidecar; the pair
         # is written together so the rollup's cost fold still sees it.
         cur.execute(
             "INSERT INTO records_price (file_id, line_num, cost_usd) "

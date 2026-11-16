@@ -1,5 +1,5 @@
 """Exercise panel layout and context-axis arithmetic through node.
-Fixed legend offsets overlapped labels and clipped wrapped rows.
+Fixed legend offsets overlap labels and clip wrapped rows, so
 src/panel-layout.js computes placement; the browser supplies measured text
 advances. scripts/ci/panel_layout.mjs checks actual rendered boxes."""
 from __future__ import annotations
@@ -184,10 +184,9 @@ class TestNodeDrivenPanelAndCtxAxis:
         assert got == ["abc", "abc", ""]
 
     def test_the_rule_and_the_count_sit_after_the_labels_own_width(self):
-        # THE REGRESSION. At the fixed offsets the panel used (rule at
-        # 86, count at 108) this label is 108.5px wide starting at x=9, so it
-        # ran through the rule and 9.5px into the count. The offsets must be
-        # derived from the label instead.
+        # At fixed offsets (rule at 86, count at 108) this label, 108.5px
+        # wide starting at x=9, runs through the rule and 9.5px into the
+        # count. The offsets must be derived from the label instead.
         got = _node(f"""
           const c = window.panelLayout.clusterAt('claude-sonnet-4-6', 14, {ADV}, 0);
           console.log(JSON.stringify({{
@@ -221,11 +220,11 @@ class TestNodeDrivenPanelAndCtxAxis:
         )
 
     def test_a_shortened_cluster_keeps_its_identity_and_loses_only_the_text(self):
-        # review finding 1: the panel keys its React children and looks
-        # the model's colour up by `label`. A cluster that returned the
-        # SHORTENED string as its identity gave the legend entry a #888
-        # fallback swatch beside its own model-coloured median line, and two
-        # sibling models that shortened alike collided as duplicate keys.
+        # The panel keys its React children and looks the model's colour up
+        # by `label`. A cluster that returned the SHORTENED string as its
+        # identity would give the legend entry a #888 fallback swatch beside
+        # its own model-coloured median line, and two sibling models that
+        # shortened alike would collide as duplicate keys.
         got = _node(f"""
           const c = window.panelLayout.clusterAt('claude-opus-4-8', 12, {ADV}, 120);
           console.log(JSON.stringify({{label: c.label, text: c.text}}));
@@ -245,10 +244,10 @@ class TestNodeDrivenPanelAndCtxAxis:
             "both shorten alike; only the identity keeps them apart")
 
     def test_the_slot_budget_is_divided_by_the_advance_not_compared_with_it(self):
-        # review finding 2: `adv` is a WIDTH per character. Treating it
-        # as a character count (Math.max(adv,...)) sized the cluster off the
-        # font instead of off the room available, so a large advance overflowed
-        # the slot and shortened nothing.
+        # `adv` is a WIDTH per character. Treating it as a character count
+        # (Math.max(adv,...)) sizes the cluster off the font instead of off
+        # the room available, so a large advance overflows the slot and
+        # shortens nothing.
         widths = [
             _node(f"""
               console.log(JSON.stringify(window.panelLayout.clusterAt(
@@ -283,9 +282,8 @@ class TestNodeDrivenPanelAndCtxAxis:
         assert got["width"] <= 1304
 
     def test_clusters_that_do_not_fit_wrap_to_a_second_row(self):
-        # What the fixed 270px pitch got wrong at phone width: the second
-        # cluster landed on a row the fixed-height svg clipped away. Here the
-        # row count is reported so the panel can size the svg to it.
+        # The row count is reported so the panel can size the svg to it: a
+        # fixed-height svg clips a second row away at phone width.
         got = _node(f"""
           const p = window.panelLayout.packLegend(
             [{{model: 'claude-sonnet-4-6', count: 14}},
@@ -512,8 +510,8 @@ class TestNodeDrivenCtxAxis:
     def test_the_session_view_scales_to_its_own_observed_peak(self):
         # The per-session view holds rows rather than sessions, so it takes
         # the peak directly. It is the same rule, and the same headroom the
-        # other two use -- which is what keeps a session's curve at the height
-        # it had when the cap line was still drawn below it.
+        # other two use -- which keeps a session's curve at the height that
+        # shared headroom gives it.
         expr = _y_axis_expression(SESSION_JSX)
         got = _ctx_node(f"""
           const A = window.ctxAxis;
@@ -561,10 +559,10 @@ def test_the_removed_cap_elements_are_gone_from_every_context_view():
     # against it, and the two reference lines drawn at fractions of it.
     needles = ("% cap", "cap}", "ctxAxisTop(cap", "yScale(cap")
     for view in (GRID_JSX, COMPARE_JSX, SESSION_JSX):
-        # Comments stripped, like the cap-name scan above: the comparison
-        # panel now carries a comment about the cap line it removed, and
-        # the next editor to write `yScale(cap` while explaining something
-        # must not turn the suite red for saying so.
+        # Comments stripped, like the cap-name scan above: a comment may
+        # describe a cap line, and the next editor to write `yScale(cap`
+        # while explaining something must not turn the suite red for
+        # saying so.
         text = _strip_js_comments(view.read_text(encoding="utf-8"))
         for needle in needles:
             assert needle not in text, (
@@ -579,9 +577,9 @@ def test_the_axis_module_is_loaded_by_the_page():
 
 
 def test_the_removed_cap_is_not_still_declared_as_an_eslint_global():
-    # eslint.config.mjs declared `capForModel` as a browser global. The
-    # name it named is gone, and a declaration left behind is how a
-    # reintroduced cap sails past the lint gate unnoticed.
+    # Keep `capForModel` out of eslint.config.mjs's browser globals: a
+    # leftover declaration is how a reintroduced cap sails past the lint gate
+    # unnoticed.
     assert "capForModel" not in ESLINT_CONFIG.read_text(encoding="utf-8")
 
 

@@ -108,7 +108,7 @@ def fetch_and_parse(key: str, sidecar_key: str | None,
     fetch_started = None
     if stages is not None:
         # Drop any stamp left by an earlier fetch on this thread, so
-        # this file's decompress booking is only its own work (M-2).
+        # this file's decompress booking is only its own work.
         r2.pop_decompress_seconds()
         fetch_started = time.perf_counter()
     data = (fetch(key, etag, size)

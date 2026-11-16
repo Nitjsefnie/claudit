@@ -1,8 +1,7 @@
 """Comment stripping and lexical preservation, with hand-written goldens.
 
-Every assertion fails on unfixed code by construction: backend.js_min did
-not exist before this task. The corpus checks supplement the goldens;
-an independent Espree AST comparison is run outside this Python suite.
+The corpus checks supplement the goldens; an independent Espree AST
+comparison is run outside this Python suite.
 """
 from __future__ import annotations
 

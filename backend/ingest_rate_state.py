@@ -111,7 +111,7 @@ def record_updates(row: RateRow) -> dict:
         "long_context": long_context,
         "long_context_input_mult": input_mult,
         "long_context_output_mult": output_mult,
-        # Search counts replace legacy note-derived fees.
+        # Search fees are priced into cost_usd from search counts; no note-derived request fee is kept.
         "request_fee_usd": None,
         "pricing_version": constants.PRICING_VERSION,
     }

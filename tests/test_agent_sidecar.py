@@ -11,7 +11,7 @@ dispatch asked for:
           ({"agentType": ...})
 
 Precedence: an in-band role > the sidecar's role > DEFAULT_AGENT_TYPE.
-A missing or unreadable sidecar is today's behaviour, never a failure.
+A missing or unreadable sidecar is skipped, never a failure.
 """
 from __future__ import annotations
 

@@ -1,8 +1,6 @@
 """The project picker fits its chips to the strip instead of scrolling.
 
-the picker showed every project of the current page and
-scrolled horizontally when they did not fit. The maintainer ruling makes
-the page size measured, not fixed: only the chips that fit the strip's
+The page size is measured, not fixed: only the chips that fit the strip's
 current width render, the rest page through the existing prev/next
 controls, and no horizontal scrollbar or overflow may remain. Nothing
 below the strip may move while paging or re-fitting.
@@ -291,7 +289,7 @@ def test_picker_measures_in_a_layout_effect():
 
 
 def test_picker_refits_on_resize_and_fonts():
-    """The ruling's refit trigger: a width change re-fits. The strip is
+    """Width changes re-fit. The strip is
     observed with a ResizeObserver (disconnected on unmount), and the
     webfont landing late re-measures — JetBrains Mono changes every chip
     width the fallback measured."""
@@ -307,10 +305,9 @@ def test_picker_refits_on_resize_and_fonts():
 
 
 def test_picker_overflow_is_cut_off_not_scrolled():
-    """The ruling's hard line: no horizontal scrolling remains. The
-    project strip cuts overflow off (overflow-x hidden), scoped to the
-    project picker alone — the shared.project-picker class keeps its
-    overflow for the range strip ( owns that strip)."""
+    """No horizontal scrolling: the project strip cuts overflow off
+    (overflow-x hidden), scoped to the project picker alone — the shared
+    .project-picker class keeps its overflow for the range strip."""
     body = _picker_body()
     assert "overflowX" in body and "'hidden'" in body, (
         "ProjectPicker's strip does not cut overflow off — a fit slip "

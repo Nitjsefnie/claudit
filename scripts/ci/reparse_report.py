@@ -217,7 +217,7 @@ def check(path, thresholds_path=None) -> int:
     If the document has no reparse family, the measurement is still
     taken, uploaded and checked for gateability; there is simply no
     budget to compare it against. Every absent count and every
-    over-budget phase in a recorded family fails as before.
+    over-budget phase in a recorded family fails.
     """
     measurement = measurement_from_file(path)
     floors = thresholds.reparse(

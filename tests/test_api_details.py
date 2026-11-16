@@ -24,13 +24,10 @@ from tests.test_api import (  # pylint: disable=unused-import
 
 def test_dashboard_returns_prompts_and_turns_totals(app_with_data):
     """total_prompts/total_turns count per own timestamp, in range only;
-    over an all-covering range that equals the old whole-file SUMs. Mini
-    r2 carried one real user prompt (sess-A) and five usage-bearing files
-    (sess-A, sess-B, sess-C main, sess-C agent, sess-D), one ctx_turn. It
-    now also carries the lane wires, so both totals are read
-    off the mirror by running the production parser over it — a transcript
-    is not a prompt, and no inventory can say how many prompts a mirror
-    holds."""
+    over an all-covering range that equals the whole-file totals. Mini r2
+    carries the lane wires, so both totals are read off the mirror by
+    running the production parser over it — a transcript is not a prompt,
+    and no inventory can say how many prompts a mirror holds."""
     totals = mini_mirror.record_totals()
     body = app_with_data.get("/api/dashboard?range=3650d").json()
     assert body["total_prompts"] == totals["prompt_count"]

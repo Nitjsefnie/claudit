@@ -2,21 +2,21 @@
 
 Every payload below was captured from the PRE-migration code over the
 committed mini mirror (CLAUDIT_WRITE_DIMS_GOLDEN=1 regenerates it) and is
-compared after the migration, so a response that changes shape, loses
+compared against the current code, so a response that changes shape, loses
 `file_key` through `r2.public_key`, or stops honouring a guest strip
 fails here. Dict keys sort and floats round to 9 decimals; LIST order
 is preserved and compared, except under _UNORDERED_KEYS — the keys
 whose source query orders nothing, where only "already unspecified"
-ordering may be tolerated per the change's byte-identity constraint —
+ordering may be tolerated per the migration's byte-identity constraint —
 so a real ORDER BY regression on an ordered endpoint reddens this test.
 
 Rate-derived leaves are QUANTISED, not compared (see _RATE_DERIVED_
-KEYS): the golden's money was captured under the src/pricing.json rates
-of capture day, so the next rate-refresh commit would redden this test
-for an unrelated reason. Their KEY must
-still be present on both sides (a dropped field is a shape change and
-is caught); everything else — tokens, counts, ids, models, file_keys,
-guest strips — keeps full value parity.
+KEYS): the golden's money depends on the src/pricing.json rates it was
+recorded under, so a rate refresh would otherwise redden this test for
+an unrelated reason. Their KEY must still be present on both sides (a
+dropped field is a shape change and is caught); everything else —
+tokens, counts, ids, models, file_keys, guest strips — keeps full value
+parity.
 """
 from __future__ import annotations
 
@@ -65,8 +65,8 @@ _UNORDERED_KEYS = frozenset({"traces"})
 # top-N lists whose query orders by a MEASURE with LIMIT: the measure's
 # DESC order is specified (asserted on the raw payload by
 # _assert_order_contract), but the order of rows TIED on the measure is
-# unspecified and moved with the migration's plan — so _canon_body
-# canonicalises them by (measure DESC, JSON text) on both sides.
+# unspecified, so _canon_body canonicalises them by (measure DESC, JSON
+# text) on both sides.
 _ORDER_CONTRACTS = {
     "/api/cache?range=all": {
         "top_output": "output",

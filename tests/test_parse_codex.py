@@ -258,9 +258,9 @@ def test_first_declaration_backfills_the_prefix(name, columns, expected):
 
 def test_a_file_declaring_no_model_is_refused_not_stored_as_unknown():
     """The fork fixture declares none. Nothing here derives the model in
-    force, and the ruling refuses a placeholder: the parser
-    invents no attribution the transcript does not carry, and ingest
-    fails loudly on the file instead of storing `unknown` rows."""
+    force, and a placeholder is refused: the parser invents no attribution
+    the transcript does not carry, and ingest fails loudly on the file
+    instead of storing `unknown` rows."""
     blob = (FIX / "rollout_fork_prefix.jsonl").read_bytes()
     assert _codex_first_declared_model(blob) is None
     with pytest.raises(ValueError, match="rollout_fork_prefix"):
@@ -273,8 +273,7 @@ def test_a_file_declaring_no_model_is_refused_not_stored_as_unknown():
     ("gpt5.6-sol", "gpt-5.6-sol"),        # real: one turn_context spells it so
     ("GPT-5.6-Terra", "gpt-5.6-terra"),
     ("gpt-5.6-luna-preview", "gpt-5.6-luna-preview"),
-    # Sol 6.1 is the id that hid as GPT-5.6 Sol until the relabelling map
-    # went: it now survives verbatim and prices at its own row.
+    # Sol 6.1 survives verbatim and prices at its own row.
     ("gpt-6.1-sol", "gpt-6.1-sol"),
     ("gpt-6-astra", "gpt-6-astra"),
     ("GPT-6-Astra", "gpt-6-astra"),
@@ -288,7 +287,7 @@ def test_model_ids_stay_as_recorded_after_spelling_normalisation(raw, expected):
 
 
 def test_the_parser_never_labels_a_model_unknown():
-    """The ruling: `unknown` is a placeholder for a model
+    """`unknown` is a placeholder for a model
     that was never actually unknown, so no parser may emit it — a file
     that cannot attribute is refused instead. Pin it on every lane
     parser at their shared entry point."""
@@ -474,7 +473,7 @@ TOOL_USE_KEYS = {
 # --------------------------------------------------------------------------
 
 def test_the_fork_head_advances_and_counts_like_the_parse_loop():
-    """Two codex_fork.head_scan edges ( delta round): a line
+    """Two codex_fork.head_scan edges: a line
     that merely MENTIONS the session_meta needle (here a JSON string
     value) advances - the first session_meta line decides - and the
     boundary counts lines the way the parse loop's splitlines() does, so

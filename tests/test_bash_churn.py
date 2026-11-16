@@ -374,9 +374,9 @@ def test_heredoc_sink_line_through_multi_digit_fds(fd):
 
 
 def test_folded_fd_zero_narrows_other_sink_and_replaces_stdin():
-    """`00>` folds to fd 0, so it stops booking the unknown-size other
-    sink and narrows to the pinned `0>` shape; `00<` folds to fd 0 and
-    now counts as stdin-replaced."""
+    """`00>` folds to fd 0, so it books no unknown-size other sink and
+    narrows to the pinned `0>` shape; `00<` folds to fd 0 and counts as
+    stdin-replaced."""
     assert bash_churn("cat /dev/null 00> f.txt") == (0, 0)
     assert bash_churn("cat /dev/null 0> f.txt") == (0, 0)
     assert _redirects(shell_tokens("cat 00< f.txt"))[2] is True

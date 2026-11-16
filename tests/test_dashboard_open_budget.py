@@ -106,7 +106,7 @@ def test_dashboard_runs_no_context_trace_query(app_with_data, monkeypatch):
 
     `file_models` is the trace SQL's distinctive CTE (a records scan
     grouped per file); its presence means the full per-file trace query
-    ran — exactly what the ctx_at_end fold no longer needs.
+    ran — exactly what the ctx_at_end fold does not need.
     """
     statement_log = _log_statements(monkeypatch)
     cache.response_cache.clear()
@@ -248,7 +248,7 @@ def _strip_comments(src: str) -> str:
     lookbehind spares `https://`). The block pass is load-bearing: without
     it a `/* window.deferred.run(...) */` left in the file satisfies the
     pin while the real call was reverted — a false green for the exact
-    defect this pin exists to catch ( delta review).
+    defect this pin exists to catch.
     """
     src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
     return re.sub(r"(?<![:'\"\w])//.*$", "", src, flags=re.M)

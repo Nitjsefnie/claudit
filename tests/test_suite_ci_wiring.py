@@ -228,8 +228,8 @@ def test_ratchet_push_commits_only_when_something_changed():
     lines = _run_lines(push)
     # Order is load-bearing: the tighten, then the porcelain check,
     # then the guarded commit -- and a no-op run is a NORMAL ending
-    # (exit 0), not a failure, because the job now runs for the
-    # tighten alone.
+    # (exit 0), not a failure, because the job runs for the tighten
+    # alone.
     tighten_index = lines.index(TIGHTEN_CMD)
     guard_index = next(index for index, line in enumerate(lines)
                        if "status --porcelain" in line)

@@ -147,8 +147,8 @@ def test_a_comment_change_after_line_two_still_narrows():
 
 
 def test_the_early_comment_boundary_is_line_two():
-    # Both directions at the boundary, with a magic SPELLING the old
-    # hand-rolled predicate missed (`# vim: fileencoding=...`): a comment
+    # Both directions at the boundary, with a magic SPELLING a hand-rolled
+    # predicate can miss (`# vim: fileencoding=...`): a comment
     # change on line 2 does not narrow, the same change on line 3 does.
     def pair(line):
         filler = ["x = 1"] * (line - 1)

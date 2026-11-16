@@ -37,10 +37,10 @@ function ComparisonRow({ models, byModel, w, h, showSessions }) {
     }
   });
 
-  // The PLOT keeps the height it had; everything below it is banded (x
+  // The PLOT keeps its own height; everything below it is banded (x
   // ticks, caption, then one band per legend row) and the svg grows to
-  // fit those bands. A fixed svg height is what clipped the wrapped legend
-  // row off the bottom at phone width.
+  // fit those bands, so a wrapped legend row is never clipped off the
+  // bottom at phone width.
   const padL = 60, padR = 30, padT = 30, padB = 60;
   const plotW = Math.max(10, w - padL - padR);
   const plotH = Math.max(10, h - padT - padB);

@@ -1,16 +1,14 @@
 """Sign-in page accessibility and failure rendering.
 
-Findings 1-3 of the axe-core audit:
-1. the Username/Password <label> elements name no input (no for/id, no
-   wrapping), so both fields have an empty accessible name;
-2. the "or" separator paints over the form card d — 2.44:1,
-   below the 4.5:1 AA text floor;
-3. every credential failure (401) and the rate-limit answer (429) reply
-   with a bare text/plain body — no form, no link back, no title, no
-   lang. They must re-render the full sign-in page with the error in a
-   role="alert" element, and the generic failure body must stay
-   byte-identical between wrong-password and unknown-id (no id
-   enumeration).
+Requirements:
+1. the Username/Password <label> elements name their inputs (for/id or
+   wrapping), so both fields have an accessible name;
+2. the "or" separator meets the 4.5:1 AA text contrast floor against the
+   form card it sits on;
+3. every credential failure (401) and the rate-limit answer (429) re-render
+   the full sign-in page with the error in a role="alert" element, and the
+   generic failure body stays byte-identical between wrong-password and
+   unknown-id (no id enumeration).
 """
 import re
 import secrets

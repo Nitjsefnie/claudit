@@ -9,16 +9,15 @@ The one treatment is TimeSeriesPanel's dim field -- bars rest at 0.3
 and the hovered bar lifts to 0.85 -- already carried by Cost by Context
 Size (through its module constants) and pinned there by test_panel_wiring
 .py. These guards extend it to the whole bar family: HBar, VBar and the
-Prompt-Cache TTL Split panel, which brightened to full opacity under a
-white hover stroke instead.
+Prompt-Cache TTL Split panel.
 
 The crosshair guards pin WHERE the dashed vertical is drawn: at the x of
 the datum the tooltip describes -- the bucket/bar centre on a bucketed
 panel, the interpolated point on a line panel -- never at the raw
 cursor. Cursor-following is the TOOLTIP's job; a crosshair at tip.x
-describes nothing. The enumeration is complete over src/ as
-of this fix: the NINE hover crosshairs in served sources are the six
-below plus ToolErrorRatePanel, the context-growth ComparisonRow, and
+describes nothing. The enumeration is complete over src/: the NINE
+hover crosshairs in served sources are the six below plus
+ToolErrorRatePanel, the context-growth ComparisonRow, and
 ContextGrowthView's (src/context-growth-view.jsx, already snapped to
 xScale(hoverIdx)), all nine guarded here. A tenth crosshair arriving in
 a new file is not covered -- the guards are per-file lists, not a tree
@@ -170,14 +169,14 @@ def test_crosshairs_snap_to_the_hovered_datum_not_the_cursor():
                     f"{name}: no snap computation for {snap!r} -- the tip must "
                     f"carry the datum's x the crosshair draws at")
 
-    # The two sites the first sweep missed (found by review): the Tool
+    # Two more sites: the Tool
     # Error Rate panel snaps its hover to the nearest bucket centre
     # (xs(ts + bucketMs / 2) is where its own lines plot) and the
     # context-growth ComparisonRow to the hovered turn. Both single-
-    # branch handlers. the tool panel's crosshair became its hit
+    # branch handlers. The tool panel's position indicator is its hit
     # columns -- the hovered union bucket's column lifts, keyed on the
-    # same snapped tip -- so its position indicator is pinned as the
-    # column keying, not a crosshair x1.
+    # same snapped tip -- so it is pinned as the column keying, not a
+    # crosshair x1.
     terr = _strip_line_comments(TOOLERR.read_text(encoding="utf-8"))
     cmp_ = _strip_line_comments(COMPARISON.read_text(encoding="utf-8"))
     assert "tip.bi === i ? 0.12 : 0" in terr, (

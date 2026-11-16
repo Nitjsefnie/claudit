@@ -1,9 +1,9 @@
 """The smoke client presents the same origin a browser page would.
 
- made the auth middleware refuse a mutating request whose Origin
+The auth middleware refuses a mutating request whose Origin
 or Referer does not match Host, so a bare urllib POST gets 403 and the
-smoke gate goes red. A browser form POST always carries Origin — the
-defect was in the smoke client, not the server. These tests boot a real
+smoke gate goes red. A browser form POST always carries Origin, so the
+smoke client, not the server, must supply one. These tests boot a real
 local HTTP server and read the headers off the wire, so the assertion is
 about the request the server receives, not about what the client intends.
 """

@@ -34,12 +34,12 @@ _MIN_FALLBACK_MARGIN_S = 1.0
 # shape sums to N budgets. The numbers are argument floats, so runner load
 # cannot flip the verdict (the +1e-9 in the comparison absorbs clock
 # rounding; a per-child sum clears the ceiling by five orders of
-# magnitude); a wall ceiling here read 0.61s of runner stall against a
-# 0.5s bound on the Windows leg. One catch the wall ceiling
-# had is dropped deliberately: 0.5–5s of real whole-budget slowness that
-# never passes the seam (a sleep ahead of the loop) is now invisible — a
-# planted 0.6s sleep leaves both reap tests green — and that is the
-# accepted price of a bound that cannot judge the shape on runner load.
+# magnitude), where a wall ceiling trips on runner stall (a 0.5s wall
+# bound read 0.61s of runner stall on the Windows leg). The bound
+# deliberately misses 0.5–5s of real whole-budget slowness that never
+# passes the seam (a sleep ahead of the loop) — a planted 0.6s sleep
+# leaves both reap tests green — and that is the accepted price of a
+# bound that cannot judge the shape on runner load.
 _REAP_BUDGET_S = 0.2
 _WEDGED_CHILDREN = 3
 

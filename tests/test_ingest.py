@@ -59,9 +59,8 @@ def test_ingest_inserts_one_row_per_jsonl(fresh_db, mini_r2_env):
 
     The counts are the MIRROR's, read from its tree (tests/mini_mirror):
     the assertion is that the ingest agrees with the corpus it was given,
-    not that the corpus still has the size it had when this test was
-    written. Claude- and lane-layout transcripts alike land here — the
-    mirror grew the lane wires in."""
+    not that the corpus keeps a fixed size. Claude- and lane-layout
+    transcripts alike land here."""
     shape = mini_mirror.counts()
     result = ingest.run_ingest(trigger="manual")
     assert result["error"] is None
@@ -423,10 +422,9 @@ def test_warm_common_covers_every_warmed_range(fresh_db, mini_r2_env, monkeypatc
     it claims to cover — a warm keyed on something the UI never requests
     is dead work and leaves the real key cold.
 
-    Regression: /api/projects gained a `range` parameter, but warm_common
-    still called cache.warm(api.list_projects) bare. cache.warm falls back
-    to the endpoint's signature default ("30d") while the UI opens on
-    "all", so the one request every page load makes was never warmed.
+    cache.warm falls back to the endpoint's signature default ("30d" for
+    /api/projects) while the UI opens on "all", so a bare warm leaves the
+    one request every page load makes cold.
     """
     monkeypatch.setenv("CLAUDIT_WARM_CACHE", "1")
     ingest.run_ingest(trigger="manual")
@@ -454,8 +452,7 @@ def test_warm_common_covers_every_warmed_range(fresh_db, mini_r2_env, monkeypatc
 
     # The no-range warm: /api/models takes no range, so warm_common
     # warms ONE key per ingest, not one per WARM_RANGES entry. Forcing
-    # `rng` into its key would reproduce a key nothing
-    # writes — the same trap the /api/projects regression was.
+    # `rng` into its key would reproduce a key nothing writes.
     deadline = time.time() + 60
     while (cache.response_cache.get(_warm_key(api.list_models, None))
            is None and time.time() < deadline):
@@ -469,9 +466,8 @@ def _warm_key(fn, rng: str | None) -> str:
     """Reproduce cache_response's key for a request at `rng`.
 
     Built from the endpoint's own signature so it stays correct as params
-    are added — which is exactly what broke /api/projects. `rng` is
-    forced in only where the endpoint actually takes one; a no-range
-    endpoint's key must carry no range or it matches nothing.
+    are added. `rng` is forced in only where the endpoint actually takes
+    one; a no-range endpoint's key must carry no range or it matches nothing.
     """
     target = getattr(fn, "__wrapped__", fn)
     kwargs = {}

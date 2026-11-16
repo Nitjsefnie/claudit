@@ -219,7 +219,7 @@ def test_errored_compound_bash_keeps_the_heredoc_write():
     assert tu["is_error"] is True
     assert tu["lines_added"] == 2
     assert tu["lines_deleted"] == 0
-    # The mkdir limb now books the directory it creates beside the
+    # The mkdir limb books the directory it creates beside the
     # heredoc's file.
     assert tu["write_targets"] == ["/repo/scripts", "/repo/scripts/gen.py"]
 
@@ -435,13 +435,13 @@ def test_openrouter_provider_is_stored_and_prices_the_record():
     """An OpenRouter assistant line names its serving host as
     message.provider; the record keeps it and is priced from that host's
     row. A line without the field stores NULL and prices by the model
-    alone, exactly as before the provider table existed."""
+    alone."""
     out = parse.parse_file("k/s/s.jsonl", _read("openrouter_provider.jsonl"))
     novita, bare = out["records"]
     assert novita["provider"] == "Novita"
     assert bare["provider"] is None
     # Priced at the record's own time: the host's row, and the bare model
-    # lane alone — exactly as before the provider table existed.
+    # lane alone.
     tokens: dict[str, Any] = {"fresh": 1000, "eph5": 0, "eph1h": 0, "unsplit_create": 0, "read": 2000, "output": 300}
     assert novita["cost_usd"] == pytest.approx(round(pricing.compute_cost(novita["model"], ts=novita["ts"], res=pricing.resolve(novita["model"], novita["ts"], "Novita"), **tokens), 6))
     assert bare["cost_usd"] == pytest.approx(round(pricing.compute_cost(bare["model"], ts=bare["ts"], **tokens), 6))
@@ -483,7 +483,7 @@ def test_provider_merges_across_streaming_chunks_first_non_null_wins():
     requestId, and the serving host is named on whichever chunk carries
     message.provider — often not the first. The merged record keeps the
     FIRST non-null provider: a later chunk fills an empty one, and an
-    absent one never wipes it — while usage still max-merges as before."""
+    absent one never wipes it — while usage max-merges."""
     out = parse.parse_file(
         "k/sess-pm/sess-pm.jsonl", _read("provider_merge.jsonl")
     )
@@ -495,7 +495,7 @@ def test_provider_merges_across_streaming_chunks_first_non_null_wins():
     assert carried["provider"] == "Novita"
     # req-2's trailing provider-less chunk must not wipe its provider.
     assert kept["provider"] == "Novita"
-    # usage max-merged as before, and one record per requestId.
+    # usage max-merged, and one record per requestId.
     assert carried["output_tokens"] == 200
     assert carried["fresh_tokens"] == 1000
     assert kept["output_tokens"] == 300

@@ -1,8 +1,7 @@
 """The picker-underfill and panel-label classifiers, driven through node.
 
-the picker must render every chip that fits (the
-fixed-small-page regression) and every marked panel label must stay
-inside its panel's box. The rendered rules live in
+The picker must render every chip that fits, and every marked panel label
+must stay inside its panel's box. The rendered rules live in
 scripts/ci/panel_layout_rules.mjs; this file pins their pure halves.
 """
 from __future__ import annotations
@@ -36,7 +35,7 @@ def _node(body: str):
 class TestUnderfillViolation:
     """The picker-underfill classifier: fewer chips rendered
     than the measure row holds, with room for the next off-page chip,
-    is the fixed-small-page regression. The fit is order-preserving,
+    is underfill. The fit is order-preserving,
     so the chip being denied a slot is the NEXT one in list order.
     Boundary: room net of the gap equal to that chip's width IS
     underfill (the chip fits); just under is conforming."""

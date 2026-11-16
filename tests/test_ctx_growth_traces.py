@@ -46,9 +46,8 @@ def test_models_response_is_cached(client):
 
 
 def test_models_excludes_non_canonical_rows(client):
-    """A read over records filters is_canonical (SV-CANONICAL-FLAG).
-    list_models counted every row including replayed copies, so a model
-    seen only by a losing duplicate was offered in the dropdown."""
+    """A read over records filters is_canonical (SV-CANONICAL-FLAG), so a model
+    seen only by a losing duplicate is not offered in the dropdown."""
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"])) as conn, \
             conn.cursor() as cur:
         mid = dims_seed.dim_id(cur, "dim_model", "zzz-only-on-dupes")

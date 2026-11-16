@@ -2,9 +2,9 @@
 
 The dashboard's events carry a short display name ('opus-4-8'), which
 resolveModelRate matches only as a family tier — the family's NEWEST
-rate — so pricing by it put claude-opus-4-8 at Opus 5.5 rates and the
-per-type cost bars stopped summing to the stored total beside them
-(SV-DATED-RATES). These drive the real adapter and breakdown
+rate — so pricing by it would charge claude-opus-4-8 at Opus 5.5 rates
+and the per-type cost bars would stop summing to the stored total beside
+them (SV-DATED-RATES). These drive the real adapter and breakdown
 out of src/app.jsx through node (which cannot parse the file's JSX, so
 the plain functions are sliced out of it) against backend.pricing and,
 end to end, against /api/dashboard over an ingested fixture.
@@ -166,8 +166,8 @@ def test_breakdown_prices_an_event_without_model_id_by_its_display_name(syntheti
         "fixture live only while opus-4-8's family tier differs from the "
         "default row")
     assert got["costTotal"] == pytest.approx(got["expected"], rel=1e-12)
-    # Not the all-default value: pricing both events there is exactly the
-    # pre-fix behaviour this rule replaces.
+    # Not the all-default value: pricing both events there is what this
+    # rule rules out.
     assert got["costTotal"] != pytest.approx(got["allDefault"], rel=1e-9)
 
 

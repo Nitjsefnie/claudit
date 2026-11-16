@@ -11,8 +11,7 @@ function CacheTTLPanel({ events, range, binMs }) {
   const [yLabelPx, setYLabelPx] = React.useState(0);
 
   // Widest rendered y label. These are token counts, so their width is
-  // unbounded, and a fixed gutter is a budget that gets consumed silently —
-  // the same shape as the 100M/cumulative collision.
+  // unbounded, and a fixed gutter is a budget that gets consumed silently.
   React.useLayoutEffect(() => {
     if (!ref.current) return;
     let m = 0;

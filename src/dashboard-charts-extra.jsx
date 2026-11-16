@@ -838,8 +838,7 @@ function ToolUsagePanel({ models, project, range, nonce }) {
 // does it (dashboard-charts.jsx:404-423): bars at fillOpacity 0.3 (0.85
 // on hover) and the cumulative line in the SAME hue, made legible by a
 // soft white halo underneath rather than by a second colour.
-// That treatment dissolves the problem the earlier versions kept
-// failing at. A line in a contrasting hue has to beat the bars on
+// A line in a contrasting hue has to beat the bars on
 // lightness AND stay visible on the dark surface, which nothing does
 // well; a same-hue line over a 0.3-opacity field, ringed in white at
 // 0.15, has no such conflict and is what the rest of the app already

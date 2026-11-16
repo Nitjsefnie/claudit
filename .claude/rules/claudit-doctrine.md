@@ -129,16 +129,16 @@ what a dispatch asked for:
   JSONL); these record what was ASKED, so a fileless dispatch is still
   attributable. Codex dispatches keep `dispatch_prompt_chars` /
   `dispatch_brief_ref` NULL: their `message` is encrypted.
-  Both sides store the canonical name (`agent_types.canonical_agent_type`,
-  issue #650): one role is one name across lanes (Claude's `Explore`,
-  Kimi's `explore`, Codex's `explorer` are one), a plugin-namespaced
-  type folds to the type (`superpowers:code-reviewer` → `code-reviewer`),
-  Kimi's `coder` profile is the implementer role, and Codex's `worker` —
-  the lone lane default — is not a role at all: it lands in
-  `DEFAULT_AGENT_TYPE`, the bucket a transcript that named nothing shares. A workflow-tree
-  sidecar's `agentType: workflow-subagent` is a container marker, not a
-  role: it stands only when nothing more specific was recorded, and an
-  in-band role outranks it (the standing sidecar precedence).
+  Both sides store the canonical name (`agent_types.canonical_agent_type`):
+  one role is one name across lanes (Claude's `Explore`, Kimi's `explore`,
+  Codex's `explorer` are one), a plugin-namespaced type folds to the type
+  (`superpowers:code-reviewer` → `code-reviewer`), Kimi's `coder` profile is
+  the implementer role, and Codex's `worker` — the lone lane default — is not
+  a role at all: it lands in `DEFAULT_AGENT_TYPE`, the bucket a transcript
+  that named nothing shares. A workflow-tree sidecar's
+  `agentType: workflow-subagent` is a container marker, not a role: it stands
+  only when nothing more specific was recorded, and an in-band role outranks
+  it (the standing sidecar precedence).
 
 Collection policy may NULL `error_kind`, `error_text`, `agent_model`,
 `dispatch_prompt_chars` and `dispatch_brief_ref`. Keep error classification

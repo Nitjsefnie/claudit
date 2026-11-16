@@ -1,14 +1,13 @@
 """Lane errored tool calls classify into the harness-generic kinds.
 
-SV-WHY-COLUMNS defines error_kind for every harness; before this the
-lane paths stored NULL on every row, so lane failures counted in the
-Tool Error Rate (keyed on is_error) but vanished from every error-kind
-breakdown (rebuild_tool_error_rollup filters error_kind IS NOT NULL).
-The lanes carry no status field — an errored result is what the wire
-says — so the classification reads the failure text: a call that RAN
-and reported failure is tool_error, the harness-generic rejection
-wording is rejected, and an errored result with no readable text stays
-failed. Non-errored calls keep NULL.
+SV-WHY-COLUMNS defines error_kind for every harness, and
+rebuild_tool_error_rollup filters on error_kind IS NOT NULL, so a lane
+failure stored with no error_kind is counted in the Tool Error Rate but
+absent from every error-kind breakdown. The lanes carry no status field —
+an errored result is what the wire says — so the classification reads the
+failure text: a call that RAN and reported failure is tool_error, the
+harness-generic rejection wording is rejected, and an errored result with
+no readable text stays failed. Non-errored calls keep NULL.
 """
 from __future__ import annotations
 

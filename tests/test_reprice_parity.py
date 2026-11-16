@@ -237,10 +237,9 @@ def test_reprice_matches_full_reparse(fresh_db, tmp_path, monkeypatch):
     blobs = _proof_blobs(bucket, lane_blobs)
 
     # Mutate the loaded tables the fixtures price under: the claude row is
-    # still a models-table key, while the two vendor keys moved at the
-    # migration — their bare ids price through their (key, vendor_host)
-    # rows — so the mutation lands on those tables. The dated window ends
-    # after every fixture timestamp.
+    # a models-table key, while the two vendor keys' bare ids price
+    # through their (key, vendor_host) rows, so the mutation lands on
+    # those tables. The dated window ends after every fixture timestamp.
     monkeypatch.setattr(pricing, "MODEL_RATES", {
         **pricing.MODEL_RATES,
         "claude-opus-4-7": _OPUS_RATES,
@@ -314,11 +313,7 @@ def test_reprice_matches_reparse_for_offset_less_timestamps(
     """an offset-less record timestamp is UTC — the SAME
     instant is priced and stored — so a reprice of the stored row prices
     what a reparse of the raw text prices, even in a non-UTC session
-    zone with a rate cutover between the two interpretations. Before the
-    parse-side normalisation the parser priced the naive text as UTC but
-    the driver stored it in the session zone; after a PRICING_VERSION
-    bump the reprice then stored the cutover's other side, which no
-    reparse reproduces."""
+    zone with a rate cutover between the two interpretations."""
     monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", f"file://{tmp_path}/r2/")
     sess = tmp_path / "r2" / "claude" / "issue376" / "sess376"
     sess.mkdir(parents=True)
@@ -352,9 +347,9 @@ def test_reprice_matches_reparse_for_offset_less_timestamps(
     # its bump), so the reprice pass must RECOMPUTE from the stored
     # instant instead of proving the row clean by fingerprint: a window
     # appears that ends at the cutover, and the list row moves with it.
-    # claude-opus-4-7 is a tracked vendor key since the migration: the
-    # pair its bare path reads is (key, vendor_host), so the window and
-    # the list move land there.
+    # claude-opus-4-7 is a tracked vendor key: the pair its bare path
+    # reads is (key, vendor_host), so the window and the list move land
+    # there.
     opus376_row = (_OPUS376, pricing.VENDOR_HOSTS[_OPUS376])
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
         **pricing.PROVIDER_DATED_RATES,

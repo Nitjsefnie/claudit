@@ -53,13 +53,13 @@ def test_the_signin_page_has_no_nonce_less_script(page):
     """One inline script without the nonce would be blocked, and the
     marker would silently never be written.
 
-    The match is case-insensitive on purpose. CodeQL flagged the
-    case-SENSITIVE pattern as a new high-severity alert
-    (py/incomplete-regexp, tests/test_signin_perf_marker.py): an unescaped,
-    unanchored tag pattern in a test that ASSERTS over the page's markup, and
-    a `<SCRIPT>` would sail past it while the assertion reported every script
-    as nonced. HTML tag names are ASCII case-insensitive, so a browser
-    honouring `<SCRIPT>` is exactly the case this must not miss.
+    The match is case-insensitive on purpose. CodeQL flags a
+    case-SENSITIVE pattern here as a high-severity alert
+    (py/incomplete-regexp): an unescaped, unanchored tag pattern in a test
+    that ASSERTS over the page's markup, and a `<SCRIPT>` would sail past
+    it while the assertion reported every script as nonced. HTML tag names
+    are ASCII case-insensitive, so a browser honouring `<SCRIPT>` is
+    exactly the case this must not miss.
     """
     resp = page.get("/login")
     nonce = _nonce(resp)

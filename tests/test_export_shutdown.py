@@ -332,10 +332,9 @@ def test_shutdown_during_export_reaps_child_and_unlinks_png(server):
 
 
 def test_reap_live_renders_kills_child_and_unlinks_output(tmp_path):
-    """Layer-level control for reap_live_renders ( review): with
+    """Layer-level control for reap_live_renders: with
     a live child registered, the reap kills it, unlinks its output and
-    empties the registry. Red on the unfixed code (no function to call)
-    and on a mutant that drops either step."""
+    empties the registry. Red on a mutant that drops either step."""
     marker = tmp_path / "u363_started"
     release = tmp_path / "u363_release"
     out_path = tmp_path / "u363_out.png"

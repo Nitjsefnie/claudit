@@ -1,6 +1,6 @@
 {
   "trees": {
-    "tests/": 101743
+    "tests/": 101658
   },
   "schema_version": 1,
   "baseline": {
@@ -13,7 +13,7 @@
     "scripts/ci/panel_interactions.mjs": 860,
     "scripts/ci/panel_layout_rules.mjs": 2256,
     "scripts/plots/ccusage_plot_render.py": 624,
-    "src/dashboard-charts-extra.jsx": 1142,
+    "src/dashboard-charts-extra.jsx": 1141,
     "src/dashboard-charts.jsx": 846
   }
 }

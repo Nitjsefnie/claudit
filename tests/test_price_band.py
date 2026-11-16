@@ -1,4 +1,4 @@
-"""Obsolete oscillation writers are no longer importable."""
+"""Obsolete oscillation writers are not importable."""
 from __future__ import annotations
 
 import importlib

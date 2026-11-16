@@ -96,12 +96,12 @@ def test_jobs_read_sees_every_job_of_a_run():
 
 
 def test_push_classifies_since_the_last_run_whose_legs_executed():
-    # A code push had its ci-gate run cancelled by the next
-    # push; the following docs-only push then classified only its own
-    # before...sha, so every leg skipped and the aggregate reported
-    # green over code no leg had run on. The classifier must instead
-    # classify since the newest master run whose legs actually
-    # executed, so the intervening code is inside the classified range.
+    # A code push whose ci-gate run is cancelled by the next push,
+    # followed by a docs-only push: classifying only that push's own
+    # before...sha skips every leg, and the aggregate reports green over
+    # code no leg ran on. The classifier must instead classify since the
+    # newest master run whose legs actually executed, so the intervening
+    # code is inside the classified range.
     calls = []
 
     def run(argv):

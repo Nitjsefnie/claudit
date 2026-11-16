@@ -92,12 +92,12 @@ def test_one_failed_object_does_not_abort_the_run(fresh_db, mini_r2_env, monkeyp
 
 
 def test_per_object_failure_still_rebuilds_derived_state(fresh_db, mini_r2_env, monkeypatch):
-    """The regression that matters: derived state must not be left stale.
+    """Derived state must not be left stale.
 
     recompute_canonical() and the rollups describe whatever `records` now
-    holds. Gating them on a flawless run meant one dropped connection left
-    `usage_rollup` / `tool_rollup` describing the PREVIOUS dataset and
-    is_canonical un-recomputed until some later run happened to be clean.
+    holds, so they are recomputed even when a run drops a connection.
+    Otherwise `usage_rollup` / `tool_rollup` would keep describing the
+    PREVIOUS dataset and is_canonical would stay un-recomputed.
     """
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
@@ -121,7 +121,7 @@ def test_per_object_failure_still_rebuilds_derived_state(fresh_db, mini_r2_env, 
         c.execute("UPDATE records SET is_canonical = TRUE")
         c.commit()
 
-    # A forward bump forces the reparse; a rollback would now be skipped
+    # A forward bump forces the reparse; a rollback is skipped
     # by the guard.
     monkeypatch.setattr(parser_version, "PARSER_VERSION", str(int(parser_version.PARSER_VERSION) + 1))
     _patch_fetch(monkeypatch, _FLAKY_KEY, fail_times=99)

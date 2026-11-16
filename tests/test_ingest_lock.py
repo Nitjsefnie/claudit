@@ -1,11 +1,10 @@
 """Ingest concurrency: the db-wide advisory lock and the cooperative abort.
 
-The lock tests moved here from test_ingest.py (they serialise the suite
-rather than exercise its parsing behaviour, and need only the scratch
-database, the mini mirror and the advisory-lock key); the abort tests of
- were written for test_ingest.py and landed here so that
-module stays under pylint's line cap without its old pragma. The
-fixtures they all share come from test_ingest.
+The lock tests live here rather than in test_ingest.py: they serialise the
+suite rather than exercise its parsing behaviour, and need only the scratch
+database, the mini mirror and the advisory-lock key. The abort tests live
+here too, which keeps test_ingest.py under pylint's line cap. The fixtures
+they all share come from test_ingest.
 """
 import logging
 import os
@@ -52,11 +51,11 @@ def _wait_db_lock_free(timeout_s: float = 10.0) -> None:
 
 def test_ingest_skips_when_another_instance_holds_the_db_lock(
         fresh_db, mini_r2_env):
-    """Serialization was per-process only (_RUN_LOCK): two app instances on
-    one database ran their ingests concurrently — one rollup rebuild crashed
-    with UniqueViolation, both wrote ingest_runs rows. When ANOTHER instance
-    holds the db-wide advisory lock, a run must decline in the same dict
-    shape as the in-process skip, naming the other instance."""
+    """Two app instances on one database must not run ingests concurrently:
+    _RUN_LOCK serializes only within one process, and concurrent runs crash
+    one rollup rebuild with UniqueViolation and both write ingest_runs rows.
+    When ANOTHER instance holds the db-wide advisory lock, a run must decline
+    in the same dict shape as the in-process skip, naming the other instance."""
     with closing(psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"],
                                  autocommit=True)) as holder:
         row = holder.execute(  # pylint: disable=no-member
@@ -158,7 +157,7 @@ def _dead_at_unlock_psycopg(monkeypatch, conn):
     """Point backend.ingest_lockwatch's psycopg.Connection.connect at `conn`.
 
     Replaces the module reference INSIDE backend.ingest_lockwatch only —
-    the module that now owns `_db_run_lock` — so no other code path in
+    the module that owns `_db_run_lock` — so no other code path in
     the process sees the stand-in.
     """
     monkeypatch.setattr(
@@ -169,10 +168,10 @@ def _dead_at_unlock_psycopg(monkeypatch, conn):
 
 
 def test_db_run_lock_never_masks_the_body_error(monkeypatch):
-    """A lock connection that dies during the run raised at the inner
-    finally's unlock, and that failure REPLACED the body's exception at
-    the caller. The caller must see THE BODY'S exception, with the unlock
-    still attempted and the connection still closed."""
+    """A lock connection that dies during the run raises at the inner
+    finally's unlock, and that failure must not REPLACE the body's
+    exception at the caller. The caller must see THE BODY'S exception,
+    with the unlock still attempted and the connection still closed."""
     conn = _DeadAtUnlockConn()
     _dead_at_unlock_psycopg(monkeypatch, conn)
 
@@ -233,8 +232,8 @@ def test_run_ingest_skips_when_shutdown_requested(fresh_db, mini_r2_env):
 def test_run_ingest_skips_when_shutdown_lands_during_lock_take(
         fresh_db, mini_r2_env, monkeypatch):
     """The re-check AFTER both locks are acquired ("landed while waiting
-    on the locks") had no test: a regression there would pass
-    the suite. Setting the event INSIDE _db_run_lock — while the locks are
+    on the locks") must be covered: a regression there must fail the suite.
+    Setting the event INSIDE _db_run_lock — while the locks are
     being taken — must yield the skip dict and open no ingest_runs row,
     exactly like a shutdown that landed before the run was attempted."""
     real = ingest._db_run_lock  # pylint: disable=protected-access

@@ -16,10 +16,7 @@ of any subdirectory entry's:
 https://github.com/dependabot/dependabot-core/blob/e3f36c58b9c9a9d8ea281cb58f3f9cfcaaa9e0d1/python/lib/dependabot/python/shared_file_fetcher.rb#L165-L200
 
 Two pip entries whose coverage overlaps therefore double-own a file, and
-each bump of it opens twice. That is exactly what happened with boto3:
- (`dependabot/pip/backend/boto3-1.43.99`, from the `/backend`
-entry) and (`dependabot/pip/boto3-1.43.99`, from the root entry),
-opened 16 seconds apart, closed as the duplicate.
+each bump of it opens twice.
 
 The parser below is a line-based reader for THIS file's pinned shape —
 with YAML-decoded inline scalars — and fails loudly on any line it does

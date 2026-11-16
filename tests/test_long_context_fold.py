@@ -27,7 +27,7 @@ from tests import dims_seed
 
 # 300k prompt / 2k output, no rate_limits (the API shape): the record
 # lands over the threshold with the meter armed — which is every plan's
-# shape now.
+# shape.
 _USAGE = {
     "input_tokens": 300_000, "cached_input_tokens": 290_000,
     "cache_write_input_tokens": 0, "output_tokens": 2_000,

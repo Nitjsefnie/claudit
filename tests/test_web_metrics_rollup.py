@@ -1,9 +1,9 @@
 """The web-metrics rollup and the readout it serves.
 
-Split from `test_web_metrics.py` by subject, not by size: that module is
-what a BEACON MAY SAY, this one is what the fold DOES WITH what was said.
-The seam is real -- a vocabulary change and a fold change are different
-bugs, and a suite that mixes them makes a failure ambiguous.
+Separate from `test_web_metrics.py` by subject, not by size: that module
+is what a BEACON MAY SAY, this one is what the fold DOES WITH what was
+said. The seam is real -- a vocabulary change and a fold change are
+different bugs, and a suite that mixes them makes a failure ambiguous.
 
 The shared fixtures and helpers come from the vocabulary module rather than
 being restated, for the reason `tests/conftest.py` already puts in
@@ -175,7 +175,8 @@ def test_no_open_bucket_is_ever_stored(viz, short_horizon):
 
     An open bucket is still accumulating, so a percentile over it is a number
     that changes under the reader between one fold and the next. Asserted
-    across every width, because the old defect hit all four.
+    across every width, because an open bucket can be stored at any of the
+    four.
     """
     base = datetime(2026, 3, 2, 0, 0, 0, tzinfo=timezone.utc)
     for hour in range(8):
@@ -196,8 +197,8 @@ def test_no_open_bucket_is_ever_stored(viz, short_horizon):
 def test_a_closing_bucket_holds_every_beacon_in_its_span(viz, short_horizon):
     """The population a bucket stores is its WHOLE span, not its last slice.
 
-    Six hours of beacons into a six-hour bucket, at a width where the old
-    fold stored only the tail.
+    Six hours of beacons into a six-hour bucket, at a width where a fold
+    that stored only the tail would fail.
     """
     base = datetime(2026, 3, 2, 0, 0, 0, tzinfo=timezone.utc)
     for hour in range(6):
@@ -427,8 +428,8 @@ def test_the_fold_that_closes_a_bucket_stores_all_of_it(
     the row must not change."""
     # The shipped value, asserted before the behaviour: the fixture above
     # derives its window FROM `RAW_KEEP_S`, so narrowing the constant narrows
-    # the fixture with it and this case would stay green. What was wrong was
-    # the constant, so the constant is what needs the assertion.
+    # the fixture with it and this case would stay green. The constant is
+    # therefore what needs the assertion.
     # A closed bucket `[s, s+W)` has s > now - 2W (see the derivation on
     # web_metrics.RAW_KEEP_S), so the read window must reach
     # back at least that far. One width instead of two leaves the newest
@@ -595,13 +596,13 @@ def test_a_bucket_the_fold_cannot_read_whole_is_not_stored(viz,
 
 
 def test_a_wider_range_never_serves_fewer_beacons(viz, pinned):
-    """The regression a cross-model review found, pinned as an inequality.
+    """Pinned as an inequality: a wider range never serves fewer beacons.
 
-    The reader served wide ranges from the rollup ALONE, and the rollup holds
-    only closed buckets — so the newest beacons, and everything since the last
-    fold, were in no bucket at all. The result was not a slightly stale
-    number: a WIDER range reported FEWER beacons than a narrower one, and the
-    default `all` view served 42 of 240 on a ten-day corpus.
+    The rollup holds only closed buckets, so the newest beacons, and
+    everything since the last fold, are in no bucket at all. A reader that
+    serves wide ranges from the rollup ALONE gives not a slightly stale
+    number: a WIDER range reports FEWER beacons than a narrower one, and the
+    default `all` view serves a measured 42 of 240 on a ten-day corpus.
 
     So the property is the whole assertion: fold hourly across a corpus, then
     walk the ranges and require the count to be non-decreasing, and the widest

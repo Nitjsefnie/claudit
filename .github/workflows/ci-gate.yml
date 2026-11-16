@@ -1,11 +1,11 @@
 name: ci gate
 
 # WHY ONE WORKFLOW. Eleven independent check names could not be
-# required: a ruleset requires one context per name, and the gate
-# workflows narrowed by paths-ignore, so a documentation-only change
-# started no run at all — those check names went MISSING rather than
-# reporting, and a ruleset requiring them could never go green on such
-# a change. This workflow starts on every push and pull request
+# required: a ruleset requires one context per name, and a gate
+# workflow narrowed by paths-ignore starts no run on a documentation-only
+# change, so its check name goes MISSING rather than reporting, and a
+# ruleset requiring it could never go green on such a change. This
+# workflow starts on every push and pull request
 # (trigger-level ignores for all three ratchet data files, below),
 # classifies the changed paths, and either runs every gate leg or
 # narrows: a docs-only run skips every leg; a setup-only run executes
@@ -32,8 +32,8 @@ name: ci gate
 # GitHub keeps at most one PENDING run per group, so a third concurrent
 # master push can still cancel a merely-queued short leg, and that
 # middle run's aggregate folds red. The window is each leg's own
-# duration (minutes for every leg that remains per-ref), it fails
-# closed, and the next push re-verifies it (below). With the group itself no longer cancelling on a push, a
+# duration (minutes for every per-ref leg), it fails
+# closed, and the next push re-verifies it (below). With the group itself not cancelling on a push, a
 # run-level cancel is always DELIBERATE: it leaves that run's aggregate
 # cancelled — folded as a failure by aggregate_gate.py, so a
 # required-check ruleset reads it never-green — and the next push's
@@ -49,7 +49,7 @@ name: ci gate
 # surface. Each callee keeps its own `permissions:` blocks and its
 # concurrency group (the latter governs its standalone dispatch runs).
 # release.yml, refresh-pricing.yml, secrets.yml, version-guard.yml,
-# pr-gate.yml and claim.yml are untouched and outside the aggregate.
+# pr-gate.yml and claim.yml stay outside the aggregate.
 #
 # A FORK'S CODE RUNS IN THE LEGS: the legs
 # run on the merge ref with the caller's permissions. The suite-cost
@@ -158,8 +158,8 @@ jobs:
       # The caller's grant CAPS what the callee can use, so this is
       # read-only: contents: read for the suite, which checks out and
       # RUNS the proposed tree. The informational
-      # patch-coverage comment no longer needs a token from inside the
-      # leg — the leg uploads the rendered body and the top-level
+      # patch-coverage comment needs no token from inside the leg — the
+      # leg uploads the rendered body and the top-level
       # coverage-comment.yml posts it. The callee pushes
       # nothing — the ratchet data is published by the top-level
       # ratchet-push.yml workflow; no secret is forwarded.
@@ -296,9 +296,7 @@ jobs:
       - name: Refuse a commit subject outside the Conventional Commits format or pairing a workflow scope with a non-ci type
         # CONTRIBUTING's commit-subject rule allows a workflow's `name:` as
         # a scope only with type `ci`, and prose no gate reads is a
-        # convention: two merged fix(tests) commits here predate the rule
-        # and are the ambiguity that made the shared-name exemption a
-        # documented one. In this job rather than a new one: a new job
+        # convention. In this job rather than a new one: a new job
         # would be a new required status context, which means editing the
         # ruleset. After the conflict-marker step and before the fold:
         # both read the head, and a head failing either never folds a

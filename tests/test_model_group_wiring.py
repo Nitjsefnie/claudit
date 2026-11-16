@@ -88,13 +88,12 @@ def test_zero_valued_rows_drop_before_the_grouping():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_checked_is_todays_per_host_rows_in_todays_order():
-    """The checkbox flips the panel back to today's per-host rows: one
+    """The checkbox flips the panel back to per-host rows: one
     row per (model, host), globally descending on value and stable
     within exact ties — NOT the model's hosts stacked in place under
     their collapsed row, which would read as a different sort to anyone
     comparing against a saved screenshot. Descending-sort semantics,
-    not a byte-for-byte replay of the legacy flat fold: an exact tie
-    spanning two models was broken there by label-map insertion order."""
+    with stable ties."""
     grouped = (
         "window.modelGroup.group({"
         "'m-a · DeepInfra': 75, 'm-a · StreamLake': 15,"
@@ -216,8 +215,7 @@ def test_the_panel_carries_exactly_one_checkbox_outside_the_row_loop():
         "model worth splitting")
     # Declared once, OUTSIDE the svg: everything between the row map
     # (the `shown.map(` that follows the plot rect) and the closing
-    # </svg> is per-row markup, which is where the per-row design the
-    # maintainer rejected lived.
+    # </svg> is per-row markup.
     loop = body.index("shown.map(", body.index('data-role="plot"'))
     svg_end = body.index("</svg>", loop)
     assert not loop < gate.start() < svg_end, (
@@ -299,8 +297,8 @@ def test_the_monospace_advance_probe_lives_where_the_size_ratchet_put_it():
     size entries (.github/ci-thresholds.json; entries only ever move
     DOWN), so cannot add lines to either without relocating some.
     monoAdvancePx — a self-contained measurement helper used only by
-    dashboard-charts.jsx — moved to its own module for the room; this
-    pins the seam (call site, export, load order) so the next reader
+    dashboard-charts.jsx — lives in its own module to make that room;
+    this pins the seam (call site, export, load order) so the next reader
     finds it and a re-inline fails the size gate at its source."""
     charts = _strip(CHARTS.read_text(encoding="utf-8"))
     assert "function monoAdvancePx(" not in charts

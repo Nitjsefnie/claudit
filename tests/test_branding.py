@@ -106,7 +106,7 @@ def test_brand_rides_the_existing_injection_script(page_client):
     served = resp.text
     # The guest cookie the fixture set: IS_GUEST comes out true and
     # IS_OPERATOR false (a guest is never an operator); window.BRAND
-    # rides the SAME <script> line, which now carries the CSP nonce too.
+    # rides the SAME <script> line, which carries the CSP nonce too.
     match = re.search(r"'nonce-([^']+)'",
                       resp.headers["content-security-policy"])
     assert match

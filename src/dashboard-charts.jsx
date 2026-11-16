@@ -738,8 +738,8 @@ function VBar({ title, rows, fmt, fixedColors, embedded }) {
   const plotW = Math.max(10, w - padL - padR);
   const n = Math.max(1, rows.length);
   const slot = plotW / n;
-  // padB fits the tallest wrapped axis label (helpers above): a fixed
-  // gutter clipped long rotated names and wasted space under short ones.
+  // padB fits the tallest wrapped axis label (helpers above): long rotated
+  // names are never clipped and short ones leave no empty gutter.
   const charPx = window.monoAdvancePx(VBAR_LABEL_FS);
   const { padB, maxChars } = vbarPadB(rows, slot, padL, charPx);
   const wrappedLabels = rows.map(r => wrapAxisLabel(r.label, maxChars));

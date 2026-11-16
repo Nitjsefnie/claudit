@@ -213,15 +213,14 @@ def test_a_check_run_id_absent_from_the_run_listing_is_judged():
 
 
 def test_an_earlier_release_push_runs_failed_row_is_skipped():
-    # Round 1's blocker. release.yml's own push run on this commit is a
-    # PUSH run, so it is in gate_paths and would be judged: once it fails —
-    # the 2700 s deadline, a transient `gh release create`, a cancel — a
-    # later re-cut of that commit refuses on its predecessor's answer.
-    # Two things drop the predecessor's row here, and neither is
-    # --self-path: the re-cut is a dispatch of the TIP, so its own run IS
-    # in the listing and resolves the path; and the earlier release run is
-    # itself a PUSH run, which is what puts release.yml into gate_paths in
-    # the first place.
+    # release.yml's own push run on this commit is a PUSH run, so it is in
+    # gate_paths and would be judged: once it fails — the 2700 s deadline, a
+    # transient `gh release create`, a cancel — a later re-cut of that commit
+    # refuses on its predecessor's answer. Two things drop the predecessor's
+    # row here, and neither is --self-path: the re-cut is a dispatch of the
+    # TIP, so its own run IS in the listing and resolves the path; and the
+    # earlier release run is itself a PUSH run, which is what puts
+    # release.yml into gate_paths in the first place.
     checks = [_check("aggregate", PUSH_RUN),
               _check(SELF_JOB, EARLIER_RELEASE_RUN, conclusion="failure")]
     runs = [_run(PUSH_RUN, "push"),
@@ -248,13 +247,12 @@ TIP_SHA = "5e0c0b10000000000000000000000000000000000"
 
 
 def test_a_re_cut_by_dispatch_of_a_non_tip_commit_proceeds():
-    # Round 2's blocker, and the COMMON re-cut: master's commits are
-    # 30-60 minutes apart, so the 2700 s deadline fires after the tip has
-    # moved. A `workflow_dispatch` with `sha=X` records its OWN run
-    # against the BRANCH TIP, so it is absent from a listing filtered by
-    # X's head SHA — and with no path the selector judged the earlier
-    # release run's row and refused. A regression against master, where
-    # the old name-prefix filter dropped that row.
+    # The COMMON re-cut: master's commits are 30-60 minutes apart, so the
+    # 2700 s deadline fires after the tip has moved. A `workflow_dispatch`
+    # with `sha=X` records its OWN run against the BRANCH TIP, so it is
+    # absent from a listing filtered by X's head SHA — and with no path
+    # the selector would judge the earlier release run's row and refuse;
+    # it must drop that row instead.
     checks = [_check("aggregate", PUSH_RUN),
               _check(SELF_JOB, EARLIER_RELEASE_RUN, conclusion="failure")]
     runs = [_run(PUSH_RUN, "push", head_sha=OTHER_SHA),

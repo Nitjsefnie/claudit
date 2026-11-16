@@ -27,10 +27,9 @@
   }
 
   // One legend cluster: swatch, label, rule, count — all offsets from the
-  // cluster's own origin. Derived from the label's width, not fixed: at
-  // the fixed offsets (rule at 86, count at 108) a 17-character model name
-  // rendered 108.5px wide and ran 9.5px into the count label beside it and
-  // straight through the rule, so the entry read as one run-together word.
+  // cluster's own origin. Derived from the label's width, not fixed: a fixed
+  // offset lets a long model name run into the count label beside it and
+  // straight through the rule, so the entry reads as one run-together word.
   // `maxWidth` shortens the two texts until the cluster fits the width it
   // has to live in, label first — it is the wider of the two and the one
   // whose tail carries the least. A cluster that still will not fit keeps

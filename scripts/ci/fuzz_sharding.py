@@ -1,7 +1,6 @@
 """Sharded runs of the SV-TEST-DATA fuzzer.
 
-Split from scripts/ci/fuzz_test_data.py (issue #331) to own teardown:
-interrupted parents clean up snapshot trees and shard children.
+Interrupted parents clean up snapshot trees and shard children.
 
 A shard child runs in its own session (start_new_session), so the
 parent owns each shard's whole process subtree: one killpg reaches the
@@ -146,9 +145,9 @@ def _run_sharded(repo_root: Path, base_seed: int, total: int, jobs: int,
                  artifact_dir: Path) -> list[dict]:
     """The iterations sharded across J children, each in its own clone
     of the tree; results merged in iteration order. An interrupted or
-    crashed run takes every shard's process group down BEFORE the
-    snapshot tree is removed (issue #331). Snapshots have one commit:
-    an absent/unresolvable judged base grants no removal exemptions."""
+    crashed run takes every shard's process group down before the
+    snapshot tree is removed. Snapshots have one commit: an
+    absent/unresolvable judged base grants no removal exemptions."""
     with tempfile.TemporaryDirectory(prefix="fuzz-test-data-") as tmp:
         pending: list[tuple[Path, Path, subprocess.Popen[bytes]]] = []
         try:

@@ -2,7 +2,7 @@
 
 commit_scopes.py refuses a pull-request head whose commit subjects break
 CONTRIBUTING's format or pair a workflow-name scope with a type other
-than `ci` (the scope rule ported from
+than `ci` (the same scope rule as
 the Python source in Nitjsefnie-Actions/claim (tests/commit_scopes.py)
 and Nitjsefnie-Actions/pr-gate (scripts/ci/commit_scopes.py)). These tests
 pin the subject grammar, the closed set of git- and GitHub-written

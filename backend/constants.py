@@ -28,11 +28,10 @@ CTX_BUCKET_MAX = 1_000_000
 # counter. Set at twice the largest published window (the [1m] variants),
 # so a real request can never reach it while a whole-session total always
 # will. Used only to keep such a row out of the ctx_turns TRACE, whose
-# y-axis is scaled off the maximum: one 115.8M row in the `zai` bucket,
-# written by another harness under the all-zeros sentinel session id,
-# flattened every real trace on glmmeter to a hairline. The record itself
-# is still parsed, stored and priced -- this is a plausibility bound on
-# one derived series, not a data-layer filter.
+# y-axis is scaled off the maximum, so one such row would flatten every
+# real trace to a hairline. The record itself is still parsed, stored and
+# priced -- this is a plausibility bound on one derived series, not a
+# data-layer filter.
 MAX_PLAUSIBLE_CTX = 2 * CTX_BUCKET_MAX
 
 

@@ -290,8 +290,8 @@ def test_a_one_row_growth_or_shrink_still_fails():
 
 def test_the_height_loop_compares_through_the_noise_band():
     """Source pin in the tooltip-oracle's style: the height loop must
-    compare through heightsAgree, so the exact-equality regression that
-    reds on a 1px wobble cannot return while this file passes."""
+    compare through heightsAgree, so an exact-equality compare, which
+    reds on a 1px wobble, fails this file."""
     src = MODULE.read_text(encoding="utf-8")
     assert "if (heightsAgree(two.get(name), hMany)) continue;" in src, (
         "the height loop must compare through heightsAgree (#694's noise "
@@ -386,11 +386,10 @@ def test_the_expand_toggle_gates_on_the_collapsed_fold():
 
 
 def test_cost_by_agent_is_hidden_when_the_range_is_free():
-    """Moved from test_panel_wiring.py with its subject: the agent panel
-    now lives in src/cost-by-agent-panel.jsx. Same rule as Cost
-    by Model, in the panel that owns its own fetch: with every bar at
-    $0 the cost list is a list of zeros, so it is dropped, while
-    Tokens by Agent Type, which measures tokens, still renders."""
+    """The agent panel lives in src/cost-by-agent-panel.jsx. Same rule as
+    Cost by Model, in the panel that owns its own fetch: with every bar at
+    $0 the cost list is a list of zeros, so it is dropped, while Tokens by
+    Agent Type, which measures tokens, still renders."""
     src = (ROOT / "src" / "cost-by-agent-panel.jsx").read_text(
         encoding="utf-8")
     idx = src.index('title="Cost by Agent Type"')
@@ -442,8 +441,7 @@ def test_both_guards_share_one_server_module():
 def test_both_primitives_render_identical_row_spans():
     """ shape: the two tooltip primitives lay their rows out with
     the shared .chart-tooltip-key / .chart-tooltip-val rules in
-    public/app.css, and carry no inline sizing styles — that per-
-    primitive divergence was the defect. The spans must stay
+    public/app.css, and carry no inline sizing styles. The spans must stay
     byte-identical across the two modules. The rendered long-key probe
     pins the BEHAVIOR the contract names — a key longer than the box
     wraps inside it because the row may shrink — and any shrink-lock,
@@ -495,7 +493,7 @@ def test_the_guard_probes_a_rendered_long_key_row():
 def test_no_target_kind_is_in_the_closed_kind_table():
     """A panel rendered with data but no [data-hover-target] is the
     sweep's own finding kind — printed NO TARGETS is the blindness
-    and may not come back."""
+    and stays a finding."""
     out = _node("""
       console.log(JSON.stringify({
         kinds: mod.KINDS,
@@ -512,11 +510,11 @@ def test_no_target_kind_is_in_the_closed_kind_table():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_the_ledger_never_carries_an_other_region_catch_all():
-    """Every layout shift, cold-load included,
-    resolves to a named region or panel. The old escape — a catch-all
-    `{ panel: null, kind: 'other-region' }` entry that matched every
-    unnamed attribution and could never fail — is banned outright: a
-    future `other` shift must fail the run, not match a ledger line."""
+    """Every layout shift, cold-load included, resolves to a named region
+    or panel. A catch-all `{ panel: null, kind: 'other-region' }` entry, one
+    that matches every unnamed attribution and could never fail, is banned
+    outright: a future `other` shift must fail the run, not match a ledger
+    line."""
     out = _node("""
       console.log(JSON.stringify(
         mod.FILED.filter(f => f.kind === 'other-region'
@@ -528,7 +526,7 @@ def test_the_ledger_never_carries_an_other_region_catch_all():
 
 def test_the_page_performance_panel_answers_hover():
     """a static declaration on a data panel fails; 'Page
-    performance' answers hover now — marked rows, shared tooltip."""
+    performance' answers hover — marked rows, shared tooltip."""
     src = (ROOT / "src" / "perf-panel.jsx").read_text(encoding="utf-8")
     assert "data-static-panel" not in src, (
         "perf-panel.jsx still declares data-static-panel — #834 fails a "
@@ -545,9 +543,9 @@ def test_the_page_performance_panel_answers_hover():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_static_declarations_are_listed_by_the_guard():
-    """nothing limited which panels may declare data-static-panel;
-    the reviewed static list makes an off-list declaration the
-    'unlisted-static' finding, a cap-bitten mark the 'unhovered' one."""
+    """The reviewed static list limits which panels may declare
+    data-static-panel: an off-list declaration is the 'unlisted-static'
+    finding, a cap-bitten mark the 'unhovered' one."""
     out = _node("""
       console.log(JSON.stringify({
         listed: mod.STATIC_PANELS,
@@ -567,8 +565,7 @@ def test_static_declarations_are_listed_by_the_guard():
 def test_unhovered_targets_never_pass_silently():
     """sampling, off-viewport drops and static exemptions must not
     let an unhovered mark pass. The sweep defaults to unbounded; a biting
-    cap and an unreachable target are both the unhovered-targets finding;
-    the old FOLDED pass is gone."""
+    cap and an unreachable target are both the unhovered-targets finding."""
     src = MODULE.read_text(encoding="utf-8")
     assert "process.env.CLAUDIT_PANEL_INTERACTIONS_MAX_TARGETS || '0'" in src, (
         "the target cap no longer defaults to unlimited")
@@ -580,9 +577,9 @@ def test_unhovered_targets_never_pass_silently():
 
 
 def test_the_reply_latency_outlier_dots_are_swept():
-    """the outlier dots answer hover but carried no mark, so the
-    sweep never hovered them; now marked, lit on the tip's datum, and
-    the fixture carries outliers matching the bands' models."""
+    """the outlier dots answer hover, so they carry a mark the sweep
+    hovers, lit on the tip's datum, and the fixture carries outliers
+    matching the bands' models."""
     src = (ROOT / "src" / "reply-latency-panel.jsx").read_text(
         encoding="utf-8")
     dots = src[src.index("plottedOutliers.map"):src.index("Hit circles")]
@@ -610,9 +607,9 @@ def test_the_reply_latency_outlier_dots_are_swept():
 
 
 def test_the_no_targets_seed_recounts_through_the_real_mark_pass():
-    """the seed zeroed the node-side count, red even when MARK's
-    own count stopped noticing a stripped panel; the seed now strips and
-    re-runs MARK — the count an unseeded run reads."""
+    """the seed strips and re-runs MARK — the count an unseeded run reads —
+    rather than zeroing the node-side count, which would be red even when
+    MARK's own count stops noticing a stripped panel."""
     src = MODULE.read_text(encoding="utf-8")
     assert "panels[pi].nTargets = 0" not in src, (
         "the seed still forces the node-side count to zero")
@@ -634,9 +631,9 @@ def test_the_two_style_channel_lists_agree():
 
 
 def test_the_seeded_runs_run_one_width_and_uncapped():
-    """the seeded proof re-drove the full sweep three times over —
-    half the leg's wall; the runner now drives the seeds concurrently at
-    one width each, uncapped."""
+    """re-driving the full sweep for each of the three seeds costs half the
+    leg's wall, so the runner drives the seeds concurrently at one width
+    each, uncapped."""
     runner = (ROOT / "scripts" / "ci" / "panel_interactions_seeds.mjs") \
         .read_text(encoding="utf-8")
     assert "CLAUDIT_PANEL_LAYOUT_WIDTHS" in runner, (
@@ -675,8 +672,7 @@ def test_cold_load_shifts_are_attributed_in_the_guard_source():
     """ cold-load half at source level, beside the rendered proof:
     SHIFTS attributes the cold half like the sweep half, and the sweep
     records an other-region finding when a cold shift cannot name its
-    region — the old 'counted for the log, not asserted' posture is the
-    blindness the issue closes."""
+    region."""
     src = MODULE.read_text(encoding="utf-8")
     shifts = src[src.index("const SHIFTS"):src.index("const LONGKEY")]
     assert "cold.push(entry)" in shifts, (

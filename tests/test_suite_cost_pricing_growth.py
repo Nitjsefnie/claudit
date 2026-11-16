@@ -129,12 +129,11 @@ def test_appended_rows_do_not_move_the_measurement(bench_copies):
             f"{grown_measure['phases'][phase]['million_instructions']}")
 
 
-# A stated ceiling, not a ratchet: the suite-cost bench no longer parses
-# the deployed document (its workload loads a bounded document), so data
-# growth is visible only here. ~50% headroom over the ~1.0 MB the
-# history floor leaves; the next real growth step past this needs a
-# deliberate edit of this constant, which is the visibility the guard
-# exists for.
+# A stated ceiling, not a ratchet: the suite-cost bench loads a bounded
+# document rather than the deployed one, so data growth is visible only
+# here. ~50% headroom over the ~1.0 MB the history floor leaves; the next
+# real growth step past this needs a deliberate edit of this constant,
+# which is the visibility the guard exists for.
 PRICING_DOC_CEILING_BYTES = 1_500_000
 
 

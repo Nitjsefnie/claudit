@@ -121,7 +121,7 @@ def test_an_empty_family_is_present_and_refuses_the_seed():
     # family PRESENT and malformed (the loader refuses its shape), and
     # a seed that read emptiness as the absent family would replace it
     # despite the malformed recorded shape
-    # ( review; guards/distinguish-absent-from-empty).
+    # (guards/distinguish-absent-from-empty).
     data = _document(reparse=False)
     data[thresholds.REPARSE_FAMILY] = {}
     readings = {
@@ -150,7 +150,7 @@ def _load_for_seed_of_bytes(data):
 
 def test_a_missing_phase_reading_is_a_clean_refusal():
     # A direct caller's contract: the same ValueError shape the CLI's
-    # guard produces, never a KeyError ( review, minor).
+    # guard produces, never a KeyError.
     data = _document(reparse=False)
     readings = {
         phase: {"share": "9.0", "bytecodes": "1.0"}

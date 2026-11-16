@@ -69,7 +69,7 @@ def _app_with_prompt_range_data_fixture(monkeypatch):
 
     # sess-RA: a prompt and a turn 45 days old (before a 30d `since`) in
     # a file modified now, a fresh prompt, and one prompt with no
-    # timestamp at all (ruling P1: unstamped cannot prove out of range).
+    # timestamp at all (an unstamped prompt cannot prove out of range).
     _write("claude/projA/sess-RA/sess-RA.jsonl", [
         _user("ra-u1", old_ts, "old prompt"),
         _reply("ra-a1", "ra-r1", old_ts),
@@ -99,12 +99,12 @@ def _app_with_prompt_range_data_fixture(monkeypatch):
 
 def test_dashboard_counts_prompts_and_turns_by_own_timestamp(
         app_with_prompt_range_data):
-    """ regression: the range's prompts/turns count per own
-    timestamp, not whole files' totals. sess-RA was modified now but
-    carries a prompt and a turn dated 45 days ago; a 30d view must not
-    count those, while its unstamped prompt still counts (ruling P1: an
-    unstamped ts cannot prove out of range). Over the all-range the
-    totals stay exactly the old whole-file SUMs."""
+    """The range's prompts/turns count per own timestamp, not whole
+    files' totals. sess-RA was modified now but carries a prompt and a
+    turn dated 45 days ago; a 30d view must not count those, while its
+    unstamped prompt still counts (an unstamped ts cannot prove out of
+    range). Over the all-range the totals stay exactly the whole-file
+    SUMs."""
     body_30d = app_with_prompt_range_data.get(
         "/api/dashboard?range=30d&fresh=1").json()
     assert body_30d["total_prompts"] == 3  # RA: new + unstamped; RB: 1

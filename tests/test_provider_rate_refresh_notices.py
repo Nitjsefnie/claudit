@@ -119,9 +119,9 @@ def _vendor_pass(*_args):
     (_vendor_pass, _VENDOR_LINE),
 ], ids=["provider", "vendor"])
 def test_the_notice_stays_suppressed_across_consecutive_commits(tmp_path, capsys, vendor, needle):
-    """The regression this design exists for: the baseline holds the lines
+    """The case this design exists for: the baseline holds the lines
     the last committing run suppressed, so a permanently-delisted model's
-    notice does not alternate back into every second commit .
+    notice does not alternate back into every second commit.
 
     Three commits, because the defect shows on the run AFTER a suppressing
     one — a two-commit case passes against a baseline that drops what it

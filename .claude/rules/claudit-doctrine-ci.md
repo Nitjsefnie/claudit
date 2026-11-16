@@ -41,7 +41,7 @@ numbers in a workflow. Module size is gated by the
   (`scripts/ci/reparse_bench.py`, called from `tests.yml` through
   `.github/actions/reparse-bench`), each phase carrying TWO instruments
   because each sees something the other cannot — and only ONE of them
-  gates (issue #513):
+  gates:
   - `bytecodes` — hundreds of bytecode instructions per file, counted
     with `sys.monitoring`'s INSTRUCTION event
     (`scripts/ci/reparse_phases.py`). Exact: the same tree retires the
@@ -60,9 +60,9 @@ numbers in a workflow. Module size is gated by the
     against the recorded share budgets and the ratchet never tightens
     them. A proportion of a timed run is not a count of work: its
     runner-to-runner spread measures 1.9-2.7 points against the 1.5-point
-    gap it would be judged against (#500, #506), and it moves when the
-    corpus MIX shifts between formats of different parse cost even with
-    no code path slower and every count under its own ceiling (PR #512).
+    gap it would be judged against, and it moves when the corpus MIX
+    shifts between formats of different parse cost even with no code path
+    slower and every count under its own ceiling.
     The measurement doctrine's own principle decides it: counters gate,
     derived proportions do not. The share members STAY in
     `.github/ci-thresholds.json`, carrying the reading they recorded, and

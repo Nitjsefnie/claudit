@@ -2,15 +2,13 @@
 
 Source-level pins (node cannot parse JSX and nothing here renders
 React, so a panel can pass every test while drawing a key whose dash
-pattern differs from the line it labels —, found by a human
-reading the legend against the chart).
+pattern differs from the line it labels).
 
 The dash rule is ONE map: every picker entry takes its dash from its
 PICKER position, whether checked or not, and BOTH readers — the per-tool
 line loop and the legend — go through that map. Indexing TOOL_DASHES by
-the position among the CHECKED tools only (the bug) or by any
-second, independently computed index reintroduces the drift the map
-closes.
+the position among the CHECKED tools only, or by any second,
+independently computed index, reintroduces the drift the map closes.
 """
 from __future__ import annotations
 

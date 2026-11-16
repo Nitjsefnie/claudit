@@ -382,7 +382,7 @@ def test_the_bare_path_keeps_search_rate_but_not_host_schedule(monkeypatch):
 
 
 def test_a_family_fallback_is_fed_from_the_vendor_keys(monkeypatch):
-    """The claude families now live only in the tracked table, so the tier
+    """The claude families live only in the tracked table, so the tier
     fallback scans it: the fallback rates are the highest-versioned vendor
     key's list price."""
     _install(monkeypatch, _doc())
@@ -557,7 +557,7 @@ def test_the_vendor_pass_never_re_adds_a_tracked_key():
     ("claude-mythos-99", "fable"), ("claude-opus-99", "opus"),
     ("claude-sonnet-99", "sonnet")])
 def test_real_family_fallbacks_feed_from_the_tracked_table(probe, family):
-    """The claude families live in the tracked table now: an unrecognised
+    """The claude families live in the tracked table: an unrecognised
     member's tier fallback rates are that family's tracked list price."""
     r = pricing.resolve(probe)
     assert r.kind == "tier", probe

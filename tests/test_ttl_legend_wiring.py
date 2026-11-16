@@ -1,14 +1,13 @@
 """Source-level pins for the Prompt-Cache TTL Split legend.
 
-The legend sat at translate(padL + 8, padT + 12) -- INSIDE the plot
-rectangle, across the bars it explains -- and ran 8.8px past the panel's
-right edge at a 320px viewport. The rendered half is asserted by the
-browser guard (scripts/ci/panel_layout.mjs); this module is the
-source-level half, which fails on the revert before any browser runs.
-The panel itself moved to src/cache-ttl-panel.jsx in the same fix: the
-size-ratchet gate's committed entry for dashboard-charts-extra.jsx
-never rises, so the code the fix adds moved out instead of growing a
-file already far over the ceiling.
+The legend must not sit at translate(padL + 8, padT + 12): that spot is
+INSIDE the plot rectangle, across the bars it explains, and runs 8.8px
+past the panel's right edge at a 320px viewport. The rendered half is
+asserted by the browser guard (scripts/ci/panel_layout.mjs); this module
+is the source-level half, which fails on a revert before any browser runs.
+The panel lives in src/cache-ttl-panel.jsx: the size-ratchet gate's
+committed entry for dashboard-charts-extra.jsx never rises, and that
+file is already far over the ceiling.
 """
 from __future__ import annotations
 
@@ -57,11 +56,11 @@ def test_the_page_loads_the_module_that_defines_the_ttl_panel():
 
 
 def test_the_ttl_legend_anchors_below_the_share_strip_not_in_the_plot():
-    """the legend sat at translate(padL + 8, padT + 12) -- INSIDE the
-    plot rectangle, across the bars it explains -- and ran 8.8px past the
+    """the legend must not sit at translate(padL + 8, padT + 12): inside
+    the plot rectangle, across the bars it explains, and 8.8px past the
     panel's right edge at a 320px viewport. The rendered-layout guard
     (scripts/ci/panel_layout.mjs) reads the resulting boxes; this pin is
-    the source-level half, which fails on the revert before any browser
+    the source-level half, which fails on a revert before any browser
     runs."""
     m = re.search(
         r"data-role=\"legend\"[^>]*transform=\{`translate\(\$\{padL[^,]*,"
@@ -73,9 +72,9 @@ def test_the_ttl_legend_anchors_below_the_share_strip_not_in_the_plot():
 
 
 def test_the_ttl_legend_band_is_sized_from_its_row_count():
-    """The issue's suggested shape: the band below the share strip is
-    bought per legend row, not from a fixed padding, so a wrapped row
-    claims vertical space instead of escaping the panel."""
+    """The band below the share strip is bought per legend row, not from
+    a fixed padding, so a wrapped row claims vertical space instead of
+    escaping the panel."""
     src = _ttl_src()
     assert re.search(r"padB = 36 \+ legRows\.length \* LEG_ROW_H", src), (
         "padB is a fixed padding again -- the legend band must grow with "

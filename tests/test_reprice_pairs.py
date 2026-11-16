@@ -138,9 +138,9 @@ def test_clean_bump_restamps_set_based_without_reading_rows(
     pairs, every cost correct and every fingerprint stamped — a
     PRICING_VERSION bump that moved no pair's rate data must restamp
     the whole block in ONE set-based UPDATE and read ZERO rows into
-    Python. The old shape's Python recompute costs about 20us per row,
-    so the CPU budget below is unmeetable while any of the 30k rows
-    reaches the keyset loop (that RED run is the evidence)."""
+    Python. A Python recompute costs about 20us per row, so the CPU
+    budget below is unmeetable while any of the 30k rows reaches the
+    keyset loop."""
     monkeypatch.setattr(timing, "TIMING_ON", True)
     pairs = [("claude-opus-4-7", None), ("gpt-5.6-sol", None),
              ("claude-sonnet-4-5", None)]

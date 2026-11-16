@@ -147,7 +147,7 @@ def test_wrap_breaks_on_separators_not_mid_token(js):
     assert w["cleanBreak"] == ["-root-robot-", "islands"]
     assert w["multiBreak"] == ["C--Users-", "multimedia-", "Desktop-kvalita"]
     # No separator anywhere in the 16-char window (e.g. a long hash):
-    # fall back to the old hard cut at exactly maxChars.
+    # fall back to a hard cut at exactly maxChars.
     assert w["hardCutFallback"] == [
         "abcdefghijklmnop", "qrstuvwxyz012345", "6789"]
     # A label already <= maxChars needs no wrapping at all.
@@ -175,7 +175,7 @@ def test_max_chars_bounds_horizontal_projection(js):
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_padb_shrinks_for_short_labels_and_grows_for_long_ones(js):
     p = js["padB"]
-    # No empty gutter: a 3-char label needs a fraction of the old fixed
+    # No empty gutter: a 3-char label needs a fraction of a fixed
     # 104px padding.
     assert p["short"]["padB"] == pytest.approx(
         LABEL_Y + 3 * 6.4 * math.sin(math.radians(ANGLE)) + LINE_H)

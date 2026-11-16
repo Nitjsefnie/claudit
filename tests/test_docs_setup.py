@@ -1,8 +1,7 @@
 """Pin the three docs' application-database setup blocks together.
 
 The setup appears in README "Quick start", CONTRIBUTING "Getting it
-running" and AGENTS "Build and test commands". CONTRIBUTING once omitted
-CLAUDIT_DATABASE_URL_AUTH unnoticed. Like test_panel_wiring.py,
+running" and AGENTS "Build and test commands". Like test_panel_wiring.py,
 these source-level pins run no commands or database work; no other test
 reads these docs, so drift passes elsewhere.
 
@@ -13,8 +12,8 @@ Three guards:
    the `CREATE TABLE users` psql step). Equality across docs alone would
    stay green if all three dropped the same step together.
 2. Env-edit mentions. Each doc's section text names both
-   CLAUDIT_DATABASE_URL_VIZ and CLAUDIT_DATABASE_URL_AUTH -- the historical drift was
-   exactly this omission in one doc.
+   CLAUDIT_DATABASE_URL_VIZ and CLAUDIT_DATABASE_URL_AUTH, so an omission
+   from one doc fails.
 3. Cross-doc equality. The three docs' normalized steps are equal as
    ORDERED lists, so an omission, an addition or a reorder in any
    direction fails, and the message prints every doc's list so the

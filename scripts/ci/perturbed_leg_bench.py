@@ -11,9 +11,9 @@ subprocess over the caller's arguments, on the just-perturbed tree
 from ``getrusage(RUSAGE_CHILDREN)`` deltas) plus the phase's exit
 code. The first nonzero suite exit stops the run and is the bench's
 own exit — the loop's first failure fails the step, exactly as the
-leg always has.
+leg does.
 
-Per the v9 measurement doctrine this is TELEMETRY, never a gate: the
+Per the measurement doctrine this is TELEMETRY, never a gate: the
 leg's verdict is the perturbed suite's pass/fail, never its duration,
 and nothing here is compared against a committed budget. The wall
 numbers are diagnostic because the size decision concerns CI minutes. Container startup and dependency install
