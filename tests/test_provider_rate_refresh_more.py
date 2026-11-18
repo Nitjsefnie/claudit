@@ -80,7 +80,7 @@ def test_baseten_selects_the_global_synthetic_endpoint_over_a_cheaper_region() -
     selected, refused, _, _ = refresh.listed_rows(
         "deepseek/acme-v4-1", payload, None,
         {"BaseTen": {"select": "cheapest", "why": "synthetic region check"}},
-        {}, NOW,
+        {}, NOW, model_id="deepseek/acme-v4-1",
     )
 
     assert refused == {}
@@ -104,7 +104,7 @@ def test_modal_ignores_withdrawn_fp8_when_nvfp4_survives() -> None:
     selected, refused, _, _ = refresh.listed_rows(
         GLM, payload, None,
         {"Modal": {"tag": "modal/nvfp4", "why": "synthetic survivor check"}},
-        {}, NOW,
+        {}, NOW, model_id=GLM,
     )
 
     assert refused == {}
@@ -138,7 +138,7 @@ def test_a_fast_pair_takes_the_base_endpoint_automatically() -> None:
     base endpoint prices the row — and the run's report records it as
     rule-resolved rather than silently."""
     selected, refused, notices, _ = refresh.listed_rows(
-        GLM, _fast_payload(["fireworks", "fireworks/fast"]), None, {}, {}, NOW)
+        GLM, _fast_payload(["fireworks", "fireworks/fast"]), None, {}, {}, NOW, model_id=GLM)
     assert refused == {}
     assert selected["Fireworks"].tag == "fireworks"
     assert selected["Fireworks"].rates == BASE_RATES
@@ -155,7 +155,7 @@ def test_the_base_is_taken_even_when_the_fast_tier_is_cheaper() -> None:
         _endpoint("Fireworks", cheap_fast, tag="fireworks/fast"),
     ]}}
     selected, refused, _, _ = refresh.listed_rows(
-        GLM, payload, None, {}, {}, NOW)
+        GLM, payload, None, {}, {}, NOW, model_id=GLM)
     assert refused == {}
     assert selected["Fireworks"].rates == BASE_RATES
 
@@ -172,7 +172,7 @@ def test_any_other_multi_price_shape_is_still_refused(tags: list[str]) -> None:
     non-fast tags — so it keeps refusing, as does every shape whose
     endpoints are several offerings rather than variants of one."""
     selected, refused, _, _ = refresh.listed_rows(
-        GLM, _fast_payload(tags), None, {}, {}, NOW)
+        GLM, _fast_payload(tags), None, {}, {}, NOW, model_id=GLM)
     assert selected == {}
     assert set(refused) == {"Fireworks"}
     assert "resolve it in openrouter.models" in refused["Fireworks"]
@@ -183,7 +183,7 @@ def test_an_explicit_pin_beats_the_bare_namespace_rule() -> None:
     fast endpoint, and no rule-resolved line is reported."""
     selected, refused, notices, _ = refresh.listed_rows(
         GLM, _fast_payload(["fireworks", "fireworks/fast"]), None,
-        {"Fireworks": {"tag": "fireworks/fast", "why": "fixture"}}, {}, NOW)
+        {"Fireworks": {"tag": "fireworks/fast", "why": "fixture"}}, {}, NOW, model_id=GLM)
     assert refused == {}
     assert selected["Fireworks"].tag == "fireworks/fast"
     assert not any("rule-resolved" in notice for notice in notices)
@@ -195,7 +195,7 @@ def test_a_cheapest_pin_on_a_fast_pair_still_refuses() -> None:
     are not identical."""
     selected, refused, _, _ = refresh.listed_rows(
         GLM, _fast_payload(["fireworks", "fireworks/fast"]), None,
-        {"Fireworks": {"select": "cheapest", "why": "fixture"}}, {}, NOW)
+        {"Fireworks": {"select": "cheapest", "why": "fixture"}}, {}, NOW, model_id=GLM)
     assert selected == {}
     assert set(refused) == {"Fireworks"}
     assert "identical" in refused["Fireworks"]
@@ -210,7 +210,7 @@ def test_an_untagged_endpoint_is_never_a_fast_pair_base() -> None:
     payload = {"data": {"endpoints": [
         untagged, _endpoint("Fireworks", FAST_RATES, tag="/fast")]}}
     selected, refused, _, _ = refresh.listed_rows(
-        GLM, payload, None, {}, {}, NOW)
+        GLM, payload, None, {}, {}, NOW, model_id=GLM)
     assert selected == {}
     assert set(refused) == {"Fireworks"}
     assert "resolve it in openrouter.models" in refused["Fireworks"]

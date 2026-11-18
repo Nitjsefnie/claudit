@@ -28,7 +28,7 @@ def _select(listings, *, region=None, resolutions=None, stored=None):
     endpoints = [_endpoint(HOST, rates, tag=tag) for tag, rates in listings]
     return refresh.listed_rows(
         MODEL, {"data": {"endpoints": endpoints}}, region, resolutions or {},
-        {HOST: stored} if stored else {}, NOW)
+        {HOST: stored} if stored else {}, NOW, model_id=MODEL)
 
 
 def _rules(notices, rule):
@@ -426,7 +426,7 @@ def test_tier_identity_mismatch_declines_or_uses_stored_continuity(field, value,
     variant = {**_endpoint(HOST, RATES_A, tag="fixture/fp8/flex"), field: value}
     selected, refused, notices, _ = refresh.listed_rows(
         MODEL, {"data": {"endpoints": [base, variant]}}, None, {},
-        {HOST: stored} if stored else {}, NOW)
+        {HOST: stored} if stored else {}, NOW, model_id=MODEL)
     assert not _rules(notices, "tier variant base")
     if stored is None:
         assert selected == {} and set(refused) == {HOST}
@@ -519,7 +519,7 @@ def test_continuity_ignores_a_changed_schedule():
     selected, refused, notices, _ = refresh.listed_rows(
         MODEL, {"data": {"endpoints": [
             _endpoint(HOST, RATES_A, tag="fixture/other"), endpoint]}},
-        None, {}, {HOST: RATES_B}, NOW)
+        None, {}, {HOST: RATES_B}, NOW, model_id=MODEL)
     assert refused == {}
     assert selected[HOST].tag == "fixture/primary"
     assert selected[HOST].schedule
