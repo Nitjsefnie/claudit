@@ -102,7 +102,7 @@ BEGIN
     got := NULL;
   END IF;
   IF got IS NOT NULL AND got IS DISTINCT FROM
-     'ts:timestamp with time zone,file_id:integer,line_num:integer,idx:integer,lines_added:integer,lines_deleted:integer,dispatch_prompt_chars:integer,result_chars:integer,tool_name_id:smallint,model_id:smallint,error_kind_id:smallint,agent_type_id:smallint,agent_model_id:smallint,tool_use_id:text,error_text:text,dispatch_name:text,read_targets:text[],write_targets:text[],read_kind:boolean,is_error:boolean,dispatch_brief_ref:boolean,is_reread:boolean,is_replay:boolean,is_canonical:boolean'
+     'ts:timestamp with time zone,file_id:integer,line_num:integer,idx:integer,lines_added:integer,lines_deleted:integer,dispatch_prompt_chars:integer,result_chars:integer,tool_name_id:smallint,model_id:smallint,error_kind_id:smallint,agent_type_id:smallint,agent_model_id:smallint,tool_use_id:text,error_text:text,dispatch_name:text,read_targets:text[],write_targets:text[],read_kind:boolean,is_error:boolean,dispatch_brief_ref:boolean,is_reread:boolean,is_replay:boolean,is_noop:boolean,is_canonical:boolean'
   THEN
     DROP TABLE tool_uses;
   END IF;

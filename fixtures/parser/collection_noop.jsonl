@@ -1,0 +1,2 @@
+{"type":"assistant","timestamp":"2026-09-01T12:00:05Z","requestId":"r9","uuid":"a9","version":"2.1.250","effort":"high","message":{"role":"assistant","model":"claude-sonnet-4-5","stop_reason":"tool_use","usage":{"input_tokens":100,"output_tokens":5},"content":[{"type":"tool_use","id":"noop1","name":"Bash","input":{"command":"echo ok"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"noop1","content":"ok"}]}}

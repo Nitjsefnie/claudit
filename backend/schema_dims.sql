@@ -304,6 +304,7 @@ CREATE TABLE IF NOT EXISTS tool_uses (
   dispatch_brief_ref    BOOLEAN,
   is_reread             BOOLEAN,
   is_replay             BOOLEAN,
+  is_noop               BOOLEAN,
   is_canonical          BOOLEAN    NOT NULL DEFAULT TRUE,
   PRIMARY KEY (file_id, line_num, idx)
 );

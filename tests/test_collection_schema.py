@@ -141,6 +141,7 @@ def test_optional_fields_nullable_and_old_defaults_compatible(monkeypatch):
                     "is_reread": True, "error_text": "failure",
                     "error_kind": "tool_error", "agent_model": "synthetic",
                     "dispatch_prompt_chars": 21, "dispatch_brief_ref": True,
+                    "is_noop": True,
                 },
                 "files": {"models": ["synthetic"], "prompt_count": 3, "turn_count": 4},
             }

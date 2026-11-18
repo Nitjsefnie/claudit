@@ -17,6 +17,7 @@ class ParseCollection:
     dispatch_analytics: bool = True
     file_extras: bool = True
     error_text: bool = True
+    noop_commands: bool = True
 
 
 ALL_PARSE_COLLECTION = ParseCollection()
@@ -35,6 +36,7 @@ def parse_collection(collection: CollectionPolicy) -> ParseCollection:
         dispatch_analytics='dispatch_analytics' not in disabled,
         file_extras='file_extras' not in disabled,
         error_text='error_text' not in disabled,
+        noop_commands='noop_commands' not in disabled,
     )
 
 

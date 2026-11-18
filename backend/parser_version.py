@@ -1,3 +1,3 @@
 from __future__ import annotations
 
-PARSER_VERSION = "117"
+PARSER_VERSION = "118"

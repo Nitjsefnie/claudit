@@ -192,7 +192,8 @@ def _write_facts(cur, parsed, file_id: int) -> None:
               read_targets,
               write_targets,
               is_reread,
-              is_replay) FROM STDIN
+              is_replay,
+              is_noop) FROM STDIN
             """
         ) as copy:
             copy.set_types([
@@ -217,6 +218,7 @@ def _write_facts(cur, parsed, file_id: int) -> None:
                 "bool",
                 "text[]",
                 "text[]",
+                "bool",
                 "bool",
                 "bool"])
             for tu in parsed["tool_uses"]:
@@ -243,7 +245,8 @@ def _write_facts(cur, parsed, file_id: int) -> None:
                     tu["read_targets"],
                     tu["write_targets"],
                     tu["is_reread"],
-                    tu["is_replay"]))
+                    tu["is_replay"],
+                    tu["is_noop"]))
     if parsed["records"]:
         cur.adapters.register_dumper(None, _CopyNumericDumper)
         # long_context is the lane or Claude meter-member decision; other

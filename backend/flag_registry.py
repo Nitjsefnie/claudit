@@ -72,6 +72,10 @@ COLLECTION_SPECS = (
         "generation_speed", "CLAUDIT_COLLECT_GENERATION_SPEED",
         record_fields=("generation_s", "output_tokens_per_s"),
     ),
+    CollectionSpec(
+        "noop_commands", "CLAUDIT_COLLECT_NOOP_COMMANDS",
+        tool_fields=("is_noop",),
+    ),
 )
 
 
