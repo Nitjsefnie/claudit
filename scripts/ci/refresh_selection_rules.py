@@ -43,6 +43,24 @@ SERVICE_TIERS = frozenset({"fast", "highspeed", "flex", "ultrafast", "zdr"})
 _ORDER = ("read", "fresh", "output")
 
 
+class Unserved(RefreshError):
+    """Listed by OpenRouter, served by no host."""
+
+
+def listed_endpoints(where: str, model_id: str, payload: object) -> list:
+    """Empty is Unserved only when `data.id` echoes `model_id`."""
+    data = payload.get("data") if isinstance(payload, dict) else None
+    endpoints = data.get("endpoints") if isinstance(data, dict) else None
+    if not isinstance(data, dict) or not isinstance(endpoints, list):
+        raise RefreshError(f"{where}: unrecognised endpoints response shape")
+    if not endpoints and data.get("id") == model_id:
+        raise Unserved(f"{where}: OpenRouter lists it, but no endpoint serves it")
+    if not endpoints:
+        raise RefreshError(f"{where}: no endpoints listed; read as a broken fetch, "
+                           "never as every host vanishing")
+    return endpoints
+
+
 @dataclass(frozen=True)
 class RegionSelection:
     listings: list[Listing]
@@ -127,7 +145,7 @@ def _global_choice(where: str, kept: list[Listing],
 
 def _global_endpoint(kept: list[Listing]) -> tuple[Listing | None, str]:
     """The one endpoint naming its namespace's global offering: an explicit
-    `<ns>/global` when the namespace lists one, else the bare `<ns>`."""
+    `<ns>/global`, else the bare `<ns>`."""
     explicit = [endpoint for endpoint in kept if "global" in tag_suffixes(endpoint.tag)]
     if len(explicit) == 1:
         return explicit[0], namespace_of(explicit[0].tag)
@@ -170,7 +188,7 @@ def _filtered_choice(where: str, kept: list[Listing], listed: list[Listing],
 
 def _region_endpoint(group: list[Listing], region: str | None) -> Listing:
     """The endpoint of a chosen group that names the configured region: its
-    explicit tag when the group holds one, else the first."""
+    explicit tag, else the first."""
     wanted = _region_name(region)
     return next((endpoint for endpoint in group
                  if wanted in tag_suffixes(endpoint.tag)), group[0])
@@ -304,9 +322,7 @@ def same_quantization(where: str, groups: list[list[Listing]], stored: dict | No
 
 def stored_price_continuity(where: str, groups: list[list[Listing]], stored: dict | None
                             ) -> tuple[Listing, str] | None:
-    """Take the sole group matching the stored five token rates at ten decimals.
-
-    Search fees and schedules do not identify the token price; two matching
+    """Search fees and schedules do not identify the token price; two matching
     groups remain ambiguous even when those are their only differences."""
     if stored is None:
         return None

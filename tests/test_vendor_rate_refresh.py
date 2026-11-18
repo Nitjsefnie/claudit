@@ -13,6 +13,7 @@ from tests.vendor_rate_refresh_helpers import (
     GLM_ID, GLM_KEY, GPT_ID, GPT_KEY, NOW, RATE_FIELDS, RATES, ROOT, TRACKED, _band, _catalog, _doc,
     _endpoint, _load, _meter_for, _meter_map, _move_meter, _payload, _per_token, _price, _run, vendor,
 )
+_LISTED = ("GPT", "0.00000175", "0.000014")  # tokenizer, prompt and completion of a priced model
 
 
 def test_a_new_model_joins_the_tracked_set():
@@ -198,22 +199,26 @@ def test_only_exact_text_output_models_reach_vendor_selection() -> None:
         {"threshold": 200_000, "models": [image_key]}]
 
 
-@pytest.mark.parametrize("tokenizer,prompt,completion,skipped", [
-    ("Router", "-1", "-1", True), ("Router", "0.1", "0.2", False),
-    ("Other", "-1", "-1", False), ("Router", "-1", "0.2", False),
-    ("Router", "0.1", "-1", False), ("Router", -1, -1, False)])
-def test_router_catalog_entries_skip_only_when_they_have_no_price(tokenizer, prompt, completion, skipped):
-    model_id = "nvidia/fixture-entry"
+@pytest.mark.parametrize("tokenizer,prompt,completion,echo,outcome", [
+    ("Router", "-1", "-1", None, "router"), ("Router", "0.1", "0.2", None, "refused"),
+    ("Other", "-1", "-1", None, "refused"), ("Router", "-1", "0.2", None, "refused"),
+    ("Router", "0.1", "-1", None, "refused"), ("Router", -1, -1, None, "refused"),
+    (*_LISTED, "openai/gpt-5.2-chat", "unserved"),  # the live shape: priced, listed, unserved
+    (*_LISTED, "openai/gpt-5.2", "refused"), (*_LISTED, ["openai/gpt-5.2-chat"], "refused")])
+def test_an_empty_endpoints_answer_is_a_notice_only_for_a_router_or_an_unserved_model(
+        tokenizer, prompt, completion, echo, outcome):
+    model_id = "openai/gpt-5.2-chat"
     catalog = _catalog(model_id)
     catalog["data"][0]["architecture"]["tokenizer"] = tokenizer
     catalog["data"][0]["pricing"] = {"prompt": prompt, "completion": completion}
-    catalogs, calls, doc = [catalog], [], _doc(prefixes=["nvidia"])
-    out = vendor.vendor_pass(doc, catalogs.pop, lambda mid: calls.append(mid) or _payload())
-    assert not catalogs and not out.moves and doc["openrouter"]["models"] == {}
-    assert calls == ([] if skipped else [model_id])
-    assert out.notices == ([f"{model_id}: a router with no price of its own; skipped"] if skipped else [])
-    assert out.refusals == ([] if skipped else [
-        f"{model_id}: no endpoints listed; read as a broken fetch, never as every host vanishing"])
+    payload = {"data": {"name": "OpenAI: GPT-5.2 Chat", "architecture": {}, "endpoints": [], **({} if echo is None else {"id": echo})}}
+    catalogs, calls, doc, before = [catalog], [], _doc(prefixes=["openai"]), _doc(prefixes=["openai"])
+    out = vendor.vendor_pass(doc, catalogs.pop, lambda mid: calls.append(mid) or payload)
+    assert not catalogs and not out.moves and doc == before and calls == ([] if outcome == "router" else [model_id])
+    assert out.notices == {"router": [f"{model_id}: a router with no price of its own; skipped"], "unserved": [
+        f"{model_id}: OpenRouter lists it, but no endpoint serves it; skipped"]}.get(outcome, [])
+    assert (f"serves it; skipped: {model_id}" in vendor.vendor_report("", out)) is (outcome == "unserved")
+    assert out.refusals == ([f"{model_id}: no endpoints listed; read as a broken fetch, never as every host vanishing"] if outcome == "refused" else [])
 
 
 def test_the_prefix_list_is_config():

@@ -132,6 +132,15 @@ class Run:
         self.pricing.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n",
                                 encoding="utf-8")
 
+    def empty(self, key: str, echo: object = True) -> str:
+        """Empty `key`'s endpoints answer; its id is the model's (True), `echo` or absent (None)."""
+        model_id = self.doc()["openrouter"]["models"][key]["id"]
+        data = self.payloads[model_id]["data"]
+        data.update(endpoints=[], id=model_id if echo is True else echo)
+        if echo is None:
+            del data["id"]
+        return model_id
+
     def endpoint(self, key: str, host: str) -> dict:
         return next(e for e in self.endpoints(key) if e["provider_name"] == host)
 
@@ -442,7 +451,7 @@ def test_every_refusal_in_a_run_is_named(tmp_path, capsys):
     """A red run names every refused model, not only the first fetched."""
     run = Run(tmp_path)
     _two_global_novitas(run)
-    run.endpoints(V41).clear()
+    run.empty(V41, None)
     _refused(run, capsys, f"{GLM} via Novita", V41)
 
 
@@ -497,20 +506,20 @@ def test_a_delisted_model_is_skipped_with_a_notice_and_blocks_nothing(
     assert "stealth/space-bunny-alpha" in out and "delisted" in out
 
 
+@pytest.mark.parametrize("echo", [True, None], ids=["echoed-id", "no-id"])
 @pytest.mark.parametrize("catalog_payload", [
     pytest.param({"unexpected": "shape"}, id="unrecognised-shape"),
     pytest.param({"data": []}, id="empty-listing"),
 ])
-def test_an_unreadable_catalog_keeps_the_empty_endpoints_refusal(
-        tmp_path, capsys, catalog_payload):
-    """With no recorded delisting, an unreadable catalog proves nothing: an
-    empty endpoints answer is refused, never skipped. An empty data list is
-    unreadable too, so a transient empty listing cannot mass-delist."""
+def test_an_unreadable_catalog_leaves_an_empty_answer_to_its_echoed_id(
+        tmp_path, capsys, catalog_payload, echo):
+    """No delisting recorded, an unreadable catalog (an empty list too: no mass-delisting) proves
+    nothing: an empty answer echoing the model's id is unserved, a notice; without it, refused."""
     run = Run(tmp_path)
-    run.endpoints(V41).clear()
-    rc, _, err = run(capsys, catalog=catalog_payload)
-    assert rc != 0
-    assert V41 in err and "no endpoints listed" in err
+    model_id = run.empty(V41, echo)
+    rc, out, err = run(capsys, catalog=catalog_payload)
+    assert (rc, f"{V41}: no endpoints listed" in err) == ((0, False) if echo else (1, True))
+    assert (f"no endpoint serves it; rows kept, not refreshed: {V41} ({model_id})" in out) is bool(echo)
 
 
 # --- the data region -----------------------------------------------------------

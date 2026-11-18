@@ -36,8 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from refresh_prices import (PRICED, RefreshError, Untracked,  # noqa: E402
                             as_listed, covers_week, entry_schedule,
                             in_a_window, is_zero, rates_of, unknown_suffixes)
-from refresh_selection_rules import (active_pin, bare_namespace, price_groups,  # noqa: E402
-                                     price_order, same_quantization,
+from refresh_selection_rules import (active_pin, bare_namespace, listed_endpoints,  # noqa: E402
+                                     price_groups, price_order, same_quantization,
                                      select_region, stored_price_continuity,
                                      tier_variant_base, unique_quantization)
 
@@ -119,7 +119,8 @@ def _listing(endpoint: object, where: str, at: datetime,
 
 
 def listed_rows(model: str, payload: object, region: str | None, resolutions: dict,
-                stored: dict[str, dict], at: datetime, notices: list[str] | None = None
+                stored: dict[str, dict], at: datetime, notices: list[str] | None = None,
+                model_id: str = ""
                 ) -> tuple[dict[str, Listing], dict[str, str], list[str],
                            dict[str, str]]:
     """Return listings, refusals, notices and deliberately untracked hosts.
@@ -137,7 +138,7 @@ def listed_rows(model: str, payload: object, region: str | None, resolutions: di
     """
     rows, refused, untracked = {}, {}, {}
     notices = [] if notices is None else notices
-    for host, endpoints in _by_host(model, payload).items():
+    for host, endpoints in _by_host(model, model_id, payload).items():
         try:
             chosen = _host_row(
                 f"{model} via {host}", endpoints, region,
@@ -155,9 +156,10 @@ def listed_rows(model: str, payload: object, region: str | None, resolutions: di
     return rows, refused, notices, untracked
 
 
-def _by_host(model: str, payload: object) -> dict[str, list[tuple[int, object]]]:
+def _by_host(model: str, model_id: str,
+             payload: object) -> dict[str, list[tuple[int, object]]]:
     by_host: dict[str, list[tuple[int, object]]] = {}
-    for i, endpoint in enumerate(_endpoints_of(model, payload)):
+    for i, endpoint in enumerate(listed_endpoints(model, model_id, payload)):
         host = endpoint.get("provider_name") if isinstance(endpoint, dict) else None
         if not isinstance(host, str):
             raise RefreshError(f"{model} endpoint {i}: names no provider")
@@ -191,17 +193,6 @@ def _host_row(where: str, endpoints: list[tuple[int, object]],
             "whole week: no record is ever priced by the entry default, so the default "
             "starts as the listed top-level price")
     return chosen
-
-
-def _endpoints_of(model: str, payload: object) -> list:
-    data = payload.get("data") if isinstance(payload, dict) else None
-    endpoints = data.get("endpoints") if isinstance(data, dict) else None
-    if not isinstance(endpoints, list):
-        raise RefreshError(f"{model}: unrecognised response shape")
-    if not endpoints:
-        raise RefreshError(f"{model}: no endpoints listed; read as a broken fetch, "
-                           "never as every host vanishing")
-    return endpoints
 
 
 def _host_price(where: str, listed: list[Listing], region: str | None, pin: object,

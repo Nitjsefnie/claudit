@@ -42,19 +42,13 @@ def _state(run, value):
 def test_known_delisted_is_not_fetched_during_catalog_outage(
         tmp_path, capsys, missing_endpoint):
     run = Run(tmp_path)
-    model_id = run.doc()["openrouter"]["models"][RETIRED]["id"]
-    other_id = run.doc()["openrouter"]["models"][GLM]["id"]
-    run.endpoints(RETIRED).clear()
+    model_id, other_id = run.empty(RETIRED), run.doc()["openrouter"]["models"][GLM]["id"]
     _state(run, {"delisted": [None, {}, model_id]})
     before = run.snapshot()
-
     rc, out, err, fetched = _run(
         run, capsys, UNREADABLE, missing_endpoint=model_id if missing_endpoint else None)
-
-    assert rc == 0 and not err
-    assert model_id not in fetched and other_id in fetched
-    assert "catalog unreadable" in out and "last recorded as delisted" in out
-    assert RETIRED in out
+    assert rc == 0 and not err and model_id not in fetched and other_id in fetched
+    assert "catalog unreadable" in out and "last recorded as delisted" in out and RETIRED in out
     assert run.snapshot() == before
 
 
@@ -62,30 +56,22 @@ def test_known_delisted_is_not_fetched_during_catalog_outage(
 def test_unknown_delisting_still_refuses_during_catalog_outage(
         tmp_path, capsys, missing_endpoint):
     run = Run(tmp_path)
-    model_id = run.doc()["openrouter"]["models"][RETIRED]["id"]
-    run.endpoints(RETIRED).clear()
+    model_id = run.empty(RETIRED, None)
     _state(run, {"delisted": ["other/model"]})
     before = run.snapshot()
-
     rc, _, err, fetched = _run(
         run, capsys, UNREADABLE, missing_endpoint=model_id if missing_endpoint else None)
-
-    assert rc == 1 and model_id in fetched
-    assert RETIRED in err
+    assert rc == 1 and model_id in fetched and RETIRED in err and run.snapshot() == before
     assert ("404" if missing_endpoint else "no endpoints listed") in err
-    assert run.snapshot() == before
 
 
 def test_readable_catalog_relisting_overrides_the_record(tmp_path, capsys):
     run = Run(tmp_path)
-    model_id = run.doc()["openrouter"]["models"][RETIRED]["id"]
-    run.endpoints(RETIRED).clear()
+    model_id = run.empty(RETIRED)
     _state(run, {"delisted": [model_id]})
-
-    rc, _, err, fetched = _run(run, capsys, _catalog_without(run))
-
-    assert rc == 1 and model_id in fetched
-    assert RETIRED in err and "no endpoints listed" in err
+    rc, out, err, fetched = _run(run, capsys, _catalog_without(run))
+    assert rc == 0 and not err and model_id in fetched and "delisted" not in out
+    assert f"no endpoint serves it; rows kept, not refreshed: {RETIRED} ({model_id})" in out
 
 
 def test_committing_refresh_records_and_carries_only_tracked_delistings(tmp_path, capsys):
@@ -109,21 +95,19 @@ def test_committing_refresh_records_and_carries_only_tracked_delistings(tmp_path
     _move_openinference(run, discount=0.1)
     rc, _, err, fetched = _run(run, capsys, UNREADABLE, now=NOW + timedelta(hours=1))
     assert rc == 0 and not err and not set(retired_ids) & set(fetched)
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["delisted"] == retired_ids
+    assert json.loads(state_path.read_text(encoding="utf-8"))["delisted"] == retired_ids
 
     run.payloads.update(original_payloads)
     _move_openinference(run, discount=0.2)
     rc, _, err, fetched = _run(
         run, capsys, _catalog_without(run), now=NOW + timedelta(hours=2))
     assert rc == 0 and not err and set(retired_ids) <= set(fetched)
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["delisted"] == []
+    assert json.loads(state_path.read_text(encoding="utf-8"))["delisted"] == []
 
-    run.endpoints(RETIRED).clear()
-    rc, _, err, fetched = _run(run, capsys, UNREADABLE, now=NOW + timedelta(hours=3))
-    assert rc == 1 and tracked[RETIRED]["id"] in fetched
-    assert "no endpoints listed" in err
+    run.empty(RETIRED)
+    rc, out, err, fetched = _run(run, capsys, UNREADABLE, now=NOW + timedelta(hours=3))
+    assert rc == 0 and not err and tracked[RETIRED]["id"] in fetched
+    assert "last recorded as delisted" not in out and "no endpoint serves it" in out
 
 
 @pytest.mark.parametrize("contents", [
@@ -136,14 +120,10 @@ def test_committing_refresh_records_and_carries_only_tracked_delistings(tmp_path
         "missing-key", "non-string-items", "string", "mapping", "number"])
 def test_unusable_record_does_not_hide_a_refusal(tmp_path, capsys, contents):
     run = Run(tmp_path)
-    model_id = run.doc()["openrouter"]["models"][RETIRED]["id"]
-    run.endpoints(RETIRED).clear()
+    model_id = run.empty(RETIRED, None)
     if contents == "directory":
         run.pricing.with_name("pricing_notices.json").mkdir()
     elif contents is not None:
         run.pricing.with_name("pricing_notices.json").write_bytes(contents)
-
     rc, _, err, fetched = _run(run, capsys, UNREADABLE)
-
-    assert rc == 1 and model_id in fetched
-    assert "no endpoints listed" in err
+    assert rc == 1 and model_id in fetched and "no endpoints listed" in err

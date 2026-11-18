@@ -487,14 +487,14 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
     order, or have flipped order;
   - a resolution keyed on anything else, a price included;
   - an unrecognised response shape;
-  - a tracked model still in the catalog with no endpoints, or none in
-    the data region. A model gone from /api/v1/models is a delisting,
-    not a refusal: the run skips it with a notice, its provider row
-    keeps pricing stored records, and it rejoins the refresh on its own
-    when the catalog relists it. A readable catalog overrides the recorded
-    delistings; while it cannot be read, the run skips the ids the last
-    committing run recorded as delisted, and any other model's empty
-    endpoints answer is still refused.
+  - an empty endpoint list not echoing the requested id in `data.id`,
+    or none in the data region; echoing it, the model is unserved,
+    readable catalog or not: a notice, rows kept, no host vanished. A
+    model gone from /api/v1/models is a delisting, not a refusal: the
+    run skips it with a notice, its row keeps pricing stored records,
+    and it rejoins once relisted. A readable catalog overrides the
+    recorded delistings; while it cannot be read, the run skips the ids
+    the last committing run recorded as delisted.
 
   When the refreshed document passes final validation, a refusal blocks
   only itself: every other move is rewritten or appended, tested and
