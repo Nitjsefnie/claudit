@@ -61,7 +61,7 @@ TOOL_USES_ORDER = (
     "tool_use_id", "error_text", "dispatch_name",
     "read_targets", "write_targets",        # TEXT[] (4, var)
     "read_kind", "is_error", "dispatch_brief_ref", "is_reread",
-    "is_replay", "is_canonical",            # boolean (1), trailing
+    "is_replay", "is_noop", "is_canonical",  # boolean (1), trailing
 )
 
 # Dimension lookups: id SMALLINT everywhere (headroom math in the task

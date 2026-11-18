@@ -35,7 +35,8 @@ def sample(fmt: str) -> bytes:
     """Each supported optional column has a live value somewhere in this file."""
     if fmt == 'claude':
         return b''.join((FIX / name).read_bytes() for name in (
-            'collection_reads.jsonl', 'collection_dispatch.jsonl', 'generation_s_last_line.jsonl'))
+            'collection_reads.jsonl', 'collection_dispatch.jsonl', 'generation_s_last_line.jsonl',
+            'collection_noop.jsonl'))
     args = {'subagent_type': 'explore', 'agent_type': 'explorer',
             'model': 'haiku', 'name': 'finder',
             'prompt': 'Read /tmp/brief/task.md IN FULL.'}
@@ -105,7 +106,7 @@ def test_each_collection_group_nulls_exactly_its_fields(fmt, group):
             assert dispatch['dispatch_brief_ref'] is True
     # Lane adapters cannot invent Claude-only metadata or context intake.
     supported = fmt == 'claude' or group not in (
-        'turn_context', 'request_metadata', 'context_intake', 'generation_speed')
+        'turn_context', 'request_metadata', 'context_intake', 'generation_speed', 'noop_commands')
     for rows, fields in ((on['records'], spec.record_fields),
                          (on['tool_uses'], spec.tool_fields), ([on], spec.file_fields)):
         for field in fields:

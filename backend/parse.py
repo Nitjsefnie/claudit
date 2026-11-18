@@ -404,8 +404,8 @@ class _LineWalk:
                 "read_kind": tu["read_kind"],
                 "read_targets": tu["read_targets"],
                 "write_targets": tu["write_targets"],
-                "result_chars": None,  # filled after the line walk
-                "is_reread": None,     # filled after the line walk
+                "result_chars": None, "is_reread": None,  # filled after the line walk
+                "is_noop": tu["is_noop"],
             })
 
 

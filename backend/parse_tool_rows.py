@@ -5,6 +5,7 @@ from backend import bash_churn_errors, bash_reads
 from backend.agent_types import canonical_agent_type
 from backend.bash_churn import BashCommand, replace_churn
 from backend.json_shape import as_dict
+from backend.noop_command import SHELL_TOOLS, is_noop
 from backend.parse_common import _dispatch_prompt_shape
 from backend.parse_collection import ALL_PARSE_COLLECTION, ParseCollection
 from backend.tool_errors import (ERROR_KIND_TOOL_ERROR, ERROR_TEXT_MAX,
@@ -140,6 +141,8 @@ def _tool_use_row(idx: int, blk: dict, cwd: str, collect: ParseCollection = ALL_
         "read_kind": r_kind,
         "read_targets": r_targets,
         "write_targets": w_targets,
+        "is_noop": (is_noop(str(args.get("command", "") or ""))
+                    if collect.noop_commands and name in SHELL_TOOLS else None),
     }
 
 

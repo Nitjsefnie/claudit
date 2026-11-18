@@ -219,7 +219,7 @@ def to_claudit(parsed: dict, fmt: str, *, collection: CollectionPolicy = ALL_COL
             "read_kind", "read_targets", "write_targets",
         )) | tu)
         tu.update(dict.fromkeys((
-            "result_chars", "is_reread",
+            "result_chars", "is_reread", "is_noop",
         )))
     out = dict(parsed)
     extras = "file_extras" not in collection.disabled
