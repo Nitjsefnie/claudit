@@ -21,6 +21,7 @@ EXPECTED_COLLECTION_ENVS = {
     key: "CLAUDIT_COLLECT_" + key.upper() for key in (
         "turn_context", "request_metadata", "cache_write_tokens", "context_intake",
         "error_text", "file_extras", "tool_error_kinds", "dispatch_analytics", "generation_speed",
+        "noop_commands",
     )
 }
 
