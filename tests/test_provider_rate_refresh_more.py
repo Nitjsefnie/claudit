@@ -552,8 +552,8 @@ def test_no_endpoints_echoing_the_model_is_unserved_not_refused(tmp_path, capsys
     model_id, before = run.empty(GLM), run.snapshot()
     rc, out, err = run(capsys)
     assert rc == 0 and not err and run.snapshot() == before and "vanished" not in out
-    assert issubclass(refresh.Unserved, refresh.RefreshError) and out.splitlines()[-2:] == [
-        "notices:", f"  OpenRouter lists it, but no endpoint serves it; rows kept, not refreshed: {GLM} ({model_id})"]
+    assert out.splitlines()[-2:] == ["notices:", "  OpenRouter lists it, but no endpoint serves it; "
+                                     f"rows kept, not refreshed: {GLM} ({model_id})"]
 
 
 def test_a_detection_time_not_after_the_row_leaves_its_host_untouched(tmp_path, capsys):

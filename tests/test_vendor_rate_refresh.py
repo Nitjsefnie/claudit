@@ -211,14 +211,16 @@ def test_an_empty_endpoints_answer_is_a_notice_only_for_a_router_or_an_unserved_
     catalog = _catalog(model_id)
     catalog["data"][0]["architecture"]["tokenizer"] = tokenizer
     catalog["data"][0]["pricing"] = {"prompt": prompt, "completion": completion}
-    payload = {"data": {"name": "OpenAI: GPT-5.2 Chat", "architecture": {}, "endpoints": [], **({} if echo is None else {"id": echo})}}
+    payload = {"data": {"name": "OpenAI: GPT-5.2 Chat", "architecture": {}, "endpoints": [],
+                        **({} if echo is None else {"id": echo})}}
     catalogs, calls, doc, before = [catalog], [], _doc(prefixes=["openai"]), _doc(prefixes=["openai"])
     out = vendor.vendor_pass(doc, catalogs.pop, lambda mid: calls.append(mid) or payload)
     assert not catalogs and not out.moves and doc == before and calls == ([] if outcome == "router" else [model_id])
     assert out.notices == {"router": [f"{model_id}: a router with no price of its own; skipped"], "unserved": [
         f"{model_id}: OpenRouter lists it, but no endpoint serves it; skipped"]}.get(outcome, [])
     assert (f"serves it; skipped: {model_id}" in vendor.vendor_report("", out)) is (outcome == "unserved")
-    assert out.refusals == ([f"{model_id}: no endpoints listed; read as a broken fetch, never as every host vanishing"] if outcome == "refused" else [])
+    assert out.refusals == ([f"{model_id}: no endpoints listed; read as a broken fetch, "
+                             "never as every host vanishing"] if outcome == "refused" else [])
 
 
 def test_the_prefix_list_is_config():
