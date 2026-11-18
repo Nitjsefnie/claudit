@@ -182,7 +182,7 @@ def _listed_model(context: RefreshContext, model: str, source: dict,
     rows, refused, notices, untracked = listed_rows(
         model, payload, context.region, source.get("resolve", {}),
         {host: effective_rates(_occurrences(history, f"{model} via {host}")[-1])
-         for host, history in hosts.items()}, context.at, notices, source["id"])
+         for host, history in hosts.items()}, context.at, notices, model_id=source["id"])
     return ListedModel(payload, rows, refused, notices, untracked)
 
 

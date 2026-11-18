@@ -124,7 +124,7 @@ def _listed_model(model: str, source: dict, old_hosts: dict, region: str | None,
     rows, refused, _, _ = hourly.listed_rows(
         model, payload, region, source.get("resolve", {}),
         {host: _entry_rates(_flatten(history)[-1])
-         for host, history in old_hosts.items()}, now)
+         for host, history in old_hosts.items()}, now, model_id=source["id"])
     matched, unavailable = _join_model_log(
         payload, log, region, source.get("resolve", {}), now,
         {host: _entry_rates(history[-1]) for host, history in old_hosts.items()})

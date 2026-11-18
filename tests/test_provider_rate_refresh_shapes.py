@@ -70,7 +70,7 @@ def _select_synthetic_host(host: str, listings: list[tuple], *,
         endpoints.append(endpoint)
     payload = {"data": {"endpoints": endpoints}}
     return refresh.listed_rows("synthetic/model", payload, region,
-                               resolutions or {}, {host: stored} if stored else {}, NOW)
+                               resolutions or {}, {host: stored} if stored else {}, NOW, model_id="synthetic/model")
 
 
 def _mentions_tier(why: str, tier: str) -> bool:
@@ -218,7 +218,7 @@ def test_tag_pin_resolves_same_quantization_prices_within_the_pinned_tag():
 
     selected, refused, notices, _ = refresh.listed_rows(
         "glm-5-2", {"data": {"endpoints": endpoints}}, None,
-        {"Alibaba": pin}, {"Alibaba": RATES_A}, NOW)
+        {"Alibaba": pin}, {"Alibaba": RATES_A}, NOW, model_id="glm-5-2")
 
     assert refused == {}
     assert selected["Alibaba"].tag == "alibaba/fp8"
@@ -242,7 +242,7 @@ def test_single_endpoint_quantization_tag_pin_keeps_precedence():
 
     selected, refused, notices, _ = refresh.listed_rows(
         "glm-5-2", {"data": {"endpoints": endpoints}}, None,
-        {"Alibaba": {"tag": "alibaba/fp4", "why": "fixture"}}, {}, NOW)
+        {"Alibaba": {"tag": "alibaba/fp4", "why": "fixture"}}, {}, NOW, model_id="glm-5-2")
 
     assert refused == {}
     assert selected["Alibaba"].tag == "alibaba/fp4"
@@ -256,7 +256,7 @@ def test_ambiguous_non_quantization_tag_pin_still_refuses():
 
     selected, refused, _, _ = refresh.listed_rows(
         "glm-5-2", {"data": {"endpoints": endpoints}}, None,
-        {"Alibaba": {"tag": "alibaba", "why": "fixture"}}, {}, NOW)
+        {"Alibaba": {"tag": "alibaba", "why": "fixture"}}, {}, NOW, model_id="glm-5-2")
 
     assert selected == {}
     assert set(refused) == {"Alibaba"}

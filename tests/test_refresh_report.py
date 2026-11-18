@@ -257,7 +257,7 @@ def test_region_suffixes_include_global_and_area_number_forms(suffix, expected):
     selected, refused, notices, _ = refresh.listed_rows(
         "synthetic/model",
         {"data": {"endpoints": [_endpoint("Fixture", RATES_A, tag=tag)]}},
-        region, {}, {}, datetime(2031, 1, 1, tzinfo=timezone.utc))
+        region, {}, {}, datetime(2031, 1, 1, tzinfo=timezone.utc), model_id="synthetic/model")
 
     assert refresh_prices.tag_region(tag) == expected
     assert isinstance(refused, dict) and not refused

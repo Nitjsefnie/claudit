@@ -120,7 +120,7 @@ def _listing(endpoint: object, where: str, at: datetime,
 
 def listed_rows(model: str, payload: object, region: str | None, resolutions: dict,
                 stored: dict[str, dict], at: datetime, notices: list[str] | None = None,
-                model_id: str = ""
+                *, model_id: str
                 ) -> tuple[dict[str, Listing], dict[str, str], list[str],
                            dict[str, str]]:
     """Return listings, refusals, notices and deliberately untracked hosts.

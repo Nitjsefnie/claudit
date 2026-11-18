@@ -116,7 +116,7 @@ class BackfillFetches:
 
     def fetch_endpoints(self, model_id: str) -> object:
         assert model_id == MODEL_ID
-        return {"data": {"endpoints": copy.deepcopy(self.endpoints)}}
+        return {"data": {"id": MODEL_ID, "endpoints": copy.deepcopy(self.endpoints)}}
 
     def fetch_models(self) -> object:
         return {"data": [{"id": MODEL_ID, "canonical_slug": SLUG}]}
@@ -399,22 +399,22 @@ def test_backfill_refuses_band_input_before_fetching_or_writing(tmp_path, capsys
     assert constants.read_text(encoding="utf-8") == version
 
 
-def test_backfill_unavailable_log_preserves_history_and_reports_failure():
+@pytest.mark.parametrize("endpoints,reason", [
+    ([fixture_endpoint("Wafer", RATE_C, tag="wafer/fp8")], "synthetic unavailable log"),
+    ([], f"{MODEL}: OpenRouter lists it, but no endpoint serves it")], ids=["log", "unserved"])
+def test_backfill_unavailable_log_or_unserved_model_preserves_history_and_reports_why(endpoints, reason):
     history = [_entry(None, RATE_A), _entry("2031-01-01T00:05:00Z", RATE_C)]
-    doc = _doc({"Wafer": history})
-    fetches = BackfillFetches(
-        [fixture_endpoint("Wafer", RATE_C, tag="wafer/fp8")], {})
+    fetches = BackfillFetches(endpoints, {})
 
     def unavailable(_slug):
         raise OSError("synthetic unavailable log")
 
     result, reports, changed = backfill.backfill(
-        doc, fetches.fetch_endpoints, AS_OF, fetches.fetch_models, unavailable, NOW)
+        _doc({"Wafer": history}), fetches.fetch_endpoints, AS_OF, fetches.fetch_models, unavailable, NOW)
 
     assert not changed
     assert result["providers"][MODEL]["Wafer"] == history
-    assert any("untouched Wafer" in line and "synthetic unavailable log" in line
-               for line in reports[MODEL])
+    assert any("untouched Wafer" in line and reason in line for line in reports[MODEL])
 
 
 def test_main_refuses_a_deadline_swallowed_by_the_model_catch(tmp_path, capsys, monkeypatch):
