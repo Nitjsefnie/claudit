@@ -1,5 +1,5 @@
 name: Bounded apt install
-description: Remove the runner's unused Microsoft apt source and optionally install packages, each apt attempt bounded.
+description: Remove the runner's unused Microsoft apt source and optionally install packages, each apt attempt stopped once it stops making progress.
 
 inputs:
   packages:
@@ -17,69 +17,59 @@ runs:
         echo "==> removing the unused Microsoft apt source"
         sudo timeout 10s rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.sources
 
-    - name: Install packages with bounded retries
+    - name: Install packages, retrying each phase until it succeeds
       if: inputs.packages != ''
       shell: bash
       env:
         CLAUDIT_APT_PACKAGES: ${{ inputs.packages }}
       run: |
         set -euo pipefail
-        # How a bounded command ended: timeout(1) exits 124 when its bound expires, 137 when -k had to kill.
+        # The watchdog stops an attempt once the watched apt and dpkg files stop changing, then exits 124.
+        # 60 s: apt itself gives up on a silent file within 4 x its 10 s timeout plus 1+2+4 s of backoff, and the
+        # longest fixed bound this replaces was 50 s. A sample every 5 s stops a stall at most 5 s late.
+        # timeout(1) exits 124 when its bound expires, 137 when -k had to kill.
         outcome() {
-          case "$1" in
-            124|137) echo "timed out after $2 s" ;;
+          case "$1:$2" in
+            124:stall) echo "stalled after 60 s without progress" ;;
+            124:[0-9]*|137:[0-9]*) echo "timed out after $2 s" ;;
             *) echo "exited with status $1" ;;
           esac
         }
         echo "==> reading requested packages"
         read -r -a packages <<< "$CLAUDIT_APT_PACKAGES"
-        for attempt in 1 2; do
-          echo "==> apt-get update (attempt $attempt/2)"
-          if sudo timeout -k 5 15 apt-get update -q -o APT::Update::Error-Mode=any -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10; then
-            break
-          else
-            status=$?
-          fi
-          ended="$(outcome "$status" 15)"
-          echo "==> apt-get update attempt $attempt $ended"
-          if [ "$attempt" -eq 2 ]; then
-            echo "::error::apt-get update failed after 2 attempts; the last $ended" >&2
-            exit 1
-          fi
-          echo "==> waiting 5 seconds before retrying apt-get update"
+        # No attempt count: the caller's timeout-minutes bounds the step, and kept archives make each retry shorter.
+        attempt=1
+        echo "==> apt-get update (attempt $attempt)"
+        until sudo "$GITHUB_ACTION_PATH/../../../scripts/ci/progress_watchdog.py" --stall 60 --sample 5 --grace 5 \
+            --watch /var/lib/apt/lists --watch /var/cache/apt --watch /var/lib/dpkg --watch /var/log/dpkg.log -- \
+            apt-get update -q -o APT::Update::Error-Mode=any -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10; do
+          status=$?
+          echo "==> apt-get update attempt $attempt $(outcome "$status" stall)"
+          attempt=$((attempt + 1))
+          echo "==> waiting 5 seconds before apt-get update attempt $attempt"
           sleep 5
         done
-        for attempt in 1 2; do
-          echo "==> downloading $CLAUDIT_APT_PACKAGES (attempt $attempt/2)"
-          if sudo env DEBIAN_FRONTEND=noninteractive timeout -k 5 40 apt-get install --download-only --no-install-recommends -y -q -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 "${packages[@]}"; then
-            break
-          else
-            status=$?
-          fi
-          ended="$(outcome "$status" 40)"
-          echo "==> apt-get install --download-only attempt $attempt $ended"
-          if [ "$attempt" -eq 2 ]; then
-            echo "::error::downloading $CLAUDIT_APT_PACKAGES failed after 2 attempts; the last $ended" >&2
-            exit 1
-          fi
-          echo "==> waiting 5 seconds before retrying the download"
+        attempt=1
+        echo "==> downloading $CLAUDIT_APT_PACKAGES (attempt $attempt)"
+        until sudo env DEBIAN_FRONTEND=noninteractive "$GITHUB_ACTION_PATH/../../../scripts/ci/progress_watchdog.py" --stall 60 --sample 5 --grace 5 \
+            --watch /var/lib/apt/lists --watch /var/cache/apt --watch /var/lib/dpkg --watch /var/log/dpkg.log -- \
+            apt-get install --download-only --no-install-recommends -y -q -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 "${packages[@]}"; do
+          status=$?
+          echo "==> apt-get install --download-only attempt $attempt $(outcome "$status" stall)"
+          attempt=$((attempt + 1))
+          echo "==> waiting 5 seconds before download attempt $attempt"
           sleep 5
         done
-        # A killed attempt can leave dpkg running, then a dirty journal: a retry waits out the lock (dpkg refuses, apt waits), then configures.
-        for attempt in 1 2; do
-          echo "==> installing $CLAUDIT_APT_PACKAGES from the download cache (attempt $attempt/2)"
-          if sudo env DEBIAN_FRONTEND=noninteractive timeout -k 5 50 apt-get install --no-download --no-install-recommends -y -qq -o DPkg::Lock::Timeout=30 "${packages[@]}"; then
-            break
-          else
-            status=$?
-          fi
-          ended="$(outcome "$status" 50)"
-          echo "==> apt-get install --no-download attempt $attempt $ended"
-          if [ "$attempt" -eq 2 ]; then
-            echo "::error::apt-get install failed after 2 attempts; the last $ended" >&2
-            exit 1
-          fi
-          echo "==> waiting 5 seconds before retrying apt-get install"
+        # A stopped attempt can leave dpkg running, then a dirty journal: a retry waits out the lock (dpkg refuses, apt waits), then configures.
+        attempt=1
+        echo "==> installing $CLAUDIT_APT_PACKAGES from the download cache (attempt $attempt)"
+        until sudo env DEBIAN_FRONTEND=noninteractive "$GITHUB_ACTION_PATH/../../../scripts/ci/progress_watchdog.py" --stall 60 --sample 5 --grace 5 \
+            --watch /var/lib/apt/lists --watch /var/cache/apt --watch /var/lib/dpkg --watch /var/log/dpkg.log -- \
+            apt-get install --no-download --no-install-recommends -y -qq -o DPkg::Lock::Timeout=30 "${packages[@]}"; do
+          status=$?
+          echo "==> apt-get install --no-download attempt $attempt $(outcome "$status" stall)"
+          attempt=$((attempt + 1))
+          echo "==> waiting 5 seconds before apt-get install attempt $attempt"
           sleep 5
           echo "==> waiting for a dpkg left running by the abandoned attempt"
           status=0

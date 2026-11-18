@@ -1,11 +1,12 @@
-"""Workflows leave apt to the shared composite, whose bounded install the
-browser step follows.
+"""Workflows leave apt to the shared composite, whose install retries each apt
+phase until it succeeds, and the bounded browser step follows it.
 
 The composite's install step and panel-layout's browser step run as written,
-with sudo, env, apt-get, dpkg, npx and sleep as recording doubles and timeout
-as the shared stand-in, which ends chosen attempts as an expired timeout(1)
-does. A worst case is every attempt that may be ended ended, the last of each
-loop answering just inside its bound, each kill after its grace."""
+with sudo, env, apt-get, dpkg, npx and sleep as recording doubles, timeout as
+the shared stand-in, which ends chosen attempts as an expired timeout(1) does,
+and the progress watchdog as a stand-in that stalls chosen attempts as the real
+one reports a stall. A worst case is every attempt that may be ended ended,
+the last of each loop answering just inside its bound, each kill after its grace."""
 from __future__ import annotations
 
 import os
@@ -20,6 +21,7 @@ from tests.test_workflow_release_dispatch import ubuntu_step_body
 from tests.workflow_checks import TIMEOUT_STUB, assert_apt_sanitizer, bounded_calls
 
 ROOT = Path(__file__).resolve().parents[1]
+WATCHDOG = ROOT / "scripts" / "ci" / "progress_watchdog.py"
 WORKFLOWS = ROOT / ".github" / "workflows"
 ACTION = ROOT / ".github" / "actions" / "apt-install" / "action.yml"
 ACTION_REF = "$/.github/actions/apt-install"
@@ -27,13 +29,27 @@ INSTALL_STEPS_MINUTES = 10  # both install steps' backstops, so a slow healthy l
 PACKAGES = "xvfb fonts-liberation"
 DOUBLES = r'''
 record() { local IFS=$'\037'; printf '%s\n' "$*" >> "$CALLS"; }
-sudo() { case "${1:-}" in timeout|env) "$@" ;; *) echo "sudo double: unmodelled $*" >&2; return 99 ;; esac; }
+# The watchdog execs its command, so it reads only `--stall N --sample N --grace N --watch PATH... -- COMMAND`, runs only a
+# stubbed COMMAND and records each call; CLAUDIT_STALL_COUNT attempts of each command holding CLAUDIT_STALL_ONLY stall.
+watchdog() {
+  local options=() key="$CLAUDIT_WATCHDOG_CALLS.$(printf '%s' "$*" | sed 's/.* -- //' | cksum | cut -d ' ' -f 1)" seen
+  while [ $# -gt 1 ] && { [[ "$1 $2" =~ ^--(stall|sample|grace)\ [1-9][0-9]*$ ]] || [[ "$1 $2" == "--watch /"* ]]; }; do
+    options+=("$1" "$2"); shift 2
+  done
+  [ "${1:-}" = -- ] && declare -F "${2:-}" >/dev/null || { echo "watchdog stand-in: unread call: $*" >&2; return 125; }
+  shift; printf '%s|%s\n' "${options[*]}" "$*" >> "$CLAUDIT_WATCHDOG_CALLS"; seen="$(cat "$key" 2>/dev/null || echo 0)"
+  [[ "$*" != *"$CLAUDIT_STALL_ONLY"* || "$seen" -ge "$CLAUDIT_STALL_COUNT" ]] || { echo "$((seen + 1))" > "$key"; return 124; }
+  "$@"
+}
+sudo() { case "${1:-}" in timeout|env) "$@" ;; */progress_watchdog.py) shift; watchdog "$@" ;; *) return 99 ;; esac; }
 env() (
   while [[ "${1:-}" == DEBIAN_FRONTEND=* ]]; do export "$1"; shift; done
-  [ "${1:-}" = timeout ] || { echo "env double: unmodelled $*" >&2; exit 99; }
-  "$@"
+  case "${1:-}" in timeout) "$@" ;; */progress_watchdog.py) shift; watchdog "$@" ;; *) exit 99 ;; esac
 )
-apt-get() { record apt-get "${DEBIAN_FRONTEND:-}" "$@"; case "$*" in *"$APT_FAIL"*) return 100 ;; esac; }
+apt-get() {
+  record apt-get "${DEBIAN_FRONTEND:-}" "$@"
+  [[ "$*" != *"$APT_FAIL"* ]] || [ "$(grep -c -- "$APT_FAIL" "$CALLS")" -gt "$APT_FAILS" ] || return 100
+}
 dpkg() { record dpkg "${DEBIAN_FRONTEND:-}" "$@"; }
 npx() {
   record npx "$@"
@@ -94,7 +110,9 @@ def _run(script: str, tmp_path: Path, flags: list[str], **env: str) -> tuple[sub
         ["bash", "--noprofile", "--norc", *flags, "-c", TIMEOUT_STUB + DOUBLES + script],
         env={"PATH": f"{trip}{os.pathsep}{os.environ['PATH']}", "CALLS": str(calls),
              "CLAUDIT_TIMEOUT_STATE": str(tmp_path / "timeout-state"), "CLAUDIT_TIMEOUT_DOUBLES": str(tmp_path / "none"),
-             "CLAUDIT_APT_PACKAGES": PACKAGES, "APT_FAIL": "@nothing@", "REPORT": "", "REPORT_STATUS": "0", **env},
+             "CLAUDIT_APT_PACKAGES": PACKAGES, "APT_FAIL": "@nothing@", "APT_FAILS": "0", "REPORT": "", "REPORT_STATUS": "0",
+             "GITHUB_ACTION_PATH": str(ACTION.parent), "CLAUDIT_WATCHDOG_CALLS": str(tmp_path / "watchdog"),
+             "CLAUDIT_STALL_ONLY": "@nothing@", "CLAUDIT_STALL_COUNT": "0", **env},
         cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
     return proc, [line.split("\x1f") for line in calls.read_text(encoding="utf-8").splitlines()]
 
@@ -112,8 +130,10 @@ def _install(tmp_path: Path, **env: str) -> tuple[subprocess.CompletedProcess, l
     return _run(_action_steps()[1]["run"], tmp_path, ["-eo", "pipefail"], **env)
 
 
-def _commands(tmp_path: Path) -> list[str]:
-    return [" ".join(command.split()[:2]) for _, command in bounded_calls(tmp_path / "timeout-state")]
+def _watched(tmp_path: Path) -> list[tuple[list[str], str]]:
+    """(the watchdog's options, its command) per call."""
+    lines = (tmp_path / "watchdog").read_text(encoding="utf-8").splitlines()
+    return [(options.split(), command) for options, _, command in (line.partition("|") for line in lines)]
 
 
 def test_workflows_delegate_every_apt_command():
@@ -138,70 +158,68 @@ def test_sanitization_always_runs_and_package_setup_is_optional():
 
 
 @ubuntu_step_body
-def test_every_apt_phase_retries_an_ended_attempt_and_fits_its_backstop(tmp_path):
-    proc, calls = _install(tmp_path, CLAUDIT_TIMEOUT_EXPIRE="1")
+def test_every_apt_phase_retries_a_stalled_attempt_and_two_attempts_fit_the_step(tmp_path):
+    proc, calls = _install(tmp_path, CLAUDIT_STALL_ONLY="apt-get", CLAUDIT_STALL_COUNT="1", CLAUDIT_TIMEOUT_EXPIRE="1")
     assert proc.returncode == 0, proc.stderr
-    # Each first attempt was ended; the waits for an abandoned dpkg run once, between the installs.
-    assert _commands(tmp_path) == ["apt-get update"] * 2 + ["apt-get install"] * 3 + [
-        "apt-get check", "dpkg --configure", "apt-get install"]
-    update, download, install = [call for call in calls if call[0] == "apt-get"]
-    assert "APT::Update::Error-Mode=any" in update[update.index("-o") + 1::2]
-    assert "--download-only" in download and "--no-download" in install
-    assert all("-q" in call and "-qq" not in call for call in (update, download))  # apt's Err/W/E lines reach the log
-    for call in (download, install):
-        assert call[-2:] == PACKAGES.split()
-    assert install[1] == "noninteractive"
-    said = re.findall(r"^(?:==> |::warning::)(.+?)(?: attempt 1)? timed out after (\d+) s$", proc.stdout, re.M)
-    assert [label for label, _ in said] == [
-        "apt-get update", "apt-get install --download-only", "apt-get install --no-download",
-        "apt-get check", "dpkg --configure -a"]
-    for label, seconds in said:  # each names the bound that ended it
-        assert int(seconds) == next(limit for limit, command in bounded_calls(tmp_path / "timeout-state")
-                                    if command.startswith(label))
-    sanitize, = re.findall(r"timeout (\d+)s rm ", _action_steps()[0]["run"])
-    worst = int(sanitize) + _worst_case(tmp_path, calls)
+    watched = _watched(tmp_path)
+    assert [" ".join(command.split()[:2]) for _, command in watched] == ["apt-get update"] * 2 + ["apt-get install"] * 4
+    assert [command for _, command in bounded_calls(tmp_path / "timeout-state")] == [
+        "apt-get check -qq -o DPkg::Lock::Timeout=10", "dpkg --configure -a"]
+    apt = [call for call in calls if call[0] == "apt-get" and call[2] != "check"]  # the update, download and install
+    assert "APT::Update::Error-Mode=any" in apt[0] and "--download-only" in apt[1] and "--no-download" in apt[2]
+    for call in apt[:2]:  # apt still ends a dead connection itself; its Err/W/E lines reach the log
+        assert {"Acquire::Retries=3", "Acquire::http::Timeout=10", "Acquire::https::Timeout=10"} <= set(call)
+        assert "-q" in call and "-qq" not in call
+    for call in apt[1:]:
+        assert call[-2:] == PACKAGES.split() and call[1] == "noninteractive"
+    option, = {tuple(option) for option, _ in watched}  # every attempt of every phase is watched alike
+    pairs = list(zip(option[::2], option[1::2]))
+    assert {value for name, value in pairs if name == "--watch"} == {
+        "/var/lib/apt/lists", "/var/cache/apt", "/var/lib/dpkg", "/var/log/dpkg.log"}
+    stall, sample, grace = (int(dict(pairs)[name]) for name in ("--stall", "--sample", "--grace"))
+    recovery = bounded_calls(tmp_path / "timeout-state")
+    said = r"^(?:==> |::warning::)(.+?)(?: attempt 1)? (?:stalled|timed out) after (\d+) s"
+    assert re.findall(said, proc.stdout, re.M) == [
+        ("apt-get update", str(stall)), ("apt-get install --download-only", str(stall)),
+        ("apt-get install --no-download", str(stall)), ("apt-get check", str(recovery[0][0])),
+        ("dpkg --configure -a", str(recovery[1][0]))]
+    assert subprocess.run([str(WATCHDOG), *option, "--", "true"], check=False, timeout=30).returncode == 0
+    # A stalled attempt ends within its window, a sample and two graces; then the pause and the recovery's bounds.
+    cycle = stall + sample + 2 * grace + max(int(call[1]) for call in calls if call[0] == "sleep") + sum(
+        limit for limit, _ in recovery) + sum(map(int, (tmp_path / "timeout-state" / "kills").read_text("utf-8").split()))
     callers = [step for _, _, step in _workflow_steps() if step.get("uses") == ACTION_REF]
-    assert callers and all(worst < int(step["timeout-minutes"]) * 60 for step in callers), worst
+    cycle += int(re.findall(r"timeout (\d+)s rm ", _action_steps()[0]["run"])[0]) / 2  # the sanitizer runs once
+    assert callers and all(2 * cycle < int(step["timeout-minutes"]) * 60 for step in callers), cycle
 
 
 @ubuntu_step_body
-@pytest.mark.parametrize("phase,failure,later", [
-    ("update", "apt-get update failed after 2 attempts", "install"),
-    ("--download-only", "downloading xvfb fonts-liberation failed after 2 attempts", "--no-download"),
-    ("--no-download", "apt-get install failed after 2 attempts", None),
+@pytest.mark.parametrize("phase,label,later", [
+    ("update", "apt-get update", "install"),
+    ("--download-only", "apt-get install --download-only", "--no-download"),
+    ("--no-download", "apt-get install --no-download", None),
 ])
-def test_an_apt_phase_whose_every_attempt_fails_stops_the_step(tmp_path, phase, failure, later):
-    proc, calls = _install(tmp_path, APT_FAIL=phase)
-    assert proc.returncode == 1
-    assert f"::error::{failure}; the last exited with status 100" in proc.stderr
-    assert "attempt 1 exited with status 100" in proc.stdout
-    failed = [call for call in calls if call[0] == "apt-get" and phase in call]
-    assert len(failed) == 2
+def test_an_apt_phase_retries_a_failed_attempt_until_it_succeeds(tmp_path, phase, label, later):
+    proc, calls = _install(tmp_path, APT_FAIL=phase, APT_FAILS="4")
+    assert proc.returncode == 0, proc.stderr
+    assert re.findall(rf"^==> {label} attempt (\d+) exited with status 100$", proc.stdout, re.M) == ["1", "2", "3", "4"]
+    ran = calls[calls.index([call for call in calls if phase in call][0]):]
+    phases = [call[2] if call[0] == "apt-get" else call[0] for call in ran]
+    recovery = ["sleep", "check", "dpkg"] if later is None else ["sleep"]
+    assert phases[:5 * (1 + len(recovery)) - len(recovery)] == ([phases[0]] + recovery) * 4 + [phases[0]], phases
+    assert all(phase in ran[index] for index in range(0, 5 * (1 + len(recovery)) - len(recovery), 1 + len(recovery)))
     if later:
-        assert not [call for call in calls if later in call]
-    else:  # the wait for an abandoned dpkg and its recovery run between the two installs
-        ran = calls[calls.index(failed[0]):]
-        assert [call[2] if call[0] == "apt-get" else call[0] for call in ran] == ["install", "sleep", "check", "dpkg", "install"]
-        assert ran[0][1] == ran[3][1] == "noninteractive" and ran[3][2:] == ["--configure", "-a"]
-        assert "::warning::" not in proc.stdout  # both recovery commands succeeded
+        assert [call for call in ran if later in call], "the next phase never ran"
+    else:  # both recovery commands ran noninteractively and succeeded
+        assert ran[3][1] == "noninteractive" and ran[3][2:] == ["--configure", "-a"]
+        assert "::warning::" not in proc.stdout
 
 
 @ubuntu_step_body
 def test_only_the_recovery_command_that_failed_is_reported(tmp_path):
-    proc, _ = _install(tmp_path, CLAUDIT_TIMEOUT_EXPIRE="1", CLAUDIT_TIMEOUT_ONLY="apt-get install --no-download",
-                       APT_FAIL="check")
+    proc, _ = _install(tmp_path, CLAUDIT_STALL_ONLY="apt-get install --no-download", CLAUDIT_STALL_COUNT="1",
+                       APT_FAIL="check", APT_FAILS="99")
     assert proc.returncode == 0, proc.stderr
     assert re.findall(r"^::warning::.*$", proc.stdout, re.M) == ["::warning::apt-get check exited with status 100"]
-
-
-@ubuntu_step_body
-def test_an_update_the_bound_kills_says_it_timed_out(tmp_path):
-    proc, calls = _install(tmp_path, CLAUDIT_TIMEOUT_EXPIRE="2", CLAUDIT_TIMEOUT_ONLY="apt-get update",
-                           CLAUDIT_TIMEOUT_STATUS="137")
-    assert proc.returncode == 1
-    (limit, _), = set(bounded_calls(tmp_path / "timeout-state"))
-    assert f"::error::apt-get update failed after 2 attempts; the last timed out after {limit} s" in proc.stderr
-    assert not [call for call in calls if call[0] == "apt-get"]
 
 
 def _browser_run(tmp_path: Path, **env: str) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
