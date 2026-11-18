@@ -28,40 +28,10 @@
     "upstage/solar-pro-3"
   ],
   "notices": [
-    "claude-fable-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
-    "claude-fable-5-1 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/us'",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
-    "claude-haiku-4-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us'",
-    "claude-haiku-4-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us-east5'",
-    "claude-haiku-5-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us-east-1'",
-    "claude-haiku-5-5 via Azure: rule-resolved (data region): the global data region leaves 'azure/global'; dropped 'azure/us'",
-    "claude-haiku-5-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
-    "claude-opus-4-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1'",
-    "claude-opus-4-6 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe'",
-    "claude-opus-4-7 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/eu-west-1'",
-    "claude-opus-4-7 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
-    "claude-opus-4-8 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
-    "claude-opus-4-8 via Azure: rule-resolved (data region): the global data region leaves 'azure/global'; dropped 'azure/us'",
-    "claude-opus-4-8 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
-    "claude-opus-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us-east-1'",
     "claude-opus-5 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
-    "claude-opus-5 via Azure: rule-resolved (data region): the global data region leaves 'azure/global'; dropped 'azure/us'",
-    "claude-opus-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
-    "claude-opus-5-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us-east-1'",
     "claude-opus-5-5 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
-    "claude-opus-5-5 via Azure: rule-resolved (data region): the global data region leaves 'azure/global'; dropped 'azure/us'",
-    "claude-opus-5-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
-    "claude-sonnet-4-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1'",
-    "claude-sonnet-4-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/us-east5'",
-    "claude-sonnet-4-6 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us'",
-    "claude-sonnet-4-6 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us-east5'",
-    "claude-sonnet-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us-east-1'",
-    "claude-sonnet-5 via Azure: rule-resolved (data region): the global data region leaves 'azure/global'; dropped 'azure/us'",
-    "claude-sonnet-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
-    "claude-sonnet-5-5 via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1', 'amazon-bedrock/us-east-1'",
-    "claude-sonnet-5-5 via Azure: rule-resolved (data region): the global data region leaves 'azure/global'; dropped 'azure/us'",
-    "claude-sonnet-5-5 via Google: rule-resolved (data region): the global data region leaves 'google-vertex/global'; dropped 'google-vertex/europe', 'google-vertex/us'",
     "deepseek-v4-1-flash via BaseTen: rule-resolved (data region): the global data region leaves 'baseten'; dropped 'baseten/us'",
     "deepseek-v4-1-flash via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-1-flash via Fireworks: rule-resolved (data region): took the global endpoint 'fireworks' over 'fireworks/spot'",
@@ -113,74 +83,34 @@
     "glm-5-3-flash via Particle AI: rule-resolved (tier variant base): took the base endpoint 'particle-ai/nvfp4' over tier variants 'particle-ai/nvfp4/flex'",
     "glm-5-3-flash via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
     "glm-5-3-flash via Wafer: rule-resolved (data region): the global data region leaves 'wafer/nvfp4'; dropped 'wafer/us'",
-    "gpt-4-1 via Azure: rule-resolved (data region): took the global endpoint 'azure' over 'azure/swedencentral'",
-    "gpt-4-1-mini via Azure: rule-resolved (data region): took the global endpoint 'azure' over 'azure/swedencentral'",
-    "gpt-4-1-nano via Azure: rule-resolved (data region): took the global endpoint 'azure' over 'azure/swedencentral'",
-    "gpt-4o-mini via Azure: rule-resolved (data region): took the global endpoint 'azure' over 'azure/swedencentral'",
-    "gpt-5 via Azure: rule-resolved (data region): took the global endpoint 'azure' over 'azure/swedencentral'",
-    "gpt-5-1 via Azure: rule-resolved (data region): took the global endpoint 'azure' over 'azure/swedencentral'",
     "gpt-5-1 via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-5-2 via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-5-3-codex via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast'",
-    "gpt-5-4 via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-5-4 via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-5-4-mini via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/us'",
     "gpt-5-4-mini via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-5-4-nano via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/us'",
     "gpt-5-4-nano via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/flex'",
-    "gpt-5-5 via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-5-5 via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-5-6-luna via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/us-east-1'",
-    "gpt-5-6-luna via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-5-6-luna via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-5-6-luna-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu'",
     "gpt-5-6-luna-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-5-6-sol via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/us-east-1'",
-    "gpt-5-6-sol via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-5-6-sol via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-5-6-sol-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu'",
     "gpt-5-6-sol-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-5-6-terra via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-5-6-terra via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-5-6-terra-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu'",
     "gpt-5-6-terra-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-5-mini via Azure: rule-resolved (data region): took the global endpoint 'azure' over 'azure/swedencentral'",
     "gpt-5-mini via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/flex'",
-    "gpt-5-nano via Azure: rule-resolved (data region): took the global endpoint 'azure' over 'azure/swedencentral'",
     "gpt-5-nano via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/flex'",
-    "gpt-6-1-sol via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/us-east-1'",
-    "gpt-6-1-sol via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-1-sol via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex', 'openai/ultrafast'",
-    "gpt-6-1-sol-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-1-sol-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex', 'openai/ultrafast'",
-    "gpt-6-1-terra via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-1-terra via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-6-1-terra-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-1-terra-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-6-2-astra via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/us-east-1'",
-    "gpt-6-2-astra via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-2-astra via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/ultrafast'",
-    "gpt-6-2-astra-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-2-astra-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/ultrafast'",
-    "gpt-6-2-sol via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/us-east-1'",
-    "gpt-6-2-sol via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-2-sol via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/ultrafast'",
-    "gpt-6-2-sol-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-2-sol-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/ultrafast'",
-    "gpt-6-astra via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/us-west-2'",
-    "gpt-6-astra via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/us'",
     "gpt-6-astra via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex', 'openai/ultrafast'",
-    "gpt-6-astra-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/us'",
     "gpt-6-astra-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex', 'openai/ultrafast'",
-    "gpt-6-luna via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/us-east-1'",
-    "gpt-6-luna via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-luna via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-6-luna-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-luna-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-6-sol via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock/global'; dropped 'amazon-bedrock/us-east-1'",
-    "gpt-6-sol via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-sol via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
-    "gpt-6-sol-pro via Azure: rule-resolved (data region): the global data region leaves 'azure'; dropped 'azure/eu', 'azure/us'",
     "gpt-6-sol-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "kimi-k2-6 via DeepInfra: rule-resolved (stored price continuity): kept the endpoint 'deepinfra/fp4' at the row's price; assumes the tracked endpoint did not reprice this hour",
     "kimi-k2-7-code via Moonshot AI: rule-resolved (bare namespace): took the bare namespace endpoint 'moonshotai' over service tiers 'moonshotai/highspeed'",
@@ -197,25 +127,17 @@
     "minimax-m3-1-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/fp4/us'",
     "moonshotai/kimi-k2.7-code: stale pin tag 'moonshotai/int4' is not listed; listed tags: 'moonshotai', 'moonshotai/highspeed'; selecting as unpinned; rule-resolved past a stale pin; selected 'moonshotai'; the bare-tag rule took the bare vendor endpoint 'moonshotai'",
     "moonshotai/kimi-k3.1-pro: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
-    "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-fable-5-1 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5-1 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5-1 via Azure; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-fable-5-1 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-fable-5-2 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5-2 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5-2 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5-2 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-haiku-4-5 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-haiku-4-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-haiku-4-5 via Azure; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-haiku-4-5 via Google; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-1 via Amazon Bedrock; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-5 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-5 via Claude Platform on AWS; the host was sampled",
@@ -224,48 +146,27 @@
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-6 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-6 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-6 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-6 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-7 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-7 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-7 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-7 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-7 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-8 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-8 via Anthropic; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-8 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-4-8 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-4-8 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-5 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-5 via Anthropic; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-5 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-5 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-5-5 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-5-5 via Anthropic; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-5-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-opus-5-5 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-opus-5-5 via Google; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-4-5 via Azure; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-4-6 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-4-6 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-4-6 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-4-6 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-4-6 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Anthropic; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Google; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Amazon Bedrock; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Google; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba",
     "tag 'alibaba/prime' names neither a known region nor a quantization: glm-5-3 via Alibaba",
     "tag 'anthropic/fast' names neither a known region nor a quantization: claude-fable-5-2 via Anthropic, claude-opus-4-8 via Anthropic, claude-opus-5 via Anthropic, claude-opus-5-5 via Anthropic",
-    "tag 'azure/swedencentral' names neither a known region nor a quantization: gpt-4-1 via Azure, gpt-4-1-mini via Azure, gpt-4-1-nano via Azure, gpt-4o-mini via Azure, gpt-5 via Azure, gpt-5-1 via Azure, gpt-5-mini via Azure, gpt-5-nano via Azure",
     "tag 'baidu/fast' names neither a known region nor a quantization: glm-5-2 via Baidu",
     "tag 'baseten/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via BaseTen, glm-5-2 via BaseTen, glm-5-3 via BaseTen",
     "tag 'baseten/us/fast' names neither a known region nor a quantization: glm-5-2 via BaseTen, glm-5-3 via BaseTen",
@@ -291,33 +192,31 @@
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, deepseek/deepseek-chat, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-chat-v3.1, deepseek/deepseek-r1-0528, deepseek/deepseek-v3.1-terminus, deepseek/deepseek-v3.2, deepseek/deepseek-v3.2-exp, deepseek/deepseek-v4-flash, deepseek/deepseek-v4-flash-0731, deepseek/deepseek-v4-flash-vision-exp, deepseek/deepseek-v4-pro, deepseek/deepseek-v4.1-flash, google/gemini-2.5-flash, google/gemini-2.5-flash-lite, google/gemini-2.5-pro, google/gemini-2.5-pro-preview, google/gemini-3-flash-preview, google/gemini-3.1-flash-lite, google/gemini-3.1-flash-lite-preview, google/gemini-3.1-pro-preview, google/gemini-3.1-pro-preview-customtools, google/gemini-3.5-flash, google/gemini-3.5-flash-lite, google/gemini-3.6-flash, google/gemini-3.7-flash, google/gemini-3.8-flash, google/gemini-4-argon, google/gemini-4-carbon, google/gemini-4-hydrogen, google/gemma-2-27b-it, google/gemma-3-12b-it, google/gemma-3-27b-it, google/gemma-3-4b-it, google/gemma-4-26b-a4b-it, google/gemma-4-31b-it, meta-llama/llama-3.1-70b-instruct, meta-llama/llama-3.1-8b-instruct, meta-llama/llama-3.2-1b-instruct, meta-llama/llama-3.2-3b-instruct, meta-llama/llama-3.3-70b-instruct, meta-llama/llama-4-maverick, meta-llama/llama-4-scout, meta-llama/llama-guard-4-12b, meta/muse-glimmer-30b, meta/muse-spark-open, minimax/minimax-m2.5, minimax/minimax-m2.7, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, nvidia/nemotron-3-nano-30b-a3b, nvidia/nemotron-3-super-120b-a12b, nvidia/nemotron-3-ultra-550b-a55b, nvidia/nemotron-3.5-content-safety, nvidia/nemotron-3.5-lightning, nvidia/nemotron-3.5-super-vl, openai/gpt-3.5-turbo-0613, openai/gpt-3.5-turbo-16k, openai/gpt-4, openai/gpt-4.1-nano, openai/gpt-4o-2024-05-13, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-chat, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, tencent/hy3-preview, xiaomi/mimo-v2.5, xiaomi/mimo-v2.5-pro, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
+    "the listing lags the listed-pricing log for kimi-k2-7-code via Inceptron; the host was sampled",
+    "the vendor lists no first-party endpoint; skipped: anthropic/claude-opus-4.1, deepseek/deepseek-chat, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-chat-v3.1, deepseek/deepseek-r1-0528, deepseek/deepseek-v3.1-terminus, deepseek/deepseek-v3.2, deepseek/deepseek-v3.2-exp, deepseek/deepseek-v4-flash, deepseek/deepseek-v4-flash-0731, deepseek/deepseek-v4-flash-vision-exp, deepseek/deepseek-v4-pro, deepseek/deepseek-v4.1-flash, google/gemini-2.5-flash, google/gemini-2.5-flash-lite, google/gemini-2.5-pro, google/gemini-2.5-pro-preview, google/gemini-3-flash-preview, google/gemini-3.1-flash-lite, google/gemini-3.1-flash-lite-preview, google/gemini-3.1-pro-preview, google/gemini-3.1-pro-preview-customtools, google/gemini-3.5-flash, google/gemini-3.5-flash-lite, google/gemini-3.6-flash, google/gemini-3.7-flash, google/gemini-3.8-flash, google/gemini-4-argon, google/gemini-4-carbon, google/gemini-4-hydrogen, google/gemma-2-27b-it, google/gemma-3-12b-it, google/gemma-3-27b-it, google/gemma-3-4b-it, google/gemma-4-26b-a4b-it, google/gemma-4-31b-it, meta-llama/llama-3.1-70b-instruct, meta-llama/llama-3.1-8b-instruct, meta-llama/llama-3.2-1b-instruct, meta-llama/llama-3.2-3b-instruct, meta-llama/llama-3.3-70b-instruct, meta-llama/llama-4-maverick, meta-llama/llama-4-scout, meta-llama/llama-guard-4-12b, meta/muse-glimmer-30b, meta/muse-spark-open, minimax/minimax-m2.5, minimax/minimax-m2.7, moonshotai/kimi-k2, moonshotai/kimi-k2-0905, moonshotai/kimi-k2-thinking, moonshotai/kimi-k2.5, nvidia/nemotron-3-nano-30b-a3b, nvidia/nemotron-3-super-120b-a12b, nvidia/nemotron-3-ultra-550b-a55b, nvidia/nemotron-3.5-content-safety, nvidia/nemotron-3.5-lightning, nvidia/nemotron-3.5-super-vl, openai/gpt-3.5-turbo-0613, openai/gpt-3.5-turbo-16k, openai/gpt-4, openai/gpt-4.1-nano, openai/gpt-4o-2024-05-13, openai/gpt-5.1-codex, openai/gpt-5.1-codex-max, openai/gpt-5.1-codex-mini, openai/gpt-5.2-codex, openai/gpt-oss-120b, openai/gpt-oss-20b, openai/gpt-oss-safeguard-20b, tencent/hy3-preview, xiaomi/mimo-v2.5, xiaomi/mimo-v2.5-pro, z-ai/glm-4.7-flash, z-ai/glm-5.3-prime"
   ],
   "sampled": {
     "claude-fable-5": {
-      "Amazon Bedrock": "no matching log state",
       "Anthropic": "no matching log state",
       "Azure": "no matching log state",
       "Claude Platform on AWS": "no matching log state",
-      "Google": "no matching log state"
+      "Google": "log series count mismatch"
     },
     "claude-fable-5-1": {
-      "Amazon Bedrock": "no matching log state",
       "Anthropic": "no matching log state",
       "Azure": "no matching log state",
-      "Google": "no matching log state"
+      "Google": "log series count mismatch"
     },
     "claude-fable-5-2": {
-      "Amazon Bedrock": "no matching log state",
       "Anthropic": "no matching log state",
       "Azure": "no matching log state",
       "Google": "no matching log state"
     },
     "claude-haiku-4-5": {
-      "Amazon Bedrock": "no matching log state",
+      "Amazon Bedrock": "log series count mismatch",
       "Anthropic": "no matching log state",
       "Azure": "no matching log state",
-      "Google": "no matching log state"
+      "Google": "log series count mismatch"
     },
     "claude-haiku-5-5": {
       "Amazon Bedrock": "long-context band",
@@ -330,7 +229,7 @@
       "Amazon Bedrock": "no matching log state"
     },
     "claude-opus-4-5": {
-      "Amazon Bedrock": "no matching log state",
+      "Amazon Bedrock": "log series count mismatch",
       "Anthropic": "no matching log state",
       "Azure": "no matching log state",
       "Claude Platform on AWS": "no matching log state",
@@ -341,35 +240,35 @@
       "Anthropic": "no matching log state",
       "Azure": "no matching log state",
       "Claude Platform on AWS": "no matching log state",
-      "Google": "no matching log state"
+      "Google": "log series count mismatch"
     },
     "claude-opus-4-7": {
-      "Amazon Bedrock": "no matching log state",
+      "Amazon Bedrock": "log series count mismatch",
       "Anthropic": "no matching log state",
       "Azure": "no matching log state",
       "Claude Platform on AWS": "no matching log state",
-      "Google": "no matching log state"
+      "Google": "log series count mismatch"
     },
     "claude-opus-4-8": {
-      "Amazon Bedrock": "no matching log state",
+      "Amazon Bedrock": "log series count mismatch",
       "Anthropic": "no matching log state",
-      "Azure": "no matching log state",
+      "Azure": "log series count mismatch",
       "Claude Platform on AWS": "no matching log state",
-      "Google": "no matching log state"
+      "Google": "log series count mismatch"
     },
     "claude-opus-5": {
-      "Amazon Bedrock": "no matching log state",
+      "Amazon Bedrock": "log series count mismatch",
       "Anthropic": "no matching log state",
-      "Azure": "no matching log state",
+      "Azure": "log series count mismatch",
       "Claude Platform on AWS": "no matching log state",
-      "Google": "no matching log state"
+      "Google": "log series count mismatch"
     },
     "claude-opus-5-5": {
-      "Amazon Bedrock": "no matching log state",
+      "Amazon Bedrock": "log series count mismatch",
       "Anthropic": "no matching log state",
-      "Azure": "no matching log state",
+      "Azure": "log series count mismatch",
       "Claude Platform on AWS": "no matching log state",
-      "Google": "no matching log state"
+      "Google": "log series count mismatch"
     },
     "claude-sonnet-4-5": {
       "Amazon Bedrock": "long-context band",
@@ -379,25 +278,25 @@
       "Google": "long-context band"
     },
     "claude-sonnet-4-6": {
-      "Amazon Bedrock": "no matching log state",
+      "Amazon Bedrock": "log series count mismatch",
       "Anthropic": "no matching log state",
       "Azure": "no matching log state",
       "Claude Platform on AWS": "no matching log state",
-      "Google": "no matching log state"
+      "Google": "log series count mismatch"
     },
     "claude-sonnet-5": {
-      "Amazon Bedrock": "no matching log state",
+      "Amazon Bedrock": "log series count mismatch",
       "Anthropic": "no matching log state",
-      "Azure": "no matching log state",
+      "Azure": "log series count mismatch",
       "Claude Platform on AWS": "no matching log state",
-      "Google": "no matching log state"
+      "Google": "log series count mismatch"
     },
     "claude-sonnet-5-5": {
-      "Amazon Bedrock": "no matching log state",
+      "Amazon Bedrock": "log series count mismatch",
       "Anthropic": "no matching log state",
-      "Azure": "no matching log state",
+      "Azure": "log series count mismatch",
       "Claude Platform on AWS": "no matching log state",
-      "Google": "no matching log state"
+      "Google": "log series count mismatch"
     },
     "deepseek-v4-1-flash": {
       "Alibaba": "endpoint schedule",
@@ -431,9 +330,33 @@
       "InferenceNet": "2 endpoints at one current price",
       "Sail Research": "2 endpoints at one current price"
     },
+    "gpt-4-1": {
+      "Azure": "log series count mismatch"
+    },
+    "gpt-4-1-mini": {
+      "Azure": "log series count mismatch"
+    },
+    "gpt-4-1-nano": {
+      "Azure": "log series count mismatch"
+    },
+    "gpt-4o-mini": {
+      "Azure": "log series count mismatch"
+    },
+    "gpt-5": {
+      "Azure": "log series count mismatch"
+    },
+    "gpt-5-1": {
+      "Azure": "log series count mismatch"
+    },
     "gpt-5-4": {
       "Azure": "long-context band",
       "OpenAI": "long-context band"
+    },
+    "gpt-5-4-mini": {
+      "Azure": "log series count mismatch"
+    },
+    "gpt-5-4-nano": {
+      "Azure": "log series count mismatch"
     },
     "gpt-5-4-pro": {
       "Azure": "long-context band",
@@ -471,6 +394,12 @@
     "gpt-5-6-terra-pro": {
       "Azure": "long-context band",
       "OpenAI": "long-context band"
+    },
+    "gpt-5-mini": {
+      "Azure": "log series count mismatch"
+    },
+    "gpt-5-nano": {
+      "Azure": "log series count mismatch"
     },
     "gpt-6-1-sol": {
       "Amazon Bedrock": "long-context band",
@@ -540,6 +469,9 @@
     "hy4-preview": {
       "Tencent": "endpoint schedule"
     },
+    "kimi-k2-7-code": {
+      "Inceptron": "listing lags log"
+    },
     "kimi-k3": {
       "Fireworks": "2 endpoints at one current price",
       "InferenceNet": "2 endpoints at one current price"
@@ -559,6 +491,15 @@
     }
   },
   "vanished": {
+    "claude-fable-5": [
+      "Amazon Bedrock"
+    ],
+    "claude-fable-5-1": [
+      "Amazon Bedrock"
+    ],
+    "claude-fable-5-2": [
+      "Amazon Bedrock"
+    ],
     "claude-opus-4-1": [
       "Anthropic"
     ],
