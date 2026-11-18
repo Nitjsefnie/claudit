@@ -411,9 +411,7 @@ def test_backfill_unavailable_log_or_unserved_model_preserves_history_and_report
 
     result, reports, changed = backfill.backfill(
         _doc({"Wafer": history}), fetches.fetch_endpoints, AS_OF, fetches.fetch_models, unavailable, NOW)
-
-    assert not changed
-    assert result["providers"][MODEL]["Wafer"] == history
+    assert not changed and result["providers"][MODEL]["Wafer"] == history
     assert any("untouched Wafer" in line and reason in line for line in reports[MODEL])
 
 

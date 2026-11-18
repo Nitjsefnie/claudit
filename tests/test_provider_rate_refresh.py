@@ -513,11 +513,11 @@ def test_a_delisted_model_is_skipped_with_a_notice_and_blocks_nothing(
 ])
 def test_an_unreadable_catalog_leaves_an_empty_answer_to_its_echoed_id(
         tmp_path, capsys, catalog_payload, echo):
-    """No delisting recorded, an unreadable catalog (an empty list too: no mass-delisting) proves
-    nothing: an empty answer echoing the model's id is unserved, a notice; without it, refused."""
+    """An unreadable or empty catalog delists nothing unrecorded; the echoed id alone decides."""
     run = Run(tmp_path)
-    model_id = run.empty(V41, echo)
+    model_id, before = run.empty(V41, echo), run.snapshot()
     rc, out, err = run(capsys, catalog=catalog_payload)
+    assert run.snapshot() == before and "vanished" not in out
     assert (rc, f"{V41}: no endpoints listed" in err) == ((0, False) if echo else (1, True))
     assert (f"no endpoint serves it; rows kept, not refreshed: {V41} ({model_id})" in out) is bool(echo)
 
