@@ -133,7 +133,7 @@ def catalog_ids(catalog: object, doc: dict, notices: list[str]) -> list[str]:
     ids = []
     for item in data:
         if not (isinstance(item, dict) and isinstance(item.get("id"), str)
-                and ":" not in item["id"] and item["id"] != "openai/gpt-5.2-chat"
+                and ":" not in item["id"]
                 and item["id"].partition("/")[0] in prefixes
                 and isinstance(item.get("architecture"), dict)
                 and item["architecture"].get("output_modalities") == ["text"]):
