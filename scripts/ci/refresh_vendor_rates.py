@@ -32,10 +32,10 @@ The vendor's own endpoint is selected refusing rather than guessing:
   only through third-party hosts; there is no first-party selection to
   make, and any tracked entry's own state stands untouched.
 
-Unmodelled first-party data refuses its model, leaving it untouched.
-Unreadable catalogs, unserved models, missing first-party endpoints and
-unpriced routers are notices. Stale tags report and select unpinned; malformed pins,
-ambiguous prices and broken endpoint fetches refuse:
+Unmodelled first-party data refuses its model, left untouched.
+Unreadable catalogs, unserved models, no first-party endpoint and
+unpriced routers are notices. Stale tags report and select unpinned;
+malformed pins, ambiguous prices and broken endpoint fetches refuse:
 
 - a pricing key outside PRICED at a nonzero price, or a web_search value
   that is not a finite non-negative USD-per-search decimal string;
