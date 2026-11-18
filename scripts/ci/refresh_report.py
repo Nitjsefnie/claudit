@@ -60,13 +60,14 @@ def _sampled_text(sampled: dict[str, str]) -> str:
 
 _UNKNOWN_TAG_NOTICE = "names neither a known region nor a quantization"
 _DELISTED_NOTICE = "delisted from OpenRouter's catalog; row kept, not fetched"
+UNSERVED_NOTICE = "OpenRouter lists it, but no endpoint serves it"
 
 
 def _notice_parts(notice: str):
     subject, separator, message = notice.partition(": ")
     if not separator:
         return None
-    if message.startswith(_DELISTED_NOTICE):
+    if message.startswith((_DELISTED_NOTICE, UNSERVED_NOTICE)):
         return message, subject
     if (message.startswith("tag ") and
             message.endswith(_UNKNOWN_TAG_NOTICE)):

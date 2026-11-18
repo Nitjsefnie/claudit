@@ -513,6 +513,9 @@ def test_a_recorded_ignore_ignores_only_its_named_fields(
     pytest.param(lambda p: p["data"].update({"endpoints": "none"}),
                  id="endpoints-not-a-list"),
     pytest.param(lambda p: p.clear(), id="no-data"),
+    pytest.param(lambda p: p["data"].update(endpoints=[]) or p["data"].pop("id"), id="no-endpoints-no-id"),
+    pytest.param(lambda p: p["data"].update(endpoints=[], id="z-ai/other"), id="no-endpoints-other-id"),
+    pytest.param(lambda p: p["data"].update(endpoints=[], id=7), id="no-endpoints-non-string-id"),
     pytest.param(lambda p: p["data"]["endpoints"][0].pop("pricing"),
                  id="endpoint-without-pricing"),
     pytest.param(lambda p: p["data"]["endpoints"][0].pop("provider_name"),
@@ -542,12 +545,15 @@ def test_an_unrecognised_response_shape_is_refused(tmp_path, capsys, damage):
     _refused(run, capsys, GLM)
 
 
-def test_no_endpoints_for_a_tracked_model_is_refused(tmp_path, capsys):
-    """Indistinguishable from a broken fetch: never read as every host
-    vanishing at once."""
+def test_no_endpoints_echoing_the_model_is_unserved_not_refused(tmp_path, capsys):
+    """An empty list echoing the requested id says no host serves it: a notice, rows kept, no
+    host vanished. Without that echo it is a broken fetch's shape: refused (the table above)."""
     run = Run(tmp_path)
-    run.endpoints(GLM).clear()
-    _refused(run, capsys, GLM)
+    model_id, before = run.empty(GLM), run.snapshot()
+    rc, out, err = run(capsys)
+    assert rc == 0 and not err and run.snapshot() == before and "vanished" not in out
+    assert issubclass(refresh.Unserved, refresh.RefreshError) and out.splitlines()[-2:] == [
+        "notices:", f"  OpenRouter lists it, but no endpoint serves it; rows kept, not refreshed: {GLM} ({model_id})"]
 
 
 def test_a_detection_time_not_after_the_row_leaves_its_host_untouched(tmp_path, capsys):

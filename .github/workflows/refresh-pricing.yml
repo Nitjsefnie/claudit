@@ -49,10 +49,10 @@ name: refresh-pricing
 #     band is modelled: at the meter's shape it is tolerated (no window,
 #     no membership here), departing it is a notice that leaves the host's
 #     row untouched, green;
-#   - a tracked model the catalog still lists, with no endpoints (a broken
-#     fetch looks exactly like that). A model gone from the catalog is a
-#     delisting, not a refusal: skipped with a notice, its row kept, and
-#     it rejoins on its own when the catalog relists it.
+#   - an empty endpoint list without the model's id (a broken fetch looks
+#     like that); with it, unserved: a notice, rows kept. A model gone
+#     from the catalog is a delisting, not a refusal: skipped with a
+#     notice, row kept; it rejoins when relisted.
 # A refusal blocks only itself: every other move is still tested and
 # published, then the run goes red. A red run here means read the named
 # host's endpoints by hand and record the decision as data, not retry.

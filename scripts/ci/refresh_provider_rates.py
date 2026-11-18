@@ -36,10 +36,10 @@ These refuse the host or model they concern, which appends nothing:
   record is priced by the entry default and it starts as the listed top-level
   price; otherwise that price is a window price and the next fetch outside
   every window starts the row;
-- a tracked model still in the catalog with no endpoints, or none in the
-  region. A model gone from the catalog (/api/v1/models) is a delisting,
-  so the run skips it with a notice and keeps its row. A readable catalog
-  overrides the recorded delistings; an unreadable one uses them instead.
+- an empty endpoint list without the model's id, or none in the region;
+  with its id it is unserved: a notice, rows kept. A model gone from
+  /api/v1/models is a delisting: skipped, row kept. A readable catalog
+  overrides recorded delistings; an unreadable one uses them.
 
 Refusals keep rows untouched and exit 1; other moves publish before exiting
 1. provider_rates_fetched keeps the later of its stored instant and detection,
@@ -91,9 +91,10 @@ from refresh_common import (bump_pricing_version,  # noqa: E402
 from refresh_report import (arguments as _arguments,  # noqa: E402
                             commit_message, notice_lines, report,
                             sampled_state, vanished_state,
-                            vendor_report)
+                            vendor_report, UNSERVED_NOTICE)
 from refresh_prices import RefreshError  # noqa: E402
 from refresh_selection import Listing, listed_rows  # noqa: E402
+from refresh_selection_rules import Unserved  # noqa: E402
 import refresh_vendor_rates  # noqa: E402
 from refresh_provider_history import Move, _append, _occurrences  # noqa: E402
 from refresh_provider_history_logged import _append_logged  # noqa: E402
@@ -181,7 +182,7 @@ def _listed_model(context: RefreshContext, model: str, source: dict,
     rows, refused, notices, untracked = listed_rows(
         model, payload, context.region, source.get("resolve", {}),
         {host: effective_rates(_occurrences(history, f"{model} via {host}")[-1])
-         for host, history in hosts.items()}, context.at, notices)
+         for host, history in hosts.items()}, context.at, notices, source["id"])
     return ListedModel(payload, rows, refused, notices, untracked)
 
 
@@ -199,6 +200,9 @@ def _refresh_model(context: RefreshContext, model: str, source: dict,
     notices: list[str] = []
     try:
         listed = _listed_model(context, model, source, hosts, notices)
+    except Unserved:
+        return ModelResult([], [], [], [
+            f"{model} ({source['id']}): {UNSERVED_NOTICE}; rows kept, not refreshed"], {})
     except RefreshError as exc:
         return ModelResult([], [], [str(exc)], notices, {})
     deferred_notices: list[str] = []

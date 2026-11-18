@@ -33,8 +33,8 @@ The vendor's own endpoint is selected refusing rather than guessing:
   make, and any tracked entry's own state stands untouched.
 
 Unmodelled first-party data refuses its model, leaving it untouched.
-Unreadable catalogs, missing first-party endpoints and routers with no
-price are notices. Stale tags report and select unpinned; malformed pins,
+Unreadable catalogs, unserved models, missing first-party endpoints and
+unpriced routers are notices. Stale tags report and select unpinned; malformed pins,
 ambiguous prices and broken endpoint fetches refuse:
 
 - a pricing key outside PRICED at a nonzero price, or a web_search value
@@ -73,9 +73,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from refresh_prices import (MIN_PROMPT_TOKENS as _MIN_PROMPT,  # noqa: E402
                             PRICED, TOKEN_PRICED, RefreshError, Untracked,
                             entry_schedule, is_zero, metered_band, rates_of)
-from refresh_report import vendor_report  # noqa: E402
+from refresh_report import UNSERVED_NOTICE, vendor_report  # noqa: E402
 from refresh_selection import Listing  # noqa: E402
-from refresh_selection_rules import active_pin, price_groups, unique_quantization  # noqa: E402
+from refresh_selection_rules import (Unserved, active_pin, listed_endpoints,  # noqa: E402
+                                     price_groups, unique_quantization)
 from refresh_vendor_keys import rekey, validate  # noqa: E402
 import refresh_pricelog  # noqa: E402
 from backend import pricing  # noqa: E402
@@ -146,17 +147,6 @@ def catalog_ids(catalog: object, doc: dict, notices: list[str]) -> list[str]:
             continue
         ids.append(item["id"])
     return sorted(ids)
-
-
-def _extract_endpoints(model_id: str, payload: object) -> list:
-    data = payload.get("data") if isinstance(payload, dict) else None
-    endpoints = data.get("endpoints") if isinstance(data, dict) else None
-    if not isinstance(endpoints, list):
-        raise RefreshError(f"{model_id}: unrecognised endpoints response shape")
-    if not endpoints:
-        raise RefreshError(f"{model_id}: no endpoints listed; read as a broken "
-                           "fetch, never as every host vanishing")
-    return endpoints
 
 
 def _split_overrides(price: dict, where: str) -> tuple[list, list]:
@@ -285,7 +275,7 @@ def _quantization_choice(model_id: str, mine: list, listings: list
 def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
             outcome: VendorOutcome):
     """The chosen listing, or None when the pass moves on: the findings
-    (no first-party endpoint or refusal) land in outcome."""
+    land in outcome."""
     try:
         payload = fetch_endpoints(model_id)
     except Exception as exc:  # a broken fetch refuses, as any broken fetch does
@@ -293,7 +283,7 @@ def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
             f"{model_id}: fetching its endpoints failed: {str(exc) or type(exc).__name__}")
         return None
     try:
-        endpoints = _extract_endpoints(model_id, payload)
+        endpoints = listed_endpoints(model_id, model_id, payload)
         selected = _choose(
             model_id, endpoints,
             ((doc.get("openrouter") or {}).get("vendor") or {}).get(
@@ -314,6 +304,8 @@ def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
                                    "context_length; tracked entry left untouched")
             return None
         return (*selected, contexts[0])
+    except Unserved:
+        outcome.notices.append(f"{model_id}: {UNSERVED_NOTICE}; skipped")
     except Untracked as exc:
         outcome.refusals.append(str(exc))
     except RefreshError as exc:
@@ -431,8 +423,8 @@ def vendor_pass(doc: dict, fetch_models, fetch_endpoints) -> VendorOutcome:
     grouped long_context_meters), returning the moves and what a human must
     read. Only entries declaring exactly text output reach
     selection and auto-add. An Untracked first-party shape refuses the run.
-    An unreadable catalog, no first-party endpoint, and routers with no
-    price of their own produce notices."""
+    An unreadable catalog, an unserved model, no first-party endpoint, and
+    an unpriced router produce notices."""
     outcome = VendorOutcome()
     _rekey(doc, outcome)
     try:
