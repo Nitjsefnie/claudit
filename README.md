@@ -286,6 +286,7 @@ events continue to be collected and stored.
 | `CLAUDIT_COLLECT_TOOL_ERROR_KINDS` | Tool error classification and its optional rollup |
 | `CLAUDIT_COLLECT_DISPATCH_ANALYTICS` | Dispatch model/prompt metadata and its optional rollups |
 | `CLAUDIT_COLLECT_GENERATION_SPEED` | Generation duration and output tokens per second for all formats; backend parser only, stored only |
+| `CLAUDIT_COLLECT_NOOP_COMMANDS` | Whether a Claude-format shell call did nothing (`true`, `:`, literal `echo`/`printf`); backend parser only, stored only |
 
 The exact stored columns and rollup tables for each group are listed in the
 [collection switch inventory](PRIVACY.md#collection-switch-inventory). Raw
