@@ -51,7 +51,7 @@ def persist_fact_fixture(monkeypatch):
         "dispatch_brief_ref": True, "dispatch_name": "équipe 猫",
         "result_chars": 456, "read_kind": "whole",
         "read_targets": ["/tmp/雪,猫", 'quote"\\tab\tline\n', "", "NULL"],
-        "write_targets": [], "is_reread": True,
+        "write_targets": [], "is_reread": True, "is_noop": True,
     }
     records = [
         record,
@@ -71,13 +71,13 @@ def persist_fact_fixture(monkeypatch):
     tools = [tool, {**tool, "line_num": 22, "read_kind": "slice", "read_targets": [],
                     "write_targets": ["/tmp/écrit"], "is_error": False,
                     "error_kind": None, "error_text": None, "is_reread": False,
-                    "is_replay": False},
+                    "is_replay": False, "is_noop": False},
              {**tool, "line_num": 23, "read_kind": None, "read_targets": None,
               "write_targets": None, "model": None, "tool_use_id": None,
               "is_error": False, "error_kind": None, "error_text": None,
               "agent_type": None, "agent_model": None, "dispatch_prompt_chars": None,
               "dispatch_brief_ref": None, "dispatch_name": None,
-              "result_chars": None, "is_reread": None, "is_replay": True}]
+              "result_chars": None, "is_reread": None, "is_replay": True, "is_noop": None}]
     expected = _fact_expectations(records, tools, ids, no_provider_fp, uid)
     obj = SimpleNamespace(key="claude/copy-project/copy-session/copy-session.jsonl",
                           etag="copy-etag", size=123, last_modified=ts)

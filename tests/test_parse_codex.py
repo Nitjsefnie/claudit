@@ -464,7 +464,7 @@ TOOL_USE_KEYS = {
     "agent_type", "agent_model", "dispatch_prompt_chars",
     "dispatch_brief_ref", "dispatch_name", "result_chars", "read_kind",
     "read_targets",
-    "write_targets", "is_reread", "is_replay",
+    "write_targets", "is_reread", "is_replay", "is_noop",
 }
 
 
