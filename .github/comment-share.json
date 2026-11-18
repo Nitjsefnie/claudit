@@ -680,16 +680,16 @@
     4178
   ],
   "scripts/ci/refresh_provider_rates.py": [
-    4813,
-    14148
+    4808,
+    14336
   ],
   "scripts/ci/refresh_selection.py": [
     4224,
     12590
   ],
   "scripts/ci/refresh_selection_rules.py": [
-    4647,
-    14716
+    4621,
+    15273
   ],
   "scripts/ci/refresh_vendor_rates.py": [
     5368,
@@ -1460,8 +1460,8 @@
     20760
   ],
   "tests/test_provider_rate_refresh.py": [
-    3228,
-    20212
+    3207,
+    20691
   ],
   "tests/test_provider_rate_refresh_alternation.py": [
     738,
