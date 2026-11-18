@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from refresh_prices import (QUANTIZATIONS, REGION_RE, RefreshError, tag_region)
+from refresh_report import UNSERVED_NOTICE
 from backend.pricing_document import RATE_FIELDS, effective_rates
 
 if TYPE_CHECKING:
@@ -54,7 +55,7 @@ def listed_endpoints(where: str, model_id: str, payload: object) -> list:
     if not isinstance(data, dict) or not isinstance(endpoints, list):
         raise RefreshError(f"{where}: unrecognised endpoints response shape")
     if not endpoints and data.get("id") == model_id:
-        raise Unserved(f"{where}: OpenRouter lists it, but no endpoint serves it")
+        raise Unserved(f"{where}: {UNSERVED_NOTICE}")
     if not endpoints:
         raise RefreshError(f"{where}: no endpoints listed; read as a broken fetch, "
                            "never as every host vanishing")
@@ -284,11 +285,11 @@ def same_quantization(where: str, groups: list[list[Listing]], stored: dict | No
                       ) -> tuple[Listing, str] | None:
     """Assume one offering priced per region; take the account's cheapest twin.
 
-    As with `cheapest` pins, ties/flips refuse and rises report. Unlike
-    pins, this rule compares no identity fields: differing limits resolve
-    here unless a retained pin requires human review. A same-price service
-    tier rides in its group as an interchangeable tag. Other offerings
-    (a second quantization or an unrecognised region spelling) refuse."""
+    Unlike `cheapest` pins, this rule compares no identity fields:
+    differing limits resolve here unless a retained pin requires human
+    review. A same-price service tier rides in its group as an
+    interchangeable tag. Other offerings (a second quantization or an
+    unrecognised region spelling) refuse."""
     candidates: list[list[Listing]] = []
     tiers: list[list[Listing]] = []
     quantizations: set[str] = set()
@@ -322,8 +323,9 @@ def same_quantization(where: str, groups: list[list[Listing]], stored: dict | No
 
 def stored_price_continuity(where: str, groups: list[list[Listing]], stored: dict | None
                             ) -> tuple[Listing, str] | None:
-    """Search fees and schedules do not identify the token price; two matching
-    groups remain ambiguous even when those are their only differences."""
+    """(endpoint, notice) of the sole group at the stored token rates, or
+    None; search fees and schedules do not identify the price, so groups
+    differing only there stay ambiguous."""
     if stored is None:
         return None
     kept = effective_rates(stored)
