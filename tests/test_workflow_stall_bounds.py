@@ -23,7 +23,9 @@ registry about a package it lacks, then fails. A playwright install, an
 install-deps without `--dry-run` and an apt fetch need `timeout -k N N <name>` too, `<name>` the command proper (npx,
 npm, apt-get or apt). An apt fetch is apt-get or apt whose first word that
 is no option is `update`, or, without `--no-download`, any but `check`,
-`clean`, `autoclean`, `remove`, `purge` and `autoremove`. A `sudo` or `env`
+`clean`, `autoclean`, `remove`, `purge` and `autoremove`; it may instead run
+as `progress_watchdog.py --stall N --sample N --grace N -- <name>` by any
+path, those three once each in any order, any `--watch PATH` among them. A `sudo` or `env`
 before the timeout, with its options and assignments, is skipped. The `--`
 that ends a prefix command's options is skipped, so the command after it is
 judged as without it.
@@ -81,6 +83,8 @@ BOUNDS = "-o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=
 FETCH = COPY + 'git -C "$RUNNER_TEMP/push-repo" fetch --quiet origin master'
 APT_UPDATE = "sudo {}apt-get update -qq -o APT::Update::Error-Mode=any"
 APT_DOWNLOAD = "sudo env DEBIAN_FRONTEND=noninteractive {}apt-get install --download-only -y xvfb"
+WATCH = '"$GITHUB_ACTION_PATH/../../../scripts/ci/progress_watchdog.py" --stall 60 --sample 5 --grace 5 --watch /var/lib/dpkg -- '
+UNTIL = "until {}; do sleep 5; done"
 
 UNBOUNDED_READ = "gh read without `timeout -k N N gh`, N above 0, per attempt"
 UNBOUNDED_WRITE = "gh write without `timeout -k N N gh`, N above 0, per attempt"
@@ -118,7 +122,8 @@ def _playwright(name: str) -> str:
 
 
 def _apt(verb: str, name: str = "apt-get") -> str:
-    return f"{name} {verb} without `timeout -k N N {name}`, N above 0, per attempt"
+    return (f"{name} {verb} without `timeout -k N N {name}` or "
+            f"`progress_watchdog.py --stall N --sample N --grace N -- {name}`, N above 0, per attempt")
 
 
 def _ssh(options: str = "-o StrictHostKeyChecking=yes " + BOUNDS, quote: str = "'") -> str:
@@ -213,6 +218,13 @@ ACCEPTED = {
     "apt-get update steering a loop, bounded under sudo": LOOP.format(APT_UPDATE.format("timeout -k 5 15 ")),
     "apt-get download under sudo and env, bounded": LOOP.format(APT_DOWNLOAD.format("timeout -k 5 40 ")),
     "apt-get update by the helper, bounded": "scripts/ci/retry.sh sudo timeout -k 5 15 apt-get update",
+    "apt-get update retried by until, under the watchdog": UNTIL.format(APT_UPDATE.format(WATCH)),
+    "apt-get download retried by until, under sudo, env and the watchdog": UNTIL.format(APT_DOWNLOAD.format(WATCH)),
+    "apt-get update under the watchdog steering a loop, options reordered": LOOP.format(APT_UPDATE.format(
+        WATCH.replace("--stall 60 --sample 5", "--sample 5 --stall 60"))),
+    "watchdog by a relative path, no watched path": UNTIL.format(
+        "sudo scripts/ci/progress_watchdog.py --stall 60 --sample 5 --grace 5 -- apt-get update"),
+    "gh read retried by until": UNTIL.format("timeout -k 5 60 " + READ),
     "apt-get install from the download cache": "sudo env DEBIAN_FRONTEND=noninteractive apt-get install --no-download -y xvfb",
     "apt-get check": "sudo apt-get check -qq",
     "apt-get with no subcommand": "apt-get --version",
@@ -261,6 +273,27 @@ REFUSED = {
     "apt-get update behind --no-download": (
         LOOP.format("sudo apt-get update --no-download"), [_apt("update")]),
     "apt update in a loop, no timeout": (LOOP.format("sudo apt update"), [_apt("update", "apt")]),
+    "apt-get update under the watchdog, nothing retries": (
+        APT_UPDATE.format(WATCH), ["apt-get update without the retry helper"]),
+    "apt-get update steering a while loop": (
+        f"while {APT_UPDATE.format(WATCH)}; do sleep 5; done", ["apt-get update without the retry helper"]),
+    "apt-get update negated in an until loop's condition": (
+        f"until ! {APT_UPDATE.format(WATCH)}; do sleep 5; done", ["apt-get update without the retry helper"]),
+    "apt-get update in an until loop's body": (
+        f"until [ -e done ]; do {APT_UPDATE.format(WATCH)}; done", ["apt-get update without the retry helper"]),
+    "watchdog without a stall window": (UNTIL.format(APT_UPDATE.format(WATCH.replace("--stall 60 ", ""))), [_apt("update")]),
+    "watchdog stall window 0": (UNTIL.format(APT_UPDATE.format(WATCH.replace("--stall 60", "--stall 0"))), [_apt("update")]),
+    "watchdog grace in a variable": (
+        UNTIL.format(APT_UPDATE.format(WATCH.replace("--grace 5", '--grace "$GRACE"'))), [_apt("update")]),
+    "watchdog option joined to its value": (
+        UNTIL.format(APT_UPDATE.format(WATCH.replace("--sample 5", "--sample=5"))), [_apt("update")]),
+    "watchdog stall window given twice": (
+        UNTIL.format(APT_UPDATE.format(WATCH.replace("--stall 60", "--stall 60 --stall 60"))), [_apt("update")]),
+    "watchdog without --": (UNTIL.format(APT_UPDATE.format(WATCH.replace("-- ", ""))), [_apt("update")]),
+    "watchdog around something else": (
+        UNTIL.format(APT_UPDATE.format(WATCH + "env ")), [_apt("update")]),
+    "watchdog outside sudo": (UNTIL.format(WATCH + APT_UPDATE.format("")), [_apt("update")]),
+    "watchdog around a gh read": (UNTIL.format(WATCH + READ), [UNBOUNDED_READ]),
     "npx nothing holds": ("npx eslint src", [NPX_UNRETRIED, NPX_UNBOUNDED]),
     "npx by the helper, no timeout": ("scripts/ci/retry.sh npx eslint src", [NPX_UNBOUNDED]),
     "npx bounded, no helper": ("timeout -k 5 120 npx eslint src", [NPX_UNRETRIED]),

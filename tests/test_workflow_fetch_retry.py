@@ -6,7 +6,8 @@ fetch/clone/ls-remote/pull, gh read, pip install/download/wheel,
 playwright install or install-deps or apt fetch neither run by
 retry.sh/api_retry nor, inside a `for attempt in` loop, steering it (an
 `if`/`elif`/`while`/`until` condition, the left operand of `&&`, or of a
-`||` whose right side reaches `continue`, bare or in a `{ }` group); a git push not run by
+`||` whose right side reaches `continue`, bare or in a `{ }` group), nor in
+an `until` loop's condition, which reruns it until it succeeds; a git push not run by
 retry.sh/api_retry, even one steering such a loop; and an unclassified gh
 command.
 
@@ -77,6 +78,8 @@ NPX_HOLDS = {"--no", "--no-yes", "--yes=false", "--offline", "--no-install"}
 NPX_ENDS = {"--no-install", "--yes=false", "--offline"}  # npx then writes `--` before the package
 APT = {"apt-get", "apt"}
 APT_LOCAL = {"check", "clean", "autoclean", "remove", "purge", "autoremove"}
+WATCHDOG = "progress_watchdog.py"  # scripts/ci's: ends an attempt whose watched files stop changing
+WATCHDOG_BOUNDS = ["--grace", "--sample", "--stall"]
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=")
 SEPARATORS = ";&|\n"
 
@@ -99,6 +102,7 @@ class _Lexer:  # pylint: disable=too-many-instance-attributes
         self.loops: list[bool] = []
         self.heredocs: list[tuple[str, bool, bool, list[str]]] = []
         self.drop_next = False
+        self.until = False  # inside an `until` loop's condition
 
     def run(self, closer: str = "") -> int:
         """Lex until `closer` (unquoted) or the end; returns the stop offset."""
@@ -244,15 +248,16 @@ class _Lexer:  # pylint: disable=too-many-instance-attributes
         self.flush()
         words, self.words = self.words, []
         if words[:1] in (["then"], ["do"]):
-            self.condition = False
+            self.condition = self.until = False
         lead = _after(words, LEADS)[:1]
         if lead and lead[0] in CONDITIONS:
             self.condition = True
+        self.until = self.until or lead == ["until"] and words[words.index("until") + 1:][:1] != ["!"]
         if self.or_left and words:
             self.or_right(words)
         steers = operator == "&&" or self.condition
         for entry in self.commands[self.cmd_start:]:
-            entry[2] = entry[2] or steers
+            entry[1], entry[2] = entry[1] or self.until, entry[2] or steers
         head = [word for word in words if word not in KEYWORDS - LOOPS - {"done"}][:1]
         if head and head[0] in LOOPS:
             self.loops.append(words[words.index(head[0]):][:2] == ["for", "attempt"])
@@ -261,7 +266,7 @@ class _Lexer:  # pylint: disable=too-many-instance-attributes
                 raise Unparseable("done without a loop")
             self.loops.pop()
         if words:
-            self.commands.append([words, self.in_attempt or any(self.loops), steers])
+            self.commands.append([words, self.in_attempt or any(self.loops) or self.until, steers])
         if operator == "||":
             self.or_left = (self.cmd_start, len(self.commands))
         self.cmd_start = len(self.commands)
@@ -276,10 +281,10 @@ def _after(words: list[str], skip: set[str]) -> list[str]:
 
 
 def _operands(words: list[str]) -> int:
-    """Index of the first word after a prefix command's options and assignments."""
+    """Index of the first word after a prefix command's options and assignments; each watchdog option takes a value."""
     index = 1
     while index < len(words) and (words[index].startswith("-") or ASSIGNMENT.match(words[index])):
-        index += 2 if words[index] in PREFIXES[words[0]] else 1
+        index += 2 if words[index] in PREFIXES.get(words[0], WATCHDOG_BOUNDS + ["--watch"]) else 1
     return index
 
 
@@ -307,7 +312,7 @@ def _strip(words: list[str], prefixed: bool = False) -> list[str]:
             return []
         if head in KEYWORDS or ASSIGNMENT.match(head):
             words = words[1:]
-        elif head in PREFIXES and not prefixed:
+        elif (head in PREFIXES or head.rsplit("/", 1)[-1] == WATCHDOG) and not prefixed:
             words = words[_operands(words) + (head == "timeout"):]
             words = words[words[:1] == ["--"]:]  # after timeout's duration too
         elif head in ("bash", "sh") and len(words) > 1 and words[1].endswith("retry.sh"):
@@ -418,6 +423,12 @@ def _positive(value: str) -> bool:
 def _attempt_bounded(words: list[str], name: str) -> bool:
     while words[:1] in (["sudo"], ["env"]):  # each runs the timeout it is given
         words = words[_operands(words):]
+    if words and words[0].rsplit("/", 1)[-1] == WATCHDOG:  # an apt attempt may end on no progress instead
+        at = words.index("--") if "--" in words else len(words)
+        pairs = list(zip(words[1:at:2], words[2:at:2]))
+        return (name in APT and at % 2 == 1 and all(option in WATCHDOG_BOUNDS + ["--watch"] for option, _ in pairs)
+                and sorted(option for option, value in pairs if option != "--watch" and _positive(value)) == WATCHDOG_BOUNDS
+                and words[at + 1:at + 2] == [name])
     marker = words.index("--") if "--" in words[:5] else len(words)
     grace, limit, command = ((words[:marker] + words[marker + 1:])[2:5] + [""] * 3)[:3]
     return (words[:2] == ["timeout", "-k"] and _positive(grace) and _positive(limit)
@@ -529,7 +540,8 @@ def _judge(words: list[str], retried: bool, ssh: bool = False) -> tuple[int, lis
     retried = retried and kind != "git push"
     reasons = [f"{kind} without the retry helper"] if kind and not (wrapped or retried) else []
     if _times_out(name, kind, words[1:]) and not _attempt_bounded(attempt, name):
-        reasons.append(f"{kind or 'gh write'} without `timeout -k N N {name}`, N above 0, per attempt")
+        watchdog = f" or `{WATCHDOG} --stall N --sample N --grace N -- {name}`" if name in APT else ""
+        reasons.append(f"{kind or 'gh write'} without `timeout -k N N {name}`{watchdog}, N above 0, per attempt")
     lacking = _git_unbounded(words[1:], ssh) if kind and kind.startswith("git ") else ""
     return (1 if kind else 0), reasons + [f"{kind} {lacking}"] * bool(lacking)
 
