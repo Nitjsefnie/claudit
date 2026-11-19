@@ -24,7 +24,8 @@ runs:
         CLAUDIT_APT_PACKAGES: ${{ inputs.packages }}
       run: |
         set -euo pipefail
-        # The watchdog stops an attempt once the watched apt and dpkg files stop changing, then exits 124.
+        # The watchdog stops an attempt once the watched apt and dpkg files stop changing, then exits 124;
+        # /var/cache holds the archives and what dpkg triggers write (fontconfig, man, ldconfig).
         # 60 s: apt itself gives up on a silent file within 4 x its 10 s timeout plus 1+2+4 s of backoff, and the
         # longest fixed bound this replaces was 50 s. A sample every 5 s stops a stall at most 5 s late.
         # timeout(1) exits 124 when its bound expires, 137 when -k had to kill.
@@ -41,7 +42,7 @@ runs:
         attempt=1
         echo "==> apt-get update (attempt $attempt)"
         until sudo "$GITHUB_ACTION_PATH/../../../scripts/ci/progress_watchdog.py" --stall 60 --sample 5 --grace 5 \
-            --watch /var/lib/apt/lists --watch /var/cache/apt --watch /var/lib/dpkg --watch /var/log/dpkg.log -- \
+            --watch /var/lib/apt/lists --watch /var/cache --watch /var/lib/dpkg --watch /var/log/dpkg.log --watch /var/log/apt -- \
             apt-get update -q -o APT::Update::Error-Mode=any -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10; do
           status=$?
           echo "==> apt-get update attempt $attempt $(outcome "$status" stall)"
@@ -52,7 +53,7 @@ runs:
         attempt=1
         echo "==> downloading $CLAUDIT_APT_PACKAGES (attempt $attempt)"
         until sudo env DEBIAN_FRONTEND=noninteractive "$GITHUB_ACTION_PATH/../../../scripts/ci/progress_watchdog.py" --stall 60 --sample 5 --grace 5 \
-            --watch /var/lib/apt/lists --watch /var/cache/apt --watch /var/lib/dpkg --watch /var/log/dpkg.log -- \
+            --watch /var/lib/apt/lists --watch /var/cache --watch /var/lib/dpkg --watch /var/log/dpkg.log --watch /var/log/apt -- \
             apt-get install --download-only --no-install-recommends -y -q -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 "${packages[@]}"; do
           status=$?
           echo "==> apt-get install --download-only attempt $attempt $(outcome "$status" stall)"
@@ -64,7 +65,7 @@ runs:
         attempt=1
         echo "==> installing $CLAUDIT_APT_PACKAGES from the download cache (attempt $attempt)"
         until sudo env DEBIAN_FRONTEND=noninteractive "$GITHUB_ACTION_PATH/../../../scripts/ci/progress_watchdog.py" --stall 60 --sample 5 --grace 5 \
-            --watch /var/lib/apt/lists --watch /var/cache/apt --watch /var/lib/dpkg --watch /var/log/dpkg.log -- \
+            --watch /var/lib/apt/lists --watch /var/cache --watch /var/lib/dpkg --watch /var/log/dpkg.log --watch /var/log/apt -- \
             apt-get install --no-download --no-install-recommends -y -qq -o DPkg::Lock::Timeout=30 "${packages[@]}"; do
           status=$?
           echo "==> apt-get install --no-download attempt $attempt $(outcome "$status" stall)"
