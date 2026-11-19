@@ -17,7 +17,7 @@ SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 
 
 class Stop(Exception):
-    """A signal received."""
+    """A signal."""
 
 
 def footprint(paths: list[str]) -> int:
@@ -54,10 +54,6 @@ def stop(child: subprocess.Popen, grace: float) -> None:
     print(f"progress_watchdog.py: process group {child.pid} outlived SIGKILL", file=sys.stderr)
 
 
-def _raise(signum: int, _frame) -> None:
-    raise Stop(signum)
-
-
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(allow_abbrev=False)
     for name in ("--stall", "--sample", "--grace"):
@@ -68,13 +64,23 @@ def main(argv: list[str]) -> int:
     command = args.command[args.command[:1] == ["--"]:]
     if not command or min(args.stall, args.sample, args.grace) <= 0:
         parser.error("needs a command after -- and --stall, --sample and --grace above 0")
+    received: list[int] = []
+    started: list[subprocess.Popen] = []
+
+    def on_signal(signum: int, _frame) -> None:
+        received.append(signum)
+        if started:  # else raised once it is
+            raise Stop(signum)
+
     for sig in SIGNALS:
-        signal.signal(sig, _raise)
-    child = None
+        signal.signal(sig, on_signal)
+    seen = footprint(args.watch)
+    # Not `with`: its exit waits unbounded on a command that outlives SIGKILL.
+    child = subprocess.Popen(command, start_new_session=True)  # pylint: disable=consider-using-with
+    started.append(child)
     try:
-        seen = footprint(args.watch)
-        # Not `with`: its exit waits unbounded on a command that outlives SIGKILL.
-        child = subprocess.Popen(command, start_new_session=True)  # pylint: disable=consider-using-with
+        if received:
+            raise Stop(received[0])
         quiet_since = time.monotonic()
         while True:
             try:
@@ -86,16 +92,13 @@ def main(argv: list[str]) -> int:
             if now != seen:
                 seen, quiet_since = now, time.monotonic()
             elif time.monotonic() - quiet_since >= args.stall:
-                break
-    except Stop as received:
-        if child:
-            stop(child, args.grace)
-        return 128 + received.args[0]
-    stop(child, args.grace)
-    print(f"progress_watchdog.py: {command[0]} wrote nothing to {' '.join(args.watch) or 'no watched path'}"
-          f" for {args.stall:g} s; stopped it", file=sys.stderr)
-    return STALLED
-
+                stop(child, args.grace)
+                print(f"progress_watchdog.py: {command[0]} wrote nothing to {' '.join(args.watch) or 'no watched path'}"
+                      f" for {args.stall:g} s; stopped it", file=sys.stderr)
+                return STALLED
+    except Stop as stopped:
+        stop(child, args.grace)
+        return 128 + stopped.args[0]
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
