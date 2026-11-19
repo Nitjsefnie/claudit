@@ -78,7 +78,7 @@ NPX_HOLDS = {"--no", "--no-yes", "--yes=false", "--offline", "--no-install"}
 NPX_ENDS = {"--no-install", "--yes=false", "--offline"}  # npx then writes `--` before the package
 APT = {"apt-get", "apt"}
 APT_LOCAL = {"check", "clean", "autoclean", "remove", "purge", "autoremove"}
-WATCHDOG = "progress_watchdog.py"  # scripts/ci's: ends an attempt whose watched files stop changing
+WATCHDOG = "progress_watchdog.py"  # scripts/ci's
 WATCHDOG_BOUNDS = ["--grace", "--sample", "--stall"]
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=")
 SEPARATORS = ";&|\n"
@@ -312,7 +312,7 @@ def _strip(words: list[str], prefixed: bool = False) -> list[str]:
             return []
         if head in KEYWORDS or ASSIGNMENT.match(head):
             words = words[1:]
-        elif head.rsplit("/", 1)[-1] == WATCHDOG and "--" in words and not prefixed:  # whatever its options
+        elif head.rsplit("/", 1)[-1] == WATCHDOG and "--" in words and not prefixed:
             words = words[words.index("--") + 1:]
         elif (head in PREFIXES or head.rsplit("/", 1)[-1] == WATCHDOG) and not prefixed:
             words = words[_operands(words) + (head == "timeout"):]
