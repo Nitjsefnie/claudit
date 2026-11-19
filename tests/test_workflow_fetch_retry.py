@@ -312,6 +312,8 @@ def _strip(words: list[str], prefixed: bool = False) -> list[str]:
             return []
         if head in KEYWORDS or ASSIGNMENT.match(head):
             words = words[1:]
+        elif head.rsplit("/", 1)[-1] == WATCHDOG and "--" in words and not prefixed:  # whatever its options
+            words = words[words.index("--") + 1:]
         elif (head in PREFIXES or head.rsplit("/", 1)[-1] == WATCHDOG) and not prefixed:
             words = words[_operands(words) + (head == "timeout"):]
             words = words[words[:1] == ["--"]:]  # after timeout's duration too
