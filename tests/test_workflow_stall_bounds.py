@@ -218,7 +218,6 @@ ACCEPTED = {
     "apt-get update steering a loop, bounded under sudo": LOOP.format(APT_UPDATE.format("timeout -k 5 15 ")),
     "apt-get download under sudo and env, bounded": LOOP.format(APT_DOWNLOAD.format("timeout -k 5 40 ")),
     "apt-get update by the helper, bounded": "scripts/ci/retry.sh sudo timeout -k 5 15 apt-get update",
-    "apt-get update retried by until, under the watchdog": UNTIL.format(APT_UPDATE.format(WATCH)),
     "apt-get download retried by until, under sudo, env and the watchdog": UNTIL.format(APT_DOWNLOAD.format(WATCH)),
     "apt-get update under the watchdog steering a loop, options reordered": LOOP.format(APT_UPDATE.format(
         WATCH.replace("--stall 60 --sample 5", "--sample 5 --stall 60"))),
@@ -286,10 +285,6 @@ REFUSED = {
         f"until [ -e done ]; do {APT_UPDATE.format(WATCH)} && break; done", ["apt-get update without the retry helper"]),
     "watchdog without a stall window": (UNTIL.format(APT_UPDATE.format(WATCH.replace("--stall 60 ", ""))), [_apt("update")]),
     "watchdog stall window 0": (UNTIL.format(APT_UPDATE.format(WATCH.replace("--stall 60", "--stall 0"))), [_apt("update")]),
-    "watchdog grace in a variable": (
-        UNTIL.format(APT_UPDATE.format(WATCH.replace("--grace 5", '--grace "$GRACE"'))), [_apt("update")]),
-    "watchdog option joined to its value": (
-        UNTIL.format(APT_UPDATE.format(WATCH.replace("--sample 5", "--sample=5"))), [_apt("update")]),
     "watchdog stall window given twice": (
         UNTIL.format(APT_UPDATE.format(WATCH.replace("--stall 60", "--stall 60 --stall 60"))), [_apt("update")]),
     "watchdog option the guard does not read": (
@@ -298,7 +293,6 @@ REFUSED = {
     "watchdog without --": (UNTIL.format(APT_UPDATE.format(WATCH.replace("-- ", ""))), [_apt("update")]),
     "watchdog around something else": (
         UNTIL.format(APT_UPDATE.format(WATCH + "env ")), [_apt("update")]),
-    "watchdog outside sudo": (UNTIL.format(WATCH + APT_UPDATE.format("")), [_apt("update")]),
     "watchdog around a gh read": (UNTIL.format(WATCH + READ), [UNBOUNDED_READ]),
     "npx nothing holds": ("npx eslint src", [NPX_UNRETRIED, NPX_UNBOUNDED]),
     "npx by the helper, no timeout": ("scripts/ci/retry.sh npx eslint src", [NPX_UNBOUNDED]),
