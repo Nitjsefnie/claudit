@@ -59,7 +59,7 @@ npx() {
     *) echo "npx double: unmodelled $*" >&2; return 99 ;;
   esac
 }
-sleep() { record sleep "$@"; }
+sleep() { record sleep "$@"; [ "$(grep -c '^sleep' "$CALLS")" -lt 50 ]; }  # the 50th pause ends a loop that never succeeds
 export -f record npx sleep
 '''
 
