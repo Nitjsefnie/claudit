@@ -24,11 +24,11 @@ runs:
         CLAUDIT_APT_PACKAGES: ${{ inputs.packages }}
       run: |
         set -euo pipefail
-        # The watchdog stops an attempt once the watched apt and dpkg files stop changing, then exits 124;
-        # /var/cache holds the archives and what dpkg triggers write (fontconfig, man, ldconfig).
+        # The watchdog exits 124 once the watched files stop changing; /var/cache holds the archives
+        # and what dpkg triggers write (fontconfig, man, ldconfig).
         # 60 s: apt itself gives up on a silent file within 4 x its 10 s timeout plus 1+2+4 s of backoff, and the
         # longest fixed bound this replaces was 50 s. A sample every 5 s stops a stall at most 5 s late.
-        # timeout(1) exits 124 when its bound expires, 137 when -k had to kill.
+        # timeout(1): 124 when its bound expires, 137 when -k killed.
         outcome() {
           case "$1:$2" in
             124:stall) echo "stalled after 60 s without progress" ;;
@@ -38,7 +38,7 @@ runs:
         }
         echo "==> reading requested packages"
         read -r -a packages <<< "$CLAUDIT_APT_PACKAGES"
-        # No attempt count: the caller's timeout-minutes bounds the step, and kept archives make each retry shorter.
+        # No attempt count: the caller's timeout-minutes bounds the step; kept archives shorten each retry.
         attempt=1
         echo "==> apt-get update (attempt $attempt)"
         until sudo "$GITHUB_ACTION_PATH/../../../scripts/ci/progress_watchdog.py" --stall 60 --sample 5 --grace 5 \
