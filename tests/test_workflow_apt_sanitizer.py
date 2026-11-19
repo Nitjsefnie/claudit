@@ -133,12 +133,6 @@ def _install(tmp_path: Path, **env: str) -> tuple[subprocess.CompletedProcess, l
     return _run(_action_steps()[1]["run"], tmp_path, ["-eo", "pipefail"], **env)
 
 
-def _watched(tmp_path: Path) -> list[tuple[list[str], str]]:
-    """(the watchdog's options, its command) per call."""
-    lines = (tmp_path / "watchdog").read_text(encoding="utf-8").splitlines()
-    return [(options.split(), command) for options, _, command in (line.partition("|") for line in lines)]
-
-
 def test_workflows_delegate_every_apt_command():
     for name, job, step in _workflow_steps():
         assert "apt-get" not in step.get("run", ""), (name, job, step)
@@ -164,7 +158,8 @@ def test_sanitization_always_runs_and_package_setup_is_optional():
 def test_every_apt_phase_retries_a_stalled_attempt_and_two_attempts_fit_the_step(tmp_path):
     proc, calls = _install(tmp_path, CLAUDIT_STALL_ONLY="apt-get", CLAUDIT_STALL_COUNT="1", CLAUDIT_TIMEOUT_EXPIRE="1")
     assert proc.returncode == 0, proc.stderr
-    watched = _watched(tmp_path)
+    watched = [(options.split(), command) for options, _, command in  # (the watchdog's options, its command) per call
+               (line.partition("|") for line in (tmp_path / "watchdog").read_text("utf-8").splitlines())]
     assert [" ".join(command.split()[:2]) for _, command in watched] == ["apt-get update"] * 2 + ["apt-get install"] * 4
     assert [command for _, command in bounded_calls(tmp_path / "timeout-state")] == [
         "apt-get check -qq -o DPkg::Lock::Timeout=10", "dpkg --configure -a"]
