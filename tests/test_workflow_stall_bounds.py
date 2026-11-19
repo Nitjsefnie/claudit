@@ -278,6 +278,8 @@ REFUSED = {
         APT_UPDATE.format(WATCH), ["apt-get update without the retry helper"]),
     "apt-get update steering a while loop": (
         f"while {APT_UPDATE.format(WATCH)}; do sleep 5; done", ["apt-get update without the retry helper"]),
+    "apt-get update left of || in an until loop's condition": (
+        UNTIL.format(APT_UPDATE.format(WATCH) + " || true"), ["apt-get update without the retry helper"]),
     "apt-get update negated in an until loop's condition": (
         f"until ! {APT_UPDATE.format(WATCH)}; do sleep 5; done", ["apt-get update without the retry helper"]),
     "apt-get update steering an until loop's body": (
