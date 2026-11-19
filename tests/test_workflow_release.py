@@ -481,8 +481,7 @@ def test_wait_ignores_a_red_pr_gate_row_from_a_pull_request_target_run(tmp_path)
 
 
 @ubuntu_step_body
-def test_wait_falls_back_to_the_listing_when_the_derived_path_is_not_under_workflows(
-        tmp_path):
+def test_wait_falls_back_to_the_listing_when_the_derived_path_is_not_under_workflows(tmp_path):
     # The REPO-case mismatch: a repository whose case differs from the
     # workflow_ref prefix leaves the prefix in the derived value. Anything
     # that is not a path under .github/workflows/ is not this workflow's
