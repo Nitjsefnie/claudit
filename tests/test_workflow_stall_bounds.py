@@ -280,8 +280,8 @@ REFUSED = {
         f"while {APT_UPDATE.format(WATCH)}; do sleep 5; done", ["apt-get update without the retry helper"]),
     "apt-get update negated in an until loop's condition": (
         f"until ! {APT_UPDATE.format(WATCH)}; do sleep 5; done", ["apt-get update without the retry helper"]),
-    "apt-get update in an until loop's body": (
-        f"until [ -e done ]; do {APT_UPDATE.format(WATCH)}; done", ["apt-get update without the retry helper"]),
+    "apt-get update steering an until loop's body": (
+        f"until [ -e done ]; do {APT_UPDATE.format(WATCH)} && break; done", ["apt-get update without the retry helper"]),
     "watchdog without a stall window": (UNTIL.format(APT_UPDATE.format(WATCH.replace("--stall 60 ", ""))), [_apt("update")]),
     "watchdog stall window 0": (UNTIL.format(APT_UPDATE.format(WATCH.replace("--stall 60", "--stall 0"))), [_apt("update")]),
     "watchdog grace in a variable": (
