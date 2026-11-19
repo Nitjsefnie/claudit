@@ -55,7 +55,7 @@ apt-get() {
   [[ "$*" != *"$APT_FAIL"* ]] || [ "$(grep -c -- "$APT_FAIL" "$CALLS")" -gt "$APT_FAILS" ] || return 100
 }
 dpkg() { record dpkg "${DEBIAN_FRONTEND:-}" "$@"; }
-test() { [ "$*" = "-f $DISTRO" ] || { echo "test double: unmodelled $*" >&2; return 99; }; [ -z "${CLAUDIT_DISTRO_MISSING:-}" ]; }
+test() { [ "$*" = "-f $CLAUDIT_DISTRO" ] || { echo "test double: unmodelled $*" >&2; return 99; }; [ -z "${CLAUDIT_DISTRO_MISSING:-}" ]; }
 npx() {
   record npx "$@"
   case "$*" in
@@ -117,7 +117,7 @@ def _run(script: str, tmp_path: Path, flags: list[str], **env: str) -> tuple[sub
              "CLAUDIT_TIMEOUT_STATE": str(tmp_path / "timeout-state"), "CLAUDIT_TIMEOUT_DOUBLES": str(tmp_path / "none"),
              "CLAUDIT_APT_PACKAGES": PACKAGES, "APT_FAIL": "@nothing@", "APT_FAILS": "0", "REPORT": "", "REPORT_STATUS": "0",
              "GITHUB_ACTION_PATH": str(ACTION.parent), "CLAUDIT_WATCHDOG_CALLS": str(tmp_path / "watchdog"),
-             "CLAUDIT_STALL_ONLY": "@nothing@", "CLAUDIT_STALL_COUNT": "0", "DISTRO": DISTRO, **env},
+             "CLAUDIT_STALL_ONLY": "@nothing@", "CLAUDIT_STALL_COUNT": "0", "CLAUDIT_DISTRO": DISTRO, **env},
         cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
     return proc, [line.split("\x1f") for line in calls.read_text(encoding="utf-8").splitlines()]
 
@@ -163,8 +163,9 @@ def test_every_apt_phase_retries_a_stalled_attempt_and_two_attempts_fit_the_step
     watched = [(options.split(), command) for options, _, command in  # (the watchdog's options, its command) per call
                (line.partition("|") for line in (tmp_path / "watchdog").read_text("utf-8").splitlines())]
     assert [" ".join(command.split()[:2]) for _, command in watched] == ["apt-get update"] * 2 + ["apt-get install"] * 4
-    assert [" ".join(command.split()[:2]) for _, command in bounded_calls(tmp_path / "timeout-state")] == [
-        "apt-get check", "dpkg --configure"]
+    assert [command for _, command in bounded_calls(tmp_path / "timeout-state")] == [
+        f"apt-get check -qq -o Dir::Etc::SourceList={DISTRO} -o Dir::Etc::SourceParts=/dev/null -o DPkg::Lock::Timeout=10",
+        "dpkg --configure -a"]
     apt = [call for call in calls if call[0] == "apt-get" and call[2] != "check"]  # the update, download and install
     assert "APT::Update::Error-Mode=any" in apt[0] and "--download-only" in apt[1] and "--no-download" in apt[2]
     for call in apt[:2]:  # apt still ends a dead connection itself; its Err/W/E lines reach the log
