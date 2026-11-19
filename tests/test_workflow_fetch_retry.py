@@ -256,8 +256,9 @@ class _Lexer:  # pylint: disable=too-many-instance-attributes
         if self.or_left and words:
             self.or_right(words)
         steers = operator == "&&" or self.condition
+        until = self.until and operator != "||"  # a `||` left operand need not succeed
         for entry in self.commands[self.cmd_start:]:
-            entry[1], entry[2] = entry[1] or self.until, entry[2] or steers
+            entry[1], entry[2] = entry[1] or until, entry[2] or steers
         head = [word for word in words if word not in KEYWORDS - LOOPS - {"done"}][:1]
         if head and head[0] in LOOPS:
             self.loops.append(words[words.index(head[0]):][:2] == ["for", "attempt"])
@@ -266,7 +267,7 @@ class _Lexer:  # pylint: disable=too-many-instance-attributes
                 raise Unparseable("done without a loop")
             self.loops.pop()
         if words:
-            self.commands.append([words, self.in_attempt or any(self.loops) or self.until, steers])
+            self.commands.append([words, self.in_attempt or any(self.loops) or until, steers])
         if operator == "||":
             self.or_left = (self.cmd_start, len(self.commands))
         self.cmd_start = len(self.commands)
