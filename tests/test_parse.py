@@ -18,8 +18,7 @@ FIX = Path(__file__).resolve().parents[1] / "fixtures" / "parser"
 # A synthetic model and row for the TTL-split tests (SV-TEST-DATA):
 # priced only through the monkeypatched table, never a live row.
 SPLIT_MODEL = "test-split-model"
-SPLIT_RATES = {"fresh": 3.00, "create_5m": 3.75, "create_1h": 6.00,
-               "read": 0.30, "output": 15.00}
+SPLIT_RATES = {"fresh": 3.00, "create_5m": 3.75, "create_1h": 6.00, "read": 0.30, "output": 15.00}
 
 
 def _read(name):
@@ -47,17 +46,14 @@ def test_single_turn_emits_one_record_one_turn(monkeypatch):
 
 
 def test_claude_server_search_count_belongs_to_the_usage_record():
-    out = parse.parse_file(
-        "k/sess-search/sess-search.jsonl", _read("web_search.jsonl"))
+    out = parse.parse_file("k/sess-search/sess-search.jsonl", _read("web_search.jsonl"))
     assert [record["web_search_requests"] for record in out["records"]] == [2, 4]
 
 
 def test_streaming_within_file_max_merges_per_request_id():
     """Two records same requestId, output_tokens=50 then 200.
     Phase 1 keeps ONE record with max-merged usage."""
-    out = parse.parse_file(
-        "k/sess-2/sess-2.jsonl", _read("streaming_merge.jsonl")
-    )
+    out = parse.parse_file("k/sess-2/sess-2.jsonl", _read("streaming_merge.jsonl"))
     assert len(out["records"]) == 1
     assert out["records"][0]["output_tokens"] == 200
     assert out["records"][0]["fresh_tokens"] == 100
@@ -68,33 +64,25 @@ def test_unsplit_cache_charged_at_1h_rate(monkeypatch):
     # fixture names a synthetic model priced from a synthetic row, so
     # neither a live rate move nor a live membership fold moves the
     # expectation.
-    monkeypatch.setattr(pricing, "MODEL_RATES", {
-        **pricing.MODEL_RATES, SPLIT_MODEL: SPLIT_RATES})
-    out = parse.parse_file(
-        "k/sess-5/sess-5.jsonl", _read("unsplit_cache.jsonl")
-    )
+    monkeypatch.setattr(pricing, "MODEL_RATES", {**pricing.MODEL_RATES, SPLIT_MODEL: SPLIT_RATES})
+    out = parse.parse_file("k/sess-5/sess-5.jsonl", _read("unsplit_cache.jsonl"))
     r = out["records"][0]
     # cache_creation_tokens=1M, eph5=0, eph1h=0 → unsplit=1M → 1h bucket
     assert r["cache_creation_tokens"] == 1_000_000
     assert r["eph5_tokens"] == 0
     assert r["eph1h_tokens"] == 0
-    assert r["cost_usd"] == pytest.approx(
-        1_000_000 / 1e6 * SPLIT_RATES["create_1h"], rel=1e-9)
+    assert r["cost_usd"] == pytest.approx(1_000_000 / 1e6 * SPLIT_RATES["create_1h"], rel=1e-9)
 
 
 def test_malformed_cache_detail_is_billed_as_unsplit_creation(monkeypatch):
-    monkeypatch.setattr(pricing, "MODEL_RATES", {
-        **pricing.MODEL_RATES, SPLIT_MODEL: SPLIT_RATES})
-    out = parse.parse_file(
-        "k/sess-malformed/sess-malformed.jsonl",
-        _read("malformed_cache_detail.jsonl"))
+    monkeypatch.setattr(pricing, "MODEL_RATES", {**pricing.MODEL_RATES, SPLIT_MODEL: SPLIT_RATES})
+    out = parse.parse_file("k/sess-malformed/sess-malformed.jsonl", _read("malformed_cache_detail.jsonl"))
 
     assert len(out["records"]) == 1
     record = out["records"][0]
     assert record["cache_creation_tokens"] == 1_000_000
     assert (record["eph5_tokens"], record["eph1h_tokens"]) == (0, 0)
-    assert (record["fresh_tokens"], record["cache_read_tokens"],
-            record["output_tokens"]) == (0, 0, 0)
+    assert (record["fresh_tokens"], record["cache_read_tokens"], record["output_tokens"]) == (0, 0, 0)
     # The malformed list supplies no TTL split: 1M at the synthetic $6/1M.
     assert record["cost_usd"] == pytest.approx(6.0, rel=1e-9)
     assert record["ctx_input"] == 1_000_000
@@ -106,8 +94,7 @@ def test_cache_write_tokens_derives_the_neutral_write_per_record():
     trusted verbatim; otherwise the write is derived from the NEXT
     request's cache-read growth, capped by this record's fresh input;
     the last record of a file has no successor and counts 0."""
-    out = parse.parse_file(
-        "k/sess-cw/sess-cw.jsonl", _read("cache_write_split.jsonl"))
+    out = parse.parse_file("k/sess-cw/sess-cw.jsonl", _read("cache_write_split.jsonl"))
     writes = [r["cache_write_tokens"] for r in out["records"]]
     # r1: next read 600 - 0 = 600, capped by fresh 1000 -> 600
     # r2: next read 700 - 600 = 100 -> 100
@@ -142,11 +129,8 @@ def test_cache_write_tokens_is_not_a_pricing_input(key, name):
 
 
 def test_ttl_split_charges_each_bucket(monkeypatch):
-    monkeypatch.setattr(pricing, "MODEL_RATES", {
-        **pricing.MODEL_RATES, SPLIT_MODEL: SPLIT_RATES})
-    out = parse.parse_file(
-        "k/sess-6/sess-6.jsonl", _read("ttl_split.jsonl")
-    )
+    monkeypatch.setattr(pricing, "MODEL_RATES", {**pricing.MODEL_RATES, SPLIT_MODEL: SPLIT_RATES})
+    out = parse.parse_file("k/sess-6/sess-6.jsonl", _read("ttl_split.jsonl"))
     r = out["records"][0]
     # eph5=1M at the 5m rate + eph1h=1M at the 1h rate, each bucket
     # charged at its own table (SV-COST-SPLIT).
@@ -163,9 +147,7 @@ def test_ctx_turns_match_canonical_shape():
       output = output_tokens
       delta  = this_input - previous_input
     (SV-PARSER-SPEC)."""
-    out = parse.parse_file(
-        "k/sess-1/sess-1.jsonl", _read("single_turn.jsonl")
-    )
+    out = parse.parse_file("k/sess-1/sess-1.jsonl", _read("single_turn.jsonl"))
     t = out["ctx_turns"][0]
     assert set(t.keys()) == {"idx", "ts", "line", "input", "output", "delta"}
 
@@ -213,9 +195,7 @@ def test_empty_request_id_merges_on_message_id():
     first line, the usage and stop_reason the closing line carried, the
     reply latency the first line consumed. request_id stays the stored
     '' — the fallback is a merge key, not a column value."""
-    out = parse.parse_file(
-        "zai/p/sess-m/sess-m.jsonl", _read("message_id_merge.jsonl")
-    )
+    out = parse.parse_file("zai/p/sess-m/sess-m.jsonl", _read("message_id_merge.jsonl"))
     assert len(out["records"]) == 1
     r = out["records"][0]
     assert r["line_num"] == 2
@@ -266,9 +246,7 @@ def test_tool_use_matched_to_error_result(fixture, file_key, is_error, tool_name
 def test_iterations_flattened_to_sum():
     """Multi-iteration usage: top-level fields are partial snapshots.
     Parser must sum across iterations for billing tokens."""
-    out = parse.parse_file(
-        "k/sess-it/sess-it.jsonl", _read("iterations_flatten.jsonl")
-    )
+    out = parse.parse_file("k/sess-it/sess-it.jsonl", _read("iterations_flatten.jsonl"))
     assert len(out["records"]) == 1
     r = out["records"][0]
     # Top-level in fixture: fresh=2, create=3690, read=232289, output=292
@@ -345,9 +323,7 @@ def test_user_text_lines_drive_turn_boundaries():
 def test_mixed_dated_and_undated_records_sort_undated_first():
     """An undated usage row sorts before aware timestamps without a
     naive/aware comparison crash."""
-    out = parse.parse_file(
-        "k/sess-mixed/sess-mixed.jsonl", _read("mixed_timestamps.jsonl")
-    )
+    out = parse.parse_file("k/sess-mixed/sess-mixed.jsonl", _read("mixed_timestamps.jsonl"))
     assert [(t["ts"], t["input"]) for t in out["ctx_turns"]] == [
         ("", 10),
         ("2026-05-07T10:00:02+00:00", 20),
@@ -360,12 +336,9 @@ def test_naive_timestamp_is_stored_and_priced_as_utc():
     reparse of the raw text prices. A naive datetime handed on as-is
     reaches pricing as UTC AND the driver in the session zone, so the
     two could disagree across a rate cutover."""
-    out = parse.parse_file(
-        "k/sess-naive/sess-naive.jsonl", _read("naive_timestamp.jsonl")
-    )
+    out = parse.parse_file("k/sess-naive/sess-naive.jsonl", _read("naive_timestamp.jsonl"))
     assert len(out["records"]) == 1
-    assert out["records"][0]["ts"] == datetime(
-        2026, 9, 10, 0, 30, tzinfo=timezone.utc)
+    assert out["records"][0]["ts"] == datetime(2026, 9, 10, 0, 30, tzinfo=timezone.utc)
 
 
 def test_reply_latency_terminated_by_list_form_interrupt():
@@ -396,9 +369,7 @@ def test_reply_latency_ignores_replayed_prompt():
     """A verbatim re-dispatched user record (same uuid, different line)
     must not anchor reply-latency windows, or re-dispatched subagent
     transcripts show bogus latency outliers."""
-    out = parse.parse_file(
-        "k/sess-rp/sess-rp.jsonl", _read("replayed_prompt.jsonl")
-    )
+    out = parse.parse_file("k/sess-rp/sess-rp.jsonl", _read("replayed_prompt.jsonl"))
     assert len(out["records"]) == 2
     assert out["records"][0]["reply_latency_s"] == pytest.approx(5.0)
     assert out["records"][1]["reply_latency_s"] is None
@@ -434,9 +405,7 @@ def test_reply_latency_terminated_by_rate_limit_reply():
 def test_rate_limit_detection_is_shape_based_not_wording_based():
     """Count every rate-limit error except transient per-minute 429s.
     Do not allow-list a single message: weekly and extra-usage wording can differ."""
-    out = parse.parse_file(
-        "k/sess-rlw/sess-rlw.jsonl", _read("rate_limit_weekly.jsonl")
-    )
+    out = parse.parse_file("k/sess-rlw/sess-rlw.jsonl", _read("rate_limit_weekly.jsonl"))
     hits = out["rate_limit_hits"]
     # 1 weekly cap, 3 legacy "out of extra usage", 4 session cap.
     # 2 transient 429, 5 model-unavailable, 6 proxy 429 are NOT caps.
@@ -496,15 +465,13 @@ def test_a_flat_rate_prices_records_at_both_fixture_timestamps(monkeypatch):
 
 
 def test_bash_brace_expansion_write_targets():
-    tool = parse.parse_file(
-        "k/s/s.jsonl", _read("bash_brace_expansion_write_targets.jsonl"))["tool_uses"][0]
+    tool = parse.parse_file("k/s/s.jsonl", _read("bash_brace_expansion_write_targets.jsonl"))["tool_uses"][0]
     assert tool["write_targets"] == ["/tmp/a", "/tmp/a/x.s", "/tmp/a/x.t"]
     assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
 
 
 def test_bash_gh_repo_clone_write_targets():
-    tool = parse.parse_file(
-        "k/s/s.jsonl", _read("bash_gh_repo_clone_write_targets.jsonl"))["tool_uses"][0]
+    tool = parse.parse_file("k/s/s.jsonl", _read("bash_gh_repo_clone_write_targets.jsonl"))["tool_uses"][0]
     assert tool["write_targets"] == ["/tmp/d"]
     assert (tool["lines_added"], tool["lines_deleted"]) == (0, 0)
 
@@ -512,8 +479,7 @@ def test_bash_gh_repo_clone_write_targets():
 def test_bash_mkdir_checkout_yields_directory_write_targets():
     """mkdir, git worktree add and a bare git clone name what they put
     on disk, resolved against the command's cwd."""
-    out = parse.parse_file(
-        "k/sess-mkc/sess-mkc.jsonl", _read("bash_mkdir_checkout.jsonl"))
+    out = parse.parse_file("k/sess-mkc/sess-mkc.jsonl", _read("bash_mkdir_checkout.jsonl"))
     assert [tu["write_targets"] for tu in out["tool_uses"]] == [
         ["/tmp/wt", "/tmp/wt/issue200"],
         ["/work/y"],
@@ -532,16 +498,14 @@ def test_bash_mktemp_template_is_a_write_target(fixture, file_key):
 def test_bash_quoted_capture_paren_template_is_a_write_target():
     """the double-quoted capture tokenizes its body with quote
     provenance intact, so a literal paren in a quoted template books."""
-    out = parse.parse_file(
-        "k/sess-mktq/sess-mktq.jsonl", _read("bash_quoted_capture.jsonl"))
+    out = parse.parse_file("k/sess-mktq/sess-mktq.jsonl", _read("bash_quoted_capture.jsonl"))
     assert out["tool_uses"][0]["write_targets"] == ["/tmp/p(1).XXXXXX"]
 
 
 def test_bash_subshell_group_books_targets():
     """commands inside a `( …)` subshell book reads and writes,
     and a redirect on the closing paren books its target."""
-    out = parse.parse_file(
-        "k/sess-ssg/sess-ssg.jsonl", _read("bash_subshell_group.jsonl"))
+    out = parse.parse_file("k/sess-ssg/sess-ssg.jsonl", _read("bash_subshell_group.jsonl"))
     tool = out["tool_uses"][0]
     assert tool["read_targets"] == ["/work/a.py"]
     assert tool["write_targets"] == ["/work/b.txt", "/work/c.txt"]
@@ -550,16 +514,14 @@ def test_bash_subshell_group_books_targets():
 def test_bash_declaration_flag_capture_books_write_target():
     """option flags after a declaration builtin are transparent to
     the capture scan, so a flagged capture books its inner writes."""
-    out = parse.parse_file(
-        "k/sess-dfc/sess-dfc.jsonl", _read("bash_declaration_flag_capture.jsonl"))
+    out = parse.parse_file("k/sess-dfc/sess-dfc.jsonl", _read("bash_declaration_flag_capture.jsonl"))
     assert out["tool_uses"][0]["write_targets"] == ["/tmp/probe.XXXXXX"]
 
 
 def test_bash_nested_subshell_books_write_target():
     """parens spaced apart are a real nested subshell, scanned
     like any other group; only the unspaced `((` stays refused."""
-    out = parse.parse_file(
-        "k/sess-nss/sess-nss.jsonl", _read("bash_nested_subshell.jsonl"))
+    out = parse.parse_file("k/sess-nss/sess-nss.jsonl", _read("bash_nested_subshell.jsonl"))
     assert out["tool_uses"][0]["write_targets"] == ["/work/deep.txt"]
 
 
@@ -573,8 +535,7 @@ def test_agent_type_from_cli_agent_setting():
 def test_agent_type_prefers_attribution_over_agent_setting():
     """Precedence, in the (unobserved) case both are present: the
     dispatch attribution beats the session's startup flag."""
-    out = parse.parse_file(
-        "k/sess-1/sess-1.jsonl", _read("agent_attribution_wins.jsonl"))
+    out = parse.parse_file("k/sess-1/sess-1.jsonl", _read("agent_attribution_wins.jsonl"))
     assert out["agent_type"] == "adversary"
 
 
@@ -594,8 +555,7 @@ def test_non_string_agent_setting_falls_back_to_the_default():
     (An EMPTY name is deliberately not the case tested here: the `or`
     in resolve_agent_type covers that independently, so no single
     defect makes such a test fail.)"""
-    out = parse.parse_file(
-        "k/sess-1/sess-1.jsonl", _read("agent_setting_nonstring.jsonl"))
+    out = parse.parse_file("k/sess-1/sess-1.jsonl", _read("agent_setting_nonstring.jsonl"))
     assert out["agent_type"] == "general-purpose"
 
 
@@ -605,8 +565,7 @@ def test_nul_in_tool_name_and_argument_stays_in_parse_output():
     keeps the call, and the persist-level choke point strips the byte
     before it can reach a PostgreSQL text column (tests.test_ingest).
     """
-    out = parse.parse_file(
-        "k/sess-nul/sess-nul.jsonl", _read("nul_tool_use.jsonl"))
+    out = parse.parse_file("k/sess-nul/sess-nul.jsonl", _read("nul_tool_use.jsonl"))
     tus = out["tool_uses"]
     assert sorted(tu["tool_name"] for tu in tus) == ["Read", "Skill\x00Skill"]
     read_tu = next(tu for tu in tus if tu["tool_name"] == "Read")

@@ -50,15 +50,13 @@ def test_a_new_model_joins_the_tracked_set():
         {**TRACKED, "id": GLM_ID}, id="weekly-schedule"),
 ])
 def test_vendor_endpoint_selection(model_id, key, resolve, endpoints, expected):
-    doc, out = _run(_doc(resolve=resolve), _catalog(model_id),
-                    {model_id: _payload(*endpoints)})
+    doc, out = _run(_doc(resolve=resolve), _catalog(model_id), {model_id: _payload(*endpoints)})
     assert not out.refusals and not out.notices
     assert doc["openrouter"]["models"][key] == expected
 
 
 def test_third_party_hosts_alone_are_a_notice():
-    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(
-        _endpoint("azure", _price(1.0, 5.0), host="Azure"))})
+    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("azure", _price(1.0, 5.0), host="Azure"))})
     assert out.moves == [] and not out.refusals
     assert "no first-party endpoint" in out.notices[0]
     assert GPT_KEY not in doc["openrouter"]["models"]
@@ -73,19 +71,16 @@ def test_ambiguous_vendor_prices_refuse():
     assert GPT_KEY not in doc["openrouter"]["models"]
 
 
-@pytest.mark.parametrize("same_price_tier", [False, True],
-                         ids=["two-prices", "same-price-tier"])
+@pytest.mark.parametrize("same_price_tier", [False, True], ids=["two-prices", "same-price-tier"])
 def test_vendor_unique_quantization_selection(same_price_tier: bool) -> None:
     endpoints = [
         _endpoint("openai/highspeed", _price(2.0, 9.0), host="Vendor Highspeed"),
         _endpoint("openai/fp8", _price(1.0, 5.0), host="Vendor FP8")]
     if same_price_tier:
-        endpoints.insert(0, _endpoint(
-            "openai/zdr", _price(1.0, 5.0), host="Vendor ZDR"))
+        endpoints.insert(0, _endpoint("openai/zdr", _price(1.0, 5.0), host="Vendor ZDR"))
     doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(*endpoints)})
     assert not out.refusals
-    assert doc["openrouter"]["models"][GPT_KEY] == {
-        **TRACKED, "vendor_host": "Vendor FP8"}
+    assert doc["openrouter"]["models"][GPT_KEY] == {**TRACKED, "vendor_host": "Vendor FP8"}
     assert len(out.notices) == 1
     assert "rule-resolved (unique quantization)" in out.notices[0]
     assert "took the fp8 endpoint 'openai/fp8' over service tiers" in out.notices[0]
@@ -94,9 +89,7 @@ def test_vendor_unique_quantization_selection(same_price_tier: bool) -> None:
 
 
 def test_vendor_unique_quantization_refuses_unknown_offering() -> None:
-    endpoints = [
-        _endpoint("openai/fp8", _price(1.0, 5.0)),
-        _endpoint("openai/highspeed", _price(2.0, 9.0))]
+    endpoints = [_endpoint("openai/fp8", _price(1.0, 5.0)), _endpoint("openai/highspeed", _price(2.0, 9.0))]
     # Prove the rule can select before adding the offering that disqualifies it.
     _, control = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(*endpoints)})
     assert not control.refusals
@@ -158,8 +151,7 @@ def test_stale_vendor_pin_with_one_price_is_a_notice():
 
 def test_a_variant_id_is_never_added():
     batch_id = GPT_ID + ":batch"
-    doc, out = _run(_doc(), _catalog(GPT_ID, batch_id),
-                    {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0)))})
+    doc, out = _run(_doc(), _catalog(GPT_ID, batch_id), {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0)))})
     assert not out.refusals
     assert doc["openrouter"]["models"] == {GPT_KEY: TRACKED}
     assert [m.id for m in out.moves] == [GPT_ID]
@@ -173,8 +165,7 @@ def test_only_exact_text_output_models_reach_vendor_selection() -> None:
     text_id = "openai/gpt-text-test"
     image_key, text_key = "gpt-image-test", "gpt-text-test"
     existing = {"id": image_id, "vendor_host": "Existing OpenAI"}
-    doc = _doc(tracked={image_key: existing}, members=[image_key],
-               meters={image_key: {"threshold": 200_000}})
+    doc = _doc(tracked={image_key: existing}, members=[image_key], meters={image_key: {"threshold": 200_000}})
     catalog = _catalog(image_id, audio_id, missing_architecture_id, missing_output_id, text_id)
     catalog["data"][0]["architecture"]["output_modalities"] = ["image", "text"]
     catalog["data"][1]["architecture"]["output_modalities"] = ["text", "audio"]
@@ -195,8 +186,7 @@ def test_only_exact_text_output_models_reach_vendor_selection() -> None:
         image_key: existing,
         text_key: {"id": text_id, "vendor_host": "Vendor", "context_length": 131072},
     }
-    assert doc["long_context_meters"] == [
-        {"threshold": 200_000, "models": [image_key]}]
+    assert doc["long_context_meters"] == [{"threshold": 200_000, "models": [image_key]}]
 
 
 @pytest.mark.parametrize("tokenizer,prompt,completion,echo,outcome", [
@@ -225,8 +215,7 @@ def test_an_empty_endpoints_answer_is_a_notice_only_for_a_router_or_an_unserved_
 
 def test_the_prefix_list_is_config():
     """Catalog ids outside configured prefixes are ignored."""
-    doc, out = _run(_doc(prefixes=["openai"]), _catalog(GLM_ID),
-                    {GLM_ID: _payload(_endpoint("z-ai", _price(0.2, 1.0)))})
+    doc, out = _run(_doc(prefixes=["openai"]), _catalog(GLM_ID), {GLM_ID: _payload(_endpoint("z-ai", _price(0.2, 1.0)))})
     assert out.moves == [] and not out.refusals and not out.notices
     assert doc["openrouter"]["models"] == {}
 
@@ -263,8 +252,7 @@ def test_entries_with_no_vendor_source_stand_byte_identical():
             "openai", _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0)))})
     assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
     assert doc["models"]["bonsai-2-27b"] == bonsai, "the models row was touched"
-    assert (doc["openrouter"]["models"]["deepseek/deepseek-v9-9"]
-            == deepseek), "the non-vendor tracked entry was touched"
+    assert (doc["openrouter"]["models"]["deepseek/deepseek-v9-9"] == deepseek), "the non-vendor tracked entry was touched"
 
 
 @pytest.mark.parametrize("threshold,factors,cache", [
@@ -274,17 +262,13 @@ def test_entries_with_no_vendor_source_stand_byte_identical():
                  {"read": 0.1, "write": 1.25, "write_1h": 2.0}, id="custom-meter"),
 ])
 def test_banded_model_joins_the_meter_with_its_entry(threshold, factors, cache):
-    listing = _price(1.0, 5.0, **cache, overrides=[
-        _band(1.0, 5.0, **cache, threshold=threshold, **factors)])
-    doc, out = _run(_doc(), _catalog(GPT_ID),
-                    {GPT_ID: _payload(_endpoint("openai", listing))})
+    listing = _price(1.0, 5.0, **cache, overrides=[_band(1.0, 5.0, **cache, threshold=threshold, **factors)])
+    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", listing))})
     assert not out.refusals and not out.notices
     assert GPT_KEY in _meter_map(doc)
     assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
-    assert doc["long_context_meters"] == [{
-        "threshold": threshold, "models": [{GPT_KEY: factors} if factors else GPT_KEY]}]
-    assert out.moves == [vendor.VendorMove(
-        GPT_ID, GPT_KEY, added=True, membership="+", meter=_move_meter(threshold, **factors))]
+    assert doc["long_context_meters"] == [{"threshold": threshold, "models": [{GPT_KEY: factors} if factors else GPT_KEY]}]
+    assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, added=True, membership="+", meter=_move_meter(threshold, **factors))]
 
 
 @pytest.mark.parametrize("threshold", [long_context.LONG_CONTEXT_THRESHOLD, 200_000])
@@ -296,8 +280,7 @@ def test_banded_tracked_entry_folds_membership_and_meter(threshold):
             overrides=[_band(1.0, 5.0, read=0.1, write=1.25,
                              write_1h=2.0, threshold=threshold)])))})
     assert not out.refusals and out.notices == []
-    assert out.moves == [vendor.VendorMove(
-        GPT_ID, GPT_KEY, membership="+", meter=_move_meter(threshold))]
+    assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, membership="+", meter=_move_meter(threshold))]
     assert doc["long_context_meters"] == [{"threshold": threshold, "models": [GPT_KEY]}]
 
 
@@ -328,10 +311,8 @@ def test_the_stored_meter_moves_with_the_band(stored, threshold, factors, cache)
             1.0, 5.0, **cache,
             overrides=[_band(1.0, 5.0, **cache, threshold=threshold, **factors)])))})
     assert not out.refusals and out.notices == []
-    assert doc["long_context_meters"] == [{
-        "threshold": threshold, "models": [{GPT_KEY: factors} if factors else GPT_KEY]}]
-    assert out.moves == [vendor.VendorMove(
-        GPT_ID, GPT_KEY, meter=_move_meter(threshold, **factors))]
+    assert doc["long_context_meters"] == [{"threshold": threshold, "models": [{GPT_KEY: factors} if factors else GPT_KEY]}]
+    assert out.moves == [vendor.VendorMove(GPT_ID, GPT_KEY, meter=_move_meter(threshold, **factors))]
 
 
 def test_a_quiet_band_writes_nothing():
@@ -367,23 +348,17 @@ def test_departing_global_multiplier_is_learned_per_model(kw):
                      if field == "input_mult"
                      else long_context.LONG_CONTEXT_OUTPUT_MULT)}
     expected_model = {GPT_KEY: expected_factors} if expected_factors else GPT_KEY
-    assert doc["long_context_meters"] == [{
-        "threshold": long_context.LONG_CONTEXT_THRESHOLD,
-        "models": [expected_model]}]
+    assert doc["long_context_meters"] == [{"threshold": long_context.LONG_CONTEXT_THRESHOLD, "models": [expected_model]}]
     assert GPT_KEY in doc["openrouter"]["models"]
     entry = _meter_for(doc, GPT_KEY)
     assert entry is not None
     assert entry["threshold"] == long_context.LONG_CONTEXT_THRESHOLD
     if "input_mult" in kw:
-        assert entry == {"threshold": long_context.LONG_CONTEXT_THRESHOLD,
-                         "input_mult": kw["input_mult"]}
-        assert out.moves[0].meter == _move_meter(
-            long_context.LONG_CONTEXT_THRESHOLD, input_mult=kw["input_mult"])
+        assert entry == {"threshold": long_context.LONG_CONTEXT_THRESHOLD, "input_mult": kw["input_mult"]}
+        assert out.moves[0].meter == _move_meter(long_context.LONG_CONTEXT_THRESHOLD, input_mult=kw["input_mult"])
     else:
-        assert entry == {"threshold": long_context.LONG_CONTEXT_THRESHOLD,
-                         "output_mult": kw["output_mult"]}
-        assert out.moves[0].meter == _move_meter(
-            long_context.LONG_CONTEXT_THRESHOLD, output_mult=kw["output_mult"])
+        assert entry == {"threshold": long_context.LONG_CONTEXT_THRESHOLD, "output_mult": kw["output_mult"]}
+        assert out.moves[0].meter == _move_meter(long_context.LONG_CONTEXT_THRESHOLD, output_mult=kw["output_mult"])
 
 
 def test_a_bad_band_threshold_refuses():
@@ -409,8 +384,7 @@ def test_a_bad_band_threshold_refuses():
                  "not modelled", id="utc-fields"),
 ])
 def test_invalid_band_refuses(bands, needle):
-    _, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
-        "openai", _price(1.0, 5.0, overrides=bands)))})
+    _, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0, overrides=bands)))})
     assert len(out.refusals) == 1 and not out.notices
     assert needle in out.refusals[0]
 
@@ -421,21 +395,18 @@ def test_invalid_band_refuses(bands, needle):
     pytest.param({"web_search": "free"}, "web_search", id="bad-search-rate"),
 ])
 def test_unmodelled_vendor_price_refuses(extra, needle):
-    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
-        "openai", _price(1.0, 5.0, **extra)))})
+    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0, **extra)))})
     assert len(out.refusals) == 1 and not out.notices
     assert needle in out.refusals[0]
     assert GPT_KEY not in doc["openrouter"]["models"]
 
 
 def test_unmodelled_pricing_key_refuses_and_zero_passes():
-    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
-        "openai", _price(1.0, 5.0, image_output="0.00004")))})
+    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0, image_output="0.00004")))})
     assert len(out.refusals) == 1 and not out.notices
     assert "image_output" in out.refusals[0]
     assert GPT_KEY not in doc["openrouter"]["models"]
-    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
-        "openai", _price(1.0, 5.0, image_output="0")))})
+    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0, image_output="0")))})
     assert not out.refusals
 
 
@@ -448,22 +419,18 @@ def test_search_price_is_parsed_but_stored_on_the_provider_row():
     assert rates["web_search"] == 0.0137
     assert meter is None and host == "Vendor"
 
-    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint(
-        "openai", _price(1.0, 5.0, web_search="0.045")))})
+    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0, web_search="0.045")))})
     assert not out.refusals and not out.notices
     assert doc["openrouter"]["models"][GPT_KEY] == TRACKED
 
 
 @pytest.mark.parametrize("discount", [0.25, -0.2])
 def test_a_discounted_listing_still_auto_adds(discount):
-    endpoint = _endpoint("z-ai", _price(1.0, 5.0, read=0.1, write=1.25,
-                                        write_1h=2.0, discount=discount))
+    endpoint = _endpoint("z-ai", _price(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0, discount=discount))
     assert vendor._listing(GLM_ID, endpoint)[0] == RATES  # pylint: disable=protected-access
     doc, out = _run(_doc(), _catalog(GLM_ID), {GLM_ID: _payload(endpoint)})
     assert not out.refusals and not out.notices
-    assert doc["openrouter"]["models"][GLM_KEY] == {"id": GLM_ID,
-                                                    "vendor_host": "Vendor",
-                                                    "context_length": 131072}
+    assert doc["openrouter"]["models"][GLM_KEY] == {"id": GLM_ID, "vendor_host": "Vendor", "context_length": 131072}
 
 
 @pytest.mark.parametrize("discount", ["half", None, True, False, float("nan"), float("inf"), float("-inf"), 1, 1.5, 10**400, -(10**400)])
@@ -489,8 +456,7 @@ def test_unreadable_catalog_skips_the_pass():
 
 def test_the_would_be_file_is_loader_checked():
     doc = _doc()
-    doc["providers"] = {"openai/gpt-test-9.9": {"Host": [
-        {"from": None, **RATES}]}}
+    doc["providers"] = {"openai/gpt-test-9.9": {"Host": [{"from": None, **RATES}]}}
     doc["providers"]["openai/gpt-test-9.9"]["Host"][0]["fresh"] = -1
     with pytest.raises(vendor.RefreshError, match="would not load"):
         vendor.vendor_pass(doc, _catalog, lambda mid: {})
@@ -527,8 +493,7 @@ class MainRun:
         self.pricing_path = tmp_path / "pricing.json"
         self.constants_path = tmp_path / "constants.py"
         self.commit_msg = tmp_path / "commit-msg.txt"
-        self.pricing_path.write_text(
-            serialize_pricing_doc(doc), encoding="utf-8")
+        self.pricing_path.write_text(serialize_pricing_doc(doc), encoding="utf-8")
         self.constants_path.write_text('PRICING_VERSION = "100"\n', encoding="utf-8")
         self.catalog = catalog
         self.endpoints = endpoints
@@ -564,13 +529,10 @@ def test_main_runs_the_vendor_pass(tmp_path, capsys):
     assert "vendor table: 1 added" in run.commit_msg.read_text(encoding="utf-8")
 
 
-def test_main_an_added_move_that_also_joins_the_meter_counts_once(
-        tmp_path, capsys):
+def test_main_an_added_move_that_also_joins_the_meter_counts_once(tmp_path, capsys):
     """An auto-add and meter fold count once in the subject."""
-    listing = _price(1.0, 5.0, read=0.1,
-                     overrides=[_band(1.0, 5.0, read=0.1)])
-    run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID),
-                  {GPT_ID: _payload(_endpoint("openai", listing))})
+    listing = _price(1.0, 5.0, read=0.1, overrides=[_band(1.0, 5.0, read=0.1)])
+    run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", listing))})
     rc, _out, err = run(capsys)
     assert rc == 0, err
     subject = run.commit_msg.read_text(encoding="utf-8").partition("\n\n")[0]
@@ -584,15 +546,12 @@ def test_main_vendor_report_carries_custom_meter_factors(tmp_path, capsys):
         overrides=[_band(1.0, 5.0, read=0.1, write=1.25, write_1h=2.0,
                          threshold=100_000, input_mult=5.0,
                          output_mult=5.0)])
-    run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID),
-                  {GPT_ID: _payload(_endpoint("openai", listing))})
+    run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", listing))})
     rc, out, err = run(capsys)
     assert rc == 0, err
     assert "[threshold 100000, input x5, output x5]" in out
     doc = json.loads(run.pricing_path.read_text(encoding="utf-8"))
-    assert doc["long_context_meters"] == [{
-        "threshold": 100_000,
-        "models": [{GPT_KEY: {"input_mult": 5.0, "output_mult": 5.0}}]}]
+    assert doc["long_context_meters"] == [{"threshold": 100_000, "models": [{GPT_KEY: {"input_mult": 5.0, "output_mult": 5.0}}]}]
 
 
 @pytest.mark.parametrize("endpoints,needle", [
@@ -602,8 +561,7 @@ def test_main_vendor_report_carries_custom_meter_factors(tmp_path, capsys):
                  "image_output", id="untracked-price-shape"),
 ])
 def test_main_vendor_refusal_turns_run_red(tmp_path, capsys, endpoints, needle):
-    run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID),
-                  {GPT_ID: _payload(*endpoints)})
+    run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID), {GPT_ID: _payload(*endpoints)})
     rc, _, err = run(capsys)
     assert rc == 1
     assert needle in err
@@ -630,8 +588,7 @@ def test_main_quiet_vendor_run_writes_nothing(tmp_path, capsys):
 
 
 def test_main_vendor_disabled_keeps_the_provider_surface(tmp_path, capsys):
-    run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID),
-                  {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0)))})
+    run = MainRun(tmp_path, _main_doc({}, []), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("openai", _price(1.0, 5.0)))})
     rc, out, err = run(capsys, run_vendor=False)
     assert rc == 0, err
     assert "Vendor tracked table" not in out
@@ -651,9 +608,7 @@ def test_a_broken_endpoints_fetch_refuses_only_its_model():
     outcome = vendor.vendor_pass(doc, lambda: _catalog(GPT_ID, GLM_ID), fetch)
     assert len(outcome.refusals) == 1 and GPT_ID in outcome.refusals[0]
     assert "fetching its endpoints failed" in outcome.refusals[0]
-    assert doc["openrouter"]["models"][GLM_KEY] == {"id": GLM_ID,
-                                                    "vendor_host": "Vendor",
-                                                    "context_length": 131072}
+    assert doc["openrouter"]["models"][GLM_KEY] == {"id": GLM_ID, "vendor_host": "Vendor", "context_length": 131072}
 
 
 def test_a_pass_added_document_loads():
@@ -672,5 +627,4 @@ def test_a_membership_only_pass_loads():
                          "openai", _price(1.0, 5.0, read=0.1,
                                           overrides=[_band(1.0, 5.0,
                                                            read=0.1)])))})
-    assert pricing_load.load_tables(doc)["LONG_CONTEXT_MODELS"] == frozenset(
-        {GPT_KEY})
+    assert pricing_load.load_tables(doc)["LONG_CONTEXT_MODELS"] == frozenset({GPT_KEY})

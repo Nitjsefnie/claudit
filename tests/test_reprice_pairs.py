@@ -48,8 +48,7 @@ UTC = timezone.utc
 # Rates deliberately unlike any real price, so an assertion against
 # them can never be mistaken for a pricing fact (the conftest
 # synthetic-rate fixtures' rule).
-_MOVED_RATES = {"fresh": 8.5, "create_5m": 10.625, "create_1h": 17.0,
-                "read": 0.85, "output": 42.5}
+_MOVED_RATES = {"fresh": 8.5, "create_5m": 10.625, "create_1h": 17.0, "read": 0.85, "output": 42.5}
 
 # The second pair of the moved-pair test, bound like _SEED_MODEL.
 _B_PAIR_MODEL = "claude-sonnet-4-5"
@@ -84,8 +83,7 @@ def _seed_block(c, model: str, first_line: int, count: int, *,
 
 def _timing_line(caplog) -> str:
     """The pass's most recent TIMING line from the captured log."""
-    lines = [record.getMessage() for record in caplog.records
-             if record.getMessage().startswith("TIMING reprice")]
+    lines = [record.getMessage() for record in caplog.records if record.getMessage().startswith("TIMING reprice")]
     assert lines, "the pass must emit its TIMING line"
     return lines[-1]
 
@@ -132,8 +130,7 @@ def test_ingest_stamps_rate_fingerprint(fresh_db, mini_r2_env):
         assert version == constants.PRICING_VERSION
 
 
-def test_clean_bump_restamps_set_based_without_reading_rows(
-        fresh_db, monkeypatch, caplog):
+def test_clean_bump_restamps_set_based_without_reading_rows(fresh_db, monkeypatch, caplog):
     """THE structural pin: 30k stale rows across three
     pairs, every cost correct and every fingerprint stamped — a
     PRICING_VERSION bump that moved no pair's rate data must restamp
@@ -142,8 +139,7 @@ def test_clean_bump_restamps_set_based_without_reading_rows(
     budget below is unmeetable while any of the 30k rows reaches the
     keyset loop."""
     monkeypatch.setattr(timing, "TIMING_ON", True)
-    pairs = [("claude-opus-4-7", None), ("gpt-5.6-sol", None),
-             ("claude-sonnet-4-5", None)]
+    pairs = [("claude-opus-4-7", None), ("gpt-5.6-sol", None), ("claude-sonnet-4-5", None)]
     with db.viz_conn() as c:
         _seed_parents(c, _FILE_KEY)
         line = 1
@@ -171,19 +167,15 @@ def test_clean_bump_restamps_set_based_without_reading_rows(
 
     timing_line = _timing_line(caplog)
     rows_m = re.search(r"\brows=(\d+)", timing_line)
-    assert rows_m and rows_m.group(1) == "0", (
-        f"the keyset loop must read no rows, TIMING said {timing_line}")
-    assert any("AS d(m, p, f)" in sql for sql in sqls), (
-        "the SQL clean restamp must fire for the stamped pairs")
-    assert not any("AS d(k, n" in sql for sql in sqls), (
-        "no per-batch keyset write may run when every row went clean")
+    assert rows_m and rows_m.group(1) == "0", (f"the keyset loop must read no rows, TIMING said {timing_line}")
+    assert any("AS d(m, p, f)" in sql for sql in sqls), ("the SQL clean restamp must fire for the stamped pairs")
+    assert not any("AS d(k, n" in sql for sql in sqls), ("no per-batch keyset write may run when every row went clean")
 
     with db.viz_conn() as c:
         row = c.execute(
             "SELECT COUNT(*) FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id WHERE pv.value IS DISTINCT FROM %s",
             (constants.PRICING_VERSION,)).fetchone()
-    assert row is not None and row[0] == 0, (
-        "every row of a clean bump ends at the current version")
+    assert row is not None and row[0] == 0, ("every row of a clean bump ends at the current version")
 
 
 def test_clean_restamp_respects_the_rollback_guard(fresh_db):
@@ -196,8 +188,7 @@ def test_clean_restamp_respects_the_rollback_guard(fresh_db):
     with db.viz_conn() as c:
         _seed_block(c, _SEED_MODEL, 1, 5, fp=fp, cost=cost)
         # The guards carry the sentinel cost, so "untouched" is observable.
-        _seed_block(c, _SEED_MODEL, 11, 5, fp=fp, cost=0.5,
-                    pricing_version=newer)
+        _seed_block(c, _SEED_MODEL, 11, 5, fp=fp, cost=0.5, pricing_version=newer)
         c.commit()
 
     assert ingest_reprice.reprice_stale() == 0
@@ -209,24 +200,19 @@ def test_clean_restamp_respects_the_rollback_guard(fresh_db):
     assert len(rows) == 10
     for line_num, row_cost, version in rows:
         if line_num <= 5:
-            assert version == constants.PRICING_VERSION, (
-                "clean rows restamp to the current version")
+            assert version == constants.PRICING_VERSION, ("clean rows restamp to the current version")
         else:
             assert version == newer, "the guard row keeps its newer version"
-            assert float(row_cost) == 0.5, (
-                "the guard row keeps its sentinel through the clean restamp")
+            assert float(row_cost) == 0.5, ("the guard row keeps its sentinel through the clean restamp")
 
 
-def test_stale_fingerprint_takes_the_python_path(fresh_db, monkeypatch,
-                                                 caplog):
+def test_stale_fingerprint_takes_the_python_path(fresh_db, monkeypatch, caplog):
     """A row whose stored fingerprint is not its pair's current one
     cannot be proven clean, however right its cost looks: it reaches
     the keyset path, is recomputed, and comes out stamped with the
     CURRENT fingerprint and version."""
     with db.viz_conn() as c:
-        _seed(c, _FILE_KEY, 1, SeedRecord(
-            pricing_version="0", cost_usd=_seeded_cost(),
-            rate_fingerprint="stale-string"))
+        _seed(c, _FILE_KEY, 1, SeedRecord(pricing_version="0", cost_usd=_seeded_cost(), rate_fingerprint="stale-string"))
         c.commit()
 
     monkeypatch.setattr(timing, "TIMING_ON", True)
@@ -237,11 +223,9 @@ def test_stale_fingerprint_takes_the_python_path(fresh_db, monkeypatch,
         fingerprint, version = _pair(
             c, "SELECT df.value, pv.value FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id LEFT JOIN dim_rate_fingerprint df ON df.id = rp.rate_fingerprint_id LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id WHERE f.file_key = %s AND r.line_num = 1",
             (_FILE_KEY,))
-    assert fingerprint == rate_fingerprint.pair_fingerprint(
-        _SEED_MODEL, None), "the row now carries the current fingerprint"
+    assert fingerprint == rate_fingerprint.pair_fingerprint(_SEED_MODEL, None), "the row now carries the current fingerprint"
     assert version == constants.PRICING_VERSION
-    assert re.search(r"\brows=1\b", _timing_line(caplog)), (
-        "the row must have reached Python, not the SQL restamp")
+    assert re.search(r"\brows=1\b", _timing_line(caplog)), ("the row must have reached Python, not the SQL restamp")
 
 
 def test_prefixed_rate_move_escapes_sql_clean_restamp(fresh_db, monkeypatch):
@@ -255,8 +239,7 @@ def test_prefixed_rate_move_escapes_sql_clean_restamp(fresh_db, monkeypatch):
                 pricing_version=old_version, web_search_requests=3,
                 rate_fingerprint=rate_fingerprint.pair_fingerprint("acme/toy", provider)))
         c.commit()
-    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
-        ("toy", "Host"): {**rates, "fresh": 30.0, "web_search": 0.045}})
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {("toy", "Host"): {**rates, "fresh": 30.0, "web_search": 0.045}})
     _refresh()
     assert ingest_reprice.reprice_stale() == 2
     with db.viz_conn() as c:
@@ -264,13 +247,10 @@ def test_prefixed_rate_move_escapes_sql_clean_restamp(fresh_db, monkeypatch):
     # Fixed seed tokens cost .035 + 3*.015 before; .055 + 3*.045 after.
     assert [float(row[0]) for row in rows] == [0.19, 0.19]
     assert [row[1] for row in rows] == [constants.PRICING_VERSION] * 2
-    assert [row[2] for row in rows] == [
-        rate_fingerprint.pair_fingerprint("acme/toy", provider)
-        for provider in ("Host", None)]
+    assert [row[2] for row in rows] == [rate_fingerprint.pair_fingerprint("acme/toy", provider) for provider in ("Host", None)]
 
 
-def test_moved_pair_recomputes_while_the_clean_pair_restamps(
-        fresh_db, monkeypatch, caplog):
+def test_moved_pair_recomputes_while_the_clean_pair_restamps(fresh_db, monkeypatch, caplog):
     """A rate window appended for pair A only moves A's fingerprint:
     A's rows recompute (and the pass counts them changed), while pair
     B's rows — fingerprint unchanged — SQL-restamp without reaching
@@ -299,16 +279,13 @@ def test_moved_pair_recomputes_while_the_clean_pair_restamps(
     monkeypatch.setattr(pricing, "PROVIDER_DATED_RATES", {
         **pricing.PROVIDER_DATED_RATES,
         seed_row: [(datetime(2099, 1, 1, tzinfo=UTC), _MOVED_RATES)]})
-    monkeypatch.setattr(pricing, "PROVIDER_RATES", {
-        **pricing.PROVIDER_RATES,
-        seed_row: dict(_MOVED_RATES)})
+    monkeypatch.setattr(pricing, "PROVIDER_RATES", {**pricing.PROVIDER_RATES, seed_row: dict(_MOVED_RATES)})
     rate_fingerprint.clear_fingerprint_cache()
 
     with caplog.at_level(logging.INFO, logger="claudit.ingest"):
         assert ingest_reprice.reprice_stale() == 5
 
-    assert re.search(r"\brows=5\b", _timing_line(caplog)), (
-        "only pair A's rows may reach Python")
+    assert re.search(r"\brows=5\b", _timing_line(caplog)), ("only pair A's rows may reach Python")
 
     with db.viz_conn() as c:
         rows = c.execute(
@@ -323,12 +300,10 @@ def test_moved_pair_recomputes_while_the_clean_pair_restamps(
         else:
             assert float(row_cost) == cost_b, "pair B's cost is untouched"
         assert version == constants.PRICING_VERSION
-        assert fingerprint == rate_fingerprint.pair_fingerprint(
-            _SEED_MODEL if line_num <= 5 else _B_PAIR_MODEL, None)
+        assert fingerprint == rate_fingerprint.pair_fingerprint(_SEED_MODEL if line_num <= 5 else _B_PAIR_MODEL, None)
 
 
-def test_null_fingerprint_recomputes_once_then_goes_clean(
-        fresh_db, monkeypatch, caplog):
+def test_null_fingerprint_recomputes_once_then_goes_clean(fresh_db, monkeypatch, caplog):
     """Migration shape: pre-feature rows read NULL and
     take the conservative recompute path once — the first run stamps
     their fingerprint, and the second run is the clean path."""
@@ -343,8 +318,7 @@ def test_null_fingerprint_recomputes_once_then_goes_clean(
         assert re.search(r"\brows=3\b", _timing_line(caplog))
 
         assert ingest_reprice.reprice_stale() == 0
-        assert re.search(r"\brows=0\b", _timing_line(caplog)), (
-            "the second run must be the clean path")
+        assert re.search(r"\brows=0\b", _timing_line(caplog)), ("the second run must be the clean path")
 
     with db.viz_conn() as c:
         rows = c.execute(
@@ -395,8 +369,7 @@ def _seed_spellings(c) -> list[tuple[str | None, bool]]:
     return spellings
 
 
-def test_clean_restamp_and_python_guard_agree_on_odd_versions(
-        fresh_db, monkeypatch, caplog):
+def test_clean_restamp_and_python_guard_agree_on_odd_versions(fresh_db, monkeypatch, caplog):
     """The SQL restamp set is exactly {plain-digit versions <= V}: a
     subset of the keyset path's, because Python's int() parses
     spellings the SQL cast refuses (+5, 1_0, whitespace) and every
@@ -416,16 +389,14 @@ def test_clean_restamp_and_python_guard_agree_on_odd_versions(
     # clean_rows=N is the kwarg rowcount; the phase mark spells
     # clean=Nms and must never read as the rowcount.
     clean_m = re.search(r"\bclean_rows=(\d+)", timing_line)
-    assert clean_m and clean_m.group(1) == "1", (
-        f"only the one plain-digit <= V row SQL-restamps: {timing_line}")
+    assert clean_m and clean_m.group(1) == "1", (f"only the one plain-digit <= V row SQL-restamps: {timing_line}")
 
     with db.viz_conn() as c:
         rows = c.execute(
             "SELECT r.line_num, rp.cost_usd, pv.value FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num JOIN files f ON f.file_id = r.file_id LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id WHERE f.file_key = %s ORDER BY r.line_num",
             (_FILE_KEY,)).fetchall()
     assert [row[0] for row in rows] == list(range(1, len(spellings) + 1))
-    for (version, restampable), (_line_num, row_cost, stored) in zip(
-            spellings, rows):
+    for (version, restampable), (_line_num, row_cost, stored) in zip(spellings, rows):
         if restampable:
             assert stored == constants.PRICING_VERSION, (
                 f"{version!r} is not newer by Python's guard, so the "
@@ -447,8 +418,7 @@ def test_clean_restamp_and_python_guard_agree_on_odd_versions(
 _METER_377 = "gpt-5.6-sol"
 
 
-def test_long_context_rule_change_shipped_with_a_bump_reprices(
-        fresh_db, monkeypatch):
+def test_long_context_rule_change_shipped_with_a_bump_reprices(fresh_db, monkeypatch):
     """The route end to end: the rule change (threshold collapsed
     to 1) rides its PRICING_VERSION bump, and the rule edit moves the
     pair's fingerprint — simulated at the seam the pass reads it
@@ -490,16 +460,13 @@ def test_long_context_rule_change_shipped_with_a_bump_reprices(
     # is exactly this model's normalised key, and no per-model
     # threshold stands between the global patch and the derivation,
     # whatever the live fold does.
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS",
-                        frozenset({"gpt-5-6-sol"}))
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS", frozenset({"gpt-5-6-sol"}))
     monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {})
-    monkeypatch.setattr(
-        constants, "PRICING_VERSION", str(int(constants.PRICING_VERSION) + 1))
+    monkeypatch.setattr(constants, "PRICING_VERSION", str(int(constants.PRICING_VERSION) + 1))
 
     assert ingest_reprice.reprice_stale() == 3
     with db.viz_conn() as c:
-        flags = c.execute(
-            "SELECT bool_and(long_context) FROM records_price").fetchone()
+        flags = c.execute("SELECT bool_and(long_context) FROM records_price").fetchone()
     assert flags is not None and flags[0], (
         "every row must come out under the changed rule (flag moved "
         "FALSE -> TRUE)")
@@ -570,8 +537,7 @@ def _seed_skip_fixture(c, *, with_escapee: bool) -> None:
                 _SEED_MODEL, None)))
 
 
-def test_phase_b_skipped_when_every_stale_row_clean_restamps(
-        fresh_db, monkeypatch, caplog):
+def test_phase_b_skipped_when_every_stale_row_clean_restamps(fresh_db, monkeypatch, caplog):
     """THE skip pin: every stale row clean-restampable →
     the pass returns 0, every row ends at the current version, and the
     keyset SELECT provably never executes — the poisoned _SELECT_SQL
@@ -597,12 +563,10 @@ def test_phase_b_skipped_when_every_stale_row_clean_restamps(
         stale = c.execute(
             "SELECT COUNT(*) FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id WHERE pv.value IS DISTINCT FROM %s",
             (constants.PRICING_VERSION,)).fetchone()
-    assert stale is not None and stale[0] == 0, (
-        "every stale row ends at the current version")
+    assert stale is not None and stale[0] == 0, ("every stale row ends at the current version")
 
 
-def test_phase_b_runs_while_any_row_escapes_the_sql_set(
-        fresh_db, monkeypatch, caplog):
+def test_phase_b_runs_while_any_row_escapes_the_sql_set(fresh_db, monkeypatch, caplog):
     """The skip's discriminating guard: one row whose stored version the
     SQL restamp set refuses (sign-prefixed `+N`, int()-parsable below V)
     leaves clean < the scan's stale count, so Phase B runs — the keyset
@@ -622,15 +586,12 @@ def test_phase_b_runs_while_any_row_escapes_the_sql_set(
 
     keyset_runs = sum(1 for sql in sqls
                       if sql == ingest_reprice._SELECT_SQL)  # pylint: disable=protected-access
-    assert keyset_runs >= 1, (
-        "Phase B must still run when a row escapes the SQL restamp set")
+    assert keyset_runs >= 1, ("Phase B must still run when a row escapes the SQL restamp set")
     timing_line = _timing_line(caplog)
-    assert re.search(r"\brows=1\b", timing_line), (
-        f"only the escapee may reach Python: {timing_line}")
+    assert re.search(r"\brows=1\b", timing_line), (f"only the escapee may reach Python: {timing_line}")
     assert re.search(r"\bclean_rows=20000\b", timing_line)
     with db.viz_conn() as c:
         stale = c.execute(
             "SELECT COUNT(*) FROM records r JOIN records_price rp ON rp.file_id = r.file_id AND rp.line_num = r.line_num LEFT JOIN dim_pricing_version pv ON pv.id = rp.pricing_version_id WHERE pv.value IS DISTINCT FROM %s",
             (constants.PRICING_VERSION,)).fetchone()
-    assert stale is not None and stale[0] == 0, (
-        "the escapee ends at the current version like the clean rows")
+    assert stale is not None and stale[0] == 0, ("the escapee ends at the current version like the clean rows")
