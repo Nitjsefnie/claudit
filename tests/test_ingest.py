@@ -33,8 +33,7 @@ _FLAKY_KEY = "claude/projA/sess-A/sess-A.jsonl"
 
 def _scalar(cur, sql: str, params=None):
     """First column of the first row; the query must yield one."""
-    row = (cur.execute(sql, params) if params is not None
-           else cur.execute(sql)).fetchone()
+    row = (cur.execute(sql, params) if params is not None else cur.execute(sql)).fetchone()
     assert row is not None, f"expected a row: {sql[:80]}"
     return row[0]
 
@@ -98,9 +97,7 @@ def test_records_populated_with_no_write_time_dedup(fresh_db, mini_r2_env):
 def test_ctx_turns_stored_per_file(fresh_db, mini_r2_env):
     ingest.run_ingest(trigger="manual")
     with db.viz_conn() as c:
-        rows = c.execute(
-            "SELECT file_key, turn_count, cardinality(ctx_input) FROM files"
-        ).fetchall()
+        rows = c.execute("SELECT file_key, turn_count, cardinality(ctx_input) FROM files").fetchall()
     for fk, tc, jlen in rows:
         assert tc == jlen, f"{fk}: turn_count={tc} but ctx_input has {jlen}"
 

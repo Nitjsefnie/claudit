@@ -34,8 +34,7 @@ from tests.workflow_checks import ROOT, WORKFLOWS, load_workflow
 
 ACTIONS = ROOT / ".github" / "actions"
 HELPERS = {"retry.sh", "api_retry"}
-KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "}",
-            "time", "fi", "done", "esac"}
+KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "}", "time", "fi", "done", "esac"}
 LOOPS = {"for", "while", "until", "select"}
 LEADS = {"do", "then", "else", "!", "{"}
 CONDITIONS = {"if", "elif", "while", "until"}
@@ -69,8 +68,7 @@ GH_WRITES = {"release": {"create", "upload", "edit", "delete"},
              "issue": {"create", "comment", "edit", "close", "reopen", "delete"},
              "run": {"rerun", "cancel", "delete"},
              "workflow": {"run", "enable", "disable"}}
-GH_API_VALUE_OPTIONS = {"-H", "--header", "-q", "--jq", "-t", "--template",
-                        "-p", "--preview", "--hostname", "--cache"}
+GH_API_VALUE_OPTIONS = {"-H", "--header", "-q", "--jq", "-t", "--template", "-p", "--preview", "--hostname", "--cache"}
 GH_API_FIELDS = ("-f", "-F", "--field", "--raw-field", "--input")
 HTTP_METHODS = {"GET", "POST", "PATCH", "PUT", "DELETE", "HEAD"}
 NPM_LOCAL = {"run", "run-script", "test"}
@@ -199,21 +197,18 @@ class _Lexer:  # pylint: disable=too-many-instance-attributes
         assert operator
         self.pos += len(operator[0])
         if operator[0] in ("<<", "<<-"):
-            match = re.match(r"[ \t]*(['\"]?)\\?([A-Za-z_][A-Za-z0-9_]*)\1",
-                             text[self.pos:])
+            match = re.match(r"[ \t]*(['\"]?)\\?([A-Za-z_][A-Za-z0-9_]*)\1", text[self.pos:])
             if not match:
                 raise Unparseable("heredoc delimiter")
             self.pos += match.end()
-            self.heredocs.append((match[2], bool(match[1]) or "\\" in match[0],
-                                  operator[0] == "<<-", self.words))
+            self.heredocs.append((match[2], bool(match[1]) or "\\" in match[0], operator[0] == "<<-", self.words))
         elif not operator[0].endswith(("&", "-")) and not operator[0][-1].isdigit():
             self.drop_next = True
 
     def read_heredocs(self) -> None:
         for delimiter, quoted, tabs, _ in self.heredocs:
             lines = self.text[self.pos:].split("\n")
-            ends = [i for i, line in enumerate(lines)
-                    if (line.lstrip("\t") if tabs else line) == delimiter]
+            ends = [i for i, line in enumerate(lines) if (line.lstrip("\t") if tabs else line) == delimiter]
             if not ends:
                 raise Unparseable(f"unterminated heredoc {delimiter}")
             body = "\n".join(lines[:ends[0]])
@@ -333,8 +328,7 @@ def _gh(args: list[str]) -> str | None:
     if verb == "search":
         return "read"
     if verb != "api":
-        return ("read" if action in GH_READS.get(verb, ()) else
-                "write" if action in GH_WRITES.get(verb, ()) else None)
+        return ("read" if action in GH_READS.get(verb, ()) else "write" if action in GH_WRITES.get(verb, ()) else None)
     method, fields, positional, index = None, False, [], 1
     while index < len(args):
         arg = args[index]
@@ -433,8 +427,7 @@ def _attempt_bounded(words: list[str], name: str) -> bool:
                 and all(_positive(value) for _, value in bounds) and words[at + 1:at + 2] == [name])
     marker = words.index("--") if "--" in words[:5] else len(words)
     grace, limit, command = ((words[:marker] + words[marker + 1:])[2:5] + [""] * 3)[:3]
-    return (words[:2] == ["timeout", "-k"] and _positive(grace) and _positive(limit)
-            and command.rsplit("/", 1)[-1] == name)
+    return (words[:2] == ["timeout", "-k"] and _positive(grace) and _positive(limit) and command.rsplit("/", 1)[-1] == name)
 
 
 def _transport(word: str, nominal: bool) -> str:
