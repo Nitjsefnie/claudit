@@ -26,6 +26,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 ACTION = ROOT / ".github" / "actions" / "apt-install" / "action.yml"
 INSTALL_STEPS_MINUTES = 10  # both install steps' backstops, so a slow healthy leg stays well under 20 minutes
 PACKAGES = "xvfb fonts-liberation"
+DISTRO = "/etc/apt/sources.list.d/ubuntu.sources"
 DOUBLES = r'''
 record() { local IFS=$'\037'; printf '%s\n' "$*" >> "$CALLS"; }
 # The watchdog execs its command, so it reads only `--stall N --sample N --grace N --watch PATH... -- COMMAND`, runs only a
@@ -54,6 +55,7 @@ apt-get() {
   [[ "$*" != *"$APT_FAIL"* ]] || [ "$(grep -c -- "$APT_FAIL" "$CALLS")" -gt "$APT_FAILS" ] || return 100
 }
 dpkg() { record dpkg "${DEBIAN_FRONTEND:-}" "$@"; }
+test() { [ "$*" = "-f $DISTRO" ] || { echo "test double: unmodelled $*" >&2; return 99; }; [ -z "${CLAUDIT_DISTRO_MISSING:-}" ]; }
 npx() {
   record npx "$@"
   case "$*" in
@@ -115,7 +117,7 @@ def _run(script: str, tmp_path: Path, flags: list[str], **env: str) -> tuple[sub
              "CLAUDIT_TIMEOUT_STATE": str(tmp_path / "timeout-state"), "CLAUDIT_TIMEOUT_DOUBLES": str(tmp_path / "none"),
              "CLAUDIT_APT_PACKAGES": PACKAGES, "APT_FAIL": "@nothing@", "APT_FAILS": "0", "REPORT": "", "REPORT_STATUS": "0",
              "GITHUB_ACTION_PATH": str(ACTION.parent), "CLAUDIT_WATCHDOG_CALLS": str(tmp_path / "watchdog"),
-             "CLAUDIT_STALL_ONLY": "@nothing@", "CLAUDIT_STALL_COUNT": "0", **env},
+             "CLAUDIT_STALL_ONLY": "@nothing@", "CLAUDIT_STALL_COUNT": "0", "DISTRO": DISTRO, **env},
         cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
     return proc, [line.split("\x1f") for line in calls.read_text(encoding="utf-8").splitlines()]
 
@@ -161,8 +163,8 @@ def test_every_apt_phase_retries_a_stalled_attempt_and_two_attempts_fit_the_step
     watched = [(options.split(), command) for options, _, command in  # (the watchdog's options, its command) per call
                (line.partition("|") for line in (tmp_path / "watchdog").read_text("utf-8").splitlines())]
     assert [" ".join(command.split()[:2]) for _, command in watched] == ["apt-get update"] * 2 + ["apt-get install"] * 4
-    assert [command for _, command in bounded_calls(tmp_path / "timeout-state")] == [
-        "apt-get check -qq -o DPkg::Lock::Timeout=10", "dpkg --configure -a"]
+    assert [" ".join(command.split()[:2]) for _, command in bounded_calls(tmp_path / "timeout-state")] == [
+        "apt-get check", "dpkg --configure"]
     apt = [call for call in calls if call[0] == "apt-get" and call[2] != "check"]  # the update, download and install
     assert "APT::Update::Error-Mode=any" in apt[0] and "--download-only" in apt[1] and "--no-download" in apt[2]
     for call in apt[:2]:  # apt still ends a dead connection itself; its Err/W/E lines reach the log
@@ -200,6 +202,8 @@ def test_every_apt_phase_retries_a_stalled_attempt_and_two_attempts_fit_the_step
 def test_an_apt_phase_retries_a_failed_attempt_until_it_succeeds(tmp_path, phase, label, later):
     proc, calls = _install(tmp_path, APT_FAIL=phase, APT_FAILS="4")
     assert proc.returncode == 0, proc.stderr
+    only = {f"Dir::Etc::SourceList={DISTRO}", "Dir::Etc::SourceParts=/dev/null"}  # no third-party source can fail it
+    assert all(only <= set(call) for call in calls if call[0] == "apt-get"), calls
     assert re.findall(rf"^==> {label} attempt (\d+) exited with status 100$", proc.stdout, re.M) == ["1", "2", "3", "4"]
     ran = calls[calls.index([call for call in calls if phase in call][0]):]
     phases = [call[2] if call[0] == "apt-get" else call[0] for call in ran]
@@ -211,6 +215,12 @@ def test_an_apt_phase_retries_a_failed_attempt_until_it_succeeds(tmp_path, phase
     else:  # both recovery commands ran noninteractively and succeeded
         assert ran[3][1] == "noninteractive" and ran[3][2:] == ["--configure", "-a"]
         assert "::warning::" not in proc.stdout
+
+
+@ubuntu_step_body
+def test_a_missing_distribution_source_list_stops_the_step_at_once(tmp_path):
+    proc, calls = _install(tmp_path, CLAUDIT_DISTRO_MISSING="1")
+    assert (proc.returncode, calls, proc.stderr) == (1, [], f"::error::{DISTRO}, the distribution's apt sources, is missing\n")
 
 
 @ubuntu_step_body
