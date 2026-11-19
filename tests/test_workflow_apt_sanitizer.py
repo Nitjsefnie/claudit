@@ -41,12 +41,12 @@ watchdog() {
   "$@"
 }
 sudo() {
-  case "${1:-}" in timeout|env) "$@" ;; */progress_watchdog.py) shift; watchdog "$@" ;;
+  case "${1:-}" in timeout|env) "$@" ;; */progress_watchdog.py) [ -x "$1" ] || return 98; shift; watchdog "$@" ;;
     *) echo "sudo double: unmodelled $*" >&2; return 99 ;; esac
 }
 env() (
   while [[ "${1:-}" == DEBIAN_FRONTEND=* ]]; do export "$1"; shift; done
-  case "${1:-}" in timeout) "$@" ;; */progress_watchdog.py) shift; watchdog "$@" ;;
+  case "${1:-}" in timeout) "$@" ;; */progress_watchdog.py) [ -x "$1" ] || exit 98; shift; watchdog "$@" ;;
     *) echo "env double: unmodelled $*" >&2; exit 99 ;; esac
 )
 apt-get() {
