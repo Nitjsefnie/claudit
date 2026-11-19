@@ -225,6 +225,7 @@ ACCEPTED = {
     "watchdog by a relative path, no watched path": UNTIL.format(
         "sudo scripts/ci/progress_watchdog.py --stall 60 --sample 5 --grace 5 -- apt-get update"),
     "gh read retried by until": UNTIL.format("timeout -k 5 60 " + READ),
+    "captured apt-get update in an until condition": UNTIL.format(f'out="$({APT_UPDATE.format(WATCH)})"'),
     "apt-get install from the download cache": "sudo env DEBIAN_FRONTEND=noninteractive apt-get install --no-download -y xvfb",
     "apt-get check": "sudo apt-get check -qq",
     "apt-get with no subcommand": "apt-get --version",
@@ -289,6 +290,9 @@ REFUSED = {
         UNTIL.format(APT_UPDATE.format(WATCH.replace("--sample 5", "--sample=5"))), [_apt("update")]),
     "watchdog stall window given twice": (
         UNTIL.format(APT_UPDATE.format(WATCH.replace("--stall 60", "--stall 60 --stall 60"))), [_apt("update")]),
+    "watchdog option the guard does not read": (
+        UNTIL.format(APT_UPDATE.format(WATCH.replace("--grace 5", "--grace 5 --kill 9"))), [_apt("update")]),
+    "watchdog --watch without its path": (UNTIL.format(APT_UPDATE.format(WATCH.replace(" /var/lib/dpkg", ""))), [_apt("update")]),
     "watchdog without --": (UNTIL.format(APT_UPDATE.format(WATCH.replace("-- ", ""))), [_apt("update")]),
     "watchdog around something else": (
         UNTIL.format(APT_UPDATE.format(WATCH + "env ")), [_apt("update")]),
