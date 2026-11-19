@@ -77,8 +77,8 @@ def main(argv: list[str]) -> int:
     seen = footprint(args.watch)
     # Not `with`: its exit waits unbounded on a command that outlives SIGKILL.
     child = subprocess.Popen(command, start_new_session=True)  # pylint: disable=consider-using-with
-    started.append(child)
     try:
+        started.append(child)
         if received:
             raise Stop(received[0])
         quiet_since = time.monotonic()
