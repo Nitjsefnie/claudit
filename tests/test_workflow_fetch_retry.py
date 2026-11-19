@@ -427,10 +427,9 @@ def _attempt_bounded(words: list[str], name: str) -> bool:
         words = words[_operands(words):]
     if words and words[0].rsplit("/", 1)[-1] == WATCHDOG:  # an apt attempt may end on no progress instead
         at = words.index("--") if "--" in words else len(words)
-        pairs = list(zip(words[1:at:2], words[2:at:2]))
-        return (name in APT and at % 2 == 1 and all(option in WATCHDOG_BOUNDS + ["--watch"] for option, _ in pairs)
-                and sorted(option for option, value in pairs if option != "--watch" and _positive(value)) == WATCHDOG_BOUNDS
-                and words[at + 1:at + 2] == [name])
+        bounds = [(option, value) for option, value in zip(words[1:at:2], words[2:at:2]) if option != "--watch"]
+        return (name in APT and at % 2 == 1 and sorted(option for option, _ in bounds) == WATCHDOG_BOUNDS
+                and all(_positive(value) for _, value in bounds) and words[at + 1:at + 2] == [name])
     marker = words.index("--") if "--" in words[:5] else len(words)
     grace, limit, command = ((words[:marker] + words[marker + 1:])[2:5] + [""] * 3)[:3]
     return (words[:2] == ["timeout", "-k"] and _positive(grace) and _positive(limit)
