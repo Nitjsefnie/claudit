@@ -52,8 +52,7 @@ PROCEEDING = "Every check passed — proceeding."
 def _load(path):
     # BaseLoader, not safe_load: YAML 1.1 parses the bare key `on` as the
     # boolean True, and these tests read the trigger map by name.
-    return yaml.load(path.read_text(encoding="utf-8"),
-                     Loader=yaml.BaseLoader) or {}
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
 
 
 def _release():
@@ -74,8 +73,7 @@ def test_release_starts_after_ci_gate_and_pins_the_triggering_commit():
         "github.event.workflow_run.conclusion == 'success')"
     )
     sha = "${{ inputs.sha || github.event.workflow_run.head_sha || github.sha }}"
-    assert not any("actions/checkout" in (step.get("uses") or "")
-                   for job in workflow["jobs"].values() for step in job["steps"])
+    assert not any("actions/checkout" in (step.get("uses") or "") for job in workflow["jobs"].values() for step in job["steps"])
     version, = [step for step in job["steps"] if step.get("id") == "version"]
     assert version["env"] == {
         "GH_TOKEN": "${{ github.token }}", "CLAUDIT_REPO": "${{ github.repository }}",
@@ -167,19 +165,15 @@ def _run_step(body: str, stub: str, env: dict[str, str], timeout: float = 60) ->
         )
 
 
-def _row(status: str, conclusion: str | None, name: str,
-         app: str = "github-actions", run_id: str = PUSH_RUN) -> dict:
+def _row(status: str, conclusion: str | None, name: str, app: str = "github-actions", run_id: str = PUSH_RUN) -> dict:
     return {"name": name, "status": status, "conclusion": conclusion,
             "app": {"slug": app},
             "html_url": (f"https://github.com/Nitjsefnie/claudit/actions/runs/"
                          f"{run_id}/job/1")}
 
 
-def _run(run_id: str, event: str = "push",
-         head_sha: str = "0" * 40,
-         path: str = ".github/workflows/ci-gate.yml") -> dict:
-    return {"id": int(run_id), "event": event, "head_sha": head_sha,
-            "path": path}
+def _run(run_id: str, event: str = "push", head_sha: str = "0" * 40, path: str = ".github/workflows/ci-gate.yml") -> dict:
+    return {"id": int(run_id), "event": event, "head_sha": head_sha, "path": path}
 
 
 def _checks(*rows: dict) -> str:
@@ -371,8 +365,7 @@ def test_wait_times_out_when_the_aggregate_is_a_foreign_app(tmp_path):
 
 @ubuntu_step_body
 def test_wait_proceeds_once_the_aggregate_reports(tmp_path):
-    first = _checks(_row("completed", "success", "version-guard", run_id="37138486016"),
-                    _row("queued", "-", "aggregate"))
+    first = _checks(_row("completed", "success", "version-guard", run_id="37138486016"), _row("queued", "-", "aggregate"))
     later = _checks(_row("completed", "success", "version-guard", run_id="37138486016"),
                     _row("completed", "success", "aggregate"))
     env = _short_wait() | {
@@ -390,8 +383,7 @@ def test_wait_proceeds_once_the_aggregate_reports(tmp_path):
 @ubuntu_step_body
 @pytest.mark.parametrize("conclusion", ["failure", "cancelled"], ids=["failure", "cancelled"])
 def test_wait_refuses_promptly_when_a_check_failed(tmp_path, conclusion):
-    checks = _checks(_row("completed", conclusion, "tests"),
-                     _row("completed", "success", "aggregate"))
+    checks = _checks(_row("completed", conclusion, "tests"), _row("completed", "success", "aggregate"))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
                      {"STUB_CHECKS": checks, "STUB_RUNS": _runs(_run(PUSH_RUN)),
                       "RUNNER_TEMP": str(tmp_path)}, timeout=30)
@@ -405,8 +397,7 @@ def test_wait_refuses_on_a_red_gate_the_selector_keeps(tmp_path):
     # end to end: a PUSH-run gate whose check name begins
     # `release`. A prefix filter would drop this row and release over
     # it; the selector keeps it, so the wait refuses.
-    checks = _checks(_row("completed", "failure", "release-notes"),
-                     _row("completed", "success", "aggregate"))
+    checks = _checks(_row("completed", "failure", "release-notes"), _row("completed", "success", "aggregate"))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
                      {"STUB_CHECKS": checks, "STUB_RUNS": _runs(_run(PUSH_RUN)),
                       "RUNNER_TEMP": str(tmp_path)}, timeout=30)
@@ -420,12 +411,8 @@ def test_wait_ignores_a_red_claim_row_from_an_issue_comment_run(tmp_path):
     # end to end: the red `claim` row an `issue_comment` run
     # stamps on the default branch's tip. Skipped by the selector, so it
     # neither refuses the release nor waits on it.
-    checks = _checks(_row("completed", "failure", "claim",
-                          run_id="37138981898"),
-                     _row("completed", "success", "aggregate"))
-    runs = _runs(_run(PUSH_RUN),
-                 _run("37138981898", event="issue_comment",
-                      path=".github/workflows/claim.yml"))
+    checks = _checks(_row("completed", "failure", "claim", run_id="37138981898"), _row("completed", "success", "aggregate"))
+    runs = _runs(_run(PUSH_RUN), _run("37138981898", event="issue_comment", path=".github/workflows/claim.yml"))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
                      {"STUB_CHECKS": checks, "STUB_RUNS": runs,
                       "RUNNER_TEMP": str(tmp_path)}, timeout=30)
@@ -437,9 +424,7 @@ def test_wait_ignores_a_red_claim_row_from_an_issue_comment_run(tmp_path):
 @ubuntu_step_body
 def test_wait_proceeds_with_its_own_job_still_running(tmp_path):
     # Listing lag isolates --self-run-id: no listed self path can drop it.
-    checks = _checks(_row("in_progress", None, "release",
-                          run_id=SELF_RUN),
-                     _row("completed", "success", "aggregate"))
+    checks = _checks(_row("in_progress", None, "release", run_id=SELF_RUN), _row("completed", "success", "aggregate"))
     runs = _runs(_run(PUSH_RUN))
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB,
                      {"STUB_CHECKS": checks, "STUB_RUNS": runs,
@@ -451,9 +436,7 @@ def test_wait_proceeds_with_its_own_job_still_running(tmp_path):
 @ubuntu_step_body
 def test_wait_ignores_an_earlier_release_runs_failed_row(tmp_path):
     # A tip re-cut must ignore the failed earlier release run.
-    checks = _checks(_row("completed", "failure", "release",
-                          run_id="37138518000"),
-                     _row("completed", "success", "aggregate"))
+    checks = _checks(_row("completed", "failure", "release", run_id="37138518000"), _row("completed", "success", "aggregate"))
     runs = _runs(_run(PUSH_RUN),
                  _run(SELF_RUN, path=".github/workflows/release.yml"),
                  _run("37138518000",
@@ -468,9 +451,7 @@ def test_wait_ignores_an_earlier_release_runs_failed_row(tmp_path):
 @ubuntu_step_body
 def test_wait_refuses_a_non_tip_re_cut_without_the_workflow_ref(tmp_path):
     # Empty --self-path cannot exclude an unlisted non-tip re-cut.
-    checks = _checks(_row("completed", "failure", "release",
-                          run_id="37138518000"),
-                     _row("completed", "success", "aggregate"))
+    checks = _checks(_row("completed", "failure", "release", run_id="37138518000"), _row("completed", "success", "aggregate"))
     runs = _runs(_run(PUSH_RUN, head_sha=NON_TIP_SHA),
                  _run("37138518000", head_sha=NON_TIP_SHA,
                       path=".github/workflows/release.yml"))
@@ -484,8 +465,7 @@ def test_wait_refuses_a_non_tip_re_cut_without_the_workflow_ref(tmp_path):
 
 
 @ubuntu_step_body
-def test_wait_ignores_a_red_pr_gate_row_from_a_pull_request_target_run(
-        tmp_path):
+def test_wait_ignores_a_red_pr_gate_row_from_a_pull_request_target_run(tmp_path):
     # A pull_request_target run's verdict concerns the PR, not the tip commit.
     checks = _checks(_row("completed", "failure", "gate",
                           run_id="37171291293"),
@@ -494,8 +474,7 @@ def test_wait_ignores_a_red_pr_gate_row_from_a_pull_request_target_run(
                  _run("37171291293", event="pull_request_target",
                       head_sha=TIP_SHA,
                       path=".github/workflows/pr-gate.yml"))
-    env = {"STUB_CHECKS": checks, "STUB_RUNS": runs,
-           "CLAUDIT_SHA": TIP_SHA, "RUNNER_TEMP": str(tmp_path)}
+    env = {"STUB_CHECKS": checks, "STUB_RUNS": runs, "CLAUDIT_SHA": TIP_SHA, "RUNNER_TEMP": str(tmp_path)}
     proc = _run_step(_step_run(WAIT_STEP), WAIT_STUB, env, timeout=30)
     assert proc.returncode == 0, proc.stderr
     assert PROCEEDING in proc.stdout
