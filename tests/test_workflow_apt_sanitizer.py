@@ -24,7 +24,6 @@ ROOT = Path(__file__).resolve().parents[1]
 WATCHDOG = ROOT / "scripts" / "ci" / "progress_watchdog.py"
 WORKFLOWS = ROOT / ".github" / "workflows"
 ACTION = ROOT / ".github" / "actions" / "apt-install" / "action.yml"
-ACTION_REF = "$/.github/actions/apt-install"
 INSTALL_STEPS_MINUTES = 10  # both install steps' backstops, so a slow healthy leg stays well under 20 minutes
 PACKAGES = "xvfb fonts-liberation"
 DOUBLES = r'''
@@ -41,10 +40,14 @@ watchdog() {
   [[ "$*" != *"$CLAUDIT_STALL_ONLY"* || "$seen" -ge "$CLAUDIT_STALL_COUNT" ]] || { echo "$((seen + 1))" > "$key"; return 124; }
   "$@"
 }
-sudo() { case "${1:-}" in timeout|env) "$@" ;; */progress_watchdog.py) shift; watchdog "$@" ;; *) return 99 ;; esac; }
+sudo() {
+  case "${1:-}" in timeout|env) "$@" ;; */progress_watchdog.py) shift; watchdog "$@" ;;
+    *) echo "sudo double: unmodelled $*" >&2; return 99 ;; esac
+}
 env() (
   while [[ "${1:-}" == DEBIAN_FRONTEND=* ]]; do export "$1"; shift; done
-  case "${1:-}" in timeout) "$@" ;; */progress_watchdog.py) shift; watchdog "$@" ;; *) exit 99 ;; esac
+  case "${1:-}" in timeout) "$@" ;; */progress_watchdog.py) shift; watchdog "$@" ;;
+    *) echo "env double: unmodelled $*" >&2; exit 99 ;; esac
 )
 apt-get() {
   record apt-get "${DEBIAN_FRONTEND:-}" "$@"
@@ -187,7 +190,8 @@ def test_every_apt_phase_retries_a_stalled_attempt_and_two_attempts_fit_the_step
     # A stalled attempt ends within its window, a sample and two graces; then the pause and the recovery's bounds.
     cycle = stall + sample + 2 * grace + max(int(call[1]) for call in calls if call[0] == "sleep") + sum(
         limit for limit, _ in recovery) + sum(map(int, (tmp_path / "timeout-state" / "kills").read_text("utf-8").split()))
-    callers = [step for _, _, step in _workflow_steps() if step.get("uses") == ACTION_REF]
+    callers = [step for _, _, step in _workflow_steps()  # every spelling that resolves to this action
+               if step.get("uses", "").partition("@")[0].rstrip("/").endswith("/.github/actions/apt-install")]
     cycle += int(re.findall(r"timeout (\d+)s rm ", _action_steps()[0]["run"])[0]) / 2  # the sanitizer runs once
     assert callers and all(2 * cycle < int(step["timeout-minutes"]) * 60 for step in callers), cycle
 
