@@ -175,7 +175,7 @@ def test_every_apt_phase_retries_a_stalled_attempt_and_two_attempts_fit_the_step
     option, = {tuple(option) for option, _ in watched}  # every attempt of every phase is watched alike
     pairs = list(zip(option[::2], option[1::2]))
     assert {value for name, value in pairs if name == "--watch"} == {
-        "/var/lib/apt/lists", "/var/cache/apt", "/var/lib/dpkg", "/var/log/dpkg.log"}
+        "/var/lib/apt/lists", "/var/cache", "/var/lib/dpkg", "/var/log/dpkg.log", "/var/log/apt"}
     stall, sample, grace = (int(dict(pairs)[name]) for name in ("--stall", "--sample", "--grace"))
     recovery = bounded_calls(tmp_path / "timeout-state")
     said = r"^(?:==> |::warning::)(.+?)(?: attempt 1)? (?:stalled|timed out) after (\d+) s"
