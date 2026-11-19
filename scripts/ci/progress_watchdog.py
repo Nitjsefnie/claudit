@@ -1,13 +1,7 @@
 #!/usr/bin/env python3
-"""Run a command; stop it only once the paths it writes stop changing.
+"""Run a command; stop it, exit 124, once the --watch paths' total size holds for --stall s.
 
-Contract: tests/test_ci_progress_watchdog.py. Every --sample seconds the
-watchdog sums the sizes of the files under each --watch path; any change is
-progress. After --stall seconds without one it sends SIGTERM to the command's
-process group, SIGKILL --grace seconds later, waits at most --grace more, and
-exits 124 as timeout(1) does. Otherwise it exits with the command's status.
-A TERM, INT or HUP it receives stops the command the same way and exits
-128 plus that signal's number.
+Contract: tests/test_ci_progress_watchdog.py. A signal received stops it too, exit 128 + N.
 """
 from __future__ import annotations
 
@@ -23,11 +17,10 @@ SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 
 
 class Stop(Exception):
-    """A signal the watchdog received; it ends the command."""
+    """A signal received."""
 
 
 def footprint(paths: list[str]) -> int:
-    """Total size of the files under `paths`; a file gone mid-walk counts 0."""
     total = 0
     for path in paths:
         files = [path] if not os.path.isdir(path) else (
@@ -41,9 +34,9 @@ def footprint(paths: list[str]) -> int:
 
 
 def stop(child: subprocess.Popen, grace: float) -> None:
-    """TERM the command's group, KILL it after `grace`, then wait at most `grace`."""
+    """TERM the group; KILL it, then wait, `grace` s apart."""
     for sig in SIGNALS:
-        signal.signal(sig, signal.SIG_IGN)  # a second signal must not orphan the command
+        signal.signal(sig, signal.SIG_IGN)  # a second must not orphan it
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(child.pid, sig)
@@ -52,7 +45,7 @@ def stop(child: subprocess.Popen, grace: float) -> None:
         try:
             child.wait(grace)
             if sig == signal.SIGTERM:
-                os.killpg(child.pid, signal.SIGKILL)  # the group's other members
+                os.killpg(child.pid, signal.SIGKILL)
             return
         except subprocess.TimeoutExpired:
             continue
@@ -80,7 +73,7 @@ def main(argv: list[str]) -> int:
     child = None
     try:
         seen = footprint(args.watch)
-        # Not `with`: its exit would wait without a bound on a command that outlived SIGKILL.
+        # Not `with`: its exit waits unbounded on a command that outlives SIGKILL.
         child = subprocess.Popen(command, start_new_session=True)  # pylint: disable=consider-using-with
         quiet_since = time.monotonic()
         while True:

@@ -1,7 +1,5 @@
-"""scripts/ci/progress_watchdog.py against real children, each ending on its own within 10 s so no test hangs: one
-that keeps writing a watched file is never stopped and its status passes through; one that stops writing is stopped
-from the stall window to one sample plus the grace later, exit 124, even if it ignores SIGTERM; a signal the watchdog
-receives stops the child."""
+"""scripts/ci/progress_watchdog.py against real children, each ending on its own within 10 s:
+one that keeps writing is never stopped; one that stops is, even if it ignores SIGTERM."""
 from __future__ import annotations
 
 import os
@@ -15,7 +13,7 @@ import pytest
 
 WATCHDOG = Path(__file__).resolve().parents[1] / "scripts" / "ci" / "progress_watchdog.py"
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="process groups are POSIX")
-# argv: the watched file, a pid file, then one gap in seconds before each write; the child then sleeps 10 s.
+# argv: the watched file, a pid file, then the seconds before each write.
 CHILD = r'''
 import os, signal, sys, time
 signal.signal(signal.SIGTERM, signal.SIG_IGN) if "ignore" in sys.argv else None
@@ -29,7 +27,7 @@ time.sleep(10)
 
 
 def _run(tmp_path: Path, stall: str, *child: str, code: str = CHILD) -> tuple[subprocess.CompletedProcess, int, float]:
-    """(the watchdog's run, the child's pid, seconds from the child's last write to the watchdog's exit)."""
+    """(run, child pid, seconds from the child's last write to the watchdog's exit)."""
     watched, pid, last = tmp_path / "watched", tmp_path / "pid", tmp_path / "pid.at"
     proc = subprocess.run([str(WATCHDOG), "--stall", stall, "--sample", "0.1", "--grace", "0.3", "--watch", str(watched),
                            "--", sys.executable, "-c", code, str(watched), str(pid), *child],
