@@ -806,7 +806,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-11-19T03:39:32Z",
+  "provider_rates_fetched": "2026-11-19T03:53:28Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -3530,7 +3530,7 @@
         [15892,0.1,1.2,0.005,{"context_length":1048576}],
         [2399,0.1,1.2,0.004,{"context_length":1048576}],
         [3001,0.09,1.2,0.005,{"context_length":1048576}],
-        [176318,0.08,1.2,0.005,{"context_length":1048576}]
+        [175797,0.08,1.2,0.005,{"context_length":1048576}]
       ],
       "Parasail": [
         [1792253251,0.3,1.2,0.006],
