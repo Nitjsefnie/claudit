@@ -261,7 +261,7 @@ def test_adoption_peak_allocation_is_bounded(fresh_db, monkeypatch):
     monkeypatch.setattr(ingest_model_adoption, "reprice_adopted", collect_and_reprice)
     rate_fingerprint.pair_fingerprint("gpt-5.6-sol", "adoption-host")
     peaks = []
-    for per_file in (batch_size, batch_size * 32):
+    for per_file in (batch_size * 32, batch_size, batch_size * 32):
         if peaks:
             with db.viz_conn() as c:
                 c.execute("DELETE FROM projects")
@@ -274,11 +274,11 @@ def test_adoption_peak_allocation_is_bounded(fresh_db, monkeypatch):
             peaks.append(tracemalloc.get_traced_memory()[1])
         finally:
             tracemalloc.stop()
-    print(f"adoption peaks B: rows=64 {peaks[0]}, rows=2048 {peaks[1]}, batch={batch_size}")
-    # Two adjacent batches can coexist while the next fetch replaces the old
-    # rows. Allow twice the small run's entire peak, independent of set size;
-    # the 32x larger set defeats an unbounded fetch/sidecar/update array.
-    assert peaks[1] <= 2 * peaks[0], peaks
+    print(f"adoption peaks B: warm-up 2048, rows=64, rows=2048: {peaks}, batch={batch_size}")
+    # The first pass, outside the bound, pays a cold process's one-time allocations (caches, freelists).
+    # Two adjacent batches can coexist while the next fetch replaces the old rows. Allow twice
+    # the small run's peak; the 32x larger set defeats an unbounded fetch/sidecar/update array.
+    assert peaks[2] <= 2 * peaks[1], peaks
 
 
 def test_scoped_live_batch_payload_and_single_identity_materialization(fresh_db, monkeypatch):
