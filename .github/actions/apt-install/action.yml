@@ -7,6 +7,8 @@ inputs:
     required: false
     default: ''
 
+# Caches the .deb archives by ImageOS, RUNNER_ARCH and package set, exact key.
+# A miss installs from the mirror as before; pull requests only restore.
 runs:
   using: composite
   steps:
@@ -17,6 +19,30 @@ runs:
         echo "==> removing the unused Microsoft apt source"
         sudo timeout 10s rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.sources
 
+    - name: Key the package cache
+      id: key
+      if: inputs.packages != ''
+      shell: bash
+      env:
+        CLAUDIT_APT_PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        if [ -z "${ImageOS:-}" ] || [ -z "${RUNNER_ARCH:-}" ]; then
+          echo "::warning::the package cache is skipped: ImageOS='${ImageOS:-}' or RUNNER_ARCH='${RUNNER_ARCH:-}' is empty"
+          exit 0
+        fi
+        read -r -a packages <<< "$CLAUDIT_APT_PACKAGES"
+        digest="$(printf '%s\n' "${packages[@]}" | LC_ALL=C sort -u | sha256sum | cut -d ' ' -f 1)"
+        echo "key=apt-debs-$ImageOS-$RUNNER_ARCH-$digest" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the package archives
+      id: cache
+      if: steps.key.outputs.key != ''
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/apt-archives/*.deb
+        key: ${{ steps.key.outputs.key }}
+
     - name: Install packages, retrying each phase until it succeeds
       if: inputs.packages != ''
       shell: bash
@@ -24,8 +50,8 @@ runs:
         CLAUDIT_APT_PACKAGES: ${{ inputs.packages }}
       run: |
         set -euo pipefail
-        # The watchdog exits 124 once the watched files stop changing; /var/cache holds the archives
-        # and what dpkg triggers write.
+        # The watchdog exits 124 once the watched files stop changing; $archives holds the downloads,
+        # /var/cache what dpkg triggers write.
         # 60 s: apt itself gives up on a silent file within 4 x its 10 s timeout plus 1+2+4 s of backoff, and the
         # longest fixed bound this replaces was 50 s. A sample every 5 s stops a stall at most 5 s late.
         # timeout(1): 124 when its bound expires, 137 when -k killed.
@@ -45,11 +71,13 @@ runs:
           exit 1
         fi
         sources=(-o "Dir::Etc::SourceList=$distro" -o Dir::Etc::SourceParts=/dev/null)
+        archives="$RUNNER_TEMP/apt-archives"
+        mkdir -p "$archives/partial"
         # No attempt count: the caller's timeout-minutes bounds the step; kept archives shorten each retry.
         attempt=1
         echo "==> apt-get update (attempt $attempt)"
         until sudo "$GITHUB_ACTION_PATH/../../../scripts/ci/progress_watchdog.py" --stall 60 --sample 5 --grace 5 \
-            --watch /var/lib/apt/lists --watch /var/cache --watch /var/lib/dpkg --watch /var/log/dpkg.log --watch /var/log/apt -- \
+            --watch /var/lib/apt/lists --watch /var/cache --watch /var/lib/dpkg --watch /var/log/dpkg.log --watch /var/log/apt --watch "$archives" -- \
             apt-get update -q "${sources[@]}" -o APT::Update::Error-Mode=any -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10; do
           status=$?
           echo "==> apt-get update attempt $attempt $(outcome "$status" stall)"
@@ -60,8 +88,8 @@ runs:
         attempt=1
         echo "==> downloading $CLAUDIT_APT_PACKAGES (attempt $attempt)"
         until sudo env DEBIAN_FRONTEND=noninteractive "$GITHUB_ACTION_PATH/../../../scripts/ci/progress_watchdog.py" --stall 60 --sample 5 --grace 5 \
-            --watch /var/lib/apt/lists --watch /var/cache --watch /var/lib/dpkg --watch /var/log/dpkg.log --watch /var/log/apt -- \
-            apt-get install --download-only --no-install-recommends -y -q "${sources[@]}" -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 "${packages[@]}"; do
+            --watch /var/lib/apt/lists --watch /var/cache --watch /var/lib/dpkg --watch /var/log/dpkg.log --watch /var/log/apt --watch "$archives" -- \
+            apt-get install --download-only --no-install-recommends -y -q "${sources[@]}" -o "Dir::Cache::archives=$archives/" -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 "${packages[@]}"; do
           status=$?
           echo "==> apt-get install --download-only attempt $attempt $(outcome "$status" stall)"
           attempt=$((attempt + 1))
@@ -72,8 +100,8 @@ runs:
         attempt=1
         echo "==> installing $CLAUDIT_APT_PACKAGES from the download cache (attempt $attempt)"
         until sudo env DEBIAN_FRONTEND=noninteractive "$GITHUB_ACTION_PATH/../../../scripts/ci/progress_watchdog.py" --stall 60 --sample 5 --grace 5 \
-            --watch /var/lib/apt/lists --watch /var/cache --watch /var/lib/dpkg --watch /var/log/dpkg.log --watch /var/log/apt -- \
-            apt-get install --no-download --no-install-recommends -y -qq "${sources[@]}" -o DPkg::Lock::Timeout=30 "${packages[@]}"; do
+            --watch /var/lib/apt/lists --watch /var/cache --watch /var/lib/dpkg --watch /var/log/dpkg.log --watch /var/log/apt --watch "$archives" -- \
+            apt-get install --no-download --no-install-recommends -y -qq "${sources[@]}" -o "Dir::Cache::archives=$archives/" -o DPkg::Lock::Timeout=30 "${packages[@]}"; do
           status=$?
           echo "==> apt-get install --no-download attempt $attempt $(outcome "$status" stall)"
           attempt=$((attempt + 1))
@@ -92,3 +120,12 @@ runs:
             echo "::warning::dpkg --configure -a $(outcome "$status" 45)"
           fi
         done
+
+    - name: Save the package archives
+      if: steps.key.outputs.key != '' && steps.cache.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/master'
+      # Legs race for one immutable key; a lost save must not fail one.
+      continue-on-error: true
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/apt-archives/*.deb
+        key: ${{ steps.key.outputs.key }}
