@@ -27,8 +27,11 @@ runs:
         CLAUDIT_APT_PACKAGES: ${{ inputs.packages }}
       run: |
         set -euo pipefail
-        if [ -z "${ImageOS:-}" ] || [ -z "${RUNNER_ARCH:-}" ]; then
-          echo "::warning::the package cache is skipped: ImageOS='${ImageOS:-}' or RUNNER_ARCH='${RUNNER_ARCH:-}' is empty"
+        missing=""
+        [ -n "${ImageOS:-}" ] || missing="ImageOS"
+        [ -n "${RUNNER_ARCH:-}" ] || missing="${missing:+$missing and }RUNNER_ARCH"
+        if [ -n "$missing" ]; then
+          echo "::warning::the package cache is skipped: empty $missing, so no key names the runner image"
           exit 0
         fi
         read -r -a packages <<< "$CLAUDIT_APT_PACKAGES"
