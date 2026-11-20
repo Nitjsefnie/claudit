@@ -15,7 +15,7 @@
 version: 2
 updates:
   # Root: requirements-dev.txt (lint/type toolchain) and
-  # requirements-test.txt (coverage toolchain) — AND backend/requirements.txt
+  # requirements-test.txt (test toolchain) — AND backend/requirements.txt
   # (the runtime and test dependencies the deployed service installs), which
   # the pip file fetcher reaches from here through its one-level walk of the
   # first-level subdirectories under the configured directory. A separate
@@ -37,7 +37,7 @@ updates:
       - dependencies
 
   # The CI toolchain only: eslint (the JS lint gate), eslint-plugin-react and
-  # globals and the AST coverage tools. One
+  # globals and playwright. One
   # grouped PR per run, for the same reason the actions entry is grouped — a
   # toolchain that half-moves is a lockfile that does not install, and the
   # grouping keeps eslint, its plugin and its config's `globals` dependency

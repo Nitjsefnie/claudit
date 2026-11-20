@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Seed and tighten the recorded suite cost budgets.
 
-The mirror of ``ratchet.py`` with the direction inverted, beside the
+The mirror of the coverage ratchet with the direction inverted, beside the
 suppression tighten pass. A suite phase's number is a COST:
 its ratchet only ever TIGHTENS -- a phase whose measured count beats the
 recorded value by more than the hysteresis has both its fields rewritten
@@ -30,8 +30,7 @@ change's own edits included. The tree must not change between that run
 and the merge, this seed's own thresholds write excepted. The recorded
 identity is never corrected by hand to fit another tree (SV-CI-RATCHETS).
 
-A separate file from ``ratchet.py`` on purpose: the two move opposite
-ways. The seed binds the budgets to the workload they measured: the
+The seed binds the budgets to the workload they measured: the
 tree the measurement names must be the tree the seed lands on, so the
 seed path checks the artifact's ``tests_tree_lines`` against the
 checkout it runs in and refuses a mismatch -- the only place a
