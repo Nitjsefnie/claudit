@@ -273,7 +273,7 @@ def test_comment_only_on_a_pull_request():
     assert classify.comment_only(["m.py"], event, run) is True
 
 
-LEGS = ("classify", "tests", "test-data", "lint", "types", "eslint",
+LEGS = ("classify", "tests", "report", "test-data", "lint", "types", "eslint",
         "panel-layout", "smoke", "docker-smoke", "audit", "actionlint",
         "codeql", "setup-docs")
 
@@ -344,7 +344,7 @@ def _tests_workflow():
 
 
 def test_the_portable_matrix_reads_the_comment_only_input():
-    portable = _tests_workflow()["jobs"]["pytest-portable"]
+    portable = _tests_workflow()["jobs"]["test-portable"]
     assert portable["if"] == ("inputs.comment_only != 'true' "
                               "&& inputs.thresholds_only != 'true'")
 
@@ -352,11 +352,11 @@ def test_the_portable_matrix_reads_the_comment_only_input():
 def test_comment_only_keeps_the_parallel_canary_gates():
     jobs = _tests_workflow()["jobs"]
     assert set(jobs) == {
-        "pytest-shards", "coverage-combine", "js-coverage", "reparse-gate",
+        "plan", "test", "reparse-gate",
         "suite-bench", "pytest-thresholds", "baselines",
-        "ratchet", "pytest-portable"}
+        "ratchet", "test-portable"}
     for name, job in jobs.items():
-        if name != "pytest-portable":
+        if name != "test-portable":
             assert "comment_only" not in job.get("if", ""), name
 
 

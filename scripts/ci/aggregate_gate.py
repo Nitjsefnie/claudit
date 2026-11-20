@@ -35,8 +35,8 @@ import sys
 
 # Every workflow leg, classifier included; kept in sync with its needs
 # list by tests/test_workflow_ci_gate.py.
-EXPECTED_LEGS = ('classify', 'tests', 'test-data', 'lint', 'types', 'eslint',
-                 'panel-layout', 'smoke', 'docker-smoke', 'audit',
+EXPECTED_LEGS = ('classify', 'tests', 'report', 'test-data', 'lint', 'types',
+                 'eslint', 'panel-layout', 'smoke', 'docker-smoke', 'audit',
                  'actionlint', 'codeql', 'setup-docs')
 
 PASSED = 'passed'

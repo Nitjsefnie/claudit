@@ -4,15 +4,12 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
 from scripts.ci import aggregate_gate, classify_changes
-from tests.test_workflow_pytest_options import split_pytest_argv
-from tests.workflow_checks import assert_shards_exec_pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 THRESHOLDS = '.github/ci-thresholds.json'
@@ -27,6 +24,7 @@ def _workflow(name):
     ([THRESHOLDS], True),
     (['.github/comment-share.json'], True),
     (['.github/size-baseline.json'], True),
+    (['.github/test-times.json'], True),
     ([THRESHOLDS, '.github/comment-share.json'], True),
     ([THRESHOLDS, '.github/size-baseline.json'], True),
     (['.github/size-baseline.json', '.github/comment-share.json'], True),
@@ -72,7 +70,7 @@ def test_thresholds_only_accepts_other_skips_and_reports_narrowed_tests():
     verdict, message = aggregate_gate.decide(needs)
     assert verdict == aggregate_gate.PASSED
     assert 'thresholds-only' in message
-    assert '11 gate legs skipped by classification' in message
+    assert '12 gate legs skipped by classification' in message
     assert 'tests ran narrowed' in message
     rendered = aggregate_gate.render(needs, verdict, message)
     assert 'thresholds-only narrowing: true' in rendered
@@ -136,11 +134,8 @@ def test_every_non_tests_leg_skips_thresholds_only():
 
 def test_canary_skips_only_the_unrelated_gates():
     jobs = _workflow('tests.yml')['jobs']
-    for name in ('pytest-shards', 'js-coverage'):
-        assert jobs[name]['if'] == "inputs.thresholds_only != 'true'"
-    assert jobs['coverage-combine']['needs'] == ['pytest-shards']
-    assert jobs['coverage-combine']['if'] == (
-        "${{ !cancelled() && inputs.thresholds_only != 'true' }}")
+    assert jobs['plan']['if'] == "inputs.thresholds_only != 'true'"
+    assert jobs['test']['needs'] == 'plan' and 'if' not in jobs['test']
     assert jobs['pytest-thresholds']['if'] == "inputs.thresholds_only == 'true'"
     assert jobs['reparse-gate']['if'] == "${{ !cancelled() }}"
     assert jobs['baselines']['if'] == "${{ !cancelled() }}"
@@ -150,93 +145,8 @@ def test_canary_skips_only_the_unrelated_gates():
         assert steps[name]['if'] == "${{ !cancelled() && inputs.thresholds_only != 'true' }}"
     assert steps['Threshold direction guard']['if'] == (
         "${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}")
-    for step in jobs['js-coverage']['steps']:
-        if step.get('name') == 'JavaScript coverage gate':
-            assert step['if'] == '${{ !cancelled() }}'
-    assert jobs['pytest-portable']['if'] == (
+    assert jobs['test-portable']['if'] == (
         "inputs.comment_only != 'true' && inputs.thresholds_only != 'true'")
-
-
-def test_shards_cover_four_partitions_and_publish_even_after_failure():
-    job = _workflow('tests.yml')['jobs']['pytest-shards']
-    assert job['strategy'] == {'fail-fast': 'false', 'matrix': {'shard': ['1', '2', '3', '4']}}
-    run, = [step for step in job['steps'] if step.get('name') == 'Run tests']
-    commands = [line for line in run['run'].splitlines() if not line.startswith('#')]
-    assert commands == [
-        "grep -m1 'model name' /proc/cpuinfo", 'nproc', "grep '^cpu ' /proc/stat",
-        'exec python -m pytest $(python3 scripts/ci/pytest_shards.py '
-        '--shard ${{ matrix.shard }} --of 4) -q --tb=short -ra -o faulthandler_timeout=240 '
-        '--durations=20 --cov=backend --cov-report=']
-    assert run['env']['COVERAGE_FILE'] == (
-        '${{ github.workspace }}/shard-coverage/.coverage.${{ matrix.shard }}')
-    upload, = [step for step in job['steps']
-               if step.get('with', {}).get('name') == 'coverage-shard-${{ matrix.shard }}']
-    assert upload['if'] == '${{ !cancelled() }}'
-
-
-@pytest.mark.skipif(not sys.platform.startswith('linux'), reason='the step reads /proc as its ubuntu runner has it')
-def test_canary_shards_exec_pytest_under_a_step_bound_between_cpu_counters(tmp_path):
-    assert_shards_exec_pytest(_workflow('tests.yml')['jobs']['pytest-shards'], tmp_path, [
-        '-q', '--tb=short', '-ra', '-o', 'faulthandler_timeout=240', '--durations=20',
-        '--cov=backend', '--cov-report='])
-
-
-def _values(options, names):
-    """Each value the option `names` spell is given, as `NAME V`, `--long=V` or `-sV`."""
-    found = []
-    for at, word in enumerate(options):
-        for name in names:
-            attached = name + '=' if name.startswith('--') else name
-            if word == name:
-                found.append(' '.join(options[at + 1:at + 2]))
-            elif word.startswith(attached):
-                found.append(word[len(attached):])
-    return found
-
-
-def _assert_pinned_once(options):
-    assert sum(word in ('-q', '--quiet') for word in options) == 1
-    for names, value in ((('--tb',), 'short'), (('-r',), 'a'), (('-m',), 'not db'),
-                         (('--durations',), '20'), (('--junitxml', '--junit-xml'), 'pytest-junit.xml')):
-        assert _values(options, names) == [value], names
-    assert [value for value in _values(options, ('-o', '--override-ini'))
-            if value.startswith('faulthandler_timeout=')] == ['faulthandler_timeout=240']
-
-
-@pytest.mark.skipif(os.name == 'nt', reason='the step runs under POSIX Bash here')
-def test_portable_cells_run_half_the_suite_each_as_the_steps_own_process(tmp_path):
-    job = _workflow('tests.yml')['jobs']['pytest-portable']
-    assert job['strategy']['matrix']['shard'] == ['1', '2']
-    assert int(job['timeout-minutes']) == 20
-    steps = job['steps']
-    run, = [step for step in steps if step.get('name') == 'Run tests']
-    assert run['shell'] == 'bash' and int(run['timeout-minutes']) < 20
-    upload, = [step for step in steps if step.get('uses', '').startswith('actions/upload-artifact@')]
-    assert upload['if'] == 'always()'
-    fake = tmp_path / 'python'
-    fake.write_text('#!/bin/sh\nif [ "$1" = scripts/ci/pytest_shards.py ]; then exec "$REAL" "$@"; fi\n'
-                    'echo "$$" > "$PID"\nprintf "%s\\n" "$@" > "$ARGV"\n')
-    fake.chmod(0o755)
-    shards = []
-    for shard in ('1', '2'):
-        script = tmp_path / f'step-{shard}.sh'
-        script.write_text(run['run'].replace('${{ matrix.shard }}', shard).replace(
-            '${{ matrix.os }}', 'ubuntu-latest'), encoding='utf-8', newline='\n')
-        env = dict(os.environ, PATH=f'{tmp_path}{os.pathsep}{os.environ["PATH"]}', REAL=sys.executable,
-                   PID=str(tmp_path / 'pid'), ARGV=str(tmp_path / 'argv'))
-        # The runner's own bash invocation; its step-timeout SIGINT goes to this process.
-        with subprocess.Popen(['bash', '--noprofile', '--norc', '-eo', 'pipefail', str(script)],
-                              cwd=ROOT, env=env) as step:
-            assert step.wait() == 0
-        assert (tmp_path / 'pid').read_text().split() == [str(step.pid)]
-        argv = (tmp_path / 'argv').read_text().splitlines()
-        files, options = split_pytest_argv(run, argv)
-        assert argv[:2] == ['-m', 'pytest']
-        _assert_pinned_once(options)
-        shards.append(files)
-    assert all(shards)
-    assert sorted(shards[0] + shards[1]) == sorted(
-        path.relative_to(ROOT).as_posix() for path in (ROOT / 'tests').rglob('test_*.py'))
 
 
 def _threshold_commands(tmp_path):
@@ -285,11 +195,9 @@ def _threshold_base_action():
 
 
 @pytest.mark.parametrize('workflow,job_name,test_step', [
-    ('tests.yml', 'pytest-shards', 'Run tests'),
+    ('tests.yml', 'test', 'Run tests'),
     ('tests.yml', 'pytest-thresholds', 'Run tests'),
-    ('tests.yml', 'pytest-portable', 'Run tests'),
-    ('tests.yml', 'coverage-combine', 'Combine shard coverage'),
-    ('tests.yml', 'js-coverage', 'JavaScript coverage gate'),
+    ('tests.yml', 'test-portable', 'Run tests'),
     ('tests.yml', 'reparse-gate', 'Reparse CPU gate'),
     ('tests.yml', 'suite-bench', 'Measure and gate the suite cost'),
     ('tests.yml', 'ratchet', 'Ratchet the thresholds'),

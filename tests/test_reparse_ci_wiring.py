@@ -75,11 +75,10 @@ def test_only_a_master_push_may_tighten_the_reparse_bytecodes(workflow):
     """A pull request runs untrusted code and must not write the recorded data.
 
     Success dependencies prevent tightening from failed measurements;
-    the event and ref checks restrict recording to master pushes.
+    the event and ref checks limit recording to master pushes.
     """
     condition = workflow["jobs"]["ratchet"]["if"]
-    for required in ("needs.pytest-shards.result == 'success'",
-                     "needs.js-coverage.result == 'success'",
+    for required in ("needs.test.result == 'success'",
                      "needs.reparse-gate.result == 'success'",
                      "github.event_name == 'push'",
                      "github.ref == 'refs/heads/master'"):
@@ -221,5 +220,4 @@ def test_ratchet_downloads_the_reparse_measurement_at_the_repo_root(workflow):
     download, = [step for step in _steps(workflow, "ratchet")
                  if step.get("with", {}).get("name") == "reparse-measurement"]
     assert "run-id" not in download["with"]
-    assert workflow["jobs"]["ratchet"]["needs"] == [
-        "pytest-shards", "coverage-combine", "js-coverage", "reparse-gate", "suite-bench"]
+    assert workflow["jobs"]["ratchet"]["needs"] == ["test", "reparse-gate", "suite-bench"]

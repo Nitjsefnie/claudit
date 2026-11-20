@@ -13,7 +13,7 @@ from tests import scratch_db
 def test_portable_pytest_uses_step_scoped_socket_directory():
     path = Path(__file__).resolve().parents[1] / ".github/workflows/tests.yml"
     job = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)[
-        "jobs"]["pytest-portable"]
+        "jobs"]["test-portable"]
     step, = (step for step in job["steps"] if step.get("name") == "Run tests")
     assert step["env"]["PGHOST"] == "${{ runner.temp }}"
     assert "PGHOST" not in (job.get("env") or {})

@@ -54,7 +54,8 @@ LEG_WORKFLOWS = (
     "actionlint.yml", "codeql.yml",
 )
 REUSABLE_LEG_IDS = tuple(Path(name).stem for name in LEG_WORKFLOWS)
-LEG_IDS = (*REUSABLE_LEG_IDS, "setup-docs")
+# report, test-ratchet's coverage gate, is a top-level job after the tests leg.
+LEG_IDS = ("tests", "report", *REUSABLE_LEG_IDS[1:], "setup-docs")
 
 
 def _load(path):
@@ -224,7 +225,7 @@ def test_setup_docs_runs_only_the_guard_with_the_tests_python_pin():
     steps = job["steps"]
     python_step, = [step for step in steps
                     if step.get("uses", "").startswith("actions/setup-python@")]
-    tests_python, = [step for step in _tests_workflow()["jobs"]["pytest-shards"]["steps"]
+    tests_python, = [step for step in _tests_workflow()["jobs"]["test"]["steps"]
                      if step.get("uses", "").startswith("actions/setup-python@")]
     assert python_step["uses"] == tests_python["uses"]
     assert python_step["with"]["python-version"] == tests_python["with"]["python-version"]
@@ -416,9 +417,8 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert "ssh-agent" not in tests_raw
     assert "x-access-token" not in tests_raw
     assert set(_tests_workflow()["jobs"]) == {
-        "pytest-shards", "coverage-combine", "baselines",
-        "js-coverage", "reparse-gate", "suite-bench", "pytest-thresholds",
-        "ratchet", "pytest-portable"}
+        "plan", "test", "baselines", "reparse-gate", "suite-bench",
+        "pytest-thresholds", "ratchet", "test-portable"}
 
 
 def test_the_tests_callee_is_capped_at_what_its_jobs_use():
@@ -426,9 +426,7 @@ def test_the_tests_callee_is_capped_at_what_its_jobs_use():
     # site. The callee pushes nothing (the ratchet
     # push lives in the top-level ratchet-push.yml workflow, where the
     # master-push environment's secret resolves), and
-    # it posts nothing either — the informational patch-coverage comment
-    # is uploaded as an artifact and posted by the top-level
-    # coverage-comment.yml, which runs no pull-request code. So
+    # it posts nothing either — ci-gate's report job comments. So
     # contents: read covers every job it declares.
     doc = _ci_gate()
     calls = [job for job in (doc.get("jobs") or {}).values()
@@ -448,16 +446,16 @@ def test_the_tests_callee_is_capped_at_what_its_jobs_use():
 def test_the_canary_job_is_named_for_what_it_is():
     # Name the canary distinctly from portability jobs and include its pinned
     # interpreter version so a failed check identifies the measured runtime.
-    pytest_job = _tests_workflow()["jobs"]["pytest-shards"]
+    pytest_job = _tests_workflow()["jobs"]["test"]
     version, = [step["with"]["python-version"]
                 for step in pytest_job["steps"]
                 if step.get("uses", "").startswith("actions/setup-python@")]
     assert version, "the canary job sets up no interpreter"
     assert pytest_job.get("name") == (
         f"pytest shard ${{{{ matrix.shard }}}} (canary, pinned {version})")
-    portable = _tests_workflow()["jobs"]["pytest-portable"]
+    portable = _tests_workflow()["jobs"]["test-portable"]
     assert portable.get("name") == (
-        "pytest (${{ matrix.os }}, ${{ matrix.python-version }}, shard ${{ matrix.shard }}/2)")
+        "pytest (${{ matrix.os }}, ${{ matrix.python-version }}, shard ${{ matrix.shard }})")
 
 
 def test_parallel_canary_jobs_keep_the_gate_step_order():
@@ -467,24 +465,16 @@ def test_parallel_canary_jobs_keep_the_gate_step_order():
                 "actions/setup-node", "Resolve the threshold base", "Restore the pip cache",
                 "Install dependencies"]
     expected = {
-        "pytest-shards": [*database, "Save the pip cache", "Run tests", "CPU counters after the tests",
-                          "actions/upload-artifact"],
-        "coverage-combine": [*preparation, "Download coverage shards",
-                             "Combine shard coverage",
-                             "measured", "Coverage summary", "Upload coverage.xml",
-                             "Patch coverage against the merge base", "Stage the patch-coverage comment",
-                             "Upload the patch-coverage comment", "Coverage gate"],
+        "plan": ["actions/checkout", "canary", "portable"],
+        "test": [*database, "Save the pip cache", "CPU counters before the tests", "Run tests",
+                 "CPU counters after the tests"],
         "baselines": [*preparation, "Pylint suppression baseline",
                       "Threshold direction guard"],
-        "js-coverage": ["actions/checkout", "Start cached Postgres", "actions/setup-python",
-                        "actions/setup-node", "Resolve the threshold base", "Restore the pip cache",
-                        "Install dependencies", "Install the JS toolchain from the lockfile",
-                        "JavaScript coverage gate"],
         "reparse-gate": [*preparation, "Reparse CPU gate"],
         "suite-bench": [*preparation, "Save the pip cache", "Measure and gate the suite cost",
                         "Upload the suite measurement"],
         "pytest-thresholds": [*database, "Run tests"],
-        "pytest-portable": [*preparation, "Save the pip cache", "Run tests", "actions/upload-artifact"],
+        "test-portable": [*preparation, "Save the pip cache", "Run tests"],
         "ratchet": [*preparation, "actions/setup-node", "Install the JS toolchain from the lockfile",
                     "actions/download-artifact", "actions/download-artifact",
                     "Ratchet the thresholds", "Stage the ratchet data", "Upload the ratchet data"],
@@ -499,9 +489,8 @@ def test_parallel_canary_jobs_keep_the_gate_step_order():
 def test_tests_and_refresh_share_the_pinned_postgres_action():
     # Both publishing measurements come from the same composite; its digest
     # and compose lockstep are pinned by test_workflow_postgres_action.py.
-    for path, job_name in ((TESTS_WORKFLOW, "pytest-shards"),
+    for path, job_name in ((TESTS_WORKFLOW, "test"),
                            (TESTS_WORKFLOW, "pytest-thresholds"),
-                           (TESTS_WORKFLOW, "js-coverage"),
                            (REFRESH_WORKFLOW, "suite")):
         job = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"][job_name]
         assert "services" not in job

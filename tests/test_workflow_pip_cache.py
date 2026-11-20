@@ -132,6 +132,22 @@ def _assert_one_writer(matrix: dict, gate: str) -> None:
     assert admitted_jobs == 1, (gate, admitted_jobs)
 
 
+def _planned(doc: dict, matrix: dict) -> dict:
+    """The matrix with each test-ratchet plan axis expanded to the shards it outputs."""
+    expanded = dict(matrix)
+    for axis, value in matrix.items():
+        match = re.fullmatch(r"\$\{\{ fromJSON\(needs\.plan\.outputs\.([\w-]+)\)\.shard \}\}", str(value))
+        if match:
+            plan = doc["jobs"]["plan"]
+            output = re.fullmatch(r"\$\{\{ steps\.([\w-]+)\.outputs\.matrix \}\}",
+                                  plan["outputs"][match.group(1)])
+            assert output, plan["outputs"]
+            shards, = [int(step["with"]["shards"]) for step in plan["steps"]
+                       if step.get("id") == output.group(1)]
+            expanded[axis] = [f"{index}/{shards}" for index in range(1, shards + 1)]
+    return expanded
+
+
 def test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value():
     # A matrix runs the job once per value. When the save's key varies by
     # a matrix value (tests.yml keys its python-version matrix that way)
@@ -157,7 +173,7 @@ def test_a_matrix_job_saving_under_a_shared_key_saves_from_one_value():
             events = doc.get("on", doc.get(True, {}))
             if not any(event in events for event in ("push", "workflow_call")):
                 continue
-            _assert_one_writer(strategy["matrix"], step.get("if") or "")
+            _assert_one_writer(_planned(doc, strategy["matrix"]), step.get("if") or "")
 
 
 def test_restore_and_save_steps_share_their_cache_key():
@@ -176,22 +192,21 @@ def test_restore_and_save_steps_share_their_cache_key():
                 save_keys.add(key)
         if not restore_keys and not save_keys:
             continue
-        restore_only = {"coverage-combine", "js-coverage", "reparse-gate",
-                        "pytest-thresholds", "ratchet", "baselines"}
+        restore_only = {"reparse-gate", "pytest-thresholds", "ratchet", "baselines"}
         if workflow == "tests.yml" and job in restore_only:
             assert len(restore_keys) == 1 and not save_keys, (workflow, job)
         else:
             assert restore_keys == save_keys, (workflow, job)
 
 
-@pytest.mark.parametrize("job_id", ["pytest-shards", "pytest-portable"])
-def test_only_one_pytest_shard_saves_the_shared_pip_cache(job_id):
+@pytest.mark.parametrize("job_id, first", [("test", "1/4"), ("test-portable", "1/2")])
+def test_only_one_pytest_shard_saves_the_shared_pip_cache(job_id, first):
     steps = next(steps for workflow, job, steps in _jobs()
                  if (workflow, job) == ("tests.yml", job_id))
     save, = [step for step in steps if _action(step) == "actions/cache/save"]
     assert save["if"] == (
         "github.event_name == 'push' && github.ref == 'refs/heads/master' "
-        "&& matrix.shard == 1")
+        f"&& matrix.shard == '{first}'")
 
 
 def test_types_installs_and_caches_the_full_import_toolchain():
@@ -344,4 +359,4 @@ def _sites_without_hashed_pyyaml_first(sites: dict[str, list[tuple[bool, list[li
 def test_every_backend_requirements_install_follows_the_hashed_pyyaml_install():
     sites = _install_sites()
     assert not _sites_without_hashed_pyyaml_first(sites)
-    assert len(_backend_sites(sites)) >= 17
+    assert len(_backend_sites(sites)) >= 15

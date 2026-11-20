@@ -1,0 +1,34 @@
+name: test-ratchet comment
+on:
+  workflow_run:  # zizmor: ignore[dangerous-triggers] nothing from the pull request is checked out or run
+    workflows: [ci gate]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: test-ratchet-comment-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  comment:
+    if: >-
+      github.event.workflow_run.event == 'pull_request'
+      && (github.event.workflow_run.head_repository.full_name != github.repository
+      || github.event.workflow_run.actor.login == 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Nitjsefnie-Actions/test-ratchet/report@c87f555f727ead2c7c4db57d4467830d18cd94b7 # v1.2.0
+        with:
+          github-token: ${{ github.token }}
+          cell: ubuntu-latest-3.15.1
+          run-id: ${{ github.event.workflow_run.id }}
