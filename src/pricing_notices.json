@@ -164,7 +164,6 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-pro-0813 via Wafer; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba",
     "tag 'alibaba/prime' names neither a known region nor a quantization: glm-5-3 via Alibaba",
@@ -317,8 +316,7 @@
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule",
-      "Sail Research": "2 endpoints at one current price",
-      "Wafer": "no matching log state"
+      "Sail Research": "2 endpoints at one current price"
     },
     "glm-5-2": {
       "BaseTen": "2 endpoints at one current price"
