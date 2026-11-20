@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WATCHDOG = ROOT / "scripts" / "ci" / "progress_watchdog.py"
 WORKFLOWS = ROOT / ".github" / "workflows"
 ACTION = ROOT / ".github" / "actions" / "apt-install" / "action.yml"
-INSTALL_STEPS_MINUTES = 19  # both install steps' backstops: apt 15 (a slow mirror on a cache miss), browser 4
+INSTALL_STEPS_MINUTES = 19  # apt 15 (a cache miss on a slow mirror) + browser 4, so with npm ci and the sweep the job fits its 30
 PACKAGES = "xvfb fonts-liberation"
 DISTRO = "/etc/apt/sources.list.d/ubuntu.sources"
 SANITIZE, KEY, RESTORE, INSTALL, SAVE = STEPS = ("Remove the unused Microsoft apt source", "Key the package cache", "Restore the package archives", "Install packages, retrying each phase until it succeeds", "Save the package archives")
@@ -138,7 +138,7 @@ def _worst_case(tmp_path: Path, calls: list[list[str]]) -> int:
     return sum(limits) + sum(map(int, kills)) + sum(int(call[1]) for call in calls if call[0] == "sleep")
 
 
-def _install(tmp_path: Path, step: str = INSTALL, **env: str) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
+def _run_step(tmp_path: Path, step: str = INSTALL, **env: str) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
     """Run an action step as its `shell: bash` runs it; (process, the doubles' calls)."""
     return _run(_step(step)["run"], tmp_path, ["-eo", "pipefail"], **env)
 
@@ -153,7 +153,7 @@ def test_browser_follows_the_apt_install_step():
     assert_apt_sanitizer(ROOT, apt)
 
 
-def test_sanitization_always_runs_and_package_setup_is_optional():
+def test_sanitization_always_runs_and_the_package_steps_restore_and_save_one_cache():
     sanitize, install = _step(SANITIZE), _step(INSTALL)
     assert re.search(
         r"sudo timeout \d+s rm -f\s+/etc/apt/sources.list.d/microsoft-prod.list"
@@ -162,11 +162,18 @@ def test_sanitization_always_runs_and_package_setup_is_optional():
     assert "apt-get" not in sanitize["run"]
     assert install["if"] == "inputs.packages != ''"
     assert _load(ACTION)["inputs"]["packages"]["default"] == ""
+    assert [step.get("name") for step in _action_steps()] == list(STEPS)
+    key, restore, save = (_step(name) for name in (KEY, RESTORE, SAVE))
+    archive = {"path": f"${{{{ runner.temp }}}}/{ARCHIVES}/*.deb", "key": "${{ steps.key.outputs.key }}"}  # exact key: no restore-keys
+    assert (key.get("id"), key.get("if"), key.get("shell"), key.get("env")) == ("key", "inputs.packages != ''", "bash", {"CLAUDIT_APT_PACKAGES": "${{ inputs.packages }}"})
+    assert (restore.get("id"), restore["uses"].partition("@")[0], restore.get("if"), restore.get("with")) == ("cache", "actions/cache/restore", "steps.key.outputs.key != ''", archive)
+    assert (save["uses"].partition("@")[0], save.get("continue-on-error"), save.get("with"), save.get("if")) == ("actions/cache/save", "true", archive, (
+        "steps.key.outputs.key != '' && steps.cache.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/master'"))
 
 
 @ubuntu_step_body
 def test_every_apt_phase_retries_a_stalled_attempt_and_two_attempts_fit_the_step(tmp_path):
-    proc, calls = _install(tmp_path, CLAUDIT_STALL_ONLY="apt-get", CLAUDIT_STALL_COUNT="1", CLAUDIT_TIMEOUT_EXPIRE="1")
+    proc, calls = _run_step(tmp_path, CLAUDIT_STALL_ONLY="apt-get", CLAUDIT_STALL_COUNT="1", CLAUDIT_TIMEOUT_EXPIRE="1")
     assert proc.returncode == 0, proc.stderr
     watched = [(options.split(), command) for options, _, command in  # (the watchdog's options, its command) per call
                (line.partition("|") for line in (tmp_path / "watchdog").read_text("utf-8").splitlines())]
@@ -209,7 +216,7 @@ def test_every_apt_phase_retries_a_stalled_attempt_and_two_attempts_fit_the_step
     ("--no-download", "apt-get install --no-download", None),
 ])
 def test_an_apt_phase_retries_a_failed_attempt_until_it_succeeds(tmp_path, phase, label, later):
-    proc, calls = _install(tmp_path, APT_FAIL=phase, APT_FAILS="4")
+    proc, calls = _run_step(tmp_path, APT_FAIL=phase, APT_FAILS="4")
     assert proc.returncode == 0, proc.stderr
     only = {f"Dir::Etc::SourceList={DISTRO}", "Dir::Etc::SourceParts=/dev/null"}  # no third-party source can fail it
     assert all(only <= set(call) for call in calls if call[0] == "apt-get"), calls
@@ -228,52 +235,45 @@ def test_an_apt_phase_retries_a_failed_attempt_until_it_succeeds(tmp_path, phase
 
 @ubuntu_step_body
 def test_a_missing_distribution_source_list_stops_the_step_at_once(tmp_path):
-    proc, calls = _install(tmp_path, CLAUDIT_DISTRO_MISSING="1")
+    proc, calls = _run_step(tmp_path, CLAUDIT_DISTRO_MISSING="1")
     assert (proc.returncode, calls, proc.stderr) == (1, [], f"::error::{DISTRO}, the distribution's apt sources, is missing\n")
 
 
 @ubuntu_step_body
 def test_only_the_recovery_command_that_failed_is_reported(tmp_path):
-    proc, _ = _install(tmp_path, CLAUDIT_STALL_ONLY="apt-get install --no-download", CLAUDIT_STALL_COUNT="1",
-                       APT_FAIL="check", APT_FAILS="99")
+    proc, _ = _run_step(tmp_path, CLAUDIT_STALL_ONLY="apt-get install --no-download", CLAUDIT_STALL_COUNT="1",
+                        APT_FAIL="check", APT_FAILS="99")
     assert proc.returncode == 0, proc.stderr
     assert re.findall(r"^::warning::.*$", proc.stdout, re.M) == ["::warning::apt-get check exited with status 100"]
 
 
 @ubuntu_step_body
-def test_the_install_reuses_the_archives_the_cache_steps_restore_and_save(tmp_path):
+def test_the_install_points_apt_at_the_restored_archives_and_keeps_them(tmp_path):
     (archives := tmp_path / ARCHIVES).mkdir()
     debs = {archives / name: name.encode() for name in ("xvfb_2_amd64.deb", "fonts-liberation_1_all.deb")}
     for path, content in debs.items():
         path.write_bytes(content)
-    proc, calls = _install(tmp_path)
+    proc, calls = _run_step(tmp_path)
     assert proc.returncode == 0, proc.stderr
     installs = [call for call in calls if call[:3] == ["apt-get", "noninteractive", "install"]]
     assert len(installs) == 2 and all(("-o", f"Dir::Cache::archives={archives}/") in zip(call, call[1:]) for call in installs), installs
     assert (archives / "partial").is_dir() and not [call for call in calls if call[0] == "dpkg"], calls
-    assert {path: path.read_bytes() for path in archives.glob("*.deb")} == debs  # apt reuses them; nothing replaces them
-    assert [step.get("name") for step in _action_steps()] == list(STEPS)
-    key, restore, save = (_step(name) for name in (KEY, RESTORE, SAVE))
-    archive = {"path": f"${{{{ runner.temp }}}}/{ARCHIVES}/*.deb", "key": "${{ steps.key.outputs.key }}"}  # exact key: no restore-keys
-    assert (key.get("id"), key.get("if"), key.get("shell"), key.get("env")) == ("key", "inputs.packages != ''", "bash", {"CLAUDIT_APT_PACKAGES": "${{ inputs.packages }}"})
-    assert (restore.get("id"), restore["uses"].partition("@")[0], restore.get("if"), restore.get("with")) == ("cache", "actions/cache/restore", "steps.key.outputs.key != ''", archive)
-    assert (save["uses"].partition("@")[0], save.get("continue-on-error"), save.get("with"), save.get("if")) == ("actions/cache/save", "true", archive, (
-        "steps.key.outputs.key != '' && steps.cache.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/master'"))
+    assert {path: path.read_bytes() for path in archives.glob("*.deb")} == debs  # the step neither deletes nor replaces them; apt's reuse is not modelled here
 
 
 @ubuntu_step_body
-@pytest.mark.parametrize("empty", list(IMAGE))
-def test_the_cache_key_names_the_image_and_the_package_set(tmp_path, empty):
-    proc, _ = _install(tmp_path / "skip", KEY, **{**IMAGE, empty: ""})
-    lines = (tmp_path / "skip" / "output").read_text("utf-8").splitlines()
-    warnings = re.findall(r"^::warning::.*$", proc.stdout, re.M)
-    assert (proc.returncode, lines, len(warnings)) == (0, [], 1) and "cache" in warnings[0] and empty in warnings[0], proc
+def test_the_cache_key_names_the_image_and_the_package_set(tmp_path):
+    for empty in IMAGE:  # an image the key cannot name skips the cache, saying which name is empty
+        proc, _ = _run_step(tmp_path / empty, KEY, **{**IMAGE, empty: ""})
+        lines = (tmp_path / empty / "output").read_text("utf-8").splitlines()
+        warnings = re.findall(r"^::warning::.*$", proc.stdout, re.M)
+        assert (proc.returncode, lines, len(warnings)) == (0, [], 1) and "cache" in warnings[0] and [name for name in IMAGE if name in warnings[0]] == [empty], proc
     image = tuple(IMAGE.values())
     rows = [(PACKAGES, *image), (" fonts-liberation  xvfb xvfb ", *image), ("xvfb", *image),  # the first two name one set
             (PACKAGES + " fonts-unifont", *image), (PACKAGES, "ubuntu22", "X64"), (PACKAGES, "ubuntu24", "ARM64")]
     keys = []
     for index, (packages, image_os, arch) in enumerate(rows):
-        proc, _ = _install(tmp_path / str(index), KEY, CLAUDIT_APT_PACKAGES=packages, ImageOS=image_os, RUNNER_ARCH=arch)
+        proc, _ = _run_step(tmp_path / str(index), KEY, CLAUDIT_APT_PACKAGES=packages, ImageOS=image_os, RUNNER_ARCH=arch, ImageVersion=str(index))
         lines = (tmp_path / str(index) / "output").read_text("utf-8").splitlines()
         assert proc.returncode == 0 and len(lines) == 1 and re.fullmatch(rf"key=apt-debs-{image_os}-{arch}-[0-9a-f]{{64}}", lines[0]), proc
         keys.append(lines[0])
