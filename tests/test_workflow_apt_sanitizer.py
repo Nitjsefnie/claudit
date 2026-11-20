@@ -27,6 +27,9 @@ ACTION = ROOT / ".github" / "actions" / "apt-install" / "action.yml"
 INSTALL_STEPS_MINUTES = 10  # both install steps' backstops, so a slow healthy leg stays well under 20 minutes
 PACKAGES = "xvfb fonts-liberation"
 DISTRO = "/etc/apt/sources.list.d/ubuntu.sources"
+SANITIZE, KEY, RESTORE, INSTALL, SAVE = STEPS = ("Remove the unused Microsoft apt source", "Key the package cache", "Restore the package archives", "Install packages, retrying each phase until it succeeds", "Save the package archives")
+ARCHIVES = "apt-archives"  # under the runner's temp directory, which is each run's tmp_path
+IMAGE = {"ImageOS": "ubuntu24", "RUNNER_ARCH": "X64"}
 DOUBLES = r'''
 record() { local IFS=$'\037'; printf '%s\n' "$*" >> "$CALLS"; }
 # The watchdog execs its command, so it reads only `--stall N --sample N --grace N --watch PATH... -- COMMAND`, runs only a
@@ -51,10 +54,11 @@ env() (
     *) echo "env double: unmodelled $*" >&2; exit 99 ;; esac
 )
 apt-get() {
-  record apt-get "${DEBIAN_FRONTEND:-}" "$@"
+  record apt-get "${DEBIAN_FRONTEND:-}" "$@"; local option
+  for option; do [[ "$option" != Dir::Cache::archives=* || -d "${option#*=}partial" ]] || return 100; done  # as apt refuses it
   [[ "$*" != *"$APT_FAIL"* ]] || [ "$(grep -c -- "$APT_FAIL" "$CALLS")" -gt "$APT_FAILS" ] || return 100
 }
-dpkg() { record dpkg "${DEBIAN_FRONTEND:-}" "$@"; }
+dpkg() { record dpkg "${DEBIAN_FRONTEND:-}" "$@"; [ "$*" = "--configure -a" ] || { echo "dpkg double: unmodelled $*" >&2; return 99; }; }
 test() { [ "$*" = "-f $CLAUDIT_DISTRO" ] || { echo "test double: unmodelled $*" >&2; return 99; }; [ -z "${CLAUDIT_DISTRO_MISSING:-}" ]; }
 npx() {
   record npx "$@"
@@ -89,6 +93,12 @@ def _action_steps() -> list[dict]:
     return doc["runs"]["steps"]
 
 
+def _step(name: str) -> dict:
+    found = [step for step in _action_steps() if step.get("name") == name]
+    assert len(found) == 1, (name, [step.get("name") for step in _action_steps()])
+    return found[0]
+
+
 def _panel_steps() -> list[dict]:
     return [step for name, _, step in _workflow_steps() if name == "panel-layout.yml"]
 
@@ -103,20 +113,21 @@ def _browser() -> tuple[dict, dict]:
 
 def _run(script: str, tmp_path: Path, flags: list[str], **env: str) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
     """Run `script` under the doubles from the checkout; (process, the doubles' calls)."""
-    trip = tmp_path / "tripwire"
-    trip.mkdir()
+    (trip := tmp_path / "tripwire").mkdir(parents=True)
     for name in ("sudo", "apt-get", "dpkg", "npx", "timeout"):  # a call that escapes its double fails loudly
         (trip / name).write_text(f"#!/bin/sh\necho 'real {name} reached' >&2\nexit 97\n", encoding="utf-8", newline="\n")
         (trip / name).chmod(0o755)
     (tmp_path / "timeout-state").mkdir()
     calls = tmp_path / "calls"
     calls.touch()
+    (tmp_path / "output").touch()
     proc = subprocess.run(
         ["bash", "--noprofile", "--norc", *flags, "-c", TIMEOUT_STUB + DOUBLES + script],
         env={"PATH": f"{trip}{os.pathsep}{os.environ['PATH']}", "CALLS": str(calls),
              "CLAUDIT_TIMEOUT_STATE": str(tmp_path / "timeout-state"), "CLAUDIT_TIMEOUT_DOUBLES": str(tmp_path / "none"),
              "CLAUDIT_APT_PACKAGES": PACKAGES, "APT_FAIL": "@nothing@", "APT_FAILS": "0", "REPORT": "", "REPORT_STATUS": "0",
-             "GITHUB_ACTION_PATH": str(ACTION.parent), "CLAUDIT_WATCHDOG_CALLS": str(tmp_path / "watchdog"),
+             "GITHUB_ACTION_PATH": str(ACTION.parent), "RUNNER_TEMP": str(tmp_path),
+             "GITHUB_OUTPUT": str(tmp_path / "output"), "CLAUDIT_WATCHDOG_CALLS": str(tmp_path / "watchdog"),
              "CLAUDIT_STALL_ONLY": "@nothing@", "CLAUDIT_STALL_COUNT": "0", "CLAUDIT_DISTRO": DISTRO, **env},
         cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
     return proc, [line.split("\x1f") for line in calls.read_text(encoding="utf-8").splitlines()]
@@ -131,8 +142,9 @@ def _worst_case(tmp_path: Path, calls: list[list[str]]) -> int:
     return sum(limits) + sum(map(int, kills)) + sum(int(call[1]) for call in calls if call[0] == "sleep")
 
 
-def _install(tmp_path: Path, **env: str) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
-    return _run(_action_steps()[1]["run"], tmp_path, ["-eo", "pipefail"], **env)
+def _install(tmp_path: Path, step: str = INSTALL, **env: str) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
+    """Run an action step as its `shell: bash` runs it; (process, the doubles' calls)."""
+    return _run(_step(step)["run"], tmp_path, ["-eo", "pipefail"], **env)
 
 
 def test_workflows_delegate_every_apt_command():
@@ -146,7 +158,7 @@ def test_browser_follows_the_apt_install_step():
 
 
 def test_sanitization_always_runs_and_package_setup_is_optional():
-    sanitize, install = _action_steps()
+    sanitize, install = _step(SANITIZE), _step(INSTALL)
     assert re.search(
         r"sudo timeout \d+s rm -f\s+/etc/apt/sources.list.d/microsoft-prod.list"
         r"\s+/etc/apt/sources.list.d/microsoft-prod.sources", sanitize["run"])
@@ -176,7 +188,7 @@ def test_every_apt_phase_retries_a_stalled_attempt_and_two_attempts_fit_the_step
     option, = {tuple(option) for option, _ in watched}  # every attempt of every phase is watched alike
     pairs = list(zip(option[::2], option[1::2]))
     assert {value for name, value in pairs if name == "--watch"} == {
-        "/var/lib/apt/lists", "/var/cache", "/var/lib/dpkg", "/var/log/dpkg.log", "/var/log/apt"}
+        "/var/lib/apt/lists", "/var/cache", "/var/lib/dpkg", "/var/log/dpkg.log", "/var/log/apt", str(tmp_path / ARCHIVES)}
     stall, sample, grace = (int(dict(pairs)[name]) for name in ("--stall", "--sample", "--grace"))
     recovery = bounded_calls(tmp_path / "timeout-state")
     said = r"^(?:==> |::warning::)(.+?)(?: attempt 1)? (?:stalled|timed out) after (\d+) s"
@@ -190,7 +202,7 @@ def test_every_apt_phase_retries_a_stalled_attempt_and_two_attempts_fit_the_step
         limit for limit, _ in recovery) + sum(map(int, (tmp_path / "timeout-state" / "kills").read_text("utf-8").split()))
     callers = [step for _, _, step in _workflow_steps()  # every spelling that resolves to this action
                if step.get("uses", "").partition("@")[0].rstrip("/").endswith("/.github/actions/apt-install")]
-    cycle += int(re.findall(r"timeout (\d+)s rm ", _action_steps()[0]["run"])[0]) / 2  # the sanitizer runs once
+    cycle += int(re.findall(r"timeout (\d+)s rm ", _step(SANITIZE)["run"])[0]) / 2  # the sanitizer runs once
     assert callers and all(2 * cycle < int(step["timeout-minutes"]) * 60 for step in callers), cycle
 
 
@@ -230,6 +242,46 @@ def test_only_the_recovery_command_that_failed_is_reported(tmp_path):
                        APT_FAIL="check", APT_FAILS="99")
     assert proc.returncode == 0, proc.stderr
     assert re.findall(r"^::warning::.*$", proc.stdout, re.M) == ["::warning::apt-get check exited with status 100"]
+
+
+@ubuntu_step_body
+def test_the_install_reuses_the_archives_the_cache_steps_restore_and_save(tmp_path):
+    (archives := tmp_path / ARCHIVES).mkdir()
+    debs = {archives / name: name.encode() for name in ("xvfb_2_amd64.deb", "fonts-liberation_1_all.deb")}
+    for path, content in debs.items():
+        path.write_bytes(content)
+    proc, calls = _install(tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    installs = [call for call in calls if call[:3] == ["apt-get", "noninteractive", "install"]]
+    assert len(installs) == 2 and all(("-o", f"Dir::Cache::archives={archives}/") in zip(call, call[1:]) for call in installs), installs
+    assert (archives / "partial").is_dir() and not [call for call in calls if call[0] == "dpkg"], calls
+    assert {path: path.read_bytes() for path in archives.glob("*.deb")} == debs  # apt reuses them; nothing replaces them
+    assert [step.get("name") for step in _action_steps()] == list(STEPS)
+    key, restore, save = (_step(name) for name in (KEY, RESTORE, SAVE))
+    archive = {"path": f"${{{{ runner.temp }}}}/{ARCHIVES}/*.deb", "key": "${{ steps.key.outputs.key }}"}  # exact key: no restore-keys
+    assert (key.get("id"), key.get("if"), key.get("shell"), key.get("env")) == ("key", "inputs.packages != ''", "bash", {"CLAUDIT_APT_PACKAGES": "${{ inputs.packages }}"})
+    assert (restore.get("id"), restore["uses"].partition("@")[0], restore.get("if"), restore.get("with")) == ("cache", "actions/cache/restore", "steps.key.outputs.key != ''", archive)
+    assert (save["uses"].partition("@")[0], save.get("continue-on-error"), save.get("with"), save.get("if")) == ("actions/cache/save", "true", archive, (
+        "steps.key.outputs.key != '' && steps.cache.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/master'"))
+
+
+@ubuntu_step_body
+@pytest.mark.parametrize("empty", list(IMAGE))
+def test_the_cache_key_names_the_image_and_the_package_set(tmp_path, empty):
+    proc, _ = _install(tmp_path / "skip", KEY, **{**IMAGE, empty: ""})
+    lines = (tmp_path / "skip" / "output").read_text("utf-8").splitlines()
+    warnings = re.findall(r"^::warning::.*$", proc.stdout, re.M)
+    assert (proc.returncode, lines, len(warnings)) == (0, [], 1) and "cache" in warnings[0] and empty in warnings[0], proc
+    image = tuple(IMAGE.values())
+    rows = [(PACKAGES, *image), (" fonts-liberation  xvfb xvfb ", *image), ("xvfb", *image),  # the first two name one set
+            (PACKAGES + " fonts-unifont", *image), (PACKAGES, "ubuntu22", "X64"), (PACKAGES, "ubuntu24", "ARM64")]
+    keys = []
+    for index, (packages, image_os, arch) in enumerate(rows):
+        proc, _ = _install(tmp_path / str(index), KEY, CLAUDIT_APT_PACKAGES=packages, ImageOS=image_os, RUNNER_ARCH=arch)
+        lines = (tmp_path / str(index) / "output").read_text("utf-8").splitlines()
+        assert proc.returncode == 0 and len(lines) == 1 and re.fullmatch(rf"key=apt-debs-{image_os}-{arch}-[0-9a-f]{{64}}", lines[0]), proc
+        keys.append(lines[0])
+    assert keys[0] == keys[1] and len(set(keys)) == len(rows) - 1, keys
 
 
 def _browser_run(tmp_path: Path, **env: str) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
