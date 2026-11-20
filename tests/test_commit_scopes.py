@@ -13,7 +13,6 @@ wiring beside the merge-conflict-marker step.
 """
 from __future__ import annotations
 
-import importlib.util
 import re
 import subprocess
 import sys
@@ -24,21 +23,12 @@ import pytest
 import yaml
 
 from tests.test_provider_rate_refresh import refresh
+from tests.ci_script import load_ci_script
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load(name: str):
-    path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-cs = _load("commit_scopes")
+cs = load_ci_script("commit_scopes")
 
 TYPES = {"build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor",
          "revert", "style", "test"}

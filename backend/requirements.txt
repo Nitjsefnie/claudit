@@ -6,19 +6,19 @@
 # and pinning it separately is how the two end up in conflict. Its version
 # is whatever pip resolves under fastapi's `starlette>=0.46.0` floor, so it
 # moves with time; nothing here records a snapshot of it.
-fastapi==0.163.0
+fastapi==0.163.1
 uvicorn[standard]==0.54.0
-psycopg[pool,binary]==3.3.8
+psycopg[pool,binary]==3.3.9
 boto3==1.44.3
 orjson==3.13.0
 apscheduler==3.11.3
 # Not imported anywhere; FastAPI needs it to parse the login form
 # (backend/login.py uses Form()). Removing it breaks POST /login at
 # runtime, not at import.
-python-multipart==0.0.33
+python-multipart==0.0.34
 pytest==9.2.0
 pytest-asyncio==1.5.0
-httpx2==2.16.0
+httpx2==2.16.2
 # Transitive floors (issue #938): urllib3 arrives under botocore and
 # anyio under starlette/httpx, so audit.yml's pip-audit and Dependabot
 # see neither unless THIS file names them — which is how both shipped

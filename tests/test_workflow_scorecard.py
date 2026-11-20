@@ -5,12 +5,11 @@ Scheduled/manual scans must not gate releases. Check SARIF wiring through
 decoded YAML so a scan cannot silently stop reporting."""
 from __future__ import annotations
 
-import importlib.util
 import subprocess
-import sys
 from pathlib import Path
 
 import yaml
+from tests.ci_script import load_ci_script
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
@@ -35,17 +34,7 @@ CONTRIBUTION_EVENTS = ("push", "pull_request", "pull_request_target",
                        "merge_group")
 
 
-def _load(name):
-    path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-release_gate = _load("release_gate")
+release_gate = load_ci_script("release_gate")
 
 
 def _load_workflow(path: Path) -> dict:

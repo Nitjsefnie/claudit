@@ -9,22 +9,11 @@ see, and the property that every file a workflow names is covered.
 """
 from __future__ import annotations
 
-import importlib.util
 import subprocess
-import sys
 from pathlib import Path
+from tests.ci_script import load_ci_script
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _load(name):
-    path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def _real_workflow_texts():
@@ -41,7 +30,7 @@ def _tracked():
     return set(out.stdout.split())
 
 
-gts = _load("gate_trigger_set")
+gts = load_ci_script("gate_trigger_set")
 
 
 def test_families_are_the_gate_shaped_directories():

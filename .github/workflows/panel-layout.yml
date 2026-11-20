@@ -81,7 +81,7 @@ jobs:
       # The fonts and shared libraries the pinned Playwright installs for
       # Chromium on this image; the next step fails if it needs another.
       - uses: $/.github/actions/apt-install
-        timeout-minutes: 6
+        timeout-minutes: 15
         with:
           packages: >-
             xvfb fonts-noto-color-emoji fonts-unifont libfontconfig1 libfreetype6
