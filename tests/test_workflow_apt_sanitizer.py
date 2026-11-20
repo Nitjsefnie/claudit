@@ -99,13 +99,9 @@ def _step(name: str) -> dict:
     return found[0]
 
 
-def _panel_steps() -> list[dict]:
-    return [step for name, _, step in _workflow_steps() if name == "panel-layout.yml"]
-
-
 def _browser() -> tuple[dict, dict]:
     """(the apt composite step, the browser step after it)."""
-    steps = _panel_steps()
+    steps = [step for name, _, step in _workflow_steps() if name == "panel-layout.yml"]
     browsers = [index for index, step in enumerate(steps) if "playwright install" in step.get("run", "")]
     assert len(browsers) == 1 and browsers[0] > 0
     return steps[browsers[0] - 1], steps[browsers[0]]
