@@ -10,29 +10,18 @@ the workflow wiring that drives the script.
 """
 from __future__ import annotations
 
-import importlib.util
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 import yaml
+from tests.ci_script import load_ci_script
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load(name):
-    path = REPO_ROOT / "scripts" / "ci" / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-gf = _load("gate_freshness")
+gf = load_ci_script("gate_freshness")
 
 
 def _git_stub(mapping):
