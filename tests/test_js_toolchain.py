@@ -58,11 +58,6 @@ WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 # `test_the_lockfile_is_committed_and_matches_the_manifest`'s job.
 EXPECTED_DEV_TOOLS = (
     "playwright",
-    "@bcoe/v8-coverage",
-    "acorn",
-    "ast-v8-to-istanbul",
-    "istanbul-lib-coverage",
-    "test-exclude",
     "eslint",
     "eslint-plugin-react",
     "globals",
@@ -254,20 +249,18 @@ def test_exactly_one_npm_entry_owns_the_manifest() -> None:
 def test_no_workflow_pins_an_npm_package_inline() -> None:
     """The inline pin, wherever it reappears.
 
-    Every workflow, both extensions, and the extracted coverage gate:
-    moving coverage conversion into an action keeps its pins visible here.
+    Every workflow, both extensions.
     """
     offenders = []
     paths = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
     assert paths, "no workflow found; the scan would pass on an empty tree"
-    paths.append(REPO_ROOT / ".github" / "actions" / "coverage-gate" / "action.yml")
     for path in paths:
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for run in _run_bodies(doc):
             for match in _INLINE_NPM_PIN.finditer(run):
                 offenders.append(f"{path.name}: {match.group(0).strip()}")
     assert not offenders, (
-        "a workflow or coverage action installs an npm package with an inline @version, which "
+        "a workflow installs an npm package with an inline @version, which "
         "no update mechanism can see (issue #361): " + "; ".join(offenders))
 
 
@@ -424,69 +417,15 @@ def test_flat_config_lints_js_and_jsx() -> None:
         "linting every panel")
 
 
-def _javascript_coverage_gate() -> dict:
-    steps = _workflow("tests.yml")["jobs"]["js-coverage"]["steps"]
-    job = _workflow("tests.yml")["jobs"]["js-coverage"]
-    assert job["if"] == "inputs.thresholds_only != 'true'"
-    assert job["outputs"]["js_measured"] == "${{ steps.jscov.outputs.js_measured }}"
-    caller = next(step for step in steps
-                  if step.get("name") == "JavaScript coverage gate")
-    assert caller.get("id") == "jscov"
-    assert caller.get("if") == "${{ !cancelled() }}"
-    action = yaml.safe_load((REPO_ROOT / ".github" / "actions"
-                             / "coverage-gate" / "action.yml").read_text(
-                                 encoding="utf-8"))
-    assert action["runs"]["using"] == "composite"
-    assert action["outputs"]["js_measured"]["value"] == (
-        "${{ steps.jscov.outputs.js_measured }}")
-    step = next(step for step in action["runs"]["steps"]
-                if step.get("id") == "jscov")
-    assert step.get("if") == "inputs.language == 'javascript'"
-    return step
-
-
-def test_js_coverage_gate_still_reports_one_decimal() -> None:
-    """SV-CI-RATCHETS' javascript floor, fed the same number.
-
-    `coverage-summary.json`'s `total.lines.pct` is raw; the gate rounds it
-    to the one decimal the ratchet records. The converter compares its
-    unrounded measurement against the committed floor.
-    """
-    step = _javascript_coverage_gate()
-    run = step.get("run") or ""
-    assert 'require("./coverage/coverage-summary.json").total.lines.pct' in run, (
-        "coverage-gate/action.yml no longer reads total.lines.pct out of "
-        "coverage-summary.json; the javascript ratchet has no measurement")
-    assert "total.lines.pct.toFixed(1)" in run, (
-        "the javascript coverage measurement is no longer rounded to one "
-        "decimal, which is the format .github/ci-thresholds.json records")
-    assert '--lines "$floor"' in run, (
-        "the JavaScript coverage gate no longer checks itself against the "
-        "committed javascript floor")
-    assert 'node scripts/ci/js_coverage.mjs "$NODE_V8_COVERAGE"' in run
-    assert "--include 'src/**/*.js'" in run
-    assert step.get("env", {}).get("NODE_V8_COVERAGE") == (
-        "${{ runner.temp }}/v8-coverage")
-    assert 'echo "js_measured=${js_measured}" >> "$GITHUB_OUTPUT"' in run
-
-
-def test_the_coverage_gate_feeds_the_node_test_list_to_pytest() -> None:
-    run = _LINE_CONTINUATION.sub(" ", _javascript_coverage_gate().get("run") or "")
-    assert "python -m pytest $(cat scripts/ci/node_test_files.txt)" in run, (
-        "coverage-gate/action.yml no longer feeds scripts/ci/node_test_files.txt to pytest "
-        "via $(cat ...); the list no longer drives the JavaScript "
-        "coverage measurement")
-
-
-NODE_STALL_STEPS = (("tests.yml", "pytest-shards", "Run tests"),
-                    ("tests.yml", "pytest-portable", "Run tests"),
+NODE_STALL_STEPS = (("tests.yml", "test", "Run tests"),
+                    ("tests.yml", "test-portable", "Run tests"),
                     ("test-data.yml", "perturbed-suite", "Perturb and test"),
                     ("test-data-explore.yml", "perturbed-suite-explore",
                      "Perturb and test, per wall-clock seed"))
 
 
 def test_the_listed_node_backed_ci_steps_record_where_node_stalled() -> None:
-    steps = {"coverage-gate/jscov": _javascript_coverage_gate()}
+    steps = {}
     for name, job, step_name in NODE_STALL_STEPS:
         steps[f"{name}/{job}"], = (step for step in _workflow(name)["jobs"][job]["steps"]
                                    if step.get("name") == step_name)

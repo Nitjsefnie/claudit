@@ -5,13 +5,8 @@
 # backend/requirements.txt, which tests.yml installs first. Duplicating a
 # pin in two files is how the two drift.
 #
-# `coverage` is named explicitly rather than left to pytest-cov's
-# dependency resolution, because the workflow shells out to `coverage
-# report --format=markdown` and `--fail-under` directly — the gate is a
-# step of its own so a coverage failure is distinguishable from a test
-# failure, and the summary still renders when the gate is red.
-coverage==7.17.3
-pytest-cov==7.1.0
+# coverage, pytest-cov and pytest-xdist are NOT here either: test-ratchet's
+# `run` installs its own pinned copies in every cell it runs.
 
 # pyyaml parses .github/workflows/*.yml for the workflow-shape tests and
 # lives in requirements-pyyaml.txt since the Python 3.15 move: its --hash

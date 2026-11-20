@@ -2,20 +2,15 @@
   "name": "claudit-ci-tools",
   "version": "0.0.0",
   "private": true,
-  "description": "Lint and coverage TOOLS for CI. The frontend has no npm dependency and no build step: React and ReactDOM load from the vendored builds under public/vendor/ and every src file is transpiled in the browser (see CONTRIBUTING.md). Nothing here is shipped, served or bundled - the running app never reads this file.",
+  "description": "Lint and browser TOOLS for CI. The frontend has no npm dependency and no build step: React and ReactDOM load from the vendored builds under public/vendor/ and every src file is transpiled in the browser (see CONTRIBUTING.md). Nothing here is shipped, served or bundled - the running app never reads this file.",
   "scripts": {
     "lint": "eslint 'src/**/*.js' 'src/**/*.jsx' 'scripts/ci/*.mjs' eslint.config.mjs"
   },
   "devDependencies": {
-    "@bcoe/v8-coverage": "1.0.2",
-    "acorn": "8.19.0",
-    "ast-v8-to-istanbul": "1.0.8",
     "eslint": "10.15.0",
     "eslint-plugin-react": "7.37.5",
     "globals": "17.14.0",
-    "istanbul-lib-coverage": "3.2.2",
-    "playwright": "1.65.1",
-    "test-exclude": "8.0.0"
+    "playwright": "1.65.1"
   },
   "overrides": {
     "glob": "14.0.3",

@@ -36,12 +36,9 @@ STALL = "faulthandler_timeout"
 NO_DUMP = "pytest without `-o faulthandler_timeout=N`, N in digits above 0"
 NO_DURATIONS = "pytest without `--durations`"
 NO_PLUGIN = "pytest with `no:faulthandler`, which turns the dump off"
-KNOWN = {(".github/workflows/tests.yml", "pytest-shards"),
-         (".github/workflows/tests.yml", "pytest-thresholds"),
-         (".github/workflows/tests.yml", "pytest-portable"),
+KNOWN = {(".github/workflows/tests.yml", "pytest-thresholds"),
          (".github/workflows/refresh-pricing.yml", "suite"),
-         (".github/workflows/ci-gate.yml", "setup-docs"),
-         (".github/actions/coverage-gate/action.yml", "composite")}
+         (".github/workflows/ci-gate.yml", "setup-docs")}
 
 
 def _armed(word: str) -> bool:
@@ -64,16 +61,6 @@ def _is_pytest(word: str) -> bool:
 def _pytest_commands(script: str) -> list[tuple[list[str], list[str]]]:
     """(words, what they lack) per pytest command in a `run:` script."""
     return [(words, _lacks(words)) for words, _ in _commands(script) if any(map(_is_pytest, words))]
-
-
-def split_pytest_argv(step: dict, argv: list[str]) -> tuple[list[str], list[str]]:
-    """(files, options) of a stub `python`'s argv, framed by what the step writes around `$files`."""
-    (words, _), = _pytest_commands(step["run"])
-    args = words[words.index("python") + 1:]
-    head, tail = args[:args.index("$files")], args[args.index("$files") + 1:]
-    end = len(argv) - len(tail)
-    assert len(head) <= end and argv[:len(head)] == head and argv[end:] == tail, (argv, args)
-    return argv[len(head):end], tail
 
 
 def _lacking(script: str) -> list[list[str]]:

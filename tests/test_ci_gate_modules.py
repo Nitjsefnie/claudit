@@ -434,7 +434,7 @@ def test_main_writes_full_run_over_an_unhandled_event(tmp_path, monkeypatch):
 # aggregate_gate: the fold
 # ---------------------------------------------------------------------------
 
-LEGS = ("classify", "tests", "test-data", "lint", "types", "eslint",
+LEGS = ("classify", "tests", "report", "test-data", "lint", "types", "eslint",
         "panel-layout", "smoke", "docker-smoke", "audit", "actionlint",
         "codeql", "setup-docs")
 

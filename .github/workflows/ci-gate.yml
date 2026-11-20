@@ -6,7 +6,7 @@ name: ci gate
 # change, so its check name goes MISSING rather than reporting, and a
 # ruleset requiring it could never go green on such a change. This
 # workflow starts on every push and pull request
-# (trigger-level ignores for all three ratchet data files, below),
+# (trigger-level ignores for all four ratchet data files, below),
 # classifies the changed paths, and either runs every gate leg or
 # narrows: a docs-only run skips every leg; a setup-only run executes
 # only setup-docs, with the guard covered by tests on full runs. A bot-data-only run
@@ -67,12 +67,14 @@ on:
       - '.github/ci-thresholds.json'
       - '.github/comment-share.json'
       - '.github/size-baseline.json'
+      - '.github/test-times.json'
   workflow_dispatch:
 
 # Read-only except where a leg says otherwise. Tests execute the proposed
-# tree and must hold no write token. The top-level ratchet-push.yml owns
-# pushing: an environment secret is unavailable to a workflow_call callee,
-# and GITHUB_TOKEN cannot bypass the required aggregate check.
+# tree and must hold no write token. The top-level ratchet-push.yml and the
+# report job own pushing: an environment secret is unavailable to a
+# workflow_call callee, and GITHUB_TOKEN cannot bypass the required
+# aggregate check.
 permissions:
   contents: read
 
@@ -104,8 +106,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Nothing in this workflow pushes except the tests leg's
-          # ratchet (inside its callee), and no token left in
+          # Nothing in this workflow pushes except the report job,
+          # with its own deploy key, and no token left in
           # .git/config is reusable by later steps.
           persist-credentials: false
 
@@ -157,13 +159,37 @@ jobs:
     permissions:
       # The caller's grant CAPS what the callee can use, so this is
       # read-only: contents: read for the suite, which checks out and
-      # RUNS the proposed tree. The informational
-      # patch-coverage comment needs no token from inside the leg — the
-      # leg uploads the rendered body and the top-level
-      # coverage-comment.yml posts it. The callee pushes
-      # nothing — the ratchet data is published by the top-level
-      # ratchet-push.yml workflow; no secret is forwarded.
+      # RUNS the proposed tree. The callee pushes nothing and comments
+      # nothing: the report job below does both; no secret is forwarded.
       contents: read
+
+  report:
+    # test-ratchet's report: merges the tests leg's coverage artifacts,
+    # gates the canary cell's floors, comments on the pull request and,
+    # on a master push, commits the raised records. A job of this
+    # top-level workflow, since an environment secret reads empty inside
+    # a workflow_call callee; it runs nothing from the proposed tree.
+    # Skipped on the classes that skip the tests leg's suite.
+    needs: [classify, tests]
+    if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' && needs.classify.outputs.data_only != 'true' && needs.classify.outputs.thresholds_only != 'true' && needs.classify.outputs.setup_only != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch && format('{0}-push', github.event.repository.default_branch) || '' }}
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Nitjsefnie-Actions/test-ratchet/report@c87f555f727ead2c7c4db57d4467830d18cd94b7 # v1.2.0
+        with:
+          github-token: ${{ github.token }}
+          cell: ubuntu-latest-3.15.1
+          times: .github/test-times.json
+          push-key: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
 
   test-data:
     # The perturbed-data leg: the full suite against a tree
@@ -263,8 +289,9 @@ jobs:
         run: python3 -m pytest tests/test_docs_setup.py -q -o faulthandler_timeout=240 --durations=20
 
   aggregate:
-    needs: [classify, tests, test-data, lint, types, eslint, panel-layout,
-            smoke, docker-smoke, audit, actionlint, codeql, setup-docs]
+    needs: [classify, tests, report, test-data, lint, types, eslint,
+            panel-layout, smoke, docker-smoke, audit, actionlint, codeql,
+            setup-docs]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15

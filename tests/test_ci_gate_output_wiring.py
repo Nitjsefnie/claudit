@@ -260,7 +260,7 @@ def _runs(job, outputs):
 
     Support the matrix's exclusions and the setup guard's inclusion.
     """
-    condition = _condition(job)
+    condition = _condition(job).removeprefix("!cancelled() && ")
     if not condition:
         return True
     assert EVALUABLE.match(condition), \

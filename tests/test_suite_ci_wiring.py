@@ -79,18 +79,15 @@ def test_tests_job_measures_and_gates_on_every_event():
     job = _job(doc, "suite-bench")
     bench, = [step for step in _steps(job) if step.get("id") == "suite_bench"]
     assert "if" not in bench
-    assert job["needs"] == ["pytest-shards", "pytest-thresholds", "js-coverage"]
+    assert job["needs"] == ["test", "pytest-thresholds"]
     assert job["if"] == (
-        "${{ !cancelled() && (needs.pytest-shards.result == 'success' "
-        "|| needs.pytest-thresholds.result == 'success') "
-        "&& (needs.js-coverage.result == 'success' "
-        "|| inputs.thresholds_only == 'true') }}")
+        "${{ !cancelled() && (needs.test.result == 'success' "
+        "|| needs.pytest-thresholds.result == 'success') }}")
     # A fresh job is part of the workload: no earlier pytest session may
     # warm imports or collection before the bench action measures it.
     pytest_steps = [step for step in _steps(job)
                     if "pytest" in step.get("run", "")
-                    or step.get("uses") in {"$/.github/actions/suite-bench",
-                                            "$/.github/actions/coverage-gate"}]
+                    or step.get("uses") == "$/.github/actions/suite-bench"]
     assert pytest_steps == [bench]
     upload, = [step for step in _steps(job)
                if step.get("with", {}).get("name") == "suite-measurement"]
@@ -101,18 +98,12 @@ def test_tests_job_measures_and_gates_on_every_event():
 
 def test_ratchet_reads_job_outputs_and_stages_the_tested_tip():
     job = _job(_load("tests.yml"), "ratchet")
-    assert job["needs"] == ["pytest-shards", "coverage-combine", "js-coverage",
-                            "reparse-gate", "suite-bench"]
+    assert job["needs"] == ["test", "reparse-gate", "suite-bench"]
     assert job["if"] == (
         "${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/master' "
-        "&& needs.pytest-shards.result == 'success' && needs.coverage-combine.result == 'success' "
-        "&& needs.js-coverage.result == 'success' && needs.reparse-gate.result == 'success' "
+        "&& needs.test.result == 'success' && needs.reparse-gate.result == 'success' "
         "&& needs.suite-bench.result == 'success' }}")
     ratchet, = [step for step in _steps(job) if step.get("id") == "ratchet"]
-    assert ratchet["env"] == {
-        "CLAUDIT_JS_MEASURED": "${{ needs.js-coverage.outputs.js_measured }}",
-        "CLAUDIT_PY_MEASURED": "${{ needs.coverage-combine.outputs.python_measured }}"}
-    assert 'measured="$CLAUDIT_PY_MEASURED"' in _run_lines(ratchet)
     assert "coverage report" not in ratchet["run"]
     steps = _steps(job)
     node, = [step for step in steps if step.get("uses", "").startswith("actions/setup-node@")]
@@ -199,7 +190,7 @@ def test_the_canary_never_compares_two_checkouts():
     for job_id, job in doc["jobs"].items():
         parts.append((job_id, "outside steps", {key: value for key, value in job.items() if key != "steps"}))
         parts += [(job_id, step.get("name"), step) for step in job.get("steps") or []]
-    allowed = ("pytest-portable", "Run tests")
+    allowed = ("test-portable", "Run tests")
     assert [part[:2] for part in parts].count(allowed) == 1
     for job_id, where, node in parts:
         text = json.dumps(node)
@@ -452,7 +443,7 @@ def test_ratchet_push_executes_surviving_artifact_paths(tmp_path, artifact, fetc
 def test_the_bench_runner_sets_up_one_interpreter():
     doc = _load("tests.yml")
     for job_id, job in doc["jobs"].items():
-        if job_id == "pytest-portable":
+        if job_id in ("plan", "test-portable"):
             continue
         setups = [step for step in _steps(job)
                   if (step.get("uses") or "").startswith("actions/setup-python")]

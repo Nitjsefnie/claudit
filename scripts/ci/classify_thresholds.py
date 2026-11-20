@@ -5,6 +5,7 @@ RATCHET_DATA_FILES = frozenset({
     '.github/ci-thresholds.json',
     '.github/comment-share.json',
     '.github/size-baseline.json',
+    '.github/test-times.json',
 })
 
 

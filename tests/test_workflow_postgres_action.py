@@ -21,7 +21,7 @@ CACHED_ACTION = ACTIONS / "cached-image/action.yml"
 LOCAL_ACTION = "$/.github/actions/postgres"
 # The first database consumer in each job, including wrapper scripts.
 SITES = (
-    ("tests.yml", "pytest-shards", "python -m pytest $(python3 scripts/ci/pytest_shards.py"),
+    ("tests.yml", "test", "Nitjsefnie-Actions/test-ratchet/run@"),
     ("tests.yml", "pytest-thresholds", "python -m pytest $(sed"),
     ("test-data.yml", "perturbed-suite", "scripts/ci/perturbed_leg_bench.py"),
     ("test-data-explore.yml", "perturbed-suite-explore", "scripts/ci/perturbed_leg_bench.py"),
@@ -59,19 +59,8 @@ def test_workflows_start_postgres_before_database_use(workflow, job_name, consum
     assert len(starts) == 1, workflow
     assert "if" not in steps[starts[0]], workflow
     consumers = [i for i, step in enumerate(steps)
-                 if consumer in step.get("run", "")]
+                 if consumer in (step.get("run") or step.get("uses") or "")]
     assert consumers and starts[0] < min(consumers), workflow
-
-
-def test_js_coverage_keeps_postgres_for_transitive_db_fixtures():
-    job = _load(ROOT / ".github/workflows/tests.yml")["jobs"]["js-coverage"]
-    steps = job["steps"]
-    start, = [i for i, step in enumerate(steps) if step.get("uses") == LOCAL_ACTION]
-    gate, = [i for i, step in enumerate(steps) if step.get("id") == "jscov"]
-    assert start < gate
-    assert job["env"] == {
-        "PGHOST": "localhost", "PGPORT": "5432",
-        "PGUSER": "postgres", "PGPASSWORD": "postgres"}
 
 
 def test_compose_builds_the_pinned_dockerfile_and_keys_both_cache_operations():

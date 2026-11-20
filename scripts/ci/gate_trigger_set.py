@@ -118,13 +118,17 @@ EXEMPT = {
         "the rate-refresh bot's notice baseline, written by the refresh"
         " run itself; no gate leg's verdict depends on its content and"
         " the bot's push is itself gate-silent"),
+    ".github/test-times.json": (
+        "test-ratchet's per-file test times, written by its report on a"
+        " master push; they only balance the shards, so no gate leg's"
+        " verdict depends on their content, and the push is gate-silent"),
     "VERSION": (
         "the release input; the version guard is not a required check"
         " (the ruleset requires the aggregate alone) and no aggregate"
         " leg reads it"),
     "backend": (
         "a suite/coverage path argument and working directory"
-        " (--cov=backend), not a rule definition; the code it stands"
+        " (source: backend), not a rule definition; the code it stands"
         " for is production source, which the set deliberately does"
         " not trigger on — a head's verdict is computed from its own"
         " tree, and only files that move the RULES strand it"),
