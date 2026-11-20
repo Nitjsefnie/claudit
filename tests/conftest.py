@@ -247,3 +247,38 @@ def pytest_sessionfinish(session, exitstatus):
         scratch_db.drop_run_databases()
     except psycopg.OperationalError:
         pass
+
+
+# Temporary CI probe: the adoption peak's allocation sources, written past capture.
+_PROBE = []
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
+    if item.name != "test_adoption_peak_allocation_is_bounded":
+        return (yield)
+    import gc, logging, threading, tracemalloc  # pylint: disable=import-outside-toplevel,multiple-imports
+    start, stop = tracemalloc.start, tracemalloc.stop
+    tracemalloc.start = lambda *_: start(25)
+    tracemalloc.stop = lambda: (_PROBE.append(tracemalloc.take_snapshot()), stop())
+    out = sys.__stderr__
+    try:
+        mon = [sys.monitoring.get_tool(i) for i in range(6)]
+        print("probe: threads", [t.name for t in threading.enumerate()], "mon", mon,
+              "trace", sys.gettrace(), sys.getprofile(), "gc.callbacks", gc.callbacks,
+              "handlers", [type(h).__name__ for h in logging.getLogger().handlers],
+              "modules", len(sys.modules), file=out, flush=True)
+        try:
+            import coverage  # pylint: disable=import-outside-toplevel
+            current = coverage.Coverage.current()
+            print("probe: coverage", current and current._collector.tracer_name(), file=out, flush=True)
+        except ImportError:
+            pass
+        return (yield)
+    finally:
+        tracemalloc.start, tracemalloc.stop = start, stop
+        if len(_PROBE) == 2:
+            for stat in _PROBE[1].compare_to(_PROBE[0], "traceback")[:8]:
+                print("probe-diff:", stat, file=out, flush=True)
+                for line in stat.traceback.format()[-16:]:
+                    print("probe-tb:", line, file=out, flush=True)

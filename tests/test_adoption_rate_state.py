@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import gc
-import sys
 import builtins
 import os
 import tracemalloc
@@ -247,9 +246,6 @@ def test_adoption_batches_sidecars_and_counts_vacuum_rows(fresh_db, monkeypatch)
     assert ingest_rollup_state.adopt_original_models() == 0
 
 
-PROBE = []
-
-
 def test_adoption_peak_allocation_is_bounded(fresh_db, monkeypatch):
     """Bound live Python batch payload with collection scheduling controlled."""
     batch_size = 32
@@ -272,25 +268,13 @@ def test_adoption_peak_allocation_is_bounded(fresh_db, monkeypatch):
                 c.commit()
         _seed_many(per_file)
         gc.collect()
-        tracemalloc.start(25)
+        tracemalloc.start()
         try:
             assert ingest_rollup_state.adopt_original_models() == 2 * per_file
             peaks.append(tracemalloc.get_traced_memory()[1])
-            PROBE.append(tracemalloc.take_snapshot())
         finally:
             tracemalloc.stop()
     print(f"adoption peaks B: rows=64 {peaks[0]}, rows=2048 {peaks[1]}, batch={batch_size}")
-    import coverage, decimal, threading, logging  # noqa  probe
-    cov = coverage.Coverage.current()
-    print("probe:", cov and cov._collector.tracer_name(), type(decimal.Decimal.__add__).__name__,
-          [t.name for t in threading.enumerate()], [type(h).__name__ for h in logging.getLogger().handlers],
-          sys.monitoring.get_tool(1), sys.monitoring.get_tool(2), sys.monitoring.get_tool(3), sys.getprofile(), sys.gettrace())
-    for stat in PROBE[1].compare_to(PROBE[0], "lineno")[:15]:
-        print("probe-diff:", stat)
-    for stat in PROBE[1].statistics("traceback")[:3]:
-        print("probe-top:", stat)
-        for line in stat.traceback.format()[-12:]:
-            print("probe-tb:", line)
     # Two adjacent batches can coexist while the next fetch replaces the old
     # rows. Allow twice the small run's entire peak, independent of set size;
     # the 32x larger set defeats an unbounded fetch/sidecar/update array.
