@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WATCHDOG = ROOT / "scripts" / "ci" / "progress_watchdog.py"
 WORKFLOWS = ROOT / ".github" / "workflows"
 ACTION = ROOT / ".github" / "actions" / "apt-install" / "action.yml"
-INSTALL_STEPS_MINUTES = 10  # both install steps' backstops, so a slow healthy leg stays well under 20 minutes
+INSTALL_STEPS_MINUTES = 19  # both install steps' backstops: apt 15 (a slow mirror on a cache miss), browser 4
 PACKAGES = "xvfb fonts-liberation"
 DISTRO = "/etc/apt/sources.list.d/ubuntu.sources"
 SANITIZE, KEY, RESTORE, INSTALL, SAVE = STEPS = ("Remove the unused Microsoft apt source", "Key the package cache", "Restore the package archives", "Install packages, retrying each phase until it succeeds", "Save the package archives")
