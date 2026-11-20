@@ -47,10 +47,6 @@
     2330,
     3281
   ],
-  ".github/workflows/coverage-comment.yml": [
-    6072,
-    14124
-  ],
   ".github/workflows/docker-smoke.yml": [
     3776,
     8253
@@ -112,8 +108,8 @@
     2243
   ],
   ".github/workflows/version-guard.yml": [
-    2339,
-    3995
+    2338,
+    4056
   ],
   "backend/agent_sidecar.py": [
     1887,
@@ -607,10 +603,6 @@
     5342,
     11953
   ],
-  "scripts/ci/diff_coverage.py": [
-    2549,
-    10185
-  ],
   "scripts/ci/fuzz_sharding.py": [
     3739,
     8680
@@ -658,10 +650,6 @@
   "scripts/ci/perturbed_leg_bench.py": [
     2866,
     11571
-  ],
-  "scripts/ci/ratchet.py": [
-    637,
-    3057
   ],
   "scripts/ci/refresh_alternation.py": [
     1009,
@@ -716,8 +704,8 @@
     10343
   ],
   "scripts/ci/reparse_ratchet.py": [
-    4436,
-    9680
+    4299,
+    9543
   ],
   "scripts/ci/reparse_report.py": [
     3509,
@@ -740,8 +728,8 @@
     7556
   ],
   "scripts/ci/suite_ratchet.py": [
-    4698,
-    9462
+    4638,
+    9402
   ],
   "scripts/ci/suite_report.py": [
     3024,
@@ -1690,14 +1678,6 @@
   "tests/test_workflow_concurrency.py": [
     867,
     1757
-  ],
-  "tests/test_workflow_coverage_comment_retry.py": [
-    2691,
-    10927
-  ],
-  "tests/test_workflow_patch_coverage.py": [
-    5131,
-    18358
   ],
   "tests/test_workflow_release.py": [
     4146,
