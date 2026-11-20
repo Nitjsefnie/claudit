@@ -268,20 +268,26 @@ already-satisfied requirement, and on 3.15 this is the step that builds
 the pinned sdist. The build itself runs on a cold wheel cache; a warm
 one reuses the wheel pip built from the verified sdist, and the hash
 check runs either way. Coverage is a self-raising ratchet, not a target, and
-it covers both shipped source families. The python measurement is the
-full pytest run (`--cov=backend`); the javascript measurement runs the
-node-executing tests under `NODE_V8_COVERAGE` and folds the result with
-`scripts/ci/js_coverage.mjs` over `src/**/*.js` — the files node actually
-executes, with the existing default test exclusions. It uses
-ast-v8-to-istanbul with Acorn and writes the Istanbul JSON summary; its
-`--lines` option checks the unrounded line percentage against the floor. The `.jsx`
+it covers both shipped source families. The pinned
+`Nitjsefnie-Actions/test-ratchet` action runs the suite: `plan` splits
+the test files into shards balanced by the run times recorded in
+`.github/test-times.json`, `run` runs one shard with coverage measured,
+and `ci-gate.yml`'s `report` job merges the canary cell's shards and
+gates them. The python measurement is the canary cell's pytest run
+(`source: backend`); the javascript measurement is the V8 coverage of
+every Node process the tests start, narrowed to `src/**/*.js` by the
+`javascript` input — the files node actually executes. The `.jsx`
 panels sit outside that boundary (node parses no JSX, and the tests
-exercise them only through eval'd fragments, which V8 attributes to the
-eval, not the source file), so extending coverage to them means a real
+exercise them only through eval'd fragments, which carry no file URL to
+map to a source file), so extending coverage to them means a real
 browser toolchain, not a wider flag. Both measured values and their
 floors (always 1.5 below) are committed data in
-`.github/ci-thresholds.json`, and CI raises each floor on master when a
-run measures more than 1.5 above its recorded value. The same file holds
+`.github/ci-thresholds.json`, and `report` raises each floor on a master
+push when a run measures more than 1.5 above its recorded value,
+committing it with the test times through the `master-push` deploy key.
+The action's
+[pinned README](https://github.com/Nitjsefnie-Actions/test-ratchet/blob/v1.2.0/README.md)
+describes its sharding, measurement and ratchet rules. The same file holds
 the reparse hot path's budget (`scripts/ci/reparse_bench.py`): one
 record per phase of a parse pass, each phase carrying the share of that
 run's own CPU work AND the bytecodes it retires per file, both recorded
@@ -312,16 +318,11 @@ with the `master-push` deploy key. The action's
 [pinned README](https://github.com/Nitjsefnie-Actions/comment-ratchet/blob/v3.0.1/README.md)
 describes its measurement and ratchet rules.
 
-Beside that tree-level ratchet, a pull request also gets an
-**informational patch-coverage readout** — which of the lines the branch
-added the suite executed (`scripts/ci/diff_coverage.py`), written to the
-run summary and posted as one self-updating PR comment. It is never a
-gate and never a required check: a reviewer judges the number, and a
-comment that fails to post cannot redden the run. The `tests` leg
-computes the readout and uploads it; the top-level `coverage-comment`
-workflow posts it, because that leg checks out and RUNS the proposed
-tree and so must hold no token that can write; that is also why a fork
-pull request, whose token is read-only inside the leg, gets the comment. Every CI job also
+`report` also writes one pull-request comment, edited on later runs:
+each language's merged total, floor and result, and the diff coverage
+of the lines the pull request adds. A fork's pull request, whose token
+cannot write the comment, gets it from the `test-ratchet-comment`
+workflow. Every CI job also
 declares `timeout-minutes`, so a hung step loses its runner in minutes
 rather than at GitHub's 360-minute default.
 
@@ -337,11 +338,11 @@ The rest need GitHub and run on their own:
 
 | Workflow | What it does |
 | --- | --- |
-| `ci-gate` | The aggregate gate. Starts on every push to `master` and pull request, classifies the changed paths (docs-only changes skip every leg; changes only to pinned setup facts in README.md, CONTRIBUTING.md or AGENTS.md run the inline `setup-docs` guard alone; unreadable setup sections or code changes run the full gate set, with the guard inside the tests leg; every check still reports), runs the eleven gate workflows as reusable legs, and folds them into one `ci gate / aggregate` verdict. The aggregate job also carries the two gate-integrity checks on every run, docs-only changes included: the merge-conflict-marker scan over the tracked tree, and `scripts/ci/commit_scopes.py`, which refuses a commit subject outside the [Commit subjects](#commit-subjects) format or one whose scope names a workflow under a non-`ci` type. Master-push runs are grouped per commit SHA, so a newer push never cancels an older run; a deliberate cancel reads never-green. |
-| `tests` | The `ci-gate` pytest leg runs the full suite with coverage, gates and ratchets the reparse hot path's per-phase bytecode counts — the per-phase CPU shares ride along as telemetry, not a gate (`.github/actions/reparse-bench`, `scripts/ci/reparse_bench.py`; the bench itself is documented in its own docstring) — measures ONE pytest pass over a pinned test-file fixture in bytecode instructions and fails the canary job if any phase exceeds its committed ceiling in `.github/ci-thresholds.json` (`.github/actions/suite-bench`, `scripts/ci/suite_bench.py`; a ratchet-down-only budget the tighten bot lowers when a cheaper run justifies it, never a wall-clock number: runner speed varies ~2x between jobs, but an instruction count is exact), and raises the committed coverage floors or tightens the pylint-suppression baseline when the measurements justify it. The `Threshold direction guard` refuses lowered coverage, raised baselines, moved workload identity, hand-added core entries, and cost-budget raises without a `feat` commit (`feat:` or `feat(scope):`, either with `!` before the colon). Entries or families may be removed only when their subject is gone or their number is wrong/no longer comparable, with same-tree before/after evidence for the latter. A `Thresholds-Removed: <entry>=<bug\|definition>` trailer in the judged range is required unless a path-typed baseline's file is gone; master seeds absent calibrations from its measurements. The ratchet data (the measured thresholds file and the suite-cost measurement) is staged and uploaded here; the push lives in `ratchet-push.yml`, a top-level `workflow_run` workflow keyed on the ci-gate run's completion (the `master-push` deploy key's secret resolves empty inside a `workflow_call` callee, and a `GITHUB_TOKEN` push is rejected by the ruleset's required `aggregate` check). |
+| `ci-gate` | The aggregate gate. Starts on every push to `master` and pull request, classifies the changed paths (docs-only changes skip every leg; changes only to pinned setup facts in README.md, CONTRIBUTING.md or AGENTS.md run the inline `setup-docs` guard alone; unreadable setup sections or code changes run the full gate set, with the guard inside the tests leg; every check still reports), runs the eleven gate workflows as reusable legs plus test-ratchet's `report` job, which gates coverage after the `tests` leg, and folds them into one `ci gate / aggregate` verdict. The aggregate job also carries the two gate-integrity checks on every run, docs-only changes included: the merge-conflict-marker scan over the tracked tree, and `scripts/ci/commit_scopes.py`, which refuses a commit subject outside the [Commit subjects](#commit-subjects) format or one whose scope names a workflow under a non-`ci` type. Master-push runs are grouped per commit SHA, so a newer push never cancels an older run; a deliberate cancel reads never-green. |
+| `tests` | The `ci-gate` pytest leg runs the suite through test-ratchet's `plan` and `run` (the Linux canary cell with coverage, and the portable cells), gates and ratchets the reparse hot path's per-phase bytecode counts — the per-phase CPU shares ride along as telemetry, not a gate (`.github/actions/reparse-bench`, `scripts/ci/reparse_bench.py`; the bench itself is documented in its own docstring) — measures ONE pytest pass over a pinned test-file fixture in bytecode instructions and fails the canary job if any phase exceeds its committed ceiling in `.github/ci-thresholds.json` (`.github/actions/suite-bench`, `scripts/ci/suite_bench.py`; a ratchet-down-only budget the tighten bot lowers when a cheaper run justifies it, never a wall-clock number: runner speed varies ~2x between jobs, but an instruction count is exact), and tightens the pylint-suppression baseline when the measurements justify it. The `Threshold direction guard` refuses lowered coverage, raised baselines, moved workload identity, hand-added core entries, and cost-budget raises without a `feat` commit (`feat:` or `feat(scope):`, either with `!` before the colon). Entries or families may be removed only when their subject is gone or their number is wrong/no longer comparable, with same-tree before/after evidence for the latter. A `Thresholds-Removed: <entry>=<bug\|definition>` trailer in the judged range is required unless a path-typed baseline's file is gone; master seeds absent calibrations from its measurements. The ratchet data (the measured thresholds file and the suite-cost measurement) is staged and uploaded here; the push lives in `ratchet-push.yml`, a top-level `workflow_run` workflow keyed on the ci-gate run's completion (the `master-push` deploy key's secret resolves empty inside a `workflow_call` callee, and a `GITHUB_TOKEN` push is rejected by the ruleset's required `aggregate` check). |
 | `ratchet-push` | The data-only push half of the ratchets: fires on completed `ci gate` runs, and only from successful master pushes. Its job takes the deploy key from the `master-push` GitHub environment, lists the triggering run's artifacts, downloads the measured thresholds file and suite-cost measurement independently when present, tightens the suite-cost budgets from the measurement (a downward-only data operation; never raises), and pushes the ratchet commit. It runs no test, dependency or upstream code and stops its ssh-agent after the push. A push refused because master moved is dropped with a notice — the next master run measures and raises instead. Like the pricing bot's deploy-key push, the ratchet commit starts workflow runs, but a `.github/ci-thresholds.json`-only change stays silent in ci-gate by its paths-ignore. |
 | `size-baseline` | Checks size records on pull requests, which carry tightened records for the files they touch. On a master push it tightens the records and commits them itself (`ci: tighten size-ratchet records`) with the `master-push` deploy key. |
-| `coverage-comment` | Posts the informational patch-coverage comment. Fires on the ci-gate run's completion and only for a pull-request run, because `tests` is a `workflow_call` callee and produces no run of its own. It is the write-capable half of a boundary the `tests` leg cannot cross: that leg checks out and RUNS the proposed tree, so it holds `contents: read` and nothing more, and because the comment is posted from here a fork pull request, whose token is read-only inside the leg, still sees the readout. Only the RENDERED BODY crosses, as an artifact. Every artifact byte is untrusted: the destination pull request is resolved from the `workflow_run` event's own `pull_requests`, the artifact's claim is only compared with it (a mismatch fails the step loudly), the body must be an ordinary file, is size-capped and refused rather than truncated, and reaches GitHub as a file argument — never executed, never shell-interpolated. No `actions/checkout`, no pull-request code, no `checks: write`; it publishes no check run, joins no aggregate, and is not a gate. A run without the artifact refreshes the marker so a previous commit's percentage cannot look current. If GitHub ever hands back an empty `pull_requests` array, the number is resolved from the base repository by merge-ref lookup instead, and the run posts **nothing** rather than posting a number it cannot prove is current. |
+| `test-ratchet-comment` | Comments for fork and Dependabot pull requests once `ci gate` completes: it runs test-ratchet's `report` on the triggering run's artifacts, checks out the default branch, and checks out and runs nothing from the pull request. |
 | `test-data` | Would a refresh-shaped change — moved rates, bumped version constants — break the suite? Perturbs the tree exactly that way (`scripts/ci/perturb_test_data.py`) and runs the full suite against it on the cached Postgres 16 container; no coverage, no ratchet — the verdict is the perturbed suite's pass/fail. Runs on three fixed seeds so the verdict is deterministic (every appended `from` stamp follows every real one under any seed, so any seed is safe), crossed with four pytest shards in a seed × shard matrix. Each job perturbs its own tree and runs its shard; the four shards cover the whole suite for each seed. A combine job reports each seed's verdict and per-phase wall/CPU totals with the shard breakdown. Its wall totals sum the shards' measured work; they are not elapsed workflow duration. A ci-gate leg, skipped on docs-only and setup-only changes. SV-TEST-DATA's enforcement. |
 | `test-data-explore` | The daily explorer for `test-data`: draws three wall-clock seeds and runs the same full perturbed suite per seed, naming any failing seed in the run summary. Not a ci-gate leg — a red run means "look at this seed", never "block". A red cell can also be a shard that hit its 15-minute step bound on a slow runner: the step summary's wall seconds beside its CPU seconds, and the slowest tests' durations in the log, tell the two apart. |
 | `gate-freshness` | Publishes the `gate freshness` check run on every open PR head, on each master push (all heads) and each `pull_request_target` event (the event's own head, filtered to the base it protects): red iff master holds a commit the head lacks whose changed paths hit the gate trigger set — the workflows, local actions and CI scripts, the ratchet data, the scanner/lint/type configs, the requirements files, the docker-smoke Compose override. A `.github/ci-thresholds.json` tighten triggers this workflow although the gate suites ignore it. Unreadable per-head compares publish red; a global read failure publishes nothing and exits nonzero. Advisory until the `require-ci-aggregate` ruleset requires the name `gate freshness`. |

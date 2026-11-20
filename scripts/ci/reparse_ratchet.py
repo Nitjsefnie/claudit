@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tighten the recorded reparse CPU budgets from a measured bench run.
 
-The mirror of ``ratchet.py`` with the direction inverted. Coverage is a
+The mirror of the coverage ratchet with the direction inverted. Coverage is a
 quality number, so its ratchet only ever raises; a reparse phase's
 recorded bytecodes are a cost, so this one only ever TIGHTENS, one phase
 at a time: a phase whose measured count beats the recorded ``measured``
@@ -35,10 +35,8 @@ Master's tighten path seeds an absent family directly from that run's
 measurement; a counts-less measurement is refused rather than seeded,
 because an unmeasured instrument must never enter the document as a number.
 
-A separate file from ``ratchet.py`` on purpose: the two move opposite
-ways, and one module with two directions would make every reader ask
-which way a given family goes. This one imports nothing but the loader,
-so the data operation stays free of the parse path the bench measures.
+This one imports nothing but the loader, so the data operation stays
+free of the parse path the bench measures.
 
   python3 scripts/ci/reparse_ratchet.py --measured-file reparse.json
   python3 scripts/ci/reparse_ratchet.py --seed reparse.json

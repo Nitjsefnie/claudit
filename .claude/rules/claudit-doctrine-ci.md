@@ -13,22 +13,21 @@ paths:
 ## CI thresholds are self-raising ratchets (SV-CI-RATCHETS)
 
 Coverage is governed by `.github/ci-thresholds.json`, validated by
-`scripts/ci/thresholds.py` and enforced in `tests.yml` — never hand-set
-numbers in a workflow. Module size is gated by the
+`scripts/ci/thresholds.py` and enforced by `ci-gate.yml`'s `report` job
+(`Nitjsefnie-Actions/test-ratchet`) — never hand-set numbers in a workflow. Module size is gated by the
 `Nitjsefnie-Actions/size-ratchet` action, whose records live at
 `.github/size-baseline.json`, not in this document.
 
 - Coverage: per language (`python`, `javascript`), `measured` and
-  `floor = measured − 1.5`. On a `master` push,
-  `scripts/ci/ratchet.py --language <language>` raises a calibration
-  only when the run beats `measured` by more than the 1.5 hysteresis.
+  `floor = measured − 1.5`. `report` merges the canary cell's shards
+  and, on a `master` push, raises a record only when the run beats
+  `measured` by more than the 1.5 hysteresis.
   Never lower a floor by hand, for any reason.
-- Python measures the full pytest run (`--cov=backend`). JavaScript
-  runs the node-executing tests under `NODE_V8_COVERAGE`, folded with
-  `scripts/ci/js_coverage.mjs` over `src/**/*.js` — the files node executes. `.jsx` panels are
-  outside it: node parses no JSX, and parity tests' eval'd fragments
-  are attributed to the eval. Each language gates against its own
-  floor in `tests.yml`.
+- Python measures the canary cell's pytest run (`source: backend`).
+  JavaScript is the V8 coverage of every Node process the tests start,
+  narrowed to `src/**/*.js` (`javascript`) — the files node executes. `.jsx` panels are
+  outside it: node parses no JSX, and an eval'd fragment has no file
+  URL to map. Each language gates against its own floor in `report`.
 - **The gap sits ABOVE the measured value for every cost family, and
   BELOW it for every quality family.** This is not a typo: coverage is
   a QUALITY (higher is better, `floor = measured - 1.5`); a cost
@@ -69,7 +68,7 @@ numbers in a workflow. Module size is gated by the
     the loader and the direction guard keep validating and defending them
     like any recorded number; nothing fails on them.
   Both are costs: `floor = measured + 1.5`, and
-  `scripts/ci/reparse_ratchet.py` mirrors `ratchet.py` with every
+  `scripts/ci/reparse_ratchet.py` mirrors the coverage raise with every
   comparison reversed, one gated phase at a time. The pass is
   decomposed by wrapping the callables the real path calls, and the
   residual — everything they do not account for — is a phase of its
@@ -160,7 +159,7 @@ numbers in a workflow. Module size is gated by the
   merge-base..HEAD on a PR, the pushed range on a push; declarations do
   not replace review of the removal reason and measurement evidence.
 - An absent entry or family is seeded from its measurement on the next
-  full master run: `ratchet.py` for coverage; `reparse_ratchet.py`'s tighten
+  full master run: `report` for coverage; `reparse_ratchet.py`'s tighten
   path from the reparse measurement; `suite_ratchet.py --tighten` from
   the suite measurement through `ratchet-push.yml`; and the baseline
   writer (`suppression_baseline.py`)
@@ -183,12 +182,13 @@ numbers in a workflow. Module size is gated by the
   coverage raises, cost and baseline tightens, and measured seeds remain
   legal.
 - Coverage numbers carry exactly one decimal (`92.0`, never `92` or
-  `92.00`) — what the ratchet writes, `coverage --precision=1`
-  measures and the JS gate's `toFixed(1)` reads. The document is
+  `92.00`) — what `report` writes, a total as `coverage report
+  --precision=1` shows it. The document is
   always the loader's canonical bytes; never hand-edit it.
-- The bots' raise/tighten commits on master each touch only one records
-  file: `.github/ci-thresholds.json`, `.github/comment-share.json` or
-  `.github/size-baseline.json`. `ci-gate.yml` and `version-guard.yml`
+- The bots' raise/tighten commits on master touch only records files:
+  `.github/ci-thresholds.json`, `.github/comment-share.json`,
+  `.github/size-baseline.json` or `.github/test-times.json` (`report`
+  commits the first and last together). `ci-gate.yml` and `version-guard.yml`
   ignore those paths so a data-only commit restarts neither the suite nor
   the version guard.
 
