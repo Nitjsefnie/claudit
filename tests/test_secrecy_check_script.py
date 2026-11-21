@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -21,8 +22,7 @@ ENV = {**{k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
 
 
 def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=cwd, env=ENV, check=True,
-                   capture_output=True, text=True)
+    subprocess.run(["git", *args], cwd=cwd, env=ENV, check=True, capture_output=True, text=True)
 
 
 def _write(path: Path, text: str) -> None:
@@ -51,37 +51,31 @@ def _worktrees(tmp_path: Path, bare: bool = False) -> tuple[Path, Path]:
 
 
 def _check(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["bash", str(SCRIPT), *args], cwd=cwd, env=ENV,
-                          capture_output=True, text=True, check=False, timeout=60)
+    return subprocess.run(["bash", str(SCRIPT), *args], cwd=cwd, env=ENV, capture_output=True, text=True, check=False, timeout=60)
+
+
+def _literals_file(directory: Path) -> None:
+    _write(directory / ".secrecy-literals", f"{LIT_A}  # one per line\n")
 
 
 def _env_file(directory: Path) -> None:
-    _write(directory / ".env",
-           f"CLAUDIT_DATABASE_URL_AUTH=postgresql://u:p@h/{AUTH_DB}?sslmode=x\n")
+    _write(directory / ".env", f"CLAUDIT_DATABASE_URL_AUTH=postgresql://u:p@h/{AUTH_DB}?sslmode=x\n")
 
 
 @POSIX_ONLY
-def test_linked_worktree_reads_literals_file_from_the_main_worktree(tmp_path: Path) -> None:
+@pytest.mark.parametrize("seed, label, planted", [
+    (_literals_file, "a listed literal", LIT_A), (_env_file, "the auth-DB name", AUTH_DB)],
+    ids=["literals-file", "auth-database-name"])
+def test_linked_worktree_reads_the_main_worktrees_files(
+        tmp_path: Path, seed: Callable[[Path], None], label: str, planted: str) -> None:
     main, linked = _worktrees(tmp_path)
-    _write(main / ".secrecy-literals", f"{LIT_A}  # one per line\n")
+    seed(main)
     clean = _check(linked, "--tree")
     assert (clean.returncode, clean.stdout) == (0, "secrecy-check: tree clean (1 literal(s))\n")
-    _commit(linked, "planted.txt", f"x {LIT_A} y\n")
-    planted = _check(linked, "--tree")
-    assert planted.returncode == 1
-    assert "a listed literal" in planted.stderr and "planted.txt" in planted.stderr
-
-
-@POSIX_ONLY
-def test_linked_worktree_reads_the_auth_database_name_from_the_main_worktree(
-        tmp_path: Path) -> None:
-    main, linked = _worktrees(tmp_path)
-    _env_file(main)
-    assert _check(linked, "--tree").stdout == "secrecy-check: tree clean (1 literal(s))\n"
-    _commit(linked, "planted.txt", f"{AUTH_DB}\n")
-    planted = _check(linked, "--tree")
-    assert planted.returncode == 1
-    assert "the auth-DB name" in planted.stderr and "planted.txt" in planted.stderr
+    _commit(linked, "planted.txt", f"x {planted} y\n")
+    found = _check(linked, "--tree")
+    assert found.returncode == 1
+    assert label in found.stderr and "planted.txt" in found.stderr
 
 
 @POSIX_ONLY
@@ -94,8 +88,7 @@ def test_the_worktrees_own_copy_adds_to_the_main_worktrees_literals(tmp_path: Pa
     result = _check(linked, "--tree")
     assert result.returncode == 1
     assert result.stderr.count("is in the working tree") == 2
-    found = {("only_a.txt" in block, "only_b.txt" in block)
-             for block in result.stderr.split("FAIL")[1:]}
+    found = {("only_a.txt" in block, "only_b.txt" in block) for block in result.stderr.split("FAIL")[1:]}
     assert found == {(True, False), (False, True)}
 
 
@@ -117,8 +110,7 @@ def test_the_main_checkout_reads_its_files_once(tmp_path: Path) -> None:
     main, _ = _worktrees(tmp_path)
     _write(main / ".secrecy-literals", f"{LIT_A}\n")
     result = _check(main)
-    assert (result.returncode, result.stdout) == (
-        0, "secrecy-check: clean (tree + history, 1 literal(s))\n")
+    assert (result.returncode, result.stdout) == (0, "secrecy-check: clean (tree + history, 1 literal(s))\n")
 
 
 @POSIX_ONLY
