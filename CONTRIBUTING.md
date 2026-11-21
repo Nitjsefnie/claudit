@@ -286,7 +286,7 @@ floors (always 1.5 below) are committed data in
 push when a run measures more than 1.5 above its recorded value,
 committing it with the test times through the `master-push` deploy key.
 The action's
-[pinned README](https://github.com/Nitjsefnie-Actions/test-ratchet/blob/v2.2.0/README.md)
+[README](https://github.com/Nitjsefnie-Actions/test-ratchet)
 describes its sharding, measurement and ratchet rules. The same file holds
 the reparse hot path's budget (`scripts/ci/reparse_bench.py`): one
 record per phase of a parse pass, each phase carrying the share of that
