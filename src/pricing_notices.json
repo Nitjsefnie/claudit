@@ -472,6 +472,9 @@
     "hy4-preview": {
       "Tencent": "endpoint schedule"
     },
+    "kimi-k2-6": {
+      "Sail Research": "log series count mismatch"
+    },
     "kimi-k3": {
       "Fireworks": "2 endpoints at one current price",
       "InferenceNet": "2 endpoints at one current price"
