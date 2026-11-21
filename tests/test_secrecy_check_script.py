@@ -36,8 +36,8 @@ def _commit(repo: Path, name: str, text: str) -> None:
 
 
 def _worktrees(tmp_path: Path, bare: bool = False) -> tuple[Path, Path]:
-    """The main location (a checkout, or the bare repository) and a linked worktree."""
-    main, linked = tmp_path / "main", tmp_path / "linked"
+    """The main location (a checkout, or the bare repository) and a linked worktree; the checkout's path holds a space and "bare"."""
+    main, linked = tmp_path / "bare main", tmp_path / "linked"
     main.mkdir()
     _git(main, "init", "-q", "-b", "main")
     _commit(main, "README", "clean\n")
