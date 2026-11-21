@@ -184,7 +184,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: Nitjsefnie-Actions/test-ratchet/report@c87f555f727ead2c7c4db57d4467830d18cd94b7 # v1.2.0
+      - uses: Nitjsefnie-Actions/test-ratchet/report@474b984eea45d7029e8aaa659441e68174bad3d4 # v1.3.0
         with:
           github-token: ${{ github.token }}
           cell: ubuntu-latest-3.15.1
