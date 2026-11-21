@@ -80,13 +80,9 @@ def _fake_session_store_fixture(monkeypatch):
             secret, generation, cred_fp = rows[user_id]
             rows[user_id] = (secret, generation + 1, cred_fp)
 
-    monkeypatch.setattr(
-        session_mod, "get_or_create_session_row", get_or_create
-    )
+    monkeypatch.setattr(session_mod, "get_or_create_session_row", get_or_create)
     monkeypatch.setattr(session_mod, "load_session_row", rows.get)
-    monkeypatch.setattr(
-        session_mod, "bump_session_generation", bump_generation
-    )
+    monkeypatch.setattr(session_mod, "bump_session_generation", bump_generation)
     return rows
 
 
@@ -165,9 +161,7 @@ def test_stale_password_login_cannot_rebind_after_new_password_login(
     assert "set-cookie" not in old_response.headers
     assert verified_configs["old"] is old_config
     assert normalization_spent == [600_000]
-    assert fake_session_store[12345][2] == session_mod.credential_fingerprint(
-        new_config
-    )
+    assert fake_session_store[12345][2] == session_mod.credential_fingerprint(new_config)
     assert session_mod.resolve_session_user_id(new_cookie) == 12345
 
 
@@ -215,9 +209,7 @@ def test_malformed_user_id_renders_full_signin_page(app, monkeypatch):
     assert not login_mod._LOGIN_IP_INFLIGHT  # pylint: disable=protected-access
 
 
-def test_password_change_relogin_does_not_resurrect_old_cookie(
-    app, fake_user, fake_session_store
-):
+def test_password_change_relogin_does_not_resurrect_old_cookie(app, fake_user, fake_session_store):
     client = _signed_in_client(app)
     old_cookie = client.cookies.get(session_mod.SESSION_COOKIE_NAME)
     assert old_cookie
@@ -225,23 +217,17 @@ def test_password_change_relogin_does_not_resurrect_old_cookie(
     auth.set_web_password(fake_user[12345], "new password")
     _clear_user_config_cache()
     old_client = TestClient(app)
-    assert old_client.get(
-        "/api/me", headers={"Cookie": f"session={old_cookie}"}
-    ).status_code == 401
+    assert old_client.get("/api/me", headers={"Cookie": f"session={old_cookie}"}).status_code == 401
 
     login = _post_login(client, 12345, "new password")
     assert login.status_code == 303
     new_cookie = login.cookies.get(session_mod.SESSION_COOKIE_NAME)
     assert new_cookie and new_cookie != old_cookie
 
-    old_after_relogin = old_client.get(
-        "/api/me", headers={"Cookie": f"session={old_cookie}"}
-    )
+    old_after_relogin = old_client.get("/api/me", headers={"Cookie": f"session={old_cookie}"})
     assert old_after_relogin.status_code == 401
     new_client = TestClient(app)
-    assert new_client.get(
-        "/api/me", headers={"Cookie": f"session={new_cookie}"}
-    ).status_code == 200
+    assert new_client.get("/api/me", headers={"Cookie": f"session={new_cookie}"}).status_code == 200
 
 
 @pytest.mark.parametrize(
@@ -281,9 +267,7 @@ def test_concurrent_login_reservations_enforce_pair_and_ip_caps(
         return config
 
     monkeypatch.setattr(session_mod, "load_user_config", track_auth_load)
-    monkeypatch.setattr(
-        auth, "normalize_verification_timing", lambda password, spent: None
-    )
+    monkeypatch.setattr(auth, "normalize_verification_timing", lambda password, spent: None)
 
     async def drive_burst():
         all_checks_done = asyncio.Event()
@@ -305,9 +289,7 @@ def test_concurrent_login_reservations_enforce_pair_and_ip_caps(
                 raise TimeoutError("login verification barrier was not released")
             return False
 
-        monkeypatch.setattr(
-            login_mod, "_check_login_rate_limit", tracked_pair_check
-        )
+        monkeypatch.setattr(login_mod, "_check_login_rate_limit", tracked_pair_check)
         monkeypatch.setattr(auth, "verify_web_password", blocking_verification)
         tasks = [
             asyncio.create_task(login_mod.login_post(
@@ -332,9 +314,7 @@ def test_concurrent_login_reservations_enforce_pair_and_ip_caps(
     responses = asyncio.run(drive_burst())
     assert admissions["total"] == expected_admissions
     assert worker_state["started"] == expected_admissions
-    assert sum(response.status_code == 429 for response in responses) == (
-        len(user_ids) - expected_admissions
-    )
+    assert sum(response.status_code == 429 for response in responses) == (len(user_ids) - expected_admissions)
     assert all(response.status_code in (401, 429) for response in responses)
 
     for uid in set(user_ids):
@@ -381,16 +361,10 @@ def test_full_failure_dicts_keep_seen_history_and_reject_unseen_client(
         lambda user_id: loads.append(user_id) or config,
     )
     monkeypatch.setattr(auth, "verify_web_password", lambda *_args: False)
-    monkeypatch.setattr(
-        auth, "normalize_verification_timing", lambda *_args: None
-    )
+    monkeypatch.setattr(auth, "normalize_verification_timing", lambda *_args: None)
 
-    first = asyncio.run(login_mod.login_post(
-        _raw_login_request(ip), user_id=str(uid), password="wrong"
-    ))
-    second = asyncio.run(login_mod.login_post(
-        _raw_login_request(ip), user_id=str(uid), password="wrong"
-    ))
+    first = asyncio.run(login_mod.login_post(_raw_login_request(ip), user_id=str(uid), password="wrong"))
+    second = asyncio.run(login_mod.login_post(_raw_login_request(ip), user_id=str(uid), password="wrong"))
     unseen = asyncio.run(login_mod.login_post(
         _raw_login_request("203.0.113.250"),
         user_id="72",
@@ -522,13 +496,9 @@ def test_cancelled_login_holds_reservations_until_workers_finish(
         return limited
 
     monkeypatch.setattr(auth, "verify_web_password", blocking_verification)
-    monkeypatch.setattr(
-        login_mod, "_check_login_rate_limit", count_pair_checks
-    )
+    monkeypatch.setattr(login_mod, "_check_login_rate_limit", count_pair_checks)
 
-    async def _wait_maps_drained(
-        timeout: float = 5.0, strict: bool = True
-    ) -> None:
+    async def _wait_maps_drained(timeout: float = 5.0, strict: bool = True) -> None:
         """Slots release via task done-callbacks; wait for the drain.
 
         workers_idle only proves the thread functions returned — the
@@ -616,18 +586,14 @@ def test_cancelled_login_holds_reservations_until_workers_finish(
 
     assert held_after_cancel == (5, 5)
     assert started_before_release == 5
-    assert [response.status_code for response in extra_responses] == [
-        429
-    ] * 5
+    assert [response.status_code for response in extra_responses] == [429] * 5
     assert maps_after_workers == ({}, {})
     assert later_response.status_code == 303
     assert not login_mod._LOGIN_INFLIGHT  # pylint: disable=protected-access
     assert not login_mod._LOGIN_IP_INFLIGHT  # pylint: disable=protected-access
 
 
-def test_verification_worker_exception_returns_generic_failure_and_releases(
-    fake_user, monkeypatch
-):
+def test_verification_worker_exception_returns_generic_failure_and_releases(fake_user, monkeypatch):
     def fail_verification(_config, _password):
         raise RuntimeError("worker failed")
 
@@ -639,9 +605,7 @@ def test_verification_worker_exception_returns_generic_failure_and_releases(
         lambda _password, spent: normalized.append(spent),
     )
 
-    response = asyncio.run(login_mod.login_post(
-        _raw_login_request(), user_id="12345", password="bad"
-    ))
+    response = asyncio.run(login_mod.login_post(_raw_login_request(), user_id="12345", password="bad"))
 
     assert response.status_code == 401
     assert response.headers["content-type"].startswith("text/html")

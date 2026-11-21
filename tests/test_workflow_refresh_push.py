@@ -56,8 +56,7 @@ def _job(job_id: str) -> dict:
 
 
 def _step(job_id: str, name: str) -> dict:
-    matches = [step for step in (_job(job_id).get("steps") or [])
-               if step.get("name") == name]
+    matches = [step for step in (_job(job_id).get("steps") or []) if step.get("name") == name]
     assert len(matches) == 1, f"expected exactly one step named {name!r}"
     step, = matches
     return step
@@ -68,9 +67,7 @@ def _push_run() -> str:
 
 
 def _all_steps() -> list[tuple[str, dict]]:
-    return [(job_id, step)
-            for job_id, job in _workflow()["jobs"].items()
-            for step in (job.get("steps") or [])]
+    return [(job_id, step) for job_id, job in _workflow()["jobs"].items() for step in (job.get("steps") or [])]
 
 
 def test_jobs_are_exactly_refresh_suite_stage_push_and_verdict():
@@ -105,8 +102,7 @@ def test_refresh_fetches_and_suite_runs_tests_without_the_key():
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the step reads /proc as its ubuntu runner has it")
 def test_suite_shards_exec_pytest_under_a_step_bound_between_cpu_counters(tmp_path: Path):
-    assert_shards_exec_pytest(_job("suite"), tmp_path, [
-        "-q", "--tb=short", "-ra", "-o", "faulthandler_timeout=240", "--durations=20"])
+    assert_shards_exec_pytest(_job("suite"), tmp_path, ["-q", "--tb=short", "-ra", "-o", "faulthandler_timeout=240", "--durations=20"])
 
 
 def test_refresh_job_outputs_feed_the_push_gate():
@@ -144,8 +140,7 @@ def test_vendor_input_is_env_only_and_tracking_precedes_refresh():
     ("acme", "0", ["track_vendor.py", "refresh_provider_rates.py"], 0),
     ("acme", "1", ["track_vendor.py"], 1),
 ])
-def test_fetch_step_tracks_only_nonempty_input_and_stops_on_refusal(
-        tmp_path, namespace, tracker_rc, expected, rc):
+def test_fetch_step_tracks_only_nonempty_input_and_stops_on_refusal(tmp_path, namespace, tracker_rc, expected, rc):
     shim = tmp_path / "python3"
     shim.write_text(
         '#!/bin/bash\n'
@@ -201,8 +196,7 @@ def test_fetch_step_drains_stderr_before_writing_summary(tmp_path, refresh_rc):
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == "report line\n"
     assert proc.stderr == "refusal line\n"
-    assert (tmp_path / "summary").read_text(encoding="utf-8") == (
-        "### OpenRouter provider rates\n\n```\nreport line\nrefusal line\n```\n")
+    assert (tmp_path / "summary").read_text(encoding="utf-8") == ("### OpenRouter provider rates\n\n```\nreport line\nrefusal line\n```\n")
     assert (tmp_path / "output").read_text(encoding="utf-8") == f"rc={refresh_rc}\n"
 
 
@@ -231,8 +225,7 @@ def test_the_key_appears_once_in_the_file_and_only_in_the_push_job():
     raw = WORKFLOW.read_text(encoding="utf-8")
     # The only load site in the whole file is the push step's env mapping:
     # the secret is wired exactly once.
-    assert _step("push", "Push the tested tree to master")["env"][
-        "CLAUDIT_MASTER_PUSH_DEPLOY_KEY"] == "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}"
+    assert _step("push", "Push the tested tree to master")["env"]["CLAUDIT_MASTER_PUSH_DEPLOY_KEY"] == "${{ secrets.MASTER_PUSH_DEPLOY_KEY }}"
     assert raw.count("secrets.MASTER_PUSH_DEPLOY_KEY") == 1
     for job_id, job in _workflow()["jobs"].items():
         if job_id == "push":
@@ -272,8 +265,7 @@ def test_refresh_stages_fetched_data_and_stage_uploads_only_after_the_suite():
     tested_upload = _step("stage", "Upload the tested data")
     assert "uses" in tested_upload and "run" not in tested_upload
     assert tested["steps"].index(tested_stage) < tested["steps"].index(tested_upload)
-    for filename in ("pricing.json", "constants.py", "pricing_notices.json",
-                     "commit-msg.txt", "base.txt"):
+    for filename in ("pricing.json", "constants.py", "pricing_notices.json", "commit-msg.txt", "base.txt"):
         assert (f'cp "${{{{ runner.temp }}}}/fetch-data/{filename}" '
                 f'"${{{{ runner.temp }}}}/push-data/{filename}"') in tested_stage["run"]
 
@@ -345,8 +337,7 @@ def test_verdict_job_turns_a_refused_fetch_red_even_when_nothing_moved():
     assert job["timeout-minutes"] == 15
     step, = job["steps"]
     assert step["name"] == "Fail on a refusal"
-    assert step["env"] == {
-        "CLAUDIT_FETCH_RC": "${{ needs.refresh.outputs.fetch_rc }}"}
+    assert step["env"] == {"CLAUDIT_FETCH_RC": "${{ needs.refresh.outputs.fetch_rc }}"}
     run = step["run"]
     assert 'if [ -n "$CLAUDIT_FETCH_RC" ] && [ "$CLAUDIT_FETCH_RC" != "0" ]; then' in run
     assert "exit 1" in run
@@ -362,9 +353,7 @@ def test_the_push_never_forces():
                     job_id, step.get("name"))
 
 
-def _run(cmd: list[str], cwd: Path | None = None,
-         env: dict[str, str] | None = None,
-         check: bool = True) -> subprocess.CompletedProcess:
+def _run(cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(
         cmd,
         cwd=None if cwd is None else str(cwd),
@@ -375,8 +364,7 @@ def _run(cmd: list[str], cwd: Path | None = None,
     )
 
 
-def _git(repo: Path, *args: str,
-         check: bool = True) -> subprocess.CompletedProcess:
+def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     return _run(["git", "-C", str(repo), *args], check=check)
 
 
@@ -481,12 +469,10 @@ def _scratch_fixture(tmp_path: Path) -> Path:
     (seed / "backend").mkdir()
     (seed / "src").mkdir()
     (seed / "README.md").write_text("seed\n", encoding="utf-8")
-    (seed / "backend" / "constants.py").write_text(
-        'PRICING_VERSION = "6"\n', encoding="utf-8", newline="\n")
+    (seed / "backend" / "constants.py").write_text('PRICING_VERSION = "6"\n', encoding="utf-8", newline="\n")
     (seed / "src" / "pricing.json").write_text("{\n", encoding="utf-8", newline="\n")
     _configure_identity(seed)
-    _run(["git", "add", "README.md", "backend/constants.py",
-          "src/pricing.json"], cwd=seed)
+    _run(["git", "add", "README.md", "backend/constants.py", "src/pricing.json"], cwd=seed)
     _run(["git", "commit", "-q", "-m", "seed"], cwd=seed)
     _run(["git", "remote", "add", "origin", str(bare)], cwd=seed)
     _run(["git", "push", "-q", "origin", "master"], cwd=seed)
@@ -496,17 +482,14 @@ def _scratch_fixture(tmp_path: Path) -> Path:
         _configure_identity(repo)
     # retry.sh's 5 s and 10 s backoff is skipped; any other sleep is real.
     sleep = f'#!/bin/sh\ncase "$1" in 5|10) ;; *) exec {shutil.which("sleep")} "$@" ;; esac\n'
-    for shim, body in (("git", _git_shim()),
-                       ("ssh-agent", _ssh_agent_shim()),
-                       ("ssh-add", _ssh_add_shim()), ("sleep", sleep)):
+    for shim, body in (("git", _git_shim()), ("ssh-agent", _ssh_agent_shim()), ("ssh-add", _ssh_add_shim()), ("sleep", sleep)):
         path = base / "bin" / shim
         path.write_text(body, encoding="utf-8")
         path.chmod(0o755)
     return base
 
 
-def _env(scratch: Path,
-         extra: Mapping[str, str | None]) -> dict[str, str]:
+def _env(scratch: Path, extra: Mapping[str, str | None]) -> dict[str, str]:
     env = os.environ.copy()
     for key in FAKE_SWITCHES:
         env.pop(key, None)
@@ -536,22 +519,16 @@ def _stage_push_data(scratch: Path) -> str:
     the tested base (the remote tip)."""
     data = scratch / "runner-temp" / "push-data"
     data.mkdir(parents=True, exist_ok=True)
-    (data / "pricing.json").write_text(
-        '{\n  "refreshed": true\n', encoding="utf-8", newline="\n")
-    (data / "constants.py").write_text(
-        'PRICING_VERSION = "7"\n', encoding="utf-8", newline="\n")
-    (data / "pricing_notices.json").write_text(
-        '{\n  "notices": [\n    "delisted: alpha"\n  ]\n}\n', encoding="utf-8", newline="\n")
-    (data / "commit-msg.txt").write_text(
-        "refresh report, invocation 1\n", encoding="utf-8", newline="\n")
+    (data / "pricing.json").write_text('{\n  "refreshed": true\n', encoding="utf-8", newline="\n")
+    (data / "constants.py").write_text('PRICING_VERSION = "7"\n', encoding="utf-8", newline="\n")
+    (data / "pricing_notices.json").write_text('{\n  "notices": [\n    "delisted: alpha"\n  ]\n}\n', encoding="utf-8", newline="\n")
+    (data / "commit-msg.txt").write_text("refresh report, invocation 1\n", encoding="utf-8", newline="\n")
     base = _sha(scratch / "remote.git", "master")
     (data / "base.txt").write_text(f"{base}\n", encoding="utf-8", newline="\n")
     return base
 
 
-def _run_push_step(scratch: Path,
-                   extra_env: Mapping[str, str | None]
-                   ) -> subprocess.CompletedProcess:
+def _run_push_step(scratch: Path, extra_env: Mapping[str, str | None]) -> subprocess.CompletedProcess:
     script = scratch / "push-step.sh"
     script.write_text(_push_run(), encoding="utf-8")
     write_retry_helper(_job("push"), scratch / "runner-temp")
@@ -610,17 +587,14 @@ def test_push_lands_the_staged_tree_when_master_stood_still(scratch: Path):
     assert proc.returncode == 0, proc.stderr
     built = _sha(scratch / "runner-temp" / "push-repo", "HEAD")
     assert _sha(bare, "master") == built
-    assert _git(bare, "log", "-1", "--format=%ce",
-                "master").stdout.strip() == BOT_EMAIL
+    assert _git(bare, "log", "-1", "--format=%ce", "master").stdout.strip() == BOT_EMAIL
     assert _remote_show(scratch, "src/pricing.json") == staged_pricing
     assert _remote_show(scratch, "backend/constants.py") == staged_constants
     assert _remote_show(scratch, "src/pricing_notices.json") == staged_notices
-    assert commit_msg in _git(
-        bare, "log", "-1", "--format=%B", "master").stdout
+    assert commit_msg in _git(bare, "log", "-1", "--format=%B", "master").stdout
     assert _state_lines(scratch, "ssh-agent-called") == ["called"]
     assert _state_lines(scratch, "ssh-add-called") == ["called"]
-    assert _state_lines(scratch, "ssh-add-bytes") and (
-        int(_state_lines(scratch, "ssh-add-bytes")[0]) > 0)
+    assert _state_lines(scratch, "ssh-add-bytes") and (int(_state_lines(scratch, "ssh-add-bytes")[0]) > 0)
     # The EXIT trap stopped the shimmed agent: the key never outlives the
     # step that loaded it.
     agent_pid = int(_state_lines(scratch, "ssh-agent-pid")[0])
@@ -628,8 +602,7 @@ def test_push_lands_the_staged_tree_when_master_stood_still(scratch: Path):
 
 
 @ubuntu_run_block
-def test_push_drops_the_data_with_a_notice_when_master_moved_under_the_run(
-        scratch: Path):
+def test_push_drops_the_data_with_a_notice_when_master_moved_under_the_run(scratch: Path):
     base = _stage_push_data(scratch)
     peer_full = _peer_move(scratch, "peer move after staging")
 
@@ -643,19 +616,16 @@ def test_push_drops_the_data_with_a_notice_when_master_moved_under_the_run(
     assert "Dropped: master moved under the run" in summary
     assert "rejected while master stood still" not in proc.stdout
     assert "rejected while master stood still" not in proc.stderr
-    authors = _git(bare, "log", "--format=%ae",
-                   "master").stdout.splitlines()
+    authors = _git(bare, "log", "--format=%ae", "master").stdout.splitlines()
     assert BOT_EMAIL not in authors, authors
     assert base != peer_full
 
 
 @ubuntu_run_block
-def test_a_push_raced_by_a_master_move_is_dropped_with_a_notice(
-        scratch: Path):
+def test_a_push_raced_by_a_master_move_is_dropped_with_a_notice(scratch: Path):
     _stage_push_data(scratch)
 
-    proc = _run_push_step(scratch, {"CLAUDIT_MASTER_PUSH_DEPLOY_KEY": "test-key",
-                                    "FAKE_RACE_PUSH": "1"})
+    proc = _run_push_step(scratch, {"CLAUDIT_MASTER_PUSH_DEPLOY_KEY": "test-key", "FAKE_RACE_PUSH": "1"})
 
     bare = scratch / "remote.git"
     peer_full = _sha(scratch / "peer", "HEAD")
@@ -663,8 +633,7 @@ def test_a_push_raced_by_a_master_move_is_dropped_with_a_notice(
     assert "::notice::" in proc.stdout
     assert _sha(bare, "master") == peer_full
     built = _sha(scratch / "runner-temp" / "push-repo", "HEAD")
-    assert _git(bare, "merge-base", "--is-ancestor", built, "master",
-                check=False).returncode != 0
+    assert _git(bare, "merge-base", "--is-ancestor", built, "master", check=False).returncode != 0
     summary = (scratch / "github-summary.md").read_text(encoding="utf-8")
     assert "Dropped: master moved before the push landed" in summary
 

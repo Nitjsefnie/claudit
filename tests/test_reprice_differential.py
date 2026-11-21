@@ -59,8 +59,7 @@ UTC = timezone.utc
 # Rates deliberately unlike any real price (SV-TEST-DATA): the boundary
 # window below prices the seeded sonnet rows only through the two
 # passes' shared resolution, never against a pinned rate.
-_WINDOW_RATES = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0,
-                 "read": 0.1, "output": 5.0}
+_WINDOW_RATES = {"fresh": 1.0, "create_5m": 1.25, "create_1h": 2.0, "read": 0.1, "output": 5.0}
 _SONNET_END = datetime(2026, 3, 1, tzinfo=UTC)
 # The real provider rows at import (the opus and
 # sonnet shapes price through their tracked (key, host) rows, and
@@ -148,8 +147,7 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
                 outcome = "aborted"
                 raise ingest_reprice.IngestAborted("shutdown requested")
             with db.viz_conn() as c:
-                version_id = dims_seed.dim_id(
-                    c, "dim_pricing_version", constants.PRICING_VERSION)
+                version_id = dims_seed.dim_id(c, "dim_pricing_version", constants.PRICING_VERSION)
                 t0 = time.perf_counter()
                 cur = c.execute(
                     _LEGACY_SELECT_SQL,
@@ -172,26 +170,20 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
                 restamp_keys: list[tuple[int, int]] = []
                 moved: list[tuple[int, int, float, bool | None]] = []
                 for row in rows:
-                    if stored_pricing_version_is_newer(
-                            row.pricing_version, constants.PRICING_VERSION):
+                    if stored_pricing_version_is_newer(row.pricing_version, constants.PRICING_VERSION):
                         skipped += 1
                         continue
                     updates = record_updates(row)
                     if _row_is_unchanged(row, updates):
                         restamp_keys.append((row.file_id, row.line_num))
                     else:
-                        moved.append((row.file_id, row.line_num,
-                                      updates["cost_usd"],
-                                      updates["long_context"]))
+                        moved.append((row.file_id, row.line_num, updates["cost_usd"], updates["long_context"]))
                 if ph is not None:
                     marks["recompute"] = (marks.get("recompute", 0.0)
                                           + time.perf_counter() - t0)
                 t0 = time.perf_counter()
                 if restamp_keys:
-                    c.execute(_LEGACY_SQL_RESTAMP,
-                              (version_id,
-                               [k for k, _ in restamp_keys],
-                               [n for _, n in restamp_keys]))
+                    c.execute(_LEGACY_SQL_RESTAMP, (version_id, [k for k, _ in restamp_keys], [n for _, n in restamp_keys]))
                 if ph is not None:
                     marks["restamp"] = (marks.get("restamp", 0.0)
                                         + time.perf_counter() - t0)
@@ -221,8 +213,7 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
         if ph is not None:
             for label, seconds in marks.items():
                 ph.mark(label, seconds)
-            ph.done(batches=batches, rows=rows_seen, changed=changed,
-                    outcome=outcome, cpu=f"{time.process_time() - cpu0:.1f}s")
+            ph.done(batches=batches, rows=rows_seen, changed=changed, outcome=outcome, cpu=f"{time.process_time() - cpu0:.1f}s")
     log.info(
         "reprice: %d record(s) repriced (rate-derived data changed), "
         "%d restamped only", changed, restamped)
@@ -236,21 +227,16 @@ def _legacy_reprice_stale(should_stop: Callable[[], bool | None] | None = None  
 # Rates deliberately unlike any real price (SV-TEST-DATA): the moved
 # window and the schedules price the seeded rows only through the two
 # passes' shared resolution, never against a pinned rate.
-_MOVED_WINDOW_RATES = {"fresh": 11.0, "create_5m": 13.75,
-                       "create_1h": 22.0, "read": 1.1, "output": 55.0}
-_SCHED_A_RATES = {"fresh": 0.75, "create_5m": 0.9375, "create_1h": 1.5,
-                  "read": 0.075, "output": 3.75}
-_SCHED_B_RATES = {"fresh": 0.25, "create_5m": 0.3125, "create_1h": 0.5,
-                  "read": 0.025, "output": 1.25}
+_MOVED_WINDOW_RATES = {"fresh": 11.0, "create_5m": 13.75, "create_1h": 22.0, "read": 1.1, "output": 55.0}
+_SCHED_A_RATES = {"fresh": 0.75, "create_5m": 0.9375, "create_1h": 1.5, "read": 0.075, "output": 3.75}
+_SCHED_B_RATES = {"fresh": 0.25, "create_5m": 0.3125, "create_1h": 0.5, "read": 0.025, "output": 1.25}
 
 # The meter model, bound like _SEED_MODEL.
 _METER_MODEL = "gpt-5.6-sol"
 
 # One fixed tally for every seeded row: unsplit_create = 2000-250-500.
 _TOKENS = (1000, 2000, 3000, 100, 250, 500)
-_TALLY: dict[str, Any] = {"fresh": 1000, "output": 100,
-                          "eph5": 250, "eph1h": 500,
-                          "unsplit_create": 1250, "read": 3000}
+_TALLY: dict[str, Any] = {"fresh": 1000, "output": 100, "eph5": 250, "eph1h": 500, "unsplit_create": 1250, "read": 3000}
 _STALE = "0"
 
 
@@ -320,12 +306,9 @@ def _restore(c, snapshot: tuple[list[str], list[tuple]]) -> None:
     BOTH tables), so the two passes run over byte-identical starting
     states. The DELETE cascades the sidecar rows away with records."""
     names, rows = snapshot
-    keep = [i for i, name in enumerate(names)
-            if name not in _PROJECTIONS]
+    keep = [i for i, name in enumerate(names) if name not in _PROJECTIONS]
     rec_keep = [i for i in keep if names[i] not in _PRICE_COLS]
-    price_keep = [i for i in keep
-                  if names[i] in ("file_id", "line_num")
-                  or names[i] in _PRICE_COLS]
+    price_keep = [i for i in keep if names[i] in ("file_id", "line_num") or names[i] in _PRICE_COLS]
     c.execute("DELETE FROM records")
     if rows:
         with c.cursor() as cur:
@@ -354,8 +337,7 @@ def _fingerprint(snapshot: tuple[list[str], list[tuple]]) -> list:
     """(file_key, line_num, rate_fingerprint) of a snapshot."""
     names, rows = snapshot
     at = {name: index for index, name in enumerate(names)}
-    return [(row[at["file_key"]], row[at["line_num"]],
-             row[at["rate_fingerprint"]]) for row in rows]
+    return [(row[at["file_key"]], row[at["line_num"]], row[at["rate_fingerprint"]]) for row in rows]
 
 
 def _install_shape_tables(monkeypatch, prov) -> None:
@@ -391,14 +373,12 @@ def _install_shape_tables(monkeypatch, prov) -> None:
     # The meter tables are the test's own (SV-TEST-DATA): exactly the
     # meter shape model is a member, so the sonnet boundary rows keep
     # their NULL flag under both passes whatever the live fold does.
-    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS",
-                        frozenset({"gpt-5-6-sol"}))
+    monkeypatch.setattr(pricing, "LONG_CONTEXT_MODELS", frozenset({"gpt-5-6-sol"}))
     monkeypatch.setattr(pricing, "LONG_CONTEXT_METERS", {})
     rate_fingerprint.clear_fingerprint_cache()
 
 
-def _build_shape_rows(prov, inside_ts: datetime, outside_ts: datetime,
-                      newer: str) -> list[dict]:
+def _build_shape_rows(prov, inside_ts: datetime, outside_ts: datetime, newer: str) -> list[dict]:
     """One persist-consistent row per shape: the (cost, flag,
     fingerprint) triple is exactly what persist (or the pass itself)
     stamps, so recomputation is the identity wherever the fingerprint
@@ -477,18 +457,14 @@ def _move_opus_pair(monkeypatch) -> None:
     rate_fingerprint.clear_fingerprint_cache()
 
 
-def _assert_fingerprints_stamped(
-        snapshot: tuple[list[str], list[tuple]], newer: str) -> None:
+def _assert_fingerprints_stamped(snapshot: tuple[list[str], list[tuple]], newer: str) -> None:
     """B and C must carry rate_fingerprint on every non-guard row."""
     names, rows = snapshot
     at = {name: index for index, name in enumerate(names)}
     version_at = at["pricing_version"]
-    guards = {(row[0], row[1]) for row in rows
-              if row[version_at] == newer}
+    guards = {(row[0], row[1]) for row in rows if row[version_at] == newer}
     fingerprint_at = at["rate_fingerprint"]
-    unstamped = [(row[0], row[1]) for row in rows
-                 if (row[0], row[1]) not in guards
-                 and row[fingerprint_at] is None]
+    unstamped = [(row[0], row[1]) for row in rows if (row[0], row[1]) not in guards and row[fingerprint_at] is None]
     assert not unstamped, (
         f"every non-guard row must carry its fingerprint: {unstamped}")
 
@@ -504,8 +480,7 @@ def _assert_moved_pair_repriced(start, end) -> None:
     assert moved, "the moved pair's rows must have repriced somewhere"
 
 
-def test_legacy_and_pair_qualified_pass_agree(
-        fresh_db, monkeypatch, synthetic_provider_dated_rate):
+def test_legacy_and_pair_qualified_pass_agree(fresh_db, monkeypatch, synthetic_provider_dated_rate):
     """THE DIFFERENTIAL: every seeded shape — scheduled
     provider pair (inside and outside the window), dated-window
     boundary (one second either side), NULL ts, naive ts, rollback
@@ -548,8 +523,7 @@ def test_legacy_and_pair_qualified_pass_agree(
     # stale again, fingerprints and costs already current.
     with db.viz_conn() as c:
         stale_id = dims_seed.dim_id(c, "dim_pricing_version", _STALE)
-        current_id = dims_seed.dim_id(
-            c, "dim_pricing_version", constants.PRICING_VERSION)
+        current_id = dims_seed.dim_id(c, "dim_pricing_version", constants.PRICING_VERSION)
         c.execute(
             "UPDATE records_price SET pricing_version_id = %s "
             "WHERE pricing_version_id = %s",
