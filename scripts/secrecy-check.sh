@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Fails if a forbidden literal is in the tree or in committed history.
-# Literals: .secrecy-literals and .env's CLAUDIT_DATABASE_URL_AUTH (or old name), from this
-# worktree and the main one (not a bare one). Findings name commits and files, never the value.
+# Fails if a forbidden literal is in the tree or committed history.
+# Literals: .secrecy-literals (one per line) and .env's CLAUDIT_DATABASE_URL_AUTH (or old name), from this
+# worktree and the main one (not bare). Findings name commits and files, never the value.
 
 set -uo pipefail
 
@@ -27,7 +27,7 @@ add_literals() {
 
   if [ -f "$dir/.env" ]; then
     for AUTH_ENV in CLAUDIT_DATABASE_URL_AUTH DATABASE_URL_AUTH; do
-      AUTH_DB="$(sed -n 's/^[[:space:]]*\(export[[:space:]]\+\)\?'"$AUTH_ENV"'[[:space:]]*=[[:space:]]*//p' "$dir/.env" \
+      AUTH_DB="$(sed -n 's/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}'"$AUTH_ENV"'[[:space:]]*=[[:space:]]*//p' "$dir/.env" \
         | head -n1 | tr -d '"'"'"'' | sed 's/?.*$//' | sed 's#.*/##' | tr -d '[:space:]')"
       if [ -n "${AUTH_DB:-}" ] && [ "${#AUTH_DB}" -ge 4 ]; then
         NEEDLES+=("$AUTH_DB")
