@@ -1,36 +1,46 @@
 #!/usr/bin/env bash
-# Fails if a forbidden literal appears in the tree or in committed history.
-# Literals come from .secrecy-literals (gitignored, one per line) and from
-# .env's CLAUDIT_DATABASE_URL_AUTH (and its deprecated name). Findings name commits and files, never the value.
+# Fails if a forbidden literal is in the tree or in committed history.
+# Literals: .secrecy-literals and .env's CLAUDIT_DATABASE_URL_AUTH (or old name), from this
+# worktree and the main one (not a bare one). Findings name commits and files, never the value.
 
 set -uo pipefail
 
 cd "$(git rev-parse --show-toplevel)" || exit 1
+TOP="$(pwd -P)"
 
 MODE="${1:-full}"
 FAIL=0
 declare -a NEEDLES=()
 declare -a LABELS=()
 
-if [ -f .secrecy-literals ]; then
-  while IFS= read -r line; do
-    line="${line%%#*}"
-    line="$(printf '%s' "$line" | tr -d '[:space:]')"
-    [ -n "$line" ] || continue
-    NEEDLES+=("$line")
-    LABELS+=("a listed literal (${#line} chars)")
-  done < .secrecy-literals
-fi
+add_literals() {
+  local dir="$1" line AUTH_ENV AUTH_DB
+  if [ -f "$dir/.secrecy-literals" ]; then
+    while IFS= read -r line; do
+      line="${line%%#*}"
+      line="$(printf '%s' "$line" | tr -d '[:space:]')"
+      [ -n "$line" ] || continue
+      NEEDLES+=("$line")
+      LABELS+=("a listed literal (${#line} chars)")
+    done < "$dir/.secrecy-literals"
+  fi
 
-if [ -f .env ]; then
-  for AUTH_ENV in CLAUDIT_DATABASE_URL_AUTH DATABASE_URL_AUTH; do
-    AUTH_DB="$(sed -n 's/^[[:space:]]*\(export[[:space:]]\+\)\?'"$AUTH_ENV"'[[:space:]]*=[[:space:]]*//p' .env \
-      | head -n1 | tr -d '"'"'"'' | sed 's/?.*$//' | sed 's#.*/##' | tr -d '[:space:]')"
-    if [ -n "${AUTH_DB:-}" ] && [ "${#AUTH_DB}" -ge 4 ]; then
-      NEEDLES+=("$AUTH_DB")
-      LABELS+=("the auth-DB name")
-    fi
-  done
+  if [ -f "$dir/.env" ]; then
+    for AUTH_ENV in CLAUDIT_DATABASE_URL_AUTH DATABASE_URL_AUTH; do
+      AUTH_DB="$(sed -n 's/^[[:space:]]*\(export[[:space:]]\+\)\?'"$AUTH_ENV"'[[:space:]]*=[[:space:]]*//p' "$dir/.env" \
+        | head -n1 | tr -d '"'"'"'' | sed 's/?.*$//' | sed 's#.*/##' | tr -d '[:space:]')"
+      if [ -n "${AUTH_DB:-}" ] && [ "${#AUTH_DB}" -ge 4 ]; then
+        NEEDLES+=("$AUTH_DB")
+        LABELS+=("the auth-DB name")
+      fi
+    done
+  fi
+}
+
+add_literals "$TOP"
+MAIN="$(git worktree list --porcelain | awk '/^worktree /{if(n++)exit;p=substr($0,10)} /^bare$/{p=""} END{print p}')"
+if [ -n "$MAIN" ] && [ "$(cd "$MAIN" 2>/dev/null && pwd -P)" != "$TOP" ]; then
+  add_literals "$MAIN"
 fi
 
 # Nothing to check must not look like nothing found.
