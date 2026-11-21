@@ -22,9 +22,7 @@ ZIZMOR_MANIFEST = REPO_ROOT / "requirements-zizmor.txt"
 # a pip requirement carrying a version spec — the inline-pin shape
 # Dependabot can never see. Single-char comparison operators need a
 # digit/letter after them so a `> audit.out` redirect never matches.
-_REQ_OPERATOR = re.compile(
-    r"[A-Za-z0-9_.\[\]-]+\s*(==|~=|!=|<=|>=|<(?=[0-9A-Za-z])|>(?=[0-9A-Za-z]))"
-)
+_REQ_OPERATOR = re.compile(r"[A-Za-z0-9_.\[\]-]+\s*(==|~=|!=|<=|>=|<(?=[0-9A-Za-z])|>(?=[0-9A-Za-z]))")
 
 
 def _run_blocks(path: Path) -> list[str]:
@@ -95,10 +93,7 @@ def test_codeql_action_pins_share_one_sha() -> None:
 
 def test_codeql_action_pin_comments_are_immutable_release_tags() -> None:
     text = CODEQL_WORKFLOW.read_text(encoding="utf-8")
-    comments = {
-        match["step"]: match["comment"]
-        for match in _PIN_COMMENT.finditer(text)
-    }
+    comments = {match["step"]: match["comment"] for match in _PIN_COMMENT.finditer(text)}
     # the oracle must be live: exactly the two coupled steps' comments
     assert set(comments) == {"init", "analyze"}, (
         f"expected the init and analyze pin comments, found {sorted(comments)}"
@@ -108,10 +103,7 @@ def test_codeql_action_pin_comments_are_immutable_release_tags() -> None:
     # shape is the convention this gate enforces; a release's actual
     # immutability (its `immutable` flag) is verified reviewer-side, never
     # by a name pattern.
-    bad = {
-        c for c in comments.values()
-        if not re.fullmatch(r"v\d+\.\d+\.\d+", c)
-    }
+    bad = {c for c in comments.values() if not re.fullmatch(r"v\d+\.\d+\.\d+", c)}
     assert not bad, f"pin comments are not vX.Y.Z release tags: {sorted(bad)}"
     assert len(set(comments.values())) == 1, (
         f"pin comments disagree across steps: {sorted(comments.values())}"
@@ -161,21 +153,12 @@ def test_every_group_has_a_security_updates_twin() -> None:
             for name, group in ((entry or {}).get("groups") or {}).items()
             if isinstance(group, dict)
         }
-        shape = {
-            name: {k: v for k, v in group.items() if k != "applies-to"}
-            for name, group in groups.items()
-        }
-        kind = {
-            name: group.get("applies-to", "version-updates")
-            for name, group in groups.items()
-        }
-        opposite = {"version-updates": "security-updates",
-                    "security-updates": "version-updates"}
+        shape = {name: {k: v for k, v in group.items() if k != "applies-to"} for name, group in groups.items()}
+        kind = {name: group.get("applies-to", "version-updates") for name, group in groups.items()}
+        opposite = {"version-updates": "security-updates", "security-updates": "version-updates"}
         for name in groups:
-            if not any(n != name and kind[n] == opposite[kind[name]]
-                       and shape[n] == shape[name] for n in groups):
-                unpaired.append((entry.get("package-ecosystem"), name,
-                                 kind[name], sorted(shape[name])))
+            if not any(n != name and kind[n] == opposite[kind[name]] and shape[n] == shape[name] for n in groups):
+                unpaired.append((entry.get("package-ecosystem"), name, kind[name], sorted(shape[name])))
     assert not unpaired, (
         "a group has no twin of the opposite applies-to kind carrying an "
         "identical rule, so that kind's bumps arrive unbundled or bundled "
@@ -183,8 +166,7 @@ def test_every_group_has_a_security_updates_twin() -> None:
     )
 
 
-_SUBJECT_TYPE = {"pip": "build", "npm": "build",
-                 "github-actions": "ci", "docker": "ci"}
+_SUBJECT_TYPE = {"pip": "build", "npm": "build", "github-actions": "ci", "docker": "ci"}
 
 
 def test_dependabot_subjects_carry_a_conventional_type_and_scope() -> None:
@@ -231,13 +213,11 @@ def _service_images() -> list[tuple[str, str]]:
             for svc_name, svc in (job.get("services") or {}).items():
                 image = (svc or {}).get("image")
                 if image:
-                    found.append(
-                        (f"{where}.services.{svc_name}", image))
+                    found.append((f"{where}.services.{svc_name}", image))
             for index, step in enumerate(job.get("steps") or []):
                 uses = (step or {}).get("uses") or ""
                 if isinstance(uses, str) and uses.startswith(_DOCKER_REF):
-                    found.append((f"{where}.steps[{index}]",
-                                  uses[len(_DOCKER_REF):]))
+                    found.append((f"{where}.steps[{index}]", uses[len(_DOCKER_REF):]))
     return found
 
 
@@ -246,8 +226,7 @@ POSTGRES_PRIMARY = "mirror.gcr.io/library/postgres:"
 
 def test_every_postgres_job_uses_the_cached_action() -> None:
     """A service/container bypass would pull before the cache can restore."""
-    postgres = [(where, image) for where, image in _service_images()
-                if "postgres" in image]
+    postgres = [(where, image) for where, image in _service_images() if "postgres" in image]
     assert not postgres, postgres
     callers = []
     for path in _workflow_files():
@@ -262,8 +241,7 @@ def test_every_postgres_job_uses_the_cached_action() -> None:
 
 def test_postgres_action_uses_the_gcr_mirror_primary() -> None:
     """The pinned primary reference is the Google mirror; public ECR falls back."""
-    reference = dockerfile_from_reference(
-        REPO_ROOT / "compose/postgres/Dockerfile")
+    reference = dockerfile_from_reference(REPO_ROOT / "compose/postgres/Dockerfile")
     assert reference.startswith(POSTGRES_PRIMARY)
 
 
@@ -391,9 +369,7 @@ def test_self_repository_uses_use_the_dollar_slash_form() -> None:
     Scope the check to .github/workflows, the surface the audit scans."""
     offenders: list[str] = []
     for path in _workflow_files():
-        for lineno, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), 1
-        ):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if re.match(r"^\s*uses:\s+\./", line):
                 offenders.append(f"{path.name}:{lineno}: workspace-relative")
     assert not offenders, (
@@ -409,9 +385,7 @@ def test_audit_gate_covers_every_requirements_manifest() -> None:
     audited: set[str] = set()
     for run in _run_blocks(WORKFLOWS_DIR / "audit.yml"):
         audited |= set(re.findall(r"--requirement\s+(\S+)", run))
-    manifests = {"backend/requirements.txt"} | {
-        path.name for path in REPO_ROOT.glob("requirements*.txt")
-    }
+    manifests = {"backend/requirements.txt"} | {path.name for path in REPO_ROOT.glob("requirements*.txt")}
     assert audited == manifests, (
         "audit.yml's --requirement set and the tree's manifests disagree — "
         f"unaudited: {sorted(manifests - audited)}, "
@@ -436,12 +410,9 @@ class TestRefreshPricingShards:
         stage = refresh_jobs["stage"]
         assert set(stage["needs"]) == {"refresh", "suite"}
         assert stage["if"] == "needs.refresh.outputs.moved == 'true'"
-        staging = next(step["run"] for step in stage["steps"]
-                       if step.get("name") == "Stage the tested data")
-        download = next(step for step in stage["steps"]
-                        if step.get("name") == "Download the fetched data")
-        upload = next(step for step in stage["steps"]
-                      if step.get("name") == "Upload the tested data")
+        staging = next(step["run"] for step in stage["steps"] if step.get("name") == "Stage the tested data")
+        download = next(step for step in stage["steps"] if step.get("name") == "Download the fetched data")
+        upload = next(step for step in stage["steps"] if step.get("name") == "Upload the tested data")
         assert {line for line in staging.splitlines() if line.startswith("cp ")} == {
             f'cp "{download["with"]["path"]}/{filename}" '
             f'"{upload["with"]["path"]}/{filename}"'
@@ -454,9 +425,7 @@ class TestRefreshPricingShards:
         suite = refresh_jobs["suite"]
         assert suite["needs"] == "refresh"
         assert suite["if"] == "needs.refresh.outputs.moved == 'true'"
-        assert suite["strategy"] == {
-            "fail-fast": False, "matrix": {"shard": [1, 2, 3, 4]}
-        }
+        assert suite["strategy"] == {"fail-fast": False, "matrix": {"shard": [1, 2, 3, 4]}}
         steps = suite["steps"]
         run = next(step["run"] for step in steps if step.get("name") == "Run tests")
         assert (
@@ -467,9 +436,7 @@ class TestRefreshPricingShards:
 
     def test_fetch_and_suite_interpreters_match_the_explorer(self) -> None:
         refresh_jobs = _workflow_jobs("refresh-pricing.yml")
-        explorer = yaml.safe_load(
-            (WORKFLOWS_DIR / "test-data-explore.yml").read_text(encoding="utf-8")
-        )["jobs"]
+        explorer = yaml.safe_load((WORKFLOWS_DIR / "test-data-explore.yml").read_text(encoding="utf-8"))["jobs"]
         versions = []
         for jobs, required in [
             (refresh_jobs, ["refresh", "suite"]),
@@ -479,20 +446,17 @@ class TestRefreshPricingShards:
                              if "python-version" in step.get("with", {})]
                       for name, job in jobs.items()}
             assert all(setups[name] for name in required)
-            versions.extend(step["with"]["python-version"]
-                            for steps in setups.values() for step in steps)
+            versions.extend(step["with"]["python-version"] for steps in setups.values() for step in steps)
         assert versions[0] and len(set(versions)) == 1
         steps = refresh_jobs["refresh"]["steps"]
         fetch = next(i for i, step in enumerate(steps) if step.get("id") == "fetch")
-        assert all(i < fetch for i, step in enumerate(steps)
-                   if "python-version" in step.get("with", {}))
+        assert all(i < fetch for i, step in enumerate(steps) if "python-version" in step.get("with", {}))
 
     def test_suite_overlays_all_fetched_data(self) -> None:
         refresh_jobs = _workflow_jobs("refresh-pricing.yml")
         steps = refresh_jobs["suite"]["steps"]
         download = next(step for step in steps if step.get("name") == "Download the fetched data")
-        overlay = next(step["run"] for step in steps
-                       if step.get("name") == "Overlay the fetched data")
+        overlay = next(step["run"] for step in steps if step.get("name") == "Overlay the fetched data")
         assert {line for line in overlay.splitlines() if line.startswith("cp ")} == {
             f'cp "{download["with"]["path"]}/{filename}" {target}'
             for filename, target in [
@@ -612,8 +576,7 @@ class TestPerturbedSuiteExploreShards:
 
     def test_step_bound_shell_and_env_are_read_from_the_parsed_step(self) -> None:
         job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
-        step = next(step for step in job["steps"]
-                    if step.get("name") == "Perturb and test, per wall-clock seed")
+        step = next(step for step in job["steps"] if step.get("name") == "Perturb and test, per wall-clock seed")
         bound = step.get("timeout-minutes")
         # The job outlasts its test step, so a stalled suite ends at the step's bound.
         assert isinstance(bound, (int, float)) and 0 < bound < job["timeout-minutes"], bound
@@ -625,8 +588,7 @@ class TestPerturbedSuiteExploreShards:
     @staticmethod
     def _cell(tmp_path: Path, index: int, shard: int, status: int = 0):
         job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
-        step = next(step for step in job["steps"]
-                    if step.get("name") == "Perturb and test, per wall-clock seed")
+        step = next(step for step in job["steps"] if step.get("name") == "Perturb and test, per wall-clock seed")
         assert step["env"]["CLAUDIT_SEED_BASE"] == "${{ needs.seeds.outputs.seed-base }}"
         return exec_step(step, tmp_path, {"seed-index": str(index), "shard": str(shard)}, {
             "CLAUDIT_SEED_BASE": str(SEED_BASE),
@@ -636,8 +598,7 @@ class TestPerturbedSuiteExploreShards:
     def test_cell_perturbs_one_wall_clock_seed_and_runs_its_shard(self, tmp_path: Path) -> None:
         job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
         matrix = job["strategy"]["matrix"]
-        step = next(step for step in job["steps"]
-                    if step.get("name") == "Perturb and test, per wall-clock seed")
+        step = next(step for step in job["steps"] if step.get("name") == "Perturb and test, per wall-clock seed")
         assert step["timeout-minutes"] == 15
         for index in matrix["seed-index"]:
             for shard in matrix["shard"]:
@@ -659,6 +620,5 @@ class TestPerturbedSuiteExploreShards:
 
     def test_pip_cache_save_requires_first_shard(self) -> None:
         job = _workflow_jobs("test-data-explore.yml")["perturbed-suite-explore"]
-        save = next(step for step in job["steps"]
-                    if step.get("name") == "Save the pip cache")
+        save = next(step for step in job["steps"] if step.get("name") == "Save the pip cache")
         assert "&& matrix.shard == 1" in save["if"]
