@@ -475,7 +475,8 @@
       ],
       "tests/test_panel_layout_rules_js.py": [
         5.73,
-        3.65
+        3.65,
+        7.25
       ],
       "tests/test_panel_wiring.py": [
         0.07
@@ -519,7 +520,8 @@
       ],
       "tests/test_parser_js_dedup_merge.py": [
         6.4,
-        4.15
+        4.15,
+        8.17
       ],
       "tests/test_parser_js_fees.py": [
         0.26
@@ -1020,7 +1022,8 @@
       ],
       "tests/test_workflow_expired_attempts.py": [
         4.42,
-        2.86
+        2.86,
+        6.86
       ],
       "tests/test_workflow_fetch_retry.py": [
         0.14
@@ -1604,7 +1607,8 @@
       ],
       "tests/test_parser_js_lanes.py": [
         26.64,
-        35.49
+        35.49,
+        48.18
       ],
       "tests/test_parser_js_meter_factors.py": [
         0.58
@@ -1695,7 +1699,8 @@
       "tests/test_pricing_data.py": [
         49.06,
         63.63,
-        33.48
+        33.48,
+        79.55
       ],
       "tests/test_pricing_data_more.py": [
         71.86,
@@ -1874,7 +1879,8 @@
       ],
       "tests/test_reparse_gate.py": [
         20.37,
-        28.66
+        28.66,
+        38.36
       ],
       "tests/test_reparse_seed.py": [
         0.04
@@ -4919,7 +4925,8 @@
       ],
       "tests/test_project_aliases.py": [
         7.21,
-        14.55
+        14.55,
+        4.72
       ],
       "tests/test_project_case_fold.py": [
         1.57
@@ -5283,7 +5290,8 @@
         4.0
       ],
       "tests/test_web_metrics_rollup.py": [
-        14.05
+        14.05,
+        10.29
       ],
       "tests/test_web_search_pricing.py": [
         0.01
@@ -6046,7 +6054,8 @@
         0.1
       ],
       "tests/test_provider_rate_refresh_delisted.py": [
-        0.21
+        0.21,
+        1.87
       ],
       "tests/test_provider_rate_refresh_fees.py": [
         0.23
