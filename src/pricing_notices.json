@@ -40,7 +40,6 @@
     "deepseek-v4-1-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp8'; dropped 'inference-net/us'",
     "deepseek-v4-1-flash via Parasail: rule-resolved (unique quantization): took the fp8 endpoint 'parasail/fp8' over service tiers",
     "deepseek-v4-1-flash via Venice: rule-resolved (unique quantization): took the fp8 endpoint 'venice/fp8' over service tiers",
-    "deepseek-v4-1-flash via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
     "deepseek-v4-1-flash-1017 via BaseTen: rule-resolved (bare namespace): took the bare namespace endpoint 'baseten' over service tiers 'baseten/fast'",
     "deepseek-v4-1-flash-1017 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-1-flash-1017 via Fireworks: rule-resolved (data region): took the global endpoint 'fireworks' over 'fireworks/spot'",
@@ -512,7 +511,8 @@
       "NextBit",
       "Phala",
       "PrimeIntellect",
-      "Sail Research"
+      "Sail Research",
+      "Wafer"
     ],
     "deepseek-v4-1-flash-1017": [
       "AtlasCloud",
@@ -600,8 +600,7 @@
       "OpenInference",
       "Phala",
       "PrimeIntellect",
-      "Reka",
-      "River"
+      "Reka"
     ],
     "glm-5-3-flash": [
       "AtlasCloud",
