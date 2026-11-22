@@ -996,7 +996,8 @@
         0.0
       ],
       "tests/test_workflow_apt_sanitizer.py": [
-        2.46
+        2.46,
+        3.51
       ],
       "tests/test_workflow_audit_retry.py": [
         1.86
@@ -1037,7 +1038,8 @@
         0.11
       ],
       "tests/test_workflow_refresh_push.py": [
-        3.51
+        3.51,
+        4.65
       ],
       "tests/test_workflow_release.py": [
         47.23
@@ -2909,7 +2911,8 @@
         0.03
       ],
       "tests/test_reparse_surface.py": [
-        55.76
+        55.76,
+        37.96
       ],
       "tests/test_reply_timing.py": [
         0.03
@@ -4375,7 +4378,8 @@
         0.03
       ],
       "tests/test_ci_thresholds_guard.py": [
-        0.58
+        0.58,
+        3.03
       ],
       "tests/test_ci_thresholds_removed.py": [
         0.47
@@ -4900,7 +4904,8 @@
         0.01
       ],
       "tests/test_prompt_gate_whitespace.py": [
-        1.2
+        1.2,
+        2.23
       ],
       "tests/test_prompt_ts.py": [
         1.78
