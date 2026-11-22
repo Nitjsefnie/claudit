@@ -155,7 +155,8 @@
       ],
       "tests/test_ci_thresholds_removed.py": [
         3.77,
-        2.6
+        2.6,
+        4.96
       ],
       "tests/test_ci_thresholds_reparse.py": [
         1.19
@@ -184,7 +185,8 @@
       ],
       "tests/test_commit_scopes.py": [
         5.16,
-        3.48
+        3.48,
+        6.56
       ],
       "tests/test_cost_buckets.py": [
         4.74,
@@ -4370,7 +4372,8 @@
         0.09
       ],
       "tests/test_collection_indexes.py": [
-        3.36
+        3.36,
+        2.3
       ],
       "tests/test_collection_ingest.py": [
         21.94,
@@ -4428,7 +4431,8 @@
       ],
       "tests/test_db_schema_check.py": [
         3.62,
-        1.83
+        1.83,
+        5.02
       ],
       "tests/test_deferred_js.py": [
         0.14
@@ -5192,7 +5196,8 @@
         0.0
       ],
       "tests/test_web_metrics.py": [
-        5.92
+        5.92,
+        4.0
       ],
       "tests/test_web_metrics_rollup.py": [
         14.05
@@ -5418,7 +5423,8 @@
       ],
       "tests/test_ci_thresholds_guard.py": [
         7.06,
-        10.31
+        10.31,
+        5.29
       ],
       "tests/test_ci_thresholds_removed.py": [
         14.19,
@@ -5871,7 +5877,8 @@
         0.02
       ],
       "tests/test_pricing_loader_refusals.py": [
-        20.99
+        20.99,
+        15.46
       ],
       "tests/test_pricing_more.py": [
         0.01
@@ -6133,7 +6140,8 @@
       ],
       "tests/test_suite_cost_pricing_growth.py": [
         12.74,
-        9.14
+        9.14,
+        17.14
       ],
       "tests/test_suite_ratchet.py": [
         0.72,
@@ -6921,7 +6929,8 @@
         0.01
       ],
       "tests/test_pricing_rows.py": [
-        8.67
+        8.67,
+        13.68
       ],
       "tests/test_pricing_vendor.py": [
         0.96
