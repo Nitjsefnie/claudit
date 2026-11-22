@@ -447,6 +447,16 @@ def test_a_host_at_two_global_prices_is_refused_naming_the_tags(tmp_path, capsys
     _refused(run, capsys, GLM, "Novita", "novita/fp8", "novita/fp4")
 
 
+def test_an_unanchored_entry_leaves_an_unresolvable_host_untouched(tmp_path, capsys):
+    run = Run(tmp_path)
+    _two_global_novitas(run)
+    run.edit(lambda doc: doc["openrouter"]["models"][GLM].pop("vendor_host"))
+    before = run.snapshot()
+    rc, out, err = run(capsys)
+    assert rc == 0 and GLM not in err and run.snapshot() == before
+    assert re.search(rf"(?m)^  {GLM} via Novita: .*novita/fp4.*; the host was left untouched$", out)
+
+
 def test_every_refusal_in_a_run_is_named(tmp_path, capsys):
     """A red run names every refused model, not only the first fetched."""
     run = Run(tmp_path)

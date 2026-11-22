@@ -496,6 +496,13 @@ and `PRICING_VERSION` bump (SV-RATE-DATA).
     recorded delistings; while it cannot be read, the run skips the ids
     the last committing run recorded as delisted.
 
+  A tracked entry without `vendor_host` has no first-party anchor, so for
+  it each per-host refusal above is a notice instead (the refusal text plus
+  "the host was left untouched"), not a run refusal: the host's row stays as
+  stored, and a host with no row leaves records through it resolving as if
+  no host were named. A model-level refusal and a log-join refusal still
+  refuse.
+
   When the refreshed document passes final validation, a refusal blocks
   only itself: every other move is rewritten or appended, tested and
   committed with the bump, then the run exits nonzero, naming each refused
@@ -636,9 +643,14 @@ pass moved.
   (with no `:<suffix>` variant suffix) whose derived key is not yet tracked
   is ADDED to `openrouter.models` as `{"id": <catalog id>, "vendor_host":
   <providerName of the selected endpoint>}` — the shape every tracked vendor
-  row carries. The pass writes NO RATES: the
-  provider pass carries the `(key, vendor_host)` row from the NEXT hourly
-  run, so a newly added model prices nothing for one run (the one-run
+  row carries. A model the vendor serves through no first-party endpoint
+  (only third-party hosts) is added as `{"id": <catalog id>}`, with no
+  `vendor_host` and no `context_length`, and the provider pass prices its
+  hosts like any id-only entry's. An already-tracked entry stands untouched
+  (with or without `vendor_host`), and no second key is added for an id
+  tracked under another key or for a derived key in the models table. The
+  pass writes NO RATES: the provider pass carries the new entry's rows from
+  the NEXT hourly run, so a newly added model prices nothing for one run (the one-run
   pickup delay is the design; the loaders admit a tracked entry ahead of
   its provider row, and resolve()'s bare path falls through until the row
   exists).
@@ -661,8 +673,9 @@ pass moved.
   call the SAME rule in `refresh_selection_rules.py`: one rule with two
   callers. Otherwise the vendor-prefix endpoints must agree on one price
   (equal prices collapse); several prices refuse, naming the resolve key.
-  No vendor-prefix endpoint at all is a NOTICE + skip (the model is
-  offered only through third-party hosts; any tracked entry's own state stands).
+  No vendor-prefix endpoint at all means the model is offered only through
+  third-party hosts: it is tracked without `vendor_host` (auto-add above),
+  silently, and any tracked entry's own state stands.
 - **The derived key** is the slug, dot-folded (`openai/gpt-5.5` →
   `gpt-5-5`) — the normalisation resolve() applies to a transcript naming
   the bare first-party id. A transcript id with a tracked vendor prefix
@@ -674,9 +687,10 @@ pass moved.
   `vendor_host` are never rewritten.** Those fields stand byte for byte.
   The listing of a tracked key is still fetched and selected for its meter
   membership and factor fold; its model-wide `context_length` is refreshed
-  when all vendor-prefix endpoints agree. When they disagree or the model
-  has no vendor-prefix endpoint, the pass records a NOTICE + skip and the
-  tracked entry stands untouched. Entries with no vendor source (a
+  when all vendor-prefix endpoints agree. When they disagree, the pass
+  records a NOTICE + skip and the tracked entry stands untouched; when the
+  model has no vendor-prefix endpoint, the entry stands untouched silently.
+  Entries with no vendor source (a
   models-table key such as bonsai-2-27b, or a tracked entry without
   vendor_host — aliases, the delisted) stand untouched, and a quiet source
   writes nothing.
@@ -703,9 +717,8 @@ pass moved.
   This includes scheduled meter bands, unknown override kinds or nonzero pricing
   keys, invalid web-search rates, multiple bands, bands that do not restate input
   and output, invalid thresholds, cache components that one input factor
-  cannot represent, and bands mixed with UTC fields. Other notices include
-  a catalog the pass cannot read and a model with no
-  first-party endpoint. Malformed pins, residual multi-price ambiguity
+  cannot represent, and bands mixed with UTC fields. A catalog the pass
+  cannot read is a notice. Malformed pins, residual multi-price ambiguity
   after selection, and broken or unrecognised endpoint fetches still refuse.
 - **A web-search price is a provider rate.** A first-party listing's
   `web_search` value participates in endpoint selection and is validated

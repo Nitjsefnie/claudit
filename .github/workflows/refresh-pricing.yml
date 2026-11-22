@@ -4,8 +4,8 @@ name: refresh-pricing
 # OpenRouter's per-provider prices for every model src/pricing.json tracks,
 # and run the vendor pass inside refresh_provider_rates.py, which joins
 # every catalog model under an openrouter.vendor.prefixes namespace to the
-# tracked table as {"id", "vendor_host"} (no rates — the provider pass
-# carries each new entry's row from the next hourly run) and folds the
+# tracked table as {"id", "vendor_host"}, or {"id"} with no first-party
+# endpoint (no rates; the next provider pass prices it), and folds
 # long-context meter membership from the first-party listing. When a price
 # moved, a host appeared or a vendor entry was added, commit straight to
 # master.

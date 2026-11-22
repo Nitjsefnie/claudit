@@ -62,5 +62,4 @@ def test_no_vendor_endpoint_preserves_existing_context_and_membership():
     before = _doc(tracked={GPT_KEY: dict(TRACKED)}, members=[GPT_KEY])
     after, outcome = _run(before, _catalog(GPT_ID), {
         GPT_ID: _payload(_endpoint('third-party', _price(1, 5)))})
-    assert after == before and not outcome.moves and not outcome.refusals
-    assert any('no first-party endpoint' in line for line in outcome.notices)
+    assert after == before and not outcome.moves and not outcome.refusals and not outcome.notices

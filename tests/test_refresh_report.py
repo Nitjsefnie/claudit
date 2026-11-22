@@ -142,7 +142,7 @@ def test_report_groups_model_notices_by_shared_message():
 # fixtures cannot drift from the renderer's shape.
 _DELISTED_MSG = "delisted from OpenRouter's catalog; row kept, not fetched"
 _TAG_MSG = "tag 'wafer/fast' names neither a known region nor a quantization"
-_NO_ENDPOINT_MSG = "the vendor lists no first-party endpoint; skipped"
+_UNSERVED_MSG = "OpenRouter lists it, but no endpoint serves it; skipped"
 
 
 def _delisted(subject: str) -> str:
@@ -217,31 +217,15 @@ def test_a_changed_notice_line_still_appears():
 def test_vendor_report_omits_an_unchanged_notice_line():
     vendor = vendor_refresh.VendorOutcome(
         notices=[
-            f"openai/alpha: {_NO_ENDPOINT_MSG}",
-            f"openai/beta: {_NO_ENDPOINT_MSG}",
+            f"openai/alpha: {_UNSERVED_MSG}",
+            f"openai/beta: {_UNSERVED_MSG}",
         ])
-    previous = frozenset({f"{_NO_ENDPOINT_MSG}: openai/alpha, openai/beta"})
+    previous = frozenset({f"{_UNSERVED_MSG}: openai/alpha, openai/beta"})
 
     output = refresh.vendor_report("2031-01-01T00:00:00Z", vendor, previous)
 
-    assert "no first-party endpoint" not in output
+    assert "no endpoint serves it" not in output
     assert "notices:" not in output, "an all-suppressed vendor section is bare"
-
-
-def test_vendor_report_groups_missing_first_party_endpoint_notices():
-    vendor = vendor_refresh.VendorOutcome(
-        notices=[
-            "openai/alpha: the vendor lists no first-party endpoint; skipped",
-            "openai/beta: the vendor lists no first-party endpoint; skipped",
-        ],
-    )
-
-    output = refresh.vendor_report("2031-01-01T00:00:00Z", vendor)
-
-    assert "  the vendor lists no first-party endpoint; skipped: " \
-           "openai/alpha, openai/beta" in output
-    assert sum("no first-party endpoint" in line
-               for line in output.splitlines()) == 1
 
 
 @pytest.mark.parametrize(("suffix", "expected"), [

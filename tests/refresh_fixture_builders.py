@@ -163,8 +163,8 @@ def provider_refresh_doc() -> dict:
     row = {"from": None, "context_length": 131072, **base}
     return seed_doc(
         tracked={
-            glm: {"id": "z-ai/glm-5.3-flash"},
-            deepseek: {"id": "deepseek/deepseek-v4.1-flash", "resolve": {
+            glm: {"id": "z-ai/glm-5.3-flash", "vendor_host": "Novita"},
+            deepseek: {"id": "deepseek/deepseek-v4.1-flash", "vendor_host": "DeepSeek", "resolve": {
                 "BaseTen": {"tag": "baseten/fp8", "select": "cheapest",
                             "ignore": ["max_completion_tokens"],
                             "why": "synthetic one-token listing artifact"}}},

@@ -13,11 +13,9 @@ Hand corrections also require a human commit and bump.
 Only the account's data-region endpoints count (tag_region). Weekly
 pricing.overrides become the entry's schedule. The top-level price is its
 default only outside every window; inside one it is that window's price.
-Endpoint selection — the resolution shapes (a tag, "cheapest", their
-combination, a recorded ignore) and the automatic rules over the
-mechanical multi-price shapes — lives in refresh_selection.py and
-refresh_selection_rules.py. Tag/region normalisation and whole-week
-schedule coverage live in refresh_prices.py and are imported here.
+Endpoint selection (resolution shapes, automatic rules) lives in
+refresh_selection.py and refresh_selection_rules.py; tag/region
+normalisation and whole-week schedule coverage in refresh_prices.py.
 These refuse the host or model they concern, which appends nothing:
 - multiple in-region prices unresolved by a pin or the maintained automatic
   rules in refresh_selection_rules.py;
@@ -25,12 +23,11 @@ These refuse the host or model they concern, which appends nothing:
   beyond a recorded ignore, or whose price order ties or flips;
 - a price or override kind this script does not model, or a response
   shape it does not recognise. Web-search rates are sampled separately
-  from the token price log and stored as a per-search rate. The one modelled override
-  exception is the long-context band: a coherent `min_prompt_tokens`
-  override infers representable input/output factors from its listed prices;
-  those factors need not match the currently stored meter. The band contributes no
-  window or membership here — the vendor pass owns the meter entry — and
-  its rates never enter the row;
+  from the token price log and stored as a per-search rate. The one
+  modelled override exception, a coherent `min_prompt_tokens` band,
+  infers representable input/output factors from its listed prices (need
+  not match the stored meter); it adds no window or membership here (the
+  vendor pass owns the meter) and its rates never enter the row;
 - a host seen for the first time while the fetch falls inside one of its
   schedule's windows, unless its schedule covers the whole week: then no
   record is priced by the entry default and it starts as the listed top-level
@@ -42,16 +39,18 @@ These refuse the host or model they concern, which appends nothing:
   overrides recorded delistings; an unreadable one uses them.
 
 Refusals keep rows untouched and exit 1; other moves publish before exiting
-1. provider_rates_fetched keeps the later of its stored instant and detection,
-so it never falls below a retained cutover. Sampled timing collisions keep
-their notice. The manual backfill uses the same history rewrite core.
+1. An entry with no vendor_host has no first-party anchor, so a host it
+cannot price is a notice, its row as stored; with no row, records through
+it resolve as if no host were named. provider_rates_fetched keeps the
+later of its stored instant and detection, so it never falls below a
+retained cutover. Sampled timing collisions keep their notice. The manual
+backfill uses the same history rewrite core.
 
 The same run tracks the first-party vendor table (refresh_vendor_rates,
-SV-VENDOR-RATES): a catalog id under a configured
-openrouter.vendor.prefixes entry whose derived key is untracked joins
-openrouter.models as {"id", "vendor_host"} — no rates; the provider pass
-carries its (key, vendor_host) row from the next hourly run. One report,
-one PRICING_VERSION bump, one commit.
+SV-VENDOR-RATES): an untracked catalog id under openrouter.vendor.prefixes
+joins openrouter.models as {"id", "vendor_host"}, or {"id"} with no
+first-party endpoint, with no rates: the next hourly provider pass prices
+it. One report, one PRICING_VERSION bump, one commit.
 
 pricing_notices.json beside the pricing document holds the last committing
 run's full rendered notice set. Identical lines are omitted;
@@ -195,7 +194,8 @@ def _delisted(source: dict, catalog: set[str] | None,
 
 def _refresh_model(context: RefreshContext, model: str, source: dict,
                    read: refresh_pricelog.LogRead) -> ModelResult:
-    """Refresh one model while keeping refusals local to that model."""
+    """Refresh one model, keeping refusals local to it; an entry with no
+    vendor_host turns host refusals into notices (module docstring)."""
     hosts = context.doc["providers"].setdefault(model, {})
     notices: list[str] = []
     try:
@@ -221,8 +221,11 @@ def _refresh_model(context: RefreshContext, model: str, source: dict,
     vanished = [(model, host) for host in hosts
                 if host not in listed.rows and host not in listed.refused
                 and host not in listed.untracked]
-    return ModelResult(moves, vanished, list(listed.refused.values()) + logged.refusals,
-                       notices, logged.sampled)
+    refused = list(listed.refused.values())
+    if "vendor_host" not in source:
+        notices += [f"{message}; the host was left untouched" for message in refused]
+        refused = []
+    return ModelResult(moves, vanished, refused + logged.refusals, notices, logged.sampled)
 
 
 def refresh(doc: dict, fetch: Fetch, stamp: str,
