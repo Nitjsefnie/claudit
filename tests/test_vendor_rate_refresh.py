@@ -55,11 +55,16 @@ def test_vendor_endpoint_selection(model_id, key, resolve, endpoints, expected):
     assert doc["openrouter"]["models"][key] == expected
 
 
-def test_third_party_hosts_alone_are_a_notice():
-    doc, out = _run(_doc(), _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("azure", _price(1.0, 5.0), host="Azure"))})
-    assert out.moves == [] and not out.refusals
-    assert "no first-party endpoint" in out.notices[0]
-    assert GPT_KEY not in doc["openrouter"]["models"]
+@pytest.mark.parametrize("tracked,models,added", [
+    ({}, None, True), ({GPT_KEY: {"id": "openai/retained-id"}}, None, False), ({"gpt-alias": {"id": GPT_ID}}, None, False),
+    ({}, {GPT_KEY: [{"from": None, **RATES}]}, False),
+], ids=["untracked", "derived-key", "id-under-another-key", "models-table-key"])
+def test_third_party_hosts_alone_track_the_model_once(tracked, models, added):
+    before = _doc(tracked=tracked, models=models)
+    doc, out = _run(before, _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("azure", _price(1.0, 5.0), host="Azure"))})
+    before["openrouter"]["models"].update({GPT_KEY: {"id": GPT_ID}} if added else {})  # _run ran on a copy
+    assert doc == before and not out.refusals and not out.notices
+    assert out.moves == ([vendor.VendorMove(GPT_ID, GPT_KEY, added=True)] if added else [])
 
 
 def test_ambiguous_vendor_prices_refuse():

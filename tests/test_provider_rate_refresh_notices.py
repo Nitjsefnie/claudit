@@ -104,8 +104,8 @@ def test_a_dry_run_writes_no_baseline(tmp_path, capsys):
     assert not (tmp_path / "pricing_notices.json").exists()
 
 
-_VENDOR_NOTICE = "openai/alpha: the vendor lists no first-party endpoint; skipped"
-_VENDOR_LINE = "the vendor lists no first-party endpoint; skipped: openai/alpha"
+_VENDOR_NOTICE = "openai/alpha: OpenRouter lists it, but no endpoint serves it; skipped"
+_VENDOR_LINE = "OpenRouter lists it, but no endpoint serves it; skipped: openai/alpha"
 
 
 def _vendor_pass(*_args):

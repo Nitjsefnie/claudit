@@ -10,11 +10,11 @@ Namespace rekeys follow SV-VENDOR-RATES.
 
 A catalog id under a listed prefix whose derived key is not yet tracked is
 ADDED to openrouter.models as ``{"id": <catalog id>, "vendor_host":
-<providerName of the selected endpoint>}``. The vendor pass WRITES
-NO RATES: the provider pass carries the (key, vendor_host) row from the
-NEXT hourly run, so a newly added model prices nothing for one run — the
-one-run pickup delay is the design, and resolve()'s bare path falls
-through until the row exists. An already-tracked key keeps its id and
+<providerName of the selected endpoint>}``. With no first-party endpoint
+it is added as ``{"id": <catalog id>}`` unless that id is already tracked
+or the key is a models-table key: no second key. The pass WRITES NO RATES:
+the NEXT run's provider pass carries its rows, so a new model prices
+nothing for one run by design. An already-tracked key keeps its id and
 vendor_host. Its listing controls the grouped meter membership, threshold,
 per-model factors, and model-wide context_length when vendor endpoints agree.
 
@@ -28,12 +28,11 @@ The vendor's own endpoint is selected refusing rather than guessing:
   ``z-ai/fp8`` — and two prices refuse; a {"tag": ...} pin recorded in
   openrouter.vendor.resolve.<derived key> (with a why) takes that endpoint
   and narrows first;
-- no vendor-prefix endpoint at all: NOTICE + skip — the model is offered
-  only through third-party hosts; there is no first-party selection to
-  make, and any tracked entry's own state stands untouched.
+- no vendor-prefix endpoint at all: the model, served only by third-party
+  hosts, is tracked without vendor_host; a tracked entry stands untouched.
 
 Unmodelled first-party data refuses its model, left untouched.
-Unreadable catalogs, unserved models, no first-party endpoint and
+Unreadable catalogs, unserved models and
 unpriced routers are notices. Stale tags report and select unpinned;
 malformed pins, ambiguous prices and broken endpoint fetches refuse:
 
@@ -207,8 +206,7 @@ def _listing(model_id: str, endpoint: object
 def _choose(model_id: str, endpoints: list, pin: object, notices: list[str]
             ) -> tuple[dict, dict | None, str] | None:
     """The vendor's own endpoint's listing, refusing an ambiguous one.
-    None means the vendor lists no first-party endpoint (a notice, not a
-    refusal)."""
+    None means the vendor lists no first-party endpoint."""
     ns = model_id.partition("/")[0]
     mine = [e for e in endpoints
             if isinstance(e, dict) and isinstance(e.get("tag"), str)
@@ -274,8 +272,8 @@ def _quantization_choice(model_id: str, mine: list, listings: list
 
 def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
             outcome: VendorOutcome):
-    """The chosen listing, or None when the pass moves on: the findings
-    land in outcome."""
+    """The chosen listing, () with no first-party endpoint, or None when
+    the pass moves on: the findings land in outcome."""
     try:
         payload = fetch_endpoints(model_id)
     except Exception as exc:  # a broken fetch refuses, as any broken fetch does
@@ -289,9 +287,7 @@ def _select(model_id: str, fetch_endpoints, doc: dict, key: str,
             ((doc.get("openrouter") or {}).get("vendor") or {}).get(
                 "resolve", {}).get(key), outcome.notices)
         if selected is None:
-            outcome.notices.append(
-                f"{model_id}: the vendor lists no first-party endpoint; skipped")
-            return None
+            return ()
         contexts = [endpoint.get("context_length") for endpoint in endpoints
                     if isinstance(endpoint, dict) and isinstance(endpoint.get("tag"), str)
                     and endpoint["tag"].partition("/")[0] == model_id.partition("/")[0]]
@@ -381,11 +377,17 @@ def _one_model(doc: dict, groups: list, model_id: str,
     selected = _select(model_id, fetch_endpoints, doc, key, outcome)
     if selected is None:
         return
-    meter, context_length = selected[1], selected[3]
-    metered = meter is not None
     # setdefault, never `or {}`: an empty tracked table is falsy, and a
     # fresh dict here would drop the auto-add's write on the floor.
     tracked = (doc.get("openrouter") or {}).setdefault("models", {})
+    if not selected:
+        if not (key in tracked or key in doc.get("models", {})
+                or any(entry.get("id") == model_id for entry in tracked.values())):
+            tracked[key] = {"id": model_id}
+            outcome.moves.append(VendorMove(model_id, key, added=True))
+        return
+    meter, context_length = selected[1], selected[3]
+    metered = meter is not None
     was_metered = _meter_location(groups, key) is not None
     if key in tracked:
         context_changed = tracked[key].get("context_length") != context_length
@@ -423,8 +425,8 @@ def vendor_pass(doc: dict, fetch_models, fetch_endpoints) -> VendorOutcome:
     grouped long_context_meters), returning the moves and what a human must
     read. Only entries declaring exactly text output reach
     selection and auto-add. An Untracked first-party shape refuses the run.
-    An unreadable catalog, an unserved model, no first-party endpoint, and
-    an unpriced router produce notices."""
+    An unreadable catalog, an unserved model and an unpriced router
+    produce notices."""
     outcome = VendorOutcome()
     _rekey(doc, outcome)
     try:

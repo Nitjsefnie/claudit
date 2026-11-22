@@ -72,8 +72,6 @@ def _notice_parts(notice: str):
     if (message.startswith("tag ") and
             message.endswith(_UNKNOWN_TAG_NOTICE)):
         return message, subject
-    if message == "the vendor lists no first-party endpoint; skipped":
-        return message, subject
     return None
 
 
