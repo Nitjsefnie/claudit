@@ -996,7 +996,8 @@
         0.01
       ],
       "tests/test_workflow_expired_attempts.py": [
-        4.42
+        4.42,
+        2.86
       ],
       "tests/test_workflow_fetch_retry.py": [
         0.14
@@ -1011,7 +1012,8 @@
         0.1
       ],
       "tests/test_workflow_push_retry.py": [
-        12.32
+        12.32,
+        18.36
       ],
       "tests/test_workflow_pytest_options.py": [
         0.11
@@ -1202,7 +1204,8 @@
       ],
       "tests/test_ci_thresholds_removed.py": [
         2.58,
-        4.07
+        4.07,
+        7.2
       ],
       "tests/test_ci_thresholds_reparse.py": [
         0.65
@@ -1232,7 +1235,8 @@
       ],
       "tests/test_commit_scopes.py": [
         5.43,
-        3.19
+        3.19,
+        6.9
       ],
       "tests/test_cost_buckets.py": [
         3.34,
@@ -1789,7 +1793,8 @@
       "tests/test_ratchet_staleness.py": [
         4.32,
         5.65,
-        7.98
+        7.98,
+        10.01
       ],
       "tests/test_rate_boundaries.py": [
         0.0
@@ -1839,7 +1844,8 @@
         0.04
       ],
       "tests/test_reparse_surface.py": [
-        48.98
+        48.98,
+        61.71
       ],
       "tests/test_reply_timing.py": [
         0.02
@@ -2672,7 +2678,8 @@
         0.81
       ],
       "tests/test_picker_layout_rules_js.py": [
-        3.88
+        3.88,
+        5.47
       ],
       "tests/test_picker_space_js.py": [
         0.06
@@ -2966,7 +2973,8 @@
       ],
       "tests/test_suite_bench.py": [
         44.29,
-        61.97
+        61.97,
+        77.47
       ],
       "tests/test_suite_ci_wiring.py": [
         0.91
@@ -3341,7 +3349,8 @@
         0.06
       ],
       "tests/test_ctx_turn_parity.py": [
-        2.68
+        2.68,
+        1.57
       ],
       "tests/test_dashboard_binning.py": [
         0.04
@@ -3542,7 +3551,8 @@
         0.57
       ],
       "tests/test_login.py": [
-        8.32
+        8.32,
+        5.71
       ],
       "tests/test_login_a11y.py": [
         0.77
@@ -3916,7 +3926,8 @@
         0.02
       ],
       "tests/test_reparse_surface.py": [
-        54.93
+        54.93,
+        36.93
       ],
       "tests/test_reply_timing.py": [
         0.03
@@ -5406,7 +5417,8 @@
         0.03
       ],
       "tests/test_ci_thresholds_guard.py": [
-        7.06
+        7.06,
+        10.31
       ],
       "tests/test_ci_thresholds_removed.py": [
         14.19,
@@ -5977,7 +5989,8 @@
       ],
       "tests/test_ratchet_staleness.py": [
         16.44,
-        11.71
+        11.71,
+        21.39
       ],
       "tests/test_rate_boundaries.py": [
         0.0
@@ -6470,7 +6483,8 @@
         0.0
       ],
       "tests/test_commit_scopes.py": [
-        11.91
+        11.91,
+        17.47
       ],
       "tests/test_cost_buckets.py": [
         4.4,
