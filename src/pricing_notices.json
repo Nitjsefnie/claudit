@@ -84,7 +84,6 @@
     "glm-5-3-flash via Parasail: rule-resolved (unique quantization): took the fp8 endpoint 'parasail/fp8' over service tiers",
     "glm-5-3-flash via Particle AI: rule-resolved (tier variant base): took the base endpoint 'particle-ai/nvfp4' over tier variants 'particle-ai/nvfp4/flex'",
     "glm-5-3-flash via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
-    "glm-5-3-flash via Wafer: rule-resolved (data region): the global data region leaves 'wafer/nvfp4'; dropped 'wafer/us'",
     "gpt-5-1 via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-5-2 via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-5-3-codex via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast'",
@@ -610,7 +609,8 @@
       "GMICloud",
       "NextBit",
       "Phala",
-      "PrimeIntellect"
+      "PrimeIntellect",
+      "Wafer"
     ],
     "glm-5-3-flashx": [
       "Novita"
