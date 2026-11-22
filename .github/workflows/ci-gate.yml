@@ -10,7 +10,7 @@ name: ci gate
 # classifies the changed paths, and either runs every gate leg or
 # narrows: a docs-only run skips every leg; a setup-only run executes
 # only setup-docs, with the guard covered by tests on full runs. A bot-data-only run
-# (src/pricing.json alone — the refresh job already ran the full suite
+# (the bot's data commit — the refresh job already ran the full suite
 # against the new rates before pushing) runs only the cheap legs lint
 # and smoke, and a comment-only run (every changed source file's
 # comment-stripped token stream identical at base and head) skips the
