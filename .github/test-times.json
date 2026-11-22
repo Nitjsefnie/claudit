@@ -724,7 +724,8 @@
         0.0
       ],
       "tests/test_pytest_shards.py": [
-        1.45
+        1.45,
+        2.48
       ],
       "tests/test_r2.py": [
         0.52
@@ -833,7 +834,8 @@
         0.01
       ],
       "tests/test_secrecy_check_script.py": [
-        1.37
+        1.37,
+        2.38
       ],
       "tests/test_secrets_workflow.py": [
         0.01
@@ -4282,12 +4284,14 @@
       ],
       "tests/test_breakdown_exact_rate.py": [
         5.66,
-        3.87
+        3.87,
+        8.98
       ],
       "tests/test_bucket_redact.py": [
         4.47,
         6.28,
-        2.59
+        2.59,
+        10.25
       ],
       "tests/test_cache.py": [
         0.16
@@ -4391,7 +4395,8 @@
         0.41
       ],
       "tests/test_commit_scopes.py": [
-        1.19
+        1.19,
+        2.27
       ],
       "tests/test_cost_buckets.py": [
         2.57,
@@ -4455,7 +4460,8 @@
         0.58
       ],
       "tests/test_dims_migration.py": [
-        1.92
+        1.92,
+        3.09
       ],
       "tests/test_docs_setup.py": [
         0.01
@@ -4492,7 +4498,8 @@
       ],
       "tests/test_feature_serving.py": [
         10.06,
-        13.43
+        13.43,
+        22.33
       ],
       "tests/test_feature_ui.py": [
         0.12
@@ -4570,7 +4577,8 @@
         1.79
       ],
       "tests/test_ingest_incremental_review.py": [
-        3.87
+        3.87,
+        8.08
       ],
       "tests/test_ingest_lock.py": [
         35.43
@@ -4596,10 +4604,12 @@
       ],
       "tests/test_ingest_vacuum.py": [
         8.13,
-        4.58
+        4.58,
+        10.62
       ],
       "tests/test_int4_measures.py": [
-        1.3
+        1.3,
+        2.47
       ],
       "tests/test_js_min.py": [
         0.93
@@ -4978,7 +4988,8 @@
       ],
       "tests/test_records_price.py": [
         4.23,
-        2.73
+        2.73,
+        8.61
       ],
       "tests/test_refresh_fetch_deadline.py": [
         1.09
@@ -5044,7 +5055,8 @@
         0.9
       ],
       "tests/test_reprice_setbased.py": [
-        1.59
+        1.59,
+        2.79
       ],
       "tests/test_requirements_pins.py": [
         0.0
@@ -5057,7 +5069,8 @@
       ],
       "tests/test_schema_autoapply.py": [
         4.91,
-        3.67
+        3.67,
+        6.94
       ],
       "tests/test_scratch_pg_script.py": [
         3.06,
@@ -5073,7 +5086,8 @@
         0.24
       ],
       "tests/test_sequence_allocation.py": [
-        1.87
+        1.87,
+        3.5
       ],
       "tests/test_served_scripts.py": [
         1.7
@@ -5151,7 +5165,8 @@
       ],
       "tests/test_tool_model.py": [
         3.38,
-        2.02
+        2.02,
+        4.46
       ],
       "tests/test_track_vendor.py": [
         0.03
