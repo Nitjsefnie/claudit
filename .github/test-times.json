@@ -1409,7 +1409,8 @@
         0.0
       ],
       "tests/test_ingest_fetch.py": [
-        1.2
+        1.2,
+        2.65
       ],
       "tests/test_ingest_forkserver.py": [
         14.79,
@@ -3502,7 +3503,8 @@
         0.01
       ],
       "tests/test_human_format_js.py": [
-        1.67
+        1.67,
+        2.73
       ],
       "tests/test_ingest.py": [
         0.0
@@ -4926,7 +4928,8 @@
         2.23
       ],
       "tests/test_prompt_ts.py": [
-        1.78
+        1.78,
+        3.45
       ],
       "tests/test_provider_pricing.py": [
         0.02
@@ -5074,7 +5077,8 @@
       ],
       "tests/test_reprice.py": [
         5.7,
-        8.32
+        8.32,
+        3.16
       ],
       "tests/test_reprice_clean_restamp_guards.py": [
         0.27
@@ -5135,7 +5139,8 @@
       ],
       "tests/test_session.py": [
         2.51,
-        3.56
+        3.56,
+        4.79
       ],
       "tests/test_sessions_read_canonical.py": [
         0.51
