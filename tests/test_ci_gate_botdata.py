@@ -133,7 +133,7 @@ def test_push_data_only_requires_the_tip_bot_author():
 @pytest.mark.parametrize('event, records, narrows', [
     (PUSH, '.github/test-times.json', True), (PUSH, '.github/comment-share.json', True),
     (PUSH, '.github/size-baseline.json', True), (PUSH, '.github/ci-thresholds.json', False),
-    (PR, '.github/test-times.json', False)])
+    (PR, '.github/test-times.json', False), (PUSH, 'nested/.github/test-times.json', False)])
 def test_a_ratchet_records_path_beside_the_bot_pair(event, records, narrows):
     # A records commit's push is trigger-ignored, so the push's compared range keeps it.
     paths = BOT_PATHS + [records]

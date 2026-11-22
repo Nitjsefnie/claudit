@@ -18,8 +18,8 @@ EXACTLY `src/pricing.json`, `backend/constants.py` and
 bump, the notice baseline), committing the pair or, when the baseline
 moved, the triple. The refresh job runs the full suite BEFORE pushing
 (refresh-pricing.yml), so the matrix would re-verify nothing. Constants
-must replace one numeric PRICING_VERSION assignment; unreadable blobs
-and other paths run the full gate, save a push's ratchet records
+must replace only one numeric PRICING_VERSION assignment; unreadable blobs
+and other paths run the full gate, save three of a push's ratchet records
 (classify_thresholds.bot_data_paths). Only bot-authored pushes qualify;
 PRs test the data.
 
