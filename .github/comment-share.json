@@ -596,8 +596,8 @@
     7268
   ],
   "scripts/ci/classify_changes.py": [
-    7223,
-    15095
+    7103,
+    15028
   ],
   "scripts/ci/commit_scopes.py": [
     5342,
