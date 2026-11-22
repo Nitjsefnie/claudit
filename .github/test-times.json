@@ -151,7 +151,8 @@
         0.01
       ],
       "tests/test_ci_thresholds_guard.py": [
-        2.33
+        2.33,
+        3.52
       ],
       "tests/test_ci_thresholds_removed.py": [
         3.77,
@@ -566,7 +567,8 @@
         1.14
       ],
       "tests/test_perturbed_leg_bench.py": [
-        14.15
+        14.15,
+        10.22
       ],
       "tests/test_perturbed_leg_combine.py": [
         1.26
@@ -874,7 +876,8 @@
         0.0
       ],
       "tests/test_suite_bench.py": [
-        61.02
+        61.02,
+        42.19
       ],
       "tests/test_suite_ci_wiring.py": [
         0.97
@@ -2369,7 +2372,8 @@
       ],
       "tests/test_env_prefix.py": [
         5.75,
-        4.31
+        4.31,
+        8.13
       ],
       "tests/test_env_prefix_scripts.py": [
         0.48
@@ -3103,7 +3107,8 @@
         0.01
       ],
       "tests/test_workflow_expired_attempts.py": [
-        2.39
+        2.39,
+        3.44
       ],
       "tests/test_workflow_fetch_retry.py": [
         0.23
@@ -4280,7 +4285,8 @@
       ],
       "tests/test_bucket_redact.py": [
         4.47,
-        6.28
+        6.28,
+        2.59
       ],
       "tests/test_cache.py": [
         0.16
@@ -4555,7 +4561,8 @@
         3.91
       ],
       "tests/test_ingest_incremental_finalize.py": [
-        4.1
+        4.1,
+        2.37
       ],
       "tests/test_ingest_incremental_plan.py": [
         1.79
@@ -4696,7 +4703,8 @@
         0.05
       ],
       "tests/test_parse_codex_exec_targets.py": [
-        3.68
+        3.68,
+        2.39
       ],
       "tests/test_parse_codex_more.py": [
         0.04
@@ -4836,7 +4844,8 @@
       ],
       "tests/test_pricing_loader_refusals.py": [
         13.93,
-        17.94
+        17.94,
+        9.55
       ],
       "tests/test_pricing_more.py": [
         0.01
@@ -4989,7 +4998,8 @@
       ],
       "tests/test_reparse_bench.py": [
         38.76,
-        23.91
+        23.91,
+        17.04
       ],
       "tests/test_reparse_ci_wiring.py": [
         0.23
@@ -4999,7 +5009,8 @@
       ],
       "tests/test_reparse_gate.py": [
         32.54,
-        49.12
+        49.12,
+        22.03
       ],
       "tests/test_reparse_seed.py": [
         0.03
@@ -5024,7 +5035,8 @@
         1.65
       ],
       "tests/test_reprice_pairs.py": [
-        6.33
+        6.33,
+        4.54
       ],
       "tests/test_reprice_parity.py": [
         0.9
@@ -5283,7 +5295,8 @@
         0.0
       ],
       "tests/test_agent_fold_js.py": [
-        5.52
+        5.52,
+        14.12
       ],
       "tests/test_agent_list_caps_js.py": [
         2.16,
@@ -5362,7 +5375,8 @@
         0.01
       ],
       "tests/test_cache_write_split.py": [
-        2.35
+        2.35,
+        4.7
       ],
       "tests/test_canonical_dims_parity.py": [
         0.0
