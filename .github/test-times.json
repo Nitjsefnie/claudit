@@ -81,7 +81,8 @@
       ],
       "tests/test_breakdown_exact_rate.py": [
         5.59,
-        4.02
+        4.02,
+        7.7
       ],
       "tests/test_bucket_redact.py": [
         0.0
@@ -584,7 +585,8 @@
         10.22
       ],
       "tests/test_perturbed_leg_combine.py": [
-        1.26
+        1.26,
+        2.45
       ],
       "tests/test_picker_fit_js.py": [
         0.75
@@ -4480,7 +4482,8 @@
         0.07
       ],
       "tests/test_dashboard_open_budget.py": [
-        1.52
+        1.52,
+        3.99
       ],
       "tests/test_database_url_viz_default.py": [
         0.0
@@ -5673,7 +5676,8 @@
         3.36
       ],
       "tests/test_gate_trigger_set.py": [
-        2.07
+        2.07,
+        0.97
       ],
       "tests/test_guest_login.py": [
         0.02
@@ -5694,7 +5698,8 @@
         0.02
       ],
       "tests/test_human_format_js.py": [
-        4.39
+        4.39,
+        3.21
       ],
       "tests/test_ingest.py": [
         0.0
