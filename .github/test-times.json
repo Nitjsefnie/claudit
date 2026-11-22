@@ -506,7 +506,8 @@
         0.01
       ],
       "tests/test_parser_js_dedup_merge.py": [
-        6.4
+        6.4,
+        4.15
       ],
       "tests/test_parser_js_fees.py": [
         0.26
@@ -597,7 +598,8 @@
         1.59
       ],
       "tests/test_pricing_compact_shape.py": [
-        2.78
+        2.78,
+        4.51
       ],
       "tests/test_pricing_data.py": [
         43.15,
@@ -1024,7 +1026,8 @@
         1.68
       ],
       "tests/test_workflow_release_dispatch.py": [
-        27.16
+        27.16,
+        19.0
       ],
       "tests/test_workflow_release_target.py": [
         0.69
@@ -1510,7 +1513,8 @@
         1.7
       ],
       "tests/test_panel_layout_rules_js.py": [
-        3.46
+        3.46,
+        4.55
       ],
       "tests/test_panel_wiring.py": [
         0.04
@@ -1576,10 +1580,12 @@
         24.34
       ],
       "tests/test_parser_js_pricing_loader.py": [
-        2.69
+        2.69,
+        4.45
       ],
       "tests/test_parser_js_user_prompt.py": [
-        2.25
+        2.25,
+        4.6
       ],
       "tests/test_parser_js_web_search.py": [
         0.53,
@@ -1612,7 +1618,8 @@
         15.78
       ],
       "tests/test_perturbed_leg_combine.py": [
-        1.17
+        1.17,
+        2.45
       ],
       "tests/test_picker_fit_js.py": [
         0.53
@@ -1662,7 +1669,8 @@
         0.01
       ],
       "tests/test_pricing_loader_refusals.py": [
-        10.3
+        10.3,
+        16.25
       ],
       "tests/test_pricing_more.py": [
         0.0
@@ -2058,7 +2066,8 @@
         0.1
       ],
       "tests/test_workflow_push_retry.py": [
-        10.72
+        10.72,
+        14.0
       ],
       "tests/test_workflow_pytest_options.py": [
         0.11
@@ -2151,7 +2160,8 @@
         0.56
       ],
       "tests/test_bash_reads.py": [
-        1.33
+        1.33,
+        2.54
       ],
       "tests/test_bash_segments.py": [
         0.0
@@ -2183,7 +2193,8 @@
         0.0
       ],
       "tests/test_cache_write_split.py": [
-        0.97
+        0.97,
+        3.88
       ],
       "tests/test_canonical_dims_parity.py": [
         0.0
@@ -4268,7 +4279,8 @@
         1.32
       ],
       "tests/test_canonical_dims_parity.py": [
-        0.91
+        0.91,
+        1.98
       ],
       "tests/test_canonical_model_attribution.py": [
         7.66,
@@ -5764,7 +5776,8 @@
         21.12
       ],
       "tests/test_parser_js_pricing_loader.py": [
-        4.59
+        4.59,
+        7.7
       ],
       "tests/test_parser_js_user_prompt.py": [
         4.14
@@ -6331,7 +6344,8 @@
         0.44
       ],
       "tests/test_bash_reads.py": [
-        3.0
+        3.0,
+        1.9
       ],
       "tests/test_bash_segments.py": [
         0.02
@@ -6677,7 +6691,8 @@
       ],
       "tests/test_login.py": [
         11.23,
-        8.25
+        8.25,
+        5.92
       ],
       "tests/test_login_a11y.py": [
         1.52
@@ -6794,10 +6809,12 @@
         1.03
       ],
       "tests/test_parser_js_mirror.py": [
-        29.34
+        29.34,
+        16.87
       ],
       "tests/test_parser_js_pricing_loader.py": [
-        4.52
+        4.52,
+        2.88
       ],
       "tests/test_parser_js_user_prompt.py": [
         4.23,
@@ -6829,7 +6846,8 @@
         1.0
       ],
       "tests/test_perturbed_leg_bench.py": [
-        0.26
+        0.26,
+        2.25
       ],
       "tests/test_perturbed_leg_combine.py": [
         2.58,
@@ -6842,7 +6860,8 @@
         1.09
       ],
       "tests/test_picker_layout_rules_js.py": [
-        7.34
+        7.34,
+        4.97
       ],
       "tests/test_picker_space_js.py": [
         0.08
