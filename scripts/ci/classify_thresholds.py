@@ -7,6 +7,15 @@ RATCHET_DATA_FILES = frozenset({
     '.github/size-baseline.json',
     '.github/test-times.json',
 })
+# Read by no leg of a tests-skipping run; trigger-ignored on master, so
+# kept in the verified-base range. Tests read ci-thresholds.
+BOT_DATA_RECORDS = RATCHET_DATA_FILES - {'.github/ci-thresholds.json'}
+
+
+def bot_data_paths(event: dict, paths: list[str]) -> list[str]:
+    if event.get('name') != 'push':
+        return paths
+    return [path for path in paths if path not in BOT_DATA_RECORDS]
 
 
 def thresholds_only(paths: list[str]) -> bool:
