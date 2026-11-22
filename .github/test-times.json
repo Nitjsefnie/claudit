@@ -600,7 +600,8 @@
         0.07
       ],
       "tests/test_placeholder_model_refusal.py": [
-        0.73
+        0.73,
+        2.46
       ],
       "tests/test_plot_features.py": [
         0.16
@@ -1962,7 +1963,8 @@
         0.0
       ],
       "tests/test_smoke_client.py": [
-        35.05
+        35.05,
+        0.52
       ],
       "tests/test_smoke_server_env.py": [
         0.0
@@ -2116,7 +2118,8 @@
       ],
       "tests/test_workflow_push_retry.py": [
         10.72,
-        14.0
+        14.0,
+        20.79
       ],
       "tests/test_workflow_pytest_options.py": [
         0.11
@@ -4434,7 +4437,8 @@
       ],
       "tests/test_collection_ingest.py": [
         21.94,
-        28.46
+        28.46,
+        16.3
       ],
       "tests/test_collection_schema.py": [
         0.41
@@ -4624,7 +4628,8 @@
       ],
       "tests/test_ingest_incremental_review.py": [
         3.87,
-        8.08
+        8.08,
+        2.82
       ],
       "tests/test_ingest_lock.py": [
         35.43
@@ -6602,7 +6607,8 @@
       ],
       "tests/test_classic_script_scope.py": [
         12.74,
-        6.8
+        6.8,
+        16.0
       ],
       "tests/test_cold_load_legs.py": [
         0.01
