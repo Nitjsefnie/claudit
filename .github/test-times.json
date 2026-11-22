@@ -213,7 +213,8 @@
         0.09
       ],
       "tests/test_ctx_turn_parity.py": [
-        2.6
+        2.6,
+        1.58
       ],
       "tests/test_dashboard_binning.py": [
         0.07
@@ -759,7 +760,8 @@
       ],
       "tests/test_ratchet_staleness.py": [
         5.66,
-        11.69
+        11.69,
+        3.77
       ],
       "tests/test_rate_boundaries.py": [
         0.0
@@ -2121,7 +2123,8 @@
       "tests/test_workflow_push_retry.py": [
         10.72,
         14.0,
-        20.79
+        20.79,
+        7.67
       ],
       "tests/test_workflow_pytest_options.py": [
         0.11
@@ -2360,7 +2363,8 @@
         0.05
       ],
       "tests/test_ctx_turn_parity.py": [
-        2.63
+        2.63,
+        1.59
       ],
       "tests/test_dashboard_binning.py": [
         0.04
@@ -2562,7 +2566,8 @@
         0.38
       ],
       "tests/test_login.py": [
-        8.29
+        8.29,
+        5.66
       ],
       "tests/test_login_a11y.py": [
         1.14
@@ -6266,7 +6271,8 @@
       ],
       "tests/test_suite_bench.py": [
         107.03,
-        77.6
+        77.6,
+        56.82
       ],
       "tests/test_suite_ci_wiring.py": [
         0.64
@@ -7412,7 +7418,8 @@
         0.01
       ],
       "tests/test_vendor_rekey.py": [
-        0.91
+        0.91,
+        2.05
       ],
       "tests/test_vendor_schedule.py": [
         0.17
