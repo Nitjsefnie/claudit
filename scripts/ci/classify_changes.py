@@ -14,17 +14,14 @@ Every fallback over-runs, never skips verification over unreadable inputs.
 
 A second class narrows the refresh bot's data: its hourly push stages
 EXACTLY `src/pricing.json`, `backend/constants.py` and
-`src/pricing_notices.json` — the appended rate entries, the
-PRICING_VERSION bump SV-RATE-REFRESH ships with them, and the notice
-baseline. Every commit it produces is one of two exact sets:
-the pair when this run's carried notice set is unchanged, the triple
-when the baseline moved too. The refresh job runs the
-full suite against the new rates BEFORE pushing (refresh-pricing.yml's
-refresh job), so re-running the whole matrix on the bot's push
-re-verifies nothing. Constants must replace just one numeric
-PRICING_VERSION assignment; other edits, unreadable blobs and paths
-outside either signature run the full gate. Only bot-authored pushes
-qualify; PRs test the data.
+`src/pricing_notices.json` (rates, the SV-RATE-REFRESH PRICING_VERSION
+bump, the notice baseline), committing the pair or, when the baseline
+moved, the triple. The refresh job runs the full suite BEFORE pushing
+(refresh-pricing.yml), so the matrix would re-verify nothing. Constants
+must replace one numeric PRICING_VERSION assignment; unreadable blobs
+and other paths run the full gate, save a push's ratchet records
+(classify_thresholds.bot_data_paths). Only bot-authored pushes qualify;
+PRs test the data.
 
 A THIRD class narrows a change that cannot move behaviour at all. When
 EVERY changed path is a source file (.py/.js/.jsx), the set fits
@@ -403,10 +400,11 @@ def classify(event, run):
             sources.leg_reads(path) for path in paths):
         return (False, False, False, False, False,
                 'a gate leg reads a documentation path; running the full gate set')
-    if (data_only(paths) and bot.is_bot_push(event, run)
+    compared = thresholds.bot_data_paths(event, paths)
+    if (data_only(compared) and bot.is_bot_push(event, run)
             and sources.pricing_change(event, run, _refs, _blob)):
         return (False, True, False, False, False,
-                f'bot-data-only change: {len(paths)} paths')
+                f'bot-data-only change: {len(compared)} paths')
     if comment_only(paths, event, run):
         return (False, False, True, False, False,
                 f'comment-only change: {len(paths)} source files')

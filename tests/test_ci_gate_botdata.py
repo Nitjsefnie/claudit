@@ -18,24 +18,16 @@ classify = load_ci_script("classify_changes")
 aggregate = load_ci_script("aggregate_gate")
 
 
-DOCS = [
-    "README.md", "docs/guide.md", "PRESENTATION.txt", "examples/a.txt",
-    "examples/s/b.txt", ".claude/rules/x.md", "LICENSE", "NOTICE",
-    ".gitignore",
-]
-CODE = [
-    "backend/app.py", "src/app.jsx", ".github/workflows/tests.yml",
-    ".github/ci-thresholds.json", "VERSION", ".gitleaks.toml",
-    ".github/dependabot.yml", "scripts/ci/classify_changes.py",
-]
+DOCS = ["README.md", "docs/guide.md", "PRESENTATION.txt", "examples/a.txt",
+        "examples/s/b.txt", ".claude/rules/x.md", "LICENSE", "NOTICE", ".gitignore"]
+CODE = ["backend/app.py", "src/app.jsx", ".github/workflows/tests.yml", ".github/ci-thresholds.json",
+        "VERSION", ".gitleaks.toml", ".github/dependabot.yml", "scripts/ci/classify_changes.py"]
 
 
 def test_bot_signature_is_the_refresh_bots_staged_paths():
     # The push stages exactly these three paths (refresh-pricing.yml's
     # `git add`) — an exact-set signature, never a per-file filter.
-    assert classify.BOT_SIGNATURE == frozenset(
-        {"src/pricing.json", "backend/constants.py",
-         "src/pricing_notices.json"})
+    assert classify.BOT_SIGNATURE == frozenset({"src/pricing.json", "backend/constants.py", "src/pricing_notices.json"})
 
 
 def test_bot_signature_spans_the_refresh_push_workflow():
@@ -55,16 +47,13 @@ def test_data_only_requires_the_exact_signature():
     assert not classify.data_only([])
     assert classify.data_only(["src/pricing.json", "backend/constants.py"])
     # Listing order and duplicates are set noise, not a third path.
-    assert classify.data_only(
-        ["backend/constants.py", "src/pricing.json", "src/pricing.json"])
+    assert classify.data_only(["backend/constants.py", "src/pricing.json", "src/pricing.json"])
 
 
 def test_data_only_accepts_the_three_path_bot_commit():
     # The triple shape: under the pair-only signature it classified
     # full and ran the whole matrix on a pure bot push.
-    assert classify.data_only(
-        ["src/pricing.json", "backend/constants.py",
-         "src/pricing_notices.json"])
+    assert classify.data_only(["src/pricing.json", "backend/constants.py", "src/pricing_notices.json"])
 
 
 def test_data_only_refuses_a_third_path():
@@ -93,6 +82,7 @@ BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 BASE = "a" * 40
 HEAD = "b" * 40
 PUSH = {"name": "push", "repository": "o/r", "before": "c" * 40, "sha": HEAD}
+PR = {"name": "pull_request", "repository": "o/r", "pull_request": "17", "sha": HEAD}
 # Classifier paths only; the stub below supplies synthetic file contents.
 BOT_PATHS = ["src/pricing.json", "backend/constants.py"]
 
@@ -125,10 +115,7 @@ def _pricing_run(paths, author: str | Exception | None = BOT_EMAIL, after='PRICI
 @pytest.mark.parametrize('notices', [False, True])
 def test_pr_with_bot_paths_and_valid_pricing_diff_runs_everything(notices):
     paths = BOT_PATHS + (['src/pricing_notices.json'] if notices else [])
-    result = classify.classify(
-        {"name": "pull_request", "repository": "o/r", "pull_request": "17", "sha": HEAD},
-        _pricing_run(paths),
-    )
+    result = classify.classify(PR, _pricing_run(paths))
     assert result[:3] == (False, False, False)
 
 
@@ -141,6 +128,18 @@ def test_push_data_only_requires_the_tip_bot_author():
             paths = BOT_PATHS + (['src/pricing_notices.json'] if notices else [])
             result = classify.classify(PUSH, _pricing_run(paths, author))
             assert result[:3] == (False, expected, False)
+
+
+@pytest.mark.parametrize('event, records, narrows', [
+    (PUSH, '.github/test-times.json', True), (PUSH, '.github/comment-share.json', True),
+    (PUSH, '.github/size-baseline.json', True), (PUSH, '.github/ci-thresholds.json', False),
+    (PR, '.github/test-times.json', False)])
+def test_a_ratchet_records_path_beside_the_bot_pair(event, records, narrows):
+    # A records commit's push is trigger-ignored, so the push's compared range keeps it.
+    paths = BOT_PATHS + [records]
+    result = classify.classify(event, _pricing_run(paths))
+    assert (result[:3], result[5].endswith(': 2 paths')) == ((False, narrows, False), narrows)
+    assert (records in classify.thresholds.bot_data_paths(event, paths)) != narrows
 
 
 @pytest.mark.parametrize('after', [

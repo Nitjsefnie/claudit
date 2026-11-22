@@ -350,10 +350,11 @@ def test_every_leg_needs_the_classifier():
 # ---------------------------------------------------------------------------
 
 
-def test_a_bot_push_runs_only_the_cheap_legs_end_to_end(tmp_path):
-    # own run, with the two paths the refresh bot's commit
-    # carries: the cheap class is lint and smoke, every other leg skips.
-    run = _run_classifier(tmp_path)
+@pytest.mark.parametrize('paths', [BOT_PATHS, BOT_PATHS + ['.github/test-times.json']])
+def test_a_bot_push_runs_only_the_cheap_legs_end_to_end(tmp_path, paths):
+    # The bot's two paths, alone or beside a trigger-ignored records
+    # commit: the cheap class is lint and smoke, every other leg skips.
+    run = _run_classifier(tmp_path, paths=paths)
     _only_modelled_reads(run)
     _over_the_verified_base(run)
     outputs = _parse_step_outputs(run.written)
