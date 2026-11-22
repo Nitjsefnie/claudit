@@ -1414,7 +1414,8 @@
       "tests/test_ingest_forkserver.py": [
         14.79,
         20.5,
-        11.03
+        11.03,
+        30.63
       ],
       "tests/test_ingest_incremental.py": [
         0.0
@@ -1712,7 +1713,8 @@
       ],
       "tests/test_pricing_rows.py": [
         5.63,
-        7.72
+        7.72,
+        9.69
       ],
       "tests/test_pricing_vendor.py": [
         0.55
@@ -2870,7 +2872,8 @@
         0.0
       ],
       "tests/test_ratchet_staleness.py": [
-        2.49
+        2.49,
+        3.55
       ],
       "tests/test_rate_boundaries.py": [
         0.0
