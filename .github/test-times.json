@@ -1620,7 +1620,8 @@
       ],
       "tests/test_parser_js_mirror.py": [
         15.29,
-        24.34
+        24.34,
+        30.63
       ],
       "tests/test_parser_js_pricing_loader.py": [
         2.69,
@@ -1748,7 +1749,8 @@
         0.01
       ],
       "tests/test_prompt_gate_whitespace.py": [
-        1.29
+        1.29,
+        3.17
       ],
       "tests/test_prompt_ts.py": [
         0.0
@@ -5143,7 +5145,8 @@
       ],
       "tests/test_scratch_pg_script.py": [
         3.06,
-        4.58
+        4.58,
+        2.01
       ],
       "tests/test_secrecy_check_script.py": [
         0.34
@@ -5388,7 +5391,8 @@
       ],
       "tests/test_agent_fold_js.py": [
         5.52,
-        14.12
+        14.12,
+        4.09
       ],
       "tests/test_agent_list_caps_js.py": [
         2.16,
