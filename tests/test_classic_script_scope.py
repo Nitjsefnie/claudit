@@ -376,7 +376,7 @@ const turns = async () => {
   respond();
   await turns();
   console.log(JSON.stringify({names, early, heldRun, appSaw: browser.appSaw ?? null,
-    rootText: root.textContent ?? null, unhandled, seeded: 'claude-fable-1' in nodePath.modelRates,
+    rootText: root.textContent ?? null, unhandled, seeded: !Object.keys(nodePath.providerRates).length,
     installed: names.filter((name) => Object.getOwnPropertyDescriptor(browser, name).get === undefined),
     tier: scenario === 'refused' ? null
       : vm.runInContext("window.resolveModelRate('claude-opus-99-unlisted', null, null).kind", ctx)}));
