@@ -221,7 +221,7 @@ def _with_newcomer() -> dict:
 
 
 def _shapes() -> dict:
-    """Every row shape the resolvers branch on, at a fixed size."""
+    """A fixed sample of the row shapes the resolvers branch on, not every live combination."""
     def rates(scale: float, **extra) -> dict:
         return dict(zip(RATE_FIELDS, (scale, scale * 1.25, scale * 2, scale / 10, scale * 5)), **extra)
 
@@ -419,7 +419,7 @@ def _trimmed_from(live: dict) -> dict:
     models = {"claude-opus-4-7": [dict(DEFAULT_ROW)], "bonsai-2-27b": live["models"]["bonsai-2-27b"]}
     return {**live, "long_context_meters": [], "models": models,
             "providers": {m: {h: live["providers"][m][h] for h in hs} for m, hs in keep.items()},
-            "openrouter": {**live["openrouter"], "models": {m: live["openrouter"]["models"][m] for m in keep}}}
+            "openrouter": {**live["openrouter"], "models": {m: live["openrouter"]["models"][m] for m in keep if m in live["openrouter"]["models"]}}}
 
 
 _TRIMMED = _trimmed_from(_doc())  # the session's one parse of the live file for the factories

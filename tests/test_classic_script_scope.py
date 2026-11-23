@@ -376,7 +376,7 @@ const turns = async () => {
   respond();
   await turns();
   console.log(JSON.stringify({names, early, heldRun, appSaw: browser.appSaw ?? null,
-    rootText: root.textContent ?? null, unhandled,
+    rootText: root.textContent ?? null, unhandled, seeded: 'claude-fable-1' in nodePath.modelRates,
     installed: names.filter((name) => Object.getOwnPropertyDescriptor(browser, name).get === undefined),
     tier: scenario === 'refused' ? null
       : vm.runInContext("window.resolveModelRate('claude-opus-99-unlisted', null, null).kind", ctx)}));
@@ -620,7 +620,7 @@ def test_no_classic_script_reads_a_pricing_table_before_the_fetch_installs_it() 
     assert {"modelRates", "providerRates", "longContextMeters"} <= set(out["names"])
     assert out["early"] == []
     assert out["installed"] == out["names"]
-    assert out["tier"] == "tier"
+    assert out["tier"] == "tier" and out["seeded"]
     assert not out["heldRun"] and out["appSaw"] is True
     assert out["rootText"] is None and out["unhandled"] == []
 
