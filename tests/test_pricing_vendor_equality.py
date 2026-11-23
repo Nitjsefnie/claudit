@@ -26,18 +26,13 @@ from tests.test_vendor_rate_refresh import (
 from tests.test_pricing_vendor import (
     CUT,
     HOST,
-    LOADER_JS,
-    PARSER_JS,
     PARSER_USAGE_JS,
     PREFIXES,
     R_NEW,
     R_OLD,
     R_THIRD,
-    RATES_JS,
     STAMP,
     UTC,
-    VENDOR_TABLES_JS,
-    HHMM_JS,
     _clear_caches,
     _copy_browser,
     _doc,
@@ -161,13 +156,8 @@ def test_migration_prices_every_record_identically_in_the_browser(tmp_path):
         d = tmp_path / name
         d.mkdir()
         (d / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
-        shutil.copy(LOADER_JS, d / "pricing-loader.js")
-        shutil.copy(VENDOR_TABLES_JS, d / "vendor-tables.js")
-        shutil.copy(HHMM_JS, d / "hhmm-spelling.js")
-        shutil.copy(HHMM_JS.with_name("pricing-rows.js"), d / "pricing-rows.js")
-        shutil.copy(RATES_JS, d / "rates.js")
+        _copy_browser(d)
         shutil.copy(PARSER_USAGE_JS, d / "parser-usage.js")
-        shutil.copy(PARSER_JS, d / "parser.js")
         script = f"""
           global.window = {{}};
           require('./pricing-loader.js');
