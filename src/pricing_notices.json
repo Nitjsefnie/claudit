@@ -29,11 +29,13 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
+    "alternating price: deepseek-v4-pro-0813 via Relace: the listed rates equal the entry from 2026-11-22T23:30:54Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: kimi-k3-1-pro via InferenceNet: the listed rates equal the entry from 2026-11-20T00:53:48Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-5 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-5-5 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
+    "deepseek-chat via DeepInfra: 2 endpoints (deepinfra/fp4, deepinfra/fp4/flex) at 2 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "deepseek-v4-1-flash via BaseTen: rule-resolved (data region): the global data region leaves 'baseten'; dropped 'baseten/us'",
     "deepseek-v4-1-flash via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-1-flash via Fireworks: rule-resolved (data region): took the global endpoint 'fireworks' over 'fireworks/spot'",
@@ -53,6 +55,7 @@
     "deepseek-v4-flash-0731 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-flash-0731 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
     "deepseek-v4-flash-0731 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/fast'; dropped 'wafer/us'",
+    "deepseek-v4-flash-vision-exp via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-pro via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba/fp8'; dropped 'alibaba/fp8/us-east-1'",
     "deepseek-v4-pro via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-pro-0813 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
@@ -60,6 +63,40 @@
     "deepseek-v4-pro-0813 via Parasail: rule-resolved (unique quantization): took the fp8 endpoint 'parasail/fp8' over service tiers",
     "deepseek-v4-pro-0813 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
     "delisted from OpenRouter's catalog; row kept, not fetched: claude-3-5-haiku- (anthropic/claude-3-5-haiku), claude-3-5-sonnet- (anthropic/claude-3-5-sonnet), claude-3-7-sonnet- (anthropic/claude-3-7-sonnet), claude-3-haiku- (anthropic/claude-3-haiku), claude-3-opus- (anthropic/claude-3-opus), claude-mythos-5 (anthropic/claude-mythos-5), claude-mythos-5-1 (anthropic/claude-mythos-5-1), claude-opus-4 (anthropic/claude-opus-4), claude-sonnet-4 (anthropic/claude-sonnet-4), ernie-5-5-flash-preview (baidu/ernie-5.5-flash-preview), gpt-3-5-turbo (openai/gpt-3.5-turbo), gpt-3-5-turbo-instruct (openai/gpt-3.5-turbo-instruct), gpt-4-turbo (openai/gpt-4-turbo), minimax-01 (minimax/minimax-01), minimax-m1 (minimax/minimax-m1), minimax-m2 (minimax/minimax-m2), minimax-m2-1 (minimax/minimax-m2.1), minimax-m2-her (minimax/minimax-m2-her), o1 (openai/o1), o1-pro (openai/o1-pro), o3-mini (openai/o3-mini), o3-mini-high (openai/o3-mini-high), o4-mini (openai/o4-mini), o4-mini-high (openai/o4-mini-high), solar-pro-3 (upstage/solar-pro-3), stealth/space-bunny-alpha (stealth/space-bunny-alpha)",
+    "gemini-2-5-flash via Google AI Studio (endpoint 0): pricing image '0.00000015' is not modelled; the host was left untouched",
+    "gemini-2-5-flash-lite via Google AI Studio (endpoint 0): pricing image '0.00000005' is not modelled; the host was left untouched",
+    "gemini-2-5-pro via Google AI Studio (endpoint 0): pricing image '0.000000625' is not modelled; the host was left untouched",
+    "gemini-2-5-pro-preview via Google AI Studio (endpoint 0): pricing image '0.000000625' is not modelled; the host was left untouched",
+    "gemini-3-1-flash-lite via Google (endpoint 0): pricing image '0.000000125' is not modelled; the host was left untouched",
+    "gemini-3-1-flash-lite via Google AI Studio (endpoint 1): pricing image '0.000000125' is not modelled; the host was left untouched",
+    "gemini-3-1-flash-lite-preview via Google AI Studio (endpoint 0): pricing image '0.000000125' is not modelled; the host was left untouched",
+    "gemini-3-1-pro-preview via Google (endpoint 0): pricing image '0.000001' is not modelled; the host was left untouched",
+    "gemini-3-1-pro-preview via Google AI Studio (endpoint 1): pricing image '0.000001' is not modelled; the host was left untouched",
+    "gemini-3-1-pro-preview-customtools via Google AI Studio (endpoint 0): pricing image '0.000002' is not modelled; the host was left untouched",
+    "gemini-3-5-flash via Google (endpoint 0): pricing image '0.00000075' is not modelled; the host was left untouched",
+    "gemini-3-5-flash via Google AI Studio (endpoint 1): pricing image '0.00000075' is not modelled; the host was left untouched",
+    "gemini-3-5-flash-lite via Google (endpoint 0): pricing image '0.00000015' is not modelled; the host was left untouched",
+    "gemini-3-5-flash-lite via Google AI Studio (endpoint 1): pricing image '0.00000015' is not modelled; the host was left untouched",
+    "gemini-3-6-flash via Google (endpoint 0): pricing image '0.000000375' is not modelled; the host was left untouched",
+    "gemini-3-6-flash via Google AI Studio (endpoint 1): pricing image '0.000000375' is not modelled; the host was left untouched",
+    "gemini-3-7-flash via Google (endpoint 0): pricing image '0.000000375' is not modelled; the host was left untouched",
+    "gemini-3-7-flash via Google AI Studio (endpoint 1): pricing image '0.000000375' is not modelled; the host was left untouched",
+    "gemini-3-8-flash via Google (endpoint 1): pricing image '0.000000375' is not modelled; the host was left untouched",
+    "gemini-3-8-flash via Google AI Studio (endpoint 0): pricing image '0.000000375' is not modelled; the host was left untouched",
+    "gemini-3-flash-preview via Google (endpoint 0): pricing image '0.00000025' is not modelled; the host was left untouched",
+    "gemini-3-flash-preview via Google AI Studio (endpoint 1): pricing image '0.00000025' is not modelled; the host was left untouched",
+    "gemini-4-argon via Google (endpoint 1): pricing image '0.000002' is not modelled; the host was left untouched",
+    "gemini-4-argon via Google AI Studio (endpoint 0): pricing image '0.000001' is not modelled; the host was left untouched",
+    "gemini-4-carbon via Google (endpoint 1): pricing image '0.000002' is not modelled; the host was left untouched",
+    "gemini-4-carbon via Google AI Studio (endpoint 0): pricing image '0.000001' is not modelled; the host was left untouched",
+    "gemini-4-hydrogen via Google (endpoint 1): pricing image '0.0000015' is not modelled; the host was left untouched",
+    "gemini-4-hydrogen via Google AI Studio (endpoint 0): pricing image '0.00000075' is not modelled; the host was left untouched",
+    "gemini-4-neon via Google (endpoint 2): pricing image '0.000003' is not modelled; the host was left untouched",
+    "gemini-4-neon via Google AI Studio (endpoint 0): pricing image '0.0000015' is not modelled; the host was left untouched",
+    "gemma-3-12b-it via DeepInfra: 3 endpoints (deepinfra/bf16, deepinfra/bf16/flex, deepinfra/bf16/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
+    "gemma-3-27b-it via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
+    "gemma-3-4b-it via DeepInfra: 3 endpoints (deepinfra/bf16, deepinfra/bf16/flex, deepinfra/bf16/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
+    "gemma-4-31b-it via DeepInfra: 4 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority, deepinfra/turbo) at 4 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "glm-4-6 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
     "glm-4-7 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
     "glm-5 via Venice: rule-resolved (stored price continuity): kept the endpoint 'venice/fp8' at the row's price; assumes the tracked endpoint did not reprice this hour",
@@ -114,6 +151,11 @@
     "gpt-6-luna-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-6-sol via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-6-sol-pro via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
+    "gpt-oss-120b via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1'",
+    "gpt-oss-120b via BaseTen: rule-resolved (data region): the global data region leaves 'baseten/fp4'; dropped 'baseten/fp4/us'",
+    "gpt-oss-120b via Parasail: rule-resolved (unique quantization): took the fp4 endpoint 'parasail/fp4' over service tiers",
+    "gpt-oss-20b via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1'",
+    "gpt-oss-20b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/bf16' over tier variants 'deepinfra/bf16/flex'",
     "kimi-k2-6 via DeepInfra: rule-resolved (stored price continuity): kept the endpoint 'deepinfra/fp4' at the row's price; assumes the tracked endpoint did not reprice this hour",
     "kimi-k2-7-code via Moonshot AI: rule-resolved (bare namespace): took the bare namespace endpoint 'moonshotai' over service tiers 'moonshotai/highspeed'",
     "kimi-k3 via Fireworks: rule-resolved (bare namespace): took the bare namespace endpoint 'fireworks' over service tiers 'fireworks/fast'",
@@ -125,11 +167,15 @@
     "kimi-k3-1-pro via Moonshot AI: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
     "kimi-k3-1-pro via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
     "kimi-k3-1-pro via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
+    "llama-4-scout via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
+    "llama-guard-4-12b via DeepInfra: 3 endpoints (deepinfra/bf16, deepinfra/bf16/flex, deepinfra/bf16/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "minimax-m3 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex'",
     "minimax-m3 via Parasail: rule-resolved (unique quantization): took the fp8 endpoint 'parasail/fp8' over service tiers",
     "minimax-m3-1-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/fp4/us'",
     "moonshotai/kimi-k2.7-code: stale pin tag 'moonshotai/int4' is not listed; listed tags: 'moonshotai', 'moonshotai/highspeed'; selecting as unpinned; rule-resolved past a stale pin; selected 'moonshotai'; the bare-tag rule took the bare vendor endpoint 'moonshotai'",
     "moonshotai/kimi-k3.1-pro: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
+    "nemotron-3-super-120b-a12b via DeepInfra: 3 endpoints (deepinfra/bf16, deepinfra/bf16/flex, deepinfra/bf16/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
+    "nemotron-3-ultra-550b-a55b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex', 'deepinfra/fp4/priority'",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Azure; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Claude Platform on AWS; the host was sampled",
@@ -167,16 +213,36 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
+    "qwen-2-5-72b-instruct via DeepInfra: 2 endpoints (deepinfra/fp8, deepinfra/fp8/flex) at 2 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
+    "qwen3-14b via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
+    "qwen3-235b-a22b-2507 via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
+    "qwen3-30b-a3b via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
+    "qwen3-32b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
+    "qwen3-5-27b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
+    "qwen3-5-35b-a3b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex'",
+    "qwen3-5-397b-a17b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
+    "qwen3-5-9b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/bf16' over tier variants 'deepinfra/bf16/flex', 'deepinfra/bf16/priority'",
+    "qwen3-6-27b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
+    "qwen3-6-35b-a3b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
+    "qwen3-7-flash via Alibaba (endpoint 0): 2 long-context bands are not modelled; the host was left untouched",
+    "qwen3-7-plus via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
+    "qwen3-8-flash via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
+    "qwen3-8-max-0902 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
+    "qwen3-coder-flash via Alibaba (endpoint 0): 2 long-context bands are not modelled; the host was left untouched",
+    "qwen3-next-80b-a3b-instruct via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "tag 'alibaba/fast' names neither a known region nor a quantization: glm-5-2 via Alibaba",
     "tag 'alibaba/prime' names neither a known region nor a quantization: glm-5-3 via Alibaba, kimi-k3-1-pro via Alibaba",
     "tag 'anthropic/fast' names neither a known region nor a quantization: claude-fable-5-2 via Anthropic, claude-opus-4-8 via Anthropic, claude-opus-5 via Anthropic, claude-opus-5-5 via Anthropic",
     "tag 'baidu/fast' names neither a known region nor a quantization: glm-5-2 via Baidu",
     "tag 'baseten/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via BaseTen, glm-5-2 via BaseTen, glm-5-3 via BaseTen",
     "tag 'baseten/us/fast' names neither a known region nor a quantization: glm-5-2 via BaseTen, glm-5-3 via BaseTen",
-    "tag 'deepinfra/fp4/flex' names neither a known region nor a quantization: glm-4-6 via DeepInfra, glm-4-7 via DeepInfra, glm-5-2 via DeepInfra, glm-5-3 via DeepInfra, kimi-k2-6 via DeepInfra",
-    "tag 'deepinfra/fp4/priority' names neither a known region nor a quantization: glm-5-2 via DeepInfra, kimi-k2-6 via DeepInfra",
-    "tag 'deepinfra/fp8/flex' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra, deepseek-v4-flash via DeepInfra, deepseek-v4-flash-0731 via DeepInfra, deepseek-v4-pro via DeepInfra, deepseek-v4-pro-0813 via DeepInfra, minimax-m3 via DeepInfra",
-    "tag 'deepinfra/fp8/priority' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra, deepseek-v4-flash via DeepInfra, deepseek-v4-flash-0731 via DeepInfra, deepseek-v4-pro via DeepInfra, deepseek-v4-pro-0813 via DeepInfra",
+    "tag 'deepinfra/bf16/flex' names neither a known region nor a quantization: gpt-oss-20b via DeepInfra, qwen3-5-9b via DeepInfra",
+    "tag 'deepinfra/bf16/priority' names neither a known region nor a quantization: qwen3-5-9b via DeepInfra",
+    "tag 'deepinfra/fp4/flex' names neither a known region nor a quantization: glm-4-6 via DeepInfra, glm-4-7 via DeepInfra, glm-5-2 via DeepInfra, glm-5-3 via DeepInfra, kimi-k2-6 via DeepInfra, nemotron-3-ultra-550b-a55b via DeepInfra",
+    "tag 'deepinfra/fp4/priority' names neither a known region nor a quantization: glm-5-2 via DeepInfra, kimi-k2-6 via DeepInfra, nemotron-3-ultra-550b-a55b via DeepInfra",
+    "tag 'deepinfra/fp8/flex' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra, deepseek-v4-flash via DeepInfra, deepseek-v4-flash-0731 via DeepInfra, deepseek-v4-flash-vision-exp via DeepInfra, deepseek-v4-pro via DeepInfra, deepseek-v4-pro-0813 via DeepInfra, minimax-m3 via DeepInfra, qwen3-32b via DeepInfra, qwen3-5-27b via DeepInfra, qwen3-5-35b-a3b via DeepInfra, qwen3-5-397b-a17b via DeepInfra, qwen3-6-27b via DeepInfra, qwen3-6-35b-a3b via DeepInfra",
+    "tag 'deepinfra/fp8/priority' names neither a known region nor a quantization: deepseek-v4-1-flash via DeepInfra, deepseek-v4-1-flash-1017 via DeepInfra, deepseek-v4-flash via DeepInfra, deepseek-v4-flash-0731 via DeepInfra, deepseek-v4-flash-vision-exp via DeepInfra, deepseek-v4-pro via DeepInfra, deepseek-v4-pro-0813 via DeepInfra, qwen3-32b via DeepInfra, qwen3-5-27b via DeepInfra, qwen3-5-397b-a17b via DeepInfra, qwen3-6-27b via DeepInfra, qwen3-6-35b-a3b via DeepInfra",
+    "tag 'deepinfra/turbo' names neither a known region nor a quantization: llama-3-3-70b-instruct via DeepInfra, qwen3-coder via DeepInfra",
     "tag 'fireworks/fast' names neither a known region nor a quantization: glm-5-3 via Fireworks, kimi-k3 via Fireworks",
     "tag 'fireworks/spot' names neither a known region nor a quantization: deepseek-v4-1-flash via Fireworks, deepseek-v4-1-flash-1017 via Fireworks, glm-5-3 via Fireworks",
     "tag 'inference-net/fast' names neither a known region nor a quantization: kimi-k3 via InferenceNet, kimi-k3-1-pro via InferenceNet",
@@ -188,13 +254,15 @@
     "tag 'openai/fast' names neither a known region nor a quantization: gpt-5-1 via OpenAI, gpt-5-2 via OpenAI, gpt-5-3-codex via OpenAI, gpt-5-4 via OpenAI, gpt-5-4-mini via OpenAI, gpt-5-5 via OpenAI, gpt-5-6-luna via OpenAI, gpt-5-6-luna-pro via OpenAI, gpt-5-6-sol via OpenAI, gpt-5-6-sol-pro via OpenAI, gpt-5-6-terra via OpenAI, gpt-5-6-terra-pro via OpenAI, gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-1-terra via OpenAI, gpt-6-1-terra-pro via OpenAI, gpt-6-2-astra via OpenAI, gpt-6-2-astra-pro via OpenAI, gpt-6-2-sol via OpenAI, gpt-6-2-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI, gpt-6-luna via OpenAI, gpt-6-luna-pro via OpenAI, gpt-6-sol via OpenAI, gpt-6-sol-pro via OpenAI",
     "tag 'openai/flex' names neither a known region nor a quantization: gpt-5-1 via OpenAI, gpt-5-2 via OpenAI, gpt-5-4 via OpenAI, gpt-5-4-mini via OpenAI, gpt-5-4-nano via OpenAI, gpt-5-5 via OpenAI, gpt-5-6-luna via OpenAI, gpt-5-6-luna-pro via OpenAI, gpt-5-6-sol via OpenAI, gpt-5-6-sol-pro via OpenAI, gpt-5-6-terra via OpenAI, gpt-5-6-terra-pro via OpenAI, gpt-5-mini via OpenAI, gpt-5-nano via OpenAI, gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-1-terra via OpenAI, gpt-6-1-terra-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI, gpt-6-luna via OpenAI, gpt-6-luna-pro via OpenAI, gpt-6-sol via OpenAI, gpt-6-sol-pro via OpenAI",
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-2-astra via OpenAI, gpt-6-2-astra-pro via OpenAI, gpt-6-2-sol via OpenAI, gpt-6-2-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
-    "tag 'parasail/fast' names neither a known region nor a quantization: deepseek-v4-1-flash via Parasail, deepseek-v4-pro-0813 via Parasail, glm-5-3 via Parasail, glm-5-3-flash via Parasail, kimi-k3 via Parasail, minimax-m3 via Parasail",
+    "tag 'parasail/fast' names neither a known region nor a quantization: deepseek-v4-1-flash via Parasail, deepseek-v4-pro-0813 via Parasail, glm-5-3 via Parasail, glm-5-3-flash via Parasail, gpt-oss-120b via Parasail, kimi-k3 via Parasail, minimax-m3 via Parasail",
     "tag 'particle-ai/nvfp4/flex' names neither a known region nor a quantization: glm-5-3-flash via Particle AI",
     "tag 'particle-ai/us/flex' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Particle AI",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
+    "the listing lags the listed-pricing log for deepseek-v4-pro-0813 via Relace; the host was sampled",
+    "the listing lags the listed-pricing log for deepseek-v4-pro-0813 via Wafer; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -317,7 +385,9 @@
     },
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
-      "DeepSeek": "endpoint schedule"
+      "DeepSeek": "endpoint schedule",
+      "Relace": "listing lags log",
+      "Wafer": "listing lags log"
     },
     "glm-5-2": {
       "BaseTen": "2 endpoints at one current price"
@@ -463,6 +533,13 @@
       "Azure": "long-context band",
       "OpenAI": "long-context band"
     },
+    "gpt-oss-120b": {
+      "Amazon Bedrock": "2 endpoints at one current price",
+      "BaseTen": "2 endpoints at one current price"
+    },
+    "gpt-oss-20b": {
+      "Amazon Bedrock": "2 endpoints at one current price"
+    },
     "hy3": {
       "Tencent": "endpoint schedule"
     },
@@ -478,6 +555,30 @@
     },
     "minimax-m3-1-flash": {
       "InferenceNet": "2 endpoints at one current price"
+    },
+    "qwen-plus": {
+      "Alibaba": "long-context band"
+    },
+    "qwen3-5-plus-02-15": {
+      "Alibaba": "long-context band"
+    },
+    "qwen3-5-plus-20260420": {
+      "Alibaba": "long-context band"
+    },
+    "qwen3-6-flash": {
+      "Alibaba": "long-context band"
+    },
+    "qwen3-6-plus": {
+      "Alibaba": "long-context band"
+    },
+    "qwen3-7-max": {
+      "Alibaba": "log series count mismatch"
+    },
+    "qwen3-7-plus": {
+      "Alibaba": "long-context band"
+    },
+    "qwen4-max": {
+      "Alibaba": "log series count mismatch"
     },
     "solar-mini4": {
       "Upstage": "2 endpoints selected"
