@@ -15,8 +15,10 @@ are pricing data. Bump PRICING_VERSION when a change reprices stored rows."""
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from backend.long_context import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
     LONG_CONTEXT_INPUT_MULT, LONG_CONTEXT_OUTPUT_MULT, LONG_CONTEXT_THRESHOLD)
@@ -31,28 +33,13 @@ from backend.model_names import (  # noqa: F401  (re-export)  # pylint: disable=
     _variant_folded,
 )
 from backend.pricing_load import (
-    DATED_RATES,
-    DEFAULT_RATES,
-    MODEL_RATES,
-    PROVIDER_DATED_RATES,
-    PROVIDER_RATES,
-    PROVIDER_CONTEXT_LENGTHS,
-    TRACKED_MODELS,
-    PROVIDER_RATES_FETCHED,
-    PROVIDER_SCHEDULES,
-    PROVIDER_STARTS,
     PRICING_JSON,
-    RATE_EPOCHS,
     RATE_FIELDS,
-    LONG_CONTEXT_MODELS,
-    LONG_CONTEXT_METERS,
-    VENDOR_BARE,
-    VENDOR_PREFIXES,
-    VENDOR_HOSTS,
     _DAYS,
     Windows,
     RateTables,
     ScheduleWindow,
+    deployed_tables,
     load_tables,
 )
 from backend.pricing_load import (  # noqa: F401  (re-export)  # pylint: disable=unused-import
@@ -77,6 +64,41 @@ __all__ = [  # re-exports the rate tables and their loader (SV-RATE-DATA)
 
 UTC = timezone.utc
 
+# A bare global read never reaches __getattr__, so reads go through the module.
+_PRICING = sys.modules[__name__]
+
+# Declared for type checkers, unbound until read.
+DATED_RATES: dict[str, Windows]
+DEFAULT_RATES: dict
+LONG_CONTEXT_METERS: dict[str, dict]
+LONG_CONTEXT_MODELS: frozenset[str]
+MODEL_RATES: dict[str, dict]
+PROVIDER_CONTEXT_LENGTHS: dict[tuple[str, str], int]
+PROVIDER_DATED_RATES: dict[tuple[str, str], Windows]
+PROVIDER_RATES: dict[tuple[str, str], dict]
+PROVIDER_RATES_FETCHED: datetime
+PROVIDER_SCHEDULES: dict[tuple[str, str], dict[int, list[ScheduleWindow]]]
+PROVIDER_STARTS: dict[tuple[str, str], datetime]
+RATE_EPOCHS: list[datetime]
+TRACKED_MODELS: dict[str, dict]
+VENDOR_BARE: dict[str, str]
+VENDOR_HOSTS: dict[str, str]
+VENDOR_PREFIXES: list[str]
+
+
+def __getattr__(name: str) -> Any:
+    """Bind a rate table on its first read; a patched table is never replaced."""
+    if name not in RateTables.__annotations__:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return globals().setdefault(name, deployed_tables()[name])
+
+
+def bind_tables() -> None:
+    """Bind every table now: startup refuses a bad document, forks share one load."""
+    for name in RateTables.__annotations__:
+        getattr(_PRICING, name)
+
+
 # Every rate an OpenRouter free model carries: zero. Returned for any id
 # ending in ":free" or starting with "stealth/" (see _is_free).
 FREE_RATES = dict.fromkeys(RATE_FIELDS, 0.00)
@@ -88,32 +110,32 @@ def _vendor_row(key: str) -> tuple[str, str] | None:
     providers row does not exist yet (a model auto-added to the tracked
     table before its first provider row: the bare path falls through the
     same way)."""
-    tracked = VENDOR_BARE.get(key)
-    if tracked not in VENDOR_HOSTS:
+    tracked = _PRICING.VENDOR_BARE.get(key)
+    if tracked not in _PRICING.VENDOR_HOSTS:
         return None
-    row = (tracked, VENDOR_HOSTS[tracked])
-    return row if row in PROVIDER_RATES else None
+    row = (tracked, _PRICING.VENDOR_HOSTS[tracked])
+    return row if row in _PRICING.PROVIDER_RATES else None
 
 
 def _list_rates(key: str) -> dict:
     """A key's list rates in the merged view: the models-table row when
     the key names one, else its tracked vendor row's."""
-    if key in MODEL_RATES:
-        return MODEL_RATES[key]
+    if key in _PRICING.MODEL_RATES:
+        return _PRICING.MODEL_RATES[key]
     row = _vendor_row(key)
     if row is None:
         raise KeyError(key)
-    return PROVIDER_RATES[row]
+    return _PRICING.PROVIDER_RATES[row]
 
 
 def _key_windows(key: str) -> Windows | None:
     """The dated windows that move a bare key's rates in the merged
     view: the models-table row's when the key names one, else its tracked
     vendor row's."""
-    if key in MODEL_RATES:
-        return DATED_RATES.get(key)
+    if key in _PRICING.MODEL_RATES:
+        return _PRICING.DATED_RATES.get(key)
     row = _vendor_row(key)
-    return PROVIDER_DATED_RATES.get(row) if row else None
+    return _PRICING.PROVIDER_DATED_RATES.get(row) if row else None
 
 
 def _latest(*families: str) -> dict | None:
@@ -131,9 +153,9 @@ def _latest(*families: str) -> dict | None:
     """
     versions = [
         (tuple(int(p) for p in m.group(2).split("-")), key)
-        for key in {**MODEL_RATES, **VENDOR_BARE}
+        for key in {**_PRICING.MODEL_RATES, **_PRICING.VENDOR_BARE}
         if (m := _VERSIONED_KEY.match(key)) and m.group(1) in families
-        and (key in MODEL_RATES or _vendor_row(key) is not None)
+        and (key in _PRICING.MODEL_RATES or _vendor_row(key) is not None)
     ]
     if not versions:
         return None
@@ -187,7 +209,7 @@ def _match_key(norm: str) -> str | None:
     except KeyError:
         pass
     best = None
-    for key in MODEL_RATES:
+    for key in _PRICING.MODEL_RATES:
         if not norm.startswith(key) or (best and len(key) <= len(best)):
             continue
         rest = norm[len(key):]
@@ -198,9 +220,6 @@ def _match_key(norm: str) -> str | None:
 
 
 _VENDOR_MATCH_CACHE: dict[str, str | None] = {}
-# The loaded table is stable; synthetic tables in tests replace the list.
-_VENDOR_PREFIXES_SOURCE = VENDOR_PREFIXES
-_VENDOR_PREFIXES_SET = frozenset(VENDOR_PREFIXES)
 
 
 def _vendor_match(norm: str) -> str | None:
@@ -211,7 +230,7 @@ def _vendor_match(norm: str) -> str | None:
         pass
     best_form: str | None = None
     best_key: str | None = None
-    for form, tracked in VENDOR_BARE.items():
+    for form, tracked in _PRICING.VENDOR_BARE.items():
         if best_key and len(form) <= len(best_form or ""):
             continue
         if not norm.startswith(form):
@@ -228,10 +247,7 @@ def _fold_vendor_prefix(norm: str) -> str:
     prefix, separator, bare = norm.partition("/")
     if not separator:
         return norm
-    prefixes = (_VENDOR_PREFIXES_SET
-                if VENDOR_PREFIXES is _VENDOR_PREFIXES_SOURCE
-                else frozenset(VENDOR_PREFIXES))
-    if prefix in prefixes and _vendor_match(bare) is not None:
+    if prefix in _PRICING.VENDOR_PREFIXES and _vendor_match(bare) is not None:
         return bare
     return norm
 
@@ -263,21 +279,21 @@ def _scheduled(schedule: list[ScheduleWindow], ts: datetime) -> dict | None:
 
 def _provider_rates(pkey: tuple[str, str], ts: datetime | None) -> tuple[dict, bool]:
     """A provider row's rates at `ts`, and whether a schedule set them."""
-    windows = PROVIDER_DATED_RATES.get(pkey)
-    rates = _in_window(windows, ts, PROVIDER_RATES[pkey])
+    windows = _PRICING.PROVIDER_DATED_RATES.get(pkey)
+    rates = _in_window(windows, ts, _PRICING.PROVIDER_RATES[pkey])
     if ts is None:
         return rates, False
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=UTC)
     entry = sum(1 for end, _ in windows or [] if end <= ts)
-    schedule = PROVIDER_SCHEDULES.get(pkey, {}).get(entry)
+    schedule = _PRICING.PROVIDER_SCHEDULES.get(pkey, {}).get(entry)
     if schedule is None:
         return rates, False
     return {**rates, **(_scheduled(schedule, ts) or {})}, True
 
 
 def _dated(key: str, ts: datetime | None) -> dict:
-    return _in_window(DATED_RATES.get(key), ts, MODEL_RATES[key])
+    return _in_window(_PRICING.DATED_RATES.get(key), ts, _PRICING.MODEL_RATES[key])
 
 
 def _provider_key(norm: str, provider: str,
@@ -299,9 +315,9 @@ def _provider_key(norm: str, provider: str,
         ts = ts.replace(tzinfo=UTC)
     for model in (norm, _PERMASLUG_DATE.sub(r"-\1", norm),
                   _variant_folded(norm)):
-        model = VENDOR_BARE.get(model, model)
-        if (model, provider) in PROVIDER_RATES:
-            start = PROVIDER_STARTS.get((model, provider))
+        model = _PRICING.VENDOR_BARE.get(model, model)
+        if (model, provider) in _PRICING.PROVIDER_RATES:
+            start = _PRICING.PROVIDER_STARTS.get((model, provider))
             if start is not None and ts is not None and ts < start:
                 return None
             return model, provider
@@ -330,18 +346,18 @@ def resolve(model: str | None, ts: datetime | None = None,
     if key is not None:
         return Resolution(_dated(key, ts), "exact", key)
     vkey = _vendor_match(norm)
-    if vkey in VENDOR_HOSTS:
-        row = (vkey, VENDOR_HOSTS[vkey])
-        if row in PROVIDER_RATES:
-            start = PROVIDER_STARTS.get(row)
+    if vkey in _PRICING.VENDOR_HOSTS:
+        row = (vkey, _PRICING.VENDOR_HOSTS[vkey])
+        if row in _PRICING.PROVIDER_RATES:
+            start = _PRICING.PROVIDER_STARTS.get(row)
             if not (start is not None and ts is not None and ts < start):
-                rates = _in_window(PROVIDER_DATED_RATES.get(row), ts,
-                                   PROVIDER_RATES[row])
+                rates = _in_window(_PRICING.PROVIDER_DATED_RATES.get(row), ts,
+                                   _PRICING.PROVIDER_RATES[row])
                 return Resolution(rates, "exact", vkey, False)
     for pattern, rates in _tier_fallbacks():
         if pattern.search(norm):
             return Resolution(rates, "tier")
-    return Resolution(DEFAULT_RATES, "default")
+    return Resolution(_PRICING.DEFAULT_RATES, "default")
 
 
 def is_long_context_model(model: str) -> bool:
@@ -352,18 +368,18 @@ def is_long_context_model(model: str) -> bool:
     way resolve() normalises, so the dotted gpt-5.6-sol matches tracked
     key gpt-5-6-sol (SV-RATE-ESTIMATES).
     """
-    return _normalise(model) in LONG_CONTEXT_MODELS
+    return _normalise(model) in _PRICING.LONG_CONTEXT_MODELS
 
 
 def long_context_threshold(model: str | None) -> int:
     """Model threshold, defaulting to the global Codex value."""
-    return LONG_CONTEXT_METERS.get(_normalise(model), {}).get(
+    return _PRICING.LONG_CONTEXT_METERS.get(_normalise(model), {}).get(
         "threshold", LONG_CONTEXT_THRESHOLD)
 
 
 def long_context_factors(model: str | None) -> tuple[float, float]:
     """Per-model meter factors, defaulting each omitted side independently."""
-    meter = LONG_CONTEXT_METERS.get(_normalise(model), {})
+    meter = _PRICING.LONG_CONTEXT_METERS.get(_normalise(model), {})
     return (meter.get("input_mult", LONG_CONTEXT_INPUT_MULT),
             meter.get("output_mult", LONG_CONTEXT_OUTPUT_MULT))
 
@@ -376,9 +392,9 @@ def meter_flag(model: str | None, window: int) -> bool | None:
     reparse stores. Codex instead applies its threshold test to every
     model directly."""
     norm = _normalise(model)
-    if norm not in LONG_CONTEXT_MODELS:
+    if norm not in _PRICING.LONG_CONTEXT_MODELS:
         return None
-    return window > LONG_CONTEXT_METERS.get(norm, {}).get(
+    return window > _PRICING.LONG_CONTEXT_METERS.get(norm, {}).get(
         "threshold", LONG_CONTEXT_THRESHOLD)
 
 

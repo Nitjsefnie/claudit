@@ -110,15 +110,15 @@ Coverage is governed by `.github/ci-thresholds.json`, validated by
   across-state bound) — and the gap sits ABOVE the measured value because the number is a
   cost ceiling, not a quality floor. The measured workload loads the
   bounded `scripts/ci/suite_pricing_doc.json`, not the deployed
-  document: the bench rebinds the loaded tables to it before any
+  document: the bench sets the tables from it, unread, before any
   counted window opens (bench-side injection; the deployed app gains no
   override — `backend/` reads no environment and always loads
   `src/pricing.json`), so a data-only refresh cannot move the gate;
-  `tests/test_suite_cost_pricing_growth.py` fails when the measured
-  phases move with rows appended to the deployed document (issue
-  #840). Seeded and tightened FROM A RUNNER MEASUREMENT by the
-  master-push bot (`suite_ratchet.py --tighten`, past the 1.5 hysteresis
-  for existing budgets, both fields, never raised). The gate and the
+  `tests/test_suite_cost_pricing_growth.py` fails when the
+  measurement reads the deployed document at all (issue #840).
+  Seeded and tightened FROM A RUNNER MEASUREMENT by the master-push
+  bot (`suite_ratchet.py --tighten`, past the 1.5 hysteresis for existing
+  budgets, both fields, never raised). The gate and the
   master-push record path share that environment; `residual` is
   environment-sensitive, so a non-runner seed would gate runners red.
   The interpreter micro is pinned in the

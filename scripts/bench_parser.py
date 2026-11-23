@@ -3,7 +3,7 @@
 Example: .venv/bin/python scripts/bench_parser.py --baseline /tmp/baseline \
     --repeat 7 --json /tmp/parser-times.json /path/to/archive/*.jsonl
 
-Workers run sequentially. File reads, imports, hashing and process startup are
+Workers run sequentially. File reads, imports, rate loading, hashing and process startup are
 outside the parse timer; parser caches are cleared before every file. Complete
 outputs must match the baseline on every round. No transcript content is emitted.
 """
@@ -31,9 +31,11 @@ def _worker(checkout: Path, paths: list[str]) -> list[dict]:
     # module caches cannot accidentally mix the baseline and candidate code.
     sys.path.insert(0, str(checkout))
     from orjson import OPT_SORT_KEYS, dumps  # pylint: disable=import-outside-toplevel
+    from backend import pricing  # pylint: disable=import-outside-toplevel
     from backend.parse import parse_file  # pylint: disable=import-outside-toplevel
     from backend.bash_churn import _python_scan  # pylint: disable=import-outside-toplevel
 
+    getattr(pricing, "MODEL_RATES")
     rows = []
     for name in paths:
         blob = Path(name).read_bytes()

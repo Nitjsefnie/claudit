@@ -1,13 +1,11 @@
-"""The suite-cost measurement must not grow when only pricing data grows.
-The counted conftest-time pricing import parses the document, so use the
-bounded scripts/ci/suite_pricing_doc.json and rebind pricing tables before
-any counted interval opens. Run each copy's own bench over the deployed
-document and a copy with synthetic rows appended; phase instruction counts
-must be exactly equal, independently of rate values.
+"""The suite-cost measurement must not depend on the deployed rate document.
+The bench sets the bounded scripts/ci/suite_pricing_doc.json on pricing before
+any counted interval opens. Run each copy's own bench over a loadable deployed
+document and over one no loader accepts: phase instruction counts must be
+exactly equal, so no read of the deployed document, in or out of a counted
+interval, can enter the measurement.
 Copy the complete bench support closure and bounded document beside each
-bench. The --repo-root copy must also be the bench root whose injection
-runs; a late injection would parse the growing deployed document and the
-between-arm equality must catch that added parse work."""
+bench: the --repo-root copy must also be the bench root whose injection runs."""
 from __future__ import annotations
 
 import json
@@ -19,13 +17,13 @@ from pathlib import Path
 
 import pytest
 
-from backend.pricing_document import expand_pricing_doc, serialize_pricing_doc
+from backend.pricing_document import serialize_pricing_doc
 
 ROOT = Path(__file__).resolve().parents[1]
 # The bench's complete import closure, copied beside each copy's own
 # bench so the executed bench's ROOT is the copy: the injection then
-# loads the copy's bounded document and any late (in-window) injection
-# reads the copy's deployed document, which differs between the arms.
+# loads the copy's bounded document and any deployed read reads the
+# copy's own, which differs between the arms.
 BENCH_MODULES = ("suite_bench.py", "suite_phases.py", "suite_report.py",
                  "tests_tree.py",
                  "thresholds.py", "thresholds_validate.py",
@@ -56,7 +54,9 @@ def _build_copy(target: Path) -> Path:
         "[pytest]\nasyncio_default_fixture_loop_scope = function\n",
         encoding="utf-8")
     (target / "tests" / "test_synth_probe.py").write_text(
-        "def test_probe():\n    assert True\n", encoding="utf-8")
+        "from backend import pricing\n\n\ndef test_probe():\n    assert pricing.MODEL_RATES\n",
+        encoding="utf-8", newline="\n")
+    (target / "bench_files.txt").write_text("tests/test_synth_probe.py\n", encoding="utf-8", newline="\n")
     return target
 
 
@@ -79,55 +79,16 @@ def _measure(copy: Path) -> dict:
     return json.loads(out.read_text(encoding="utf-8"))
 
 
-def _appended_document(doc: dict) -> dict:
-    """The deployed document with a data-only refresh's worth of synthetic
-    rows appended: twenty hosts on the tracked model, forty entries each,
-    every entry loader-valid and dated after the committed history."""
-    rates = {"fresh": 0.5, "create_5m": 0.625, "create_1h": 1.0,
-             "read": 0.05, "output": 2.0}
-    model = next(iter(doc["providers"]))
-    for host_index in range(20):
-        # Each entry differs from its predecessor; the
-        # rates' values never price anything in the bench's own probe.
-        entries = [{"from": f"2027-{1 + stamp // 12:02d}-{1 + stamp % 12:02d}"
-                    "T00:00:00Z", **rates, "read": 0.05 + stamp * 1e-6}
-                   for stamp in range(40)]
-        doc["providers"][model][f"Synthetic{host_index}"] = entries
-    newcomer = {key: [{"from": None, **rates}]
-                for key in ("suite-synth-appended-model",)}
-    doc["models"].update(newcomer)
-    # The fetch stamp covers the synthetic rows.
-    doc["provider_rates_fetched"] = "2028-01-01T00:00:00Z"
-    return doc
-
-
-@pytest.fixture(name="bench_copies")
-def bench_copies_fixture(tmp_path):
-    """Two copies of the real suite machinery deploying the bounded
-    document: as committed, and with synthetic rows appended."""
-    plain = _build_copy(tmp_path / "plain")
-    grown = _build_copy(tmp_path / "grown")
-    doc_path = grown / DOC_RELATIVE
-    doc = expand_pricing_doc(json.loads(doc_path.read_text(encoding="utf-8")))
-    doc_path.write_text(
-        serialize_pricing_doc(_appended_document(doc)),
-        encoding="utf-8")
-    (plain / "bench_files.txt").write_text("tests/test_synth_probe.py\n",
-                                           encoding="utf-8")
-    shutil.copy2(plain / "bench_files.txt", grown / "bench_files.txt")
-    return plain, grown
-
-
-def test_appended_rows_do_not_move_the_measurement(bench_copies):
-    plain, grown = bench_copies
-    baseline = _measure(plain)
-    grown_measure = _measure(grown)
+def test_the_measurement_never_reads_the_deployed_document(tmp_path):
+    plain, refused = (_build_copy(tmp_path / name) for name in ("plain", "refused"))
+    (refused / DOC_RELATIVE).write_text("", encoding="utf-8")  # no loader accepts it
+    baseline, unread = _measure(plain), _measure(refused)
     for phase in ("collection", "run", "residual"):
-        assert grown_measure["phases"][phase]["million_instructions"] == \
+        assert unread["phases"][phase]["million_instructions"] == \
             baseline["phases"][phase]["million_instructions"], (
-            f"{phase} moved with appended rate rows: "
+            f"{phase} moved with the deployed document: "
             f"{baseline['phases'][phase]['million_instructions']} -> "
-            f"{grown_measure['phases'][phase]['million_instructions']}")
+            f"{unread['phases'][phase]['million_instructions']}")
 
 
 # A stated ceiling, not a ratchet: the suite-cost bench loads a bounded

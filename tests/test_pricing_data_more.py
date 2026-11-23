@@ -1,24 +1,33 @@
 from __future__ import annotations
 
+import functools
 import json
 import re
+import subprocess
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from unittest.mock import Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend import app as app_mod
-from backend import pricing
+from backend import pricing, pricing_load
 from backend import session as session_mod
+from backend.pricing_document import serialize_pricing_doc
 from backend.pricing_rows import encode_pricing_doc
 
 from tests.refresh_fixture_builders import DEFAULT_ROW, seed_doc
+from tests.test_pricing_vendor import _install
 from tests.test_pricing_data import (
     CUT,
     NEWCOMER,
     _GLM_MODEL_ID,
     PARSER_JS,
     RATE_FIELDS,
+    ROOT,
     _at,
     _copy_browser,
     _doc,
@@ -62,6 +71,8 @@ from tests.pricing_data_loader_helpers import (
 )
 
 
+_TABLE_NAMES = pricing.RateTables.__annotations__.keys()
+
 # Factory, backend row matcher, browser row matcher, browser file-prefix check.
 REFUSALS = [
     *[pytest.param(lambda case=case: _damaged(case.values[0]), r"bonsai-2-27b\[\d+\]",
@@ -102,6 +113,83 @@ def test_invalid_pricing_data_is_refused_in_the_browser(
         assert error.startswith("pricing.json: "), error
     if match is not None:
         assert re.search(match, error), error
+
+
+# The parse forkserver's preload is the one module that binds at import.
+_IMPORT_THEN_READ = """
+import importlib, pkgutil, sys, backend
+opened = []
+sys.addaudithook(lambda event, args: event == "open" and str(args[0]).endswith("pricing.json") and opened.append(1))
+for module in pkgutil.walk_packages(backend.__path__, "backend."):
+    if module.name != "backend.ingest_forkserver":
+        importlib.import_module(module.name)
+counts = [len(opened)]
+for name in ("MODEL_RATES", "TRACKED_MODELS", "MODEL_RATES"):
+    getattr(sys.modules["backend.pricing"], name)
+    counts.append(len(opened))
+importlib.import_module("backend.ingest_forkserver")
+print("backend.app" in sys.modules, *counts, len(opened))
+"""
+
+
+def test_imports_read_no_rate_data_and_the_first_table_read_loads_it_once():
+    done = subprocess.run([sys.executable, "-c", _IMPORT_THEN_READ], cwd=ROOT,
+                          capture_output=True, text=True, check=False, timeout=60)
+    assert done.stdout.split() == ["True", "0", "1", "1", "1", "1"], done.stderr
+
+
+@pytest.fixture(name="unbound_document")
+def _unbound_document_fixture(monkeypatch, tmp_path):
+    """A fresh process's state: no table bound, over a document of the test's own."""
+    for name in _TABLE_NAMES:
+        monkeypatch.delattr(pricing, name)
+    document = tmp_path / "pricing.json"
+    document.write_text(serialize_pricing_doc(seed_doc()), encoding="utf-8", newline="\n")
+    monkeypatch.setattr(pricing_load, "PRICING_JSON", document)
+    monkeypatch.setattr(pricing, "deployed_tables", functools.cache(pricing_load.deployed_tables.__wrapped__))
+    return document
+
+
+@pytest.mark.asyncio
+async def test_startup_refuses_a_bad_document_before_the_database(unbound_document, monkeypatch):
+    good = unbound_document.read_text(encoding="utf-8")
+    # Decoded rows: valid for load_tables, refused at the storage boundary.
+    unbound_document.write_text(json.dumps(seed_doc()), encoding="utf-8", newline="\n")
+    monkeypatch.setattr(app_mod.db, "apply_schema", Mock(side_effect=RuntimeError("database reached")))
+    for _ in range(2):
+        with pytest.raises(ValueError, match="_format"):
+            async with app_mod.lifespan(app_mod.app):
+                pass
+        with pytest.raises(ValueError, match="_format"):
+            pricing.resolve("claude-opus-4-7")
+    assert not _TABLE_NAMES & vars(pricing).keys()
+    unbound_document.write_text(good, encoding="utf-8", newline="\n")
+    with pytest.raises(RuntimeError, match="database reached"):
+        async with app_mod.lifespan(app_mod.app):
+            pass
+    assert _TABLE_NAMES <= vars(pricing).keys()
+
+
+def test_a_table_patched_before_its_first_use_is_restored_to_the_deployed_one(unbound_document):
+    want = pricing.load_tables(json.loads(unbound_document.read_text(encoding="utf-8")))
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(pricing, "MODEL_RATES", {})
+        assert pricing.resolve("claude-opus-4-7").kind == "default"
+    with patch.object(pricing, "DATED_RATES", {}) as dated:
+        assert pricing.DATED_RATES is dated
+    for name, value in want.items():
+        assert getattr(pricing, name) == value
+        assert getattr(pricing, name) is getattr(pricing, name)
+    with pytest.raises(AttributeError, match="module 'backend.pricing' has no attribute 'NO_SUCH_TABLE'"):
+        getattr(pricing, "NO_SUCH_TABLE")
+
+
+def test_two_threads_first_use_bind_one_table(unbound_document, monkeypatch):
+    meet, load = threading.Barrier(2, timeout=30), pricing_load.deployed_tables.__wrapped__
+    monkeypatch.setattr(pricing, "deployed_tables", lambda: (load(), meet.wait())[0])
+    with ThreadPoolExecutor(2) as pool:
+        first, second = pool.map(lambda _: pricing.MODEL_RATES, range(2))
+    assert first is second is pricing.MODEL_RATES
 
 
 @needs_node
@@ -224,14 +312,13 @@ def test_a_model_row_cannot_begin_at_a_time_in_the_browser(tmp_path):
 def test_a_scheduled_entry_prices_by_utc_weekday_and_time(monkeypatch, stamp, want):
     model, host = SCHEDULED
     default = {f: _trimmed()["providers"][model][host][-1][f] for f in RATE_FIELDS}
-    for name, value in pricing.load_tables(_with_schedule()).items():
-        monkeypatch.setattr(pricing, name, value)
+    _install(monkeypatch, _with_schedule())
     when = _at(stamp) if isinstance(stamp, str) else stamp
     assert pricing.rate_for(model, when, host) == (want or default)
 
 
 @needs_node
-def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
+def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path, monkeypatch):
     """Every hour of a week, one second either side of each window edge,
     the midnight wrap and both weekend days."""
     doc = _with_schedule()
@@ -242,7 +329,6 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
             edge = start + timedelta(days=day - 1, hours=hhmm // 100)
             stamps += [_stamp(edge + timedelta(seconds=s)) for s in (-1, 0, 1)]
     model, host = SCHEDULED
-    tables = pricing.load_tables(doc)
     (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     _copy_browser(tmp_path)
     got = _node(tmp_path / "parser.js", f"""
@@ -250,14 +336,8 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
       console.log(JSON.stringify(stamps.map(
         ts => window.rateForModel({json.dumps(model)}, ts, {json.dumps(host)}))));
     """)
-    saved = {name: getattr(pricing, name) for name in tables}
-    try:
-        for name, value in tables.items():
-            setattr(pricing, name, value)
-        want = [pricing.rate_for(model, _at(s), host) for s in stamps]
-    finally:
-        for name, value in saved.items():
-            setattr(pricing, name, value)
+    _install(monkeypatch, doc)
+    want = [pricing.rate_for(model, _at(s), host) for s in stamps]
     assert [_js_rates(r) for r in got] == want
     assert {json.dumps(w, sort_keys=True) for w in want} >= {
         json.dumps(r, sort_keys=True) for r in (R_WEEKEND, R_NIGHT, R_WRAP)}
@@ -266,8 +346,7 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
 def test_a_row_that_begins_then_moves_prices_each_span(monkeypatch):
     model, host = _GLM_MODEL_ID, "Newcomer"
     before = _at(CUT) - timedelta(seconds=1)
-    for name, value in pricing.load_tables(_newcomer_then_moved()).items():
-        monkeypatch.setattr(pricing, name, value)
+    _install(monkeypatch, _newcomer_then_moved())
     fallback = pricing.resolve(model, before)
     assert {_at(CUT), _at(LATER)} <= set(pricing.RATE_EPOCHS)
     assert pricing.resolve(model, before, host) == fallback
@@ -279,8 +358,7 @@ def test_a_row_that_begins_then_moves_prices_each_span(monkeypatch):
 
 def test_a_naive_timestamp_against_a_row_that_begins_is_read_as_utc(monkeypatch):
     model, host = _GLM_MODEL_ID, "Newcomer"
-    for name, value in pricing.load_tables(_newcomer_then_moved()).items():
-        monkeypatch.setattr(pricing, name, value)
+    _install(monkeypatch, _newcomer_then_moved())
     start = _at(CUT).replace(tzinfo=None)
     before_start = start - timedelta(seconds=1)
     provider_result = pricing.resolve(model, before_start, host)

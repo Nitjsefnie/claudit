@@ -97,7 +97,7 @@ def _rate_tables_fixture(monkeypatch):
     """Synthetic rate tables, fully patched: two model keys, two
     provider rows (distinct prices, so the provider pairs are
     distinguishable), a synthetic default, and synthetic tier fallbacks
-    (production derives those from MODEL_RATES at import; a patched
+    (production derives those from MODEL_RATES lazily; a patched
     MODEL_RATES needs the same re-derivation here)."""
     monkeypatch.setattr(pricing, "MODEL_RATES", {
         _AFFECTED_MODEL: dict(_R1),
