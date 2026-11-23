@@ -11,7 +11,7 @@ from backend.pricing_rows import encode_pricing_doc
 from tests.refresh_fixture_builders import DEFAULT_ROW, seed_doc, seed_provider_doc
 from tests.test_pricing_data import (
     CUT, HHMM_JS, LOADER_JS, RATE_FIELDS,
-    VENDOR_TABLES_JS, _GLM_MODEL, _at, _copy_browser, _doc,
+    VENDOR_TABLES_JS, _GLM_MODEL, _at, _copy_browser, _trimmed,
     _node, _node_raw, _pricing_json, _stamp, _with_newcomer,
 )
 
@@ -72,7 +72,7 @@ UNSPELLABLE_IN_JSON = {"infinite-rate", "nan-rate"}
 
 
 def _damaged(damage) -> dict:
-    doc = copy.deepcopy(_doc())
+    doc = _trimmed()
     damage(doc["models"]["bonsai-2-27b"])
     return doc
 
@@ -167,7 +167,7 @@ EDGE_STAMPS = [
 # they did when they were ingested.
 
 def _model_row_beginning() -> dict:
-    doc = copy.deepcopy(_doc())
+    doc = _trimmed()
     doc["models"]["bonsai-2-27b"][0]["from"] = "2020-01-01T00:00:00Z"
     return doc
 
@@ -198,7 +198,7 @@ SCHEDULED = (_GLM_MODEL, "Novita")
 
 
 def _with_schedule(schedule=None) -> dict:
-    doc = copy.deepcopy(_doc())
+    doc = _trimmed()
     model, host = SCHEDULED
     source = doc["providers"][model][host][-1]
     rates = {f: source[f] for f in RATE_FIELDS}
@@ -246,7 +246,7 @@ SCHEDULE_DAMAGE = [
 
 
 def _model_schedule() -> dict:
-    doc = copy.deepcopy(_doc())
+    doc = _trimmed()
     doc["models"]["bonsai-2-27b"][-1]["schedule"] = SCHEDULE
     return doc
 

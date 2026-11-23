@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 from datetime import datetime, timedelta
 
 import pytest
@@ -18,19 +17,16 @@ from tests.test_pricing_data import (
     CUT,
     NEWCOMER,
     _GLM_MODEL_ID,
-    LOADER_JS,
-    VENDOR_TABLES_JS,
-    HHMM_JS,
-    PARSER_USAGE_JS,
     PARSER_JS,
-    RATES_JS,
     RATE_FIELDS,
     _at,
+    _copy_browser,
     _doc,
     _js_rates,
     _node,
     _pricing_json,
     _stamp,
+    _trimmed,
     _with_newcomer,
     needs_node,
 )
@@ -179,13 +175,7 @@ def test_both_sides_read_an_edge_spelling_as_the_same_instant(
     assert want in [int(e.timestamp() * 1000)
                     for e in pricing.load_tables(doc)["RATE_EPOCHS"]]
     (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
-    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
-    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
-    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
-    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
-    shutil.copy(RATES_JS, tmp_path / "rates.js")
-    shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
-    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    _copy_browser(tmp_path)
     assert want in _node(tmp_path / "parser.js",
                          "console.log(JSON.stringify(window.rateEpochs));")
 
@@ -195,13 +185,7 @@ def test_a_provider_row_that_begins_at_a_time_prices_from_then_on_in_the_browser
         tmp_path):
     (tmp_path / "pricing.json").write_text(
         json.dumps(encode_pricing_doc(_with_newcomer())), encoding="utf-8")
-    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
-    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
-    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
-    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
-    shutil.copy(RATES_JS, tmp_path / "rates.js")
-    shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
-    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    _copy_browser(tmp_path)
     before = _stamp(_at(CUT) - timedelta(seconds=1))
     got = _node(tmp_path / "parser.js", f"""
       const m = {json.dumps(_GLM_MODEL_ID)};
@@ -239,7 +223,7 @@ def test_a_model_row_cannot_begin_at_a_time_in_the_browser(tmp_path):
 ])
 def test_a_scheduled_entry_prices_by_utc_weekday_and_time(monkeypatch, stamp, want):
     model, host = SCHEDULED
-    default = {f: _doc()["providers"][model][host][-1][f] for f in RATE_FIELDS}
+    default = {f: _trimmed()["providers"][model][host][-1][f] for f in RATE_FIELDS}
     for name, value in pricing.load_tables(_with_schedule()).items():
         monkeypatch.setattr(pricing, name, value)
     when = _at(stamp) if isinstance(stamp, str) else stamp
@@ -260,13 +244,7 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
     model, host = SCHEDULED
     tables = pricing.load_tables(doc)
     (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
-    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
-    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
-    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
-    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
-    shutil.copy(RATES_JS, tmp_path / "rates.js")
-    shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
-    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    _copy_browser(tmp_path)
     got = _node(tmp_path / "parser.js", f"""
       const stamps = {json.dumps(stamps)};
       console.log(JSON.stringify(stamps.map(
@@ -288,9 +266,9 @@ def test_both_sides_price_a_schedule_identically_across_the_week(tmp_path):
 def test_a_row_that_begins_then_moves_prices_each_span(monkeypatch):
     model, host = _GLM_MODEL_ID, "Newcomer"
     before = _at(CUT) - timedelta(seconds=1)
-    fallback = pricing.resolve(model, before)
     for name, value in pricing.load_tables(_newcomer_then_moved()).items():
         monkeypatch.setattr(pricing, name, value)
+    fallback = pricing.resolve(model, before)
     assert {_at(CUT), _at(LATER)} <= set(pricing.RATE_EPOCHS)
     assert pricing.resolve(model, before, host) == fallback
     assert pricing.rate_for(model, _at(CUT), host) == NEWCOMER
@@ -317,13 +295,7 @@ def test_rate_epochs_include_provider_window_ends_and_row_starts_in_the_browser(
         tmp_path):
     (tmp_path / "pricing.json").write_text(
         json.dumps(encode_pricing_doc(_provider_only_doc())), encoding="utf-8")
-    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
-    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
-    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
-    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
-    shutil.copy(RATES_JS, tmp_path / "rates.js")
-    shutil.copy(PARSER_USAGE_JS, tmp_path / "parser-usage.js")
-    shutil.copy(PARSER_JS, tmp_path / "parser.js")
+    _copy_browser(tmp_path)
     got = _node(tmp_path / "parser.js",
                 "console.log(JSON.stringify(window.rateEpochs));")
     start = int(_at(P_START).timestamp() * 1000)

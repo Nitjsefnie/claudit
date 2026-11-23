@@ -26,6 +26,7 @@ from tests.test_pricing_data import (
     _latest_document_stamp,
     _pricing_json,
     _stamp,
+    _trimmed,
     needs_node,
 )
 
@@ -39,7 +40,7 @@ def _cut(doc: dict) -> str:
 def _repeated_append() -> dict:
     """The newest provider entry appended a second time under a later
     `from`: nothing moved but the instant, the no-op the loader refuses."""
-    doc = _doc()
+    doc = _trimmed()
     history = doc["providers"][_GLM_MODEL][_GLM_HOST]
     cut = _cut(doc)
     history.append({**{k: v for k, v in history[-1].items() if k != "from"},
@@ -51,7 +52,7 @@ def _repeated_append() -> dict:
 def _schedule_only_append() -> dict:
     """The same append with ONE schedule the row did not carry: rates
     identical, but a schedule is a real difference, so it must load."""
-    doc = _doc()
+    doc = _trimmed()
     history = doc["providers"][_GLM_MODEL][_GLM_HOST]
     cut = _cut(doc)
     history.append({**{k: v for k, v in history[-1].items() if k != "from"},
@@ -149,7 +150,7 @@ def test_only_context_changes_skip_price_windows(tmp_path, before, after, priced
 @pytest.mark.parametrize("band", [{}, {"fresh": [0, 100]}, None, "obsolete"])
 @needs_node
 def test_any_band_key_is_refused_by_both_loaders_naming_the_same_row(tmp_path, band):
-    doc = _doc()
+    doc = _trimmed()
     history = doc["providers"][_GLM_MODEL][_GLM_HOST]
     history[-1]["band"] = band
     where = f"{_GLM_MODEL} via {_GLM_HOST}[{len(history) - 1}]"
@@ -165,7 +166,7 @@ def test_any_band_key_is_refused_by_both_loaders_naming_the_same_row(tmp_path, b
 def _dated_past_fetch() -> dict:
     """A move appended after the fetch instant: refused until the fetch
     stamp catches up, then accepted at the boundary (`==`)."""
-    doc = _doc()
+    doc = _trimmed()
     history = doc["providers"][_GLM_MODEL][_GLM_HOST]
     cut = _cut(doc)
     history.append({**{k: v for k, v in history[-1].items() if k != "from"},
