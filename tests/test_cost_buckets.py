@@ -1,20 +1,17 @@
 """Cost bucket folds."""
-import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from backend import pricing
-from backend.pricing_rows import migrate_pricing_doc
 from backend.api_cache import _cache_canon_source
 from backend.api_common import (
     epoch_ts, fold_per_model, fold_per_model_provider, rate_epoch_sql,
 )
 from backend.db import sql_text
 from tests import scratch_db
-from tests.pricing_row_helpers import decoded_pricing_doc
-from tests.refresh_fixture_builders import RATES_B
+from tests.refresh_fixture_builders import DEFAULT_ROW, RATES_B, seed_doc
 
 UTC = timezone.utc
 
@@ -346,21 +343,21 @@ _SYNTHETIC_MODEL = "acme/acme-9"
 _SYNTHETIC_HOST = "HostCo"
 LIST_RATES = {"fresh": 2.60, "create_5m": 3.25, "create_1h": 5.20,
               "read": 0.26, "output": 13.00}
-# Exactly half of the list rates — by construction, not by coincidence
-# with a live entry — so the uniform-scaling param's split stays exact
-# whatever the file holds. Halving is exact in binary floating point.
+# Exactly half of the list rates, so the uniform-scaling param's split
+# stays exact. Halving is exact in binary floating point.
 HALF = {field: value / 2 for field, value in LIST_RATES.items()}
+# A dated row gives the fold a rate epoch; with none it prices at list.
+_DATED = {"acme/dated-9": [dict(DEFAULT_ROW), {**DEFAULT_ROW, "from": "2029-01-01T00:00:00Z", "read": 0.4}]}
 
 
 def _install_scheduled_row(monkeypatch, schedule):
     """Use a synthetic provider schedule through the real loader.
     Synthetic rates keep the verdict independent of live pricing refreshes;
     schedules live on provider rows, so the synthetic row must be one."""
-    doc = decoded_pricing_doc(json.loads(pricing.PRICING_JSON.read_text(encoding="utf-8")))
-    doc["providers"][_SYNTHETIC_MODEL] = {_SYNTHETIC_HOST: [
+    doc = seed_doc(models=_DATED, providers={_SYNTHETIC_MODEL: {_SYNTHETIC_HOST: [
         {"from": None, **LIST_RATES, "schedule": schedule},
-    ]}
-    for name, value in pricing.load_tables(migrate_pricing_doc(doc)).items():
+    ]}})
+    for name, value in pricing.load_tables(doc).items():
         monkeypatch.setattr(pricing, name, value)
 
 
@@ -407,7 +404,7 @@ def test_a_schedule_adds_no_rate_epoch(monkeypatch):
     epoch list is exactly what it was without them. The row is synthetic
     (_install_scheduled_row): it begins at no instant and carries no dated
     window, so it adds no boundary of its own either."""
-    before = list(pricing.RATE_EPOCHS)
+    before = pricing.load_tables(seed_doc(models=_DATED))["RATE_EPOCHS"]
     _install_scheduled_row(monkeypatch, [{"days": ["saturday"], "rates": HALF}])
     assert pricing.RATE_EPOCHS == before
 

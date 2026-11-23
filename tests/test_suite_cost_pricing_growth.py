@@ -47,7 +47,8 @@ def _build_copy(target: Path) -> Path:
                         "__pycache__", "*.pyc", "test_*", ".pg"))
     (target / "scripts" / "ci").mkdir(parents=True)
     (target / "src").mkdir()
-    shutil.copy2(ROOT / DOC_RELATIVE, target / DOC_RELATIVE)
+    bounded = json.loads((ROOT / "scripts" / "ci" / "suite_pricing_doc.json").read_text(encoding="utf-8"))
+    (target / DOC_RELATIVE).write_text(serialize_pricing_doc(bounded), encoding="utf-8", newline="\n")
     for name in BENCH_MODULES:
         shutil.copy2(ROOT / "scripts" / "ci" / name,
                      target / "scripts" / "ci" / name)
@@ -102,8 +103,8 @@ def _appended_document(doc: dict) -> dict:
 
 @pytest.fixture(name="bench_copies")
 def bench_copies_fixture(tmp_path):
-    """Two copies of the real suite machinery: the deployed document, and
-    that document with synthetic rows appended."""
+    """Two copies of the real suite machinery deploying the bounded
+    document: as committed, and with synthetic rows appended."""
     plain = _build_copy(tmp_path / "plain")
     grown = _build_copy(tmp_path / "grown")
     doc_path = grown / DOC_RELATIVE

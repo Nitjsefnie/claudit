@@ -22,6 +22,7 @@ from backend.pricing_rows import encode_pricing_doc
 from backend import pricing
 from backend.pricing_document import expand_pricing_doc, serialize_pricing_doc
 from tests.node_run import run_node
+from tests.refresh_fixture_builders import DEFAULT_ROW
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -211,7 +212,7 @@ NEWCOMER = {"create_1h": 0.2, "create_5m": 0.2, "fresh": 0.2,
 
 
 def _with_newcomer() -> dict:
-    doc = copy.deepcopy(_doc())
+    doc = _trimmed()
     doc["providers"][_GLM_MODEL]["Newcomer"] = [
         {"from": CUT, **NEWCOMER}]
     # A row beginning at CUT implies a fetch that saw it at or after CUT.
@@ -278,14 +279,14 @@ def test_the_backend_prices_every_row_as_the_file_says():
         return [step for i, step in enumerate(row) if i == 0 or step[1:] != row[i - 1][1:]]
     for model, host, history in _histories(_doc()):
         got, label = pricing.resolve(model, None, host), f"{model} via {host}"
-        assert (got.kind, got.rates) == ("exact", _in_force(model, history, None, host)), label
         if host is None and model in pricing.MODEL_RATES:
-            listed, windows, begins = pricing.MODEL_RATES[model], pricing.DATED_RATES.get(model, []), None
+            key, listed, windows, begins = model, pricing.MODEL_RATES[model], pricing.DATED_RATES.get(model, []), None
         else:
-            tracked = model if host else pricing.VENDOR_BARE[model]
-            row = tracked, host or pricing.VENDOR_HOSTS[tracked]
+            key = model if host else pricing.VENDOR_BARE[model]
+            row = key, host or pricing.VENDOR_HOSTS[key]
             listed, windows = pricing.PROVIDER_RATES[row], pricing.PROVIDER_DATED_RATES.get(row, [])
             begins = pricing.PROVIDER_STARTS.get(row)
+        assert (got.kind, got.key, got.rates) == ("exact", key, _in_force(model, history, None, host)), label
         schedules = pricing.PROVIDER_SCHEDULES.get((model, host or ""), {})  # only a host takes one
         loaded = zip([begins, *(end for end, _ in windows)], [*(r for _, r in windows), listed],
                      [schedules.get(i) for i in range(len(windows) + 1)])
@@ -408,13 +409,32 @@ def test_neither_side_carries_a_rate_literal():
 
 _GLM_MODEL = "glm-5-3-flash"
 _GLM_HOST = "Z.AI"
-_GLM_MODEL_ID = _doc()["openrouter"]["models"][_GLM_MODEL]["id"]
-_GLM_HISTORY = _doc()["providers"][_GLM_MODEL][_GLM_HOST]
+
+
+def _trimmed_from(live: dict) -> dict:
+    """The live rows the per-case factories read, at their live indexes (the
+    first provider row, two GLM hosts, bonsai), plus the seed default row."""
+    first, hosts = next(iter(live["providers"].items()))
+    keep = {first: [next(iter(hosts))], _GLM_MODEL: ["Novita", _GLM_HOST]}
+    models = {"claude-opus-4-7": [dict(DEFAULT_ROW)], "bonsai-2-27b": live["models"]["bonsai-2-27b"]}
+    return {**live, "long_context_meters": [], "models": models,
+            "providers": {m: {h: live["providers"][m][h] for h in hs} for m, hs in keep.items()},
+            "openrouter": {**live["openrouter"], "models": {m: live["openrouter"]["models"][m] for m in keep}}}
+
+
+_TRIMMED = _trimmed_from(_doc())  # the session's one parse of the live file for the factories
+
+
+def _trimmed() -> dict:
+    return copy.deepcopy(_TRIMMED)
+
+
+_GLM_MODEL_ID = _TRIMMED["openrouter"]["models"][_GLM_MODEL]["id"]
 CUT = _stamp(max(
-    [_at(entry["from"]) for entry in _GLM_HISTORY if entry["from"]]
-    + [_at(_doc()["provider_rates_fetched"])]
+    [_at(entry["from"]) for entry in _TRIMMED["providers"][_GLM_MODEL][_GLM_HOST] if entry["from"]]
+    + [_at(_TRIMMED["provider_rates_fetched"])]
     + [datetime.min.replace(tzinfo=timezone.utc)]) + timedelta(seconds=1))
-_PROVIDER_KEY, _PROVIDER_HOSTS = next(iter(_doc()["providers"].items()))
+_PROVIDER_KEY, _PROVIDER_HOSTS = next(iter(_TRIMMED["providers"].items()))
 _PROVIDER_HOST = next(iter(_PROVIDER_HOSTS))
 APPEND_ROWS = [
     pytest.param(("providers", "glm-5-3-flash", "Z.AI"), "glm-5.3-flash",
@@ -427,7 +447,7 @@ APPEND_ROWS = [
 def _appended(path: tuple[str, ...]) -> tuple[dict, dict, dict]:
     """The file with one entry appended to the row at `path`: the new
     document, the rates in force before the cutover, and the new rates."""
-    doc = copy.deepcopy(_doc())
+    doc = _trimmed()
     history: Any = doc
     for part in path:
         history = history[part]
@@ -454,11 +474,11 @@ def test_an_appended_entry_prices_from_its_cutover_on_in_the_backend(
         monkeypatch, path, model, host):
     doc, before, after = _appended(path)
     cut = _at(doc["provider_rates_fetched"])
+    _install(monkeypatch, _trimmed())
     previous_epochs = set(pricing.RATE_EPOCHS)
     earlier = {epoch: pricing.rate_for(model, epoch - timedelta(seconds=1), host)
                for epoch in pricing.RATE_EPOCHS}
-    for name, value in pricing.load_tables(doc).items():
-        monkeypatch.setattr(pricing, name, value)
+    _install(monkeypatch, doc)
     assert previous_epochs.issubset(pricing.RATE_EPOCHS)
     assert cut in pricing.RATE_EPOCHS
     assert pricing.rate_for(model, cut - timedelta(seconds=1), host) == before
