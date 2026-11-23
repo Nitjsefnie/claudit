@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -181,9 +182,24 @@ def test_context_metadata_and_context_only_appends_leave_fingerprints_unchanged(
     assert all(value == boundaries[0] for value in boundaries)
 
 
-def _convert(path: Path) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, str(CONVERTER), "--pricing", str(path)],
+def _checkout(tmp_path: Path, text: str) -> Path:
+    """A tree holding the backend, the pricing tools and `text` as its document."""
+    repo = tmp_path / "checkout"
+    for part in ("backend", "scripts/ci"):
+        shutil.copytree(ROOT / part, repo / part, ignore=shutil.ignore_patterns("__pycache__"))
+    (repo / "src").mkdir()
+    (repo / "src" / "pricing.json").write_text(text, encoding="utf-8", newline="\n")
+    return repo
+
+
+def _tool(repo: Path, name: str, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(repo / "scripts" / "ci" / f"{name}.py"), *args], cwd=repo,
+                          env={**os.environ, "https_proxy": "http://127.0.0.1:9", "no_proxy": "", "PYTHONDONTWRITEBYTECODE": "1"},
                           capture_output=True, text=True, timeout=60, check=False)
+
+
+def _convert(path: Path) -> subprocess.CompletedProcess:
+    return _tool(ROOT, "convert_pricing_doc", "--pricing", str(path))
 
 
 def test_conversion_is_idempotent_and_keeps_canonical_layout(tmp_path):
@@ -248,30 +264,33 @@ def test_a_written_move_omits_cache_rates_equal_to_fresh(tmp_path, capsys):
 
 @pytest.mark.parametrize("alternate", [False, True])
 def test_converter_bootstraps_with_a_legacy_canonical_file(tmp_path, alternate):
-    repo = tmp_path / "checkout"
-    (repo / "backend").mkdir(parents=True)
-    (repo / "scripts" / "ci").mkdir(parents=True)
-    (repo / "src").mkdir()
-    for source in (ROOT / "backend").glob("*.py"):
-        shutil.copy(source, repo / "backend" / source.name)
-    script = repo / "scripts" / "ci" / CONVERTER.name
-    shutil.copy(CONVERTER, script)
-    canonical = repo / "src" / "pricing.json"
     legacy = json.dumps(_synthetic_doc()) + "\n"
-    canonical.write_text(legacy, encoding="utf-8")
+    repo = _checkout(tmp_path, legacy)
+    canonical = repo / "src" / "pricing.json"
     target = tmp_path / "alternate.json" if alternate else canonical
-    target.write_text(legacy, encoding="utf-8")
-    args = [sys.executable, str(script), *(["--pricing", str(target)] if alternate else [])]
-    first = subprocess.run(args, cwd=repo, capture_output=True, text=True,
-                           check=False, timeout=60)
+    target.write_text(legacy, encoding="utf-8", newline="\n")
+    args = ["--pricing", str(target)] if alternate else []
+    first = _tool(repo, "convert_pricing_doc", *args)
     assert first.returncode == 0, first.stderr
     converted = target.read_bytes()
     stored = json.loads(converted)
     assert stored["providers"][ROW_KEY][HOST][0][:4] == [None, 2.0, 6.0, 0.2]
     assert load_tables(stored) == load_tables(_synthetic_doc())
-    second = subprocess.run(args, cwd=repo, capture_output=True, text=True,
-                            check=False, timeout=60)
+    second = _tool(repo, "convert_pricing_doc", *args)
     assert second.returncode == 0, second.stderr
     assert target.read_bytes() == converted
     if alternate:
         assert canonical.read_text(encoding="utf-8") == legacy
+
+
+@pytest.mark.parametrize("tool, args", [
+    ("refresh_provider_rates", ()), ("refresh_vendor_rates", ()), ("track_vendor", ("--namespace=acme",)),
+    ("backfill_provider_rates", ("--as-of=2026-01-01T00:00:00Z",)),
+    ("perturb_test_data", ("--seed=1",)), ("fuzz_test_data", ("--iterations=1",)),
+])
+def test_a_tool_that_rewrites_the_document_refuses_a_broken_one_at_start(tmp_path, tool, args):
+    repo = _checkout(tmp_path, json.dumps(_synthetic_doc()))  # decoded rows: no stored format
+    before = {path: path.read_bytes() for path in repo.rglob("*.*") if path.is_file()}
+    done = _tool(repo, tool, *args)
+    assert done.returncode != 0 and "pricing.json: _format must be" in done.stderr, done.stdout + done.stderr
+    assert {path: path.read_bytes() for path in repo.rglob("*.*") if path.is_file()} == before
