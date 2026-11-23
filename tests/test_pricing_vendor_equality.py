@@ -38,7 +38,9 @@ from tests.test_pricing_vendor import (
     _doc,
     _entry,
     _install,
+    _js_rates,
     _loader_error,
+    _node_raw,
     needs_node,
 )
 from tests.node_run import run_node
@@ -270,26 +272,17 @@ def test_the_browser_tier_fallback_skips_a_rowless_tracked_key(tmp_path):
     doc["models"]["claude-opus-4-7"] = [_entry(R_THIRD)]
     (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     _copy_browser(tmp_path)
-    proc = run_node(
-        ["node", "-e", """
-          global.window = {};
-          require('./pricing-loader.js');
-          require('./rates.js');
-          const JF = {fresh: 'fresh', c5: 'create_5m', c1h: 'create_1h',
-                      read: 'read', out: 'output'};
-          const map = (r) => Object.fromEntries(
-            Object.entries(JF).map(([a, b]) => [b, r.rates[a]]));
-          const tier = window.resolveModelRate('claude-opus-99');
-          const bare = window.resolveModelRate('claude-opus-9');
-          console.log(JSON.stringify(
-            {tier: {kind: tier.kind, rates: map(tier)},
-             bare: {kind: bare.kind, rates: map(bare)}}));
-        """],
-        cwd=tmp_path, capture_output=True, text=True, timeout=60, check=False)
-    assert proc.returncode == 0, proc.stderr
-    got = json.loads(proc.stdout)
-    assert got["tier"] == {"kind": "tier", "rates": dict(R_THIRD)}
-    assert got["bare"] == {"kind": "tier", "rates": dict(R_THIRD)}
+    got = _node_raw(f"""
+      global.window = {{}};
+      require({str(tmp_path / 'pricing-loader.js')!r});
+      require({str(tmp_path / 'rates.js')!r});
+      console.log(JSON.stringify({{
+        tier: window.resolveModelRate('claude-opus-99'),
+        bare: window.resolveModelRate('claude-opus-9'),
+      }}));
+    """)
+    assert (got["tier"]["kind"], _js_rates(got["tier"]["rates"])) == ("tier", R_THIRD)
+    assert (got["bare"]["kind"], _js_rates(got["bare"]["rates"])) == ("tier", R_THIRD)
 
 
 @needs_node
