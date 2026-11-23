@@ -89,9 +89,9 @@ def test_vendor_boundaries_absent_without_a_row(monkeypatch):
 
 
 def test_the_pre_start_fold_uses_the_vendor_windows(monkeypatch):
-    """Before a provider row's start, a record prices by
-    the model alone — which for a vendor key is the vendor row's windows,
-    so the fold's boundaries carry them."""
+    """Before a provider row's start, a record prices by the model alone —
+    which for a vendor key is the vendor row's windows, so the fold's
+    boundaries carry them."""
     vendor_start = CUT - timedelta(days=30)
     doc = _doc(start=vendor_start)
     provider_start = datetime(2027, 1, 1, tzinfo=UTC)
