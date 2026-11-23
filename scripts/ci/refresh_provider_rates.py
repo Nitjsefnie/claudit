@@ -392,4 +392,5 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = refresh_pricelog.fetch
 
 
 if __name__ == "__main__":
+    pricing.bind_tables()
     sys.exit(main())

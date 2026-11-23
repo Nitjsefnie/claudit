@@ -266,4 +266,5 @@ def main(argv: list[str] | None = None, *, fetch: FetchEndpoints = refresh_price
 
 
 if __name__ == "__main__":
+    pricing.bind_tables()
     sys.exit(main())
