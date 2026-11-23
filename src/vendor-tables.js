@@ -108,8 +108,10 @@
   const keyListRates = (key) => {
     if (_modelRates[key] !== undefined) return _modelRates[key];
     const tracked = _vendorBare[key];
-    return _vendorHosts[tracked] === undefined ? undefined
-      : (window.providerRates[tracked] || {})[_vendorHosts[tracked]];
+    const host = _vendorHosts[tracked];
+    const hosts = window.providerRates[tracked] || {};
+    return host !== undefined && Object.prototype.hasOwnProperty.call(hosts, host)
+      ? hosts[host] : undefined;
   };
 
   /* eslint-disable no-undef */
