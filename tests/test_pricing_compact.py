@@ -293,4 +293,5 @@ def test_a_tool_that_rewrites_the_document_refuses_a_broken_one_at_start(tmp_pat
     before = {path: path.read_bytes() for path in repo.rglob("*.*") if path.is_file()}
     done = _tool(repo, tool, *args)
     assert done.returncode != 0 and "pricing.json: _format must be" in done.stderr, done.stdout + done.stderr
+    assert (done.stdout, done.stderr[:9]) == ("", "Traceback"), "refused only after main() ran"
     assert {path: path.read_bytes() for path in repo.rglob("*.*") if path.is_file()} == before
