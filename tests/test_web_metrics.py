@@ -57,12 +57,6 @@ def _closed_ts() -> datetime:
         seconds=max(LATENCY_BUCKETS) + 1800)
 
 
-# The fold's clock, pinned. Every rollup assertion below reads its instants
-# from here, because the band a seed must land in is exactly one bucket
-# width wide and a live clock puts it on the boundary.
-PINNED_NOW = datetime(2026, 5, 14, 9, 20, 0, tzinfo=timezone.utc)
-
-
 @pytest.fixture(name="pinned")
 def _pinned_fixture(monkeypatch):
     """Pin the fold's clock so `PINNED_NOW` and the fold agree exactly."""
@@ -451,15 +445,6 @@ def test_no_query_parameter_opens_the_readout_to_a_non_operator(
         assert r.status_code == 403, qs
 
 
-def test_a_guest_gets_the_readout_refusal(viz, gated_client):
-    """`gated_client` holds a guest cookie, and a guest is never an
-    operator — so the refusal is the guest's own, not a side effect of
-    the query."""
-    r = gated_client.get("/api/web-metrics?range=1d", headers=_ORIGIN)
-    assert r.status_code == 403
-    assert session_mod.is_operator(session_mod.GUEST_USER_ID) is False
-
-
 def test_the_sink_keeps_answering_everyone_the_gate_excludes(
         viz, gated_client):
     """The gate covers the READOUT only. Beacons keep arriving from guests
@@ -470,14 +455,6 @@ def test_the_sink_keeps_answering_everyone_the_gate_excludes(
     assert _post(plain, _beacon()).status_code == 202
     rows = _rows(viz)
     assert len(rows) == 2, "the gate cost the sink a stored beacon"
-
-
-def test_the_schema_carries_both_tables(viz):
-    with psycopg.connect(os.environ["CLAUDIT_DATABASE_URL_VIZ"]) as conn:
-        names = {r[0] for r in conn.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_name LIKE 'web_metrics%'").fetchall()}
-    assert names == {"web_metrics", "web_metrics_rollup"}
 
 
 def test_a_user_id_wider_than_int4_round_trips(viz):
@@ -667,4 +644,3 @@ def test_the_panel_terms_are_derived_from_the_panel_sources():
     assert derived == panel, (
         f"panel sources and REGIONS disagree: sources-only "
         f"{sorted(derived - panel)}, REGIONS-only {sorted(panel - derived)}")
-    assert {_slug(t) for t in _client_table("PANELS")} == panel

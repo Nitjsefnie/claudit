@@ -12,8 +12,6 @@ UTC = timezone.utc
 # A flat row has no cutover: exercise its shape through synthetic rates
 # rather than pinning a real model's committed values (SV-TEST-DATA).
 
-UTC = timezone.utc
-
 _FLAT_RATES = {"fresh": 3.21, "create_5m": 4.01, "create_1h": 6.42,
                "read": 0.32, "output": 16.1}
 
