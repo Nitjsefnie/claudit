@@ -646,8 +646,9 @@ pass moved.
   row carries. A model the vendor serves through no first-party endpoint
   (only third-party hosts) is added as `{"id": <catalog id>}`, with no
   `vendor_host` and no `context_length`, and the provider pass prices its
-  hosts like any id-only entry's. An already-tracked entry stands untouched
-  (with or without `vendor_host`), and no second key is added for an id
+  hosts like any id-only entry's. An already-tracked entry the vendor serves
+  through no first-party endpoint stands untouched (with or without
+  `vendor_host`), and no second key is added for an id
   tracked under another key or for a derived key in the models table. The
   pass writes NO RATES: the provider pass carries the new entry's rows from
   the NEXT hourly run, so a newly added model prices nothing for one run (the one-run
@@ -691,8 +692,9 @@ pass moved.
   records a NOTICE + skip and the tracked entry stands untouched; when the
   model has no vendor-prefix endpoint, the entry stands untouched silently.
   Entries with no vendor source (a
-  models-table key such as bonsai-2-27b, or a tracked entry without
-  vendor_host — aliases, the delisted) stand untouched, and a quiet source
+  models-table key such as bonsai-2-27b, or a tracked entry whose model the
+  vendor does not serve first-party — aliases, the delisted) stand untouched,
+  and a quiet source
   writes nothing.
 - **The long-context band folds to the meter at the band's own threshold
   and multipliers.** A `min_prompt_tokens` override yields its input/output
