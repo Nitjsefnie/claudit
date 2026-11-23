@@ -29,7 +29,6 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
-    "alternating price: gemma-4-31b-it via PrimeIntellect: the listed rates equal the entry from 2026-11-18T02:55:54Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: kimi-k3-1-pro via InferenceNet: the listed rates equal the entry from 2026-11-20T00:53:48Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
@@ -37,7 +36,6 @@
     "claude-opus-5-5 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "deepseek-chat via DeepInfra: 2 endpoints (deepinfra/fp4, deepinfra/fp4/flex) at 2 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "deepseek-v4-1-flash via BaseTen: rule-resolved (data region): the global data region leaves 'baseten'; dropped 'baseten/us'",
-    "deepseek-v4-1-flash via Crusoe: rule-resolved (tier variant base): took the base endpoint 'crusoe/fp8' over tier variants 'crusoe/fp8/fast'",
     "deepseek-v4-1-flash via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-1-flash via Fireworks: rule-resolved (data region): took the global endpoint 'fireworks' over 'fireworks/spot'",
     "deepseek-v4-1-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp8'; dropped 'inference-net/us'",
@@ -100,6 +98,7 @@
     "gemma-4-26b-a4b-it via Cloudflare: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "gemma-4-26b-a4b-it via Io Net: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "gemma-4-26b-a4b-it via Makora: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
+    "gemma-4-26b-a4b-it via PrimeIntellect: 3 endpoints (primeintellect/bf16, primeintellect/flex, primeintellect/prime) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "gemma-4-31b-it via DeepInfra: 4 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority, deepinfra/turbo) at 4 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "glm-4-6 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
     "glm-4-7 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
@@ -242,7 +241,6 @@
     "tag 'baidu/fast' names neither a known region nor a quantization: glm-5-2 via Baidu",
     "tag 'baseten/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via BaseTen, glm-5-2 via BaseTen, glm-5-3 via BaseTen",
     "tag 'baseten/us/fast' names neither a known region nor a quantization: glm-5-2 via BaseTen, glm-5-3 via BaseTen",
-    "tag 'crusoe/fp8/fast' names neither a known region nor a quantization: deepseek-v4-1-flash via Crusoe",
     "tag 'deepinfra/bf16/flex' names neither a known region nor a quantization: gpt-oss-20b via DeepInfra, qwen3-5-9b via DeepInfra",
     "tag 'deepinfra/bf16/priority' names neither a known region nor a quantization: qwen3-5-9b via DeepInfra",
     "tag 'deepinfra/fp4/flex' names neither a known region nor a quantization: glm-4-6 via DeepInfra, glm-4-7 via DeepInfra, glm-5-2 via DeepInfra, glm-5-3 via DeepInfra, kimi-k2-6 via DeepInfra, nemotron-3-ultra-550b-a55b via DeepInfra",
@@ -267,8 +265,7 @@
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for gemma-4-31b-it via PrimeIntellect; the host was sampled"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -392,12 +389,6 @@
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
-    },
-    "gemma-4-26b-a4b-it": {
-      "PrimeIntellect": "log series count mismatch"
-    },
-    "gemma-4-31b-it": {
-      "PrimeIntellect": "listing lags log"
     },
     "glm-5-2": {
       "BaseTen": "2 endpoints at one current price"
