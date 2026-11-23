@@ -176,6 +176,27 @@
         "id": "anthropic/claude-sonnet-5.5",
         "vendor_host": "Anthropic"
       },
+      "deepseek-chat": {
+        "id": "deepseek/deepseek-chat"
+      },
+      "deepseek-chat-v3-0324": {
+        "id": "deepseek/deepseek-chat-v3-0324"
+      },
+      "deepseek-chat-v3-1": {
+        "id": "deepseek/deepseek-chat-v3.1"
+      },
+      "deepseek-r1-0528": {
+        "id": "deepseek/deepseek-r1-0528"
+      },
+      "deepseek-v3-1-terminus": {
+        "id": "deepseek/deepseek-v3.1-terminus"
+      },
+      "deepseek-v3-2": {
+        "id": "deepseek/deepseek-v3.2"
+      },
+      "deepseek-v3-2-exp": {
+        "id": "deepseek/deepseek-v3.2-exp"
+      },
       "deepseek-v4-1-flash": {
         "id": "deepseek/deepseek-v4.1-flash",
         "vendor_host": "DeepSeek"
@@ -190,6 +211,9 @@
       },
       "deepseek-v4-flash-0731": {
         "id": "deepseek/deepseek-v4-flash-0731"
+      },
+      "deepseek-v4-flash-vision-exp": {
+        "id": "deepseek/deepseek-v4-flash-vision-exp"
       },
       "deepseek-v4-pro": {
         "id": "deepseek/deepseek-v4-pro"
@@ -208,6 +232,78 @@
         "context_length": 1024000,
         "id": "baidu/ernie-light-dt-1.0-intl",
         "vendor_host": "Baidu"
+      },
+      "gemini-2-5-flash": {
+        "id": "google/gemini-2.5-flash"
+      },
+      "gemini-2-5-flash-lite": {
+        "id": "google/gemini-2.5-flash-lite"
+      },
+      "gemini-2-5-pro": {
+        "id": "google/gemini-2.5-pro"
+      },
+      "gemini-2-5-pro-preview": {
+        "id": "google/gemini-2.5-pro-preview"
+      },
+      "gemini-3-1-flash-lite": {
+        "id": "google/gemini-3.1-flash-lite"
+      },
+      "gemini-3-1-flash-lite-preview": {
+        "id": "google/gemini-3.1-flash-lite-preview"
+      },
+      "gemini-3-1-pro-preview": {
+        "id": "google/gemini-3.1-pro-preview"
+      },
+      "gemini-3-1-pro-preview-customtools": {
+        "id": "google/gemini-3.1-pro-preview-customtools"
+      },
+      "gemini-3-5-flash": {
+        "id": "google/gemini-3.5-flash"
+      },
+      "gemini-3-5-flash-lite": {
+        "id": "google/gemini-3.5-flash-lite"
+      },
+      "gemini-3-6-flash": {
+        "id": "google/gemini-3.6-flash"
+      },
+      "gemini-3-7-flash": {
+        "id": "google/gemini-3.7-flash"
+      },
+      "gemini-3-8-flash": {
+        "id": "google/gemini-3.8-flash"
+      },
+      "gemini-3-flash-preview": {
+        "id": "google/gemini-3-flash-preview"
+      },
+      "gemini-4-argon": {
+        "id": "google/gemini-4-argon"
+      },
+      "gemini-4-carbon": {
+        "id": "google/gemini-4-carbon"
+      },
+      "gemini-4-hydrogen": {
+        "id": "google/gemini-4-hydrogen"
+      },
+      "gemini-4-neon": {
+        "id": "google/gemini-4-neon"
+      },
+      "gemma-2-27b-it": {
+        "id": "google/gemma-2-27b-it"
+      },
+      "gemma-3-12b-it": {
+        "id": "google/gemma-3-12b-it"
+      },
+      "gemma-3-27b-it": {
+        "id": "google/gemma-3-27b-it"
+      },
+      "gemma-3-4b-it": {
+        "id": "google/gemma-3-4b-it"
+      },
+      "gemma-4-26b-a4b-it": {
+        "id": "google/gemma-4-26b-a4b-it"
+      },
+      "gemma-4-31b-it": {
+        "id": "google/gemma-4-31b-it"
       },
       "glm-4-5": {
         "context_length": 131072,
@@ -238,6 +334,9 @@
         "context_length": 202752,
         "id": "z-ai/glm-4.7",
         "vendor_host": "Z.AI"
+      },
+      "glm-4-7-flash": {
+        "id": "z-ai/glm-4.7-flash"
       },
       "glm-5": {
         "context_length": 202752,
@@ -274,6 +373,9 @@
         "id": "z-ai/glm-5.3-flashx-legal",
         "vendor_host": "Z.AI"
       },
+      "glm-5-3-prime": {
+        "id": "z-ai/glm-5.3-prime"
+      },
       "glm-5-turbo": {
         "context_length": 202752,
         "id": "z-ai/glm-5-turbo",
@@ -288,6 +390,9 @@
         "context_length": 16385,
         "id": "openai/gpt-3.5-turbo",
         "vendor_host": "OpenAI"
+      },
+      "gpt-3-5-turbo-0613": {
+        "id": "openai/gpt-3.5-turbo-0613"
       },
       "gpt-3-5-turbo-16k": {
         "context_length": 16385,
@@ -364,10 +469,22 @@
         "id": "openai/gpt-5.1",
         "vendor_host": "OpenAI"
       },
+      "gpt-5-1-codex": {
+        "id": "openai/gpt-5.1-codex"
+      },
+      "gpt-5-1-codex-max": {
+        "id": "openai/gpt-5.1-codex-max"
+      },
+      "gpt-5-1-codex-mini": {
+        "id": "openai/gpt-5.1-codex-mini"
+      },
       "gpt-5-2": {
         "context_length": 400000,
         "id": "openai/gpt-5.2",
         "vendor_host": "OpenAI"
+      },
+      "gpt-5-2-codex": {
+        "id": "openai/gpt-5.2-codex"
       },
       "gpt-5-2-pro": {
         "context_length": 400000,
@@ -529,6 +646,15 @@
         "id": "openai/gpt-chat-latest",
         "vendor_host": "OpenAI"
       },
+      "gpt-oss-120b": {
+        "id": "openai/gpt-oss-120b"
+      },
+      "gpt-oss-20b": {
+        "id": "openai/gpt-oss-20b"
+      },
+      "gpt-oss-safeguard-20b": {
+        "id": "openai/gpt-oss-safeguard-20b"
+      },
       "hy-mt2-1-8b": {
         "context_length": 8192,
         "id": "tencent/hy-mt2-1.8b",
@@ -567,6 +693,15 @@
       "inclusionai/ling-3-1-flash": {
         "id": "inclusionai/ling-3.1-flash"
       },
+      "kimi-k2": {
+        "id": "moonshotai/kimi-k2"
+      },
+      "kimi-k2-0905": {
+        "id": "moonshotai/kimi-k2-0905"
+      },
+      "kimi-k2-5": {
+        "id": "moonshotai/kimi-k2.5"
+      },
       "kimi-k2-6": {
         "context_length": 262144,
         "id": "moonshotai/kimi-k2.6",
@@ -577,6 +712,9 @@
         "id": "moonshotai/kimi-k2.7-code",
         "vendor_host": "Moonshot AI"
       },
+      "kimi-k2-thinking": {
+        "id": "moonshotai/kimi-k2-thinking"
+      },
       "kimi-k3": {
         "context_length": 1048576,
         "id": "moonshotai/kimi-k3",
@@ -586,6 +724,27 @@
         "context_length": 1048576,
         "id": "moonshotai/kimi-k3.1-pro",
         "vendor_host": "Moonshot AI"
+      },
+      "llama-3-1-70b-instruct": {
+        "id": "meta-llama/llama-3.1-70b-instruct"
+      },
+      "llama-3-1-8b-instruct": {
+        "id": "meta-llama/llama-3.1-8b-instruct"
+      },
+      "llama-3-2-3b-instruct": {
+        "id": "meta-llama/llama-3.2-3b-instruct"
+      },
+      "llama-3-3-70b-instruct": {
+        "id": "meta-llama/llama-3.3-70b-instruct"
+      },
+      "llama-4-maverick": {
+        "id": "meta-llama/llama-4-maverick"
+      },
+      "llama-4-scout": {
+        "id": "meta-llama/llama-4-scout"
+      },
+      "llama-guard-4-12b": {
+        "id": "meta-llama/llama-guard-4-12b"
       },
       "mimo-v2-5": {
         "context_length": 1048576,
@@ -662,6 +821,9 @@
         "id": "meta/muse-ember",
         "vendor_host": "Meta"
       },
+      "muse-glimmer-30b": {
+        "id": "meta/muse-glimmer-30b"
+      },
       "muse-spark-1-1": {
         "context_length": 1048576,
         "id": "meta/muse-spark-1.1",
@@ -687,13 +849,31 @@
         "id": "meta/muse-spark-1.3-contributor",
         "vendor_host": "Meta"
       },
+      "muse-spark-open": {
+        "id": "meta/muse-spark-open"
+      },
       "muse-wonder": {
         "context_length": 1048576,
         "id": "meta/muse-wonder",
         "vendor_host": "Meta"
       },
+      "nemotron-3-5-content-safety": {
+        "id": "nvidia/nemotron-3.5-content-safety"
+      },
+      "nemotron-3-5-lightning": {
+        "id": "nvidia/nemotron-3.5-lightning"
+      },
       "nemotron-3-5-super-vl": {
         "id": "nvidia/nemotron-3.5-super-vl"
+      },
+      "nemotron-3-nano-30b-a3b": {
+        "id": "nvidia/nemotron-3-nano-30b-a3b"
+      },
+      "nemotron-3-super-120b-a12b": {
+        "id": "nvidia/nemotron-3-super-120b-a12b"
+      },
+      "nemotron-3-ultra-550b-a55b": {
+        "id": "nvidia/nemotron-3-ultra-550b-a55b"
       },
       "nex-n2-5-mini": {
         "context_length": 262144,
@@ -749,6 +929,126 @@
         "context_length": 200000,
         "id": "openai/o4-mini-high",
         "vendor_host": "OpenAI"
+      },
+      "qwen-2-5-72b-instruct": {
+        "id": "qwen/qwen-2.5-72b-instruct"
+      },
+      "qwen-2-5-coder-32b-instruct": {
+        "id": "qwen/qwen-2.5-coder-32b-instruct"
+      },
+      "qwen-plus": {
+        "id": "qwen/qwen-plus"
+      },
+      "qwen2-5-vl-72b-instruct": {
+        "id": "qwen/qwen2.5-vl-72b-instruct"
+      },
+      "qwen3-14b": {
+        "id": "qwen/qwen3-14b"
+      },
+      "qwen3-235b-a22b-2507": {
+        "id": "qwen/qwen3-235b-a22b-2507"
+      },
+      "qwen3-235b-a22b-thinking-2507": {
+        "id": "qwen/qwen3-235b-a22b-thinking-2507"
+      },
+      "qwen3-30b-a3b": {
+        "id": "qwen/qwen3-30b-a3b"
+      },
+      "qwen3-30b-a3b-instruct-2507": {
+        "id": "qwen/qwen3-30b-a3b-instruct-2507"
+      },
+      "qwen3-32b": {
+        "id": "qwen/qwen3-32b"
+      },
+      "qwen3-5-122b-a10b": {
+        "id": "qwen/qwen3.5-122b-a10b"
+      },
+      "qwen3-5-27b": {
+        "id": "qwen/qwen3.5-27b"
+      },
+      "qwen3-5-35b-a3b": {
+        "id": "qwen/qwen3.5-35b-a3b"
+      },
+      "qwen3-5-397b-a17b": {
+        "id": "qwen/qwen3.5-397b-a17b"
+      },
+      "qwen3-5-9b": {
+        "id": "qwen/qwen3.5-9b"
+      },
+      "qwen3-5-flash-02-23": {
+        "id": "qwen/qwen3.5-flash-02-23"
+      },
+      "qwen3-5-plus-02-15": {
+        "id": "qwen/qwen3.5-plus-02-15"
+      },
+      "qwen3-5-plus-20260420": {
+        "id": "qwen/qwen3.5-plus-20260420"
+      },
+      "qwen3-6-27b": {
+        "id": "qwen/qwen3.6-27b"
+      },
+      "qwen3-6-35b-a3b": {
+        "id": "qwen/qwen3.6-35b-a3b"
+      },
+      "qwen3-6-flash": {
+        "id": "qwen/qwen3.6-flash"
+      },
+      "qwen3-6-plus": {
+        "id": "qwen/qwen3.6-plus"
+      },
+      "qwen3-7-flash": {
+        "id": "qwen/qwen3.7-flash"
+      },
+      "qwen3-7-max": {
+        "id": "qwen/qwen3.7-max"
+      },
+      "qwen3-7-plus": {
+        "id": "qwen/qwen3.7-plus"
+      },
+      "qwen3-8-2-4t-a95b": {
+        "id": "qwen/qwen3.8-2.4t-a95b"
+      },
+      "qwen3-8-27b": {
+        "id": "qwen/qwen3.8-27b"
+      },
+      "qwen3-8-flash": {
+        "id": "qwen/qwen3.8-flash"
+      },
+      "qwen3-8-max-0902": {
+        "id": "qwen/qwen3.8-max-0902"
+      },
+      "qwen3-8-max-prime": {
+        "id": "qwen/qwen3.8-max-prime"
+      },
+      "qwen3-8-omni-flash": {
+        "id": "qwen/qwen3.8-omni-flash"
+      },
+      "qwen3-coder": {
+        "id": "qwen/qwen3-coder"
+      },
+      "qwen3-coder-30b-a3b-instruct": {
+        "id": "qwen/qwen3-coder-30b-a3b-instruct"
+      },
+      "qwen3-coder-flash": {
+        "id": "qwen/qwen3-coder-flash"
+      },
+      "qwen3-coder-next": {
+        "id": "qwen/qwen3-coder-next"
+      },
+      "qwen3-next-80b-a3b-instruct": {
+        "id": "qwen/qwen3-next-80b-a3b-instruct"
+      },
+      "qwen3-vl-235b-a22b-instruct": {
+        "id": "qwen/qwen3-vl-235b-a22b-instruct"
+      },
+      "qwen3-vl-30b-a3b-instruct": {
+        "id": "qwen/qwen3-vl-30b-a3b-instruct"
+      },
+      "qwen3-vl-8b-instruct": {
+        "id": "qwen/qwen3-vl-8b-instruct"
+      },
+      "qwen4-max": {
+        "id": "qwen/qwen4-max"
       },
       "solar-mini4": {
         "context_length": 524288,
@@ -807,7 +1107,7 @@
       }
     }
   },
-  "provider_rates_fetched": "2026-11-23T07:53:41Z",
+  "provider_rates_fetched": "2026-11-23T08:53:27Z",
   "providers": {
     "claude-3-5-haiku-": {
       "Anthropic": [
@@ -9179,7 +9479,7 @@
         [[105328,86371,183900,11708,96905,43586,21237,43176,32393,32398,43211],0.25,5.0,0.249,{"context_length":1048576}],
         [75620,0.224,5.0,0.223,{"context_length":1048576}],
         [[194103,10449],0.3,6.0,0.299,{"context_length":1048576}],
-        [[87574,43295,5878,26409,32736,43160,21391,43475,21869],0.285,4.3,0.284,{"context_length":1048576}],
+        [[87574,43295,5878,26409,32736,43160,21391,43475,21869,2440476],0.285,4.3,0.284,{"context_length":1048576}],
         [47678,0.4,5.0,0.399,{"context_length":1048576}],
         [[2624414,2998],0.356,5.375,0.355,{"context_length":1048576}],
         [298,0.445,6.72,0.444,{"context_length":1048576}]
@@ -11696,7 +11996,7 @@
         [28198,1.05,4.08,0.1469,{"context_length":1048576}],
         [34798,1.05,4.08,0.1322,{"context_length":1048576}],
         [[3899,18904,2999,1201,2399,14406,31195],1.05,3.4,0.1249,{"context_length":1048576}],
-        [[15904,5398,1201,1198,15002,31799,24030,126569],1.05,3.5,0.1171,{"context_length":1048576}],
+        [[15904,5398,1201,1198,15002,31799,24030,126569,118199],1.05,3.5,0.1171,{"context_length":1048576}],
         [74398,1.05,3.0,0.1691,{"context_length":1048576}],
         [130199,1.05,2.75,0.1105,{"context_length":1048576}],
         [89399,1.05,2.5,0.1776,{"context_length":1048576}],
@@ -15600,6 +15900,10 @@
       ]
     },
     "inclusionai/ling-3-1-flash": {
+      "Ant Digital": [
+        [1795421783,0.075,0.225,0.015,75],
+        [2224,0.075,0.225,0.015,75,{"context_length":1048576}]
+      ],
       "DeepInfra": [
         [[1791993399,179638,83420],0.3,0.9,0.06],
         [[93217,200719],0.21,0.63,0.042,30],
@@ -17846,7 +18150,7 @@
         [4196,0.932,13.979,0.296,{"context_length":1048576}],
         [4199,0.882,13.231,0.28,{"context_length":1048576}],
         [2399,0.882,9.0,0.2,{"context_length":1048576}],
-        [[302,5700,5101,26100,6001,7205,4793,5401,5398,5398,9002,41406,5096,7200,6899,5403,5098,4802,4797,5401,6299,4799,4802,5999,7202,29997,4802,5399,6600,5099,5100,5704,4797],1.375,9.0,0.172,{"context_length":1048576}],
+        [[302,5700,5101,26100,6001,7205,4793,5401,5398,5398,9002,41406,5096,7200,6899,5403,5098,4802,4797,5401,6299,4799,4802,5999,7202,29997,4802,5399,6600,5099,5100,5704,4797,5400],1.375,9.0,0.172,{"context_length":1048576}],
         [[2401,60603],1.1,7.2,0.138,{"context_length":1048576}],
         [[6000,15600,8399,8102,7198,4802,5401,10796,4804,12595,38104,5404,6596,7502,5097,4803,4797,5400,6298,4801,4802,5997,7199,5103,29699,5400,6601,5098,5100,5700,4802,5099],1.306,8.55,0.163,{"context_length":1048576}],
         [18603,1.044,6.834,0.131,{"context_length":1048576}]
