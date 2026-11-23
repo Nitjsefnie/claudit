@@ -1,36 +1,17 @@
 """Reparse phase counts form an exact partition measured in bytecode instructions."""
 from __future__ import annotations
 
-import importlib.util
 import sys
 from decimal import Decimal
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from backend import pricing
+from tests.ci_script import CI, load_ci_script
 
-
-def _load(name="reparse_bench"):
-    """Import a scripts/ci module by path.
-
-    scripts/ci is not a package and deliberately has no __init__.py, so
-    the loader is the same by-path dance the sibling CI-script tests use;
-    the directory goes on sys.path first so the module's own importlib
-    imports of its siblings resolve.
-    """
-    if str(REPO_ROOT / "scripts" / "ci") not in sys.path:
-        sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
-    spec = importlib.util.spec_from_file_location(
-        name, REPO_ROOT / "scripts" / "ci" / f"{name}.py")
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-bench = _load()
-phases = _load("reparse_phases")
-report_module = _load("reparse_report")
+# The bench's own importlib imports of its siblings resolve through this.
+sys.path.insert(0, str(CI))
+bench = load_ci_script("reparse_bench")
+phases = load_ci_script("reparse_phases")
+report_module = load_ci_script("reparse_report")
 thresholds = sys.modules["thresholds"]
 
 
@@ -52,6 +33,13 @@ def test_phase_counts_partition_the_pass_exactly():
     counts = _counts()
     assert set(counts.phase_bytecodes) == set(bench.PHASES)
     assert sum(counts.phase_bytecodes.values()) == counts.total_bytecodes
+
+
+def test_a_cold_count_never_prices_the_rate_load(monkeypatch):
+    warm = _counts(passes=1, warmup=1)
+    for name in pricing.RateTables.__annotations__:
+        monkeypatch.delattr(pricing, name)
+    assert _counts(passes=1, warmup=0).total_bytecodes == warm.total_bytecodes
 
 
 def test_counting_counts_only_inside_its_window():
