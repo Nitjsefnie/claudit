@@ -94,7 +94,7 @@ def __getattr__(name: str) -> Any:
 
 
 def bind_tables() -> None:
-    """Bind every table now: startup refuses a bad document, forks share one load."""
+    """Bind every table now: a start refuses a bad document, forks share one load."""
     for name in RateTables.__annotations__:
         getattr(_PRICING, name)
 
@@ -167,7 +167,7 @@ def _latest(*families: str) -> dict | None:
 # from the table, so adding a newer model moves its family's fallback.
 # Derived on first use: the bench's bounded document need not
 # carry every family's row, and a family with no row at all must not
-# refuse the IMPORT for a fallback no unrecognised id has hit yet.
+# refuse the LOAD for a fallback no unrecognised id has hit yet.
 _TIER_FALLBACKS: tuple[tuple[re.Pattern, dict], ...] | None = None
 
 
