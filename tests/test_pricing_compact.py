@@ -15,6 +15,7 @@ from backend.pricing_document import omit_default_rates, serialize_pricing_doc
 from backend.pricing_load import load_tables
 from backend.pricing_rows import encode_pricing_doc, decode_pricing_doc
 from tests.test_parser_js_pricing_loader import HOST, ROW_KEY, _doc
+from tests.test_pricing_vendor import _install
 from tests.test_provider_rate_refresh import Run, _move_openinference
 from tests.node_run import run_node
 
@@ -144,9 +145,7 @@ def test_rate_fingerprints_are_equal_for_old_and_sparse_spellings(monkeypatch):
     fingerprints = []
 
     for doc in (old, sparse):
-        for name, value in load_tables(doc).items():
-            if hasattr(pricing, name):
-                monkeypatch.setattr(pricing, name, value)
+        _install(monkeypatch, doc)
         rate_fingerprint.clear_fingerprint_cache()
         fingerprints.append({pair: rate_fingerprint.pair_fingerprint(*pair)
                              for pair in pairs})
@@ -173,9 +172,7 @@ def test_context_metadata_and_context_only_appends_leave_fingerprints_unchanged(
             for entry in doc['providers'][ROW_KEY][HOST]:
                 entry['context_length'] = context
             doc['openrouter']['models'][ROW_KEY]['context_length'] = context
-        for name, value in load_tables(doc).items():
-            if hasattr(pricing, name):
-                monkeypatch.setattr(pricing, name, value)
+        _install(monkeypatch, doc)
         rate_fingerprint.clear_fingerprint_cache()
         fingerprints.append(rate_fingerprint.pair_fingerprint(ROW_KEY, HOST))
         boundaries.append(rate_boundaries(ROW_KEY, HOST))

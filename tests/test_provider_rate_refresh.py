@@ -23,6 +23,7 @@ from tests.refresh_fixture_builders import (_discount, _endpoint,
                                             _overrides, _per_token,
                                             RATES_A, seed_doc, provider_refresh_doc)
 from tests.node_run import run_node
+from tests.test_pricing_vendor import _install
 
 ROOT = Path(__file__).resolve().parents[1]
 PRICING_JSON = ROOT / "src" / "pricing.json"  # catalog structure checks only; refresh histories are synthetic
@@ -258,8 +259,7 @@ def _moved_run_fixture(tmp_path, capsys):
 
 def test_a_moved_price_prices_by_time_in_the_backend(moved_run, monkeypatch):
     run, old, moved = moved_run
-    for name, value in pricing.load_tables(run.doc()).items():
-        monkeypatch.setattr(pricing, name, value)
+    _install(monkeypatch, run.doc())
     cut = datetime.fromisoformat(STAMP)
     model = "z-ai/glm-5.3-flash"
     assert pricing.rate_for(model, cut - timedelta(seconds=1), "OpenInference") == old
@@ -287,47 +287,24 @@ def test_a_new_provider_gets_a_row_that_begins_at_the_detection_time(
     # same algorithm over the same values at the same instant, SV-TEST-DATA)
     # — never from the module's own tables, whose rows the perturbed tree
     # appended history to.
-    seeded = pricing.load_tables(run.doc())
-    saved = {name: getattr(pricing, name) for name in seeded}
-    try:
-        for name, value in seeded.items():
-            setattr(pricing, name, value)
-        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
-        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
-        fallback = pricing.resolve(model, cut - timedelta(seconds=1))
-        assert pricing.resolve(model, cut - timedelta(seconds=1), "Newcomer") == fallback
-        # At STAMP the Newcomer row begins: the pair prices its own vector.
-        assert pricing.rate_for(model, cut, "Newcomer") == NEWCOMER
-    finally:
-        for name, value in saved.items():
-            setattr(pricing, name, value)
-        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
-        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
+    _install(monkeypatch, run.doc())
+    fallback = pricing.resolve(model, cut - timedelta(seconds=1))
+    assert pricing.resolve(model, cut - timedelta(seconds=1), "Newcomer") == fallback
+    # At STAMP the Newcomer row begins: the pair prices its own vector.
+    assert pricing.rate_for(model, cut, "Newcomer") == NEWCOMER
 
 
 @needs_node
 def test_a_new_provider_prices_from_the_detection_time_in_the_browser(
-        tmp_path, capsys):
+        tmp_path, capsys, monkeypatch):
     run = Run(tmp_path)
     run.endpoints(GLM).append(_endpoint("Newcomer", NEWCOMER))
     assert run(capsys)[0] == 0
     model = "z-ai/glm-5.3-flash"
     # The fallback the browser must price is the run doc's own (SV-TEST-DATA:
     # same tables, same instant), not the module's perturbed rows.
-    seeded = pricing.load_tables(run.doc())
-    saved = {name: getattr(pricing, name) for name in seeded}
-    try:
-        for name, value in seeded.items():
-            setattr(pricing, name, value)
-        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
-        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
-        fallback = pricing.rate_for(
-            model, datetime.fromisoformat(STAMP) - timedelta(seconds=1))
-    finally:
-        for name, value in saved.items():
-            setattr(pricing, name, value)
-        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
-        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
+    _install(monkeypatch, run.doc())
+    fallback = pricing.rate_for(model, datetime.fromisoformat(STAMP) - timedelta(seconds=1))
     assert _node_rates(run, tmp_path / "js", "Newcomer") == [fallback, NEWCOMER]
 
 
