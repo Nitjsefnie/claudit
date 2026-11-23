@@ -668,8 +668,8 @@
     4178
   ],
   "scripts/ci/refresh_provider_rates.py": [
-    4808,
-    14336
+    4801,
+    14447
   ],
   "scripts/ci/refresh_selection.py": [
     4224,
@@ -680,8 +680,8 @@
     15273
   ],
   "scripts/ci/refresh_vendor_rates.py": [
-    5368,
-    16996
+    5265,
+    16746
   ],
   "scripts/ci/release_gate.py": [
     4603,
