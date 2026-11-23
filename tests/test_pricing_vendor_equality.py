@@ -286,11 +286,10 @@ def test_a_tracked_but_rowless_default_row_refuses_the_browser(tmp_path):
 
 def test_a_rowless_tracked_family_key_is_skipped_by_the_tier_fallback(
         monkeypatch):
-    """The pickup delay must not jam import: a tracked claude-family key
+    """The pickup delay must not jam pricing: a tracked claude-family key
     with no provider row yet names no rates, so _latest skips it — the
     fallback prices from the newest key that HAS rates and resolve() falls
-    through — instead of raising the KeyError that would make
-    `import backend.pricing` fail and strand the hourly bot's commit."""
+    through — instead of raising the KeyError on every unmatched id."""
     doc = {
         "long_context_meters": [],
         "models": {"claude-opus-4-7": [_entry(R_THIRD)]},
