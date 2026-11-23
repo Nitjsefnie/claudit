@@ -101,10 +101,12 @@ def test_sampled_state_records_the_display_classification():
     assert refresh.sampled_state({
         "model": {
             "Baidu": "no in-force log state matches the listing",
+            "BaseTen": "cheapest resolution has no stable endpoint identity",
             "Wafer": "the listing lags the price log",
         },
         "quiet": {},
     }) == {"model": {"Baidu": "no matching log state",
+                     "BaseTen": "cheapest resolution",
                      "Wafer": "listing lags log"}}
     assert refresh.sampled_state({}) == {}
 
