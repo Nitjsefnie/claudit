@@ -109,8 +109,11 @@ keys, and keys naming neither table are refused. A
 to the in-memory `key -> {threshold, input_mult?, output_mult?}` map;
 membership is exactly its key set, so every member has a threshold.
 `backend/pricing.py` and `src/rates.js` hold logic only and both read
-it — the backend at import through `backend/pricing_load.py`, which
-`pricing.py` re-exports, the browser asynchronously, installing the
+it — the backend through `backend/pricing_load.py`, whose tables
+`pricing.py` binds on first use (importing the backend loads no rate data;
+service startup, before the database, and the parse forkserver's preload
+bind them eagerly, so a broken document fails at startup and workers share
+one load), the browser asynchronously, installing the
 tables behind `window.pricingReady`: `src/babel-loader.js` runs no
 text/babel script before it resolves, and classic scripts read the tables
 only when called, never while they load (node reads it beside the module,

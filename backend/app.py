@@ -34,7 +34,7 @@ db.load_dotenv(str(_REPO_ROOT / ".env"))
 # These imports follow dotenv loading because some modules capture settings
 # while they are imported (for example, CLAUDIT_EXPORT_PYTHON and CLAUDIT_TIMING).
 # pylint: disable=wrong-import-position
-from backend import api, agent_types, api_export, constants, events, ingest, login, r2, session  # noqa: E402
+from backend import api, agent_types, api_export, constants, events, ingest, login, pricing, r2, session  # noqa: E402
 from backend import branding, flags  # noqa: E402
 from backend.feature_payloads import features_script  # noqa: E402
 from backend.ingest_progress import health  # noqa: E402
@@ -66,6 +66,7 @@ def validate_bucket_config() -> None:
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
     env_config.warn_deprecated_env(log)
+    pricing.bind_tables()
     db.apply_schema()
     db.schema_check()
     validate_bucket_config()

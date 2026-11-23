@@ -552,8 +552,8 @@ backend/          — FastAPI application
                     from bash_churn for size
   pricing.py      — model and (model, provider) rate resolution; logic
                     only (SV-RATE-DATA, SV-PROVIDER-RATES)
-  pricing_load.py — loads src/pricing.json's rate tables, checked, at
-                    import; pricing.py re-exports them (SV-RATE-DATA)
+  pricing_load.py — loads src/pricing.json's rate tables, checked; pricing.py
+                    binds them on first use, startup eagerly (SV-RATE-DATA)
   long_context.py — the long-context meter's global constants (threshold,
                     multipliers) — the DEFAULT a member without a
                     long_context_meters entry keeps; dependency-free; the

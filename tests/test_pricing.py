@@ -263,7 +263,7 @@ def test_rate_epochs_include_provider_window_ends_and_row_starts(
         synthetic_provider_dated_rate):
     """RATE_EPOCHS is the union the read-time fold groups by, and the
     provider half of the table contributes its window ends AND row starts
-    to it. The union is built once at import from the live file, so this
+    to it. The union is built once, at load, from the live file, so this
     calls load_tables on a made-up doc: the synthetic instants can never
     appear in the module global, and patching RATE_EPOCHS would make the
     assertion true by construction."""

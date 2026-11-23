@@ -1,10 +1,11 @@
-"""Validate src/pricing.json once at import (SV-RATE-DATA).
+"""Validate src/pricing.json once, on first use (SV-RATE-DATA).
 
-pricing re-exports tables and resolves rates; src/pricing-loader.js mirrors
+pricing binds the tables and resolves rates; src/pricing-loader.js mirrors
 validation. load_tables accepts synthetic refresh/test documents and names
 invalid rows in refusals."""
 from __future__ import annotations
 
+import functools
 import json
 import math
 import re
@@ -33,18 +34,32 @@ _DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "su
 
 
 class RateTables(TypedDict):
-    """load_tables' result, keyed by the module attribute each value binds."""
+    """load_tables' result, keyed by the pricing attribute each value binds."""
     MODEL_RATES: dict[str, dict]
+    # Dated overrides per exact key: (end_exclusive_utc, rates), oldest first.
+    # Applied only when a timestamp is supplied and only on an EXACT key match —
+    # a tier fallback never inherits another model's promotional price.
     DATED_RATES: dict[str, Windows]
+    # Per-provider rates, keyed by (normalised model id, provider): OpenRouter's
+    # provider_name as the transcript's message.provider spells it. Rows come
+    # from OpenRouter's endpoints API (/api/v1/models/<author>/<slug>/endpoints)
+    # as of PROVIDER_RATES_FETCHED, host promotional discounts already applied
+    # (an entry's note records one); both create buckets carry the listed cache
+    # write price when it is nonzero, the input rate otherwise.
     PROVIDER_RATES: dict[tuple[str, str], dict]
     PROVIDER_CONTEXT_LENGTHS: dict[tuple[str, str], int]
     TRACKED_MODELS: dict[str, dict]
     PROVIDER_DATED_RATES: dict[tuple[str, str], Windows]
+    # Provider-row start: earlier requests from that host use model rates.
     PROVIDER_STARTS: dict[tuple[str, str], datetime]
+    # Weekly UTC schedules, per provider row, by the index of the history entry
+    # that carries one. A schedule's windows are not rate epochs: see
+    # SV-RATE-DATA for how the read-time fold treats a scheduled row.
     PROVIDER_SCHEDULES: dict[tuple[str, str], dict[int, list[ScheduleWindow]]]
     PROVIDER_RATES_FETCHED: datetime
     RATE_EPOCHS: list[datetime]
-    # The vendor tables: derivable bare forms map to tracked keys; only
+    # The vendor tables: derivable bare forms map to tracked keys, the
+    # configured namespaces fold transcript ids, and only
     # vendor_host-carrying entries name first-party hosts. Rates stay
     # provider rows, keyed (tracked key, host).
     VENDOR_BARE: dict[str, str]
@@ -52,7 +67,9 @@ class RateTables(TypedDict):
     VENDOR_HOSTS: dict[str, str]
     # The default estimate's rates: the merged view's claude-opus-4-7 row.
     DEFAULT_RATES: dict
-    # Derived membership: every key in LONG_CONTEXT_METERS is a member.
+    # Derived membership: every key in LONG_CONTEXT_METERS is a member. Dashed
+    # names of models-table keys or tracked keys, the shape SV-RATE-ESTIMATES'
+    # comparison needs.
     LONG_CONTEXT_MODELS: frozenset[str]
     # The meter's per-model entries: member key -> threshold
     # and optional input/output factors, overriding global defaults.
@@ -433,47 +450,11 @@ def load_tables(doc: dict) -> RateTables:
     }
 
 
-# The raw file at import is the storage boundary, checked for stored shape
-# first; load_tables stays shape-agnostic for every other caller.
-_RAW = json.loads(PRICING_JSON.read_text(encoding="utf-8"))
-_TABLES = load_tables(_stored_document(_RAW))
-MODEL_RATES = _TABLES["MODEL_RATES"]
-# Dated overrides per exact key: (end_exclusive_utc, rates), oldest first.
-# Applied only when a timestamp is supplied and only on an EXACT key match —
-# a tier fallback never inherits another model's promotional price.
-DATED_RATES = _TABLES["DATED_RATES"]
-# Per-provider rates, keyed by (normalised model id, provider): OpenRouter's
-# provider_name as the transcript's message.provider spells it. Rows come
-# from OpenRouter's endpoints API (/api/v1/models/<author>/<slug>/endpoints)
-# as of PROVIDER_RATES_FETCHED, host promotional discounts already applied
-# (an entry's note records one); both create buckets carry the listed cache
-# write price when it is nonzero, the input rate otherwise.
-PROVIDER_RATES = _TABLES["PROVIDER_RATES"]
-PROVIDER_CONTEXT_LENGTHS = _TABLES["PROVIDER_CONTEXT_LENGTHS"]
-TRACKED_MODELS = _TABLES["TRACKED_MODELS"]
-PROVIDER_DATED_RATES = _TABLES["PROVIDER_DATED_RATES"]
-# Provider-row start: earlier requests from that host use model rates.
-PROVIDER_STARTS = _TABLES["PROVIDER_STARTS"]
-# Weekly UTC schedules, per provider row, by the index of the history entry
-# that carries one. A schedule's windows are not rate epochs: see
-# SV-RATE-DATA for how the read-time fold treats a scheduled row.
-PROVIDER_SCHEDULES = _TABLES["PROVIDER_SCHEDULES"]
-PROVIDER_RATES_FETCHED = _TABLES["PROVIDER_RATES_FETCHED"]
-RATE_EPOCHS = _TABLES["RATE_EPOCHS"]
-# The Codex long-context meter's membership: dashed names of models-table
-# keys or tracked keys, the shape SV-RATE-ESTIMATES' comparison needs.
-# pricing re-exports it.
-LONG_CONTEXT_MODELS = _TABLES["LONG_CONTEXT_MODELS"]
-# The meter's per-model entries: a member key's threshold
-# and optional factors, each overriding its global default. pricing
-# re-exports them.
-LONG_CONTEXT_METERS = _TABLES["LONG_CONTEXT_METERS"]
-# The vendor tables (SV-RATE-DATA): bare first-party forms, the configured
-# namespaces used to fold transcript ids, and the row host. pricing
-# re-exports these loader outputs.
-VENDOR_BARE = _TABLES["VENDOR_BARE"]
-VENDOR_PREFIXES = _TABLES["VENDOR_PREFIXES"]
-VENDOR_HOSTS = _TABLES["VENDOR_HOSTS"]
+@functools.cache
+def deployed_tables() -> RateTables:
+    """The deployed document's tables. A refused document caches nothing.
 
-
-DEFAULT_RATES = _TABLES["DEFAULT_RATES"]
+    The raw file is the storage boundary, checked for stored shape first;
+    load_tables stays shape-agnostic for every other caller."""
+    return load_tables(_stored_document(
+        json.loads(PRICING_JSON.read_text(encoding="utf-8"))))

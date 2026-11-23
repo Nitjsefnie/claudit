@@ -201,8 +201,8 @@ def _isolate_transcript_cache(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _fresh_match_key_cache():
-    """pricing._match_key memoizes per normalised id against the rate
-    table loaded at import, and rate_fingerprint memoizes
+    """pricing._match_key memoizes per normalised id against the loaded
+    rate table, and rate_fingerprint memoizes
     per pair against the same tables. Tests patch the
     tables with synthetic rows; a cached entry computed under a patch
     must never outlive it, so every test starts and ends with empty

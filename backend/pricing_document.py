@@ -101,7 +101,7 @@ def check_compact_shape(doc: dict, decoded: dict | None = None) -> None:
     ``compact_pricing_doc`` strips an equal ``create_5m``/``create_1h``
     pair at every write, so a present equal pair in the stored file is a
     hand edit (SV-RATE-DATA: present only when it differs). This runs at
-    the raw-file boundaries only — pricing_load's module load and the
+    the raw-file boundaries only — pricing_load's table load and the
     browser loader's fetch, and when ``load_tables`` receives stored rows.
     Decoded inputs still accept the expanded intermediate materialised by
     ``expand_pricing_doc``. Pass the already-decoded document at boundaries

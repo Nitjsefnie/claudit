@@ -293,29 +293,24 @@ def _parser():
 def _load_bounded_document() -> None:
     """Load the pricing tables from the bounded bench document.
 
-    The counted run's conftest imports ``backend.pricing``, whose
-    import-time parse of ``src/pricing.json`` scales with the document. The
-    bench loads the committed bounded ``suite_pricing_doc.json`` HERE —
-    in the counted child, before any counted window opens — and rebinds
-    every loaded table on both pricing modules, so the measured workload
-    parses the bounded document and never the deployed one. Nothing the
+    ``backend.pricing`` binds its tables on first use, from a parse of
+    ``src/pricing.json`` that scales with the document. The bench loads
+    the committed bounded ``suite_pricing_doc.json`` HERE — in the
+    counted child, before any counted window opens — and sets every
+    table unread, so the deployed document is never parsed. Nothing the
     deployed app reads changes: ``backend/`` gains no override and reads
     no environment (a deploy could otherwise reprice through it); the
-    injection lives on the bench side only, and the bench parses the
-    deployed document once outside every counted window to import the
-    modules it rebinds.
+    injection lives on the bench side only.
     """
     # pylint: disable-next=import-outside-toplevel
     import json
     # pylint: disable-next=import-outside-toplevel
-    from backend import pricing, pricing_load
+    from backend import pricing
     doc_path = Path(__file__).resolve().parent / 'suite_pricing_doc.json'
-    tables = pricing_load.load_tables(
+    tables = pricing.load_tables(
         json.loads(doc_path.read_text(encoding='utf-8')))
     for name, value in tables.items():
-        setattr(pricing_load, name, value)
-        if hasattr(pricing, name):
-            setattr(pricing, name, value)
+        setattr(pricing, name, value)
 
 
 def main(argv=None):

@@ -22,7 +22,6 @@ import types
 import warnings
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
-from contextlib import ExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, call, patch
@@ -54,7 +53,8 @@ def server_report_parse(key: str, sidecar_key: str | None = None, etag: str | No
 
 def configuration() -> dict:
     keys = ("CLAUDIT_R2_ENDPOINT", "CLAUDIT_R2_BUCKET", "CLAUDIT_R2_BLOB_CACHE", "CLAUDIT_TIMING")
-    return {"env": {key: os.environ.get(key) for key in keys}, "timing": _timing.TIMING_ON, "parent": os.getppid()}
+    return {"env": {key: os.environ.get(key) for key in keys}, "timing": _timing.TIMING_ON, "parent": os.getppid(),
+            "tables_bound": pricing.RateTables.__annotations__.keys() <= vars(pricing).keys()}
 
 
 def client_configuration() -> dict:
@@ -65,9 +65,7 @@ def client_configuration() -> dict:
 
 # Runs only inside a forkserver worker; called in the test process it would recurse into itself.
 def priced_parse(key: str, sidecar_key: str | None, etag: str | None = None, size: int | None = None, *, tables: dict, collection: CollectionPolicy | None = None) -> dict:
-    with ExitStack() as stack:
-        for name, value in tables.items():
-            stack.enter_context(patch.object(pricing, name, value))
+    with patch.multiple(pricing, **tables):
         rate_fingerprint.clear_fingerprint_cache()
         try:
             return ingest._fetch_and_parse(key, sidecar_key, etag, size, collection=collection)  # pylint: disable=protected-access
@@ -297,6 +295,7 @@ def test_reused_server_refreshes_configuration(monkeypatch, tmp_path):
     assert not thread.is_alive()
     first = results[0]
     assert first["timing"] is True
+    assert first["tables_bound"], "the worker did not inherit its server's rate tables"
     assert first["env"]["CLAUDIT_R2_ENDPOINT"] == "file:///first/"
     assert first["env"]["CLAUDIT_R2_BLOB_CACHE"] is None
     monkeypatch.setenv("CLAUDIT_R2_ENDPOINT", "file:///second/")

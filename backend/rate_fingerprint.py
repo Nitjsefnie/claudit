@@ -48,7 +48,7 @@ def _logic() -> str:
     return _LOGIC_CACHE[0]
 
 
-# Memo per (raw model, provider). The rate tables load once at import
+# Memo per (raw model, provider). The rate tables load once
 # and are immutable at runtime, so the memo cannot rot in production;
 # tests patch tables between calls and go through
 # clear_fingerprint_cache().
