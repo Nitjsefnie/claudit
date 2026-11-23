@@ -1104,8 +1104,8 @@
     4876
   ],
   "tests/test_cost_buckets.py": [
-    4169,
-    16131
+    4154,
+    16074
   ],
   "tests/test_crash_recovery.py": [
     2860,
@@ -1414,10 +1414,6 @@
   "tests/test_pricing_compact_shape.py": [
     692,
     3019
-  ],
-  "tests/test_pricing_data.py": [
-    2563,
-    16212
   ],
   "tests/test_pricing_flat_rows.py": [
     310,
