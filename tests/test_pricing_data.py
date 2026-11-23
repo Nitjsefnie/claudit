@@ -45,8 +45,11 @@ def _pricing_json() -> Path:
 
 
 def _doc() -> dict:
-    doc = expand_pricing_doc(
-        json.loads(_pricing_json().read_text(encoding="utf-8")))
+    return _points(json.loads(_pricing_json().read_text(encoding="utf-8")))
+
+
+def _points(raw: dict) -> dict:
+    doc = expand_pricing_doc(raw)
     for hosts in doc["providers"].values():
         for host, history in hosts.items():
             points = [{**entry, "from": stamp} for entry in history
@@ -125,66 +128,19 @@ def _in_force(model: str, history: list[dict], stamp: str | None,
             if day in window.get("days", [day]) and (
                     start is None or (start <= hhmm < end if start < end
                                       else hhmm >= start or hhmm < end)):
-                rates = dict(window["rates"])
-                if "web_search" in current:
-                    rates["web_search"] = current["web_search"]
-                return rates
-    rates = {f: current[f] for f in RATE_FIELDS}
-    if "web_search" in current:
-        rates["web_search"] = current["web_search"]
-    return rates
+                return {**_rates(current), **window["rates"]}
+    return _rates(current)
 
 
-@pytest.mark.parametrize("stamp, provider, expected", [
-    ("2031-01-06T22:00:00Z", "Fixture", "window"),
-    ("2031-01-06T23:30:00Z", "Fixture", "window"),
-    ("2031-01-06T01:30:00Z", "Fixture", "window"),
-    ("2031-01-07T01:30:00Z", "Fixture", "base"),
-    ("2031-01-06T02:00:00Z", "Fixture", "base"),
-    ("2031-01-06T21:59:00Z", "Fixture", "base"),
-    ("2031-01-07T00:30:00+02:00", "Fixture", "window"),
-    ("2031-01-06T23:30:00Z", None, "base"),
-    ("2031-01-13T23:30:00Z", "Fixture", "latest"),
-    (None, "Fixture", "latest"),
-    (None, None, "latest"),
-])
-def test_the_in_force_oracle_applies_only_the_serving_hosts_current_window(
-        stamp, provider, expected):
-    """Wrapped days belong to the UTC record day; first match wins.
-
-    Bare vendor requests and null timestamps use the entry's own rates.
-    A later entry without a schedule also clears the earlier windows.
-    """
-    base = dict(NEWCOMER)
-    window = {field: rate * 2 for field, rate in base.items()}
-    overlapping = {field: rate * 3 for field, rate in base.items()}
-    latest = {field: rate * 4 for field, rate in base.items()}
-    history = [{"from": None, **base, "web_search": 0.04, "schedule": [
-        {"days": ["monday"], "start": 2200, "end": 200, "rates": window},
-        {"days": ["monday"], "start": 2200, "end": 200,
-         "rates": overlapping}]},
-        {"from": "2031-01-13T00:00:00Z", **latest, "web_search": 0.08}]
-    rates = {"base": base, "window": window, "latest": latest}[expected]
-    search = 0.08 if expected == "latest" else 0.04
-    assert _in_force("fixture/scheduled-oracle", history, stamp, provider) == {
-        **rates, "web_search": search}
-
-
-def _around(cutovers) -> list[str]:
-    return [_stamp(cut + timedelta(seconds=d)) for cut in cutovers for d in (-1, 0, 1)]
+def _rates(entry: dict) -> dict:
+    return {f: entry[f] for f in (*RATE_FIELDS, "web_search") if f in entry}
 
 
 def _cases(doc: dict) -> list[tuple[str, str | None, str | None]]:
-    """Every row at list price, and one second either side of, and exactly
-    at, each of its own cutovers and every model row's. Its own, not every
-    row's: the refresh appends cutovers every hour, and rows × all cutovers
-    would grow without bound with them."""
-    shared = {_at(e["from"]) for history in doc["models"].values()
-              for e in history if e["from"]}
-    return [(model, stamp, host)
-            for model, host, history in _histories(doc)
-            for stamp in [None, *_around(sorted(
-                shared | {_at(e["from"]) for e in history if e["from"]}))]]
+    """Every row at list price and at -1 s, 0 and +1 s around every cutover."""
+    cuts = sorted({_at(e["from"]) for _, _, history in _histories(doc) for e in history if e["from"]})
+    return [(model, stamp, host) for model, host, _ in _histories(doc) for stamp in [
+        None, *(_stamp(cut + timedelta(seconds=d)) for cut in cuts for d in (-1, 0, 1))]]
 
 
 def _node_raw(script: str):
@@ -263,40 +219,85 @@ def _with_newcomer() -> dict:
     return doc
 
 
+def _shapes() -> dict:
+    """Every row shape the resolvers branch on, at a fixed size."""
+    def rates(scale: float, **extra) -> dict:
+        return dict(zip(RATE_FIELDS, (scale, scale * 1.25, scale * 2, scale / 10, scale * 5)), **extra)
+
+    def at(when: str, scale: float, zone: str = "Z", **extra) -> dict:
+        return {"from": f"2031-01-{when}:00{zone}", **rates(scale), **extra}
+    week = [{"days": ["monday"], "start": 2200, "end": 200, "rates": rates(7)},
+            {"start": 2300, "end": 100, "rates": rates(8)}, {"days": ["saturday"], "rates": rates(9)}]
+    flat = {"from": "2031-01-06T02:00:00Z", "fresh": 3, "read": 0.3, "output": 15}
+    alternate = {**rates(12), "from": ["2031-01-06T08:00:00Z", "2031-01-07T00:30:00Z"]}
+    return {"long_context_meters": [], "provider_rates_fetched": "2031-01-09T00:00:00Z", "models": {
+        "claude-opus-4-7": [rates(5)],
+        "fixture-dated": [rates(1), flat, at("07T00:00", 2, "+02:00"), at("08T00:00", 2, note="moved")]},
+        "openrouter": {"data_region": "global", "vendor": {"resolve": {}, "prefixes": ["acme"]}, "models": {
+            "acme/vend-9": {"id": "acme/vend.9", "vendor_host": "Vend"},
+            "vend-late-9": {"id": "acme/vend-late.9", "vendor_host": "Vend"}}},
+        "providers": {
+            "fixture-dated": {"Plain": [rates(4)], "Late": [at("06T12:00", 6), at("08T00:00", 10, "+02:00")]},
+            "fixture/alternating": {"Host": [rates(11), alternate, at("06T12:00", 13)]},
+            "fixture/scheduled": {"Sched": [
+                {**rates(14, web_search=0.01), "context_length": 1000, "schedule": week},
+                at("06T23:30", 14, web_search=0.01, context_length=2000, schedule=week),
+                at("07T01:30", 15, web_search=0.02), at("07T02:30", 16, schedule=[
+                    {"days": ["tuesday"], "start": 200, "end": 300, "rates": rates(17)}])]},
+            "fixture/model:free": {"Host": [rates(18)]},
+            "acme/vend-9": {"Vend": [rates(19, web_search=0.03, schedule=week), at("06T22:00", 20)]},
+            "vend-late-9": {"Vend": [at("04T12:00", 22), at("07T02:00", 23)]}}}
+
+
 def _moved() -> dict:
-    """The file after a busy hour: a new host, its later move, and a move
-    on a seeded row."""
-    doc = _with_newcomer()
-    novita = doc["providers"][_GLM_MODEL]["Novita"]
-    newcomer = doc["providers"][_GLM_MODEL]["Newcomer"]
-    newcomer_start = _latest_document_stamp(doc) + timedelta(seconds=1)
-    newcomer[0]["from"] = _stamp(newcomer_start)
-    cut = _stamp(newcomer_start + timedelta(seconds=1))
-    moved = _stamp(_at(cut) + timedelta(seconds=1))
-    newcomer.append(
-        {"from": moved, "create_1h": 0.4, "create_5m": 0.4,
-         "fresh": 0.4, "output": 1.8, "read": 0.1})
-    novita.append({**novita[-1], "from": cut, "read": 0.5})
+    """The shapes after a busy hour: a new host, its later move, a seeded row's move."""
+    doc = _shapes()
+    begin, cut, moved = (_stamp(_latest_document_stamp(_points(doc)) + timedelta(seconds=n)) for n in (1, 2, 3))
+    doc["providers"]["fixture-dated"]["Newcomer"] = [
+        {"from": begin, **NEWCOMER}, {"from": moved, **{f: v * 2 for f, v in NEWCOMER.items()}}]
+    seeded = doc["providers"]["fixture/scheduled"]["Sched"]
+    seeded.append({**seeded[-1], "from": cut, "read": 0.5})
     doc["provider_rates_fetched"] = moved
     return doc
 
 
-# The committed file, and the same file after the refresh has committed:
-# a data-coupled assertion must hold for both, or the first bot commit
-# fails its own suite.
-DOCUMENTS = [pytest.param(None, id="committed"), pytest.param(_moved, id="moved")]
+# The shapes as committed and after a refresh: a data-coupled assertion must hold for both.
+DOCUMENTS = [pytest.param(_shapes, id="committed"), pytest.param(_moved, id="moved")]
 
 
-def _install(monkeypatch, factory) -> dict:
-    doc = _doc() if factory is None else factory()
-    for name, value in pricing.load_tables(doc).items():
+def _install(monkeypatch, raw: dict) -> dict:
+    for name, value in pricing.load_tables(raw).items():
         monkeypatch.setattr(pricing, name, value)
-    return doc
+    return _points(raw)
+
+
+def test_the_backend_prices_every_row_as_the_file_says():
+    """Each live row's loaded list price, windows, start and schedules are
+    its own history's; the shapes sweeps prove resolve reads them right."""
+    def steps(row: list) -> list:  # (start, rates, schedule), equal neighbours merged
+        return [step for i, step in enumerate(row) if i == 0 or step[1:] != row[i - 1][1:]]
+    for model, host, history in _histories(_doc()):
+        got, label = pricing.resolve(model, None, host), f"{model} via {host}"
+        assert (got.kind, got.rates) == ("exact", _in_force(model, history, None, host)), label
+        if host is None and model in pricing.MODEL_RATES:
+            listed, windows, begins = pricing.MODEL_RATES[model], pricing.DATED_RATES.get(model, []), None
+        else:
+            tracked = model if host else pricing.VENDOR_BARE[model]
+            row = tracked, host or pricing.VENDOR_HOSTS[tracked]
+            listed, windows = pricing.PROVIDER_RATES[row], pricing.PROVIDER_DATED_RATES.get(row, [])
+            begins = pricing.PROVIDER_STARTS.get(row)
+        schedules = pricing.PROVIDER_SCHEDULES.get((model, host or ""), {})  # only a host takes one
+        loaded = zip([begins, *(end for end, _ in windows)], [*(r for _, r in windows), listed],
+                     [schedules.get(i) for i in range(len(windows) + 1)])
+        assert steps([(_when(e["from"]), _rates(e), [
+            (frozenset(w["days"]) if "days" in w else None, w.get("start"), w.get("end"), w["rates"])
+            for w in e["schedule"]] if host and "schedule" in e else None)
+            for e in history]) == steps(list(loaded)), label
 
 
 @pytest.mark.parametrize("factory", DOCUMENTS)
-def test_the_backend_prices_every_row_as_the_file_says(monkeypatch, factory):
-    doc = _install(monkeypatch, factory)
+def test_the_backend_prices_every_row_shape_at_its_cutovers(monkeypatch, factory):
+    doc = _install(monkeypatch, factory())
     histories = {(m, h): history for m, h, history in _histories(doc)}
     for model, stamp, host in _cases(doc):
         got = pricing.resolve(model, _when(stamp), host)
@@ -313,10 +314,9 @@ def test_the_backend_prices_every_row_as_the_file_says(monkeypatch, factory):
 
 @needs_node
 @pytest.mark.parametrize("factory", DOCUMENTS)
-def test_both_sides_resolve_every_row_the_file_defines_identically(
-        monkeypatch, tmp_path, factory):
-    doc = _install(monkeypatch, factory)
-    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
+def test_both_sides_resolve_every_row_shape_identically(monkeypatch, tmp_path, factory):
+    doc = _install(monkeypatch, raw := factory())
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(raw)), encoding="utf-8")
     _copy_browser(tmp_path)
     cases = _cases(doc)
     got_all = _node(tmp_path / "parser.js", f"""
