@@ -549,13 +549,15 @@ def test_real_family_fallbacks_feed_from_the_tracked_table(probe, family):
 # Each family's newest and older versions, as tuples compare.
 _VERSIONS = {"fable": ("9-0-0", "9"), "mythos": ("6", "5-9"),
              "sonnet": ("9-0", "9"), "haiku": ("4-10", "4-9-1")}
+_EQUAL_TO_OPUS_9 = {"claude-opus-09": [_entry(R_OLD)]}
 
 
 def _family_doc(member, newest, older):
     """`member`, sonnet and haiku with, unless None, a `newest` tracked key (prefix, vendor host,
     row's host) and an `older` key in the table it names; and each probe's (kind, rates)."""
     doc, tiers = _doc(), {}
-    doc["models"]["claude-opus-09"] = [_entry(R_OLD)]
+    doc["models"].update(_EQUAL_TO_OPUS_9 if older == "models" else {})
+    opus = ["tier", R_OLD if older == "models" else R_NEW]
     for family, factor in ((member, 2), ("sonnet", 4), ("haiku", 8)):
         newest_rates = {f: factor * R_OLD[f] for f in RATE_FIELDS}
         older_rates = {f: factor * R_THIRD[f] for f in RATE_FIELDS}
@@ -577,8 +579,8 @@ def _family_doc(member, newest, older):
     return doc, {
         "claude-fable-99": tiers[member], "claude-mythos-99": tiers[member],
         "claude-sonnet-99": tiers["sonnet"], "claude-haiku-99": tiers["haiku"],
-        "claude-opus-99": ["tier", R_OLD], "zz-unknown-9": ["default", R_THIRD],
-        "claude-fable-opus-9": tiers[member] if tiers[member][0] == "tier" else ["tier", R_OLD]}
+        "claude-opus-99": opus, "zz-unknown-9": ["default", R_THIRD],
+        "claude-fable-opus-9": tiers[member] if tiers[member][0] == "tier" else opus}
 
 
 @needs_node
@@ -587,10 +589,8 @@ def test_the_browser_falls_back_from_the_tracked_tables_too(tmp_path, monkeypatc
     # Every object inherits "constructor".
     shapes = [None, *itertools.product(("", "acme/"), (None, HOST, "constructor"), (None, HOST, ROUTER_HOST))]
     cases = list(itertools.product(("fable", "mythos"), shapes))
-    expected = []
-    for number, case in enumerate(cases):
-        doc, want = _family_doc(*case, older)
-        expected.append(want)
+    docs = [_family_doc(*case, older) for case in cases]
+    for number, (case, (doc, want)) in enumerate(zip(cases, docs, strict=True)):
         _install(monkeypatch, doc)
         monkeypatch.setattr(pricing, "_TIER_FALLBACKS", None)
         backend = {model: pricing.resolve(model) for model in want}
@@ -600,7 +600,7 @@ def test_the_browser_falls_back_from_the_tracked_tables_too(tmp_path, monkeypatc
         (sandbox / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
         _copy_browser(sandbox)
     got = _node_raw(f"""
-      console.log(JSON.stringify({json.dumps([list(want) for want in expected])}.map((models, number) => {{
+      console.log(JSON.stringify({json.dumps([list(want) for _, want in docs])}.map((models, number) => {{
         global.window = {{}};
         require({str(tmp_path)!r} + `/${{number}}/pricing-loader.js`);
         require({str(tmp_path)!r} + `/${{number}}/rates.js`);
@@ -610,5 +610,5 @@ def test_the_browser_falls_back_from_the_tracked_tables_too(tmp_path, monkeypatc
         }});
       }})));
     """)
-    for case, want, models in zip(cases, expected, got, strict=True):
+    for case, (_, want), models in zip(cases, docs, got, strict=True):
         assert {model: [kind, rates and _js_rates(rates)] for model, kind, rates in models} == want, case
