@@ -648,7 +648,7 @@ pass moved.
   `vendor_host` and no `context_length`, and the provider pass prices its
   hosts like any id-only entry's. An already-tracked entry the vendor serves
   through no first-party endpoint stands untouched (with or without
-  `vendor_host`), and no second key is added for an id
+  `vendor_host`), and for such a model no second key is added for an id
   tracked under another key or for a derived key in the models table. The
   pass writes NO RATES: the provider pass carries the new entry's rows from
   the NEXT hourly run, so a newly added model prices nothing for one run (the one-run
