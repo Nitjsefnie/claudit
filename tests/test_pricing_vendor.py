@@ -566,18 +566,32 @@ def test_real_family_fallbacks_feed_from_the_tracked_table(probe, family):
 
 
 @needs_node
-def test_the_browser_falls_back_from_the_tracked_tables_too(tmp_path):
-    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(_doc())), encoding="utf-8")
+@pytest.mark.parametrize("rowless", [None, "fable", "mythos", "sonnet", "haiku"])
+def test_the_browser_falls_back_from_the_tracked_tables_too(tmp_path, monkeypatch, rowless):
+    """`rowless`: the family's tracked key is ahead of its provider row."""
+    doc = _doc()
+    if rowless:
+        doc["openrouter"]["models"][f"claude-{rowless}-9"] = {"id": f"acme/claude-{rowless}.9", "vendor_host": HOST}
+    expected = {
+        **{f"claude-{family}-99": ["default", R_THIRD]
+           for family in ("fable", "mythos", "sonnet", "haiku")},
+        "claude-opus-99": ["tier", R_NEW],
+        "claude-fable-opus-9": ["tier", R_NEW],
+        "zz-unknown-9": ["default", R_THIRD],
+    }
+    _install(monkeypatch, doc)
+    monkeypatch.setattr(pricing, "_TIER_FALLBACKS", None)
+    backend = {model: pricing.resolve(model) for model in expected}
+    assert {model: [r.kind, r.rates] for model, r in backend.items()} == expected
+    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
     _copy_browser(tmp_path)
     got = _node_raw(f"""
       global.window = {{}};
       require({str(tmp_path / 'pricing-loader.js')!r});
       require({str(tmp_path / 'rates.js')!r});
-      console.log(JSON.stringify({{
-        tier: window.resolveModelRate('claude-opus-99', null, null),
-        def: window.resolveModelRate('zz-unknown-9', null, null),
-      }}));
+      console.log(JSON.stringify({json.dumps(list(expected))}.map((model) => {{
+        const r = window.resolveModelRate(model, null, null);
+        return [model, r.kind, r.rates];
+      }})));
     """)
-    assert got["tier"]["kind"] == "tier"
-    assert _js_rates(got["tier"]["rates"]) == R_NEW
-    assert _js_rates(got["def"]["rates"]) == R_THIRD, "default = the models row"
+    assert {model: [kind, rates and _js_rates(rates)] for model, kind, rates in got} == expected
