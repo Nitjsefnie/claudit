@@ -292,6 +292,7 @@ def test_parse_file_stores_bounded_unicode_command_churn_within_cpu_budget():
 import json
 from time import process_time
 
+from backend import pricing
 from backend.bash_churn import bash_churn
 from backend.parse import parse_file
 
@@ -315,6 +316,7 @@ record = {
 }
 blob = (json.dumps(record) + '\n').encode()
 expected = bash_churn(command)
+pricing.bind_tables()
 started = process_time()
 parsed = parse_file('issue301.jsonl', blob)
 cpu = process_time() - started

@@ -129,8 +129,6 @@ PERF_PASSES = 200
 PASSES = 60000
 WARMUP_PASSES = 600
 PERF_TIMEOUT_S = 120
-# The surface gate is one counted pass over the corpus in a fresh child:
-# no amplification, so it is bounded by the corpus, not by a budget.
 _QUANTUM = Decimal('0.1')
 
 
@@ -154,7 +152,7 @@ def _pin_corpus_env():
 _pin_corpus_env()
 
 # pylint: disable-next=wrong-import-position
-from backend import ingest_fetch, ingest_scan, r2  # noqa: E402
+from backend import ingest_fetch, ingest_scan, pricing, r2  # noqa: E402
 
 
 class Entry(NamedTuple):
@@ -168,6 +166,8 @@ def corpus() -> list[Entry]:
     """The fixed corpus: every transcript the ingest's own listing walk
     finds in the mini mirror, sorted by key, bytes read once."""
     _pin_corpus_env()
+    # Every instrumented pass starts here: none may price the rate load.
+    pricing.bind_tables()
     # _scan_objects is the ingest's listing walk, private because ingest
     # is its only caller. Calling it is the point: the alternative is a
     # second implementation of the listing rules, which is exactly the

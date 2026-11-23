@@ -12,7 +12,7 @@ import pytest
 
 from backend.parse import parse_file
 from backend.parse_common import iter_lines
-from backend import bash_literals
+from backend import bash_literals, pricing
 from backend.bash_churn import bash_churn, python_write_paths
 from backend.bash_churn_errors import churn_survives_error
 from backend.bash_reads import scan
@@ -102,6 +102,7 @@ def test_bash_shared_scan():
                 'shell_tokens', '_split_heredocs', '_dash_c_sources'):
             calls[frame.f_code.co_name] += 1
 
+    pricing.bind_tables()  # not under the profile
     previous = sys.getprofile()
     sys.setprofile(count)
     try:
