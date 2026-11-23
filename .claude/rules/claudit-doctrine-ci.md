@@ -115,7 +115,8 @@ Coverage is governed by `.github/ci-thresholds.json`, validated by
   override — `backend/` reads no environment and always loads
   `src/pricing.json`), so a data-only refresh cannot move the gate;
   `tests/test_suite_cost_pricing_growth.py` fails when the
-  measurement reads the deployed document at all (issue #840).
+  measurement moves with, or cannot run without, the deployed document
+  (issue #840).
   Seeded and tightened FROM A RUNNER MEASUREMENT by the master-push
   bot (`suite_ratchet.py --tighten`, past the 1.5 hysteresis for existing
   budgets, both fields, never raised). The gate and the

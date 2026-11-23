@@ -1,9 +1,8 @@
 """The suite-cost measurement must not depend on the deployed rate document.
 The bench sets the bounded scripts/ci/suite_pricing_doc.json on pricing before
-any counted interval opens. Run each copy's own bench over a loadable deployed
-document and over one no loader accepts: phase instruction counts must be
-exactly equal, so no read of the deployed document, in or out of a counted
-interval, can enter the measurement.
+any counted interval opens. Run each copy's own bench over a small loadable
+document and over a large one no loader accepts: both must run, and the phase
+counts must be equal, so counted work over the document or any load of it fails.
 Copy the complete bench support closure and bounded document beside each
 bench: the --repo-root copy must also be the bench root whose injection runs."""
 from __future__ import annotations
@@ -81,7 +80,9 @@ def _measure(copy: Path) -> dict:
 
 def test_the_measurement_never_reads_the_deployed_document(tmp_path):
     plain, refused = (_build_copy(tmp_path / name) for name in ("plain", "refused"))
-    (refused / DOC_RELATIVE).write_text("", encoding="utf-8")  # no loader accepts it
+    doc = json.loads((refused / DOC_RELATIVE).read_text(encoding="utf-8"))
+    doc.update(provider_rates_fetched="", padding=[0] * 100_000)  # large, and no loader accepts it
+    (refused / DOC_RELATIVE).write_text(json.dumps(doc, indent=0), encoding="utf-8", newline="\n")
     baseline, unread = _measure(plain), _measure(refused)
     for phase in ("collection", "run", "residual"):
         assert unread["phases"][phase]["million_instructions"] == \
