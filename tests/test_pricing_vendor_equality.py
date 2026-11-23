@@ -39,6 +39,7 @@ from tests.test_pricing_vendor import (
     VENDOR_TABLES_JS,
     HHMM_JS,
     _clear_caches,
+    _copy_browser,
     _doc,
     _entry,
     _install,
@@ -278,11 +279,7 @@ def test_the_browser_tier_fallback_skips_a_rowless_tracked_key(tmp_path):
         "id": "acme/claude-opus.9", "vendor_host": HOST}
     doc["models"]["claude-opus-4-7"] = [_entry(R_THIRD)]
     (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
-    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
-    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
-    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
-    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
-    shutil.copy(RATES_JS, tmp_path / "rates.js")
+    _copy_browser(tmp_path)
     proc = run_node(
         ["node", "-e", """
           global.window = {};

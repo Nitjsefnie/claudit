@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from datetime import datetime, timedelta
 
 from backend.pricing_rows import encode_pricing_doc
@@ -9,32 +8,22 @@ from tests.test_pricing_vendor import (
     BARE,
     CUT,
     DATED_ROUTER_HOST,
-    HHMM_JS,
     KEY,
-    LOADER_JS,
-    PARSER_JS,
     PREFIXED_BARE,
-    RATES_JS,
     RATE_FIELDS,
     ROUTER_HOST,
     R_NEW,
     R_OLD,
     R_THIRD,
     UTC,
-    VENDOR_TABLES_JS,
     _bare_id_doc,
+    _copy_browser,
     _doc,
     _install,
     _js_rates,
     _node_raw,
     needs_node,
 )
-
-
-def _copy_browser(tmp_path):
-    for source in (LOADER_JS, VENDOR_TABLES_JS, HHMM_JS,
-                   HHMM_JS.with_name("pricing-rows.js"), RATES_JS, PARSER_JS):
-        shutil.copy(source, tmp_path / source.name)
 
 
 @needs_node
@@ -100,7 +89,7 @@ def test_vendor_boundaries_absent_without_a_row(monkeypatch):
 
 
 def test_the_pre_start_fold_uses_the_vendor_windows(monkeypatch):
-    """A provider row that begins at a time: before it, a record prices by
+    """Before a provider row's start, a record prices by
     the model alone — which for a vendor key is the vendor row's windows,
     so the fold's boundaries carry them."""
     vendor_start = CUT - timedelta(days=30)
