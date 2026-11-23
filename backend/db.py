@@ -19,6 +19,7 @@ from typing import LiteralString, cast
 import psycopg
 from psycopg_pool import ConnectionPool
 
+from backend import pool_reset_debug
 # The schema, as an ordered list of files applied under one content
 # stamp. Re-exported because `db.SCHEMA_PATH` and
 # `db.SCHEMA_PATHS` are the names the startup tests reach for, and
@@ -108,10 +109,10 @@ def viz_pool() -> ConnectionPool:
                 # that concurrency instead of serializing the request fan-out.
                 min_size=2, max_size=20, timeout=10,
                 kwargs={"autocommit": False},
-                check=ConnectionPool.check_connection,
                 # Explicit open: the implicit-open default is deprecated in
                 # psycopg_pool and flips to False in a future release.
                 open=True,
+                **pool_reset_debug.pool_options(ConnectionPool.check_connection),
             )
         return _VIZ
 
