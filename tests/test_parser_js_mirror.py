@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from backend import parse, pricing
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 LOADER_JS = ROOT / "src" / "pricing-loader.js"
@@ -71,12 +71,7 @@ _KEYMAP = {"fresh": "fresh", "c5": "create_5m", "c1h": "create_1h",
 
 def _node_cost(output_tokens: int) -> float:
     """Price one record at a synthetic output rate through computeSessionStats."""
-    script = f"""
-      global.window = {{}};
-      require({str(LANES_JS)!r});
-      require({str(LOADER_JS)!r});
-      require({str(RATES_JS)!r});
-      require({str(PARSER_JS)!r});
+    return _node_json(f"""
       window.modelRates['acme-rounding-9'] = {{
         fresh: 1, c5: 1, c1h: 1, read: 0.1, out: 0.5 }};
       const m = {{ type: 'assistant_usage', line: 1,
@@ -86,23 +81,12 @@ def _node_cost(output_tokens: int) -> float:
                              cache_read_input_tokens: 0,
                              output_tokens: {output_tokens} }} }};
       console.log(JSON.stringify(window.computeSessionStats([], [m]).cost));
-    """
-    proc = run_node(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout)
+    """)
 
 
 def _node_usage_records(text: str) -> list[dict]:
     """The browser's assistant_usage events for one Claude transcript."""
-    script = f"""
-      global.window = {{}};
-      require({str(LANES_JS)!r});
-      require({str(LOADER_JS)!r});
-      require({str(RATES_JS)!r});
-      require({str(PARSER_JS)!r});
+    return _node_json(f"""
       const {{ meta }} = window.parseTranscript({json.dumps(text)});
       console.log(JSON.stringify(meta
         .filter(m => m.type === 'assistant_usage')
@@ -110,13 +94,7 @@ def _node_usage_records(text: str) -> list[dict]:
                       fresh: m.usage.input_tokens || 0,
                       read: m.usage.cache_read_input_tokens || 0,
                       output: m.usage.output_tokens || 0 }}))));
-    """
-    proc = run_node(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout)
+    """)
 
 
 def _claude_line(uuid, model, text, output_tokens, tool=None, request_id="req-1"):
@@ -146,7 +124,7 @@ def _node_dedup_survivor(*files):
     parse call by the end-of-parse retraction, across calls by
     dropMasked."""
     script = f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       require({str(RECORD_DEDUP_JS)!r});
       require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
@@ -211,9 +189,9 @@ PROVIDER_CASES = [
 ]
 
 
-def _node_json(body: str):
+def _node_json(body: str, live: bool = False):
     script = f"""
-      global.window = {{}};
+      {'' if live else BOUNDED_PRICING}global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});
@@ -300,7 +278,7 @@ class TestNodeDrivenBrowserMirror:
           const cases = {json.dumps(cases)};
           console.log(JSON.stringify(cases.map(([m, ts, p]) =>
             window.resolveModelRate(m, ts, p))));
-        """)
+        """, live=True)
         for (model, ts, provider), got in zip(cases, got_all):
             when = datetime.fromisoformat(ts.replace("Z", "+00:00")) if ts else None
             want = pricing.resolve(model, when, provider)
@@ -312,22 +290,8 @@ class TestNodeDrivenBrowserMirror:
                 )
 
     def test_parser_js_exposes_the_same_rate_epochs(self):
-        script = f"""
-          global.window = {{}};
-          require({str(LANES_JS)!r});
-          require({str(LOADER_JS)!r});
-          require({str(RATES_JS)!r});
-          require({str(PARSER_JS)!r});
-          console.log(JSON.stringify(window.rateEpochs));
-        """
-        proc = run_node(
-            ["node", "-e", script], capture_output=True, text=True, timeout=60,
-            check=False,
-        )
-        assert proc.returncode == 0, proc.stderr
-        js_epochs = [
-            datetime.fromtimestamp(ms / 1000, tz=UTC) for ms in json.loads(proc.stdout)
-        ]
+        js_epochs = [datetime.fromtimestamp(ms / 1000, tz=UTC) for ms in _node_json(
+            "console.log(JSON.stringify(window.rateEpochs));", live=True)]
         assert js_epochs == pricing.RATE_EPOCHS
 
     def test_per_record_cost_rounds_exact_ties_half_even_like_python(self):
@@ -475,7 +439,7 @@ class TestNodeDrivenBrowserProviderParsing:
             providers: meta.filter(m => m.type === 'assistant_usage')
                            .map(m => m.provider),
           }}));
-        """)
+        """, live=True)
         assert got["providers"] == [r["provider"] for r in stored]
         assert got["cost"] == pytest.approx(sum(r["cost_usd"] for r in stored),
                                             abs=1e-9)
@@ -533,12 +497,7 @@ class TestNodeDrivenBrowserProviderParsing:
         names = [*PROMPT_GATE_FIXTURES, "interrupt_list_content.jsonl"]
         texts = {name: (ROOT / "fixtures" / "parser" / name).read_text(
             encoding="utf-8") for name in names}
-        script = f"""
-          global.window = {{}};
-          require({str(LANES_JS)!r});
-          require({str(LOADER_JS)!r});
-          require({str(RATES_JS)!r});
-          require({str(PARSER_JS)!r});
+        got = _node_json(f"""
           const fixtures = {json.dumps(texts)};
           const out = {{}};
           for (const [name, text] of Object.entries(fixtures)) {{
@@ -550,13 +509,7 @@ class TestNodeDrivenBrowserProviderParsing:
             }};
           }}
           console.log(JSON.stringify(out));
-        """
-        proc = run_node(
-            ["node", "-e", script], capture_output=True, text=True, timeout=60,
-            check=False,
-        )
-        assert proc.returncode == 0, proc.stderr
-        got = json.loads(proc.stdout)
+        """)
         for name, (prompt_lines, _injection_lines) in PROMPT_GATE_FIXTURES.items():
             backend = parse.parse_file(
                 f"k/s/{name}",
@@ -579,7 +532,7 @@ class TestNodeDrivenBrowserProviderParsing:
         the explicit-Z spelling — under a non-UTC node zone, where an
         unstamped string would read 22:30Z."""
         script = f"""
-          global.window = {{}};
+          {BOUNDED_PRICING}global.window = {{}};
           require({str(LANES_JS)!r});
           require({str(LOADER_JS)!r});
           require({str(RATES_JS)!r});

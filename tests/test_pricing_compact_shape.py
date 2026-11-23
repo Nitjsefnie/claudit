@@ -14,12 +14,14 @@ import pytest
 
 from backend.pricing_document import check_compact_shape
 from backend.pricing_rows import encode_pricing_doc
+from tests.node_run import BOUNDED_PRICING
 from tests.pricing_data_loader_helpers import _browser_load
 from tests.refresh_fixture_builders import RATES_B, seed_provider_doc
 from tests.test_pricing_data import (
     LOADER_JS,
     _node_raw,
     _pricing_json,
+    _trimmed,
     needs_node,
 )
 
@@ -29,7 +31,7 @@ def _raw() -> dict:
 
 
 def _entry_violation() -> dict:
-    doc = _raw()
+    doc = encode_pricing_doc(_trimmed())
     row = doc["models"]["bonsai-2-27b"]
     row[0]["create_5m"] = row[0]["fresh"]
     return doc
@@ -48,7 +50,7 @@ def _window_violation() -> dict:
 def _node_compact(doc: dict) -> str | None:
     """The browser loader's exported check against `doc`; its error."""
     return _node_raw(f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       const loader = require({str(LOADER_JS)!r});
       let error = null;
       try {{ loader.checkCompactShape({json.dumps(doc)}); }}

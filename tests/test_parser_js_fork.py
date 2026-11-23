@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 LANES_JS = ROOT / "src" / "parser-lanes.js"
@@ -22,7 +22,7 @@ FIX_CODEX = ROOT / "fixtures" / "codex"
 DIFFERENT_MODEL_FORK = FIX_CODEX / "rollout_fork_different_model.jsonl"
 
 _FORK_NODE_HEAD = f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r}); require({str(RATES_JS)!r});

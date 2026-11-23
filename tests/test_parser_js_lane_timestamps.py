@@ -9,7 +9,7 @@ from tests.test_parser_js_lanes import (
     CODEX_JS, KIMI_JS, LANES_JS, LOADER_JS, PARSER_JS, RATES_JS,
     _NAIVE_LANE_BLOB,
 )
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 
 def test_lane_parser_reads_an_offset_less_timestamp_as_utc():
@@ -20,7 +20,7 @@ def test_lane_parser_reads_an_offset_less_timestamp_as_utc():
         2026, 9, 10, 0, 30, tzinfo=UTC)
 
     script = f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(KIMI_JS)!r});
       require({str(CODEX_JS)!r});

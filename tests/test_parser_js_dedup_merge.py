@@ -14,7 +14,7 @@ from tests.test_parser_js_mirror import (
     LANES_JS, LOADER_JS, PARSER_JS, RATES_JS, RECORD_DEDUP_JS,
     _claude_line, _node_dedup_survivor,
 )
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 
 def _claude_msgid_line(uuid, model, text, output_tokens, msg_id):
@@ -37,7 +37,7 @@ def _node_usage_identity(text: str) -> list[dict]:
     re-pointed entry must be attributable to the winner (line, uuid and
     model), with no merge bookkeeping left on the entry."""
     script = f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});
@@ -156,7 +156,7 @@ def _node_tool_dedup(main, sidecar):
     over the Claude path; then the lone sidecar, which has no main file
     to lose to."""
     script = f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});

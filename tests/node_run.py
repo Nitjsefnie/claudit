@@ -4,6 +4,7 @@ Without /proc the guard is a wall timeout with one retry.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import time
@@ -11,12 +12,20 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from backend.pricing_rows import encode_pricing_doc
+from tests.refresh_fixture_builders import DEFAULT_ROW, seed_doc
+
 PROC_STAT_READABLE = os.path.exists("/proc/self/stat")
 # A blocked child gets 5x its CPU budget in wall time: 5 min at 60 s, well inside a CI job's limit.
 WALL_CEILING_MULTIPLE = 5
 POLL_SECONDS = 0.25
 TAIL_CHARS = 2000
 STALL_DEBUG_FILES = ("/proc/{pid}/wchan", "/proc/{pid}/stack", "/proc/pressure/io", "/proc/pressure/cpu", "/proc/pressure/memory")
+# Prefix for node programs comparing no live rate, so the loader reads a seed, not the live file.
+# Tier fallbacks need a row per Claude family.
+_SEEDED = encode_pricing_doc(seed_doc(models={f"claude-{family}-1": [DEFAULT_ROW] for family in ("fable", "sonnet", "haiku")}))
+BOUNDED_PRICING = ("{const fs = require('fs'), read = fs.readFileSync, live = %s; fs.readFileSync = (p, ...a) => (p === live ? %s : read(p, ...a));}\n"
+                   % (json.dumps(str(Path(__file__).resolve().parents[1] / "src" / "pricing.json")), json.dumps(json.dumps(_SEEDED))))
 
 
 def run_node(

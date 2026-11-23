@@ -11,7 +11,7 @@ from tests.test_parser_js_lanes import (
 from tests.node_run import run_node
 
 
-def test_one_sided_meter_factor_matches_backend_and_browser(monkeypatch):
+def test_one_sided_meter_factor_matches_backend_and_browser(monkeypatch):  # live document: the backend side prices on the live tables
     model_key = "gpt-5-6-sol"
     rates = {"fresh": 7.0, "create_5m": 8.75, "create_1h": 14.0,
              "read": 0.7, "output": 35.0}

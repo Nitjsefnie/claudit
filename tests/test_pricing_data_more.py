@@ -109,7 +109,7 @@ def test_invalid_pricing_data_is_refused_in_the_browser(
     pytest.param("/src/pricing.json?v=7", "/src/pricing.json?v=7", id="page-url"),
     pytest.param(None, "/src/pricing.json", id="beside-script"),
 ])
-def test_the_browser_fetches_pricing_without_blocking(attr, url):
+def test_the_browser_fetches_pricing_without_blocking(attr, url):  # live document: compares a live rate with the backend's
     got = _browser_load(pricing_attr=attr)
     assert got["error"] is None
     assert got["requests"] == [{
@@ -477,7 +477,7 @@ def test_the_longest_matching_key_wins_in_the_backend():
                   ("gpt-6-1-sol", "gpt-6-1-sol"),
                   ("gpt-6-sol", "gpt-6-sol")], "exact", id="dotted-sol"),
 ])
-def test_browser_ids_resolve_to_their_own_rows(cases, kind):
+def test_browser_ids_resolve_to_their_own_rows(cases, kind):  # live document: the rows are live and compared with the backend's
     ids = [model for model, _ in cases]
     got = _node(PARSER_JS, f"""
       const ids = {json.dumps(ids)};
