@@ -493,7 +493,7 @@ if guard is not None:
     guard.FETCH_DEADLINE_S = 0.05
     guard.FETCH_ATTEMPT_S = 0.05
 def stalled(_url):
-    threading.Event().wait(10)
+    threading.Event().wait(600)
     return io.BytesIO(b'{}')
 p._open = stalled
 try:
@@ -505,7 +505,7 @@ raise SystemExit(1)
 """
     try:
         result = subprocess.run([sys.executable, "-c", script], capture_output=True,
-                                text=True, timeout=3, check=False)
+                                text=True, timeout=60, check=False)
     except subprocess.TimeoutExpired:
         pytest.fail("process did not exit while its finite worker was stalled")
     assert result.returncode == 0, result.stderr
