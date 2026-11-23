@@ -546,39 +546,46 @@ def test_real_family_fallbacks_feed_from_the_tracked_table(probe, family):
         *(("fable", "mythos") if family == "fable" else (family,)))
 
 
+# Each family's newest and older versions, as tuples compare.
+_VERSIONS = {"fable": ("9-0-0", "9"), "mythos": ("6", "5-9"),
+             "sonnet": ("9-0", "9"), "haiku": ("4-10", "4-9-1")}
+
+
 def _family_doc(member, newest, older):
-    """A document and each probe's (kind, rates): every family's newest key is untracked
-    or tracked as `newest` (prefix, host, row) says; `older` is its other row's table."""
+    """`member`, sonnet and haiku with, unless None, a `newest` tracked key (prefix, vendor host,
+    row's host) and an `older` key in the table it names; and each probe's (kind, rates)."""
     doc, tiers = _doc(), {}
+    doc["models"]["claude-opus-09"] = [_entry(R_OLD)]
     for family, factor in ((member, 2), ("sonnet", 4), ("haiku", 8)):
         newest_rates = {f: factor * R_OLD[f] for f in RATE_FIELDS}
         older_rates = {f: factor * R_THIRD[f] for f in RATE_FIELDS}
+        newest_key, older_key = (f"claude-{family}-{version}" for version in _VERSIONS[family])
         tiers[family] = ["tier", older_rates] if older else ["default", R_THIRD]
         if newest:
-            prefix, host, row = newest
-            key = f"{prefix}claude-{family}-9"
-            doc["openrouter"]["models"][key] = {
-                "id": f"acme/claude-{family}.9", **({"vendor_host": HOST} if host else {})}
-            if row:
-                doc["providers"][key] = {HOST: [_entry(newest_rates)]}
-            if host and row:
+            prefix, vendor_host, row_host = newest
+            doc["openrouter"]["models"][prefix + newest_key] = {
+                "id": f"acme/{newest_key}", **({"vendor_host": vendor_host} if vendor_host else {})}
+            if row_host:
+                doc["providers"][prefix + newest_key] = {row_host: [_entry(newest_rates)]}
+            if vendor_host and vendor_host == row_host:
                 tiers[family] = ["tier", newest_rates]
         if older == "models":
-            doc["models"][f"claude-{family}-8"] = [_entry(older_rates)]
+            doc["models"][older_key] = [_entry(older_rates)]
         elif older:
-            doc["openrouter"]["models"][f"claude-{family}-8"] = {"id": f"acme/claude-{family}.8", "vendor_host": HOST}
-            doc["providers"][f"claude-{family}-8"] = {HOST: [_entry(older_rates)]}
+            doc["openrouter"]["models"][older_key] = {"id": f"acme/{older_key}", "vendor_host": HOST}
+            doc["providers"][older_key] = {HOST: [_entry(older_rates)]}
     return doc, {
         "claude-fable-99": tiers[member], "claude-mythos-99": tiers[member],
         "claude-sonnet-99": tiers["sonnet"], "claude-haiku-99": tiers["haiku"],
-        "claude-opus-99": ["tier", R_NEW], "zz-unknown-9": ["default", R_THIRD],
-        "claude-fable-opus-9": tiers[member] if tiers[member][0] == "tier" else ["tier", R_NEW]}
+        "claude-opus-99": ["tier", R_OLD], "zz-unknown-9": ["default", R_THIRD],
+        "claude-fable-opus-9": tiers[member] if tiers[member][0] == "tier" else ["tier", R_OLD]}
 
 
 @needs_node
 @pytest.mark.parametrize("older", [None, "models", "bare"])
 def test_the_browser_falls_back_from_the_tracked_tables_too(tmp_path, monkeypatch, older):
-    shapes = [None, *itertools.product(("", "acme/"), (False, True), (False, True))]
+    # Every object inherits "constructor".
+    shapes = [None, *itertools.product(("", "acme/"), (None, HOST, "constructor"), (None, HOST, ROUTER_HOST))]
     cases = list(itertools.product(("fable", "mythos"), shapes))
     expected = []
     for number, case in enumerate(cases):

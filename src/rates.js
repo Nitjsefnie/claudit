@@ -27,7 +27,7 @@
 const _VERSIONED_KEY = /^claude-([a-z]+)-(\d+(?:-\d+)*)$/;
 const _latestKey = (families) => {
   let best = null;
-  let bestVersion = null;
+  let bestVersion = [];
   for (const key of [...Object.keys(window.modelRates),
                      ...Object.keys(window.vendorBare)]) {
     const m = _VERSIONED_KEY.exec(key);
@@ -37,10 +37,10 @@ const _latestKey = (families) => {
     if (window.keyListRates(key) === undefined) continue;
     const version = m[2].split('-').map(Number);
     let cmp = 0;
-    for (let i = 0; i < Math.max(version.length, bestVersion ? bestVersion.length : 0) && !cmp; i++) {
-      cmp = (version[i] || 0) - ((bestVersion && bestVersion[i]) || 0);
+    for (let i = 0; i < Math.max(version.length, bestVersion.length) && !cmp; i++) {
+      cmp = (version[i] ?? -1) - (bestVersion[i] ?? -1);
     }
-    if (best === null || cmp > 0) { best = key; bestVersion = version; }
+    if (cmp > 0) { best = key; bestVersion = version; }
   }
   return best;
 };
