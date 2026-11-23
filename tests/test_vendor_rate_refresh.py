@@ -57,8 +57,8 @@ def test_vendor_endpoint_selection(model_id, key, resolve, endpoints, expected):
 
 @pytest.mark.parametrize("tracked,models,added", [
     ({}, None, True), ({GPT_KEY: {"id": "openai/retained-id"}}, None, False), ({"gpt-alias": {"id": GPT_ID}}, None, False),
-    ({}, {GPT_KEY: [{"from": None, **RATES}]}, False),
-], ids=["untracked", "derived-key", "id-under-another-key", "models-table-key"])
+    ({}, {GPT_KEY: [{"from": None, **RATES}]}, False), ({"alias-model": {"id": "meta-llama/gpt-test-9.9"}}, None, True),
+], ids=["untracked", "derived-key", "id-under-another-key", "models-table-key", "id-under-another-namespace"])
 def test_third_party_hosts_alone_track_the_model_once(tracked, models, added):
     before = _doc(tracked=tracked, models=models)
     doc, out = _run(before, _catalog(GPT_ID), {GPT_ID: _payload(_endpoint("azure", _price(1.0, 5.0), host="Azure"))})
