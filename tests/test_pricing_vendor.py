@@ -13,6 +13,7 @@ the row loaded in the same run or inspect catalog structure.
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import json
 import re
 import shutil
@@ -143,10 +144,7 @@ def _loader_error(tmp_path: Path, doc: dict) -> str | None:
     """The pricing-loader's load error for `doc`, from a tmp sandbox: null
     when the document loads."""
     (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
-    shutil.copy(LOADER_JS, tmp_path / "pricing-loader.js")
-    shutil.copy(VENDOR_TABLES_JS, tmp_path / "vendor-tables.js")
-    shutil.copy(HHMM_JS, tmp_path / "hhmm-spelling.js")
-    shutil.copy(HHMM_JS.with_name("pricing-rows.js"), tmp_path / "pricing-rows.js")
+    _copy_browser(tmp_path)
     proc = run_node(
         ["node", "-e",
          "global.window={};let e=null;try{require('./pricing-loader.js')}"
@@ -255,16 +253,7 @@ def test_malformed_prefixes_refuse_naming_the_key(fields):
 @needs_node
 @pytest.mark.parametrize("bad", [["Anthropic"], [""], "anthropic", []])
 def test_malformed_prefixes_refuse_in_the_browser(tmp_path, bad):
-    (tmp_path / "pricing.json").write_text(
-        json.dumps(encode_pricing_doc(_doc(prefixes=bad))), encoding="utf-8")
-    _copy_browser(tmp_path)
-    error = _node_raw(f"""
-      global.window = {{}};
-      let error = null;
-      try {{ require({str(tmp_path / 'pricing-loader.js')!r}); }}
-      catch (e) {{ error = e.message; }}
-      console.log(JSON.stringify(error));
-    """)
+    error = _loader_error(tmp_path, _doc(prefixes=bad))
     assert error and "openrouter.vendor.prefixes" in error, error
 
 
@@ -301,15 +290,7 @@ def test_a_bare_form_colliding_with_a_models_key_refuses():
 def test_a_bare_form_collision_refuses_in_the_browser(tmp_path):
     doc = _doc(models={"other-9": [_entry(R_THIRD)]})
     doc["openrouter"]["models"]["acme/other-9"]["vendor_host"] = HOST
-    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
-    _copy_browser(tmp_path)
-    error = _node_raw(f"""
-      global.window = {{}};
-      let error = null;
-      try {{ require({str(tmp_path / 'pricing-loader.js')!r}); }}
-      catch (e) {{ error = e.message; }}
-      console.log(JSON.stringify(error));
-    """)
+    error = _loader_error(tmp_path, doc)
     assert error and "models-table" in error, error
 
 
@@ -565,33 +546,62 @@ def test_real_family_fallbacks_feed_from_the_tracked_table(probe, family):
         *(("fable", "mythos") if family == "fable" else (family,)))
 
 
+def _family_doc(member, newest, older):
+    """A document and each probe's (kind, rates): every family's newest key is untracked
+    or tracked as `newest` (prefix, host, row) says; `older` is its other row's table."""
+    doc, tiers = _doc(), {}
+    for family, factor in ((member, 2), ("sonnet", 4), ("haiku", 8)):
+        newest_rates = {f: factor * R_OLD[f] for f in RATE_FIELDS}
+        older_rates = {f: factor * R_THIRD[f] for f in RATE_FIELDS}
+        tiers[family] = ["tier", older_rates] if older else ["default", R_THIRD]
+        if newest:
+            prefix, host, row = newest
+            key = f"{prefix}claude-{family}-9"
+            doc["openrouter"]["models"][key] = {
+                "id": f"acme/claude-{family}.9", **({"vendor_host": HOST} if host else {})}
+            if row:
+                doc["providers"][key] = {HOST: [_entry(newest_rates)]}
+            if host and row:
+                tiers[family] = ["tier", newest_rates]
+        if older == "models":
+            doc["models"][f"claude-{family}-8"] = [_entry(older_rates)]
+        elif older:
+            doc["openrouter"]["models"][f"claude-{family}-8"] = {"id": f"acme/claude-{family}.8", "vendor_host": HOST}
+            doc["providers"][f"claude-{family}-8"] = {HOST: [_entry(older_rates)]}
+    return doc, {
+        "claude-fable-99": tiers[member], "claude-mythos-99": tiers[member],
+        "claude-sonnet-99": tiers["sonnet"], "claude-haiku-99": tiers["haiku"],
+        "claude-opus-99": ["tier", R_NEW], "zz-unknown-9": ["default", R_THIRD],
+        "claude-fable-opus-9": tiers[member] if tiers[member][0] == "tier" else ["tier", R_NEW]}
+
+
 @needs_node
-@pytest.mark.parametrize("rowless", [None, "fable", "mythos", "sonnet", "haiku"])
-def test_the_browser_falls_back_from_the_tracked_tables_too(tmp_path, monkeypatch, rowless):
-    """`rowless`: the family's tracked key is ahead of its provider row."""
-    doc = _doc()
-    if rowless:
-        doc["openrouter"]["models"][f"claude-{rowless}-9"] = {"id": f"acme/claude-{rowless}.9", "vendor_host": HOST}
-    expected = {
-        **{f"claude-{family}-99": ["default", R_THIRD]
-           for family in ("fable", "mythos", "sonnet", "haiku")},
-        "claude-opus-99": ["tier", R_NEW],
-        "claude-fable-opus-9": ["tier", R_NEW],
-        "zz-unknown-9": ["default", R_THIRD],
-    }
-    _install(monkeypatch, doc)
-    monkeypatch.setattr(pricing, "_TIER_FALLBACKS", None)
-    backend = {model: pricing.resolve(model) for model in expected}
-    assert {model: [r.kind, r.rates] for model, r in backend.items()} == expected
-    (tmp_path / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
-    _copy_browser(tmp_path)
+@pytest.mark.parametrize("older", [None, "models", "bare"])
+def test_the_browser_falls_back_from_the_tracked_tables_too(tmp_path, monkeypatch, older):
+    shapes = [None, *itertools.product(("", "acme/"), (False, True), (False, True))]
+    cases = list(itertools.product(("fable", "mythos"), shapes))
+    expected = []
+    for number, case in enumerate(cases):
+        doc, want = _family_doc(*case, older)
+        expected.append(want)
+        _install(monkeypatch, doc)
+        monkeypatch.setattr(pricing, "_TIER_FALLBACKS", None)
+        backend = {model: pricing.resolve(model) for model in want}
+        assert {model: [r.kind, r.rates] for model, r in backend.items()} == want, case
+        sandbox = tmp_path / str(number)
+        sandbox.mkdir()
+        (sandbox / "pricing.json").write_text(json.dumps(encode_pricing_doc(doc)), encoding="utf-8")
+        _copy_browser(sandbox)
     got = _node_raw(f"""
-      global.window = {{}};
-      require({str(tmp_path / 'pricing-loader.js')!r});
-      require({str(tmp_path / 'rates.js')!r});
-      console.log(JSON.stringify({json.dumps(list(expected))}.map((model) => {{
-        const r = window.resolveModelRate(model, null, null);
-        return [model, r.kind, r.rates];
+      console.log(JSON.stringify({json.dumps([list(want) for want in expected])}.map((models, number) => {{
+        global.window = {{}};
+        require({str(tmp_path)!r} + `/${{number}}/pricing-loader.js`);
+        require({str(tmp_path)!r} + `/${{number}}/rates.js`);
+        return models.map((model) => {{
+          const r = window.resolveModelRate(model, null, null);
+          return [model, r.kind, r.rates];
+        }});
       }})));
     """)
-    assert {model: [kind, rates and _js_rates(rates)] for model, kind, rates in got} == expected
+    for case, want, models in zip(cases, expected, got, strict=True):
+        assert {model: [kind, rates and _js_rates(rates)] for model, kind, rates in models} == want, case
