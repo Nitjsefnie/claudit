@@ -353,7 +353,7 @@ def test_synthetic_preview_events_carry_the_id_the_breakdown_prices():
             "displayed name that is not the priced id is the mismatch "
             "issue #472 removed")
         assert _node(f"console.log(JSON.stringify(shortModelName("
-                     f"{json.dumps(model_id)})))") == model
+                     f"{json.dumps(model_id)})))", prelude=BOUNDED_PRICING) == model
         if model != "<synthetic>":
             assert kind == "exact", (model, model_id)
 
