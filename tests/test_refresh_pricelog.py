@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import email.message
 import http.client
-import importlib.util
 import io
 import json
 import sys
@@ -10,41 +9,18 @@ import threading
 import time
 import urllib.error
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
+from tests.ci_script import CI, load_ci_script
 from tests.refresh_fixture_builders import _per_token
 
 # Pylint cannot follow this test-only path injection to the script's return
 # annotations; pyright and the executed assertions validate the list access.
 # pylint: disable=unsubscriptable-object,not-an-iterable
-ROOT = Path(__file__).resolve().parents[1]
-CI = ROOT / "scripts" / "ci"
 sys.path.insert(0, str(CI))
 
-
-def _load():
-    path = CI / "refresh_pricelog.py"
-    spec = importlib.util.spec_from_file_location("refresh_pricelog", path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["refresh_pricelog"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _load_logshape():
-    path = CI / "refresh_logshape.py"
-    spec = importlib.util.spec_from_file_location("refresh_logshape", path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["refresh_logshape"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-pricelog = _load()
-logshape = _load_logshape()
+pricelog = load_ci_script("refresh_pricelog")
+logshape = load_ci_script("refresh_logshape")
 
 
 def _point(at: str, value: float | None) -> dict:
