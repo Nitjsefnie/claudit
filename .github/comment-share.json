@@ -1664,8 +1664,8 @@
     3871
   ],
   "tests/test_web_metrics.py": [
-    8049,
-    23001
+    7872,
+    22662
   ],
   "tests/test_web_metrics_rollup.py": [
     7568,
