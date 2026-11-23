@@ -30,7 +30,7 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
-    "alternating price: gpt-oss-20b via PrimeIntellect: the listed rates equal the entry from 2026-11-19T12:20:53Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
+    "alternating price: gpt-oss-120b via PrimeIntellect: the listed rates equal the entry from 2026-11-17T18:45:54Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: kimi-k3-1-pro via InferenceNet: the listed rates equal the entry from 2026-11-20T00:53:48Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
@@ -102,7 +102,7 @@
     "gemma-4-26b-a4b-it via Cloudflare: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "gemma-4-26b-a4b-it via Io Net: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "gemma-4-26b-a4b-it via Makora: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
-    "gemma-4-26b-a4b-it via PrimeIntellect: 3 endpoints (primeintellect/bf16, primeintellect/flex, primeintellect/prime) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
+    "gemma-4-26b-a4b-it via PrimeIntellect: rule-resolved (unique quantization): took the bf16 endpoint 'primeintellect/bf16' over service tiers",
     "gemma-4-31b-it via DeepInfra: 4 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority, deepinfra/turbo) at 4 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "glm-4-6 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
     "glm-4-7 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex'",
@@ -269,11 +269,15 @@
     "tag 'parasail/fast' names neither a known region nor a quantization: deepseek-v4-1-flash via Parasail, deepseek-v4-pro-0813 via Parasail, glm-5-3 via Parasail, glm-5-3-flash via Parasail, gpt-oss-120b via Parasail, kimi-k3 via Parasail, minimax-m3 via Parasail",
     "tag 'particle-ai/nvfp4/flex' names neither a known region nor a quantization: glm-5-3-flash via Particle AI",
     "tag 'particle-ai/us/flex' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Particle AI",
+    "tag 'primeintellect/fast' names neither a known region nor a quantization: gemma-4-26b-a4b-it via PrimeIntellect",
+    "tag 'primeintellect/flex' names neither a known region nor a quantization: gemma-4-26b-a4b-it via PrimeIntellect",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for gpt-oss-20b via PrimeIntellect; the host was sampled",
+    "the listing lags the listed-pricing log for gemma-4-26b-a4b-it via PrimeIntellect; the host was sampled",
+    "the listing lags the listed-pricing log for gpt-oss-120b via PrimeIntellect; the host was sampled",
+    "the listing lags the listed-pricing log for qwen3-5-9b via PrimeIntellect; the host was sampled",
     "the listing lags the listed-pricing log for qwen3-6-35b-a3b via PrimeIntellect; the host was sampled"
   ],
   "sampled": {
@@ -398,6 +402,9 @@
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
+    },
+    "gemma-4-26b-a4b-it": {
+      "PrimeIntellect": "listing lags log"
     },
     "glm-5-2": {
       "BaseTen": "2 endpoints at one current price"
@@ -548,11 +555,11 @@
     },
     "gpt-oss-120b": {
       "Amazon Bedrock": "2 endpoints at one current price",
-      "BaseTen": "2 endpoints at one current price"
+      "BaseTen": "2 endpoints at one current price",
+      "PrimeIntellect": "listing lags log"
     },
     "gpt-oss-20b": {
-      "Amazon Bedrock": "2 endpoints at one current price",
-      "PrimeIntellect": "listing lags log"
+      "Amazon Bedrock": "2 endpoints at one current price"
     },
     "hy3": {
       "Tencent": "endpoint schedule"
@@ -572,6 +579,9 @@
     },
     "qwen-plus": {
       "Alibaba": "long-context band"
+    },
+    "qwen3-5-9b": {
+      "PrimeIntellect": "listing lags log"
     },
     "qwen3-5-plus-02-15": {
       "Alibaba": "long-context band"
