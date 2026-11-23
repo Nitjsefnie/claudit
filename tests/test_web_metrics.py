@@ -9,6 +9,7 @@ import math
 import os
 import re
 import shutil
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -328,16 +329,21 @@ def test_a_ceiling_fits_as_many_dashboard_opens_as_before_the_split(
     assert getattr(web_metrics, ceiling) // rows_per_open >= opens_before
 
 
-def test_the_readout_discloses_the_guest_share(viz, pinned, client):
+@pytest.mark.parametrize("rng, exact", [("1d", True), ("7d", False)],
+                         ids=["live-pass", "rollup-pass"])
+def test_the_readout_discloses_the_guest_share(
+        viz, pinned, client, caplog, rng, exact):
     """Disclosure, not exclusion.
 
     Guests are deliberately IN the panel's population — this host is
     guest-heavy and a panel blind to its own traffic is the worse failure.
     But a skewed panel has to look skewed, so the payload carries the count
-    the panel renders as "guests: N of M".
+    the panel renders as "guests: N of M". Each pass counts it on the
+    connection it still holds, so the pool never has one to roll back.
     """
     _seed(_VALUES, ts=_recent_ts())
-    body = client.get("/api/web-metrics?range=1d", headers=_ORIGIN).json()
+    body = client.get(f"/api/web-metrics?range={rng}", headers=_ORIGIN).json()
+    assert body["exact"] is exact and (body["bucket_s"] in LATENCY_BUCKETS) is not exact
     assert body["beacons"] >= 1
     assert 0 <= body["guests"] <= body["beacons"]
     with db.viz_conn() as conn:
@@ -346,9 +352,14 @@ def test_the_readout_discloses_the_guest_share(viz, pinned, client):
     # The readout is `@cache_response`, so a second identical request would
     # return the FIRST one's payload and the disclosure would look broken.
     cache.response_cache.clear()
-    after = client.get("/api/web-metrics?range=1d", headers=_ORIGIN).json()
+    after = client.get(f"/api/web-metrics?range={rng}", headers=_ORIGIN).json()
     assert after["guests"] == after["beacons"], (
         "every row is anonymous and the payload does not say so")
+    with ExitStack() as stack:  # the pool hands out FIFO: hold them all
+        for _ in range(db.viz_pool().get_stats()["pool_size"]):
+            stack.enter_context(db.viz_conn())
+    assert not [r for r in caplog.records if r.name == "psycopg.pool"
+                and r.getMessage().startswith("rolling back returned")]
 
 
 # --- the middleware gates (the sink's own route has no gate of its own) ---

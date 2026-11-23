@@ -272,13 +272,13 @@ def _series_from_rollup(rng: str, bucket_s: int, since: datetime) -> dict:
               FROM src GROUP BY 1, 2, 3, 4, 5
              ORDER BY bucket, metric, part, region, phase
             """), (tail_from,)).fetchall()
-    # since names the oldest data actually used, not the requested
-    # window. When stored history cannot reach the range, report the
-    # available span so the panel can show the difference.
-    served = [r[0] for r in rows] or [tail_from]
-    oldest = min(served) - timedelta(seconds=bucket_s / 2)
-    return _assemble(rng, bucket_s, list(rows) + list(tail),
-                     list(rows) + list(tail), False, oldest, conn)
+        # since names the oldest data actually used, not the requested
+        # window. When stored history cannot reach the range, report the
+        # available span so the panel can show the difference.
+        served = [r[0] for r in rows] or [tail_from]
+        oldest = min(served) - timedelta(seconds=bucket_s / 2)
+        return _assemble(rng, bucket_s, list(rows) + list(tail),
+                         list(rows) + list(tail), False, oldest, conn)
 
 
 def _series_live(rng: str, bucket_s: int, since: datetime,
@@ -324,4 +324,4 @@ def _series_live(rng: str, bucket_s: int, since: datetime,
              GROUP BY 2, 3, 4, 5
              ORDER BY metric, part, region, phase
             """), (window,)).fetchall()
-    return _assemble(rng, bucket_s, buckets, series, True, window, conn)
+        return _assemble(rng, bucket_s, buckets, series, True, window, conn)
