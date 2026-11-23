@@ -13,7 +13,8 @@
       ],
       "tests/test_agent_fold_js.py": [
         2.15,
-        3.29
+        3.29,
+        0.67
       ],
       "tests/test_agent_list_caps_js.py": [
         0.73
@@ -82,7 +83,8 @@
       "tests/test_breakdown_exact_rate.py": [
         5.59,
         4.02,
-        7.7
+        7.7,
+        2.26
       ],
       "tests/test_bucket_redact.py": [
         0.0
@@ -198,7 +200,8 @@
       ],
       "tests/test_cost_buckets.py": [
         4.74,
-        2.93
+        2.93,
+        0.0
       ],
       "tests/test_crash_recovery.py": [
         0.01
@@ -214,7 +217,8 @@
       ],
       "tests/test_ctx_turn_parity.py": [
         2.6,
-        1.58
+        1.58,
+        0.24
       ],
       "tests/test_dashboard_binning.py": [
         0.07
@@ -347,7 +351,8 @@
       ],
       "tests/test_ingest_forkserver.py": [
         16.92,
-        23.59
+        23.59,
+        36.98
       ],
       "tests/test_ingest_incremental.py": [
         0.0
@@ -515,7 +520,8 @@
       "tests/test_parse_non_object.py": [
         10.29,
         6.95,
-        4.98
+        4.98,
+        1.17
       ],
       "tests/test_parse_user_prompt.py": [
         0.01
@@ -523,14 +529,16 @@
       "tests/test_parser_js_dedup_merge.py": [
         6.4,
         4.15,
-        8.17
+        8.17,
+        0.63
       ],
       "tests/test_parser_js_fees.py": [
         0.26
       ],
       "tests/test_parser_js_fork.py": [
         2.93,
-        3.96
+        3.96,
+        0.4
       ],
       "tests/test_parser_js_lane_timestamps.py": [
         0.9
@@ -538,14 +546,16 @@
       "tests/test_parser_js_lanes.py": [
         44.05,
         30.06,
-        21.62
+        21.62,
+        14.76
       ],
       "tests/test_parser_js_meter_factors.py": [
         0.86
       ],
       "tests/test_parser_js_mirror.py": [
         17.23,
-        25.29
+        25.29,
+        6.39
       ],
       "tests/test_parser_js_pricing_loader.py": [
         4.67,
@@ -553,7 +563,8 @@
       ],
       "tests/test_parser_js_user_prompt.py": [
         2.24,
-        3.84
+        3.84,
+        0.23
       ],
       "tests/test_parser_js_web_search.py": [
         0.98,
@@ -609,6 +620,9 @@
       "tests/test_plot_features.py": [
         0.16
       ],
+      "tests/test_pool_reset_debug.py": [
+        0.0
+      ],
       "tests/test_price_band.py": [
         0.0
       ],
@@ -620,18 +634,21 @@
       ],
       "tests/test_pricing_compact_shape.py": [
         2.78,
-        4.51
+        4.51,
+        0.64
       ],
       "tests/test_pricing_data.py": [
         43.15,
         56.67,
-        72.72
+        72.72,
+        5.09
       ],
       "tests/test_pricing_data_more.py": [
         84.83,
         112.13,
         144.55,
-        60.86
+        60.86,
+        8.61
       ],
       "tests/test_pricing_flat_rows.py": [
         0.0
@@ -642,14 +659,16 @@
       "tests/test_pricing_loader_refusals.py": [
         14.24,
         25.33,
-        10.02
+        10.02,
+        3.73
       ],
       "tests/test_pricing_more.py": [
         0.01
       ],
       "tests/test_pricing_rows.py": [
         7.46,
-        4.88
+        4.88,
+        10.84
       ],
       "tests/test_pricing_vendor.py": [
         0.74
@@ -670,7 +689,8 @@
         0.01
       ],
       "tests/test_prompt_gate_whitespace.py": [
-        1.68
+        1.68,
+        0.46
       ],
       "tests/test_prompt_ts.py": [
         0.01
@@ -901,7 +921,8 @@
       ],
       "tests/test_suite_bench.py": [
         61.02,
-        42.19
+        42.19,
+        97.22
       ],
       "tests/test_suite_ci_wiring.py": [
         0.97
@@ -1090,7 +1111,8 @@
       "tests/test_agent_fold_js.py": [
         2.29,
         3.65,
-        5.91
+        5.91,
+        0.32
       ],
       "tests/test_agent_list_caps_js.py": [
         0.47
@@ -1158,7 +1180,8 @@
       ],
       "tests/test_breakdown_exact_rate.py": [
         3.93,
-        8.17
+        8.17,
+        2.11
       ],
       "tests/test_bucket_redact.py": [
         0.0
@@ -1171,7 +1194,8 @@
       ],
       "tests/test_cache_write_split.py": [
         1.17,
-        3.52
+        3.52,
+        0.12
       ],
       "tests/test_canonical_dims_parity.py": [
         0.0
@@ -1249,7 +1273,8 @@
       "tests/test_classic_script_scope.py": [
         7.99,
         13.2,
-        5.52
+        5.52,
+        3.4
       ],
       "tests/test_cold_load_legs.py": [
         0.0
@@ -1274,7 +1299,8 @@
       "tests/test_cost_buckets.py": [
         3.34,
         5.85,
-        1.94
+        1.94,
+        0.02
       ],
       "tests/test_crash_recovery.py": [
         0.0
@@ -1291,13 +1317,15 @@
       "tests/test_ctx_turn_parity.py": [
         2.39,
         3.52,
-        5.02
+        5.02,
+        0.49
       ],
       "tests/test_dashboard_binning.py": [
         0.04
       ],
       "tests/test_dashboard_fetch_js.py": [
-        1.37
+        1.37,
+        2.42
       ],
       "tests/test_dashboard_fetch_wiring.py": [
         0.01
@@ -1341,7 +1369,8 @@
       "tests/test_dotenv_order.py": [
         2.18,
         3.19,
-        4.45
+        4.45,
+        6.73
       ],
       "tests/test_empty_usage_parity.py": [
         0.53
@@ -1351,7 +1380,8 @@
         3.93
       ],
       "tests/test_env_prefix_scripts.py": [
-        0.36
+        0.36,
+        1.55
       ],
       "tests/test_eslint_targets_js.py": [
         0.0
@@ -1404,7 +1434,8 @@
       ],
       "tests/test_human_format_js.py": [
         2.86,
-        4.46
+        4.46,
+        7.19
       ],
       "tests/test_ingest.py": [
         0.0
@@ -1591,21 +1622,24 @@
       ],
       "tests/test_parse_non_object.py": [
         5.83,
-        12.51
+        12.51,
+        0.69
       ],
       "tests/test_parse_user_prompt.py": [
         0.0
       ],
       "tests/test_parser_js_dedup_merge.py": [
         3.78,
-        6.11
+        6.11,
+        0.36
       ],
       "tests/test_parser_js_fees.py": [
         0.17
       ],
       "tests/test_parser_js_fork.py": [
         2.16,
-        3.31
+        3.31,
+        0.21
       ],
       "tests/test_parser_js_lane_timestamps.py": [
         0.69
@@ -1613,7 +1647,8 @@
       "tests/test_parser_js_lanes.py": [
         26.64,
         35.49,
-        48.18
+        48.18,
+        12.01
       ],
       "tests/test_parser_js_meter_factors.py": [
         0.58
@@ -1621,7 +1656,8 @@
       "tests/test_parser_js_mirror.py": [
         15.29,
         24.34,
-        30.63
+        30.63,
+        4.47
       ],
       "tests/test_parser_js_pricing_loader.py": [
         2.69,
@@ -1629,7 +1665,8 @@
       ],
       "tests/test_parser_js_user_prompt.py": [
         2.25,
-        4.6
+        4.6,
+        0.21
       ],
       "tests/test_parser_js_web_search.py": [
         0.53,
@@ -1687,6 +1724,9 @@
       "tests/test_plot_features.py": [
         0.1
       ],
+      "tests/test_pool_reset_debug.py": [
+        0.0
+      ],
       "tests/test_price_band.py": [
         0.0
       ],
@@ -1700,17 +1740,20 @@
       "tests/test_pricing_compact_shape.py": [
         2.69,
         4.2,
-        7.69
+        7.69,
+        0.54
       ],
       "tests/test_pricing_data.py": [
         49.06,
         63.63,
         33.48,
-        79.55
+        79.55,
+        4.4
       ],
       "tests/test_pricing_data_more.py": [
         71.86,
-        108.76
+        108.76,
+        7.41
       ],
       "tests/test_pricing_flat_rows.py": [
         0.0
@@ -1720,7 +1763,8 @@
       ],
       "tests/test_pricing_loader_refusals.py": [
         10.3,
-        16.25
+        16.25,
+        2.33
       ],
       "tests/test_pricing_more.py": [
         0.0
@@ -1857,7 +1901,8 @@
         0.0
       ],
       "tests/test_refresh_fetch_deadline.py": [
-        1.62
+        1.62,
+        3.59
       ],
       "tests/test_refresh_pricelog.py": [
         0.21
@@ -1876,7 +1921,8 @@
       ],
       "tests/test_reparse_bench.py": [
         16.3,
-        22.4
+        22.4,
+        32.86
       ],
       "tests/test_reparse_ci_wiring.py": [
         0.1
@@ -1980,7 +2026,8 @@
       ],
       "tests/test_suite_bench.py": [
         47.99,
-        64.63
+        64.63,
+        103.69
       ],
       "tests/test_suite_ci_wiring.py": [
         1.58
@@ -1988,7 +2035,8 @@
       "tests/test_suite_cost_pricing_growth.py": [
         5.86,
         7.84,
-        4.16
+        4.16,
+        2.76
       ],
       "tests/test_suite_ratchet.py": [
         0.57
@@ -2091,7 +2139,8 @@
         1.79
       ],
       "tests/test_workflow_audit_retry.py": [
-        1.49
+        1.49,
+        2.71
       ],
       "tests/test_workflow_cached_image.py": [
         0.39
@@ -2139,7 +2188,8 @@
         47.95
       ],
       "tests/test_workflow_release_create.py": [
-        1.1
+        1.1,
+        2.42
       ],
       "tests/test_workflow_release_dispatch.py": [
         30.74,
@@ -2173,7 +2223,8 @@
       "tests/test_agent_fold_js.py": [
         1.67,
         3.93,
-        5.02
+        5.02,
+        0.46
       ],
       "tests/test_agent_list_caps_js.py": [
         0.42,
@@ -2237,11 +2288,13 @@
       ],
       "tests/test_branding.py": [
         4.72,
-        6.41
+        6.41,
+        9.48
       ],
       "tests/test_breakdown_exact_rate.py": [
         5.55,
-        3.58
+        3.58,
+        2.07
       ],
       "tests/test_bucket_redact.py": [
         0.01
@@ -2327,7 +2380,8 @@
       ],
       "tests/test_classic_script_scope.py": [
         10.45,
-        7.27
+        7.27,
+        2.68
       ],
       "tests/test_cold_load_legs.py": [
         0.01
@@ -2350,7 +2404,8 @@
       "tests/test_cost_buckets.py": [
         2.6,
         3.65,
-        4.7
+        4.7,
+        0.01
       ],
       "tests/test_crash_recovery.py": [
         0.0
@@ -2366,7 +2421,8 @@
       ],
       "tests/test_ctx_turn_parity.py": [
         2.63,
-        1.59
+        1.59,
+        0.21
       ],
       "tests/test_dashboard_binning.py": [
         0.04
@@ -2415,7 +2471,8 @@
       ],
       "tests/test_dotenv_order.py": [
         4.07,
-        2.77
+        2.77,
+        5.41
       ],
       "tests/test_empty_usage_parity.py": [
         0.52
@@ -2492,11 +2549,13 @@
         0.0
       ],
       "tests/test_ingest_fetch.py": [
-        1.16
+        1.16,
+        2.59
       ],
       "tests/test_ingest_forkserver.py": [
         29.24,
-        39.65
+        39.65,
+        57.31
       ],
       "tests/test_ingest_incremental.py": [
         0.0
@@ -2637,7 +2696,8 @@
       ],
       "tests/test_parse_codex_exec_targets.py": [
         3.99,
-        2.58
+        2.58,
+        5.84
       ],
       "tests/test_parse_codex_more.py": [
         0.03
@@ -2660,35 +2720,40 @@
       "tests/test_parse_non_object.py": [
         5.67,
         7.27,
-        9.63
+        9.63,
+        0.58
       ],
       "tests/test_parse_user_prompt.py": [
         0.01
       ],
       "tests/test_parser_js_dedup_merge.py": [
         3.76,
-        5.17
+        5.17,
+        0.36
       ],
       "tests/test_parser_js_fees.py": [
         0.18
       ],
       "tests/test_parser_js_fork.py": [
         3.45,
-        2.18
+        2.18,
+        0.22
       ],
       "tests/test_parser_js_lane_timestamps.py": [
         0.88
       ],
       "tests/test_parser_js_lanes.py": [
         39.58,
-        28.2
+        28.2,
+        12.76
       ],
       "tests/test_parser_js_meter_factors.py": [
         0.84
       ],
       "tests/test_parser_js_mirror.py": [
         24.01,
-        15.3
+        15.3,
+        7.03
       ],
       "tests/test_parser_js_pricing_loader.py": [
         2.85,
@@ -2696,7 +2761,8 @@
       ],
       "tests/test_parser_js_user_prompt.py": [
         3.41,
-        2.19
+        2.19,
+        0.2
       ],
       "tests/test_parser_js_web_search.py": [
         0.85
@@ -2747,6 +2813,9 @@
       "tests/test_plot_features.py": [
         0.09
       ],
+      "tests/test_pool_reset_debug.py": [
+        0.0
+      ],
       "tests/test_price_band.py": [
         0.0
       ],
@@ -2758,16 +2827,19 @@
       ],
       "tests/test_pricing_compact_shape.py": [
         3.61,
-        2.49
+        2.49,
+        0.81
       ],
       "tests/test_pricing_data.py": [
         40.11,
         55.54,
-        77.44
+        77.44,
+        5.09
       ],
       "tests/test_pricing_data_more.py": [
         135.92,
-        101.03
+        101.03,
+        9.83
       ],
       "tests/test_pricing_flat_rows.py": [
         0.0
@@ -2777,7 +2849,8 @@
       ],
       "tests/test_pricing_loader_refusals.py": [
         18.89,
-        14.06
+        14.06,
+        2.23
       ],
       "tests/test_pricing_more.py": [
         0.0
@@ -3289,7 +3362,8 @@
       ],
       "tests/test_breakdown_exact_rate.py": [
         3.32,
-        5.82
+        5.82,
+        1.23
       ],
       "tests/test_bucket_redact.py": [
         0.01
@@ -3301,7 +3375,8 @@
         0.0
       ],
       "tests/test_cache_write_split.py": [
-        1.76
+        1.76,
+        0.08
       ],
       "tests/test_canonical_dims_parity.py": [
         0.0
@@ -3374,7 +3449,8 @@
       ],
       "tests/test_classic_script_scope.py": [
         5.78,
-        10.4
+        10.4,
+        2.19
       ],
       "tests/test_cold_load_legs.py": [
         0.01
@@ -3397,7 +3473,8 @@
       ],
       "tests/test_cost_buckets.py": [
         4.8,
-        3.52
+        3.52,
+        0.01
       ],
       "tests/test_crash_recovery.py": [
         0.0
@@ -3413,7 +3490,8 @@
       ],
       "tests/test_ctx_turn_parity.py": [
         2.68,
-        1.57
+        1.57,
+        0.16
       ],
       "tests/test_dashboard_binning.py": [
         0.04
@@ -3706,35 +3784,40 @@
       ],
       "tests/test_parse_non_object.py": [
         9.48,
-        6.17
+        6.17,
+        0.38
       ],
       "tests/test_parse_user_prompt.py": [
         0.01
       ],
       "tests/test_parser_js_dedup_merge.py": [
         5.84,
-        3.93
+        3.93,
+        0.22
       ],
       "tests/test_parser_js_fees.py": [
         0.14
       ],
       "tests/test_parser_js_fork.py": [
         3.36,
-        2.24
+        2.24,
+        0.17
       ],
       "tests/test_parser_js_lane_timestamps.py": [
         0.52
       ],
       "tests/test_parser_js_lanes.py": [
         39.18,
-        25.54
+        25.54,
+        7.13
       ],
       "tests/test_parser_js_meter_factors.py": [
         0.86
       ],
       "tests/test_parser_js_mirror.py": [
         23.82,
-        15.6
+        15.6,
+        5.42
       ],
       "tests/test_parser_js_pricing_loader.py": [
         1.89,
@@ -3742,7 +3825,8 @@
       ],
       "tests/test_parser_js_user_prompt.py": [
         2.01,
-        3.34
+        3.34,
+        0.16
       ],
       "tests/test_parser_js_web_search.py": [
         0.84
@@ -3794,6 +3878,9 @@
       "tests/test_plot_features.py": [
         0.06
       ],
+      "tests/test_pool_reset_debug.py": [
+        0.0
+      ],
       "tests/test_price_band.py": [
         0.0
       ],
@@ -3805,16 +3892,19 @@
       ],
       "tests/test_pricing_compact_shape.py": [
         3.65,
-        2.37
+        2.37,
+        0.47
       ],
       "tests/test_pricing_data.py": [
         38.92,
         53.49,
-        73.8
+        73.8,
+        2.89
       ],
       "tests/test_pricing_data_more.py": [
         132.34,
-        80.52
+        80.52,
+        7.47
       ],
       "tests/test_pricing_flat_rows.py": [
         0.0
@@ -3824,7 +3914,8 @@
       ],
       "tests/test_pricing_loader_refusals.py": [
         17.8,
-        11.33
+        11.33,
+        1.37
       ],
       "tests/test_pricing_more.py": [
         0.01
@@ -4084,7 +4175,8 @@
       ],
       "tests/test_suite_cost_pricing_growth.py": [
         5.64,
-        7.62
+        7.62,
+        3.85
       ],
       "tests/test_suite_ratchet.py": [
         0.33
@@ -4267,7 +4359,8 @@
       ],
       "tests/test_agent_fold_js.py": [
         1.57,
-        2.66
+        2.66,
+        0.2
       ],
       "tests/test_agent_list_caps_js.py": [
         0.12
@@ -4319,7 +4412,8 @@
         0.22
       ],
       "tests/test_bash_reads.py": [
-        1.5
+        1.5,
+        2.8
       ],
       "tests/test_bash_segments.py": [
         0.02
@@ -4340,7 +4434,8 @@
       "tests/test_breakdown_exact_rate.py": [
         5.66,
         3.87,
-        8.98
+        8.98,
+        2.63
       ],
       "tests/test_bucket_redact.py": [
         4.47,
@@ -4355,7 +4450,8 @@
         0.0
       ],
       "tests/test_cache_write_split.py": [
-        1.32
+        1.32,
+        0.11
       ],
       "tests/test_canonical_dims_parity.py": [
         0.91,
@@ -4431,7 +4527,8 @@
       ],
       "tests/test_classic_script_scope.py": [
         5.53,
-        10.18
+        10.18,
+        2.69
       ],
       "tests/test_cold_load_legs.py": [
         0.0
@@ -4458,7 +4555,8 @@
       ],
       "tests/test_cost_buckets.py": [
         2.57,
-        4.42
+        4.42,
+        0.03
       ],
       "tests/test_crash_recovery.py": [
         0.69
@@ -4474,7 +4572,8 @@
         0.06
       ],
       "tests/test_ctx_turn_parity.py": [
-        1.99
+        1.99,
+        0.21
       ],
       "tests/test_dashboard_binning.py": [
         0.02
@@ -4527,7 +4626,8 @@
       ],
       "tests/test_dotenv_order.py": [
         2.28,
-        3.79
+        3.79,
+        5.31
       ],
       "tests/test_empty_usage_parity.py": [
         0.51
@@ -4554,7 +4654,8 @@
       ],
       "tests/test_export_shutdown.py": [
         4.43,
-        5.88
+        5.88,
+        7.84
       ],
       "tests/test_feature_serving.py": [
         10.06,
@@ -4618,7 +4719,8 @@
       ],
       "tests/test_ingest_forkserver.py": [
         32.38,
-        42.67
+        42.67,
+        57.35
       ],
       "tests/test_ingest_incremental.py": [
         4.6,
@@ -4799,7 +4901,8 @@
       ],
       "tests/test_parse_non_object.py": [
         9.4,
-        5.94
+        5.94,
+        0.57
       ],
       "tests/test_parse_user_prompt.py": [
         0.0
@@ -4807,14 +4910,16 @@
       "tests/test_parser_js_dedup_merge.py": [
         4.7,
         5.92,
-        3.51
+        3.51,
+        0.33
       ],
       "tests/test_parser_js_fees.py": [
         0.14
       ],
       "tests/test_parser_js_fork.py": [
         2.59,
-        3.73
+        3.73,
+        0.18
       ],
       "tests/test_parser_js_lane_timestamps.py": [
         0.52
@@ -4822,21 +4927,25 @@
       "tests/test_parser_js_lanes.py": [
         22.18,
         29.9,
-        39.31
+        39.31,
+        12.3
       ],
       "tests/test_parser_js_meter_factors.py": [
         0.65
       ],
       "tests/test_parser_js_mirror.py": [
         14.25,
-        24.67
+        24.67,
+        4.54
       ],
       "tests/test_parser_js_pricing_loader.py": [
-        2.14
+        2.14,
+        3.27
       ],
       "tests/test_parser_js_user_prompt.py": [
         2.59,
-        3.65
+        3.65,
+        0.18
       ],
       "tests/test_parser_js_web_search.py": [
         1.73,
@@ -4890,6 +4999,9 @@
       "tests/test_plot_features.py": [
         0.09
       ],
+      "tests/test_pool_reset_debug.py": [
+        0.38
+      ],
       "tests/test_price_band.py": [
         0.0
       ],
@@ -4901,15 +5013,18 @@
       ],
       "tests/test_pricing_compact_shape.py": [
         1.99,
-        3.87
+        3.87,
+        0.92
       ],
       "tests/test_pricing_data.py": [
         39.19,
-        74.68
+        74.68,
+        4.78
       ],
       "tests/test_pricing_data_more.py": [
         123.07,
-        77.73
+        77.73,
+        6.39
       ],
       "tests/test_pricing_flat_rows.py": [
         0.0
@@ -4920,7 +5035,8 @@
       "tests/test_pricing_loader_refusals.py": [
         13.93,
         17.94,
-        9.55
+        9.55,
+        1.74
       ],
       "tests/test_pricing_more.py": [
         0.01
@@ -5197,7 +5313,8 @@
       ],
       "tests/test_suite_bench.py": [
         46.2,
-        75.66
+        75.66,
+        98.48
       ],
       "tests/test_suite_ci_wiring.py": [
         0.49
@@ -5392,7 +5509,8 @@
       "tests/test_agent_fold_js.py": [
         5.52,
         14.12,
-        4.09
+        4.09,
+        2.29
       ],
       "tests/test_agent_list_caps_js.py": [
         2.16,
@@ -5477,7 +5595,8 @@
       ],
       "tests/test_cache_write_split.py": [
         2.35,
-        4.7
+        4.7,
+        0.13
       ],
       "tests/test_canonical_dims_parity.py": [
         0.0
@@ -5555,7 +5674,8 @@
       "tests/test_classic_script_scope.py": [
         14.02,
         9.71,
-        6.76
+        6.76,
+        2.2
       ],
       "tests/test_cold_load_legs.py": [
         0.01
@@ -5580,7 +5700,8 @@
       "tests/test_cost_buckets.py": [
         5.18,
         3.88,
-        2.8
+        2.8,
+        0.01
       ],
       "tests/test_crash_recovery.py": [
         0.01
@@ -5596,7 +5717,8 @@
       ],
       "tests/test_ctx_turn_parity.py": [
         3.25,
-        1.86
+        1.86,
+        0.34
       ],
       "tests/test_dashboard_binning.py": [
         0.07
@@ -5645,7 +5767,8 @@
       ],
       "tests/test_dotenv_order.py": [
         5.03,
-        3.29
+        3.29,
+        6.48
       ],
       "tests/test_empty_usage_parity.py": [
         1.05
@@ -5868,7 +5991,8 @@
       ],
       "tests/test_parse_codex_exec_targets.py": [
         4.57,
-        2.5
+        2.5,
+        6.42
       ],
       "tests/test_parse_codex_more.py": [
         0.06
@@ -5890,35 +6014,40 @@
       ],
       "tests/test_parse_non_object.py": [
         11.71,
-        8.34
+        8.34,
+        0.71
       ],
       "tests/test_parse_user_prompt.py": [
         0.01
       ],
       "tests/test_parser_js_dedup_merge.py": [
         7.31,
-        4.2
+        4.2,
+        0.64
       ],
       "tests/test_parser_js_fees.py": [
         0.29
       ],
       "tests/test_parser_js_fork.py": [
         4.13,
-        2.97
+        2.97,
+        0.23
       ],
       "tests/test_parser_js_lane_timestamps.py": [
         1.04
       ],
       "tests/test_parser_js_lanes.py": [
         49.01,
-        35.35
+        35.35,
+        11.16
       ],
       "tests/test_parser_js_meter_factors.py": [
         1.04
       ],
       "tests/test_parser_js_mirror.py": [
         29.18,
-        21.12
+        21.12,
+        5.52
       ],
       "tests/test_parser_js_pricing_loader.py": [
         4.59,
@@ -5927,7 +6056,8 @@
       ],
       "tests/test_parser_js_user_prompt.py": [
         4.14,
-        2.38
+        2.38,
+        0.36
       ],
       "tests/test_parser_js_web_search.py": [
         2.12,
@@ -5980,6 +6110,9 @@
       "tests/test_plot_features.py": [
         0.13
       ],
+      "tests/test_pool_reset_debug.py": [
+        0.0
+      ],
       "tests/test_price_band.py": [
         0.0
       ],
@@ -5992,17 +6125,20 @@
       ],
       "tests/test_pricing_compact_shape.py": [
         4.38,
-        3.28
+        3.28,
+        0.62
       ],
       "tests/test_pricing_data.py": [
         92.82,
         67.81,
-        46.66
+        46.66,
+        5.86
       ],
       "tests/test_pricing_data_more.py": [
         158.92,
         111.36,
-        81.78
+        81.78,
+        16.32
       ],
       "tests/test_pricing_flat_rows.py": [
         0.0
@@ -6013,7 +6149,8 @@
       "tests/test_pricing_loader_refusals.py": [
         20.99,
         15.46,
-        11.58
+        11.58,
+        2.9
       ],
       "tests/test_pricing_more.py": [
         0.01
@@ -6042,7 +6179,8 @@
       ],
       "tests/test_prompt_gate_whitespace.py": [
         3.35,
-        1.91
+        1.91,
+        0.34
       ],
       "tests/test_prompt_ts.py": [
         0.01
@@ -6080,7 +6218,8 @@
         0.23
       ],
       "tests/test_provider_rate_refresh_hosts.py": [
-        1.62
+        1.62,
+        5.4
       ],
       "tests/test_provider_rate_refresh_more.py": [
         0.73
@@ -6285,7 +6424,8 @@
         12.74,
         9.14,
         17.14,
-        6.76
+        6.76,
+        4.33
       ],
       "tests/test_suite_ratchet.py": [
         0.72,
@@ -6465,7 +6605,8 @@
       "tests/test_agent_fold_js.py": [
         6.46,
         4.58,
-        14.97
+        14.97,
+        2.72
       ],
       "tests/test_agent_list_caps_js.py": [
         2.8,
@@ -6547,7 +6688,8 @@
         0.01
       ],
       "tests/test_cache_write_split.py": [
-        2.16
+        2.16,
+        0.13
       ],
       "tests/test_canonical_dims_parity.py": [
         0.0
@@ -6623,7 +6765,8 @@
       "tests/test_classic_script_scope.py": [
         12.74,
         6.8,
-        16.0
+        16.0,
+        2.06
       ],
       "tests/test_cold_load_legs.py": [
         0.01
@@ -6647,7 +6790,8 @@
       ],
       "tests/test_cost_buckets.py": [
         4.4,
-        3.27
+        3.27,
+        0.01
       ],
       "tests/test_crash_recovery.py": [
         0.01
@@ -6663,7 +6807,8 @@
       ],
       "tests/test_ctx_turn_parity.py": [
         3.26,
-        1.73
+        1.73,
+        0.24
       ],
       "tests/test_dashboard_binning.py": [
         0.07
@@ -6712,7 +6857,8 @@
       ],
       "tests/test_dotenv_order.py": [
         4.68,
-        3.49
+        3.49,
+        5.94
       ],
       "tests/test_empty_usage_parity.py": [
         1.07
@@ -6934,7 +7080,8 @@
       ],
       "tests/test_parse_codex_exec_targets.py": [
         3.75,
-        2.12
+        2.12,
+        5.28
       ],
       "tests/test_parse_codex_more.py": [
         0.06
@@ -6956,35 +7103,40 @@
       ],
       "tests/test_parse_non_object.py": [
         11.66,
-        6.41
+        6.41,
+        1.0
       ],
       "tests/test_parse_user_prompt.py": [
         0.01
       ],
       "tests/test_parser_js_dedup_merge.py": [
         7.35,
-        5.5
+        5.5,
+        0.56
       ],
       "tests/test_parser_js_fees.py": [
         0.29
       ],
       "tests/test_parser_js_fork.py": [
         4.2,
-        3.14
+        3.14,
+        0.32
       ],
       "tests/test_parser_js_lane_timestamps.py": [
         1.04
       ],
       "tests/test_parser_js_lanes.py": [
         49.27,
-        27.63
+        27.63,
+        10.52
       ],
       "tests/test_parser_js_meter_factors.py": [
         1.03
       ],
       "tests/test_parser_js_mirror.py": [
         29.34,
-        16.87
+        16.87,
+        5.34
       ],
       "tests/test_parser_js_pricing_loader.py": [
         4.52,
@@ -6993,7 +7145,8 @@
       ],
       "tests/test_parser_js_user_prompt.py": [
         4.23,
-        3.14
+        3.14,
+        0.22
       ],
       "tests/test_parser_js_web_search.py": [
         2.09,
@@ -7043,10 +7196,14 @@
         0.08
       ],
       "tests/test_placeholder_model_refusal.py": [
-        1.1
+        1.1,
+        0.09
       ],
       "tests/test_plot_features.py": [
         0.13
+      ],
+      "tests/test_pool_reset_debug.py": [
+        0.0
       ],
       "tests/test_price_band.py": [
         0.01
@@ -7060,16 +7217,19 @@
       ],
       "tests/test_pricing_compact_shape.py": [
         4.5,
-        3.26
+        3.26,
+        0.6
       ],
       "tests/test_pricing_data.py": [
         69.82,
         51.84,
-        36.97
+        36.97,
+        5.08
       ],
       "tests/test_pricing_data_more.py": [
         134.99,
-        100.2
+        100.2,
+        12.88
       ],
       "tests/test_pricing_flat_rows.py": [
         0.0
@@ -7079,7 +7239,8 @@
       ],
       "tests/test_pricing_loader_refusals.py": [
         19.6,
-        14.41
+        14.41,
+        1.89
       ],
       "tests/test_pricing_more.py": [
         0.01
@@ -7346,7 +7507,8 @@
       ],
       "tests/test_suite_cost_pricing_growth.py": [
         10.76,
-        6.04
+        6.04,
+        4.12
       ],
       "tests/test_suite_ratchet.py": [
         3.77,
