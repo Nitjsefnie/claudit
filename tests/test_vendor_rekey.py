@@ -8,6 +8,7 @@ import pytest
 
 from backend import pricing
 from backend.pricing_document import expand_pricing_doc, serialize_pricing_doc
+from tests.test_pricing_vendor import _install
 from tests.vendor_rate_refresh_helpers import (
     NOW, RATES, _catalog, _doc, _endpoint, _load, _payload, _price, _run,
     seed_doc, vendor,
@@ -121,18 +122,10 @@ def test_collision_refuses_both_names_before_any_mutation(table):
 def test_catalog_id_resolves_to_the_rekeyed_bare_key(monkeypatch):
     doc, out = _run(_prefixed_doc(), _catalog(), {})
     assert not out.refusals
-    with monkeypatch.context() as patch:
-        for name, value in pricing.load_tables(doc).items():
-            patch.setattr(pricing, name, value)
-        pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
-        pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
-        try:
-            resolved = pricing.resolve(CATALOG_ID)
-            assert (resolved.kind, resolved.key, resolved.rates) == (
-                "exact", BARE, {**RATES, "web_search": 0.01})
-        finally:
-            pricing._MATCH_KEY_CACHE.clear()  # pylint: disable=protected-access
-            pricing._VENDOR_MATCH_CACHE.clear()  # pylint: disable=protected-access
+    _install(monkeypatch, doc)
+    resolved = pricing.resolve(CATALOG_ID)
+    assert (resolved.kind, resolved.key, resolved.rates) == (
+        "exact", BARE, {**RATES, "web_search": 0.01})
 
 
 def test_main_bumps_version_when_rekey_is_the_only_move(tmp_path, capsys):

@@ -33,7 +33,6 @@ from tests.test_pricing_vendor import (
     R_THIRD,
     STAMP,
     UTC,
-    _clear_caches,
     _copy_browser,
     _doc,
     _entry,
@@ -122,12 +121,8 @@ def _probe_records():
 
 
 def _price_all(doc, cases):
-    tables = pricing.load_tables(doc)
-    saved = {name: getattr(pricing, name) for name in tables}
-    try:
-        for name, value in tables.items():
-            setattr(pricing, name, value)
-        _clear_caches()
+    with pytest.MonkeyPatch.context() as patched:
+        _install(patched, doc)
         out = []
         for model, ts, provider, tokens in cases:
             res = pricing.resolve(model, ts, provider)
@@ -135,10 +130,6 @@ def _price_all(doc, cases):
             out.append((res.kind, res.key, res.scheduled,
                         res.rates, cost))
         return out
-    finally:
-        for name, value in saved.items():
-            setattr(pricing, name, value)
-        _clear_caches()
 
 
 def test_migration_prices_every_record_identically():
