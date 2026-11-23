@@ -631,6 +631,9 @@ backend/          — FastAPI application
   sse.py          — SSE body iteration and ownership of its waiters
   db.py           — viz_pool (claudit) and auth_pool (auth DB,
                     READ-ONLY); pools never join across DBs
+  pool_reset_debug.py — CLAUDIT_DEBUG_POOL_RESET: the thread and stack
+                    behind a viz-pool connection returned or checked out
+                    non-idle
   cache.py        — LRU for raw transcript bytes (256 MB, 20-min idle)
   cache_outcomes.py — the response cache's outcome counters; invalidate()
                     logs the since-last-invalidate window, /health the totals
