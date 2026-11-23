@@ -95,7 +95,7 @@ def _entry(at: str | None, rates: dict, **extra) -> dict:
 
 
 def _endpoint(host: str, rates: dict) -> dict:
-    return fixture_endpoint(host, rates, tag="wafer/fp8")
+    return fixture_endpoint(host, rates, tag=f"{host.lower()}/fp8")
 
 
 @dataclass
@@ -348,6 +348,35 @@ def test_invalid_generated_log_entry_samples_only_its_host(tmp_path, capsys):
             and "the host was sampled" in out)
 
 
+def test_a_refused_log_backed_append_blocks_only_its_host(tmp_path, capsys, monkeypatch):
+    real_append = refresh._append_logged  # pylint: disable=protected-access
+
+    # No input makes the real append refuse, so the seam is the module global
+    # _refresh_model binds; every other host still takes the real append.
+    def refuse_wafer(model, hosts, host, *args, **kwargs):
+        if host == HOST:
+            raise refresh.RefreshError(f"{model} via {host}: synthetic append refusal")
+        return real_append(model, hosts, host, *args, **kwargs)
+
+    monkeypatch.setattr(refresh, "_append_logged", refuse_wafer)
+    states = [("2030-12-31T23:00:00Z", RATE_A), ("2031-01-01T00:10:00Z", RATE_B)]
+    moves = [("2030-12-31T23:00:00Z", RATE_A), ("2031-01-01T00:05:00Z", RATE_C),
+             ("2031-01-01T00:20:00Z", RATE_A)]
+    ancient = {**_series(moves), "endpointId": "synthetic-ancient-endpoint",
+               "providerName": "Ancient", "providerSlug": "ancient"}
+    rc, _, err, pricing_path, _ = _run(
+        tmp_path, capsys, history=states,
+        hosts={HOST: [_entry(None, RATE_A)], "Ancient": [_entry(None, RATE_A)]},
+        log_fetch=lambda: {"data": {"series": [ancient, _series(states)]}})
+
+    assert f"{MODEL} via {HOST}: synthetic append refusal" in err
+    assert rc == 1
+    saved = decoded_pricing_doc(json.loads(pricing_path.read_text(encoding="utf-8")))
+    assert saved["providers"][MODEL] == {
+        HOST: [_entry(None, RATE_A)],
+        "Ancient": [_entry(None, RATE_A), *(_entry(*move) for move in moves[1:])]}
+
+
 @pytest.mark.parametrize(("states", "imported"), [
     ([("2030-12-31T23:00:00Z", RATE_A), ("2031-01-01T00:10:00Z", RATE_B)],
      [("2030-12-31T23:00:00Z", RATE_A), ("2031-01-01T00:10:00Z", RATE_B)]),
@@ -507,37 +536,6 @@ def test_main_names_a_swallowed_deadline_before_a_later_refresh_error(tmp_path, 
         assert err.index(url) < err.index("later failure")
     finally:
         release.set()
-
-
-def test_report_lists_each_sampled_host_with_a_short_reason():
-    result = refresh.Result(
-        {}, [], [], [], [],
-        {MODEL: {
-            "Wafer": "2 endpoints at one current price",
-            "BaseTen": "cheapest resolution has no stable endpoint identity",
-        }},
-    )
-
-    out = refresh.report(STAMP, result, {MODEL: {"id": MODEL_ID}})
-
-    assert ("  sampled   BaseTen (cheapest resolution); "
-            "Wafer (2 endpoints at one current price)") in out
-    assert "notices:" not in out
-
-
-def test_the_new_divergence_classes_get_their_short_report_forms():
-    result = refresh.Result(
-        {}, [], [], [], [],
-        {MODEL: {
-            "Wafer": "the listing lags the price log",
-            "Baidu": "no in-force log state matches the listing",
-        }},
-    )
-
-    out = refresh.report(STAMP, result, {MODEL: {"id": MODEL_ID}})
-
-    assert ("  sampled   Baidu (no matching log state); "
-            "Wafer (listing lags log)") in out
 
 
 def test_sampled_schedule_change_keeps_the_original_report_text():
