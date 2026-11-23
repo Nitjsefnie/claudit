@@ -166,6 +166,7 @@
     "kimi-k3 via Parasail: rule-resolved (unique quantization): took the fp4 endpoint 'parasail/fp4' over service tiers",
     "kimi-k3 via Wafer: rule-resolved (bare namespace): took the bare namespace endpoint 'wafer' over service tiers 'wafer/fast'",
     "kimi-k3-1-pro via Alibaba: rule-resolved (data region): took the global endpoint 'alibaba' over 'alibaba/prime'",
+    "kimi-k3-1-pro via Fireworks: rule-resolved (data region): the global data region leaves 'fireworks'; dropped 'fireworks/us'",
     "kimi-k3-1-pro via InferenceNet: rule-resolved (unique quantization): took the mxfp4 endpoint 'inference-net/mxfp4' over service tiers",
     "kimi-k3-1-pro via Moonshot AI: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
     "kimi-k3-1-pro via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
@@ -265,7 +266,8 @@
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
+    "the listing lags the listed-pricing log for deepseek-v4-pro via Baidu; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -385,6 +387,9 @@
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints selected",
       "Sail Research": "2 endpoints at one current price"
+    },
+    "deepseek-v4-pro": {
+      "Baidu": "listing lags log"
     },
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
@@ -828,6 +833,9 @@
       "Novita",
       "Relace",
       "Tenstorrent"
+    ],
+    "qwen3-8-27b": [
+      "Venice"
     ],
     "step-5-preview": [
       "DeepInfra",
