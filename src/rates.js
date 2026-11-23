@@ -57,7 +57,7 @@ const _tierFallbacks = () => _tierTable || (_tierTable = [
   [/opus/, _latestKey(['opus'])],
   [/sonnet/, _latestKey(['sonnet'])],
   [/haiku/, _latestKey(['haiku'])],
-]);
+].filter(([, key]) => key !== null));
 // A dated snapshot suffix ('-YYYYMMDD') is the same model; a short version
 // suffix ('-9') or mode suffix ('-fast') is a DIFFERENT model.
 const _SNAPSHOT_SUFFIX = /^-?\d{6,8}$/;
