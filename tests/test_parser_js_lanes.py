@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from backend import parse, pricing
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 LANES_JS = ROOT / "src" / "parser-lanes.js"
@@ -44,7 +44,7 @@ TRICKY_BLOBS = [
 
 
 @lru_cache(maxsize=1)
-def _browser_lane_output() -> dict:
+def _browser_lane_output() -> dict:  # live document: its costs are compared with the backend's
     fixtures = {p.name: p.read_text(encoding="utf-8") for p in LANE_FIXTURES}
     script = f"""
       global.window = {{}};
@@ -129,7 +129,7 @@ def _long_context_blob(plan_type: str | None) -> bytes:
     return b"".join(json.dumps(line).encode() + b"\n" for line in lines)
 
 
-def _node_long_context(plan_type: str | None) -> dict:
+def _node_long_context(plan_type: str | None) -> dict:  # live document: its cost is compared with the backend's
     script = f"""
       global.window = {{}};
       require({str(LANES_JS)!r});
@@ -157,7 +157,7 @@ def _node_long_context(plan_type: str | None) -> dict:
 def _node_long_context_shape(blob: str, meters: dict) -> list:
     """Codex long_context flags under injected per-model meters."""
     script = f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r}); require({str(PARSER_JS)!r});
@@ -320,7 +320,7 @@ class TestNodeDrivenLaneParsers:
                        "gpt\u0665.6-sol"]
 
         script = f"""
-          global.window = {{}};
+          {BOUNDED_PRICING}global.window = {{}};
           require({str(LANES_JS)!r});
           require({str(CODEX_JS)!r});
           require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
@@ -371,7 +371,7 @@ class TestNodeDrivenLaneParsers:
     def test_browser_threshold_and_flag_decide_per_model(self):
         """The threshold and Claude flag follow the model's meter."""
         script = f"""
-          global.window = {{}};
+          {BOUNDED_PRICING}global.window = {{}};
           require({str(LANES_JS)!r});
           require({str(CODEX_JS)!r});
           require({str(LOADER_JS)!r}); require({str(RATES_JS)!r}); require({str(PARSER_JS)!r});
@@ -422,7 +422,7 @@ class TestNodeDrivenLaneParsers:
             blob, {"gpt-5-6-sol": {"threshold": 200000}})
         assert got == [True]
 
-    def test_per_model_meter_factors_match_backend_and_inspector(self, monkeypatch):
+    def test_per_model_meter_factors_match_backend_and_inspector(self, monkeypatch):  # live document: the backend side prices on the live tables
         """Synthetic per-model factors match backend and Inspector costs."""
         model_key = "gpt-5-6-sol"
         rates = {
@@ -515,7 +515,7 @@ class TestNodeDrivenLaneParsers:
         fixtures = {p.name: p.read_text(encoding="utf-8") for p in [next(
             p for p in LANE_FIXTURES if p.name == name)]}
         script = f"""
-          global.window = {{}};
+          {BOUNDED_PRICING}global.window = {{}};
           require({str(LANES_JS)!r});
           require({str(KIMI_JS)!r});
           require({str(CODEX_JS)!r});
@@ -569,7 +569,7 @@ class TestNodeDrivenLaneParsers:
                 "parallelBatches", "firstTs", "lastTs", "output",
                 "hitRate", "cost"} <= set(got["stats"])
 
-    def test_browser_token_breakdown_applies_the_long_context_meter(self):
+    def test_browser_token_breakdown_applies_the_long_context_meter(self):  # live document: expected costs use the live rates
         """Token Breakdown applies the meter to long-context rows."""
         lc_fresh, lc_out = 300_000, 2_000
         flat_fresh, flat_out = 50_000, 500
@@ -646,7 +646,7 @@ class TestNodeDrivenLaneParsers:
         assert got["in"] == pricing.LONG_CONTEXT_INPUT_MULT
         assert got["out"] == pricing.LONG_CONTEXT_OUTPUT_MULT
 
-    def test_browser_inspector_turn_cost_applies_the_long_context_meter(self):
+    def test_browser_inspector_turn_cost_applies_the_long_context_meter(self):  # live document: expected cost uses the live rates
         """Inspector turn cost matches the record's metered dated price."""
         expected = pricing.compute_cost(
             "gpt-5.6-sol", fresh=10_000, output=2_000, eph5=0, eph1h=0,

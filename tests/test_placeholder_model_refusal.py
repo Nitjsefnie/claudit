@@ -17,7 +17,7 @@ import pytest
 from backend import db, ingest, parse
 from backend.parse_lanes import refuse_unattributed
 from tests import scratch_db
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 FIX_PARSER = ROOT / "fixtures" / "parser"
@@ -63,7 +63,7 @@ def test_a_browser_claude_parse_keeps_a_modelless_record_null():
         '"text":"r"}],"usage":{"input_tokens":1,"output_tokens":1}}}\n'
     )
     script = f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r}); require({str(RATES_JS)!r});
       require({str(PARSER_JS)!r});

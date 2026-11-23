@@ -36,7 +36,7 @@ from pathlib import Path
 import pytest
 
 from backend.js_min import minify_js
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML = ROOT / "public" / "index.html"
@@ -204,7 +204,7 @@ def _classic_scripts() -> list[tuple[str, str]]:
 def _realm_summary(scripts: list[tuple[str, str]],
                    babel_scripts: list[tuple[str, str]] | None = None) -> dict:
     """Load one ordered script set and probe its globals and parser seams."""
-    runner = _RUNNER.replace("%SEAMS%", repr(list(_SEAMS)))
+    runner = BOUNDED_PRICING + _RUNNER.replace("%SEAMS%", repr(list(_SEAMS)))
     probes = {
         "codex_min.jsonl": CODEX_PROBE_FIXTURE,
         "kimi_code_min.jsonl": KIMI_CODE_PROBE_FIXTURE,
@@ -605,7 +605,7 @@ def test_babel_scripts_never_run_over_refused_pricing(scenario: str, message: st
 
 def _early_read_probe(scenario: str) -> dict:
     proc = run_node(
-        ["node", "-e", _EARLY_READ_RUNNER, scenario],
+        ["node", "-e", BOUNDED_PRICING + _EARLY_READ_RUNNER, scenario],
         input=json.dumps({"scripts": _classic_scripts()}).encode(),
         capture_output=True, timeout=60,
         env={**os.environ, "CLAUDIT_SRC_DIR": str(ROOT / "src")}, check=False,

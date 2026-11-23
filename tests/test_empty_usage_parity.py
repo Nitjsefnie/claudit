@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from backend import parse
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +35,7 @@ def _browser_results() -> dict[str, dict[str, Any]]:
         for name, _, _, _ in EXPECTED
     }
     script = f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       require({json.dumps(str(LANES_JS))});
       require({json.dumps(str(KIMI_JS))});
       require({json.dumps(str(ROOT / 'src' / 'parser-codex.js'))});

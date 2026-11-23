@@ -11,7 +11,7 @@ import pytest
 
 from backend import parse
 from backend import prompt_gate
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,7 +57,7 @@ def _backend_prompt_lines(text: str, parsed: dict) -> list[int]:
 
 def _node_prompt_results(transcripts: dict[str, str]) -> dict:
     script = f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(LOADER_JS)!r});
       require({str(RATES_JS)!r});

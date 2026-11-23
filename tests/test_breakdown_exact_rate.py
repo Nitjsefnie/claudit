@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 from backend import api, db, ingest, pricing
 from backend.pricing_document import serialize_pricing_doc
 from tests import gpt56_cuts, scratch_db
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -60,9 +60,9 @@ def _harness(pricing_dir: Path | None = None) -> str:
     """
 
 
-def _node(body: str, pricing_dir: Path | None = None) -> dict:
+def _node(body: str, pricing_dir: Path | None = None, prelude: str = "") -> dict:
     proc = run_node(
-        ["node", "-e", _harness(pricing_dir) + body], cwd=ROOT, capture_output=True,
+        ["node", "-e", prelude + _harness(pricing_dir) + body], cwd=ROOT, capture_output=True,
         text=True, timeout=60, check=False,
     )
     assert proc.returncode == 0, proc.stderr
@@ -382,7 +382,7 @@ def test_breakdown_keeps_search_cost_separate_from_token_buckets():
         sum: bd.costRows.reduce((s, r) => s + r.cost, 0),
       }));
     """
-    got = _node(body)
+    got = _node(body, prelude=BOUNDED_PRICING)
     assert got["costTotal"] == pytest.approx(2.0 + 3 * 0.0137)
     assert got["input"] == pytest.approx(2.0)
     assert got["searches"] == pytest.approx(3 * 0.0137)

@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 
 from backend import parse
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 FIX_PARSER = ROOT / "fixtures" / "parser"
@@ -61,7 +61,7 @@ def _browser(name):
     """
     text = (FIX_PARSER / name).read_text(encoding="utf-8")
     script = f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       require({str(CACHE_WRITE_JS)!r});
       require({str(LANES_JS)!r});
       require({str(CODEX_JS)!r});

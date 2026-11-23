@@ -12,7 +12,7 @@ from tests.test_parser_js_lanes import (
     CODEX_JS, LANES_JS, LOADER_JS, PARSER_JS, RATES_JS, _backend_records,
     _browser_records,
 )
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 CLAUDE_FIXTURE = ROOT / "fixtures" / "parser" / "web_search.jsonl"
@@ -50,7 +50,7 @@ def test_claude_server_search_count_matches_backend():
     backend_counts = [record["web_search_requests"] for record in
                       parse.parse_file("claude/search.jsonl", blob)["records"]]
     script = f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       require({str(LANES_JS)!r});
       require({str(CODEX_JS)!r});
       require({str(LOADER_JS)!r});

@@ -7,7 +7,7 @@ import pytest
 
 from backend import constants, parse
 from backend.parse_lanes import sniff_format
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = ROOT / "fixtures" / "parser"
@@ -85,7 +85,7 @@ def _browser_context_stats(fixtures: list[Path]) -> dict[str, Any]:
     )
     proc = run_node(
         ["node", "-"],
-        input=script,
+        input=BOUNDED_PRICING + script,
         capture_output=True,
         text=True,
         encoding="utf-8",

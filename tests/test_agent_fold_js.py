@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 from backend import agent_types
 from backend import app as app_mod
 from backend import session as session_mod
-from tests.node_run import run_node
+from tests.node_run import BOUNDED_PRICING, run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT_TYPES_JS = ROOT / "src" / "agent-types.js"
@@ -88,7 +88,7 @@ def _folded_names(text: str) -> list[str]:
     """agent_spawn agent_names out of the real browser parse path, with
     the served table in place."""
     script = f"""
-      global.window = {{}};
+      {BOUNDED_PRICING}global.window = {{}};
       require({str(AGENT_TYPES_JS)!r});
       window.AGENT_TYPE_FOLD = {json.dumps(agent_types.fold_table())};
       require({str(RECORD_DEDUP_JS)!r});
