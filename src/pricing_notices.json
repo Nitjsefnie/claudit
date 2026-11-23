@@ -30,7 +30,7 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
-    "alternating price: deepseek-v4-1-flash-1017 via Wafer: the listed rates equal the entry from 2026-11-17T03:55:59Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
+    "alternating price: gpt-oss-20b via PrimeIntellect: the listed rates equal the entry from 2026-11-19T12:20:53Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: kimi-k3-1-pro via InferenceNet: the listed rates equal the entry from 2026-11-20T00:53:48Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
@@ -42,6 +42,7 @@
     "deepseek-v4-1-flash via Fireworks: rule-resolved (data region): took the global endpoint 'fireworks' over 'fireworks/spot'",
     "deepseek-v4-1-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp8'; dropped 'inference-net/us'",
     "deepseek-v4-1-flash via Parasail: rule-resolved (unique quantization): took the fp8 endpoint 'parasail/fp8' over service tiers",
+    "deepseek-v4-1-flash via Together: rule-resolved (data region): the global data region leaves 'together'; dropped 'together/us'",
     "deepseek-v4-1-flash via Venice: rule-resolved (unique quantization): took the fp8 endpoint 'venice/fp8' over service tiers",
     "deepseek-v4-1-flash via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
     "deepseek-v4-1-flash-1017 via BaseTen: rule-resolved (bare namespace): took the bare namespace endpoint 'baseten' over service tiers 'baseten/fast'",
@@ -50,6 +51,7 @@
     "deepseek-v4-1-flash-1017 via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp8'; dropped 'inference-net/us'",
     "deepseek-v4-1-flash-1017 via Morph: rule-resolved (unique quantization): took the fp8 endpoint 'morph/fp8' over service tiers",
     "deepseek-v4-1-flash-1017 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
+    "deepseek-v4-1-flash-1017 via Together: rule-resolved (data region): the global data region leaves 'together'; dropped 'together/us'",
     "deepseek-v4-1-flash-1017 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
     "deepseek-v4-flash via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-flash-0731 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
@@ -120,12 +122,14 @@
     "glm-5-3 via Mistral: rule-resolved (data region): the global data region leaves 'mistral/zdr'; dropped 'mistral/nvfp4/eu'",
     "glm-5-3 via Parasail: rule-resolved (unique quantization): took the fp4 endpoint 'parasail/fp4' over service tiers",
     "glm-5-3 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp8'; dropped 'sail-research/us'",
+    "glm-5-3 via Together: rule-resolved (data region): the global data region leaves 'together'; dropped 'together/us'",
     "glm-5-3 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/fp4'; dropped 'wafer/us'",
     "glm-5-3-flash via Fireworks: rule-resolved (data region): the global data region leaves 'fireworks'; dropped 'fireworks/us'",
     "glm-5-3-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/us'",
     "glm-5-3-flash via Parasail: rule-resolved (unique quantization): took the fp8 endpoint 'parasail/fp8' over service tiers",
     "glm-5-3-flash via Particle AI: rule-resolved (tier variant base): took the base endpoint 'particle-ai/nvfp4' over tier variants 'particle-ai/nvfp4/flex'",
     "glm-5-3-flash via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
+    "glm-5-3-flash via Together: rule-resolved (data region): the global data region leaves 'together'; dropped 'together/us'",
     "gpt-5-1 via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-5-2 via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-5-3-codex via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast'",
@@ -179,6 +183,7 @@
     "minimax-m3-1-flash via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp4'; dropped 'inference-net/fp4/us'",
     "moonshotai/kimi-k2.7-code: stale pin tag 'moonshotai/int4' is not listed; listed tags: 'moonshotai', 'moonshotai/highspeed'; selecting as unpinned; rule-resolved past a stale pin; selected 'moonshotai'; the bare-tag rule took the bare vendor endpoint 'moonshotai'",
     "moonshotai/kimi-k3.1-pro: rule-resolved (unique quantization): took the mxfp4 endpoint 'moonshotai/mxfp4' over service tiers",
+    "muse-glimmer-30b via Together: rule-resolved (data region): the global data region leaves 'together'; dropped 'together/us'",
     "nemotron-3-super-120b-a12b via DeepInfra: 3 endpoints (deepinfra/bf16, deepinfra/bf16/flex, deepinfra/bf16/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "nemotron-3-ultra-550b-a55b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp4' over tier variants 'deepinfra/fp4/flex', 'deepinfra/fp4/priority'",
     "no in-force state of the listed-pricing log matches the listing for claude-fable-5 via Anthropic; the host was sampled",
@@ -217,8 +222,6 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-1-flash via OpenInference; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-1-flash-1017 via OpenInference; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "qwen-2-5-72b-instruct via DeepInfra: 2 endpoints (deepinfra/fp8, deepinfra/fp8/flex) at 2 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "qwen3-14b via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
@@ -270,8 +273,8 @@
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for deepseek-v4-1-flash-1017 via Wafer; the host was sampled",
-    "the listing lags the listed-pricing log for qwen3-8-27b via PrimeIntellect; the host was sampled"
+    "the listing lags the listed-pricing log for gpt-oss-20b via PrimeIntellect; the host was sampled",
+    "the listing lags the listed-pricing log for qwen3-6-35b-a3b via PrimeIntellect; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -379,16 +382,13 @@
     "deepseek-v4-1-flash": {
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints at one current price",
-      "InferenceNet": "2 endpoints at one current price",
-      "OpenInference": "no matching log state"
+      "InferenceNet": "2 endpoints at one current price"
     },
     "deepseek-v4-1-flash-1017": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule",
       "InferenceNet": "2 endpoints at one current price",
-      "OpenInference": "no matching log state",
-      "Sail Research": "2 endpoints at one current price",
-      "Wafer": "listing lags log"
+      "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-flash-0731": {
       "Alibaba": "endpoint schedule",
@@ -551,7 +551,8 @@
       "BaseTen": "2 endpoints at one current price"
     },
     "gpt-oss-20b": {
-      "Amazon Bedrock": "2 endpoints at one current price"
+      "Amazon Bedrock": "2 endpoints at one current price",
+      "PrimeIntellect": "listing lags log"
     },
     "hy3": {
       "Tencent": "endpoint schedule"
@@ -578,6 +579,9 @@
     "qwen3-5-plus-20260420": {
       "Alibaba": "long-context band"
     },
+    "qwen3-6-35b-a3b": {
+      "PrimeIntellect": "listing lags log"
+    },
     "qwen3-6-flash": {
       "Alibaba": "long-context band"
     },
@@ -589,9 +593,6 @@
     },
     "qwen3-7-plus": {
       "Alibaba": "long-context band"
-    },
-    "qwen3-8-27b": {
-      "PrimeIntellect": "listing lags log"
     },
     "qwen4-max": {
       "Alibaba": "log series count mismatch"
@@ -615,6 +616,9 @@
     ],
     "claude-opus-4-1": [
       "Anthropic"
+    ],
+    "deepseek-v3-2": [
+      "DigitalOcean"
     ],
     "deepseek-v4-1-flash": [
       "AtlasCloud",
