@@ -223,6 +223,7 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for glm-5-3 via Inceptron; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "qwen-2-5-72b-instruct via DeepInfra: 2 endpoints (deepinfra/fp8, deepinfra/fp8/flex) at 2 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "qwen3-14b via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
@@ -275,7 +276,7 @@
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for qwen3-6-35b-a3b via PrimeIntellect; the host was sampled"
+    "the listing lags the listed-pricing log for deepseek-v4-pro via Baidu; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -397,6 +398,9 @@
       "BaseTen": "2 endpoints selected",
       "Sail Research": "2 endpoints at one current price"
     },
+    "deepseek-v4-pro": {
+      "Baidu": "listing lags log"
+    },
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
@@ -406,6 +410,7 @@
     },
     "glm-5-3": {
       "BaseTen": "2 endpoints at one current price",
+      "Inceptron": "no matching log state",
       "InferenceNet": "2 endpoints at one current price"
     },
     "glm-5-3-flash": {
@@ -579,9 +584,6 @@
     },
     "qwen3-5-plus-20260420": {
       "Alibaba": "long-context band"
-    },
-    "qwen3-6-35b-a3b": {
-      "PrimeIntellect": "listing lags log"
     },
     "qwen3-6-flash": {
       "Alibaba": "long-context band"
