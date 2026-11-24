@@ -182,11 +182,13 @@ def test_context_metadata_and_context_only_appends_leave_fingerprints_unchanged(
     assert all(value == boundaries[0] for value in boundaries)
 
 
-def _checkout(tmp_path: Path, text: str) -> Path:
-    """A tree holding the backend, the pricing tools and `text` as its document."""
+def _checkout(tmp_path: Path, text: str, scripts: str = "*") -> Path:
+    """A tree holding the backend, the named pricing scripts and `text` as its document."""
     repo = tmp_path / "checkout"
-    for part in ("backend", "scripts/ci"):
-        shutil.copytree(ROOT / part, repo / part, ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(ROOT / "backend", repo / "backend", ignore=shutil.ignore_patterns("__pycache__"))
+    (repo / "scripts" / "ci").mkdir(parents=True)
+    for script in (ROOT / "scripts" / "ci").glob(f"{scripts}.py"):
+        shutil.copy(script, repo / "scripts" / "ci")
     (repo / "src").mkdir()
     (repo / "src" / "pricing.json").write_text(text, encoding="utf-8", newline="\n")
     return repo
@@ -265,7 +267,7 @@ def test_a_written_move_omits_cache_rates_equal_to_fresh(tmp_path, capsys):
 @pytest.mark.parametrize("alternate", [False, True])
 def test_converter_bootstraps_with_a_legacy_canonical_file(tmp_path, alternate):
     legacy = json.dumps(_synthetic_doc()) + "\n"
-    repo = _checkout(tmp_path, legacy)
+    repo = _checkout(tmp_path, legacy, "convert_pricing_doc")
     canonical = repo / "src" / "pricing.json"
     target = tmp_path / "alternate.json" if alternate else canonical
     target.write_text(legacy, encoding="utf-8", newline="\n")
