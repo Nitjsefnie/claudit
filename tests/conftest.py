@@ -169,6 +169,12 @@ def _reset_fetch_deadline():
         vars(module).update(_deadline_at=None, _failed_url=None, _last_url=None)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _bind_rate_tables():
+    # Outside every test's window; collecting stays free.
+    pricing.bind_tables()
+
+
 @pytest.fixture(autouse=True)
 def _isolate_fetch_deadline():
     _reset_fetch_deadline()
