@@ -16,6 +16,7 @@
     "minimax/minimax-m2-her",
     "minimax/minimax-m2.1",
     "moonshotai/kimi-k2",
+    "moonshotai/kimi-k2-0905",
     "moonshotai/kimi-k2-thinking",
     "openai/gpt-3.5-turbo",
     "openai/gpt-3.5-turbo-instruct",
@@ -32,8 +33,6 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
-    "alternating price: kimi-k3-1-pro via Morph: the listed rates equal the entry from 2026-11-20T05:35:51Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
-    "alternating price: qwen3-5-9b via PrimeIntellect: the listed rates equal the entry from 2026-11-20T22:30:52Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-5 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
@@ -67,7 +66,7 @@
     "deepseek-v4-pro-0813 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-pro-0813 via Parasail: rule-resolved (unique quantization): took the fp8 endpoint 'parasail/fp8' over service tiers",
     "deepseek-v4-pro-0813 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
-    "delisted from OpenRouter's catalog; row kept, not fetched: claude-3-5-haiku- (anthropic/claude-3-5-haiku), claude-3-5-sonnet- (anthropic/claude-3-5-sonnet), claude-3-7-sonnet- (anthropic/claude-3-7-sonnet), claude-3-haiku- (anthropic/claude-3-haiku), claude-3-opus- (anthropic/claude-3-opus), claude-mythos-5 (anthropic/claude-mythos-5), claude-mythos-5-1 (anthropic/claude-mythos-5-1), claude-opus-4 (anthropic/claude-opus-4), claude-sonnet-4 (anthropic/claude-sonnet-4), ernie-5-5-flash-preview (baidu/ernie-5.5-flash-preview), gpt-3-5-turbo (openai/gpt-3.5-turbo), gpt-3-5-turbo-instruct (openai/gpt-3.5-turbo-instruct), gpt-4-turbo (openai/gpt-4-turbo), kimi-k2 (moonshotai/kimi-k2), kimi-k2-thinking (moonshotai/kimi-k2-thinking), mimo-v2-5-pro (xiaomi/mimo-v2.5-pro), minimax-01 (minimax/minimax-01), minimax-m1 (minimax/minimax-m1), minimax-m2 (minimax/minimax-m2), minimax-m2-1 (minimax/minimax-m2.1), minimax-m2-her (minimax/minimax-m2-her), o1 (openai/o1), o1-pro (openai/o1-pro), o3-mini (openai/o3-mini), o3-mini-high (openai/o3-mini-high), o4-mini (openai/o4-mini), o4-mini-high (openai/o4-mini-high), solar-pro-3 (upstage/solar-pro-3), stealth/space-bunny-alpha (stealth/space-bunny-alpha)",
+    "delisted from OpenRouter's catalog; row kept, not fetched: claude-3-5-haiku- (anthropic/claude-3-5-haiku), claude-3-5-sonnet- (anthropic/claude-3-5-sonnet), claude-3-7-sonnet- (anthropic/claude-3-7-sonnet), claude-3-haiku- (anthropic/claude-3-haiku), claude-3-opus- (anthropic/claude-3-opus), claude-mythos-5 (anthropic/claude-mythos-5), claude-mythos-5-1 (anthropic/claude-mythos-5-1), claude-opus-4 (anthropic/claude-opus-4), claude-sonnet-4 (anthropic/claude-sonnet-4), ernie-5-5-flash-preview (baidu/ernie-5.5-flash-preview), gpt-3-5-turbo (openai/gpt-3.5-turbo), gpt-3-5-turbo-instruct (openai/gpt-3.5-turbo-instruct), gpt-4-turbo (openai/gpt-4-turbo), kimi-k2 (moonshotai/kimi-k2), kimi-k2-0905 (moonshotai/kimi-k2-0905), kimi-k2-thinking (moonshotai/kimi-k2-thinking), mimo-v2-5-pro (xiaomi/mimo-v2.5-pro), minimax-01 (minimax/minimax-01), minimax-m1 (minimax/minimax-m1), minimax-m2 (minimax/minimax-m2), minimax-m2-1 (minimax/minimax-m2.1), minimax-m2-her (minimax/minimax-m2-her), o1 (openai/o1), o1-pro (openai/o1-pro), o3-mini (openai/o3-mini), o3-mini-high (openai/o3-mini-high), o4-mini (openai/o4-mini), o4-mini-high (openai/o4-mini-high), solar-pro-3 (upstage/solar-pro-3), stealth/space-bunny-alpha (stealth/space-bunny-alpha)",
     "gemini-2-5-flash via Google AI Studio (endpoint 0): pricing image '0.00000015' is not modelled; the host was left untouched",
     "gemini-2-5-flash-lite via Google AI Studio (endpoint 0): pricing image '0.00000005' is not modelled; the host was left untouched",
     "gemini-2-5-pro via Google AI Studio (endpoint 0): pricing image '0.000000625' is not modelled; the host was left untouched",
@@ -277,8 +276,7 @@
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for kimi-k3-1-pro via Morph; the host was sampled",
-    "the listing lags the listed-pricing log for qwen3-5-9b via PrimeIntellect; the host was sampled"
+    "the listing lags the listed-pricing log for gemma-4-26b-a4b-it via PrimeIntellect; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -403,6 +401,9 @@
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
+    },
+    "gemma-4-26b-a4b-it": {
+      "PrimeIntellect": "listing lags log"
     },
     "glm-5-2": {
       "BaseTen": "2 endpoints at one current price"
@@ -569,17 +570,13 @@
       "InferenceNet": "2 endpoints at one current price"
     },
     "kimi-k3-1-pro": {
-      "InferenceNet": "2 endpoints at one current price",
-      "Morph": "listing lags log"
+      "InferenceNet": "2 endpoints at one current price"
     },
     "minimax-m3-1-flash": {
       "InferenceNet": "2 endpoints at one current price"
     },
     "qwen-plus": {
       "Alibaba": "long-context band"
-    },
-    "qwen3-5-9b": {
-      "PrimeIntellect": "listing lags log"
     },
     "qwen3-5-plus-02-15": {
       "Alibaba": "long-context band"
@@ -739,8 +736,7 @@
       "GMICloud",
       "NextBit",
       "Phala",
-      "PrimeIntellect",
-      "Wafer"
+      "PrimeIntellect"
     ],
     "glm-5-3-flashx": [
       "Novita"
@@ -778,6 +774,9 @@
     ],
     "inclusionai/ling-3-1-flash": [
       "DeepInfra",
+      "Novita"
+    ],
+    "kimi-k2-5": [
       "Novita"
     ],
     "kimi-k2-6": [
@@ -853,7 +852,11 @@
       "Relace",
       "Tenstorrent"
     ],
+    "qwen3-5-27b": [
+      "Novita"
+    ],
     "qwen3-8-27b": [
+      "Novita",
       "Venice"
     ],
     "step-3-7-flash": [
