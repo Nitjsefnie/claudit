@@ -15,6 +15,8 @@
     "minimax/minimax-m2",
     "minimax/minimax-m2-her",
     "minimax/minimax-m2.1",
+    "moonshotai/kimi-k2",
+    "moonshotai/kimi-k2-thinking",
     "openai/gpt-3.5-turbo",
     "openai/gpt-3.5-turbo-instruct",
     "openai/gpt-4-turbo",
@@ -30,6 +32,7 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
+    "alternating price: gpt-oss-20b via PrimeIntellect: the listed rates equal the entry from 2026-11-17T14:20:57Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: kimi-k3-1-pro via InferenceNet: the listed rates equal the entry from 2026-11-20T00:53:48Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
@@ -64,7 +67,7 @@
     "deepseek-v4-pro-0813 via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "deepseek-v4-pro-0813 via Parasail: rule-resolved (unique quantization): took the fp8 endpoint 'parasail/fp8' over service tiers",
     "deepseek-v4-pro-0813 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
-    "delisted from OpenRouter's catalog; row kept, not fetched: claude-3-5-haiku- (anthropic/claude-3-5-haiku), claude-3-5-sonnet- (anthropic/claude-3-5-sonnet), claude-3-7-sonnet- (anthropic/claude-3-7-sonnet), claude-3-haiku- (anthropic/claude-3-haiku), claude-3-opus- (anthropic/claude-3-opus), claude-mythos-5 (anthropic/claude-mythos-5), claude-mythos-5-1 (anthropic/claude-mythos-5-1), claude-opus-4 (anthropic/claude-opus-4), claude-sonnet-4 (anthropic/claude-sonnet-4), ernie-5-5-flash-preview (baidu/ernie-5.5-flash-preview), gpt-3-5-turbo (openai/gpt-3.5-turbo), gpt-3-5-turbo-instruct (openai/gpt-3.5-turbo-instruct), gpt-4-turbo (openai/gpt-4-turbo), mimo-v2-5-pro (xiaomi/mimo-v2.5-pro), minimax-01 (minimax/minimax-01), minimax-m1 (minimax/minimax-m1), minimax-m2 (minimax/minimax-m2), minimax-m2-1 (minimax/minimax-m2.1), minimax-m2-her (minimax/minimax-m2-her), o1 (openai/o1), o1-pro (openai/o1-pro), o3-mini (openai/o3-mini), o3-mini-high (openai/o3-mini-high), o4-mini (openai/o4-mini), o4-mini-high (openai/o4-mini-high), solar-pro-3 (upstage/solar-pro-3), stealth/space-bunny-alpha (stealth/space-bunny-alpha)",
+    "delisted from OpenRouter's catalog; row kept, not fetched: claude-3-5-haiku- (anthropic/claude-3-5-haiku), claude-3-5-sonnet- (anthropic/claude-3-5-sonnet), claude-3-7-sonnet- (anthropic/claude-3-7-sonnet), claude-3-haiku- (anthropic/claude-3-haiku), claude-3-opus- (anthropic/claude-3-opus), claude-mythos-5 (anthropic/claude-mythos-5), claude-mythos-5-1 (anthropic/claude-mythos-5-1), claude-opus-4 (anthropic/claude-opus-4), claude-sonnet-4 (anthropic/claude-sonnet-4), ernie-5-5-flash-preview (baidu/ernie-5.5-flash-preview), gpt-3-5-turbo (openai/gpt-3.5-turbo), gpt-3-5-turbo-instruct (openai/gpt-3.5-turbo-instruct), gpt-4-turbo (openai/gpt-4-turbo), kimi-k2 (moonshotai/kimi-k2), kimi-k2-thinking (moonshotai/kimi-k2-thinking), mimo-v2-5-pro (xiaomi/mimo-v2.5-pro), minimax-01 (minimax/minimax-01), minimax-m1 (minimax/minimax-m1), minimax-m2 (minimax/minimax-m2), minimax-m2-1 (minimax/minimax-m2.1), minimax-m2-her (minimax/minimax-m2-her), o1 (openai/o1), o1-pro (openai/o1-pro), o3-mini (openai/o3-mini), o3-mini-high (openai/o3-mini-high), o4-mini (openai/o4-mini), o4-mini-high (openai/o4-mini-high), solar-pro-3 (upstage/solar-pro-3), stealth/space-bunny-alpha (stealth/space-bunny-alpha)",
     "gemini-2-5-flash via Google AI Studio (endpoint 0): pricing image '0.00000015' is not modelled; the host was left untouched",
     "gemini-2-5-flash-lite via Google AI Studio (endpoint 0): pricing image '0.00000005' is not modelled; the host was left untouched",
     "gemini-2-5-pro via Google AI Studio (endpoint 0): pricing image '0.000000625' is not modelled; the host was left untouched",
@@ -274,7 +277,8 @@
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
+    "the listing lags the listed-pricing log for gpt-oss-20b via PrimeIntellect; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -552,7 +556,8 @@
       "BaseTen": "2 endpoints at one current price"
     },
     "gpt-oss-20b": {
-      "Amazon Bedrock": "2 endpoints at one current price"
+      "Amazon Bedrock": "2 endpoints at one current price",
+      "PrimeIntellect": "listing lags log"
     },
     "hy3": {
       "Tencent": "endpoint schedule"
@@ -719,8 +724,7 @@
       "OpenInference",
       "Phala",
       "PrimeIntellect",
-      "Reka",
-      "Tenstorrent"
+      "Reka"
     ],
     "glm-5-3-flash": [
       "AtlasCloud",
@@ -752,6 +756,7 @@
     "hy3": [
       "AtlasCloud",
       "GMICloud",
+      "Novita",
       "Phala"
     ],
     "hy4": [
@@ -761,10 +766,12 @@
       "AtlasCloud",
       "Cohere",
       "GMICloud",
-      "Io Net"
+      "Io Net",
+      "Novita"
     ],
     "inclusionai/ling-3-1-flash": [
-      "DeepInfra"
+      "DeepInfra",
+      "Novita"
     ],
     "kimi-k2-6": [
       "AtlasCloud",
@@ -777,6 +784,7 @@
       "Cloudflare",
       "GMICloud",
       "Nebius",
+      "Novita",
       "Phala"
     ],
     "kimi-k3": [
@@ -840,6 +848,9 @@
     ],
     "qwen3-8-27b": [
       "Venice"
+    ],
+    "step-3-7-flash": [
+      "Novita"
     ],
     "step-5-preview": [
       "DeepInfra",
