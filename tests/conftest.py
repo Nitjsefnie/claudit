@@ -169,7 +169,7 @@ def _reset_fetch_deadline():
 
 @pytest.fixture(scope="session", autouse=True)
 def _bind_rate_tables():
-    # Outside every test's window; collecting stays free.
+    # Outside every test's window, and no cost to a collect-only run.
     pricing.bind_tables()
     # Only now: an xdist worker binds too, a test's Python child may not.
     os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, (

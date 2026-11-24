@@ -51,7 +51,7 @@ from backend.pricing_load import (  # noqa: F401  (re-export)  # pylint: disable
     _schedule,
 )
 
-__all__ = [  # re-exports the rate tables and their loader (SV-RATE-DATA)
+__all__ = [  # the lazily bound rate tables and their loader (SV-RATE-DATA)
     "DATED_RATES", "DEFAULT_RATES", "LONG_CONTEXT_MODELS",
     "LONG_CONTEXT_METERS",
     "MODEL_RATES", "PROVIDER_DATED_RATES",
