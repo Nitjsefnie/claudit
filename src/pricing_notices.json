@@ -30,8 +30,8 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
-    "alternating price: gpt-oss-120b via PrimeIntellect: the listed rates equal the entry from 2026-11-17T18:45:54Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: kimi-k3-1-pro via InferenceNet: the listed rates equal the entry from 2026-11-20T00:53:48Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
+    "alternating price: qwen3-5-9b via PrimeIntellect: the listed rates equal the entry from 2026-11-17T10:00:51Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-5 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
@@ -50,6 +50,7 @@
     "deepseek-v4-1-flash-1017 via Fireworks: rule-resolved (data region): took the global endpoint 'fireworks' over 'fireworks/spot'",
     "deepseek-v4-1-flash-1017 via InferenceNet: rule-resolved (data region): the global data region leaves 'inference-net/fp8'; dropped 'inference-net/us'",
     "deepseek-v4-1-flash-1017 via Morph: rule-resolved (unique quantization): took the fp8 endpoint 'morph/fp8' over service tiers",
+    "deepseek-v4-1-flash-1017 via Pareto Inference: first seen inside one of its windows, whose schedule covers the whole week: no record is ever priced by the entry default, so the default starts as the listed top-level price",
     "deepseek-v4-1-flash-1017 via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/fp4/us'",
     "deepseek-v4-1-flash-1017 via Together: rule-resolved (data region): the global data region leaves 'together'; dropped 'together/us'",
     "deepseek-v4-1-flash-1017 via Wafer: rule-resolved (data region): the global data region leaves 'wafer/mxfp4'; dropped 'wafer/us'",
@@ -275,10 +276,8 @@
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for gemma-4-26b-a4b-it via PrimeIntellect; the host was sampled",
     "the listing lags the listed-pricing log for gpt-oss-120b via PrimeIntellect; the host was sampled",
-    "the listing lags the listed-pricing log for qwen3-5-9b via PrimeIntellect; the host was sampled",
-    "the listing lags the listed-pricing log for qwen3-6-35b-a3b via PrimeIntellect; the host was sampled"
+    "the listing lags the listed-pricing log for qwen3-5-9b via PrimeIntellect; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -392,6 +391,7 @@
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule",
       "InferenceNet": "2 endpoints at one current price",
+      "Pareto Inference": "endpoint schedule",
       "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-flash-0731": {
@@ -402,9 +402,6 @@
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
-    },
-    "gemma-4-26b-a4b-it": {
-      "PrimeIntellect": "listing lags log"
     },
     "glm-5-2": {
       "BaseTen": "2 endpoints at one current price"
@@ -588,9 +585,6 @@
     },
     "qwen3-5-plus-20260420": {
       "Alibaba": "long-context band"
-    },
-    "qwen3-6-35b-a3b": {
-      "PrimeIntellect": "listing lags log"
     },
     "qwen3-6-flash": {
       "Alibaba": "long-context band"
