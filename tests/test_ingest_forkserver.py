@@ -412,8 +412,7 @@ def test_parse_pool_starts_with_another_thread_alive(monkeypatch):
         thread.join(timeout=60)
 
 
-@requires_forkserver
-def test_process_pool_timing_line_marks_disjoint_phases(fresh_db, mini_r2_env, monkeypatch, caplog):
+def _timed_ingest(monkeypatch, caplog):
     monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
     monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
     monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "2")
@@ -428,6 +427,12 @@ def test_process_pool_timing_line_marks_disjoint_phases(fresh_db, mini_r2_env, m
         m = re.search(rf"\b{field}=(\d+)ms", line)
         assert m is not None, line
         return int(m.group(1))
+    return line, _ms
+
+
+@requires_forkserver
+def test_process_pool_timing_line_marks_disjoint_phases(fresh_db, mini_r2_env, monkeypatch, caplog):
+    line, _ms = _timed_ingest(monkeypatch, caplog)
     total, parse_ms, persist_ms = (_ms("total"), _ms("fetch_parse"), _ms("persist"))
     assert parse_ms >= 0 and persist_ms >= 0
     assert parse_ms + persist_ms <= total + 100, line
@@ -443,11 +448,6 @@ def test_process_pool_timing_line_marks_disjoint_phases(fresh_db, mini_r2_env, m
 
 @requires_forkserver
 def test_pool_timing_parts_are_disjoint_slices(fresh_db, mini_r2_env, monkeypatch, caplog):
-    monkeypatch.setenv("CLAUDIT_INGEST_WORKERS", "1")
-    monkeypatch.setenv("CLAUDIT_INGEST_PARSE_PROCESSES", "2")
-    monkeypatch.setenv("CLAUDIT_INGEST_PERSIST_THREADS", "2")
-    monkeypatch.setenv("CLAUDIT_TIMING", "1")
-    monkeypatch.setattr(_timing, "TIMING_ON", True)
     # Keep SV-FIXTURE-SIZE: one project and its transcript's .xz twin.
     for child in mini_r2_env.iterdir():
         if child.name != "projA":
@@ -460,15 +460,7 @@ def test_pool_timing_parts_are_disjoint_slices(fresh_db, mini_r2_env, monkeypatc
     (mini_r2_env / "projA" / "sess-A" / "sess-A.jsonl.xz").write_bytes(lzma.compress(payload))
     # Padding makes inflate dominate GET despite filesystem timing noise.
     monkeypatch.setattr(ingest, "_fetch_and_parse", padded_inflate)
-    with caplog.at_level(logging.INFO, logger="claudit.ingest"):
-        summary = ingest.run_ingest("test-proc-parts")
-    assert summary["error"] is None
-    line = next(r.getMessage() for r in caplog.records if r.name == "claudit.ingest" and r.getMessage().startswith("TIMING ingest "))
-
-    def _ms(field):
-        m = re.search(rf"\b{field}=(\d+)ms", line)
-        assert m is not None, line
-        return int(m.group(1))
+    line, _ms = _timed_ingest(monkeypatch, caplog)
     assert _ms("child_decompress") > 0, line
     assert _ms("child_fetch") < _ms("child_decompress"), line
     # One chunk puts the final persist drain outside wait_persist.
