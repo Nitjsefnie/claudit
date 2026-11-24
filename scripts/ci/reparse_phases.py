@@ -38,7 +38,10 @@ Two instruments, because each sees something the other cannot:
 from __future__ import annotations
 
 import contextlib
+import gc
+import operator
 import sys
+import threading
 import time
 from decimal import Decimal
 from pathlib import Path
@@ -58,7 +61,7 @@ PHASES = ('sniff', 'parse_body', 'sidecar', 'residual')
 TOOL_ID = 3
 # A count needs no amplification to be stable — one pass is exact — but a
 # few passes make the reported per-file figure a whole number of
-# bytecodes per transcript rather than a fraction, and cost under 0.1 s.
+# bytecodes per transcript rather than a fraction.
 COUNT_PASSES = 20
 COUNT_WARMUP = 2
 # The unit the document stores: HUNDREDS of bytecodes per file, so the
@@ -144,8 +147,14 @@ def _key(attribute):
             'apply_agent_sidecar': 'sidecar'}[attribute]
 
 
+class _Windows(threading.local):
+    def __init__(self):
+        # Any thread but the counter's: non-empty, so it never toggles events.
+        self.stack: list[list[int]] = [[0]]
+
+
 class InstructionCounter:
-    """Count the bytecodes retired while a window is open.
+    """Count the bytecodes the creating thread retires in a window.
 
     One tool id, one callback, and a stack of counters: the callback
     increments every counter on the stack, so a nested window (the sniff
@@ -162,12 +171,18 @@ class InstructionCounter:
     # static reader cannot see its members. Every call below is guarded
     # by the availability check that sets `reason`.
     # pylint: disable=no-member
+
+    # attrgetter runs no bytecode: a Python getter's would be counted.
+    _stack = property(operator.attrgetter('_windows.stack'))
+
     def __init__(self, name: str = 'reparse-bench', qualnames: dict | None = None):
         # Each key holds a one-element list: a counter the callback can
         # reach without rebinding, and one object per open window.
         self.totals: dict[str, list[int]] = {}
         self.reason = ''
-        self._stack: list[list[int]] = []
+        self._owner = threading.get_ident()
+        self._windows = _Windows()
+        self._windows.stack = []
         # {code object: "module.qualname"} for the parse surface, and the
         # functions the run retired an instruction in. Empty means the
         # caller asked for no surface, which is every caller but the
@@ -175,8 +190,6 @@ class InstructionCounter:
         # ordinary measurement pays nothing for it.
         self.qualnames: dict = qualnames or {}
         self.executed: set[str] = set()
-        # sys.monitoring is installed by the interpreter, not imported;
-        # Any says what that is, and `reason` says whether it is there.
         self._monitoring: Any = getattr(sys, 'monitoring', None)
         if self._monitoring is None:
             self.reason = 'this interpreter has no sys.monitoring'
@@ -191,6 +204,8 @@ class InstructionCounter:
         self._event = self._monitoring.events.INSTRUCTION
 
     def _count(self, code, instruction_offset):
+        if threading.get_ident() != self._owner:
+            return
         if self.qualnames:
             name = self.qualnames.get(code)
             if name is not None:
@@ -278,10 +293,8 @@ class InstructionCounter:
         self.reason = 'closed'
 
     def wrapper_overhead(self, calls: int = 2000) -> int:
-        """Bytecodes one wrapped call adds: what the count prices for the
-        harness measuring it, measured rather than assumed. The same
-        no-op is called wrapped and unwrapped, and the difference is the
-        harness."""
+        """Bytecodes one wrapped call adds: the same no-op is called
+        wrapped and unwrapped, and the difference is the harness."""
         def nothing():
             return None
 
@@ -296,6 +309,18 @@ class InstructionCounter:
         return max(wrapped[0] - plain[0], 0) // calls
 
 
+@contextlib.contextmanager
+def _automatic_gc_off():
+    # A collection runs its finalizers on the thread it interrupts.
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        (gc.enable if enabled else gc.disable)()
+
+
+@_automatic_gc_off()
 def measure_counts(entries, run_pass, passes: int = COUNT_PASSES,
                    warmup: int = COUNT_WARMUP,
                    qualnames: dict | None = None) -> Counts:
