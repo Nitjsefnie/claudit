@@ -570,9 +570,11 @@ import json
 import sys
 import time
 from pathlib import Path
+from backend import pricing
 from backend.parse import parse_file
 path = Path(sys.argv[1])
 data = path.read_bytes()
+pricing.bind_tables()
 started = time.process_time()
 parsed = parse_file(path.name, data)
 elapsed = time.process_time() - started
