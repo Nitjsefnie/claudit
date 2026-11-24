@@ -131,6 +131,7 @@
     "glm-5-3-flash via Particle AI: rule-resolved (tier variant base): took the base endpoint 'particle-ai/nvfp4' over tier variants 'particle-ai/nvfp4/flex'",
     "glm-5-3-flash via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
     "glm-5-3-flash via Together: rule-resolved (data region): the global data region leaves 'together'; dropped 'together/us'",
+    "glm-5-3-flash via Wafer: rule-resolved (data region): the global data region leaves 'wafer/nvfp4'; dropped 'wafer/us'",
     "gpt-5-1 via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-5-2 via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-5-3-codex via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast'",
@@ -275,8 +276,7 @@
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for gemma-4-26b-a4b-it via PrimeIntellect; the host was sampled"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -401,9 +401,6 @@
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
-    },
-    "gemma-4-26b-a4b-it": {
-      "PrimeIntellect": "listing lags log"
     },
     "glm-5-2": {
       "BaseTen": "2 endpoints at one current price"
