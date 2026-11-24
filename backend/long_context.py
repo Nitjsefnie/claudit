@@ -14,6 +14,6 @@ LONG_CONTEXT_OUTPUT_MULT = 1.5
 
 # WHICH models carry the meter — the keys in pricing.json's grouped
 # long_context_meters — is data, loaded by pricing_load and
-# re-exported through pricing as LONG_CONTEXT_MODELS: a new model is a data
-# edit, never a code change, and the reprice pass consults it through
+# bound by pricing as LONG_CONTEXT_MODELS: a new model is a data edit, never
+# a code change, and the reprice pass consults it through
 # pricing.is_long_context_model().
