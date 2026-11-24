@@ -51,7 +51,7 @@ from backend.pricing_load import (  # noqa: F401  (re-export)  # pylint: disable
     _schedule,
 )
 
-__all__ = [  # the lazily bound rate tables and their loader (SV-RATE-DATA)
+__all__ = [  # the lazily bound rate tables, their loader and types (SV-RATE-DATA)
     "DATED_RATES", "DEFAULT_RATES", "LONG_CONTEXT_MODELS",
     "LONG_CONTEXT_METERS",
     "MODEL_RATES", "PROVIDER_DATED_RATES",
@@ -102,8 +102,7 @@ def bind_tables() -> None:
         getattr(_PRICING, name)
 
 
-# Every rate an OpenRouter free model carries: zero. Returned for any id
-# ending in ":free" or starting with "stealth/" (see _is_free).
+# Every rate an OpenRouter free model carries: zero (see _is_free).
 FREE_RATES = dict.fromkeys(RATE_FIELDS, 0.00)
 
 
@@ -148,11 +147,10 @@ def _latest(*families: str) -> dict | None:
     no fallback instead of refusing every resolve (the bench's bounded
     document and any patched-tables test name none of the families).
 
-    ``claude-opus-5-5`` is version (5, 5); legacy ``claude-3-opus-`` keys
-    do not match. A tracked key with no provider row yet — the auto-add's
-    pickup delay, which the loaders admit — names no rates and is
-    skipped, exactly as resolve()'s bare path falls through it. Ties keep
-    table order (max returns the first).
+    A tracked key with no provider row yet — the auto-add's pickup delay,
+    which the loaders admit — names no rates and is skipped, exactly as
+    resolve()'s bare path falls through it. Ties keep table order (max
+    returns the first).
     """
     versions = [
         (tuple(int(p) for p in m.group(2).split("-")), key)
@@ -304,10 +302,9 @@ def _provider_key(norm: str, provider: str,
     """The PROVIDER_RATES key for a record, or None.
 
     Each normalised spelling maps to its tracked key before lookup:
-    exact id, permaslug slug, then ONE trailing variant suffix stripped.
-    OpenRouter variants (":nitro", ":floor") retain the model's price;
-    only ":free" changes price (zero), and
-    resolve() prices it before this lookup — it never folds. The exact id
+    exact id, permaslug slug, then ONE trailing variant suffix stripped
+    (see _VARIANT_SUFFIX); ":free" never folds, as resolve() prices it
+    before this lookup. The exact id
     is tried first, so a table row spelled with the suffix still wins over
     the fold. Never MODEL_RATES' snapshot-suffix tolerance: that would
     read the permaslug as the UNDATED model, a different row at a

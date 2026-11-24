@@ -6,7 +6,7 @@ a bare uuid column and is reported verbatim — a refused value is NEVER
 coerced to NULL (NULL means always-canonical in the winner rule, a
 silent dedup break). The corpus scan (scripts/uuid_gate.py main) runs
 the same gate over the full-corpus mirror with PostgreSQL's own cast as
-the predicate; these tests pin both branches with an injected predicate.
+the predicate.
 
 """
 from __future__ import annotations

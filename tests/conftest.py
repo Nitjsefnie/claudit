@@ -212,8 +212,8 @@ def _fresh_match_key_cache():
     rate table, and rate_fingerprint memoizes
     per pair against the same tables. Tests patch the
     tables with synthetic rows; a cached entry computed under a patch
-    must never outlive it, so every test starts and ends with empty
-    caches. A test that patches the tables MID-TEST (after an ingest
+    must never outlive it.
+    A test that patches the tables MID-TEST (after an ingest
     has already stamped fingerprints) must clear the fingerprint memo
     itself at the mutation site — without it the pass reads pre-patch
     fps and fails conservative-but-confusing (see the parity and
