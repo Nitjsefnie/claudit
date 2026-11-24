@@ -214,7 +214,7 @@ def _server_fixture(tmp_path, monkeypatch):  # pylint: disable=too-many-locals
 
     port = _free_port()
     with subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "backend.app:app",
+        [sys.executable, "-c", "from tests import bounded_pricing; import uvicorn; uvicorn.main()", "backend.app:app",
          "--host", "127.0.0.1", "--port", str(port),
          "--timeout-graceful-shutdown", "1"],
         cwd=REPO_ROOT,

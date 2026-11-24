@@ -6,11 +6,13 @@ tests share: fixture payloads over the seeded view, never the network.
 from __future__ import annotations
 
 import copy
+import json
 import re
 from decimal import Decimal
 
 from backend.long_context import LONG_CONTEXT_THRESHOLD
 from backend.pricing import RATE_FIELDS
+from backend.pricing_rows import encode_pricing_doc
 
 # The rate-key sets a LIVE row's vector may carry (SV-RATE-DATA): the
 # five RATE_FIELDS, plus the optional `web_search` rate a PROVIDER row
@@ -138,6 +140,9 @@ def seed_doc(*, members=None, meters=None, models=None, tracked=None,
         "provider_rates_fetched": fetched,
         "providers": copy.deepcopy(providers) if providers else {},
     }
+
+
+SEED_JSON = json.dumps(encode_pricing_doc(seed_doc()))
 
 
 def seed_provider_doc() -> dict:

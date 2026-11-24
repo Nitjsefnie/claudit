@@ -26,6 +26,7 @@ from test_ingest import (  # pylint: disable=unused-import
 )
 from backend import db, ingest, ingest_fetch, ingest_reprice, ingest_vacuum
 from tests import mini_mirror
+from tests.test_ingest_forkserver import requires_forkserver
 
 _REPO = Path(__file__).resolve().parents[1]
 
@@ -570,7 +571,7 @@ def _parse_with_pid(key, sidecar_key, etag=None, size=None, *, collection=None):
     return parsed
 
 
-@pytest.mark.parametrize("processes", [1, 2], ids=["threads", "process-pool"])
+@pytest.mark.parametrize("processes", [pytest.param(1, id="threads"), pytest.param(2, id="process-pool", marks=requires_forkserver)])
 def test_both_pipelines_vacuum_between_batches(
         fresh_db, mini_r2_env, monkeypatch, processes):
     """Both pipelines interleave plain VACUUM over the reparse tables."""

@@ -43,10 +43,11 @@ os.environ.setdefault("CLAUDIT_ADMIN_TOKEN", "test-admin")
 # Exported values still win because these are set with setdefault.
 os.environ.setdefault("CLAUDIT_EXPORT_PYTHON", "/usr/bin/python3")
 os.environ.setdefault("CLAUDIT_TIMING", "0")
+# A Python child may not read the deployed rate document.
+os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, (
+    os.environ.get("PYTHONPATH"), str(Path(__file__).with_name("child_site")))))
 # The in-process pipeline by default: parse-process pools add startup
-# work to every ingest test. The process-pool
-# tests opt in explicitly (test_ingest_pipeline.py, test_ingest_fetch.py
-# and test_ingest_forkserver.py.
+# work to every ingest test. The process-pool tests opt in explicitly.
 os.environ["CLAUDIT_INGEST_PARSE_PROCESSES"] = "1"
 os.environ["CLAUDIT_INGEST_PERSIST_THREADS"] = "1"
 # TestClient runs over plain HTTP — Secure-flag cookies would never come back.

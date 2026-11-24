@@ -367,7 +367,7 @@ def test_the_surface_corpus_reads_nothing_but_committed_bytes():
         assert entry.blob, f"{entry.key} read no bytes"
 
 
-def _run_gate() -> subprocess.CompletedProcess:
+def test_the_gate_passes_on_the_committed_corpus():
     """The gate as a PROCESS, which is how it always runs.
 
     A fresh interpreter is not ceremony: several surface functions sit
@@ -375,13 +375,10 @@ def _run_gate() -> subprocess.CompletedProcess:
     corpus once would see the cached path and report a function the corpus
     does in fact walk as unexercised.
     """
-    return subprocess.run(  # pylint: disable=subprocess-run-check
-        [sys.executable, str(BENCH_DIR / "reparse_surface.py")],
-        capture_output=True, text=True, timeout=300, check=False)
-
-
-def test_the_gate_passes_on_the_committed_corpus():
-    done = _run_gate()
+    done = subprocess.run(
+        [sys.executable, "-c", "from tests import bounded_pricing; import runpy, sys; runpy.run_path(sys.argv[1], run_name='__main__')",
+         str(BENCH_DIR / "reparse_surface.py")],
+        cwd=REPO_ROOT, capture_output=True, text=True, timeout=300, check=False)
     assert done.returncode == 0, done.stderr
     assert 'every reachable function was exercised' in done.stderr
 
@@ -415,14 +412,16 @@ def test_a_not_measured_report_never_reads_as_a_pass():
     assert 'every reachable function was exercised' not in text
 
 
-@pytest.mark.skipif(not hasattr(sys, 'monitoring'),
-                    reason='the surface gate needs sys.monitoring')
-def test_the_bench_gates_on_the_surface_beside_its_measurement():
+@pytest.mark.parametrize('code', [0, 3])
+def test_the_bench_gates_on_the_surface_beside_its_measurement(monkeypatch, tmp_path, code):
     # The measured number and the surface are one verdict, so the bench's
     # own run carries the gate — as a child, so the caches above cannot
     # decide the answer.
-    assert bench.SURFACE_GATE.exists()
-    assert bench.check_surface() == 0
+    assert bench.SURFACE_GATE == BENCH_DIR / 'reparse_surface.py'
+    stub = tmp_path / 'gate.py'
+    stub.write_text(f'raise SystemExit({code})\n', encoding='utf-8', newline='\n')
+    monkeypatch.setattr(bench, 'SURFACE_GATE', stub)
+    assert bench.check_surface() == code
 
 
 def test_extracted_helpers_have_reachable_code_objects():

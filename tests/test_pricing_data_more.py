@@ -119,17 +119,17 @@ def test_invalid_pricing_data_is_refused_in_the_browser(
 # The parse forkserver's preload is the one module that binds at import.
 _IMPORT_THEN_READ = """
 import importlib, pkgutil, sys, backend
-opened = []
-sys.addaudithook(lambda event, args: event == "open" and str(args[0]).endswith("pricing.json") and opened.append(1))
+from tests import bounded_pricing
+loads = bounded_pricing.pricing_load.deployed_tables.cache_info
 for module in pkgutil.walk_packages(backend.__path__, "backend."):
     if module.name != "backend.ingest_forkserver":
         importlib.import_module(module.name)
-counts = [len(opened)]
+counts = [loads().misses]
 for name in ("MODEL_RATES", "TRACKED_MODELS", "MODEL_RATES"):
     getattr(sys.modules["backend.pricing"], name)
-    counts.append(len(opened))
+    counts.append(loads().misses)
 importlib.import_module("backend.ingest_forkserver")
-print("backend.app" in sys.modules, *counts, len(opened))
+print("backend.app" in sys.modules, *counts, loads().misses)
 """
 
 
@@ -137,6 +137,12 @@ def test_imports_read_no_rate_data_and_the_first_table_read_loads_it_once():
     done = subprocess.run([sys.executable, "-c", _IMPORT_THEN_READ], cwd=ROOT,
                           capture_output=True, text=True, check=False, timeout=60)
     assert done.stdout.split() == ["True", "0", "1", "1", "1", "1"], done.stderr
+
+
+def test_a_python_child_is_refused_the_deployed_document():
+    done = subprocess.run([sys.executable, "-c", "from backend import pricing; pricing.bind_tables()"], cwd=ROOT,
+                          capture_output=True, text=True, check=False, timeout=60)
+    assert done.returncode and "a test child opened the deployed rate document" in done.stderr
 
 
 @pytest.fixture(name="unbound_document")
