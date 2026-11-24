@@ -78,7 +78,7 @@ def _measure(copy: Path) -> dict:
     return json.loads(out.read_text(encoding="utf-8"))
 
 
-def test_the_measurement_never_reads_the_deployed_document(tmp_path):
+def test_the_measurement_neither_works_over_nor_loads_the_deployed_document(tmp_path):
     plain, refused = (_build_copy(tmp_path / name) for name in ("plain", "refused"))
     doc = json.loads((refused / DOC_RELATIVE).read_text(encoding="utf-8"))
     doc.update(provider_rates_fetched="", padding=[0] * 100_000)  # large, and no loader accepts it
