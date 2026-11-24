@@ -80,6 +80,7 @@ def _stub_lifespan(monkeypatch) -> None:
         def shutdown(self, *, wait):
             pass
 
+    app_mod.pricing.bind_tables()
     monkeypatch.setattr(app_mod.db, "apply_schema", lambda: None)
     monkeypatch.setattr(app_mod.db, "schema_check", lambda: None)
     monkeypatch.setattr(app_mod.db, "cancel_viz_queries", lambda: None)
