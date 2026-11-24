@@ -119,17 +119,19 @@ def test_invalid_pricing_data_is_refused_in_the_browser(
 # The parse forkserver's preload is the one module that binds at import.
 _IMPORT_THEN_READ = """
 import importlib, pkgutil, sys, backend
+from unittest.mock import Mock
 from tests import bounded_pricing
-loads = bounded_pricing.pricing_load.deployed_tables.cache_info
+seed = bounded_pricing.pricing_load.PRICING_JSON
+read = seed.read_text = Mock(wraps=seed.read_text)
 for module in pkgutil.walk_packages(backend.__path__, "backend."):
     if module.name != "backend.ingest_forkserver":
         importlib.import_module(module.name)
-counts = [loads().misses]
+counts = [read.call_count]
 for name in ("MODEL_RATES", "TRACKED_MODELS", "MODEL_RATES"):
     getattr(sys.modules["backend.pricing"], name)
-    counts.append(loads().misses)
+    counts.append(read.call_count)
 importlib.import_module("backend.ingest_forkserver")
-print("backend.app" in sys.modules, *counts, loads().misses)
+print("backend.app" in sys.modules, *counts, read.call_count)
 """
 
 
