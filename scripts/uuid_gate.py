@@ -44,7 +44,7 @@ import psycopg
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from backend import key_layout, parse, r2, uuid_split  # noqa: E402  pylint: disable=wrong-import-position
+from backend import key_layout, parse, pricing, r2, uuid_split  # noqa: E402  pylint: disable=wrong-import-position
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 FIXTURES_ROOT = REPO_ROOT / "fixtures"
@@ -313,6 +313,7 @@ def _collect(workers: int) -> tuple[list[str], set[str],
                                     int, int]:
     jobs = _jobs()
     print(f"scan jobs={len(jobs)} workers={workers}", flush=True)
+    pricing.bind_tables()
     ctx = multiprocessing.get_context("fork")
     with ctx.Pool(processes=workers) as pool:
         parts = list(pool.imap_unordered(_parse_job, jobs, chunksize=8))

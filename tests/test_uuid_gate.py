@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from backend import ingest_persist
 
@@ -123,3 +124,12 @@ def test_split_counts_reports_no_coexistence_for_disjoint_heads():
     other = "018f0000-0000-7000-8000-000000000002"
     counts = uuid_gate.split_counts([head, f"{other}:5"])
     assert counts.coexistence == frozenset()
+
+
+def test_the_scan_binds_the_rate_tables_before_it_forks(monkeypatch):
+    calls = MagicMock()
+    monkeypatch.setattr(uuid_gate, "pricing", calls)
+    monkeypatch.setattr(uuid_gate, "multiprocessing", calls)
+    monkeypatch.setattr(uuid_gate, "_jobs", list)
+    uuid_gate._collect(1)  # pylint: disable=protected-access
+    assert [name for name, *_ in calls.mock_calls[:2]] == ["bind_tables", "get_context"]
