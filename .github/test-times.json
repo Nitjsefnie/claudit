@@ -108,7 +108,8 @@
       ],
       "tests/test_cdn_route_js.py": [
         3.45,
-        2.29
+        2.29,
+        4.87
       ],
       "tests/test_ci_classify_comment_gate.py": [
         0.1
@@ -131,7 +132,8 @@
       "tests/test_ci_gate_output_wiring.py": [
         16.98,
         12.48,
-        9.16
+        9.16,
+        27.56
       ],
       "tests/test_ci_gate_thresholds.py": [
         0.86,
@@ -635,7 +637,8 @@
         0.03
       ],
       "tests/test_pricing_compact.py": [
-        1.59
+        1.59,
+        3.49
       ],
       "tests/test_pricing_compact_shape.py": [
         2.78,
@@ -678,7 +681,8 @@
         10.84
       ],
       "tests/test_pricing_vendor.py": [
-        0.74
+        0.74,
+        2.55
       ],
       "tests/test_pricing_vendor_2.py": [
         0.08
@@ -1668,7 +1672,8 @@
         12.01
       ],
       "tests/test_parser_js_meter_factors.py": [
-        0.58
+        0.58,
+        2.42
       ],
       "tests/test_parser_js_mirror.py": [
         15.29,
@@ -1958,7 +1963,8 @@
       ],
       "tests/test_reparse_surface.py": [
         48.98,
-        61.71
+        61.71,
+        29.27
       ],
       "tests/test_reply_timing.py": [
         0.02
@@ -2281,7 +2287,8 @@
       ],
       "tests/test_bash_dash_c.py": [
         5.64,
-        3.61
+        3.61,
+        2.37
       ],
       "tests/test_bash_directories.py": [
         0.1
@@ -2400,7 +2407,8 @@
       "tests/test_classic_script_scope.py": [
         10.45,
         7.27,
-        2.68
+        2.68,
+        1.57
       ],
       "tests/test_cold_load_legs.py": [
         0.01
@@ -2491,7 +2499,8 @@
       "tests/test_dotenv_order.py": [
         4.07,
         2.77,
-        5.41
+        5.41,
+        1.63
       ],
       "tests/test_empty_usage_parity.py": [
         0.52
@@ -2574,7 +2583,8 @@
       "tests/test_ingest_forkserver.py": [
         29.24,
         39.65,
-        57.31
+        57.31,
+        17.16
       ],
       "tests/test_ingest_incremental.py": [
         0.0
@@ -2716,7 +2726,8 @@
       "tests/test_parse_codex_exec_targets.py": [
         3.99,
         2.58,
-        5.84
+        5.84,
+        1.1
       ],
       "tests/test_parse_codex_more.py": [
         0.03
@@ -2764,7 +2775,8 @@
       "tests/test_parser_js_lanes.py": [
         39.58,
         28.2,
-        12.76
+        12.76,
+        7.07
       ],
       "tests/test_parser_js_meter_factors.py": [
         0.84
@@ -2809,7 +2821,8 @@
         0.61
       ],
       "tests/test_perturbed_leg_bench.py": [
-        13.15
+        13.15,
+        8.81
       ],
       "tests/test_perturbed_leg_combine.py": [
         1.66
@@ -2871,7 +2884,8 @@
       "tests/test_pricing_loader_refusals.py": [
         18.89,
         14.06,
-        2.23
+        2.23,
+        1.18
       ],
       "tests/test_pricing_more.py": [
         0.0
@@ -2900,7 +2914,8 @@
         0.01
       ],
       "tests/test_prompt_gate_whitespace.py": [
-        1.28
+        1.28,
+        0.26
       ],
       "tests/test_prompt_ts.py": [
         0.0
@@ -3042,7 +3057,8 @@
       ],
       "tests/test_reparse_surface.py": [
         55.76,
-        37.96
+        37.96,
+        23.95
       ],
       "tests/test_reply_timing.py": [
         0.03
@@ -3128,7 +3144,8 @@
       "tests/test_suite_bench.py": [
         44.29,
         61.97,
-        77.47
+        77.47,
+        31.74
       ],
       "tests/test_suite_ci_wiring.py": [
         0.91
@@ -3565,7 +3582,8 @@
       "tests/test_dotenv_order.py": [
         2.41,
         3.72,
-        5.66
+        5.66,
+        1.27
       ],
       "tests/test_empty_usage_parity.py": [
         0.85
@@ -3647,7 +3665,8 @@
       "tests/test_ingest_forkserver.py": [
         25.28,
         41.01,
-        55.83
+        55.83,
+        13.72
       ],
       "tests/test_ingest_incremental.py": [
         0.0
@@ -3916,7 +3935,8 @@
         0.03
       ],
       "tests/test_pricing_compact.py": [
-        1.36
+        1.36,
+        3.08
       ],
       "tests/test_pricing_compact_shape.py": [
         3.65,
@@ -4200,7 +4220,8 @@
       "tests/test_suite_bench.py": [
         48.59,
         63.93,
-        97.31
+        97.31,
+        34.6
       ],
       "tests/test_suite_ci_wiring.py": [
         0.49
@@ -4461,7 +4482,8 @@
       ],
       "tests/test_branding.py": [
         5.3,
-        6.99
+        6.99,
+        3.09
       ],
       "tests/test_breakdown_exact_rate.py": [
         5.66,
@@ -4537,7 +4559,8 @@
         0.22
       ],
       "tests/test_ci_threshold_base.py": [
-        0.87
+        0.87,
+        2.29
       ],
       "tests/test_ci_thresholds.py": [
         0.31
@@ -4754,7 +4777,8 @@
       "tests/test_ingest_forkserver.py": [
         32.38,
         42.67,
-        57.35
+        57.35,
+        14.25
       ],
       "tests/test_ingest_incremental.py": [
         4.6,
@@ -4963,7 +4987,8 @@
         22.18,
         29.9,
         39.31,
-        12.3
+        12.3,
+        6.96
       ],
       "tests/test_parser_js_meter_factors.py": [
         0.65
@@ -5044,7 +5069,8 @@
         0.07
       ],
       "tests/test_pricing_compact.py": [
-        0.83
+        0.83,
+        2.02
       ],
       "tests/test_pricing_compact_shape.py": [
         1.99,
@@ -5249,7 +5275,8 @@
       ],
       "tests/test_reparse_surface.py": [
         43.9,
-        57.77
+        57.77,
+        28.12
       ],
       "tests/test_reply_timing.py": [
         0.35
@@ -6161,7 +6188,8 @@
       ],
       "tests/test_pricing_compact.py": [
         2.63,
-        1.41
+        1.41,
+        6.34
       ],
       "tests/test_pricing_compact_shape.py": [
         4.38,
@@ -6332,7 +6360,8 @@
         0.0
       ],
       "tests/test_refresh_fetch_deadline.py": [
-        1.82
+        1.82,
+        0.81
       ],
       "tests/test_refresh_pricelog.py": [
         0.23
@@ -6909,7 +6938,8 @@
       ],
       "tests/test_env_prefix.py": [
         14.94,
-        10.96
+        10.96,
+        26.02
       ],
       "tests/test_env_prefix_scripts.py": [
         0.64
@@ -7257,7 +7287,8 @@
       ],
       "tests/test_pricing_compact.py": [
         2.41,
-        3.67
+        3.67,
+        6.45
       ],
       "tests/test_pricing_compact_shape.py": [
         4.5,
@@ -7448,7 +7479,8 @@
       ],
       "tests/test_reparse_count.py": [
         3.5,
-        1.64
+        1.64,
+        4.54
       ],
       "tests/test_reparse_gate.py": [
         43.95,
