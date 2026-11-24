@@ -37,6 +37,9 @@ pytest_plugins = ("test_ingest",)
 
 _DECOMPRESS = lzma.decompress
 
+# Seeds every pool's server: each module that starts a pool imports this one.
+ingest_workers._PRELOAD_MODULES = ("tests.bounded_pricing", *ingest_workers._PRELOAD_MODULES)  # pylint: disable=protected-access
+
 
 def noop_parse(key: str, sidecar_key: str | None = None, etag: str | None = None, size: int | None = None) -> dict:
     return {}
@@ -546,6 +549,7 @@ if __name__ == "__main__":
     elif sys.argv[1] == "check":
         check(sys.argv[2])
     elif sys.argv[1] == "test":
+        importlib.import_module("tests.bounded_pricing")
         controls = importlib.import_module("tests.test_ingest_forkserver")
         setattr(controls, "ISOLATED", True)
         raise SystemExit(pytest.main([sys.argv[2], "-q", "--tb=short", *sys.argv[3:]]))
