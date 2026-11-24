@@ -32,9 +32,8 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
-    "alternating price: deepseek-v4-pro-0813 via Wafer: the listed rates equal the entry from 2026-11-23T06:50:53Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
-    "alternating price: kimi-k3-1-pro via InferenceNet: the listed rates equal the entry from 2026-11-20T00:53:48Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
-    "alternating price: qwen3-8-27b via PrimeIntellect: the listed rates equal the entry from 2026-11-21T09:15:51Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
+    "alternating price: kimi-k3-1-pro via Morph: the listed rates equal the entry from 2026-11-20T05:35:51Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
+    "alternating price: qwen3-5-9b via PrimeIntellect: the listed rates equal the entry from 2026-11-20T22:30:52Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-5 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
@@ -133,7 +132,6 @@
     "glm-5-3-flash via Particle AI: rule-resolved (tier variant base): took the base endpoint 'particle-ai/nvfp4' over tier variants 'particle-ai/nvfp4/flex'",
     "glm-5-3-flash via Sail Research: rule-resolved (data region): the global data region leaves 'sail-research/fp4'; dropped 'sail-research/us'",
     "glm-5-3-flash via Together: rule-resolved (data region): the global data region leaves 'together'; dropped 'together/us'",
-    "glm-5-3-flash via Wafer: rule-resolved (data region): the global data region leaves 'wafer/nvfp4'; dropped 'wafer/us'",
     "gpt-5-1 via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-5-2 via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast', 'openai/flex'",
     "gpt-5-3-codex via OpenAI: rule-resolved (bare namespace): took the bare namespace endpoint 'openai' over service tiers 'openai/fast'",
@@ -226,7 +224,6 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for gemma-4-26b-a4b-it via PrimeIntellect; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "qwen-2-5-72b-instruct via DeepInfra: 2 endpoints (deepinfra/fp8, deepinfra/fp8/flex) at 2 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "qwen3-14b via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
@@ -280,8 +277,8 @@
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for deepseek-v4-pro-0813 via Wafer; the host was sampled",
-    "the listing lags the listed-pricing log for qwen3-8-27b via PrimeIntellect; the host was sampled"
+    "the listing lags the listed-pricing log for kimi-k3-1-pro via Morph; the host was sampled",
+    "the listing lags the listed-pricing log for qwen3-5-9b via PrimeIntellect; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -405,11 +402,7 @@
     },
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
-      "DeepSeek": "endpoint schedule",
-      "Wafer": "listing lags log"
-    },
-    "gemma-4-26b-a4b-it": {
-      "PrimeIntellect": "no matching log state"
+      "DeepSeek": "endpoint schedule"
     },
     "glm-5-2": {
       "BaseTen": "2 endpoints at one current price"
@@ -576,13 +569,17 @@
       "InferenceNet": "2 endpoints at one current price"
     },
     "kimi-k3-1-pro": {
-      "InferenceNet": "2 endpoints at one current price"
+      "InferenceNet": "2 endpoints at one current price",
+      "Morph": "listing lags log"
     },
     "minimax-m3-1-flash": {
       "InferenceNet": "2 endpoints at one current price"
     },
     "qwen-plus": {
       "Alibaba": "long-context band"
+    },
+    "qwen3-5-9b": {
+      "PrimeIntellect": "listing lags log"
     },
     "qwen3-5-plus-02-15": {
       "Alibaba": "long-context band"
@@ -601,9 +598,6 @@
     },
     "qwen3-7-plus": {
       "Alibaba": "long-context band"
-    },
-    "qwen3-8-27b": {
-      "PrimeIntellect": "listing lags log"
     },
     "qwen4-max": {
       "Alibaba": "log series count mismatch"
@@ -745,7 +739,8 @@
       "GMICloud",
       "NextBit",
       "Phala",
-      "PrimeIntellect"
+      "PrimeIntellect",
+      "Wafer"
     ],
     "glm-5-3-flashx": [
       "Novita"
