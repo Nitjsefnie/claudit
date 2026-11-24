@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import functools
 import json
 import re
@@ -184,12 +185,19 @@ def test_a_table_patched_before_its_first_use_is_restored_to_the_deployed_one(un
         getattr(pricing, "NO_SUCH_TABLE")
 
 
-def test_two_threads_first_use_bind_one_table(unbound_document, monkeypatch):
-    meet, load = threading.Barrier(2, timeout=30), pricing_load.deployed_tables.__wrapped__
-    monkeypatch.setattr(pricing, "deployed_tables", lambda: (load(), meet.wait())[0])
+def test_racing_first_uses_load_the_document_once(unbound_document, monkeypatch):
+    loads, both_loading = [], threading.Barrier(2)
+
+    def load():
+        loads.append(threading.get_ident())
+        with contextlib.suppress(threading.BrokenBarrierError):
+            both_loading.wait(timeout=0.2)
+        return pricing_load.deployed_tables.__wrapped__()
+
+    monkeypatch.setattr(pricing, "deployed_tables", functools.cache(load))
     with ThreadPoolExecutor(2) as pool:
         first, second = pool.map(lambda _: pricing.MODEL_RATES, range(2))
-    assert first is second is pricing.MODEL_RATES
+    assert first is second is pricing.MODEL_RATES and len(loads) == 1
 
 
 @needs_node

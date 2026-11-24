@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 import sys
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -66,6 +67,7 @@ UTC = timezone.utc
 
 # A bare global read never reaches __getattr__, so reads go through the module.
 _PRICING = sys.modules[__name__]
+_BIND_LOCK = threading.Lock()
 
 # Declared for type checkers, unbound until read.
 DATED_RATES: dict[str, Windows]
@@ -87,10 +89,11 @@ VENDOR_PREFIXES: list[str]
 
 
 def __getattr__(name: str) -> Any:
-    """Bind a rate table on its first read; a patched table is never replaced."""
+    """Bind a rate table on its first read, loading once whichever threads race."""
     if name not in RateTables.__annotations__:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    return globals().setdefault(name, deployed_tables()[name])
+    with _BIND_LOCK:
+        return globals().setdefault(name, deployed_tables()[name])
 
 
 def bind_tables() -> None:
