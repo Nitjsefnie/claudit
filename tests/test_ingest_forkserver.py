@@ -379,8 +379,8 @@ def test_reused_server_receives_current_collection_policy(monkeypatch, tmp_path)
 @requires_forkserver
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux parent-death signals")
 @pytest.mark.parametrize("mode", ["service-kill", "server-term"])
-def test_service_server_worker_death_chain(mode):
-    proc = subprocess.run([sys.executable, "-m", "tests.test_ingest_forkserver", mode], capture_output=True, text=True, timeout=120, check=False)
+def test_service_server_worker_death_chain(mode, tmp_path):
+    proc = subprocess.run([sys.executable, "-m", "tests.test_ingest_forkserver", mode], capture_output=True, text=True, timeout=120, check=False, env={**os.environ, "TMPDIR": str(tmp_path)})
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert not proc.stderr or _TRACKER_CLEANUP.fullmatch(proc.stderr), proc.stderr
     assert json.loads(proc.stdout) == {"server_dead": True, "worker_dead": True, "mode": mode}
