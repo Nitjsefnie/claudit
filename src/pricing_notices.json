@@ -33,7 +33,6 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
-    "alternating price: deepseek-v4-pro via StreamLake: the listed rates equal the entry from 2026-11-18T21:26:16Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-5 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
@@ -225,6 +224,7 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for deepseek-v4-pro via Relace; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for glm-5-3 via Morph; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "qwen-2-5-72b-instruct via DeepInfra: 2 endpoints (deepinfra/fp8, deepinfra/fp8/flex) at 2 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "qwen3-14b via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
@@ -277,7 +277,7 @@
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for deepseek-v4-pro via StreamLake; the host was sampled"
+    "the listing lags the listed-pricing log for kimi-k3-1-pro via Morph; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -400,8 +400,7 @@
       "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-pro": {
-      "Relace": "no matching log state",
-      "StreamLake": "listing lags log"
+      "Relace": "no matching log state"
     },
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
@@ -412,7 +411,8 @@
     },
     "glm-5-3": {
       "BaseTen": "2 endpoints at one current price",
-      "InferenceNet": "2 endpoints at one current price"
+      "InferenceNet": "2 endpoints at one current price",
+      "Morph": "no matching log state"
     },
     "glm-5-3-flash": {
       "InferenceNet": "2 endpoints at one current price",
@@ -572,7 +572,8 @@
       "InferenceNet": "2 endpoints at one current price"
     },
     "kimi-k3-1-pro": {
-      "InferenceNet": "2 endpoints at one current price"
+      "InferenceNet": "2 endpoints at one current price",
+      "Morph": "listing lags log"
     },
     "minimax-m3-1-flash": {
       "InferenceNet": "2 endpoints at one current price"
@@ -643,6 +644,7 @@
       "Decart",
       "DekaLLM",
       "GMICloud",
+      "Krea",
       "Particle AI",
       "Phala",
       "StepFun"
@@ -858,12 +860,21 @@
       "StreamLake",
       "Tenstorrent"
     ],
+    "qwen3-5-122b-a10b": [
+      "Novita"
+    ],
     "qwen3-5-27b": [
+      "Novita"
+    ],
+    "qwen3-8-2-4t-a95b": [
       "Novita"
     ],
     "qwen3-8-27b": [
       "Novita",
       "Venice"
+    ],
+    "qwen3-vl-30b-a3b-instruct": [
+      "Novita"
     ],
     "step-3-7-flash": [
       "Novita"
