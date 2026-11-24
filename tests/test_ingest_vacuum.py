@@ -24,7 +24,7 @@ from test_ingest import (  # pylint: disable=unused-import
     _fresh_db_fixture as ingest_fresh_db_fixture,
     _mini_r2_env_fixture as ingest_mini_r2_env,
 )
-from backend import db, ingest, ingest_fetch, ingest_reprice, ingest_vacuum
+from backend import db, ingest, ingest_fetch, ingest_reprice, ingest_vacuum, pricing
 from tests import mini_mirror
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -344,6 +344,7 @@ def test_a_cancelled_mid_statement_vacuum_ends_promptly_and_stays_green(
         finally:
             done.set()
 
+    pricing.bind_tables()
     threading.Thread(target=runner).start()
     # The synchronisation point is the server, not a sleep: wait until
     # pg_stat_activity shows the vacuum's sleep executing, then cancel.
