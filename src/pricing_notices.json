@@ -223,9 +223,6 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-pro via Relace; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-pro via StreamLake; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for glm-5-3 via Morph; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "qwen-2-5-72b-instruct via DeepInfra: 2 endpoints (deepinfra/fp8, deepinfra/fp8/flex) at 2 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "qwen3-14b via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
@@ -399,10 +396,6 @@
       "BaseTen": "2 endpoints selected",
       "Sail Research": "2 endpoints at one current price"
     },
-    "deepseek-v4-pro": {
-      "Relace": "no matching log state",
-      "StreamLake": "no matching log state"
-    },
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
@@ -412,8 +405,7 @@
     },
     "glm-5-3": {
       "BaseTen": "2 endpoints at one current price",
-      "InferenceNet": "2 endpoints at one current price",
-      "Morph": "no matching log state"
+      "InferenceNet": "2 endpoints at one current price"
     },
     "glm-5-3-flash": {
       "InferenceNet": "2 endpoints at one current price",
@@ -870,7 +862,6 @@
     ],
     "qwen3-8-27b": [
       "Novita",
-      "Tenstorrent",
       "Venice"
     ],
     "qwen3-vl-30b-a3b-instruct": [
