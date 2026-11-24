@@ -308,8 +308,8 @@
     14524
   ],
   "backend/ingest_forkserver.py": [
-    238,
-    325
+    227,
+    359
   ],
   "backend/ingest_identity.py": [
     1210,
@@ -408,8 +408,8 @@
     1355
   ],
   "backend/long_context.py": [
-    700,
-    816
+    689,
+    805
   ],
   "backend/model_names.py": [
     1560,
@@ -452,12 +452,12 @@
     7294
   ],
   "backend/pricing.py": [
-    5192,
-    12745
+    5182,
+    13568
   ],
   "backend/pricing_document.py": [
-    982,
-    5242
+    981,
+    5241
   ],
   "backend/pricing_load.py": [
     4981,
@@ -480,8 +480,8 @@
     2261
   ],
   "backend/rate_fingerprint.py": [
-    3098,
-    6881
+    3090,
+    6873
   ],
   "backend/reply_timing.py": [
     1623,
@@ -692,8 +692,8 @@
     13737
   ],
   "scripts/ci/reparse_bench.py": [
-    8050,
-    16331
+    7994,
+    16304
   ],
   "scripts/ci/reparse_bindings.py": [
     2630,
@@ -720,8 +720,8 @@
     10386
   ],
   "scripts/ci/suite_bench.py": [
-    6467,
-    12287
+    6305,
+    12051
   ],
   "scripts/ci/suite_phases.py": [
     4539,
@@ -956,8 +956,8 @@
     4291
   ],
   "tests/conftest.py": [
-    4434,
-    8330
+    4421,
+    8535
   ],
   "tests/db_marker.py": [
     2824,
@@ -1443,10 +1443,6 @@
     3541,
     20760
   ],
-  "tests/test_provider_rate_refresh.py": [
-    3207,
-    20691
-  ],
   "tests/test_provider_rate_refresh_alternation.py": [
     738,
     4380
@@ -1476,8 +1472,8 @@
     21129
   ],
   "tests/test_rate_fingerprint.py": [
-    4308,
-    17371
+    4306,
+    17369
   ],
   "tests/test_records_price.py": [
     5424,
@@ -1496,8 +1492,8 @@
     7756
   ],
   "tests/test_reparse_count.py": [
-    1825,
-    4665
+    1652,
+    4433
   ],
   "tests/test_reparse_gate.py": [
     2290,
@@ -1592,8 +1588,8 @@
     18997
   ],
   "tests/test_suite_cost_pricing_growth.py": [
-    2098,
-    5640
+    1556,
+    4628
   ],
   "tests/test_suite_ratchet.py": [
     3316,
@@ -1640,8 +1636,8 @@
     5190
   ],
   "tests/test_uuid_gate.py": [
-    1493,
-    4172
+    1476,
+    4511
   ],
   "tests/test_uuid_split.py": [
     4146,
