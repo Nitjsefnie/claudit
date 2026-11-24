@@ -18,8 +18,7 @@ SHAPE_PASSES = 4000
 def _load(name):
     if str(REPO_ROOT / "scripts" / "ci") not in sys.path:
         sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
-    spec = importlib.util.spec_from_file_location(
-        name, REPO_ROOT / "scripts" / "ci" / f"{name}.py")
+    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / "scripts" / "ci" / f"{name}.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -72,8 +71,7 @@ def _budgets(measured="10.0", **overrides):
     }
     for label, value in overrides.items():
         phase, metric = label.split(".")
-        budgets[phase][metric] = {"measured": Decimal(value),
-                                  "floor": Decimal(value) + Decimal("1.5")}
+        budgets[phase][metric] = {"measured": Decimal(value), "floor": Decimal(value) + Decimal("1.5")}
     return budgets
 
 
@@ -95,16 +93,14 @@ def _report_lines(counted=None):
     shares = {name: Decimal("9.0") for name in bench.PHASES}
     if counted is None:
         counted = {name: Decimal("1.0") for name in bench.PHASES}
-    return report_module.report(
-        _measurement_with(shares, counted)).splitlines()
+    return report_module.report(_measurement_with(shares, counted)).splitlines()
 
 
 def test_report_phase_table_is_markdown():
     """Padded markdown: readable in the monospace job log, and pasted
     elsewhere it renders as a table."""
     lines = _report_lines()
-    header, separator, *rows = [
-        line for line in lines if line.startswith("|")]
+    header, separator, *rows = [line for line in lines if line.startswith("|")]
     assert [cell.strip() for cell in header.strip("|").split("|")] == [
         "phase", "share", "ms/file", "bytecode_hundreds_per_file"]
     assert set(separator) <= set("|-: ")
@@ -134,21 +130,18 @@ def test_report_table_stays_monospace_aligned():
     assert cells[4].endswith("- "), cells
 
 
-@pytest.mark.parametrize("value, expected", [(None, "-"), (Decimal("40.0"), "40.0")],
-                         ids=["uncounted", "counted"])
+@pytest.mark.parametrize("value, expected", [(None, "-"), (Decimal("40.0"), "40.0")], ids=["uncounted", "counted"])
 def test_report_shows_phase_count(value, expected):
     counted = {name: None if value is None else Decimal("1.0") for name in bench.PHASES}
     counted["parse_body"] = value
-    row = next(line for line in _report_lines(counted=counted)
-               if line.startswith("|") and "parse_body" in line)
+    row = next(line for line in _report_lines(counted=counted) if line.startswith("|") and "parse_body" in line)
     assert row.strip("| ").split("|")[-1].strip() == expected
 
 
 def test_report_totals_and_instrument_notes_stay_prose():
     """The intro, the sum and the two instrument notes are not rows of
     the table ( keeps them prose)."""
-    prose = [line for line in _report_lines()
-             if not line.startswith("|")]
+    prose = [line for line in _report_lines() if not line.startswith("|")]
     assert prose[0].startswith("reparse CPU")
     assert any(line.lstrip().startswith("sum ") for line in prose)
     assert any(line.lstrip().startswith("bytecodes:") for line in prose)
@@ -164,10 +157,8 @@ def test_check_fails_on_a_phase_over_its_bytecode_floor(tmp_path, capsys, phase)
     counted = {name: Decimal("1.0") for name in bench.PHASES}
     counted[phase] = Decimal("40.0")
     path = tmp_path / "m.json"
-    report_module.write_measurement(path, _measurement_with(
-        {name: Decimal("9.0") for name in bench.PHASES}, counted))
-    assert bench.main(["--check", str(path), "--thresholds",
-                       str(thresholds_path)]) == 1
+    report_module.write_measurement(path, _measurement_with({name: Decimal("9.0") for name in bench.PHASES}, counted))
+    assert bench.main(["--check", str(path), "--thresholds", str(thresholds_path)]) == 1
     err = capsys.readouterr().err
     assert f"{phase}: 40.0" in err
     if phase == "parse_body":
@@ -199,8 +190,7 @@ def test_check_ignores_a_share_over_its_floor(tmp_path, capsys, committed):
     path = tmp_path / "m.json"
     report_module.write_measurement(path, _measurement_with(
         shares, {name: Decimal("0.0" if committed else "1.0") for name in bench.PHASES}))
-    assert bench.main(["--check", str(path), "--thresholds",
-                       str(thresholds_path)]) == 0
+    assert bench.main(["--check", str(path), "--thresholds", str(thresholds_path)]) == 0
     out = capsys.readouterr().out
     assert "99.9" in out, "the share is still printed, as telemetry"
 
@@ -218,8 +208,7 @@ def test_check_fails_when_the_gated_count_was_not_measured(tmp_path, capsys):
             instruction_counts={'available': False,
                                 'reason': 'no INSTRUCTION event'},
             instruction_note='no INSTRUCTION event'))
-    assert bench.main(["--check", str(path), "--thresholds",
-                       str(thresholds_path)]) == 1
+    assert bench.main(["--check", str(path), "--thresholds", str(thresholds_path)]) == 1
     err = capsys.readouterr().err
     assert "NOT MEASURED" in err
     assert "no INSTRUCTION event" in err
@@ -245,8 +234,7 @@ def test_the_gate_holds_exactly_the_bytecode_budgets():
         "the share stays recorded; it only stops gating")
 
 
-def test_the_gate_reads_the_enforced_set_rather_than_a_hardcoded_metric(
-        tmp_path, monkeypatch):
+def test_the_gate_reads_the_enforced_set_rather_than_a_hardcoded_metric(tmp_path, monkeypatch):
     """An enforced metric with no reader fails closed.
     The gate and ratchet must read the same enforced-set constant, or widening
     the set could tighten shares while the gate keeps checking a single metric."""
@@ -256,7 +244,6 @@ def test_the_gate_reads_the_enforced_set_rather_than_a_hardcoded_metric(
     report_module.write_measurement(path, _measurement_with(
         {name: Decimal("9.0") for name in bench.PHASES},
         {name: Decimal("1.0") for name in bench.PHASES}))
-    monkeypatch.setattr(
-        thresholds, "REPARSE_GATED_METRICS", ("bytecodes", "share"))
+    monkeypatch.setattr(thresholds, "REPARSE_GATED_METRICS", ("bytecodes", "share"))
     with pytest.raises(ValueError, match="no reader for the gated metric"):
         report_module.check(path, thresholds_path)

@@ -37,8 +37,7 @@ def _load(name: str):
     """
     if str(BENCH_DIR) not in sys.path:
         sys.path.insert(0, str(BENCH_DIR))
-    spec = importlib.util.spec_from_file_location(
-        name, BENCH_DIR / f"{name}.py")
+    spec = importlib.util.spec_from_file_location(name, BENCH_DIR / f"{name}.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -276,22 +275,19 @@ def test_an_allowlisted_name_excuses_only_itself():
     # substring match: `name.startswith(entry)` would excuse
     # `bash_reads.scan_command` and `bash_reads.scan_path` for nothing.
     # The entry names ONE function, and its near misses stay reported.
-    reached = {"bash_reads.scan": "bash_reads",
-               "bash_reads.scan_command": "bash_reads"}
+    reached = {"bash_reads.scan": "bash_reads", "bash_reads.scan_command": "bash_reads"}
     allowed = {"bash_reads.scan": "one dead branch"}
     assert surface.unexercised(reached, set(reached), allowed) == []
     # The corpus walked the allowlisted one and not its sibling: under a
     # prefix or substring match the sibling would be excused for nothing,
     # and this is the assertion that dies.
-    assert surface.unexercised(reached, {'bash_reads.scan'}, allowed) == [
-        'bash_reads.scan_command']
+    assert surface.unexercised(reached, {'bash_reads.scan'}, allowed) == ['bash_reads.scan_command']
 
 
 def test_an_allowlist_entry_for_a_function_that_is_gone_is_reported():
     # A deleted or renamed function must delete its excuse in the same
     # change: an entry nothing reads is a rule that outlived its subject.
-    stale = surface.stale_allowlist(
-        {"parse.parse_file": "parse"}, {"parse.gone_away": "deleted"})
+    stale = surface.stale_allowlist({"parse.parse_file": "parse"}, {"parse.gone_away": "deleted"})
     assert stale == ["parse.gone_away"]
 
 
@@ -350,10 +346,8 @@ def test_the_gate_refuses_when_the_mirror_loses_a_format():
     # formats, so a mirror that loses one leaves the union green.
     mirror = bench.corpus()
     assert surface.mirror_gap(mirror) == [], surface.mirror_gap(mirror)
-    claude_only = [entry for entry in mirror
-                   if "/sessions/" not in entry.key]
-    assert surface.mirror_gap(claude_only) == [
-        "codex", "kimi-code", "legacy"]
+    claude_only = [entry for entry in mirror if "/sessions/" not in entry.key]
+    assert surface.mirror_gap(claude_only) == ["codex", "kimi-code", "legacy"]
 
 
 def test_a_report_naming_an_absent_format_never_reads_as_a_pass():

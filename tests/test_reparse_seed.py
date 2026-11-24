@@ -92,25 +92,19 @@ def test_the_seed_refuses_a_family_that_is_still_recorded():
 
 def test_the_seed_writes_the_family_onto_an_emptied_document():
     data = _document(reparse=False)
-    readings = {
-        phase: {"share": "9.0", "bytecodes": "27.2"}
-        for phase in thresholds.REPARSE_PHASES}
+    readings = {phase: {"share": "9.0", "bytecodes": "27.2"} for phase in thresholds.REPARSE_PHASES}
     seeded = reparse_ratchet.seed(data, readings)
     family = seeded[thresholds.REPARSE_FAMILY]
-    assert family["parse_body"]["bytecodes"] == {
-        "measured": Decimal("27.2"), "floor": Decimal("28.7")}
+    assert family["parse_body"]["bytecodes"] == {"measured": Decimal("27.2"), "floor": Decimal("28.7")}
     assert thresholds.normalise(seeded) == seeded
 
 
 def test_the_seed_restores_both_metrics_per_phase():
     data = _document(reparse=False)
-    readings = {
-        phase: {"share": "6.7", "bytecodes": "1.6"}
-        for phase in thresholds.REPARSE_PHASES}
+    readings = {phase: {"share": "6.7", "bytecodes": "1.6"} for phase in thresholds.REPARSE_PHASES}
     seeded = reparse_ratchet.seed(data, readings)
     for phase in thresholds.REPARSE_PHASES:
-        assert set(seeded[thresholds.REPARSE_FAMILY][phase]) == set(
-            thresholds.REPARSE_METRICS)
+        assert set(seeded[thresholds.REPARSE_FAMILY][phase]) == set(thresholds.REPARSE_METRICS)
         for metric in thresholds.REPARSE_METRICS:
             record = seeded[thresholds.REPARSE_FAMILY][phase][metric]
             assert record["floor"] == record["measured"] + GAP
@@ -124,9 +118,7 @@ def test_an_empty_family_is_present_and_refuses_the_seed():
     # (guards/distinguish-absent-from-empty).
     data = _document(reparse=False)
     data[thresholds.REPARSE_FAMILY] = {}
-    readings = {
-        phase: {"share": "9.0", "bytecodes": "1.0"}
-        for phase in thresholds.REPARSE_PHASES}
+    readings = {phase: {"share": "9.0", "bytecodes": "1.0"} for phase in thresholds.REPARSE_PHASES}
     with pytest.raises(ValueError, match="already recorded"):
         reparse_ratchet.seed(data, readings)
     # load_for_seed hands a PRESENT family to the loader, whose own
@@ -138,8 +130,7 @@ def test_an_empty_family_is_present_and_refuses_the_seed():
 
 def _load_for_seed_of_bytes(data):
     """load_for_seed against raw bytes, through a temp file."""
-    with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.json', delete=False) as handle:
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as handle:
         json.dump(data, handle, default=float)
         name = handle.name
     try:
@@ -152,19 +143,15 @@ def test_a_missing_phase_reading_is_a_clean_refusal():
     # A direct caller's contract: the same ValueError shape the CLI's
     # guard produces, never a KeyError.
     data = _document(reparse=False)
-    readings = {
-        phase: {"share": "9.0", "bytecodes": "1.0"}
-        for phase in thresholds.REPARSE_PHASES}
+    readings = {phase: {"share": "9.0", "bytecodes": "1.0"} for phase in thresholds.REPARSE_PHASES}
     del readings["sidecar"]
-    with pytest.raises(ValueError,
-                       match="no bytecodes reading for sidecar"):
+    with pytest.raises(ValueError, match="no bytecodes reading for sidecar"):
         reparse_ratchet.seed(data, readings)
 
 
 def test_a_counts_less_measurement_is_refused(tmp_path):
     measurement = _write_measurement(tmp_path / "m.json", counted=False)
-    data, _fresh = reparse_ratchet.load_for_seed(
-        _write(tmp_path, _document(reparse=False)))
+    data, _fresh = reparse_ratchet.load_for_seed(_write(tmp_path, _document(reparse=False)))
     with pytest.raises(ValueError, match="not gateable or seedable"):
         reparse_ratchet.seed(
             data, reparse_ratchet._seed_readings(  # pylint: disable=protected-access
@@ -175,9 +162,7 @@ def test_the_seed_cli_writes_an_absent_family(tmp_path, capsys):
     document = _write(tmp_path, _document(reparse=False))
     measurement = _write_measurement(tmp_path / "m.json")
     before = document.read_text(encoding="utf-8")
-    assert reparse_ratchet.main([
-        "--seed", str(measurement),
-        "--thresholds", str(document)]) == 0
+    assert reparse_ratchet.main(["--seed", str(measurement), "--thresholds", str(document)]) == 0
     assert "seeded the parse_body budgets" in capsys.readouterr().out
     loaded = thresholds.load(document)
     # The count the measurement carried is what landed, at the gap above.
@@ -193,9 +178,7 @@ def test_the_seed_cli_writes_the_loader_s_canonical_bytes(tmp_path):
     # that the bytes changed.
     document = _write(tmp_path, _document(reparse=False))
     measurement = _write_measurement(tmp_path / "m.json")
-    assert reparse_ratchet.main([
-        "--seed", str(measurement),
-        "--thresholds", str(document)]) == 0
+    assert reparse_ratchet.main(["--seed", str(measurement), "--thresholds", str(document)]) == 0
     loaded = thresholds.load(document)
     canonical = tmp_path / "canonical.json"
     thresholds.write(canonical, loaded)
@@ -206,9 +189,7 @@ def test_the_seed_cli_refuses_a_recorded_family(tmp_path, capsys):
     document = _write(tmp_path, _document())
     measurement = _write_measurement(tmp_path / "m.json")
     before = document.read_text(encoding="utf-8")
-    assert reparse_ratchet.main([
-        "--seed", str(measurement),
-        "--thresholds", str(document)]) == 1
+    assert reparse_ratchet.main(["--seed", str(measurement), "--thresholds", str(document)]) == 1
     assert "already recorded" in capsys.readouterr().err
     assert document.read_text(encoding="utf-8") == before
 
@@ -217,16 +198,13 @@ def test_the_modes_are_exclusive_and_one_is_required():
     with pytest.raises(SystemExit):
         reparse_ratchet.main(["--thresholds", "/dev/null"])
     with pytest.raises(SystemExit):
-        reparse_ratchet.main([
-            "--seed", "/dev/null", "--measured-file", "/dev/null"])
+        reparse_ratchet.main(["--seed", "/dev/null", "--measured-file", "/dev/null"])
 
 
 def test_tighten_refuses_counts_less_seed_without_writing(tmp_path, capsys):
     document = _write(tmp_path, _document(reparse=False))
     measurement = _write_measurement(tmp_path / "m.json", counted=False)
     before = document.read_bytes()
-    assert reparse_ratchet.main([
-        "--measured-file", str(measurement),
-        "--thresholds", str(document)]) == 1
+    assert reparse_ratchet.main(["--measured-file", str(measurement), "--thresholds", str(document)]) == 1
     assert document.read_bytes() == before
     assert "no bytecode count" in capsys.readouterr().err

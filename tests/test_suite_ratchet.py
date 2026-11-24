@@ -117,8 +117,7 @@ def _measurement_file(tmp_path, counts, name="m.json"):
     target = tmp_path / name
     payload = json.loads(json.dumps(MEASUREMENT))
     for phase in ("collection", "run", "residual"):
-        payload["phases"][phase]["million_instructions"] = str(
-            counts[phase])
+        payload["phases"][phase]["million_instructions"] = str(counts[phase])
     payload["total_million_instructions"] = str(sum(counts.values()))
     target.write_text(json.dumps(payload), encoding="utf-8")
     return target
@@ -133,8 +132,7 @@ def test_seed_refuses_when_the_member_exists(tmp_path, capsys):
         for phase in ("collection", "run", "residual")}
     target = _written(tmp_path, seeded)
     before = target.read_text(encoding="utf-8")
-    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
-                         "--thresholds", str(target)]) == 1
+    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)), "--thresholds", str(target)]) == 1
     assert target.read_text(encoding="utf-8") == before
     assert "already recorded" in capsys.readouterr().err
 
@@ -163,13 +161,10 @@ def test_seed_writes_canonical_bytes(tmp_path):
     thresholds = _thresholds()
     ratchet = _ratchet()
     target = _written(tmp_path, _seeded_document())
-    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
-                         "--thresholds", str(target)]) == 0
+    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)), "--thresholds", str(target)]) == 0
     text = target.read_text(encoding="utf-8")
-    assert text == json.dumps(
-        json.loads(text), indent=2, sort_keys=True) + "\n"
-    assert thresholds.load(target) == thresholds.normalise(
-        thresholds.load(target))
+    assert text == json.dumps(json.loads(text), indent=2, sort_keys=True) + "\n"
+    assert thresholds.load(target) == thresholds.normalise(thresholds.load(target))
 
 
 def test_tighten_moves_both_fields_past_the_hysteresis(tmp_path):
@@ -187,9 +182,7 @@ def test_tighten_moves_both_fields_past_the_hysteresis(tmp_path):
     # unchanged.
     cheaper["run"] = COUNTS["run"] - Decimal("1.5")
     cheaper["collection"] = COUNTS["collection"] - Decimal("1.6")
-    assert ratchet.main(
-        ["--tighten", str(_measurement_file(tmp_path, cheaper)),
-         "--thresholds", str(target)]) == 0
+    assert ratchet.main(["--tighten", str(_measurement_file(tmp_path, cheaper)), "--thresholds", str(target)]) == 0
     doc = thresholds.load(target)
     assert doc["suite_cost"]["run"] == seeded["suite_cost"]["run"]
     assert doc["suite_cost"]["residual"] == seeded["suite_cost"]["residual"]
@@ -207,12 +200,9 @@ def test_tighten_never_raises(tmp_path):
                 "floor": COUNTS[phase] + Decimal("1.5")}
         for phase in ("collection", "run", "residual")}
     target = _written(tmp_path, seeded)
-    dearer = {phase: COUNTS[phase] + Decimal("50.0")
-              for phase in ("collection", "run", "residual")}
+    dearer = {phase: COUNTS[phase] + Decimal("50.0") for phase in ("collection", "run", "residual")}
     before = target.read_text(encoding="utf-8")
-    assert ratchet.main(
-        ["--tighten", str(_measurement_file(tmp_path, dearer)),
-         "--thresholds", str(target)]) == 0
+    assert ratchet.main(["--tighten", str(_measurement_file(tmp_path, dearer)), "--thresholds", str(target)]) == 0
     assert target.read_text(encoding="utf-8") == before
 
 
@@ -227,8 +217,7 @@ def test_tighten_seeds_absent_family(tmp_path, capsys, monkeypatch, identity):
         payload["tests_tree_lines"] = identity
     measurement.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(ratchet, "_tree_identity", lambda: 41234)
-    assert ratchet.main([
-        "--tighten", str(measurement), "--thresholds", str(target)]) == 0
+    assert ratchet.main(["--tighten", str(measurement), "--thresholds", str(target)]) == 0
     loaded = thresholds.load(target)
     assert thresholds.suite_cost(loaded) == {
         "collection": {"measured": Decimal("12.5"), "floor": Decimal("14.0")},
@@ -248,8 +237,7 @@ def test_tighten_seed_refuses_wrong_tree(tmp_path, capsys, monkeypatch):
     measurement.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(ratchet, "_tree_identity", lambda: 63211)
     before = target.read_bytes()
-    assert ratchet.main([
-        "--tighten", str(measurement), "--thresholds", str(target)]) == 1
+    assert ratchet.main(["--tighten", str(measurement), "--thresholds", str(target)]) == 1
     assert target.read_bytes() == before
     assert "63211" in capsys.readouterr().err
 
@@ -259,8 +247,7 @@ def test_tighten_absent_family_without_site_packages(tmp_path, wrong_tree):
     target = _written(tmp_path, _seeded_document())
     before = target.read_bytes()
     measurement = _measurement_file(tmp_path, COUNTS)
-    identity = sum(len(path.read_bytes().splitlines())
-                   for path in sorted((REPO_ROOT / "tests").rglob("*.py")))
+    identity = sum(len(path.read_bytes().splitlines()) for path in sorted((REPO_ROOT / "tests").rglob("*.py")))
     payload = json.loads(measurement.read_text(encoding="utf-8"))
     payload["tests_tree_lines"] = identity + int(wrong_tree)
     measurement.write_text(json.dumps(payload), encoding="utf-8")
@@ -287,8 +274,7 @@ def test_tighten_refuses_a_counts_less_measurement(tmp_path):
         record["million_instructions"] = None
     path = tmp_path / "fallback.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
-    assert ratchet.main(["--tighten", str(path),
-                         "--thresholds", str(target)]) == 1
+    assert ratchet.main(["--tighten", str(path), "--thresholds", str(target)]) == 1
 
 
 def test_the_synthetic_bot_path_seed_then_tighten_then_guard(tmp_path):
@@ -300,12 +286,10 @@ def test_the_synthetic_bot_path_seed_then_tighten_then_guard(tmp_path):
     ratchet = _ratchet()
     guard = _guard()
     target = _written(tmp_path, _seeded_document())
-    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
-                         "--thresholds", str(target)]) == 0
+    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)), "--thresholds", str(target)]) == 0
     seeded = thresholds.load(target)
 
-    cheaper = {phase: COUNTS[phase] - Decimal("2.0")
-               for phase in ("collection", "run", "residual")}
+    cheaper = {phase: COUNTS[phase] - Decimal("2.0") for phase in ("collection", "run", "residual")}
     assert ratchet.main(
         ["--tighten", str(_measurement_file(tmp_path, cheaper, "c.json")),
          "--thresholds", str(target)]) == 0
@@ -319,14 +303,11 @@ def test_the_synthetic_bot_path_seed_then_tighten_then_guard(tmp_path):
     thresholds.write(base_path, seeded)
     head_path = tmp_path / "head.json"
     thresholds.write(head_path, tightened)
-    assert guard.main([
-        "--base", str(base_path), "--head", str(head_path)]) == 0
-    assert guard.main([
-        "--base", str(head_path), "--head", str(base_path)]) == 1
+    assert guard.main(["--base", str(base_path), "--head", str(head_path)]) == 0
+    assert guard.main(["--base", str(head_path), "--head", str(base_path)]) == 1
 
 
-def test_seed_then_tighten_on_the_committed_document_round_trips(
-        tmp_path, monkeypatch):
+def test_seed_then_tighten_on_the_committed_document_round_trips(tmp_path, monkeypatch):
     # The committed document, copied to tmp_path and passed through the
     # seed-refusal and tighten paths, keeps canonical bytes: the bot's
     # writes are the loader's writes.
@@ -336,8 +317,7 @@ def test_seed_then_tighten_on_the_committed_document_round_trips(
     thresholds = _thresholds()
     ratchet = _ratchet()
     target = tmp_path / "ci-thresholds.json"
-    target.write_bytes(
-        subprocess_committed_bytes())
+    target.write_bytes(subprocess_committed_bytes())
     if thresholds.suite_cost(thresholds.load(target)) == {}:
         # The fallback seed carries the identity, so the positive
         # assertion below also covers an absent-family document (the
@@ -349,26 +329,21 @@ def test_seed_then_tighten_on_the_committed_document_round_trips(
         payload = json.loads(measurement.read_text(encoding="utf-8"))
         payload["tests_tree_lines"] = 41234
         measurement.write_text(json.dumps(payload), encoding="utf-8")
-        assert ratchet.main([
-            "--seed", str(measurement),
-            "--thresholds", str(target)]) == 0
+        assert ratchet.main(["--seed", str(measurement), "--thresholds", str(target)]) == 0
     doc = thresholds.load(target)
     # The workload identity rides beside the budgets on the
     # committed family — seed-supplied or committed — and the phases are
     # the invariant it must not displace.
     assert thresholds.SUITE_COST_IDENTITY in doc["suite_cost"]
-    assert set(doc["suite_cost"]) == {
-        "collection", "run", "residual", thresholds.SUITE_COST_IDENTITY}
+    assert set(doc["suite_cost"]) == {"collection", "run", "residual", thresholds.SUITE_COST_IDENTITY}
     # The member is present, so a seed refuses and changes nothing.
     before = target.read_text(encoding="utf-8")
-    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
-                         "--thresholds", str(target)]) == 1
+    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)), "--thresholds", str(target)]) == 1
     assert target.read_text(encoding="utf-8") == before
     # A tighten within the hysteresis writes nothing: the measurement
     # is built from the committed values themselves, one step cheaper.
     recorded = thresholds.load(target)["suite_cost"]
-    within = {phase: recorded[phase]["measured"] - Decimal("0.1")
-              for phase in ("collection", "run", "residual")}
+    within = {phase: recorded[phase]["measured"] - Decimal("0.1") for phase in ("collection", "run", "residual")}
     assert ratchet.main(
         ["--tighten", str(_measurement_file(tmp_path, within, "w.json")),
          "--thresholds", str(target)]) == 0
@@ -395,8 +370,7 @@ def test_seed_carries_the_workload_identity(tmp_path, monkeypatch):
     payload["tests_tree_lines"] = 41234
     measurement.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(ratchet, "_tree_identity", lambda: 41234)
-    assert ratchet.main(["--seed", str(measurement),
-                         "--thresholds", str(target)]) == 0
+    assert ratchet.main(["--seed", str(measurement), "--thresholds", str(target)]) == 0
     doc = thresholds.load(target)
     assert doc["suite_cost"]["tests_tree_lines"] == 41234
 
@@ -404,8 +378,7 @@ def test_seed_carries_the_workload_identity(tmp_path, monkeypatch):
 @pytest.mark.parametrize("measured_lines, current_lines", [
     (41234, 63211), (63211, 41234),
 ], ids=["below-current-tree", "above-current-tree"])
-def test_seed_refuses_a_measurement_from_another_tree(
-        tmp_path, capsys, monkeypatch, measured_lines, current_lines):
+def test_seed_refuses_a_measurement_from_another_tree(tmp_path, capsys, monkeypatch, measured_lines, current_lines):
     # The identity check is the seed half of SV-CI-RATCHETS' binding: the
     # seed measures the FINAL tree, so an artifact whose tests_tree_lines
     # names another tree is refused, naming both counts, and the committed
@@ -418,8 +391,7 @@ def test_seed_refuses_a_measurement_from_another_tree(
     payload["tests_tree_lines"] = measured_lines
     measurement.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(ratchet, "_tree_identity", lambda: current_lines)
-    assert ratchet.main(["--seed", str(measurement),
-                         "--thresholds", str(target)]) == 1
+    assert ratchet.main(["--seed", str(measurement), "--thresholds", str(target)]) == 1
     assert target.read_text(encoding="utf-8") == before
     err = capsys.readouterr().err
     assert str(measured_lines) in err and str(current_lines) in err
@@ -431,8 +403,7 @@ def test_seed_from_an_identity_less_measurement_omits_the_field(tmp_path):
     thresholds = _thresholds()
     ratchet = _ratchet()
     target = _written(tmp_path, _seeded_document())
-    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)),
-                         "--thresholds", str(target)]) == 0
+    assert ratchet.main(["--seed", str(_measurement_file(tmp_path, COUNTS)), "--thresholds", str(target)]) == 0
     doc = thresholds.load(target)
     assert doc["suite_cost"] == {
         phase: {"measured": COUNTS[phase],
@@ -449,16 +420,12 @@ def test_tighten_preserves_the_identity(tmp_path, monkeypatch):
     payload["tests_tree_lines"] = 41234
     measurement.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(ratchet, "_tree_identity", lambda: 41234)
-    assert ratchet.main(["--seed", str(measurement),
-                         "--thresholds", str(target)]) == 0
-    cheaper = {phase: COUNTS[phase] - Decimal("5.0")
-               for phase in ("collection", "run", "residual")}
-    assert ratchet.main(["--tighten", str(_measurement_file(tmp_path, cheaper)),
-                         "--thresholds", str(target)]) == 0
+    assert ratchet.main(["--seed", str(measurement), "--thresholds", str(target)]) == 0
+    cheaper = {phase: COUNTS[phase] - Decimal("5.0") for phase in ("collection", "run", "residual")}
+    assert ratchet.main(["--tighten", str(_measurement_file(tmp_path, cheaper)), "--thresholds", str(target)]) == 0
     doc = thresholds.load(target)
     assert doc["suite_cost"]["tests_tree_lines"] == 41234
-    assert doc["suite_cost"]["run"] == {
-        "measured": Decimal("299.9"), "floor": Decimal("301.4")}
+    assert doc["suite_cost"]["run"] == {"measured": Decimal("299.9"), "floor": Decimal("301.4")}
 
 
 def test_the_committed_identity_is_a_positive_integral_count(tmp_path):
