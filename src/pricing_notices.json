@@ -30,7 +30,6 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
-    "alternating price: gemma-4-31b-it via PrimeIntellect: the listed rates equal the entry from 2026-11-19T09:30:52Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "alternating price: kimi-k3-1-pro via InferenceNet: the listed rates equal the entry from 2026-11-20T00:53:48Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
@@ -223,6 +222,7 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for gpt-oss-20b via PrimeIntellect; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "qwen-2-5-72b-instruct via DeepInfra: 2 endpoints (deepinfra/fp8, deepinfra/fp8/flex) at 2 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "qwen3-14b via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
@@ -275,8 +275,7 @@
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/turbo' names neither a known region nor a quantization: glm-5 via Venice",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for gemma-4-31b-it via PrimeIntellect; the host was sampled"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -402,9 +401,6 @@
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
     },
-    "gemma-4-31b-it": {
-      "PrimeIntellect": "listing lags log"
-    },
     "glm-5-2": {
       "BaseTen": "2 endpoints at one current price"
     },
@@ -414,8 +410,7 @@
     },
     "glm-5-3-flash": {
       "InferenceNet": "2 endpoints at one current price",
-      "Sail Research": "2 endpoints at one current price",
-      "Wafer": "log series count mismatch"
+      "Sail Research": "2 endpoints at one current price"
     },
     "gpt-4-1": {
       "Azure": "log series count mismatch"
@@ -558,7 +553,8 @@
       "BaseTen": "2 endpoints at one current price"
     },
     "gpt-oss-20b": {
-      "Amazon Bedrock": "2 endpoints at one current price"
+      "Amazon Bedrock": "2 endpoints at one current price",
+      "PrimeIntellect": "no matching log state"
     },
     "hy3": {
       "Tencent": "endpoint schedule"
@@ -596,6 +592,9 @@
     },
     "qwen3-7-plus": {
       "Alibaba": "long-context band"
+    },
+    "qwen3-8-27b": {
+      "Tenstorrent": "log series count mismatch"
     },
     "qwen4-max": {
       "Alibaba": "log series count mismatch"
@@ -725,8 +724,7 @@
       "OpenInference",
       "Phala",
       "PrimeIntellect",
-      "Reka",
-      "River"
+      "Reka"
     ],
     "glm-5-3-flash": [
       "AtlasCloud",
@@ -845,7 +843,6 @@
       "Tenstorrent"
     ],
     "qwen3-8-27b": [
-      "Tenstorrent",
       "Venice"
     ],
     "step-5-preview": [
