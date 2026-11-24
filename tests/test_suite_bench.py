@@ -71,9 +71,7 @@ def mini_suite_fixture(tmp_path):
     # pytest-asyncio's configure-stage deprecation warning — swallowed in
     # a top-level run by Python's default filters — re-enters the OUTER
     # run's warnings summary from inside these tests.
-    (tmp_path / "pytest.ini").write_text(
-        "[pytest]\nasyncio_default_fixture_loop_scope = function\n",
-        encoding="utf-8")
+    (tmp_path / "pytest.ini").write_text("[pytest]\nasyncio_default_fixture_loop_scope = function\n", encoding="utf-8")
     (tmp_path / "mini_test_a.py").write_text(MINI_TEST_A, encoding="utf-8")
     (tmp_path / "mini_test_b.py").write_text(MINI_TEST_B, encoding="utf-8")
     fixture = tmp_path / "bench_files.txt"
@@ -104,8 +102,7 @@ def _measure(mini_suite, name="m.json", seed=None):
     return json.loads((mini_suite / name).read_text(encoding="utf-8"))
 
 
-def _thresholds_for(tmp_path, measurement, lift=Decimal("0.0"),
-                    identity=None):
+def _thresholds_for(tmp_path, measurement, lift=Decimal("0.0"), identity=None):
     """A thresholds document whose suite budgets sit `lift` against the
     measurement: lift 0.0 puts every ceiling exactly the gap above the
     measured value (the seed shape, the gate must accept); lift -1.6
@@ -217,11 +214,9 @@ def pytest_sessionstart(session):
             "a", encoding="utf-8") as stream:
         stream.write(json.dumps(observation) + "\\n")
 '''
-    (mini_suite / "conftest.py").write_text(
-        MINI_CONFTEST + probe, encoding="utf-8")
+    (mini_suite / "conftest.py").write_text(MINI_CONFTEST + probe, encoding="utf-8")
     if collection_error:
-        (mini_suite / "mini_test_a.py").write_text(
-            "def invalid syntax\n", encoding="utf-8")
+        (mini_suite / "mini_test_a.py").write_text("def invalid syntax\n", encoding="utf-8")
     roots = []
     for _ in range(2):
         result = _run_bench(
@@ -233,8 +228,7 @@ def pytest_sessionstart(session):
             assert "did not produce a usable run" in result.stderr
         else:
             assert result.returncode == 0, result.stderr
-        observations = (mini_suite / "temp-roots.jsonl").read_text(
-            encoding="utf-8").splitlines()
+        observations = (mini_suite / "temp-roots.jsonl").read_text(encoding="utf-8").splitlines()
         observed = json.loads(observations[-1])
         assert observed["base"] is not None, observed
         assert observed["exists"], observed
@@ -269,22 +263,18 @@ def test_two_runs_identical_counts_across_hash_seeds(mini_suite):
 def test_failing_test_still_measures(mini_suite):
     # A failing test does not fail the bench: the tests gate owns that
     # verdict, and a non-passing test still retires its instructions.
-    (mini_suite / "mini_test_bad.py").write_text(
-        "def test_broken():\n    assert 1 == 2\n", encoding="utf-8")
+    (mini_suite / "mini_test_bad.py").write_text("def test_broken():\n    assert 1 == 2\n", encoding="utf-8")
     measurement = _measure(mini_suite, name="m.json")
-    assert Decimal(
-        measurement["phases"]["run"]["million_instructions"]) > 0
+    assert Decimal(measurement["phases"]["run"]["million_instructions"]) > 0
 
 
 def test_collection_error_fails_the_run(mini_suite):
     # A file that cannot even be collected is a setup failure, not a
     # speed result: the bench refuses to write a measurement of a run
     # that never happened.
-    (mini_suite / "mini_test_worse.py").write_text(
-        "import no_such_module anywhere\n", encoding="utf-8")
+    (mini_suite / "mini_test_worse.py").write_text("import no_such_module anywhere\n", encoding="utf-8")
     fixture = mini_suite / "broken_files.txt"
-    fixture.write_text(
-        "mini_test_a.py\nmini_test_worse.py\n", encoding="utf-8")
+    fixture.write_text("mini_test_a.py\nmini_test_worse.py\n", encoding="utf-8")
     result = _run_bench(
         ["--write", "m.json", "--repo-root", str(mini_suite),
          "--fixture", str(fixture)],
@@ -296,9 +286,7 @@ def test_collection_error_fails_the_run(mini_suite):
 def test_check_passes_at_the_recorded_ceiling(mini_suite, tmp_path):
     measurement = _measure(mini_suite)
     target = _thresholds_for(tmp_path, measurement)
-    result = _run_bench(
-        ["--check", str(mini_suite / "m.json"), "--thresholds",
-         str(target)], cwd=mini_suite)
+    result = _run_bench(["--check", str(mini_suite / "m.json"), "--thresholds", str(target)], cwd=mini_suite)
     assert result.returncode == 0, result.stderr
     assert "within budget" in result.stdout
 
@@ -306,9 +294,7 @@ def test_check_passes_at_the_recorded_ceiling(mini_suite, tmp_path):
 def test_check_fails_one_increment_over_a_phase(mini_suite, tmp_path):
     measurement = _measure(mini_suite)
     target = _thresholds_for(tmp_path, measurement, lift=Decimal("-1.6"))
-    result = _run_bench(
-        ["--check", str(mini_suite / "m.json"), "--thresholds",
-         str(target)], cwd=mini_suite)
+    result = _run_bench(["--check", str(mini_suite / "m.json"), "--thresholds", str(target)], cwd=mini_suite)
     assert result.returncode != 0
     expected_over = {
         phase for phase in ("collection", "run", "residual")
@@ -320,8 +306,7 @@ def test_check_fails_one_increment_over_a_phase(mini_suite, tmp_path):
     assert expected_over, "no phase went over: the case measures nothing"
     for phase in expected_over:
         value = measurement["phases"][phase]["million_instructions"]
-        recorded = max(Decimal(value) - Decimal("1.6"),
-                       Decimal("0.0")).quantize(Decimal("0.1"))
+        recorded = max(Decimal(value) - Decimal("1.6"), Decimal("0.0")).quantize(Decimal("0.1"))
         ceiling = recorded + Decimal("1.5")
         over_line = (f"{phase}: {value} million_instructions, "
                      f"ceiling {ceiling}")
@@ -329,20 +314,16 @@ def test_check_fails_one_increment_over_a_phase(mini_suite, tmp_path):
     assert "never raised by hand" in result.stderr
 
 
-def test_check_on_a_counts_less_measurement_fails_closed(mini_suite,
-                                                         tmp_path):
+def test_check_on_a_counts_less_measurement_fails_closed(mini_suite, tmp_path):
     # The process_time fallback is telemetry: a measurement that is
     # ABSENT must never read as a measurement that passed.
     measurement = _measure(mini_suite)
     measurement["instrument"] = "process_time"
     for record in measurement["phases"].values():
         record["million_instructions"] = None
-    (mini_suite / "m.json").write_text(
-        json.dumps(measurement), encoding="utf-8")
+    (mini_suite / "m.json").write_text(json.dumps(measurement), encoding="utf-8")
     target = _thresholds_for(tmp_path, _measure(mini_suite, name="x.json"))
-    result = _run_bench(
-        ["--check", str(mini_suite / "m.json"), "--thresholds",
-         str(target)], cwd=mini_suite)
+    result = _run_bench(["--check", str(mini_suite / "m.json"), "--thresholds", str(target)], cwd=mini_suite)
     assert result.returncode != 0
     assert "no instruction count" in result.stderr
 
@@ -370,22 +351,15 @@ def test_the_gate_modules_touch_no_wall_clock():
     # and ANY bare wall-member call is flagged, imported or not — a
     # planted `time.perf_counter()` that forgot its own import must
     # still be caught (mutation M9).
-    wall = {"perf_counter", "perf_counter_ns", "monotonic",
-            "monotonic_ns", "time", "gmtime", "strftime"}
+    wall = {"perf_counter", "perf_counter_ns", "monotonic", "monotonic_ns", "time", "gmtime", "strftime"}
     seen = {}
-    for name in ("suite_bench.py", "suite_phases.py", "suite_report.py",
-                 "suite_ratchet.py"):
-        tree = ast.parse(
-            (SCRIPTS_CI / name).read_text(encoding="utf-8"))
+    for name in ("suite_bench.py", "suite_phases.py", "suite_report.py", "suite_ratchet.py"):
+        tree = ast.parse((SCRIPTS_CI / name).read_text(encoding="utf-8"))
         offenders = set()
         for node in ast.walk(tree):
-            if (isinstance(node, ast.Attribute)
-                    and isinstance(node.value, ast.Name)
-                    and node.attr in wall):
+            if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.attr in wall):
                 offenders.add(node.attr)
-            elif (isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Name)
-                    and node.func.id in wall):
+            elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in wall):
                 offenders.add(node.func.id)
         seen[name] = offenders
         assert not offenders, (name, offenders)
@@ -416,12 +390,9 @@ def test_check_refuses_a_non_deterministic_measurement(mini_suite, tmp_path):
     # telemetry field as irrelevant.
     measurement = _measure(mini_suite)
     measurement["hash_seed"] = "randomized"
-    (mini_suite / "m.json").write_text(
-        json.dumps(measurement), encoding="utf-8")
+    (mini_suite / "m.json").write_text(json.dumps(measurement), encoding="utf-8")
     target = _thresholds_for(tmp_path, _measure(mini_suite, name="x.json"))
-    result = _run_bench(
-        ["--check", str(mini_suite / "m.json"), "--thresholds",
-         str(target)], cwd=mini_suite)
+    result = _run_bench(["--check", str(mini_suite / "m.json"), "--thresholds", str(target)], cwd=mini_suite)
     assert result.returncode != 0
     assert "hash seed" in result.stderr
     assert "PYTHONHASHSEED=0" in result.stderr
@@ -434,15 +405,11 @@ def test_fixture_paths_outside_the_repo_root_are_refused(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
     outside = tmp_path / "escape.py"
-    outside.write_text("def test_ok():\n    assert True\n",
-                       encoding="utf-8")
+    outside.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
     for needle in ("../escape.py", str(outside)):
         fixture = tmp_path / "bench_files.txt"
         fixture.write_text(needle + "\n", encoding="utf-8")
-        result = _run_bench(
-            ["--write", "m.json", "--repo-root", str(root),
-             "--fixture", str(fixture)],
-            cwd=tmp_path)
+        result = _run_bench(["--write", "m.json", "--repo-root", str(root), "--fixture", str(fixture)], cwd=tmp_path)
         assert result.returncode != 0, needle
         assert "outside" in (result.stderr + result.stdout), needle
 
@@ -484,8 +451,7 @@ def test_repeated_measurements_from_a_purged_tree_agree(mini_suite):
     for name in ("first.json", "second.json"):
         _purge_bytecode_caches(mini_suite)
         measurement = _measure(mini_suite, name=name)
-        counts.append({phase: value['million_instructions']
-                       for phase, value in measurement['phases'].items()})
+        counts.append({phase: value['million_instructions'] for phase, value in measurement['phases'].items()})
     assert counts[1] == counts[0], f'first {counts[0]} vs {counts[1]}'
 
 
@@ -497,8 +463,7 @@ def test_measure_releases_the_monitoring_tool_id(mini_suite):
     sys.path.insert(0, str(SCRIPTS_CI))
 
     def _load(name, filename):
-        spec = importlib.util.spec_from_file_location(
-            name, SCRIPTS_CI / filename)
+        spec = importlib.util.spec_from_file_location(name, SCRIPTS_CI / filename)
         assert spec and spec.loader
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
@@ -506,8 +471,7 @@ def test_measure_releases_the_monitoring_tool_id(mini_suite):
         return module
 
     bench = _load("suite_bench", "suite_bench.py")
-    fixture = bench.read_fixture(
-        mini_suite / "bench_files.txt", mini_suite)
+    fixture = bench.read_fixture(mini_suite / "bench_files.txt", mini_suite)
     bench.measure(fixture, mini_suite)
     # A fresh CLASS under a fresh module name, so the check reads the
     # process-global tool id, not a cached module's attribute.
@@ -525,8 +489,7 @@ def test_measurement_records_the_workload_identity(mini_suite):
     (mini_suite / "tests").mkdir()
     (mini_suite / "tests" / "sub").mkdir()
     (mini_suite / "tests" / "a.py").write_text("x = 1\n", encoding="utf-8")
-    (mini_suite / "tests" / "sub" / "b.py").write_text(
-        "y = 2\nz = 3\n", encoding="utf-8")
+    (mini_suite / "tests" / "sub" / "b.py").write_text("y = 2\nz = 3\n", encoding="utf-8")
     measurement = _measure(mini_suite)
     assert measurement["tests_tree_lines"] == 3
 
@@ -542,10 +505,8 @@ def test_gate_names_workload_drift_on_a_breach(mini_suite, tmp_path):
     # A phase over its ceiling under a changed workload is a different
     # diagnosis from a regression: the gate says which one it is.
     measurement = _measure(mini_suite)
-    target = _thresholds_for(tmp_path, measurement, lift=Decimal("-1.6"),
-                             identity=40000)
-    result = _run_bench(
-        ["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
+    target = _thresholds_for(tmp_path, measurement, lift=Decimal("-1.6"), identity=40000)
+    result = _run_bench(["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
     assert result.returncode == 1
     assert "workload identity drifted" in result.stderr
     assert "A breach is never a removal reason" in result.stderr
@@ -557,8 +518,7 @@ def test_gate_names_workload_drift_within_the_ceiling(mini_suite, tmp_path):
     # of the workload change; ordinary growth must trim its own tests.
     measurement = _measure(mini_suite)
     target = _thresholds_for(tmp_path, measurement, identity=40000)
-    result = _run_bench(
-        ["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
+    result = _run_bench(["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
     assert result.returncode == 0
     assert "workload identity drifted" in result.stdout
 
@@ -568,8 +528,7 @@ def test_gate_without_the_identity_reads_unchanged(mini_suite, tmp_path):
     # before: no identity to compare, no drift to name.
     measurement = _measure(mini_suite)
     target = _thresholds_for(tmp_path, measurement)
-    result = _run_bench(
-        ["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
+    result = _run_bench(["--check", "m.json", "--thresholds", str(target)], cwd=mini_suite)
     assert result.returncode == 0
     assert "workload identity drifted" not in result.stdout
     assert "workload identity drifted" not in result.stderr

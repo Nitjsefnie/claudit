@@ -36,8 +36,7 @@ def _load(name="reparse_bench"):
     """
     if str(REPO_ROOT / "scripts" / "ci") not in sys.path:
         sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
-    spec = importlib.util.spec_from_file_location(
-        name, REPO_ROOT / "scripts" / "ci" / f"{name}.py")
+    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / "scripts" / "ci" / f"{name}.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -61,8 +60,7 @@ def _fixture_transcripts():
     path below it.
     """
     bucket_root = MIRROR / bench.BUCKET
-    return sorted(p.relative_to(bucket_root).as_posix()
-                  for p in bucket_root.rglob("*.jsonl"))
+    return sorted(p.relative_to(bucket_root).as_posix() for p in bucket_root.rglob("*.jsonl"))
 
 
 # Use enough passes for CPU clocks with coarse resolution to return a
@@ -112,8 +110,7 @@ def test_the_shape_pass_count_resolves_this_platform_clock():
     tick = 0.0156
     real = time.process_time
     monkey = pytest.MonkeyPatch()
-    monkey.setattr(time, "process_time",
-                   lambda: int(real() / tick) * tick)
+    monkey.setattr(time, "process_time", lambda: int(real() / tick) * tick)
     try:
         coarse = _short()
     finally:
@@ -125,8 +122,7 @@ def test_the_shape_pass_count_resolves_this_platform_clock():
 
 def test_corpus_is_every_fixture_transcript():
     entries = bench.corpus()
-    assert [entry.key for entry in entries] == [
-        f"{bench.BUCKET}/{rel}" for rel in _fixture_transcripts()]
+    assert [entry.key for entry in entries] == [f"{bench.BUCKET}/{rel}" for rel in _fixture_transcripts()]
 
 
 def test_corpus_ignores_ambient_bucket_configuration(monkeypatch):
@@ -241,10 +237,8 @@ def test_every_phase_is_reported_and_they_account_for_the_pass():
     assert set(measurement.shares) == set(bench.PHASES)
     # The phases are a partition, so their CPU sums to the run's own CPU
     # and their shares to 100% (each rounded to one decimal).
-    assert sum(measurement.phase_cpu_s.values()) == pytest.approx(
-        measurement.cpu_s, rel=1e-9)
-    assert float(sum(measurement.shares.values())) == pytest.approx(
-        100.0, abs=0.2)
+    assert sum(measurement.phase_cpu_s.values()) == pytest.approx(measurement.cpu_s, rel=1e-9)
+    assert float(sum(measurement.shares.values())) == pytest.approx(100.0, abs=0.2)
     for name in bench.PHASES:
         assert measurement.shares[name] >= 0
         assert measurement.phase_cpu_s[name] >= 0
@@ -260,8 +254,7 @@ def test_sniff_and_parse_body_are_phases_of_the_parse_not_of_the_pass():
     assert measurement.phase_cpu_s["sniff"] > 0
     assert measurement.phase_cpu_s["parse_body"] > measurement.phase_cpu_s["sniff"]
     assert measurement.shares["parse_body"] > measurement.shares["sniff"]
-    assert (measurement.phase_cpu_s["sniff"]
-            + measurement.phase_cpu_s["parse_body"]) < measurement.cpu_s
+    assert (measurement.phase_cpu_s["sniff"] + measurement.phase_cpu_s["parse_body"]) < measurement.cpu_s
 
 
 def test_residual_is_the_divergence_not_a_rounding():
@@ -283,8 +276,7 @@ def test_residual_is_the_divergence_not_a_rounding():
     assert "residual" in measurement.phase_cpu_s, (
         "the residual phase is not instrumented at all")
 
-    counts = phases.measure_counts(bench.corpus(), bench.run_pass,
-                                   passes=phases.COUNT_PASSES)
+    counts = phases.measure_counts(bench.corpus(), bench.run_pass, passes=phases.COUNT_PASSES)
     assert counts.phase_bytecodes["residual"] > 0, (
         "the residual phase retired no bytecodes: it is not the divergence "
         "but the rounding the wrapped callables leave behind")
@@ -300,8 +292,7 @@ def test_residual_is_the_divergence_not_a_rounding():
     # instrument reports the unreached phase as exactly zero.
     unpaired = [entry for entry in bench.corpus() if entry.sidecar_key is None]
     assert unpaired, "the mirror carries no sidecar-less transcript"
-    bare = phases.measure_counts(unpaired[:1], bench.run_pass,
-                                 passes=phases.COUNT_PASSES)
+    bare = phases.measure_counts(unpaired[:1], bench.run_pass, passes=phases.COUNT_PASSES)
     assert bare.phase_bytecodes["parse_body"] > 0, (
         "the demonstration corpus parses nothing, so it demonstrates "
         "nothing")
@@ -314,11 +305,9 @@ def test_residual_is_the_divergence_not_a_rounding():
 def test_instrumentation_is_removed_after_a_measurement():
     from backend import agent_sidecar, parse  # pylint: disable=import-outside-toplevel
 
-    before = (parse.sniff_format, parse.parse_file,
-              agent_sidecar.apply_agent_sidecar)
+    before = (parse.sniff_format, parse.parse_file, agent_sidecar.apply_agent_sidecar)
     _short()
-    after = (parse.sniff_format, parse.parse_file,
-             agent_sidecar.apply_agent_sidecar)
+    after = (parse.sniff_format, parse.parse_file, agent_sidecar.apply_agent_sidecar)
     assert after == before
 
 
