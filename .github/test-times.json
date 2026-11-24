@@ -170,7 +170,8 @@
       "tests/test_ci_thresholds_removed.py": [
         3.77,
         2.6,
-        4.96
+        4.96,
+        7.72
       ],
       "tests/test_ci_thresholds_reparse.py": [
         1.19
@@ -639,7 +640,8 @@
       ],
       "tests/test_pricing_compact.py": [
         1.59,
-        3.49
+        3.49,
+        4.71
       ],
       "tests/test_pricing_compact_shape.py": [
         2.78,
@@ -828,13 +830,15 @@
       ],
       "tests/test_reparse_bench.py": [
         17.39,
-        26.41
+        26.41,
+        37.22
       ],
       "tests/test_reparse_ci_wiring.py": [
         0.32
       ],
       "tests/test_reparse_count.py": [
-        1.13
+        1.13,
+        2.35
       ],
       "tests/test_reparse_gate.py": [
         33.31,
@@ -1088,7 +1092,8 @@
       ],
       "tests/test_workflow_refresh_push.py": [
         3.51,
-        4.65
+        4.65,
+        5.89
       ],
       "tests/test_workflow_release.py": [
         47.23
@@ -1118,7 +1123,8 @@
     },
     "macos-latest-3.15": {
       "tests/test_a11y_wiring.py": [
-        0.04
+        0.04,
+        1.43
       ],
       "tests/test_adopt_plan.py": [
         0.0
@@ -1247,7 +1253,8 @@
       ],
       "tests/test_ci_gate_output_wiring.py": [
         11.64,
-        15.82
+        15.82,
+        23.55
       ],
       "tests/test_ci_gate_thresholds.py": [
         0.6,
@@ -1429,13 +1436,15 @@
         0.29
       ],
       "tests/test_flags.py": [
-        0.04
+        0.04,
+        2.15
       ],
       "tests/test_gate_freshness.py": [
         0.11
       ],
       "tests/test_gate_trigger_set.py": [
-        1.15
+        1.15,
+        2.82
       ],
       "tests/test_guest_login.py": [
         0.0
@@ -1762,7 +1771,8 @@
       ],
       "tests/test_pricing_compact.py": [
         1.03,
-        3.17
+        3.17,
+        5.08
       ],
       "tests/test_pricing_compact_shape.py": [
         2.69,
@@ -2064,7 +2074,8 @@
         30.81
       ],
       "tests/test_suite_ci_wiring.py": [
-        1.58
+        1.58,
+        2.73
       ],
       "tests/test_suite_cost_pricing_growth.py": [
         5.86,
@@ -2151,7 +2162,8 @@
         0.1
       ],
       "tests/test_vendor_scripts.py": [
-        1.5
+        1.5,
+        2.91
       ],
       "tests/test_version.py": [
         0.04
@@ -2235,7 +2247,8 @@
       "tests/test_workflow_retried_reads.py": [
         4.87,
         6.79,
-        3.43
+        3.43,
+        9.0
       ],
       "tests/test_workflow_scorecard.py": [
         0.13
@@ -3029,7 +3042,8 @@
         0.0
       ],
       "tests/test_refresh_fetch_deadline.py": [
-        1.6
+        1.6,
+        0.58
       ],
       "tests/test_refresh_pricelog.py": [
         0.16
@@ -3820,7 +3834,8 @@
       "tests/test_parse_codex_exec_targets.py": [
         3.84,
         2.46,
-        5.25
+        5.25,
+        1.29
       ],
       "tests/test_parse_codex_more.py": [
         0.06
