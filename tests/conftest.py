@@ -43,9 +43,6 @@ os.environ.setdefault("CLAUDIT_ADMIN_TOKEN", "test-admin")
 # Exported values still win because these are set with setdefault.
 os.environ.setdefault("CLAUDIT_EXPORT_PYTHON", "/usr/bin/python3")
 os.environ.setdefault("CLAUDIT_TIMING", "0")
-# A Python child may not read the deployed rate document.
-os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, (
-    os.environ.get("PYTHONPATH"), str(Path(__file__).with_name("child_site")))))
 # The in-process pipeline by default: parse-process pools add startup
 # work to every ingest test. The process-pool tests opt in explicitly.
 os.environ["CLAUDIT_INGEST_PARSE_PROCESSES"] = "1"
@@ -174,6 +171,9 @@ def _reset_fetch_deadline():
 def _bind_rate_tables():
     # Outside every test's window; collecting stays free.
     pricing.bind_tables()
+    # Only now: an xdist worker binds too, a test's Python child may not.
+    os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, (
+        os.environ.get("PYTHONPATH"), str(Path(__file__).with_name("child_site")))))
 
 
 @pytest.fixture(autouse=True)
