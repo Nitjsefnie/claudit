@@ -97,26 +97,26 @@ def test_every_reached_function_exists_in_its_module():
         assert qualname in facts[module].functions, dotted
 
 
-def _stub_tree(root: Path) -> Path:
-    """A backend/ carrying every surface module as a one-function stub.
+def _stub_tree(root: Path, **sources: str) -> Path:
+    """A backend/ carrying every surface module, a one-function stub
+    unless `sources` names its text.
 
     Enough for the walk to read: the refusals below are about the tree
     being incomplete, not about what a stub parses.
     """
     backend = root / "backend"
     backend.mkdir()
+    sources = {"parse_lanes": "def sniff_format(blob):\n    return 'claude'\n",
+               "agent_sidecar": "def apply_agent_sidecar(parsed, sidecar, key):\n    return parsed\n", **sources}
     for name in walk.PARSE_SURFACE_MODULES:
-        (backend / f"{name}.py").write_text(
-            "def _stub():\n    return 1\n", encoding='utf-8')
+        (backend / f"{name}.py").write_text(sources.get(name, "def _stub():\n    return 1\n"), encoding='utf-8')
     return backend
 
 
 def test_the_walk_refuses_when_a_root_is_gone(tmp_path):
     # Fail closed: a root that is not there means the walk cannot say what
     # the pass can reach, and a short list is a silent pass.
-    backend = _stub_tree(tmp_path)
-    (backend / "parse.py").write_text("def other():\n    return 1\n",
-                                      encoding='utf-8')
+    _stub_tree(tmp_path, parse="def other():\n    return 1\n")
     with pytest.raises(ValueError, match='no root'):
         walk.reachable_surface(tmp_path)
 
@@ -125,15 +125,7 @@ def test_the_walk_refuses_a_call_it_cannot_resolve(tmp_path):
     # A bare callee the module never binds is a name the walk knows
     # nothing about. Dropping it silently would make the surface an
     # under-approximation that reads exactly like a covered one.
-    backend = _stub_tree(tmp_path)
-    (backend / "parse.py").write_text(
-        "def parse_file(file_key, blob):\n    return mystery(file_key)\n",
-        encoding='utf-8')
-    (backend / "parse_lanes.py").write_text(
-        "def sniff_format(blob):\n    return 'claude'\n", encoding='utf-8')
-    (backend / "agent_sidecar.py").write_text(
-        "def apply_agent_sidecar(parsed, sidecar, key):\n    return parsed\n",
-        encoding='utf-8')
+    _stub_tree(tmp_path, parse="def parse_file(file_key, blob):\n    return mystery(file_key)\n")
     with pytest.raises(ValueError, match='unbound callee'):
         walk.reachable_surface(tmp_path)
 
@@ -141,11 +133,8 @@ def test_the_walk_refuses_a_call_it_cannot_resolve(tmp_path):
 def test_the_walk_refuses_a_call_of_a_calls_result(tmp_path):
     # `node.func` holds a Call as well as a Name: a factory's result called
     # back is a callee the walk would otherwise drop without noticing.
-    backend = _stub_tree(tmp_path)
-    (backend / "parse.py").write_text(
-        "def _factory():\n    return _stub\n\n"
-        "def parse_file(file_key, blob):\n    return _factory()(file_key)\n",
-        encoding='utf-8')
+    _stub_tree(tmp_path, parse="def _factory():\n    return _stub\n\n"
+                               "def parse_file(file_key, blob):\n    return _factory()(file_key)\n")
     with pytest.raises(ValueError, match='call of a call'):
         walk.reachable_surface(tmp_path)
 
@@ -163,23 +152,14 @@ def test_a_class_reached_from_another_module_expands_into_its_methods(tmp_path):
     # expands it to nothing, and a same-module class cannot tell the two
     # readings apart — which is why this builds one in a DIFFERENT module,
     # reached only from `parse`.
-    backend = _stub_tree(tmp_path)
-    (backend / "parse.py").write_text(
-        "from backend.key_layout import InLaneTree\n\n"
-        "def parse_file(file_key, blob):\n"
-        "    return InLaneTree().helper()\n", encoding='utf-8')
-    (backend / "parse_lanes.py").write_text(
-        "def sniff_format(blob):\n    return 'claude'\n", encoding='utf-8')
-    (backend / "agent_sidecar.py").write_text(
-        "def apply_agent_sidecar(parsed, sidecar, key):\n    return parsed\n",
-        encoding='utf-8')
-    (backend / "key_layout.py").write_text(
-        "class InLaneTree:\n"
-        "    def __init__(self):\n        self.x = 1\n"
-        "    def helper(self):\n        return self.other()\n"
-        "    def other(self):\n        return 2\n"
-        "    def never_called(self):\n        return 3\n",
-        encoding='utf-8')
+    _stub_tree(tmp_path, parse="from backend.key_layout import InLaneTree\n\n"
+                               "def parse_file(file_key, blob):\n"
+                               "    return InLaneTree().helper()\n",
+               key_layout="class InLaneTree:\n"
+                          "    def __init__(self):\n        self.x = 1\n"
+                          "    def helper(self):\n        return self.other()\n"
+                          "    def other(self):\n        return 2\n"
+                          "    def never_called(self):\n        return 3\n")
     reached = walk.reachable_surface(tmp_path)
     assert "key_layout.InLaneTree" not in reached, (
         "a class has no code object and could never be exercised")
@@ -203,20 +183,12 @@ def test_a_lookup_of_a_container_held_on_a_module_resolves(tmp_path):
     # `mod.TABLE[fmt](...)` is the same grammar as the bare-name form the
     # walk already reads; a Subscript arm that only accepts a Name base
     # drops it silently.
-    backend = _stub_tree(tmp_path)
-    (backend / "parse_lanes.py").write_text(
-        "def sniff_format(blob):\n    return 'claude'\n", encoding='utf-8')
-    (backend / "agent_sidecar.py").write_text(
-        "def apply_agent_sidecar(parsed, sidecar, key):\n    return parsed\n",
-        encoding='utf-8')
-    (backend / "key_layout.py").write_text(
-        "def classify(key):\n    return 1\n\n"
-        "def never_called(key):\n    return 2\n\n"
-        "TABLE = {'a': classify}\n", encoding='utf-8')
-    (backend / "parse.py").write_text(
-        "from backend import key_layout\n\n"
-        "def parse_file(file_key, blob):\n"
-        "    return key_layout.TABLE['a'](file_key)\n", encoding='utf-8')
+    _stub_tree(tmp_path, key_layout="def classify(key):\n    return 1\n\n"
+                                    "def never_called(key):\n    return 2\n\n"
+                                    "TABLE = {'a': classify}\n",
+               parse="from backend import key_layout\n\n"
+                     "def parse_file(file_key, blob):\n"
+                     "    return key_layout.TABLE['a'](file_key)\n")
     reached = walk.reachable_surface(tmp_path)
     assert "key_layout.classify" in reached, (
         "a module-attribute lookup of a container must resolve to the "
@@ -227,21 +199,13 @@ def test_a_container_built_inside_a_function_is_read(tmp_path):
     # Over-approximating on purpose: two functions may each build a table
     # under one name, and adding both is the safe direction for a coverage
     # gate. Dropping one is not.
-    backend = _stub_tree(tmp_path)
-    (backend / "parse_lanes.py").write_text(
-        "def sniff_format(blob):\n    return 'claude'\n", encoding='utf-8')
-    (backend / "agent_sidecar.py").write_text(
-        "def apply_agent_sidecar(parsed, sidecar, key):\n    return parsed\n",
-        encoding='utf-8')
-    (backend / "key_layout.py").write_text(
-        "def hidden(key):\n    return 1\n\n"
-        "def build(fmt):\n"
-        "    TABLES = {'a': hidden}\n"
-        "    return TABLES[fmt](1)\n", encoding='utf-8')
-    (backend / "parse.py").write_text(
-        "from backend import key_layout\n\n"
-        "def parse_file(file_key, blob):\n"
-        "    return key_layout.build('a')\n", encoding='utf-8')
+    _stub_tree(tmp_path, key_layout="def hidden(key):\n    return 1\n\n"
+                                    "def build(fmt):\n"
+                                    "    TABLES = {'a': hidden}\n"
+                                    "    return TABLES[fmt](1)\n",
+               parse="from backend import key_layout\n\n"
+                     "def parse_file(file_key, blob):\n"
+                     "    return key_layout.build('a')\n")
     assert "key_layout.hidden" in walk.reachable_surface(tmp_path)
 
 
@@ -249,16 +213,9 @@ def test_the_walk_refuses_a_call_through_a_parameter(tmp_path):
     # `callback(payload)`: the target is whatever the caller passed. A
     # same-named binding elsewhere in the module would otherwise let it
     # read as resolved, and the call would be dropped in silence.
-    backend = _stub_tree(tmp_path)
-    (backend / "parse_lanes.py").write_text(
-        "def sniff_format(blob):\n    return 'claude'\n", encoding='utf-8')
-    (backend / "agent_sidecar.py").write_text(
-        "def apply_agent_sidecar(parsed, sidecar, key):\n    return parsed\n",
-        encoding='utf-8')
-    (backend / "parse.py").write_text(
-        "def parse_file(file_key, blob):\n"
-        "    return _run(handler)\n\n"
-        "def _run(handler):\n    return handler(1)\n", encoding='utf-8')
+    _stub_tree(tmp_path, parse="def parse_file(file_key, blob):\n"
+                               "    return _run(handler)\n\n"
+                               "def _run(handler):\n    return handler(1)\n")
     with pytest.raises(ValueError, match='callee is a parameter'):
         walk.reachable_surface(tmp_path)
 
@@ -266,11 +223,9 @@ def test_the_walk_refuses_a_call_through_a_parameter(tmp_path):
 def test_the_walk_refuses_a_lookup_it_cannot_name(tmp_path):
     # `f()['k']()` and friends: a subscript whose base is neither a Name
     # nor an Attribute is a callee the walk knows nothing about.
-    backend = _stub_tree(tmp_path)
-    (backend / "parse.py").write_text(
-        "def _make():\n    return {}\n\n"
-        "def parse_file(file_key, blob):\n"
-        "    return _make()['k'](file_key)\n", encoding='utf-8')
+    _stub_tree(tmp_path, parse="def _make():\n    return {}\n\n"
+                               "def parse_file(file_key, blob):\n"
+                               "    return _make()['k'](file_key)\n")
     with pytest.raises(ValueError, match='subscript of'):
         walk.reachable_surface(tmp_path)
 
