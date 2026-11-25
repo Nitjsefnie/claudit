@@ -700,8 +700,8 @@
     5854
   ],
   "scripts/ci/reparse_phases.py": [
-    5450,
-    10343
+    5434,
+    10747
   ],
   "scripts/ci/reparse_ratchet.py": [
     4299,
@@ -1492,8 +1492,8 @@
     7756
   ],
   "tests/test_reparse_count.py": [
-    1652,
-    4433
+    1649,
+    6871
   ],
   "tests/test_reparse_gate.py": [
     2290,
