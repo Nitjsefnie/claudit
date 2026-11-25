@@ -334,7 +334,8 @@
         0.0
       ],
       "tests/test_hide_rate_limits_render.py": [
-        0.14
+        0.14,
+        1.18
       ],
       "tests/test_hover_treatment.py": [
         0.01
@@ -643,7 +644,8 @@
       "tests/test_pricing_compact.py": [
         1.59,
         3.49,
-        4.71
+        4.71,
+        5.96
       ],
       "tests/test_pricing_compact_shape.py": [
         2.78,
@@ -1145,7 +1147,8 @@
         0.32
       ],
       "tests/test_agent_list_caps_js.py": [
-        0.47
+        0.47,
+        2.04
       ],
       "tests/test_agent_sidecar.py": [
         0.01
@@ -1624,7 +1627,8 @@
         0.6
       ],
       "tests/test_panel_layout_js.py": [
-        1.7
+        1.7,
+        2.75
       ],
       "tests/test_panel_layout_rules_js.py": [
         3.46,
@@ -4463,7 +4467,8 @@
       "tests/test_agent_sidecar.py": [
         5.83,
         2.56,
-        7.33
+        7.33,
+        9.96
       ],
       "tests/test_agent_type_names.py": [
         0.01
@@ -4638,7 +4643,8 @@
       "tests/test_collection_indexes.py": [
         3.36,
         2.3,
-        5.93
+        5.93,
+        8.21
       ],
       "tests/test_collection_ingest.py": [
         21.94,
@@ -4659,7 +4665,8 @@
         0.03
       ],
       "tests/test_crash_recovery.py": [
-        0.69
+        0.69,
+        3.42
       ],
       "tests/test_ctx_cost_rollup.py": [
         0.0
@@ -4728,7 +4735,8 @@
       "tests/test_dotenv_order.py": [
         2.28,
         3.79,
-        5.31
+        5.31,
+        1.21
       ],
       "tests/test_empty_usage_parity.py": [
         0.51
@@ -4924,7 +4932,8 @@
       ],
       "tests/test_long_context_fold.py": [
         3.46,
-        1.76
+        1.76,
+        6.17
       ],
       "tests/test_long_context_meters.py": [
         0.01
@@ -5171,7 +5180,8 @@
         4.72
       ],
       "tests/test_project_case_fold.py": [
-        1.57
+        1.57,
+        5.01
       ],
       "tests/test_prompt_gate.py": [
         0.01
@@ -5348,7 +5358,8 @@
       "tests/test_reprice_pairs.py": [
         6.33,
         4.54,
-        8.15
+        8.15,
+        11.65
       ],
       "tests/test_reprice_parity.py": [
         0.9
@@ -5887,7 +5898,8 @@
       "tests/test_dotenv_order.py": [
         5.03,
         3.29,
-        6.48
+        6.48,
+        2.27
       ],
       "tests/test_empty_usage_parity.py": [
         1.05
