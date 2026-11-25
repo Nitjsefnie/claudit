@@ -556,7 +556,8 @@
         44.05,
         30.06,
         21.62,
-        14.76
+        14.76,
+        10.49
       ],
       "tests/test_parser_js_meter_factors.py": [
         0.86
@@ -744,7 +745,8 @@
         3.44
       ],
       "tests/test_provider_rate_refresh_more.py": [
-        0.32
+        0.32,
+        1.4
       ],
       "tests/test_provider_rate_refresh_notices.py": [
         0.13
@@ -838,7 +840,8 @@
       ],
       "tests/test_reparse_count.py": [
         1.13,
-        2.35
+        2.35,
+        5.89
       ],
       "tests/test_reparse_gate.py": [
         33.31,
@@ -1174,7 +1177,8 @@
       "tests/test_bash_dash_c.py": [
         5.01,
         3.72,
-        6.89
+        6.89,
+        2.7
       ],
       "tests/test_bash_directories.py": [
         0.01
@@ -1490,7 +1494,8 @@
         14.79,
         20.5,
         11.03,
-        30.63
+        30.63,
+        6.85
       ],
       "tests/test_ingest_incremental.py": [
         0.0
@@ -1969,7 +1974,8 @@
         0.1
       ],
       "tests/test_reparse_count.py": [
-        1.07
+        1.07,
+        3.25
       ],
       "tests/test_reparse_gate.py": [
         20.37,
@@ -3069,7 +3075,8 @@
         0.23
       ],
       "tests/test_reparse_count.py": [
-        1.45
+        1.45,
+        4.67
       ],
       "tests/test_reparse_gate.py": [
         22.13,
@@ -4150,7 +4157,8 @@
         0.23
       ],
       "tests/test_reparse_count.py": [
-        1.39
+        1.39,
+        4.07
       ],
       "tests/test_reparse_gate.py": [
         23.33,
@@ -4691,7 +4699,8 @@
       "tests/test_db_schema_check.py": [
         3.62,
         1.83,
-        5.02
+        5.02,
+        6.55
       ],
       "tests/test_deferred_js.py": [
         0.14
@@ -5299,7 +5308,8 @@
         0.23
       ],
       "tests/test_reparse_count.py": [
-        1.05
+        1.05,
+        5.2
       ],
       "tests/test_reparse_gate.py": [
         32.54,
@@ -6194,7 +6204,8 @@
       ],
       "tests/test_perturbed_leg_combine.py": [
         2.83,
-        1.57
+        1.57,
+        4.09
       ],
       "tests/test_picker_fit_js.py": [
         0.88
@@ -6427,7 +6438,8 @@
       "tests/test_reparse_count.py": [
         3.33,
         1.85,
-        5.25
+        5.25,
+        11.57
       ],
       "tests/test_reparse_gate.py": [
         50.59,
@@ -6789,7 +6801,8 @@
       "tests/test_breakdown_exact_rate.py": [
         8.28,
         5.82,
-        3.91
+        3.91,
+        2.25
       ],
       "tests/test_bucket_redact.py": [
         0.01
@@ -6974,7 +6987,8 @@
         5.94
       ],
       "tests/test_empty_usage_parity.py": [
-        1.07
+        1.07,
+        0.06
       ],
       "tests/test_env_prefix.py": [
         14.94,
@@ -6982,7 +6996,8 @@
         26.02
       ],
       "tests/test_env_prefix_scripts.py": [
-        0.64
+        0.64,
+        1.66
       ],
       "tests/test_eslint_targets_js.py": [
         0.01
@@ -7339,12 +7354,14 @@
         69.82,
         51.84,
         36.97,
-        5.08
+        5.08,
+        3.05
       ],
       "tests/test_pricing_data_more.py": [
         134.99,
         100.2,
-        12.88
+        12.88,
+        8.83
       ],
       "tests/test_pricing_flat_rows.py": [
         0.0
@@ -7367,7 +7384,8 @@
       ],
       "tests/test_pricing_vendor.py": [
         0.96,
-        3.08
+        3.08,
+        4.17
       ],
       "tests/test_pricing_vendor_2.py": [
         0.09
@@ -7386,7 +7404,8 @@
       ],
       "tests/test_prompt_gate_whitespace.py": [
         2.51,
-        1.41
+        1.41,
+        0.31
       ],
       "tests/test_prompt_ts.py": [
         0.0
@@ -7520,7 +7539,8 @@
       "tests/test_reparse_count.py": [
         3.5,
         1.64,
-        4.54
+        4.54,
+        10.13
       ],
       "tests/test_reparse_gate.py": [
         43.95,
