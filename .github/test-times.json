@@ -1647,7 +1647,8 @@
       "tests/test_parse_codex_exec_targets.py": [
         2.12,
         3.27,
-        5.26
+        5.26,
+        1.03
       ],
       "tests/test_parse_codex_more.py": [
         0.02
@@ -4484,7 +4485,8 @@
         8.1
       ],
       "tests/test_api_export_argv.py": [
-        0.02
+        0.02,
+        1.24
       ],
       "tests/test_api_token_types.py": [
         0.82,
@@ -4611,7 +4613,8 @@
         2.29
       ],
       "tests/test_ci_thresholds.py": [
-        0.31
+        0.31,
+        1.93
       ],
       "tests/test_ci_thresholds_cache.py": [
         0.03
