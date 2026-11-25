@@ -274,9 +274,7 @@
     "tag 'together/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Together",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for deepseek-v4-1-flash-1017 via Wafer; the host was sampled",
-    "the listing lags the listed-pricing log for gpt-oss-20b via PrimeIntellect; the host was sampled"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -391,8 +389,7 @@
       "DeepSeek": "endpoint schedule",
       "InferenceNet": "2 endpoints at one current price",
       "Pareto Inference": "endpoint schedule",
-      "Sail Research": "2 endpoints at one current price",
-      "Wafer": "listing lags log"
+      "Sail Research": "2 endpoints at one current price"
     },
     "deepseek-v4-flash-0731": {
       "Alibaba": "endpoint schedule",
@@ -556,8 +553,7 @@
       "BaseTen": "2 endpoints at one current price"
     },
     "gpt-oss-20b": {
-      "Amazon Bedrock": "2 endpoints at one current price",
-      "PrimeIntellect": "listing lags log"
+      "Amazon Bedrock": "2 endpoints at one current price"
     },
     "hy3": {
       "Tencent": "endpoint schedule"
@@ -600,9 +596,6 @@
       "Alibaba": "log series count mismatch"
     },
     "solar-mini4": {
-      "Upstage": "2 endpoints selected"
-    },
-    "solar-pro4": {
       "Upstage": "2 endpoints selected"
     }
   },
