@@ -274,8 +274,7 @@
     "tag 'together/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Together",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for kimi-k3-1-pro via Morph; the host was sampled"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -567,8 +566,7 @@
       "InferenceNet": "2 endpoints at one current price"
     },
     "kimi-k3-1-pro": {
-      "InferenceNet": "2 endpoints at one current price",
-      "Morph": "listing lags log"
+      "InferenceNet": "2 endpoints at one current price"
     },
     "minimax-m3-1-flash": {
       "InferenceNet": "2 endpoints at one current price"
