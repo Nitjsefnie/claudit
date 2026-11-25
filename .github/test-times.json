@@ -275,7 +275,8 @@
       ],
       "tests/test_dotenv_order.py": [
         4.63,
-        2.95
+        2.95,
+        1.52
       ],
       "tests/test_empty_usage_parity.py": [
         1.08,
@@ -1032,7 +1033,8 @@
         0.11
       ],
       "tests/test_vendor_scripts.py": [
-        1.8
+        1.8,
+        3.12
       ],
       "tests/test_version.py": [
         0.06
@@ -1054,7 +1056,8 @@
         3.51
       ],
       "tests/test_workflow_audit_retry.py": [
-        1.86
+        1.86,
+        3.27
       ],
       "tests/test_workflow_cached_image.py": [
         0.43
@@ -1975,7 +1978,8 @@
       ],
       "tests/test_reparse_count.py": [
         1.07,
-        3.25
+        3.25,
+        4.9
       ],
       "tests/test_reparse_gate.py": [
         20.37,
@@ -6984,7 +6988,8 @@
       "tests/test_dotenv_order.py": [
         4.68,
         3.49,
-        5.94
+        5.94,
+        2.35
       ],
       "tests/test_empty_usage_parity.py": [
         1.07,
