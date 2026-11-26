@@ -6,7 +6,7 @@ master holds a commit an open pull-request head lacks whose changed
 paths intersect this set. The set has four parts:
 
 FAMILIES. Whole directories whose every member defines a gate: the
-workflows, the local composite actions CI runs, and the CI scripts.
+workflows, the local actions and scripts they run, and CI scripts.
 
 EXPLICIT. Files named by hand. Two kinds:
 
@@ -68,6 +68,7 @@ WORKFLOW_GLOB = ".github/workflows/*.yml"
 FAMILIES = (
     ".github/workflows/",
     ".github/actions/",
+    ".github/scripts/",
     "scripts/ci/",
 )
 

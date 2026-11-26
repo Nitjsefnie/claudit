@@ -2,6 +2,7 @@
 paths:
   - "**/.github/workflows/**"
   - "**/.github/actions/**"
+  - "**/.github/scripts/**"
   - "**/.github/ci-thresholds.json"
   - "**/.gitleaks.toml"
   - "**/scripts/ci/**"

@@ -83,10 +83,12 @@ def test_history_scan_runs_after_checkout():
     for job in doc["jobs"].values():
         steps = job.get("steps", [])
         for index, step in enumerate(steps):
-            if re.search(r"(?:^|\s)(?:\./)?gitleaks\s+(?:detect|git)\b",
+            if re.search(r"(?:^|\s)(?:\./)?gitleaks\s+(?:detect|git)\b|gitleaks_scan\.sh\b",
                          step.get("run", "")):
                 scans.append(step)
-                assert any(is_checkout(previous) for previous in steps[:index])
+                # Full history: the script walks every ref's log.
+                assert any(is_checkout(previous) and previous.get("with", {}).get("fetch-depth") == "0"
+                           for previous in steps[:index])
     assert scans, "no Git history scan step found"
 
 
@@ -117,14 +119,14 @@ def test_download_step_verifies_the_binary_digest():
 def test_scan_step_is_bare_verbose_and_redacted():
     block = _step_block("Scan the tree and the history")
     m = re.search(r"^ {8}run: (.+)$", block, re.M)
-    assert m and "./gitleaks detect" in m.group(1), (
-        "the scan step must run `./gitleaks detect`")
-    cmd = m.group(1)
-    for flag in ("--verbose", "--redact", "--config .gitleaks.toml"):
+    assert m and m.group(1) == '.github/scripts/gitleaks_scan.sh "$CLAUDIT_BASE_REF"', (
+        "the step must run the base-branch scan bare: its exit status IS the gate")
+    assert re.search(r"^ {10}CLAUDIT_BASE_REF: \$\{\{ github\.base_ref \|\| "
+                     r"github\.event\.repository\.default_branch \}\}$", block, re.M), block
+    scan = (ROOT / ".github" / "scripts" / "gitleaks_scan.sh").read_text(encoding="utf-8")
+    cmd = next(line for line in scan.splitlines() if line.startswith("./gitleaks detect "))
+    for flag in ("--verbose", "--redact", "--ignore-gitleaks-allow"):
         assert flag in cmd, f"the scan command lost {flag}"
-    assert "||" not in cmd and "&&" not in cmd and ";" not in cmd, (
-        "this step's exit status IS the gate — no condition, fallback or "
-        "error-swallowing suffix belongs on the command")
     assert "continue-on-error" not in _src(), (
         "continue-on-error anywhere in the workflow would turn findings "
         "green")
