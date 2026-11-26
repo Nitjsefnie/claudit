@@ -374,7 +374,7 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
             "config user.name 'github-actions[bot]'" in run)
     assert "41898282+github-actions[bot]@users.noreply.github.com" in run
     assert ("chore(ratchet): Ratchet ci-thresholds: raise coverage floor / tighten "
-            "baselines (automated)" in run)
+            "baselines'" in run)
     # The commit names no co-author: a github-actions[bot] commit is
     # authored by no model, so a trailer on it attributes work to a
     # model that never ran. Pinned by ABSENCE from every
