@@ -41,7 +41,7 @@ jobs:
           # Pinned exactly, as every other version in this repo is: a tool
           # release must never turn CI red on an unchanged commit.
           # Same value tests.yml's node-executing leg runs on.
-          node-version: "24.17.0"
+          node-version: "24.22.3"
 
       - name: Install the JS toolchain from the lockfile
         # npm ci, not npm install: it installs package-lock.json exactly and

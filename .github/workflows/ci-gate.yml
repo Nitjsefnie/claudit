@@ -106,17 +106,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Nothing in this workflow pushes except the report job,
-          # with its own deploy key, and no token left in
-          # .git/config is reusable by later steps.
+          # Only the report job pushes, with its own deploy key; no
+          # token left in .git/config is reusable by later steps.
           persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # The tokenizer's node matches the repo's stated pin (tests.yml
-          # and eslint.yml carry the same version), so espree parses under
-          # the node the JS gates were measured with.
-          node-version: "24.17.0"
+          # tests.yml's and eslint.yml's node: espree parses under the node
+          # the JS gates ran on.
+          node-version: "24.22.3"
 
       - name: Install the JS tokenizer
         # The comment-only class strips JS/JSX comments with espree. It
@@ -187,6 +185,7 @@ jobs:
       - uses: Nitjsefnie-Actions/test-ratchet/report@96562a47e9b7fe74b55cc70a4636d1b5d7b542e2 # v2.4.2
         with:
           github-token: ${{ github.token }}
+          # Names .github/test-times.json's recorded timings: a rename (3.15.2, ubuntu-latest-py3.15) reseeds them.
           cell: ubuntu-latest-3.15.1
           times: .github/test-times.json
           push-key: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
@@ -267,7 +266,7 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.15.1"
+          python-version: "3.15.2"
 
       - name: Restore the pip cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
