@@ -120,9 +120,7 @@ updates:
   # mirror.gcr.io image library/postgres — an ignore on `postgres` does not
   # match it.
   - package-ecosystem: docker # zizmor: ignore[dependabot-cooldown] -- Exact pins and weekly CI-tested updates; fixes need no extra delay.
-    directories:
-      - /compose/postgres
-      - /
+    directories: ['/compose/postgres', '/']
     schedule:
       interval: weekly
       day: wednesday
