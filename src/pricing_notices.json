@@ -277,6 +277,7 @@
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
+    "the listing lags the listed-pricing log for gemma-4-26b-a4b-it via PrimeIntellect; the host was sampled",
     "the listing lags the listed-pricing log for gemma-4-31b-it via PrimeIntellect; the host was sampled"
   ],
   "sampled": {
@@ -403,6 +404,9 @@
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
+    },
+    "gemma-4-26b-a4b-it": {
+      "PrimeIntellect": "listing lags log"
     },
     "gemma-4-31b-it": {
       "PrimeIntellect": "listing lags log"
