@@ -164,6 +164,9 @@
     "gpt-oss-120b via Parasail: rule-resolved (unique quantization): took the fp4 endpoint 'parasail/fp4' over service tiers",
     "gpt-oss-20b via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1'",
     "gpt-oss-20b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/bf16' over tier variants 'deepinfra/bf16/flex'",
+    "inkling via Together: rule-resolved (data region): the global data region leaves 'together'; dropped 'together/us'",
+    "inkling-2-mini via PrimeIntellect: rule-resolved (unique quantization): took the fp4 endpoint 'primeintellect/fp4' over service tiers",
+    "inkling-2-small via PrimeIntellect: rule-resolved (unique quantization): took the fp4 endpoint 'primeintellect/fp4' over service tiers",
     "kimi-k2-6 via DeepInfra: rule-resolved (stored price continuity): kept the endpoint 'deepinfra/fp4' at the row's price; assumes the tracked endpoint did not reprice this hour",
     "kimi-k2-7-code via Moonshot AI: rule-resolved (bare namespace): took the bare namespace endpoint 'moonshotai' over service tiers 'moonshotai/highspeed'",
     "kimi-k3 via Fireworks: rule-resolved (bare namespace): took the bare namespace endpoint 'fireworks' over service tiers 'fireworks/fast'",
@@ -269,15 +272,14 @@
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-2-astra via OpenAI, gpt-6-2-astra-pro via OpenAI, gpt-6-2-sol via OpenAI, gpt-6-2-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
     "tag 'parasail/fast' names neither a known region nor a quantization: deepseek-v4-1-flash via Parasail, deepseek-v4-pro-0813 via Parasail, glm-5-3 via Parasail, glm-5-3-flash via Parasail, gpt-oss-120b via Parasail, kimi-k3 via Parasail, minimax-m3 via Parasail",
     "tag 'particle-ai/us/flex' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Particle AI",
-    "tag 'primeintellect/fast' names neither a known region nor a quantization: gemma-4-26b-a4b-it via PrimeIntellect",
-    "tag 'primeintellect/flex' names neither a known region nor a quantization: gemma-4-26b-a4b-it via PrimeIntellect",
+    "tag 'primeintellect/fast' names neither a known region nor a quantization: gemma-4-26b-a4b-it via PrimeIntellect, inkling-2-mini via PrimeIntellect, inkling-2-small via PrimeIntellect",
+    "tag 'primeintellect/flex' names neither a known region nor a quantization: gemma-4-26b-a4b-it via PrimeIntellect, inkling-2-mini via PrimeIntellect, inkling-2-small via PrimeIntellect",
     "tag 'tenstorrent/fast' names neither a known region nor a quantization: qwen3-8-27b via Tenstorrent",
     "tag 'together/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Together",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for gemma-4-31b-it via PrimeIntellect; the host was sampled",
-    "the listing lags the listed-pricing log for gpt-oss-120b via PrimeIntellect; the host was sampled"
+    "the listing lags the listed-pricing log for kimi-k3-1-pro via Io Net; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -403,9 +405,6 @@
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
-    },
-    "gemma-4-31b-it": {
-      "PrimeIntellect": "listing lags log"
     },
     "glm-5-2": {
       "BaseTen": "2 endpoints at one current price"
@@ -558,8 +557,7 @@
     },
     "gpt-oss-120b": {
       "Amazon Bedrock": "2 endpoints at one current price",
-      "BaseTen": "2 endpoints at one current price",
-      "PrimeIntellect": "listing lags log"
+      "BaseTen": "2 endpoints at one current price"
     },
     "gpt-oss-20b": {
       "Amazon Bedrock": "2 endpoints at one current price"
@@ -575,7 +573,8 @@
       "InferenceNet": "2 endpoints at one current price"
     },
     "kimi-k3-1-pro": {
-      "InferenceNet": "2 endpoints at one current price"
+      "InferenceNet": "2 endpoints at one current price",
+      "Io Net": "listing lags log"
     },
     "minimax-m3-1-flash": {
       "InferenceNet": "2 endpoints at one current price"
@@ -600,9 +599,6 @@
     },
     "qwen3-7-plus": {
       "Alibaba": "long-context band"
-    },
-    "qwen3-8-27b": {
-      "Tenstorrent": "log series count mismatch"
     },
     "qwen4-max": {
       "Alibaba": "log series count mismatch"
