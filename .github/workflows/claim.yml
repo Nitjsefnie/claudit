@@ -1,49 +1,13 @@
 name: claim
-
-# Lets a contributor take an issue without repository write access. GitHub's
-# built-in slash commands do not include assignment, so self-assignment
-# otherwise needs someone with write access to use the assignee control.
-#
-# `/claim` assigns the commenter to an unassigned open issue. `/unclaim` and
-# `/release` are the same command under two names — both remove the
-# commenter's OWN assignment and nobody else's, a DELETE naming exactly one
-# login, so a second assignee is left in place.
-#
-# A command on a closed issue or PR is declined loudly by the action.
-# Its issue_comment run attaches to the default branch tip, so release's
-# waiter must classify checks by their producing event, not by name alone.
-# max-claims and expire must be explicit: the action defaults disable both.
-# pull-requests: write permits posting a decline on PR conversation; upstream
-# reports HTTP 403 with only issues: write despite the REST docs listing it.
-#
-# The action handles the attacker-controlled comment body without
-# interpolating it into shell source. The `if:` below is only a cheap
-# prefilter; the exact match happens in the action, because expressions have
-# no trim(). It saves starting a runner rather than being the only enforcement.
-
 on:
   issue_comment:  # zizmor: ignore[dangerous-triggers]
     types: [created]
-
 concurrency:
-  # Per issue, and NOT cancel-in-progress. Two people claiming at once must
-  # both get an answer: cancelling the first would leave the loser of the race
-  # with silence, and cancelling the second would leave it unanswered.
   group: claim-${{ github.event.issue.number }}
   cancel-in-progress: false
-  # The default queue keeps a single pending run per group and cancels it when a
-  # newer claim arrives, so the third claim on a busy issue silently leaves the
-  # second claimer without an answer — the same silence cancel-in-progress:
-  # false exists to prevent. `queue: max` holds up to 100 pending runs, GitHub's
-  # documented cap; GitHub orders them by when each run started waiting and
-  # notes the order is not guaranteed.
   queue: max
-
 jobs:
   claim:
-    # Prefilter only: not a bot, and a command word somewhere in the body. The
-    # closed-issue and pull-request conditions belong to the action —
-    # see the header.
     if: >-
       github.event.comment.user.type != 'Bot'
       && (contains(github.event.comment.body, '/claim')
@@ -51,13 +15,9 @@ jobs:
           || contains(github.event.comment.body, '/release'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
-    # Keep write grants at job scope. Nothing here reads the tree, so no
-    # contents grant or checkout is needed: this job talks only to the API.
     permissions:
       issues: write
       pull-requests: write
-
     steps:
       - uses: Nitjsefnie-Actions/claim@31261cf9310ad42718c6843305d5992530529d87 # v3.0.3
         with:
