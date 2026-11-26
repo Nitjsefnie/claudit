@@ -6,7 +6,8 @@ name: lint
 # no-name-in-module stay disabled in pylint on purpose: pyright (the
 # `types` workflow) is the one tool that owns unresolved-import reporting.
 # Separate workflow from tests so a lint failure is distinguishable from a
-# test failure at a glance.
+# test failure at a glance. One job and one install serve both linters;
+# pycodestyle runs even when pylint is red.
 
 on:
   workflow_call:
@@ -25,7 +26,7 @@ concurrency:
 jobs:
   lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,9 +61,7 @@ jobs:
           scripts/ci/retry.sh python -m pip install --upgrade pip
           scripts/ci/retry.sh pip install -r requirements-dev.txt
 
-      # Saved here, not in a post-job step: the install above populated the
-      # cache, and the gate keeps every event but a push of master from
-      # writing cross-run state.
+      # Saved here, not post-job, for the reason above the restore.
       - name: Save the pip cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
