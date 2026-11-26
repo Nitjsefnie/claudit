@@ -285,7 +285,8 @@
       ],
       "tests/test_env_prefix.py": [
         4.86,
-        2.52
+        2.52,
+        7.58
       ],
       "tests/test_env_prefix_scripts.py": [
         1.07
@@ -1821,7 +1822,8 @@
       "tests/test_pricing_loader_refusals.py": [
         10.3,
         16.25,
-        2.33
+        2.33,
+        1.32
       ],
       "tests/test_pricing_more.py": [
         0.0
@@ -5023,7 +5025,8 @@
         0.0
       ],
       "tests/test_parse_lanes.py": [
-        1.55
+        1.55,
+        3.82
       ],
       "tests/test_parse_more.py": [
         0.07
@@ -5758,7 +5761,8 @@
         0.15
       ],
       "tests/test_ci_classify_comment_only.py": [
-        0.19
+        0.19,
+        1.27
       ],
       "tests/test_ci_classify_verified_base.py": [
         0.01
@@ -6137,7 +6141,8 @@
       "tests/test_parse_codex_exec_targets.py": [
         4.57,
         2.5,
-        6.42
+        6.42,
+        1.41
       ],
       "tests/test_parse_codex_more.py": [
         0.06
@@ -6830,7 +6835,8 @@
       "tests/test_branding.py": [
         10.67,
         7.88,
-        13.39
+        13.39,
+        5.02
       ],
       "tests/test_breakdown_exact_rate.py": [
         8.28,
@@ -6914,7 +6920,8 @@
       ],
       "tests/test_ci_thresholds_removed.py": [
         9.92,
-        7.36
+        7.36,
+        5.49
       ],
       "tests/test_ci_thresholds_reparse.py": [
         1.54
@@ -7673,7 +7680,8 @@
       ],
       "tests/test_suite_bench.py": [
         93.58,
-        69.33
+        69.33,
+        41.05
       ],
       "tests/test_suite_ci_wiring.py": [
         0.44
