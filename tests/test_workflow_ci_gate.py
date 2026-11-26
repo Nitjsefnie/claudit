@@ -284,13 +284,13 @@ def test_ratchet_push_workflow_pushes_with_the_deploy_key():
     assert job["if"] == (
         "github.event.workflow_run.event == 'push' "
         "&& github.event.workflow_run.head_branch == 'master' "
+        "&& github.event.workflow_run.head_repository.full_name == github.repository "
         "&& github.event.workflow_run.conclusion == 'success'")
     assert job["environment"] == "master-push"
     assert job["timeout-minutes"] == "15"
     assert job["permissions"] == {"actions": "read"}
     assert workflow["permissions"] == {}
-    assert workflow["concurrency"]["group"] == "ratchet-push"
-    assert workflow["concurrency"]["cancel-in-progress"] == "false"
+    assert workflow["concurrency"] == {"group": "ratchet-push", "cancel-in-progress": "false", "queue": "max"}
 
     steps = job["steps"]
     assert len(steps) == 5
