@@ -25,6 +25,8 @@ jobs:
         uses: Nitjsefnie-Actions/size-ratchet@84009b67a653bd057115a0318b61da7b937d810a # v4.0.3
         with:
           ceilings: ''
+          # Tests keep the 700-line ceiling issue #123's in-tree ratchet set and
+          # CONTRIBUTING states, so suites of 501-700 lines need no record.
           overrides: 'tests/: 700'
           exclude: ''
           unclassified: 'ignore'
