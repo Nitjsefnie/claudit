@@ -31,6 +31,8 @@ on:
     - cron: '47 3 * * 3'
   workflow_dispatch:
 
+permissions: {}
+
 concurrency:
   # Push and pull_request runs of this workflow arrive as ci-gate legs
   # and join this group under the caller's event, alongside the weekly
