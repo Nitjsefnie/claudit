@@ -24,10 +24,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {persist-credentials: false}
       - id: canary
-        uses: Nitjsefnie-Actions/test-ratchet/plan@0ad0b0b5bdb6f63c567b3490b701ec171ca5e546 # v2.3.2
+        uses: Nitjsefnie-Actions/test-ratchet/plan@916a819580fdb4133805bd7e4f46608849f05c7f # v2.4.0
         with: {tests: "tests/**/test_*.py", times: .github/test-times.json, shards: 4}
       - id: portable
-        uses: Nitjsefnie-Actions/test-ratchet/plan@0ad0b0b5bdb6f63c567b3490b701ec171ca5e546 # v2.3.2
+        uses: Nitjsefnie-Actions/test-ratchet/plan@916a819580fdb4133805bd7e4f46608849f05c7f # v2.4.0
         with: {tests: "tests/**/test_*.py", times: .github/test-times.json, shards: 2}
   test:
     name: pytest shard ${{ matrix.shard }} (canary, pinned 3.15.1)
@@ -71,7 +71,7 @@ jobs:
       - name: Run tests
         env: {CLAUDIT_DEBUG_NODE_STALL: "1"}
         timeout-minutes: 15
-        uses: Nitjsefnie-Actions/test-ratchet/run@0ad0b0b5bdb6f63c567b3490b701ec171ca5e546 # v2.3.2
+        uses: Nitjsefnie-Actions/test-ratchet/run@916a819580fdb4133805bd7e4f46608849f05c7f # v2.4.0
         with: {runner: pytest, tests: "tests/**/test_*.py", times: .github/test-times.json, cell: ubuntu-latest-3.15.1, shard: "${{ matrix.shard }}", source: backend, javascript: "src/**/*.js", args: "-n 0 -q --tb=short -ra -o faulthandler_timeout=240 --durations=20"}
       - name: CPU counters after the tests
         if: always()
@@ -311,5 +311,5 @@ jobs:
       - name: Run tests
         env: {PGHOST: "${{ runner.temp }}", CLAUDIT_DEBUG_NODE_STALL: "1"} # No socket here: fail without Windows TCP connect timeouts.
         timeout-minutes: 15
-        uses: Nitjsefnie-Actions/test-ratchet/run@0ad0b0b5bdb6f63c567b3490b701ec171ca5e546 # v2.3.2
+        uses: Nitjsefnie-Actions/test-ratchet/run@916a819580fdb4133805bd7e4f46608849f05c7f # v2.4.0
         with: {runner: pytest, tests: "tests/**/test_*.py", times: .github/test-times.json, cell: "${{ matrix.os }}-${{ matrix.python-version }}", shard: "${{ matrix.shard }}", source: backend, args: "-n 0 -q --tb=short -ra -m \"not db\" -o faulthandler_timeout=240 --durations=20"}
