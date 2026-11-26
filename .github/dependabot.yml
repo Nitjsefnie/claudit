@@ -113,14 +113,16 @@ updates:
         patterns:
           - "*"
 
-  # The Postgres base image is pinned by digest on one FROM line in
-  # compose/postgres/Dockerfile, which this entry owns. The
-  # ignore holds the pin inside major 16: a major bump changes on-disk
-  # storage semantics and belongs to a deliberate migration, not a weekly
-  # PR. Dependabot names the mirror.gcr.io image library/postgres — an
-  # ignore on `postgres` does not match it.
+  # Owns two FROMs: the root Dockerfile's Python base and the Postgres
+  # base, pinned by digest in compose/postgres/Dockerfile. The ignore holds
+  # Postgres in major 16: a major bump changes on-disk storage semantics,
+  # so it is a deliberate migration, not a weekly PR. Dependabot names the
+  # mirror.gcr.io image library/postgres — an ignore on `postgres` does not
+  # match it.
   - package-ecosystem: docker # zizmor: ignore[dependabot-cooldown] -- Exact pins and weekly CI-tested updates; fixes need no extra delay.
-    directory: /compose/postgres
+    directories:
+      - /compose/postgres
+      - /
     schedule:
       interval: weekly
       day: wednesday
