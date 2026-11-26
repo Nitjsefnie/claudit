@@ -226,6 +226,7 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for glm-5-3-flash via Inceptron; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "qwen-2-5-72b-instruct via DeepInfra: 2 endpoints (deepinfra/fp8, deepinfra/fp8/flex) at 2 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "qwen3-14b via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
@@ -237,7 +238,6 @@
     "qwen3-5-397b-a17b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "qwen3-5-9b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/bf16' over tier variants 'deepinfra/bf16/flex', 'deepinfra/bf16/priority'",
     "qwen3-6-27b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
-    "qwen3-6-27b via Reka: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "qwen3-6-35b-a3b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/fp8' over tier variants 'deepinfra/fp8/flex', 'deepinfra/fp8/priority'",
     "qwen3-7-flash via Alibaba (endpoint 0): 2 long-context bands are not modelled; the host was left untouched",
     "qwen3-7-plus via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
@@ -279,7 +279,8 @@
     "tag 'together/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Together",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
+    "the listing lags the listed-pricing log for gemma-4-26b-a4b-it via PrimeIntellect; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -406,6 +407,9 @@
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
     },
+    "gemma-4-26b-a4b-it": {
+      "PrimeIntellect": "listing lags log"
+    },
     "glm-5-2": {
       "BaseTen": "2 endpoints at one current price"
     },
@@ -415,6 +419,7 @@
       "InferenceNet": "2 endpoints at one current price"
     },
     "glm-5-3-flash": {
+      "Inceptron": "no matching log state",
       "InferenceNet": "2 endpoints at one current price",
       "Sail Research": "2 endpoints at one current price"
     },
@@ -696,7 +701,11 @@
       "Sail Research"
     ],
     "gemma-4-26b-a4b-it": [
-      "Ambient"
+      "Ambient",
+      "Novita"
+    ],
+    "gemma-4-31b-it": [
+      "Novita"
     ],
     "glm-4-5-air": [
       "Novita"
