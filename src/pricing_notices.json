@@ -34,7 +34,6 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
-    "alternating price: gemma-4-31b-it via PrimeIntellect: the listed rates equal the entry from 2026-11-19T12:50:54Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-5 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
@@ -239,7 +238,6 @@
     "qwen3-7-flash via Alibaba (endpoint 0): 2 long-context bands are not modelled; the host was left untouched",
     "qwen3-7-plus via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "qwen3-8-27b via Nebius: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
-    "qwen3-8-27b via Tenstorrent: rule-resolved (unique quantization): took the fp8 endpoint 'tenstorrent/fp8' over service tiers",
     "qwen3-8-flash via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "qwen3-8-max-0902 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "qwen3-coder-flash via Alibaba (endpoint 0): 2 long-context bands are not modelled; the host was left untouched",
@@ -276,9 +274,7 @@
     "tag 'together/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Together",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for gemma-4-26b-a4b-it via PrimeIntellect; the host was sampled",
-    "the listing lags the listed-pricing log for gemma-4-31b-it via PrimeIntellect; the host was sampled"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -404,12 +400,6 @@
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
-    },
-    "gemma-4-26b-a4b-it": {
-      "PrimeIntellect": "listing lags log"
-    },
-    "gemma-4-31b-it": {
-      "PrimeIntellect": "listing lags log"
     },
     "glm-5-2": {
       "BaseTen": "2 endpoints at one current price"
@@ -699,6 +689,9 @@
       "Phala",
       "Reka",
       "Sail Research"
+    ],
+    "gemma-4-26b-a4b-it": [
+      "Ambient"
     ],
     "glm-4-5-air": [
       "Novita"
