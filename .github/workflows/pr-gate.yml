@@ -3,13 +3,8 @@ name: pr gate
 # comment would silently do nothing. The pinned action reads the template at
 # the PR's base SHA and runs no pull-request code. synchronize re-runs the
 # gate on every push, so its check attaches to each new head.
-#
-# A failing PR gets one comment naming the defects and a red `gate` check;
-# the PR stays open. Exit 2 means defects were found, exit 1 an
-# analysis/API failure. Release waits on master checks; pull_request_target
-# checks attach to the PR head, which a rebase merge does not land on master.
-on:
-  pull_request_target:  # zizmor: ignore[dangerous-triggers]
+on: # zizmor: ignore[dangerous-triggers]
+  pull_request_target:
     types: [opened, edited, reopened, synchronize, ready_for_review]
 permissions:
   contents: read
