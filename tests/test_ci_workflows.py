@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
@@ -112,15 +112,14 @@ def test_codeql_action_pin_comments_are_immutable_release_tags() -> None:
 
 def test_dependabot_groups_action_updates_into_one_pr() -> None:
     doc = yaml.safe_load(DEPENDABOT.read_text(encoding="utf-8")) or {}
-    entries = [
-        entry
-        for entry in doc.get("updates") or []
-        if (entry or {}).get("package-ecosystem") == "github-actions"
-    ]
-    assert len(entries) == 1, (
-        "expected exactly one github-actions update entry, "
-        f"found {len(entries)}"
-    )
+    entries = [entry for entry in doc.get("updates") or []
+               if (entry or {}).get("package-ecosystem") == "github-actions"]
+    assert len(entries) == 1, f"expected exactly one github-actions update entry, found {len(entries)}"
+    # Every directory holding a `uses:` pin needs a lane: "/" reads only the workflows.
+    homes = {"/"} | {"/" + p.parent.relative_to(REPO_ROOT).as_posix() for p in (REPO_ROOT / ".github").rglob("action.y*ml")}
+    watched = entries[0].get("directories") or [entries[0].get("directory")]
+    unwatched = [h for h in sorted(homes) if not any(PurePosixPath(h).full_match(d) for d in watched)]
+    assert not unwatched, f"no github-actions directory {watched} watches {unwatched}"
     groups = entries[0].get("groups") or {}
     assert groups, (
         "the github-actions entry must group its updates — ungrouped, "
