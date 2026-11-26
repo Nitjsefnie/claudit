@@ -224,7 +224,6 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
-    "no in-force state of the listed-pricing log matches the listing for deepseek-v4-pro via Relace; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "qwen-2-5-72b-instruct via DeepInfra: 2 endpoints (deepinfra/fp8, deepinfra/fp8/flex) at 2 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "qwen3-14b via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
@@ -399,9 +398,6 @@
       "Alibaba": "endpoint schedule",
       "BaseTen": "2 endpoints selected",
       "Sail Research": "2 endpoints at one current price"
-    },
-    "deepseek-v4-pro": {
-      "Relace": "no matching log state"
     },
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
