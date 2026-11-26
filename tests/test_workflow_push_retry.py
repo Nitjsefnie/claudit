@@ -179,4 +179,4 @@ def test_the_ratchet_commit_lands_under_its_conventional_subject(request, tmp_pa
     assert proc.returncode == 0, proc.stderr
     assert _git(remote, "log", "-1", "--format=%s", "master") == (
         "chore(ratchet): Ratchet ci-thresholds: raise coverage floor / "
-        "tighten baselines (automated)")
+        "tighten baselines")
