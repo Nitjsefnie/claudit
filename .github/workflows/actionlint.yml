@@ -50,13 +50,12 @@ jobs:
       # silence those schema errors. A patched build preserves unrelated checks,
       # unlike filtering findings with `-ignore`. Returning to stock requires
       # removing `queue:` and reverting `$/` refs to `./`.
-      # queue.2 rather than the fleet's queue.1: queue.1 predates the `$/`
-      # parser support these workflows need. Downgrading would break the gate.
+      # queue.2 or later: queue.1 predates the `$/` support these workflows need.
       CLAUDIT_ACTIONLINT_REPO: Nitjsefnie-OSC/actionlint
-      CLAUDIT_ACTIONLINT_VERSION: 1.7.12-queue.2
-      # sha256 of actionlint_1.7.12-queue.2_linux_amd64.tar.gz, from the
+      CLAUDIT_ACTIONLINT_VERSION: 1.7.12-queue.3
+      # sha256 of actionlint_1.7.12-queue.3_linux_amd64.tar.gz, from the
       # release's own checksums file. Bump all three together.
-      CLAUDIT_ACTIONLINT_SHA256: 2895b2f0f5b4cff420a4a577d609f83d0d3bef256aeef480961e53be01a5a954
+      CLAUDIT_ACTIONLINT_SHA256: 56693f8e7182360d8ecb67cbfc39cc674cde5d1b510507fff562b158bb4fc7bc
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
