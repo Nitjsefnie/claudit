@@ -37,6 +37,7 @@ def test_families_are_the_gate_shaped_directories():
     assert gts.FAMILIES == (
         ".github/workflows/",
         ".github/actions/",
+        ".github/scripts/",
         "scripts/ci/",
     )
 
