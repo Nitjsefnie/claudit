@@ -80,7 +80,7 @@ def _is_noise(raw: str, stripped: str) -> bool:
     """A line the pinned shape does not act on.
 
     Blank lines and comments anywhere; nested block content (six-space
-    indent: `schedule:`, `labels:` lists, ...) and bare entry-level block
+    indent: `schedule:`, `ignore:` lists, ...) and bare entry-level block
     keys (`    schedule:` with its content nested) inside an entry.
     """
     if not stripped or stripped.startswith("#"):
