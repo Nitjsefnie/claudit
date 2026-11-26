@@ -33,8 +33,6 @@ updates:
     commit-message:
       prefix: "build"
       include: "scope"
-    labels:
-      - dependencies
 
   # The CI toolchain only: eslint (the JS lint gate), eslint-plugin-react and
   # globals and playwright. One
@@ -55,8 +53,6 @@ updates:
     commit-message:
       prefix: "build"
       include: "scope"
-    labels:
-      - dependencies
     groups:
       js-toolchain:
         applies-to: version-updates
@@ -88,8 +84,6 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
-    labels:
-      - dependencies
     # github/codeql-action/init and .../analyze are separate dependencies to
     # Dependabot, so ungrouped it files ONE HALF-BUMP PR PER PIN — and a tree
     # whose init and analyze pins disagree fails every CodeQL run at SARIF
@@ -97,7 +91,7 @@ updates:
     # keeps both pins in one atomic PR; the in-tree tripwire is
     # tests/test_ci_workflows.py.
     groups:
-      actions:
+      github-actions:
         applies-to: version-updates
         patterns:
           - "*"
@@ -108,7 +102,7 @@ updates:
       # `uses:` line, which splits init and analyze across versions and turns
       # the security fix itself red at SARIF processing — the exact failure
       # the group above exists to prevent.
-      actions-security:
+      github-actions-security:
         applies-to: security-updates
         patterns:
           - "*"
@@ -130,8 +124,6 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
-    labels:
-      - dependencies
     ignore:
       - dependency-name: library/postgres
         update-types:
