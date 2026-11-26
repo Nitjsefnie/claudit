@@ -7,9 +7,9 @@
 # the CMD below) — so the image runs the way examples/claudit.service runs
 # the service.
 
-# Tag-pinned (no digest): the repo has no docker-update machinery to keep a
-# digest honest, so the tag is the pin the maintainers can see and bump.
-FROM public.ecr.aws/docker/library/python:3.15-slim
+# Patch-pinned, no digest: docker-smoke retags the cached base under this
+# FROM name, and Docker refuses a tag carrying a digest.
+FROM public.ecr.aws/docker/library/python:3.15.2-slim
 
 # Logs reach the container runtime unbuffered (the unit's journal equivalent)
 # and the tree stays free of .pyc written at run time.

@@ -101,7 +101,7 @@ def test_compose_and_dependabot_use_the_same_dockerfile():
     dockerfile = ROOT / compose_db["build"] / "Dockerfile"
     updates = _load(ROOT / ".github/dependabot.yml")["updates"]
     docker_update, = [entry for entry in updates if entry["package-ecosystem"] == "docker"]
-    assert ROOT / docker_update["directory"].lstrip("/") / "Dockerfile" == dockerfile
+    assert dockerfile in [ROOT / d.lstrip("/") / "Dockerfile" for d in docker_update["directories"]]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="image script requires POSIX Bash")

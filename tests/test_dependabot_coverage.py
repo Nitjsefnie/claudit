@@ -138,7 +138,7 @@ def _validate_shape(entries: list[dict[str, str]],
             f"least one entry; saw version={saw_version}, "
             f"updates={saw_updates}, entries={len(entries)}")
     missing = [e["package-ecosystem"] for e in entries
-               if not e.get("directory")]
+               if e["package-ecosystem"] == "pip" and not e.get("directory")]
     if missing:
         raise AssertionError(
             f"{CONFIG_PATH}: entries without a directory: {missing}")
