@@ -8,7 +8,9 @@ name: audit
 # report clean forever on an abandoned branch. The commit-side half is
 # hosted by ci-gate.yml, which runs this workflow as a leg: it
 # catches a bad pin at the moment it is introduced, while the diff is on
-# screen. The cron and workflow_dispatch stay here.
+# screen. The cron and workflow_dispatch stay here. That leg stands in for
+# claim's path-filtered push and pull_request triggers, the manifests are
+# audited in the sets their installs co-resolve, and the pip cache is reused.
 #
 # This gate FAILS the build rather than filing an advisory, which is the
 # same stance as lint and types: a red gate that a human must look at beats
@@ -81,12 +83,7 @@ jobs:
             pip-${{ runner.os }}-3.15-
 
       - name: Install pip-audit
-        # From a manifest rather than an inline pin: Dependabot's pip
-        # ecosystem reads manifest files, never a run: block, so an inline
-        # `pip-audit==X` could only go stale unnoticed. No
-        # `--upgrade pip` either: it would install whatever bytes the index
-        # serves, unpinned — an unaudited component ahead of the audit
-        # gate itself. The runner's stock pip installs the manifest.
+        # From the manifest and with the stock pip, for the header's reasons.
         # PyYAML first, hashed. The audit resolves backend/requirements.txt
         # in a throwaway venv and would otherwise fetch the newest PyYAML
         # sdist unhashed, so the wheel built from the pinned sdist goes to
