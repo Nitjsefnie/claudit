@@ -1,4 +1,4 @@
-"""gitleaks_scan.sh: every suppression surface comes from the base branch, never the tree."""
+"""gitleaks_scan.sh: config and ignore list come from the base branch; every file diffs as text."""
 import os
 import pathlib
 import shutil
