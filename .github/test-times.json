@@ -324,7 +324,8 @@
         0.82
       ],
       "tests/test_gitleaks_scan.py": [
-        2.15
+        2.15,
+        4.36
       ],
       "tests/test_guest_login.py": [
         0.0
@@ -1710,7 +1711,8 @@
         26.64,
         35.49,
         48.18,
-        12.01
+        12.01,
+        8.89
       ],
       "tests/test_parser_js_meter_factors.py": [
         0.58,
@@ -1991,7 +1993,8 @@
       "tests/test_reparse_bench.py": [
         16.3,
         22.4,
-        32.86
+        32.86,
+        45.01
       ],
       "tests/test_reparse_ci_wiring.py": [
         0.1
@@ -4909,7 +4912,8 @@
         3.45
       ],
       "tests/test_ingest_timing.py": [
-        1.45
+        1.45,
+        2.92
       ],
       "tests/test_ingest_vacuum.py": [
         8.13,
@@ -5675,7 +5679,8 @@
         5.52,
         14.12,
         4.09,
-        2.29
+        2.29,
+        57.11
       ],
       "tests/test_agent_list_caps_js.py": [
         2.16,
@@ -5742,7 +5747,8 @@
       "tests/test_branding.py": [
         10.98,
         17.02,
-        6.6
+        6.6,
+        29.16
       ],
       "tests/test_breakdown_exact_rate.py": [
         7.11,
@@ -5943,7 +5949,8 @@
       ],
       "tests/test_env_prefix.py": [
         13.42,
-        28.78
+        28.78,
+        58.13
       ],
       "tests/test_env_prefix_scripts.py": [
         0.67
@@ -6139,18 +6146,22 @@
         0.1
       ],
       "tests/test_panel_interactions_js.py": [
-        1.98
+        1.98,
+        4.68
       ],
       "tests/test_panel_interactions_report_js.py": [
-        0.81
+        0.81,
+        2.29
       ],
       "tests/test_panel_layout_js.py": [
         2.42,
-        3.43
+        3.43,
+        7.52
       ],
       "tests/test_panel_layout_rules_js.py": [
         6.09,
-        3.86
+        3.86,
+        7.69
       ],
       "tests/test_panel_wiring.py": [
         0.11
@@ -6336,11 +6347,13 @@
       ],
       "tests/test_pricing_rows.py": [
         11.87,
-        7.05
+        7.05,
+        30.14
       ],
       "tests/test_pricing_vendor.py": [
         1.52,
-        2.69
+        2.69,
+        39.34
       ],
       "tests/test_pricing_vendor_2.py": [
         0.1
@@ -6375,7 +6388,8 @@
         0.01
       ],
       "tests/test_provider_rate_grouped_refresh.py": [
-        0.13
+        0.13,
+        2.26
       ],
       "tests/test_provider_rate_log_endpoint_sync.py": [
         0.29
@@ -6390,18 +6404,22 @@
         1.76
       ],
       "tests/test_provider_rate_refresh_alternation.py": [
-        0.1
+        0.1,
+        1.11
       ],
       "tests/test_provider_rate_refresh_delisted.py": [
         0.21,
-        1.87
+        1.87,
+        3.84
       ],
       "tests/test_provider_rate_refresh_fees.py": [
-        0.23
+        0.23,
+        2.2
       ],
       "tests/test_provider_rate_refresh_hosts.py": [
         1.62,
-        5.4
+        5.4,
+        9.42
       ],
       "tests/test_provider_rate_refresh_more.py": [
         0.73
@@ -6424,7 +6442,8 @@
         0.25
       ],
       "tests/test_provider_rate_refresh_stamp.py": [
-        0.05
+        0.05,
+        1.25
       ],
       "tests/test_provider_rate_refresh_state.py": [
         0.24
@@ -6440,7 +6459,8 @@
       ],
       "tests/test_pytest_shards.py": [
         3.24,
-        2.18
+        2.18,
+        4.88
       ],
       "tests/test_r2.py": [
         1.81,
@@ -6800,7 +6820,8 @@
       ],
       "tests/test_agent_list_caps_js.py": [
         2.8,
-        0.37
+        0.37,
+        20.41
       ],
       "tests/test_agent_sidecar.py": [
         0.04
@@ -6892,7 +6913,8 @@
       "tests/test_cdn_route_js.py": [
         4.8,
         3.36,
-        2.3
+        2.3,
+        12.6
       ],
       "tests/test_ci_classify_comment_gate.py": [
         0.16
@@ -7262,14 +7284,17 @@
         1.94
       ],
       "tests/test_panel_interactions_report_js.py": [
-        0.78
+        0.78,
+        3.45
       ],
       "tests/test_panel_layout_js.py": [
-        2.31
+        2.31,
+        9.36
       ],
       "tests/test_panel_layout_rules_js.py": [
         5.97,
-        3.62
+        3.62,
+        7.89
       ],
       "tests/test_panel_wiring.py": [
         0.09
