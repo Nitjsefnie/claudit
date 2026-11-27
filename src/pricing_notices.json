@@ -635,6 +635,7 @@
       "Sail Research"
     ],
     "deepseek-v4-1-flash-1017": [
+      "Ant Digital",
       "AtlasCloud",
       "Decart",
       "DekaLLM",
@@ -669,6 +670,9 @@
       "PrimeIntellect",
       "Reka",
       "Together"
+    ],
+    "deepseek-v4-flash-vision-exp": [
+      "SiliconFlow"
     ],
     "deepseek-v4-pro": [
       "AtlasCloud",
