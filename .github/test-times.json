@@ -4453,7 +4453,7 @@
         0.24
       ]
     },
-    "ubuntu-latest-3.15.1": {
+    "ubuntu-latest-3.15.2": {
       "tests/test_a11y_wiring.py": [
         0.06,
         1.32

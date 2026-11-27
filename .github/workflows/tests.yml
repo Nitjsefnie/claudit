@@ -72,7 +72,7 @@ jobs:
         env: {CLAUDIT_DEBUG_NODE_STALL: "1"}
         timeout-minutes: 15
         uses: Nitjsefnie-Actions/test-ratchet/run@96562a47e9b7fe74b55cc70a4636d1b5d7b542e2 # v2.4.2
-        with: {runner: pytest, tests: "tests/**/test_*.py", times: .github/test-times.json, cell: ubuntu-latest-3.15.1, shard: "${{ matrix.shard }}", source: backend, javascript: "src/**/*.js", args: "-n 0 -q --tb=short -ra -o faulthandler_timeout=240 --durations=20"}
+        with: {runner: pytest, tests: "tests/**/test_*.py", times: .github/test-times.json, cell: ubuntu-latest-3.15.2, shard: "${{ matrix.shard }}", source: backend, javascript: "src/**/*.js", args: "-n 0 -q --tb=short -ra -o faulthandler_timeout=240 --durations=20"}
       - name: CPU counters after the tests
         if: always()
         run: grep '^cpu ' /proc/stat

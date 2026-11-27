@@ -185,8 +185,8 @@ jobs:
       - uses: Nitjsefnie-Actions/test-ratchet/report@96562a47e9b7fe74b55cc70a4636d1b5d7b542e2 # v2.4.2
         with:
           github-token: ${{ github.token }}
-          # Names .github/test-times.json's recorded timings: a rename (3.15.2, ubuntu-latest-py3.15) reseeds them.
-          cell: ubuntu-latest-3.15.1
+          # Named by the canary's exact pin; ubuntu-latest-3.15 is the floating cell.
+          cell: ubuntu-latest-3.15.2
           times: .github/test-times.json
           push-key: ${{ secrets.MASTER_PUSH_DEPLOY_KEY }}
 
