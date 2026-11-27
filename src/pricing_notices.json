@@ -239,6 +239,7 @@
     "qwen3-7-flash via Alibaba (endpoint 0): 2 long-context bands are not modelled; the host was left untouched",
     "qwen3-7-plus via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "qwen3-8-27b via Nebius: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
+    "qwen3-8-27b via PrimeIntellect: rule-resolved (unique quantization): took the fp8 endpoint 'primeintellect/fp8' over service tiers",
     "qwen3-8-27b via Tenstorrent: rule-resolved (unique quantization): took the fp8 endpoint 'tenstorrent/fp8' over service tiers",
     "qwen3-8-flash via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "qwen3-8-max-0902 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
@@ -270,13 +271,14 @@
     "tag 'openai/ultrafast' names neither a known region nor a quantization: gpt-6-1-sol via OpenAI, gpt-6-1-sol-pro via OpenAI, gpt-6-2-astra via OpenAI, gpt-6-2-astra-pro via OpenAI, gpt-6-2-sol via OpenAI, gpt-6-2-sol-pro via OpenAI, gpt-6-astra via OpenAI, gpt-6-astra-pro via OpenAI",
     "tag 'parasail/fast' names neither a known region nor a quantization: deepseek-v4-1-flash via Parasail, deepseek-v4-pro-0813 via Parasail, glm-5-3 via Parasail, glm-5-3-flash via Parasail, gpt-oss-120b via Parasail, kimi-k3 via Parasail, minimax-m3 via Parasail",
     "tag 'particle-ai/us/flex' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Particle AI",
-    "tag 'primeintellect/fast' names neither a known region nor a quantization: gemma-4-26b-a4b-it via PrimeIntellect, inkling-2-mini via PrimeIntellect, inkling-2-small via PrimeIntellect",
-    "tag 'primeintellect/flex' names neither a known region nor a quantization: gemma-4-26b-a4b-it via PrimeIntellect, inkling-2-mini via PrimeIntellect, inkling-2-small via PrimeIntellect",
+    "tag 'primeintellect/fast' names neither a known region nor a quantization: gemma-4-26b-a4b-it via PrimeIntellect, inkling-2-mini via PrimeIntellect, inkling-2-small via PrimeIntellect, qwen3-8-27b via PrimeIntellect",
+    "tag 'primeintellect/flex' names neither a known region nor a quantization: gemma-4-26b-a4b-it via PrimeIntellect, inkling-2-mini via PrimeIntellect, inkling-2-small via PrimeIntellect, qwen3-8-27b via PrimeIntellect",
     "tag 'tenstorrent/fast' names neither a known region nor a quantization: qwen3-8-27b via Tenstorrent",
     "tag 'together/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Together",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
+    "the listing lags the listed-pricing log for qwen3-5-9b via PrimeIntellect; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -577,6 +579,9 @@
     },
     "qwen-plus": {
       "Alibaba": "long-context band"
+    },
+    "qwen3-5-9b": {
+      "PrimeIntellect": "listing lags log"
     },
     "qwen3-5-plus-02-15": {
       "Alibaba": "long-context band"
