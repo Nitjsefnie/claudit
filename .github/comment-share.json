@@ -28,8 +28,8 @@
     440
   ],
   ".github/workflows/actionlint.yml": [
-    3007,
-    4853
+    2951,
+    4848
   ],
   ".github/workflows/audit.yml": [
     3718,
@@ -38,10 +38,6 @@
   ".github/workflows/ci-gate.yml": [
     6122,
     12371
-  ],
-  ".github/workflows/claim.yml": [
-    1847,
-    2403
   ],
   ".github/workflows/codeql.yml": [
     2330,
@@ -60,16 +56,16 @@
     3082
   ],
   ".github/workflows/lint.yml": [
-    1090,
-    2323
+    1081,
+    2352
   ],
   ".github/workflows/panel-layout.yml": [
     1579,
     3618
   ],
   ".github/workflows/pr-gate.yml": [
-    667,
-    1335
+    427,
+    1095
   ],
   ".github/workflows/ratchet-push.yml": [
     2227,
@@ -616,8 +612,8 @@
     11129
   ],
   "scripts/ci/gate_trigger_set.py": [
-    3751,
-    7247
+    3750,
+    7455
   ],
   "scripts/ci/js_comment_tokens.mjs": [
     1251,
