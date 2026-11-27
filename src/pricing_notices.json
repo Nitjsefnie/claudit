@@ -278,8 +278,10 @@
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for deepseek-v4-pro via Relace; the host was sampled",
-    "the listing lags the listed-pricing log for gemma-4-26b-a4b-it via PrimeIntellect; the host was sampled"
+    "the listing lags the listed-pricing log for gemma-4-26b-a4b-it via PrimeIntellect; the host was sampled",
+    "the listing lags the listed-pricing log for glm-5-2 via Baidu; the host was sampled",
+    "the listing lags the listed-pricing log for glm-5-2 via StreamLake; the host was sampled",
+    "the listing lags the listed-pricing log for gpt-oss-120b via PrimeIntellect; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -402,9 +404,6 @@
       "BaseTen": "2 endpoints selected",
       "Sail Research": "2 endpoints at one current price"
     },
-    "deepseek-v4-pro": {
-      "Relace": "listing lags log"
-    },
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
@@ -413,7 +412,9 @@
       "PrimeIntellect": "listing lags log"
     },
     "glm-5-2": {
-      "BaseTen": "2 endpoints at one current price"
+      "Baidu": "listing lags log",
+      "BaseTen": "2 endpoints at one current price",
+      "StreamLake": "listing lags log"
     },
     "glm-5-3": {
       "BaseTen": "2 endpoints at one current price",
@@ -563,7 +564,8 @@
     },
     "gpt-oss-120b": {
       "Amazon Bedrock": "2 endpoints at one current price",
-      "BaseTen": "2 endpoints at one current price"
+      "BaseTen": "2 endpoints at one current price",
+      "PrimeIntellect": "listing lags log"
     },
     "gpt-oss-20b": {
       "Amazon Bedrock": "2 endpoints at one current price"
