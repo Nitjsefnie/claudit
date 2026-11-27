@@ -697,7 +697,8 @@
       ],
       "tests/test_pricing_vendor.py": [
         0.74,
-        2.55
+        2.55,
+        3.69
       ],
       "tests/test_pricing_vendor_2.py": [
         0.08
@@ -1724,7 +1725,8 @@
       ],
       "tests/test_parser_js_pricing_loader.py": [
         2.69,
-        4.45
+        4.45,
+        6.7
       ],
       "tests/test_parser_js_user_prompt.py": [
         2.25,
@@ -1842,7 +1844,8 @@
       ],
       "tests/test_pricing_vendor.py": [
         0.55,
-        2.4
+        2.4,
+        3.62
       ],
       "tests/test_pricing_vendor_2.py": [
         0.05
@@ -2259,7 +2262,8 @@
       ],
       "tests/test_workflow_refresh_push.py": [
         4.68,
-        2.68
+        2.68,
+        6.15
       ],
       "tests/test_workflow_release.py": [
         47.95
