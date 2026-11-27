@@ -86,10 +86,6 @@
 /.github/actions/*
 !/.github/actions/*/
 !/.github/actions/*/action.yml
-# Shell scripts a workflow runs by path (secrets.yml's base-branch scan).
-!/.github/scripts/
-/.github/scripts/*
-!/.github/scripts/*.sh
 
 # ---- backend/ — FastAPI app ------------------------------------------------
 # `!/backend/*.py` is deliberately unanchored-free (no `**`): it matches only
