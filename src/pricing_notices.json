@@ -277,8 +277,7 @@
     "tag 'together/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Together",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for qwen3-5-9b via PrimeIntellect; the host was sampled"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -580,9 +579,6 @@
     "qwen-plus": {
       "Alibaba": "long-context band"
     },
-    "qwen3-5-9b": {
-      "PrimeIntellect": "listing lags log"
-    },
     "qwen3-5-plus-02-15": {
       "Alibaba": "long-context band"
     },
@@ -643,7 +639,6 @@
       "Decart",
       "DekaLLM",
       "GMICloud",
-      "Krea",
       "Particle AI",
       "Phala",
       "StepFun"
@@ -753,7 +748,6 @@
       "DekaLLM",
       "GMICloud",
       "Io Net",
-      "Krea",
       "OpenInference",
       "Phala",
       "PrimeIntellect",
