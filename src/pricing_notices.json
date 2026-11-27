@@ -277,8 +277,7 @@
     "tag 'together/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Together",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for qwen3-8-27b via PrimeIntellect; the host was sampled"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -598,9 +597,6 @@
     "qwen3-7-plus": {
       "Alibaba": "long-context band"
     },
-    "qwen3-8-27b": {
-      "PrimeIntellect": "listing lags log"
-    },
     "qwen4-max": {
       "Alibaba": "log series count mismatch"
     },
@@ -769,7 +765,8 @@
       "GMICloud",
       "NextBit",
       "Phala",
-      "PrimeIntellect"
+      "PrimeIntellect",
+      "Tenstorrent"
     ],
     "glm-5-3-flashx": [
       "Novita"
