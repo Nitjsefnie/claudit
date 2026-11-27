@@ -323,6 +323,9 @@
         2.12,
         0.82
       ],
+      "tests/test_gitleaks_scan.py": [
+        2.15
+      ],
       "tests/test_guest_login.py": [
         0.0
       ],
@@ -365,7 +368,8 @@
       "tests/test_ingest_forkserver.py": [
         16.92,
         23.59,
-        36.98
+        36.98,
+        10.35
       ],
       "tests/test_ingest_incremental.py": [
         0.0
@@ -1461,6 +1465,9 @@
       "tests/test_gate_trigger_set.py": [
         1.15,
         2.82
+      ],
+      "tests/test_gitleaks_scan.py": [
+        2.2
       ],
       "tests/test_guest_login.py": [
         0.0
@@ -2589,6 +2596,9 @@
       "tests/test_gate_trigger_set.py": [
         0.88
       ],
+      "tests/test_gitleaks_scan.py": [
+        0.74
+      ],
       "tests/test_guest_login.py": [
         0.02
       ],
@@ -3527,7 +3537,8 @@
         0.02
       ],
       "tests/test_ci_thresholds_guard.py": [
-        0.45
+        0.45,
+        1.93
       ],
       "tests/test_ci_thresholds_removed.py": [
         0.75,
@@ -3675,6 +3686,9 @@
       ],
       "tests/test_gate_trigger_set.py": [
         1.64
+      ],
+      "tests/test_gitleaks_scan.py": [
+        0.69
       ],
       "tests/test_guest_login.py": [
         0.02
@@ -4798,6 +4812,9 @@
       ],
       "tests/test_gate_trigger_set.py": [
         0.91
+      ],
+      "tests/test_gitleaks_scan.py": [
+        0.73
       ],
       "tests/test_guest_login.py": [
         0.04
@@ -5963,6 +5980,9 @@
         2.07,
         0.97
       ],
+      "tests/test_gitleaks_scan.py": [
+        0.0
+      ],
       "tests/test_guest_login.py": [
         0.02
       ],
@@ -7078,6 +7098,9 @@
       ],
       "tests/test_gate_trigger_set.py": [
         1.58
+      ],
+      "tests/test_gitleaks_scan.py": [
+        0.0
       ],
       "tests/test_guest_login.py": [
         0.02
