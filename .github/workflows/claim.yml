@@ -19,7 +19,7 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - uses: Nitjsefnie-Actions/claim@31261cf9310ad42718c6843305d5992530529d87 # v3.0.3
+      - uses: Nitjsefnie-Actions/claim@c1642ca248b14423be7e88828daad34042a1d4a6 # v3.0.4
         with:
           max-claims: 'read=2, triage=4, write=6, maintain=10, admin=-1'
           expire: '7'
