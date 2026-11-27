@@ -324,10 +324,6 @@
         2.12,
         0.82
       ],
-      "tests/test_gitleaks_scan.py": [
-        2.15,
-        4.36
-      ],
       "tests/test_guest_login.py": [
         0.0
       ],
@@ -912,9 +908,6 @@
         1.37,
         2.38
       ],
-      "tests/test_secrets_workflow.py": [
-        0.01
-      ],
       "tests/test_security_headers.py": [
         0.41
       ],
@@ -1467,9 +1460,6 @@
       "tests/test_gate_trigger_set.py": [
         1.15,
         2.82
-      ],
-      "tests/test_gitleaks_scan.py": [
-        2.2
       ],
       "tests/test_guest_login.py": [
         0.0
@@ -2062,9 +2052,6 @@
         1.29,
         3.4
       ],
-      "tests/test_secrets_workflow.py": [
-        0.01
-      ],
       "tests/test_security_headers.py": [
         0.18
       ],
@@ -2601,9 +2588,6 @@
       ],
       "tests/test_gate_trigger_set.py": [
         0.88
-      ],
-      "tests/test_gitleaks_scan.py": [
-        0.74
       ],
       "tests/test_guest_login.py": [
         0.02
@@ -3168,9 +3152,6 @@
       "tests/test_secrecy_check_script.py": [
         0.38
       ],
-      "tests/test_secrets_workflow.py": [
-        0.01
-      ],
       "tests/test_security_headers.py": [
         0.26
       ],
@@ -3692,9 +3673,6 @@
       ],
       "tests/test_gate_trigger_set.py": [
         1.64
-      ],
-      "tests/test_gitleaks_scan.py": [
-        0.69
       ],
       "tests/test_guest_login.py": [
         0.02
@@ -4254,9 +4232,6 @@
       ],
       "tests/test_secrecy_check_script.py": [
         0.28
-      ],
-      "tests/test_secrets_workflow.py": [
-        0.01
       ],
       "tests/test_security_headers.py": [
         0.18
@@ -4819,9 +4794,6 @@
       ],
       "tests/test_gate_trigger_set.py": [
         0.91
-      ],
-      "tests/test_gitleaks_scan.py": [
-        0.73
       ],
       "tests/test_guest_login.py": [
         0.04
@@ -5434,9 +5406,6 @@
       "tests/test_secrecy_check_script.py": [
         0.34
       ],
-      "tests/test_secrets_workflow.py": [
-        0.01
-      ],
       "tests/test_security_headers.py": [
         0.24
       ],
@@ -5990,9 +5959,6 @@
       "tests/test_gate_trigger_set.py": [
         2.07,
         0.97
-      ],
-      "tests/test_gitleaks_scan.py": [
-        0.0
       ],
       "tests/test_guest_login.py": [
         0.02
@@ -6587,9 +6553,6 @@
       "tests/test_secrecy_check_script.py": [
         0.0
       ],
-      "tests/test_secrets_workflow.py": [
-        0.01
-      ],
       "tests/test_security_headers.py": [
         0.25
       ],
@@ -7125,9 +7088,6 @@
       ],
       "tests/test_gate_trigger_set.py": [
         1.58
-      ],
-      "tests/test_gitleaks_scan.py": [
-        0.0
       ],
       "tests/test_guest_login.py": [
         0.02
@@ -7699,9 +7659,6 @@
       ],
       "tests/test_secrecy_check_script.py": [
         0.0
-      ],
-      "tests/test_secrets_workflow.py": [
-        0.01
       ],
       "tests/test_security_headers.py": [
         0.24
