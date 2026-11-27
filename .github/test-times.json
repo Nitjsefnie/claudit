@@ -145,7 +145,8 @@
         8.18
       ],
       "tests/test_ci_retry_helper.py": [
-        0.83
+        0.83,
+        2.11
       ],
       "tests/test_ci_setup_docs.py": [
         0.03
@@ -167,7 +168,8 @@
       ],
       "tests/test_ci_thresholds_guard.py": [
         2.33,
-        3.52
+        3.52,
+        4.65
       ],
       "tests/test_ci_thresholds_removed.py": [
         3.77,
@@ -206,7 +208,8 @@
       "tests/test_commit_scopes.py": [
         5.16,
         3.48,
-        6.56
+        6.56,
+        10.87
       ],
       "tests/test_cost_buckets.py": [
         4.74,
@@ -968,7 +971,8 @@
         3.53
       ],
       "tests/test_suite_ratchet.py": [
-        0.54
+        0.54,
+        1.79
       ],
       "tests/test_teammate_agent_type.py": [
         0.01
@@ -1174,7 +1178,8 @@
         0.0
       ],
       "tests/test_api_export_argv.py": [
-        0.02
+        0.02,
+        1.28
       ],
       "tests/test_api_token_types.py": [
         0.0
@@ -1422,14 +1427,16 @@
         2.18,
         3.19,
         4.45,
-        6.73
+        6.73,
+        0.91
       ],
       "tests/test_empty_usage_parity.py": [
         0.53
       ],
       "tests/test_env_prefix.py": [
         2.69,
-        3.93
+        3.93,
+        5.51
       ],
       "tests/test_env_prefix_scripts.py": [
         0.36,
@@ -2081,7 +2088,8 @@
         0.0
       ],
       "tests/test_short_model_name.py": [
-        0.77
+        0.77,
+        1.91
       ],
       "tests/test_shutdown_budget.py": [
         0.36
@@ -2937,7 +2945,8 @@
       "tests/test_pricing_data_more.py": [
         135.92,
         101.03,
-        9.83
+        9.83,
+        6.94
       ],
       "tests/test_pricing_flat_rows.py": [
         0.0
