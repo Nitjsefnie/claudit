@@ -32,6 +32,9 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
+    "alternating price: deepseek-v4-pro via Baidu: the listed rates equal the entry from 2026-11-24T12:55:52Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
+    "alternating price: gpt-oss-20b via PrimeIntellect: the listed rates equal the entry from 2026-11-20T13:35:53Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
+    "alternating price: kimi-k3-1-pro via Morph: the listed rates equal the entry from 2026-11-20T15:50:52Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-5 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
@@ -223,6 +226,7 @@
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5 via Claude Platform on AWS; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Anthropic; the host was sampled",
     "no in-force state of the listed-pricing log matches the listing for claude-sonnet-5-5 via Claude Platform on AWS; the host was sampled",
+    "no in-force state of the listed-pricing log matches the listing for glm-5-3 via Morph; the host was sampled",
     "nvidia/switchyard: a router with no price of its own; skipped",
     "qwen-2-5-72b-instruct via DeepInfra: 2 endpoints (deepinfra/fp8, deepinfra/fp8/flex) at 2 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
     "qwen3-14b via DeepInfra: 3 endpoints (deepinfra/fp8, deepinfra/fp8/flex, deepinfra/fp8/priority) at 3 different prices; resolve it in openrouter.models.<model>.resolve; the host was left untouched",
@@ -277,7 +281,10 @@
     "tag 'together/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Together",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
+    "the listing lags the listed-pricing log for deepseek-v4-pro via Baidu; the host was sampled",
+    "the listing lags the listed-pricing log for gpt-oss-20b via PrimeIntellect; the host was sampled",
+    "the listing lags the listed-pricing log for kimi-k3-1-pro via Morph; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -400,6 +407,9 @@
       "BaseTen": "2 endpoints selected",
       "Sail Research": "2 endpoints at one current price"
     },
+    "deepseek-v4-pro": {
+      "Baidu": "listing lags log"
+    },
     "deepseek-v4-pro-0813": {
       "Alibaba": "endpoint schedule",
       "DeepSeek": "endpoint schedule"
@@ -410,7 +420,8 @@
     "glm-5-3": {
       "BaseTen": "2 endpoints at one current price",
       "Fireworks": "2 endpoints at one current price",
-      "InferenceNet": "2 endpoints at one current price"
+      "InferenceNet": "2 endpoints at one current price",
+      "Morph": "no matching log state"
     },
     "glm-5-3-flash": {
       "InferenceNet": "2 endpoints at one current price",
@@ -558,7 +569,8 @@
       "BaseTen": "2 endpoints at one current price"
     },
     "gpt-oss-20b": {
-      "Amazon Bedrock": "2 endpoints at one current price"
+      "Amazon Bedrock": "2 endpoints at one current price",
+      "PrimeIntellect": "listing lags log"
     },
     "hy3": {
       "Tencent": "endpoint schedule"
@@ -571,7 +583,8 @@
       "InferenceNet": "2 endpoints at one current price"
     },
     "kimi-k3-1-pro": {
-      "InferenceNet": "2 endpoints at one current price"
+      "InferenceNet": "2 endpoints at one current price",
+      "Morph": "listing lags log"
     },
     "minimax-m3-1-flash": {
       "InferenceNet": "2 endpoints at one current price"
