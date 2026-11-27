@@ -25,6 +25,7 @@
 !.gitattributes
 !/.gitignore
 !/.gitleaks.toml
+!/.gitleaksignore
 !/.pylintrc
 !/AGENTS.md
 !/CLAUDE.md
