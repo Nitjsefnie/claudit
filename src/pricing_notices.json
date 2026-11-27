@@ -163,7 +163,6 @@
     "gpt-oss-20b via Amazon Bedrock: rule-resolved (data region): the global data region leaves 'amazon-bedrock'; dropped 'amazon-bedrock/eu-west-1'",
     "gpt-oss-20b via DeepInfra: rule-resolved (tier variant base): took the base endpoint 'deepinfra/bf16' over tier variants 'deepinfra/bf16/flex'",
     "inkling via Together: rule-resolved (data region): the global data region leaves 'together'; dropped 'together/us'",
-    "inkling-2-mini via PrimeIntellect: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "inkling-2-mini via PrimeIntellect: rule-resolved (unique quantization): took the fp4 endpoint 'primeintellect/fp4' over service tiers",
     "inkling-2-small via PrimeIntellect: rule-resolved (unique quantization): took the fp4 endpoint 'primeintellect/fp4' over service tiers",
     "kimi-k2-6 via DeepInfra: rule-resolved (stored price continuity): kept the endpoint 'deepinfra/fp4' at the row's price; assumes the tracked endpoint did not reprice this hour",
@@ -241,7 +240,6 @@
     "qwen3-7-plus via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "qwen3-8-27b via Nebius: log rewrite leaves priced history unchanged; stored annotations and grouping kept",
     "qwen3-8-27b via PrimeIntellect: rule-resolved (unique quantization): took the fp8 endpoint 'primeintellect/fp8' over service tiers",
-    "qwen3-8-27b via Tenstorrent: rule-resolved (unique quantization): took the fp8 endpoint 'tenstorrent/fp8' over service tiers",
     "qwen3-8-flash via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "qwen3-8-max-0902 via Alibaba: rule-resolved (data region): the global data region leaves 'alibaba'; dropped 'alibaba/us-east-1'",
     "qwen3-coder-flash via Alibaba (endpoint 0): 2 long-context bands are not modelled; the host was left untouched",
@@ -278,7 +276,8 @@
     "tag 'together/fast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Together",
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash via Venice",
-    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer"
+    "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
+    "the listing lags the listed-pricing log for gpt-oss-120b via PrimeIntellect; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -556,7 +555,8 @@
     },
     "gpt-oss-120b": {
       "Amazon Bedrock": "2 endpoints at one current price",
-      "BaseTen": "2 endpoints at one current price"
+      "BaseTen": "2 endpoints at one current price",
+      "PrimeIntellect": "listing lags log"
     },
     "gpt-oss-20b": {
       "Amazon Bedrock": "2 endpoints at one current price"
@@ -890,13 +890,15 @@
       "Tenstorrent"
     ],
     "qwen3-5-122b-a10b": [
-      "Novita"
+      "Novita",
+      "SiliconFlow"
     ],
     "qwen3-5-27b": [
       "Novita"
     ],
     "qwen3-8-2-4t-a95b": [
-      "Novita"
+      "Novita",
+      "SiliconFlow"
     ],
     "qwen3-8-27b": [
       "Novita",
