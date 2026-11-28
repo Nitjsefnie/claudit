@@ -1,6 +1,8 @@
 # Findings Nitjsefnie-Actions/secret-scan reports that are not credentials,
-# one gitleaks fingerprint per line (commit:path:rule:line). The action reads
-# this file from the commit a change is judged against, never from the change.
+# one gitleaks fingerprint per line: commit:path:rule:line for a finding in
+# the git history, path:rule:line for one in the working tree, which has no
+# commit. The action reads this file from the commit a change is judged
+# against, never from the change.
 #
 # .gitleaks.toml's own allowlist entries: each flagged line quotes the pricing
 # model id "claude-mythos-5-1" that the entry excuses in a test (issue #222,
@@ -9,3 +11,6 @@
 c6ab6e36aef5ed823c9fd17b505c396d0d3a01f0:.gitleaks.toml:generic-api-key:17
 c6ab6e36aef5ed823c9fd17b505c396d0d3a01f0:.gitleaks.toml:generic-api-key:41
 75e7d475eb73b6fa85777f990cd8b96f767d96c6:.gitleaks.toml:generic-api-key:71
+.gitleaks.toml:generic-api-key:17
+.gitleaks.toml:generic-api-key:41
+.gitleaks.toml:generic-api-key:71
