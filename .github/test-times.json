@@ -965,7 +965,8 @@
       "tests/test_suite_cost_pricing_growth.py": [
         8.1,
         5.61,
-        3.53
+        3.53,
+        2.3
       ],
       "tests/test_suite_ratchet.py": [
         0.54,
@@ -5631,7 +5632,8 @@
         0.17
       ],
       "tests/test_workflow_push_retry.py": [
-        2.8
+        2.8,
+        4.06
       ],
       "tests/test_workflow_pytest_options.py": [
         0.29
