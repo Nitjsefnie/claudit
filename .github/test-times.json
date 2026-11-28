@@ -111,7 +111,8 @@
       "tests/test_cdn_route_js.py": [
         3.45,
         2.29,
-        4.87
+        4.87,
+        6.46
       ],
       "tests/test_ci_classify_comment_gate.py": [
         0.1
@@ -4885,7 +4886,8 @@
       ],
       "tests/test_ingest_markers.py": [
         6.99,
-        4.11
+        4.11,
+        9.94
       ],
       "tests/test_ingest_more.py": [
         10.54,
@@ -4981,7 +4983,8 @@
         4.24,
         3.06,
         6.39,
-        8.38
+        8.38,
+        10.55
       ],
       "tests/test_noop_command.py": [
         0.0
@@ -5311,7 +5314,8 @@
         0.0
       ],
       "tests/test_rate_boundary_fold_api.py": [
-        1.19
+        1.19,
+        2.6
       ],
       "tests/test_rate_fingerprint.py": [
         0.04
@@ -5371,7 +5375,8 @@
       "tests/test_reprice.py": [
         5.7,
         8.32,
-        3.16
+        3.16,
+        17.29
       ],
       "tests/test_reprice_clean_restamp_guards.py": [
         0.27
