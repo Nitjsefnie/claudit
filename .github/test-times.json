@@ -571,7 +571,8 @@
         10.49
       ],
       "tests/test_parser_js_meter_factors.py": [
-        0.86
+        0.86,
+        1.87
       ],
       "tests/test_parser_js_mirror.py": [
         17.23,
@@ -1284,11 +1285,13 @@
         1.9
       ],
       "tests/test_ci_progress_watchdog.py": [
-        7.31
+        7.31,
+        9.59
       ],
       "tests/test_ci_retry_helper.py": [
         0.51,
-        1.86
+        1.86,
+        3.44
       ],
       "tests/test_ci_setup_docs.py": [
         0.03
@@ -5369,7 +5372,8 @@
       "tests/test_reparse_surface.py": [
         43.9,
         57.77,
-        28.12
+        28.12,
+        20.83
       ],
       "tests/test_reply_timing.py": [
         0.35
@@ -5847,7 +5851,8 @@
         0.01
       ],
       "tests/test_collection_flags.py": [
-        0.14
+        0.14,
+        1.21
       ],
       "tests/test_collection_indexes.py": [
         0.0
@@ -5870,7 +5875,8 @@
         0.01
       ],
       "tests/test_crash_recovery.py": [
-        0.01
+        0.01,
+        1.68
       ],
       "tests/test_ctx_cost_rollup.py": [
         0.01
@@ -5890,7 +5896,8 @@
         0.07
       ],
       "tests/test_dashboard_fetch_js.py": [
-        1.79
+        1.79,
+        5.0
       ],
       "tests/test_dashboard_fetch_wiring.py": [
         0.01
@@ -5967,7 +5974,8 @@
         0.06
       ],
       "tests/test_feature_ui.py": [
-        0.33
+        0.33,
+        26.95
       ],
       "tests/test_flags.py": [
         0.08
