@@ -33,7 +33,6 @@
   ],
   "notices": [
     "OpenRouter lists it, but no endpoint serves it; skipped: openai/gpt-5.2-chat",
-    "alternating price: qwen3-6-35b-a3b via PrimeIntellect: the listed rates equal the entry from 2026-11-27T01:15:50Z: check for an unpublished time-of-day price; a genuine return to those rates is recorded by hand-appending an entry, which the next run then compares against",
     "claude-fable-5-2 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-4-8 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
     "claude-opus-5 via Anthropic: rule-resolved (bare namespace): took the bare namespace endpoint 'anthropic' over service tiers 'anthropic/fast'",
@@ -279,7 +278,7 @@
     "tag 'upstage/zdr' names neither a known region nor a quantization: solar-mini-4-5 via Upstage, solar-mini4 via Upstage, solar-pro4 via Upstage",
     "tag 'venice/ultrafast' names neither a known region nor a quantization: deepseek-v4-1-flash-1017 via Venice",
     "tag 'wafer/fast' names neither a known region nor a quantization: deepseek-v4-flash-0731 via Wafer, kimi-k3 via Wafer",
-    "the listing lags the listed-pricing log for qwen3-6-35b-a3b via PrimeIntellect; the host was sampled"
+    "the listing lags the listed-pricing log for qwen3-8-27b via PrimeIntellect; the host was sampled"
   ],
   "sampled": {
     "claude-fable-5": {
@@ -587,9 +586,6 @@
     "qwen3-5-plus-20260420": {
       "Alibaba": "long-context band"
     },
-    "qwen3-6-35b-a3b": {
-      "PrimeIntellect": "listing lags log"
-    },
     "qwen3-6-flash": {
       "Alibaba": "long-context band"
     },
@@ -601,6 +597,9 @@
     },
     "qwen3-7-plus": {
       "Alibaba": "long-context band"
+    },
+    "qwen3-8-27b": {
+      "PrimeIntellect": "listing lags log"
     },
     "qwen4-max": {
       "Alibaba": "log series count mismatch"
@@ -749,6 +748,7 @@
       "GMICloud",
       "Inceptron",
       "InferenceNet",
+      "Morph",
       "Phala"
     ],
     "glm-5-3": [
@@ -757,6 +757,7 @@
       "DekaLLM",
       "GMICloud",
       "Io Net",
+      "Morph",
       "OpenInference",
       "Phala",
       "PrimeIntellect"
@@ -767,6 +768,7 @@
       "Decart",
       "DekaLLM",
       "GMICloud",
+      "Morph",
       "NextBit",
       "Phala",
       "PrimeIntellect",
