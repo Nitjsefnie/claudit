@@ -371,7 +371,8 @@
         16.92,
         23.59,
         36.98,
-        10.35
+        10.35,
+        7.45
       ],
       "tests/test_ingest_incremental.py": [
         0.0
@@ -2402,7 +2403,8 @@
       ],
       "tests/test_cdn_route_js.py": [
         2.27,
-        3.5
+        3.5,
+        9.05
       ],
       "tests/test_ci_classify_comment_gate.py": [
         0.08
@@ -6139,7 +6141,8 @@
       ],
       "tests/test_panel_interactions_report_js.py": [
         0.81,
-        2.29
+        2.29,
+        3.45
       ],
       "tests/test_panel_layout_js.py": [
         2.42,
@@ -6329,7 +6332,8 @@
         20.99,
         15.46,
         11.58,
-        2.9
+        2.9,
+        1.83
       ],
       "tests/test_pricing_more.py": [
         0.01
@@ -7634,7 +7638,8 @@
       ],
       "tests/test_reparse_surface.py": [
         72.18,
-        43.64
+        43.64,
+        31.35
       ],
       "tests/test_reply_timing.py": [
         0.03
